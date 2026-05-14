@@ -3836,12 +3836,13 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 
 	// 1a: countries[1].name = "germany" AND countries[1].garages.cars.model IS NULL
 	//
-	// Phase 6.1 Option A: existential per-element at operand LCA
-	// (countries[1].garages.cars). Vacuous-true preserved (no elements at
-	// LCA → match). Note: idNoMatchModelInOtherGarage is mis-named — under
-	// Option A it matches because garages[0].cars[0] lacks model. See
-	// plan_explicit_array_quantifiers.md for the future explicit
-	// ANY/ALL/NONE alternative.
+	// Phase 6.5 strict-existential at operand LCA (countries[1].garages.cars):
+	// matches require ∃ a cars-element within countries[1] where model is
+	// absent. Vacuous cases (countries[1] has no garages/cars at the LCA)
+	// no longer match. Note: idNoMatchModelInOtherGarage is mis-named —
+	// under the strict-existential rule it matches because garages[0].cars[0]
+	// lacks model. See plan_explicit_array_quantifiers.md for the future
+	// explicit ANY/ALL/NONE alternative.
 	t.Run("regression_1a_countries_value_and_isNull_cars_model", func(t *testing.T) {
 		idMatch := uuid(1)
 		idMatchNoGarages := uuid(2)
@@ -3912,10 +3913,11 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 			valueFilter("countries[1].name", "germany"),
 			isNullFilter("countries[1].garages.cars.model", true),
 		)
-		// Phase 2 per-element IsNull: idNoMatchModelInOtherGarage flips to
-		// match because the no-model leaf in garages[0] satisfies the
-		// existential per-element IsNull on countries[1].garages.cars.model.
-		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchModelOnlyInOtherCntr, idNoMatchModelInOtherGarage})
+		// Strict-existential at countries[1].garages.cars: vacuous matches
+		// (idMatchNoGarages/EmptyGarages/GarageNoCars) drop because the
+		// operand LCA is empty for those docs. idNoMatchModelInOtherGarage
+		// still matches: garages[0].cars[0] within countries[1] lacks model.
+		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchModelOnlyInOtherCntr, idNoMatchModelInOtherGarage})
 	})
 
 	// 1b: countries[1].name = "germany" AND countries[1].garages.cars IS NULL
@@ -3980,10 +3982,13 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 			valueFilter("countries[1].name", "germany"),
 			isNullFilter("countries[1].garages.cars", true),
 		)
-		// Phase 2 per-element IsNull: idNoMatchCarsInOtherGarage flips to
-		// match because the no-cars leaf in garages[0] satisfies the
-		// existential per-element IsNull on countries[1].garages.cars.
-		runScenario(t, docs, filter, []strfmt.UUID{idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchEmptyCarsArray, idMatchCarsOnlyInOtherCntr, idNoMatchCarsInOtherGarage})
+		// Strict-existential at countries[1].garages: matches require ∃
+		// garage-element within countries[1] where cars is absent. Vacuous
+		// cases (no garages anywhere in countries[1]) drop:
+		// idMatchNoGarages/EmptyGarages/CarsOnlyInOtherCntr. Note:
+		// idNoMatchCarsInOtherGarage is mis-named — it matches because
+		// garages[0] lacks cars.
+		runScenario(t, docs, filter, []strfmt.UUID{idMatchGarageNoCars, idMatchEmptyCarsArray, idNoMatchCarsInOtherGarage})
 	})
 
 	// 1c: countries[1].name = "germany" AND countries[1].garages IS NULL
@@ -4291,13 +4296,14 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 
 	// 3a: countries.garages[1].city = "berlin" AND countries.garages[1].cars.model IS NULL
 	//
-	// Phase 6.1 Option A: existential per-element at operand LCA (cars
-	// within pinned garages[1]). L1 version of 1a; the pin moves one level
-	// deeper. idMatchTwoCarsOneWithModel is the L1 analog of 1a's
-	// cross-element discriminator: garages[1] holds two cars, one missing
-	// model, one with model — Option A matches because the no-model car
-	// satisfies the existential. See plan_explicit_array_quantifiers.md
-	// for the future explicit ANY/ALL/NONE alternative.
+	// Phase 6.5 strict-existential at operand LCA (cars within pinned
+	// garages[1]). L1 version of 1a; the pin moves one level deeper.
+	// idMatchTwoCarsOneWithModel is the L1 analog of 1a's cross-element
+	// discriminator: garages[1] holds two cars, one missing model, one with
+	// model — strict-existential matches because the no-model car
+	// satisfies the existential. Vacuous cases (no cars in garages[1])
+	// drop. See plan_explicit_array_quantifiers.md for the future explicit
+	// ANY/ALL/NONE alternative.
 	t.Run("regression_3a_garages_value_and_isNull_cars_model", func(t *testing.T) {
 		idMatchMinimal := uuid(1)
 		idMatchNoCars := uuid(2)
@@ -4355,7 +4361,7 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 			valueFilter("countries.garages[1].city", "berlin"),
 			isNullFilter("countries.garages[1].cars.model", true),
 		)
-		runScenario(t, docs, filter, []strfmt.UUID{idMatchMinimal, idMatchNoCars, idMatchEmptyCars, idMatchModelOnlyInG0, idMatchTwoCarsOneWithModel})
+		runScenario(t, docs, filter, []strfmt.UUID{idMatchMinimal, idMatchModelOnlyInG0, idMatchTwoCarsOneWithModel})
 	})
 
 	// 3b: countries.garages[1].city = "berlin" AND countries.garages[1].cars IS NULL
@@ -5415,10 +5421,12 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("make", "x"))})}}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages.cars.model", true))
-			// Phase 2 per-element IsNull: idNoMatchModelInOtherGarage flips to
-			// match — the no-model leaf in the first garage's car survives
-			// raw AndNot against the existing-model leaf in the second garage.
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmpty, idMatchNoCarsAtAll, idNoMatchModelInOtherGarage})
+			// Phase 6.5 strict-existential at operand LCA (country.garages.cars):
+			// vacuous cases (idMatchEmpty / idMatchNoCarsAtAll) drop — no cars
+			// at LCA means no element can satisfy "∃ car without model."
+			// idNoMatchModelInOtherGarage is mis-named: it matches because
+			// garages[0].cars[0] lacks model.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idNoMatchModelInOtherGarage})
 		})
 
 		// Sub-test 11 (cross-level): country.name = "germany" AND country.garages.cars.model IS NOT NULL
@@ -5455,6 +5463,7 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 			idNoMatchMakeInOtherGarage := uuid(3)
 			idNoMatchMakeInBerlinGarage := uuid(4)
 			idNoMatchWrongCity := uuid(5)
+			idMatchCarWithoutMake := uuid(6)
 			docs := []docDef{
 				{id: idMatch, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin"})}}, note: "berlin garage; no cars anywhere in country"},
 				{id: idMatchEmptyCars, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": []any{}})}}, note: "berlin garage with empty cars array; no cars.make anywhere"},
@@ -5464,12 +5473,15 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				)}}, note: "make exists in country (other garage) — universal exclude rejects (existential would match)"},
 				{id: idNoMatchMakeInBerlinGarage, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})}}, note: "berlin garage has cars.make"},
 				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
+				{id: idMatchCarWithoutMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(map[string]any{"model": "civic"})})}}, note: "berlin garage with a car where make is absent → strict-existential discriminator"},
 			}
 			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars.make", true))
-			// Phase 2 per-element IsNull: idNoMatchMakeInOtherGarage flips —
-			// berlin's leaf survives raw AndNot because the make-existence
-			// is at a different garage's leaf.
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars, idNoMatchMakeInOtherGarage})
+			// Phase 6.5 strict-existential at operand LCA (country.garages.cars):
+			// matches require ∃ a car-element where make is absent. Vacuous
+			// cases (idMatch / idMatchEmptyCars: no cars at the LCA) drop.
+			// idMatchCarWithoutMake is the positive discriminator: berlin
+			// garage + one car-element without make → matches.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithoutMake})
 		})
 
 		// Sub-test 13 (no-positive / rootAnchor path):
@@ -5497,7 +5509,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchOnlyCarsWithBoth, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})}}, note: "every leaf in cars.make or cars.model"},
 			}
 			filter := andFilter(isNullFilter("country.garages.cars.make", true), isNullFilter("country.garages.cars.model", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNeither, idMatchMixedCars, idMatchOtherFieldSurvives})
+			// Phase 6.5 strict-existential at operand LCA (cars): each IsNull
+			// becomes a positive at the cars LCA. idMatchOtherFieldSurvives
+			// has no cars at all → LCA empty → no match.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNeither, idMatchMixedCars})
 		})
 
 		// Sub-test 14 (3-condition AND):
@@ -5589,10 +5604,12 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france"}}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages.cars", true))
-			// Phase 2 per-element IsNull: idNoMatchCarsInOtherGarage flips —
-			// the no-cars leaf in garages[0] (berlin) survives raw AndNot
-			// against the cars-existence leaf in garages[1].
-			runScenario(t, docs, filter, []strfmt.UUID{idMatchNoCarsAnywhere, idMatchNoGarages, idMatchAllGaragesNoCars, idNoMatchCarsInOtherGarage})
+			// Phase 6.5 strict-existential at operand LCA (country.garages):
+			// vacuous case (idMatchNoGarages: no garages at all) drops.
+			// idMatchNoCarsAnywhere / idMatchAllGaragesNoCars have garage
+			// elements without cars → existential satisfied.
+			// idNoMatchCarsInOtherGarage is mis-named: garages[0] lacks cars.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchNoCarsAnywhere, idMatchAllGaragesNoCars, idNoMatchCarsInOtherGarage})
 		})
 
 		// Sub-test 18 (inverse cross-level): country.garages.cars.make = "honda"
@@ -5665,7 +5682,9 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				isNullFilter("country.garages.cars.model", true),
 				isNullFilter("country.garages.cars.year", true),
 			)
-			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNothing, idMatchOtherFieldSurvives})
+			// Phase 6.5 strict-existential at cars LCA: idMatchOtherFieldSurvives
+			// has no cars → LCA empty → no match.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNothing})
 		})
 
 		// Sub-test 21: country.garages.city = "berlin" AND country.garages.cars IS NULL.
@@ -5753,10 +5772,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars.tires", true))
-			// Phase 2 per-element IsNull: idNoMatchTiresInOtherGarage flips —
-			// berlin's leaf in garages[0] survives raw AndNot against the
-			// tires-existence leaf in garages[1].
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires, idNoMatchTiresInOtherGarage})
+			// Phase 6.5 strict-existential at cars LCA: only idMatchCarsNoTires
+			// has a car-element where tires is absent. idMatch (no cars at all)
+			// and idNoMatchTiresInOtherGarage (the only car has tires) drop.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarsNoTires})
 		})
 	})
 
@@ -6056,10 +6075,13 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages.cars.model", true))
-			// Phase 2 per-element IsNull: idNoMatchModelInDeepCar flips —
-			// the no-model leaf in g[0] survives raw AndNot against the
-			// model-existence leaf in g[1].
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchModelInOtherCntr, idMatchEmptyCntr, idMatchNoCarsAtAll, idNoMatchModelInDeepCar})
+			// Phase 6.5 strict-existential at operand LCA (countries.garages.cars):
+			// vacuous cases drop. idMatchModelInOtherCntr / idMatchEmptyCntr /
+			// idMatchNoCarsAtAll all have germany without any car at the cars
+			// LCA → no element can satisfy "∃ car without model" → drop.
+			// idNoMatchModelInDeepCar is mis-named: matches because garages[0]
+			// holds a car without model.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idNoMatchModelInDeepCar})
 		})
 
 		// Sub-test 11 (cross-level): countries.name = "germany" AND countries.garages.cars.model IS NOT NULL
@@ -6100,6 +6122,7 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 			idNoMatchMakeInOtherGarageSameCntr := uuid(5)
 			idNoMatchMakeInBerlinGarage := uuid(6)
 			idNoMatchWrongCity := uuid(7)
+			idMatchCarWithoutMake := uuid(8)
 			docs := []docDef{
 				{id: idMatch, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin"})})}, note: "berlin garage; no make anywhere"},
 				{id: idMatchEmptyCars, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": []any{}})})}, note: "berlin garage with empty cars array; no cars.make anywhere"},
@@ -6117,12 +6140,16 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				)})}, note: "country has make in munich garage — universal at country scope rejects (existential would match via berlin garage)"},
 				{id: idNoMatchMakeInBerlinGarage, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(car("make", "honda"))})})}, note: "berlin garage has cars.make"},
 				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
+				{id: idMatchCarWithoutMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "berlin", "cars": asArr(map[string]any{"model": "civic"})})})}, note: "berlin garage with a car where make is absent → strict-existential discriminator"},
 			}
 			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars.make", true))
-			// Phase 2 per-element IsNull: idNoMatchMakeInOtherGarageSameCntr
-			// flips — berlin's leaf in garages[0] survives raw AndNot
-			// against the make-existence leaf in garages[1].
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars, idMatchInSecondCntr, idMatchSplitAcrossCountries, idNoMatchMakeInOtherGarageSameCntr})
+			// Phase 6.5 strict-existential at operand LCA (countries.garages.cars):
+			// matches require ∃ a car-element where make is absent in the
+			// same country as the berlin garage. Vacuous cases (no cars at
+			// the LCA within the berlin-country) drop. idMatchCarWithoutMake
+			// is the positive discriminator: berlin garage + one car-element
+			// without make in the same country → matches.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithoutMake})
 		})
 
 		// Sub-test 13 (no-positive / rootAnchor path):
@@ -6146,7 +6173,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchOnlyCarsWithBoth, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "honda", "model", "civic"))})})}, note: "every leaf in cars.make or cars.model"},
 			}
 			filter := andFilter(isNullFilter("countries.garages.cars.make", true), isNullFilter("countries.garages.cars.model", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNeither, idMatchInSecondCntr, idMatchOtherFieldSurvives})
+			// Phase 6.5 strict-existential at cars LCA: each IsNull becomes
+			// a positive at the cars LCA. idMatchOtherFieldSurvives has no
+			// cars at all → LCA empty → no match.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNeither, idMatchInSecondCntr})
 		})
 
 		// Sub-test 14 (3-condition AND):
@@ -6256,10 +6286,12 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages.cars", true))
-			// Phase 2 per-element IsNull: idNoMatchCarsInOtherGarage flips —
-			// berlin's leaf in garages[0] survives raw AndNot against the
-			// cars-existence leaf in garages[1].
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchCarsInOtherCntr, idNoMatchCarsInOtherGarage})
+			// Phase 6.5 strict-existential at operand LCA (countries.garages):
+			// vacuous (idMatchNoGarages: no garages at all) drops.
+			// idMatch / idMatchCarsInOtherCntr have garage elements without
+			// cars → existential satisfied. idNoMatchCarsInOtherGarage is
+			// mis-named: garages[0] (berlin) lacks cars.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsInOtherCntr, idNoMatchCarsInOtherGarage})
 		})
 
 		// Sub-test 18 (inverse cross-level): countries.garages.cars.make = "honda"
@@ -6337,7 +6369,9 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				isNullFilter("countries.garages.cars.model", true),
 				isNullFilter("countries.garages.cars.year", true),
 			)
-			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNothing, idMatchInSecondCntr, idMatchOtherFieldSurvives})
+			// Phase 6.5 strict-existential at cars LCA: idMatchOtherFieldSurvives
+			// has no cars → LCA empty → no match.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarWithNothing, idMatchInSecondCntr})
 		})
 
 		// Sub-test 21: countries.garages.city = "berlin" AND
@@ -6439,10 +6473,13 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars.tires", true))
-			// Phase 2 per-element IsNull: idNoMatchTiresInOtherGarageSameCntr
-			// flips — berlin's leaf in garages[0] survives raw AndNot against
-			// the tires-existence leaf in garages[1].
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires, idMatchInSecondCntr, idNoMatchTiresInOtherGarageSameCntr})
+			// Phase 6.5 strict-existential at cars LCA combined with per-country
+			// correlation: only idMatchCarsNoTires has a country whose
+			// berlin garage holds a car-element where tires is absent. Other
+			// matchers' berlin-countries either have no cars at the LCA
+			// (idMatch / idMatchInSecondCntr) or all cars carry tires
+			// (idNoMatchTiresInOtherGarageSameCntr).
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchCarsNoTires})
 		})
 	})
 }

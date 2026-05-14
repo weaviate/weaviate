@@ -4983,6 +4983,15 @@ func newIsNullCorrelationSearcher(t *testing.T, prop string) (*Searcher, *lsmkv.
 }
 
 func TestIsNullInCorrelatedAnd(t *testing.T) {
+	// TODO aliszka:nested_filtering: superseded by
+	// TestNestedFilteringIsNullInCorrelatedAnd (DB-level coverage via
+	// db.PutObject → db.Search). These synthetic-bitmap sub-tests assert
+	// pre-Phase-6.5 raw-exclude semantics and don't populate _exists.{LCA},
+	// which the new strict-existential path requires. Marked safe to retire
+	// in project_db_level_test_port.md — skip until the cleanup PR retires
+	// the lower-level integration tests entirely.
+	t.Skip("retired: superseded by DB-level TestNestedFilteringIsNullInCorrelatedAnd; see project_db_level_test_port.md")
+
 	const (
 		doc1 = uint64(1)
 		doc2 = uint64(2)
@@ -5813,6 +5822,15 @@ func makeLeafPvpWithIdx(class *models.Class, prop, relPath, term string, indices
 }
 
 func TestIsNullWithArrNInCorrelatedAnd(t *testing.T) {
+	// TODO aliszka:nested_filtering: superseded by
+	// TestNestedFilteringIsNullWithArrNInCorrelatedAnd (DB-level coverage via
+	// db.PutObject → db.Search). These synthetic-bitmap sub-tests assert
+	// pre-Phase-6.5 raw-exclude semantics and don't populate _exists.{LCA},
+	// which the new strict-existential path requires. Marked safe to retire
+	// in project_db_level_test_port.md — skip until the cleanup PR retires
+	// the lower-level integration tests entirely.
+	t.Skip("retired: superseded by DB-level TestNestedFilteringIsNullWithArrNInCorrelatedAnd; see project_db_level_test_port.md")
+
 	const (
 		doc1 = uint64(1)
 		doc2 = uint64(2)

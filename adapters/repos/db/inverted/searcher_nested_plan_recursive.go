@@ -615,33 +615,6 @@ func (b *recPlanBuilder) nextObjectArrayAfter(scope, path string) string {
 	return ""
 }
 
-// collectPlanLCAs walks node and returns the set of recGroupNode lcaPaths.
-// Used by recExecutor to decide which excludes are consumed inside groups
-// (per §8.5) and which fall through to the rootDoc subtraction in execute().
-// recSplitNode lcaPaths are not collected — splits don't apply excludes; their
-// branches recurse into recGroupNode children which contribute lcaPaths.
-func collectPlanLCAs(node recPlanNode) map[string]struct{} {
-	out := map[string]struct{}{}
-	var walk func(n recPlanNode)
-	walk = func(n recPlanNode) {
-		switch t := n.(type) {
-		case *recGroupNode:
-			out[t.lca] = struct{}{}
-			for _, sub := range t.subs {
-				walk(sub)
-			}
-		case *recSplitNode:
-			for _, br := range t.branches {
-				walk(br.plan)
-			}
-		}
-	}
-	if node != nil {
-		walk(node)
-	}
-	return out
-}
-
 // describePlan renders the plan as a multi-line string for structural unit
 // tests. Each level adds two spaces of indent; a node's first line carries
 // the node kind and lcaPath, with subsequent lines listing here paths and

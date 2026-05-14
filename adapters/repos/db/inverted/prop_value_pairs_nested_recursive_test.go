@@ -32,17 +32,16 @@ import (
 type fakeRecFetcher struct {
 	valueByLeaf  map[*propValuePair]*sroar.Bitmap
 	existsByLeaf map[*propValuePair]*sroar.Bitmap
-	rootAnchor   *sroar.Bitmap
+	existsAtPath map[*propValuePair]map[string]*sroar.Bitmap
 
-	valueErr      error
-	existsErr     error
-	rootAnchorErr error
-	failOnLeaf    *propValuePair // when set, fetchValue/fetchExists for this leaf returns errors.New("fake fetch error")
+	valueErr   error
+	existsErr  error
+	failOnLeaf *propValuePair // when set, fetchValue/fetchExists for this leaf returns errors.New("fake fetch error")
 
-	valueCalls      int
-	existsCalls     int
-	rootAnchorCalls int
-	releaseCalls    int
+	valueCalls        int
+	existsCalls       int
+	existsAtPathCalls int
+	releaseCalls      int
 }
 
 func (f *fakeRecFetcher) fetchValue(_ context.Context, leaf *propValuePair) (*sroar.Bitmap, func(), error) {
@@ -75,15 +74,19 @@ func (f *fakeRecFetcher) fetchExists(leaf *propValuePair) (*sroar.Bitmap, func()
 	return bm, func() { f.releaseCalls++ }, nil
 }
 
-func (f *fakeRecFetcher) fetchRootAnchor(_ []*propValuePair) (*sroar.Bitmap, func(), error) {
-	f.rootAnchorCalls++
-	if f.rootAnchorErr != nil {
-		return nil, nil, f.rootAnchorErr
+func (f *fakeRecFetcher) fetchExistsAtPath(leaf *propValuePair, path string) (*sroar.Bitmap, func(), error) {
+	f.existsAtPathCalls++
+	if f.failOnLeaf == leaf {
+		return nil, nil, errors.New("fake fetch error")
 	}
-	if f.rootAnchor == nil {
-		return nil, nil, fmt.Errorf("fakeRecFetcher: rootAnchor not configured")
+	if f.existsErr != nil {
+		return nil, nil, f.existsErr
 	}
-	return f.rootAnchor, func() { f.releaseCalls++ }, nil
+	bm, ok := f.existsAtPath[leaf][path]
+	if !ok {
+		return nil, nil, fmt.Errorf("fakeRecFetcher: no existsAtPath bitmap for leaf %p path %q", leaf, path)
+	}
+	return bm, func() { f.releaseCalls++ }, nil
 }
 
 // --- helpers --------------------------------------------------------------
@@ -92,6 +95,7 @@ func newFakeRecFetcher() *fakeRecFetcher {
 	return &fakeRecFetcher{
 		valueByLeaf:  map[*propValuePair]*sroar.Bitmap{},
 		existsByLeaf: map[*propValuePair]*sroar.Bitmap{},
+		existsAtPath: map[*propValuePair]map[string]*sroar.Bitmap{},
 	}
 }
 
@@ -192,12 +196,9 @@ func TestNormalizeRecGroup(t *testing.T) {
 		assert.Same(t, t1, input.positives[0], "first child stands in as planner key")
 		require.Contains(t, input.rawsByCond, t1)
 		assert.Equal(t, []uint64{3}, input.rawsByCond[t1].ToArray(), "AndAll of all tokens")
-		assert.Empty(t, input.excludePositions)
-		assert.Nil(t, input.rootAnchor)
 
 		assert.Equal(t, 3, f.valueCalls)
 		assert.Equal(t, 0, f.existsCalls)
-		assert.Equal(t, 0, f.rootAnchorCalls)
 
 		// Releases: one per fetch + one for the AndAll combined bitmap.
 		require.Len(t, input.releases, 4)
@@ -221,8 +222,6 @@ func TestNormalizeRecGroup(t *testing.T) {
 		require.Len(t, input.positives, 1)
 		assert.Same(t, t1, input.positives[0])
 		assert.Same(t, raw, input.rawsByCond[t1], "single-token path skips AndAll, returns raw bitmap")
-		assert.Empty(t, input.excludePositions)
-		assert.Nil(t, input.rootAnchor)
 
 		require.Len(t, input.releases, 1, "no AndAll release for single token")
 	})
@@ -259,8 +258,6 @@ func TestNormalizeRecGroup(t *testing.T) {
 		assert.Same(t, postcode, input.positives[1])
 		assert.Equal(t, []uint64{2, 3}, input.rawsByCond[wrapper].ToArray(), "AndAll of grandchildren tokens")
 		assert.Equal(t, []uint64{2, 3}, input.rawsByCond[postcode].ToArray())
-		assert.Empty(t, input.excludePositions)
-		assert.Nil(t, input.rootAnchor)
 
 		assert.Equal(t, 3, f.valueCalls, "2 tokens + 1 sibling leaf")
 	})
@@ -289,8 +286,6 @@ func TestNormalizeRecGroup(t *testing.T) {
 		require.Len(t, input.positives, 1)
 		assert.Same(t, leaf, input.positives[0])
 		assert.Same(t, raw, input.rawsByCond[leaf])
-		assert.Empty(t, input.excludePositions)
-		assert.Nil(t, input.rootAnchor)
 		assert.Equal(t, 1, f.valueCalls)
 		assert.Equal(t, 0, f.existsCalls)
 	})
@@ -309,58 +304,57 @@ func TestNormalizeRecGroup(t *testing.T) {
 		require.Len(t, input.positives, 1)
 		assert.Same(t, leaf, input.positives[0])
 		assert.Same(t, raw, input.rawsByCond[leaf])
-		assert.Empty(t, input.excludePositions)
-		assert.Nil(t, input.rootAnchor)
 		assert.Equal(t, 0, f.valueCalls, "fetchValue not called for IsNull=false")
 		assert.Equal(t, 1, f.existsCalls)
-		assert.Equal(t, 0, f.rootAnchorCalls, "no anchor needed when a positive exists")
 	})
 
-	t.Run("direct_isnull_true_routes_to_excludes_and_skips_anchor_if_positives_present", func(t *testing.T) {
+	t.Run("direct_isnull_true_materializes_existential_at_lca_as_positive", func(t *testing.T) {
 		val := valueLeaf("postcode", "10115")
 		isNull := isNullLeaf("city", true)
 		pv := outerCorrelated(val, isNull)
 
 		f := newFakeRecFetcher()
 		valBM := bitmapWith(30, 31)
-		nullBM := bitmapWith(31)
+		operandBM := bitmapWith(31)     // positions where `city` exists
+		lcaBM := bitmapWith(30, 31, 32) // positions of the LCA (root for single-segment path)
 		f.valueByLeaf[val] = valBM
-		f.existsByLeaf[isNull] = nullBM
+		f.existsByLeaf[isNull] = operandBM
+		f.existsAtPath[isNull] = map[string]*sroar.Bitmap{"": lcaBM}
+
+		input, err := normalizeRecGroup(ctx, pv, pv.children, f, ops, concurrency.SROAR_MERGE)
+		require.NoError(t, err)
+
+		require.Len(t, input.positives, 2)
+		assert.Same(t, val, input.positives[0])
+		assert.Same(t, isNull, input.positives[1])
+		assert.Same(t, valBM, input.rawsByCond[val])
+		require.Contains(t, input.rawsByCond, isNull)
+		assert.Equal(t, []uint64{30, 32}, input.rawsByCond[isNull].ToArray(),
+			"IsNull=true positive is lcaBM AndNot operandBM (positions of LCA-elements where the field is absent)")
+		assert.Equal(t, 1, f.existsCalls)
+		assert.Equal(t, 1, f.existsAtPathCalls)
+	})
+
+	t.Run("only_isnull_true_still_produces_a_positive_no_anchor_needed", func(t *testing.T) {
+		isNull := isNullLeaf("city", true)
+		pv := outerCorrelated(isNull)
+
+		f := newFakeRecFetcher()
+		operandBM := bitmapWith(40)
+		lcaBM := bitmapWith(40, 41, 42)
+		f.existsByLeaf[isNull] = operandBM
+		f.existsAtPath[isNull] = map[string]*sroar.Bitmap{"": lcaBM}
 
 		input, err := normalizeRecGroup(ctx, pv, pv.children, f, ops, concurrency.SROAR_MERGE)
 		require.NoError(t, err)
 
 		require.Len(t, input.positives, 1)
-		assert.Same(t, val, input.positives[0])
-		assert.Same(t, valBM, input.rawsByCond[val])
-		require.Len(t, input.excludePositions, 1)
-		assert.Same(t, nullBM, input.excludePositions[0])
-		assert.Nil(t, input.rootAnchor, "rootAnchor stays nil when a positive is present")
-		assert.Equal(t, 0, f.rootAnchorCalls)
+		assert.Same(t, isNull, input.positives[0])
+		assert.Equal(t, []uint64{41, 42}, input.rawsByCond[isNull].ToArray(),
+			"existential: positions of LCA-elements where the field is absent")
 	})
 
-	t.Run("only_isnull_true_triggers_root_anchor_fetch", func(t *testing.T) {
-		isNull := isNullLeaf("city", true)
-		pv := outerCorrelated(isNull)
-
-		f := newFakeRecFetcher()
-		nullBM := bitmapWith(40)
-		anchorBM := bitmapWith(40, 41, 42)
-		f.existsByLeaf[isNull] = nullBM
-		f.rootAnchor = anchorBM
-
-		input, err := normalizeRecGroup(ctx, pv, pv.children, f, ops, concurrency.SROAR_MERGE)
-		require.NoError(t, err)
-
-		assert.Empty(t, input.positives)
-		require.Len(t, input.excludePositions, 1)
-		assert.Same(t, nullBM, input.excludePositions[0])
-		require.NotNil(t, input.rootAnchor)
-		assert.Same(t, anchorBM, input.rootAnchor)
-		assert.Equal(t, 1, f.rootAnchorCalls)
-	})
-
-	t.Run("multiple_isnull_true_only_fetches_root_anchor_once", func(t *testing.T) {
+	t.Run("multiple_isnull_true_each_produces_a_positive", func(t *testing.T) {
 		n1 := isNullLeaf("city", true)
 		n2 := isNullLeaf("postcode", true)
 		pv := outerCorrelated(n1, n2)
@@ -368,15 +362,17 @@ func TestNormalizeRecGroup(t *testing.T) {
 		f := newFakeRecFetcher()
 		f.existsByLeaf[n1] = bitmapWith(50)
 		f.existsByLeaf[n2] = bitmapWith(51)
-		f.rootAnchor = bitmapWith(50, 51, 52)
+		// Both leaves share the same root LCA (""); they each receive their
+		// own _exists.LCA fetch keyed by leaf identity.
+		f.existsAtPath[n1] = map[string]*sroar.Bitmap{"": bitmapWith(50, 51, 52)}
+		f.existsAtPath[n2] = map[string]*sroar.Bitmap{"": bitmapWith(50, 51, 52)}
 
 		input, err := normalizeRecGroup(ctx, pv, pv.children, f, ops, concurrency.SROAR_MERGE)
 		require.NoError(t, err)
 
-		assert.Empty(t, input.positives)
-		assert.Len(t, input.excludePositions, 2)
-		assert.NotNil(t, input.rootAnchor)
-		assert.Equal(t, 1, f.rootAnchorCalls, "anchor fetched exactly once for the whole group")
+		require.Len(t, input.positives, 2)
+		assert.Equal(t, []uint64{51, 52}, input.rawsByCond[n1].ToArray())
+		assert.Equal(t, []uint64{50, 52}, input.rawsByCond[n2].ToArray())
 	})
 
 	t.Run("error_in_value_fetch_releases_already_acquired_bitmaps", func(t *testing.T) {
@@ -410,17 +406,18 @@ func TestNormalizeRecGroup(t *testing.T) {
 		assert.Equal(t, 1, f.releaseCalls)
 	})
 
-	t.Run("error_in_root_anchor_fetch_releases_exclude_bitmaps", func(t *testing.T) {
+	t.Run("error_in_exists_at_path_fetch_releases_already_acquired_bitmaps", func(t *testing.T) {
 		isNull := isNullLeaf("city", true)
 		pv := outerCorrelated(isNull)
 
 		f := newFakeRecFetcher()
 		f.existsByLeaf[isNull] = bitmapWith(80)
-		f.rootAnchorErr = errors.New("anchor unavailable")
+		// existsAtPath has no entry → fetchExistsAtPath returns an error,
+		// which must release the operand bitmap acquired by fetchExists.
 
 		_, err := normalizeRecGroup(ctx, pv, pv.children, f, ops, concurrency.SROAR_MERGE)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "fetch root anchor")
-		assert.Equal(t, 1, f.releaseCalls, "exclude bitmap released after anchor fetch fails")
+		assert.Contains(t, err.Error(), "fetch exists at LCA")
+		assert.Equal(t, 1, f.releaseCalls, "operand bitmap released after LCA fetch fails")
 	})
 }

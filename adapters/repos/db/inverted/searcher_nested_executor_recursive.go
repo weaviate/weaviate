@@ -22,17 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// recExclude carries an IsNull=true raw _exists.{path} bitmap together with the
-// deepest object[] LCA of the leaf it was fetched for. lcaPath drives where the
-// exclude is applied: when lcaPath ∈ planLCAs the exclude is subtracted at raw
-// level inside the matching group(s) (per-element, leaf-precise per §8.5).
-// Otherwise it is subtracted at rootDoc level by execute() — root_idx then
-// encodes the exclude's outer scope, so per-(root,docID) granularity matches.
-type recExclude struct {
-	bitmap  *sroar.Bitmap
-	lcaPath string
-}
-
 // recExecutor evaluates a recPlanNode tree to produce a raw position bitmap.
 // Callers strip to docIDs via bitmapOps.MaskRootLeaf when needed — the
 // executor itself stays position-level so multi-group fallback can combine
@@ -44,22 +33,10 @@ type recExclude struct {
 // (recGroupNode at intermediate scope) or pinning to a specific element
 // (recSplitNode branches).
 //
-// excludes and rootAnchor handle IsNull=true and the no-positive case.
-// excludes carry raw _exists.{path} bitmaps plus the leaf's deepest object[]
-// LCA. When the LCA matches a group's lcaPath in the plan (planLCAs), the
-// exclude is subtracted raw-level inside that group — preserving leaf-precise
-// per-element semantics for §8.5 sibling-element negation. Otherwise it is
-// subtracted at raw level by execute() after evalNode returns. rootAnchor is
-// the seed for the no-positive path: when plan is nil, the executor clones
-// the anchor and AndNots excludes at raw level (preserving leaf alignment).
-//
 // Position lifecycle: every bitmap returned to a caller comes with a release
 // function. Internal intermediates are released before this method returns.
 type recExecutor struct {
 	rawsByCond     map[*propValuePair]*sroar.Bitmap
-	excludes       []recExclude
-	planLCAs       map[string]struct{}
-	rootAnchor     *sroar.Bitmap
 	metaBucket     *lsmkv.Bucket
 	bitmapOps      *invnested.BitmapOps
 	maxConcurrency int
@@ -85,52 +62,6 @@ func newRecExecutor(
 	}
 }
 
-// withExcludes attaches IsNull=true raw position bitmaps to the executor.
-// Bitmaps are caller-owned; the executor reads them but does not release.
-// Each entry carries the leaf's deepest object[] LCA so execute() can route
-// raw-level subtraction (handled inside groups) vs rootDoc subtraction.
-func (e *recExecutor) withExcludes(excludes []recExclude) *recExecutor {
-	e.excludes = excludes
-	return e
-}
-
-// withPlanLCAs records the set of lcaPaths visited by recGroupNode entries in
-// the plan. An exclude whose lcaPath is in this set is consumed raw-level
-// inside the matching group(s) (evalGroupRoot / runIdxLoopRecursive) and is
-// skipped by the rootDoc subtraction loop in execute(). Excludes with empty
-// lcaPath always go through rootDoc subtraction.
-func (e *recExecutor) withPlanLCAs(lcas map[string]struct{}) *recExecutor {
-	e.planLCAs = lcas
-	return e
-}
-
-// excludeMatchesGroup reports whether the given exclude must be subtracted
-// inside this group at raw level. True iff exclude.lcaPath is non-empty and
-// equals g.lca. The caller still has to be in a code path that can mix
-// raw-shape exclude bitmaps with raw-shape inputs (canUseRawAndAll path or
-// runIdxLoopRecursive); other paths fall back to rootDoc subtraction.
-func (e *recExecutor) excludeMatchesGroup(excl recExclude, g *recGroupNode) bool {
-	return excl.lcaPath != "" && excl.lcaPath == g.lca
-}
-
-// excludeConsumedByPlan reports whether the exclude is subtracted somewhere
-// inside the plan tree (so execute() must NOT also subtract it at rootDoc).
-// True iff exclude.lcaPath is non-empty and present in planLCAs.
-func (e *recExecutor) excludeConsumedByPlan(excl recExclude) bool {
-	if excl.lcaPath == "" {
-		return false
-	}
-	_, ok := e.planLCAs[excl.lcaPath]
-	return ok
-}
-
-// withRootAnchor attaches the no-positive seed bitmap. When plan is nil, the
-// executor uses this bitmap as the element universe before subtracting excludes.
-func (e *recExecutor) withRootAnchor(anchor *sroar.Bitmap) *recExecutor {
-	e.rootAnchor = anchor
-	return e
-}
-
 // withProps attaches the root property's nested schema. Required for the
 // flat raw-AndAll path in evalGroup to detect scalar-array (narrow-leaf)
 // here paths.
@@ -142,56 +73,14 @@ func (e *recExecutor) withProps(props []*models.NestedProperty) *recExecutor {
 // execute runs the plan and returns a raw position bitmap. The caller is
 // responsible for stripping to docIDs via bitmapOps.MaskRootLeaf when needed
 // and must invoke the returned release.
-//
-// When plan is nil the executor takes the rootAnchor path: clone the anchor
-// and AndNot each exclude at raw level (preserves leaf alignment).
-//
-// When plan is non-nil: evalNode produces a raw bitmap; each exclude that
-// is NOT consumed inside the plan tree is AndNot'd at raw level (leaf-precise
-// per-element subtraction). Excludes with lcaPath ∈ planLCAs were already
-// applied raw-level inside the matching group(s) — see §8.5.
 func (e *recExecutor) execute(ctx context.Context, plan recPlanNode) (*sroar.Bitmap, func(), error) {
 	if err := ctxExpired(ctx); err != nil {
 		return nil, nil, err
 	}
 	if plan == nil {
-		return e.executeRootAnchor()
+		return nil, nil, fmt.Errorf("recExecutor.execute: nil plan (Phase 6.5: IsNull is materialized as a positive; the no-positive path was removed)")
 	}
-
-	bm, release, err := e.evalNode(ctx, plan, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Apply non-plan-consumed excludes at raw level. bm is raw; excludes are
-	// raw _exists.{path} bitmaps. AndNot is leaf-precise, preserving
-	// per-element semantics — a sibling element at the same LCA without the
-	// absent property's existence survives.
-	for _, excl := range e.excludes {
-		if e.excludeConsumedByPlan(excl) {
-			continue
-		}
-		bm.AndNotConc(excl.bitmap, e.maxConcurrency)
-	}
-	return bm, release, nil
-}
-
-// executeRootAnchor handles the no-positive path. The anchor is the universe
-// of element positions (from _exists.{scope}); excludes are subtracted at
-// raw level so leaf-position alignment with the anchor is preserved. Returns
-// the resulting raw position bitmap — callers strip to docIDs via
-// bitmapOps.MaskRootLeaf when needed.
-func (e *recExecutor) executeRootAnchor() (*sroar.Bitmap, func(), error) {
-	if e.rootAnchor == nil {
-		return nil, nil, fmt.Errorf("recExecutor.execute: nil plan requires a non-nil rootAnchor")
-	}
-	// Clone the anchor into a pool buffer so AndNot mutations don't disturb
-	// the shared rootAnchor; the clone becomes the result.
-	raw, rawRel := e.bitmapOps.AndAll([]*sroar.Bitmap{e.rootAnchor}, e.maxConcurrency)
-	for _, excl := range e.excludes {
-		raw.AndNotConc(excl.bitmap, e.maxConcurrency)
-	}
-	return raw, rawRel, nil
+	return e.evalNode(ctx, plan, nil)
 }
 
 // evalNode dispatches by node type. parentScope (a raw position bitmap) limits
@@ -341,10 +230,6 @@ func (e *recExecutor) collectFlatSubtree(g *recGroupNode) (*flatSubtree, bool) {
 // scalar inheritance — a position survives raw AndAll only when every
 // condition lands on a leaf shared with all the others, which by the
 // analyzer's DFS encoding means they belong to the same physical element.
-//
-// Excludes whose lcaPath is in the subtree's lcaPaths are AndNot'd at raw
-// level (sibling-element semantics, §8.5). Excludes whose lcaPath is outside
-// the subtree's lcaPaths are left for execute()'s rootDoc subtraction.
 func (e *recExecutor) evalFlatRawAndAll(ctx context.Context, flat *flatSubtree, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
 	if err := ctxExpired(ctx); err != nil {
 		return nil, nil, err
@@ -364,14 +249,6 @@ func (e *recExecutor) evalFlatRawAndAll(ctx context.Context, flat *flatSubtree, 
 		return nil, nil, fmt.Errorf("evalFlatRawAndAll: no inputs")
 	}
 	anded, andedRel := e.bitmapOps.AndAll(bitmaps, e.maxConcurrency)
-	for _, excl := range e.excludes {
-		if excl.lcaPath == "" {
-			continue
-		}
-		if _, ok := flat.lcaPaths[excl.lcaPath]; ok {
-			anded.AndNotConc(excl.bitmap, e.maxConcurrency)
-		}
-	}
 	return anded, andedRel, nil
 }
 
@@ -432,17 +309,6 @@ func (e *recExecutor) evalGroupRoot(ctx context.Context, g *recGroupNode, parent
 
 	if e.canUseRawAndAll(g) {
 		anded, andedRel := e.bitmapOps.AndAll(bitmaps, e.maxConcurrency)
-		// Apply matching excludes (lcaPath == g.lca) at raw level — the
-		// anded bitmap is raw-shape (leaf-precise), so AndNot'ing a raw
-		// _exists.{path} bitmap removes only the exact same-element leaf
-		// position that carries the absent property's existence. §8.5
-		// sibling-element semantics: a sibling element at the same LCA
-		// without the absent property's existence survives.
-		for _, excl := range e.excludes {
-			if e.excludeMatchesGroup(excl, g) {
-				anded.AndNotConc(excl.bitmap, e.maxConcurrency)
-			}
-		}
 		succeeded = true
 		for _, rel := range releases {
 			rel()
@@ -559,18 +425,6 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 			effRelease()
 			continue
 		}
-		// Apply matching excludes (lcaPath == g.lca) at raw level on a
-		// per-element copy of effective. AndNot'ing the raw _exists.{path}
-		// bitmap removes leaf positions that carry the absent property's
-		// existence, so matchElementRecursive only intersects positives
-		// against positions where the absent property is missing within this
-		// element K. intersectScope may return the cursor's own bitmap when
-		// parentScope is nil, so a clone is required to avoid mutating it.
-		effective, effRelease = e.applyMatchingExcludes(g, effective, effRelease)
-		if effective.IsEmpty() {
-			effRelease()
-			continue
-		}
 		if err := e.matchElementRecursive(ctx, g, effective, result); err != nil {
 			effRelease()
 			return nil, nil, err
@@ -580,33 +434,6 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 
 	succeeded = true
 	return result, releaseResult, nil
-}
-
-// applyMatchingExcludes returns a new effective scope with every matching
-// exclude AndNot'd at raw level. When no exclude matches, effective is
-// returned unchanged together with its original release. When at least one
-// matches, a fresh pool buffer is allocated, the effective contents are copied
-// in, every matching raw exclude is AndNot'd, and the original release is
-// invoked before returning the new buffer + its release.
-func (e *recExecutor) applyMatchingExcludes(g *recGroupNode, effective *sroar.Bitmap, release func()) (*sroar.Bitmap, func()) {
-	hasMatch := false
-	for _, excl := range e.excludes {
-		if e.excludeMatchesGroup(excl, g) {
-			hasMatch = true
-			break
-		}
-	}
-	if !hasMatch {
-		return effective, release
-	}
-	cloned, clonedRel := e.bitmapOps.AndAll([]*sroar.Bitmap{effective}, e.maxConcurrency)
-	release()
-	for _, excl := range e.excludes {
-		if e.excludeMatchesGroup(excl, g) {
-			cloned.AndNotConc(excl.bitmap, e.maxConcurrency)
-		}
-	}
-	return cloned, clonedRel
 }
 
 // matchElementRecursive gathers per-condition raw bitmaps for the element
