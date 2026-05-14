@@ -15,6 +15,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -92,9 +93,10 @@ func TestAsyncRepRebuildBackoffDuration(t *testing.T) {
 // TestEffectivePropagationDelay verifies that:
 //   - propagationDelay=0 set via per-class API survives Effective() when no
 //     global DynamicValue is configured.
-//   - a sub-100ms propagationDelay set via global runtime config is correctly
+//   - a sub-second propagationDelay set via global runtime config is correctly
 //     applied (it was silently ignored before the applyDurPositive fix because
-//     the old applyDur required v >= minFrequency = 100ms).
+//     the old applyDur required v >= a frequency floor, which propagationDelay
+//     does not share).
 func TestEffectivePropagationDelay(t *testing.T) {
 	zero := time.Duration(0)
 	fifty := 50 * time.Millisecond
@@ -701,48 +703,262 @@ func TestAdjustWorkersConcurrent(t *testing.T) {
 }
 
 // TestAsyncReplicationConfigFromModelFrequencyFloor verifies that
-// asyncReplicationConfigFromModel rejects frequency / frequencyWhilePropagating
-// values below minFrequency (100ms) while accepting values at or above it.
+// asyncReplicationConfigFromModel clamps sub-minimum frequency /
+// frequencyWhilePropagating values up to the minimum (logging a Warn) and
+// preserves values at or above it. The lenient clamp-and-warn behavior is
+// required for backwards compatibility with collections persisted before the
+// minimums were raised.
 func TestAsyncReplicationConfigFromModelFrequencyFloor(t *testing.T) {
-	below := int64(minFrequency/time.Millisecond) - 1 // 99 ms → below the floor
-	exact := int64(minFrequency / time.Millisecond)   // 100 ms → exactly at floor
-	above := int64(minFrequency/time.Millisecond) + 1 // 101 ms → above the floor
+	// pick boundary inputs relative to each field's own minimum.
+	freqBelow := int64(minFrequency/time.Millisecond) - 1 // just below 5s
+	freqExact := int64(minFrequency / time.Millisecond)   // exactly at 5s
+	freqAbove := int64(minFrequency/time.Millisecond) + 1 // just above 5s
 
-	t.Run("frequency_below_min_rejected", func(t *testing.T) {
+	fwpBelow := int64(minFrequencyWhilePropagating/time.Millisecond) - 1 // just below 1s
+	fwpExact := int64(minFrequencyWhilePropagating / time.Millisecond)   // exactly at 1s
+	fwpAbove := int64(minFrequencyWhilePropagating/time.Millisecond) + 1 // just above 1s
+
+	newLogger := func() (logrus.FieldLogger, *test.Hook) {
+		l, h := test.NewNullLogger()
+		return l, h
+	}
+
+	t.Run("frequency_below_min_clamped_and_warned", func(t *testing.T) {
+		logger, hook := newLogger()
+		cfg, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
+			Frequency: &freqBelow,
+		}, logger)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.classOverrides.frequency)
+		assert.Equal(t, minFrequency, *cfg.classOverrides.frequency,
+			"sub-minimum frequency must be clamped to minFrequency")
+		require.Len(t, hook.Entries, 1, "exactly one Warn entry expected")
+		assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+		assert.Equal(t, "frequency", hook.LastEntry().Data["field"])
+	})
+
+	t.Run("frequency_at_min_accepted_no_warn", func(t *testing.T) {
+		logger, hook := newLogger()
+		cfg, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
+			Frequency: &freqExact,
+		}, logger)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.classOverrides.frequency)
+		assert.Equal(t, minFrequency, *cfg.classOverrides.frequency)
+		assert.Empty(t, hook.Entries, "no warning expected at minimum")
+	})
+
+	t.Run("frequency_above_min_accepted_no_warn", func(t *testing.T) {
+		logger, hook := newLogger()
+		cfg, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
+			Frequency: &freqAbove,
+		}, logger)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.classOverrides.frequency)
+		assert.Equal(t, time.Duration(freqAbove)*time.Millisecond, *cfg.classOverrides.frequency)
+		assert.Empty(t, hook.Entries, "no warning expected above minimum")
+	})
+
+	t.Run("frequencyWhilePropagating_below_min_clamped_and_warned", func(t *testing.T) {
+		logger, hook := newLogger()
+		cfg, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
+			FrequencyWhilePropagating: &fwpBelow,
+		}, logger)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.classOverrides.frequencyWhilePropagating)
+		assert.Equal(t, minFrequencyWhilePropagating, *cfg.classOverrides.frequencyWhilePropagating,
+			"sub-minimum frequencyWhilePropagating must be clamped to minFrequencyWhilePropagating")
+		require.Len(t, hook.Entries, 1, "exactly one Warn entry expected")
+		assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+		assert.Equal(t, "frequencyWhilePropagating", hook.LastEntry().Data["field"])
+	})
+
+	t.Run("frequencyWhilePropagating_at_min_accepted_no_warn", func(t *testing.T) {
+		logger, hook := newLogger()
+		cfg, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
+			FrequencyWhilePropagating: &fwpExact,
+		}, logger)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.classOverrides.frequencyWhilePropagating)
+		assert.Equal(t, minFrequencyWhilePropagating, *cfg.classOverrides.frequencyWhilePropagating)
+		assert.Empty(t, hook.Entries, "no warning expected at minimum")
+	})
+
+	t.Run("frequencyWhilePropagating_above_min_accepted_no_warn", func(t *testing.T) {
+		logger, hook := newLogger()
+		cfg, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
+			FrequencyWhilePropagating: &fwpAbove,
+		}, logger)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.classOverrides.frequencyWhilePropagating)
+		assert.Equal(t, time.Duration(fwpAbove)*time.Millisecond, *cfg.classOverrides.frequencyWhilePropagating)
+		assert.Empty(t, hook.Entries, "no warning expected above minimum")
+	})
+
+	// Policy for raw API inputs (ReplicationAsyncConfig has no minimum checks
+	// of its own on these int64 fields, so any value can reach this helper):
+	//   - zero: treated as below-minimum, clamped up to the minimum with a Warn,
+	//   - negative: rejected with an error (no meaningful interpretation),
+	//   - overflow (ms value > maxDurationMillis): rejected to avoid wrapping
+	//     to a negative time.Duration and silently clamping to the minimum.
+	t.Run("frequency_zero_clamped_and_warned", func(t *testing.T) {
+		zero := int64(0)
+		logger, hook := newLogger()
+		cfg, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
+			Frequency: &zero,
+		}, logger)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.classOverrides.frequency)
+		assert.Equal(t, minFrequency, *cfg.classOverrides.frequency)
+		require.Len(t, hook.Entries, 1, "exactly one Warn entry expected")
+		assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+		assert.Equal(t, "frequency", hook.LastEntry().Data["field"])
+	})
+
+	t.Run("frequency_negative_rejected", func(t *testing.T) {
+		neg := int64(-1)
+		logger, hook := newLogger()
 		_, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
-			Frequency: &below,
-		})
+			Frequency: &neg,
+		}, logger)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "frequency")
+		assert.Contains(t, err.Error(), "frequency must be >= 0")
+		assert.Empty(t, hook.Entries, "no clamp warning expected for negative input")
 	})
 
-	t.Run("frequency_at_min_accepted", func(t *testing.T) {
-		_, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
-			Frequency: &exact,
-		})
+	t.Run("frequencyWhilePropagating_zero_clamped_and_warned", func(t *testing.T) {
+		zero := int64(0)
+		logger, hook := newLogger()
+		cfg, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
+			FrequencyWhilePropagating: &zero,
+		}, logger)
 		require.NoError(t, err)
+		require.NotNil(t, cfg.classOverrides.frequencyWhilePropagating)
+		assert.Equal(t, minFrequencyWhilePropagating, *cfg.classOverrides.frequencyWhilePropagating)
+		require.Len(t, hook.Entries, 1, "exactly one Warn entry expected")
+		assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
+		assert.Equal(t, "frequencyWhilePropagating", hook.LastEntry().Data["field"])
 	})
 
-	t.Run("frequency_above_min_accepted", func(t *testing.T) {
+	t.Run("frequencyWhilePropagating_negative_rejected", func(t *testing.T) {
+		neg := int64(-100)
+		logger, hook := newLogger()
 		_, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
-			Frequency: &above,
-		})
-		require.NoError(t, err)
-	})
-
-	t.Run("frequencyWhilePropagating_below_min_rejected", func(t *testing.T) {
-		_, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
-			FrequencyWhilePropagating: &below,
-		})
+			FrequencyWhilePropagating: &neg,
+		}, logger)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "frequencyWhilePropagating")
+		assert.Contains(t, err.Error(), "frequencyWhilePropagating must be >= 0")
+		assert.Empty(t, hook.Entries, "no clamp warning expected for negative input")
 	})
 
-	t.Run("frequencyWhilePropagating_at_min_accepted", func(t *testing.T) {
+	// Inputs whose value in milliseconds does not fit in time.Duration would
+	// silently wrap to a negative duration on conversion and then be clamped
+	// to the minimum. Reject them explicitly so callers don't end up with the
+	// fastest cadence when they asked for the slowest.
+	t.Run("frequency_overflow_rejected", func(t *testing.T) {
+		overflow := int64(math.MaxInt64)
+		logger, hook := newLogger()
 		_, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
-			FrequencyWhilePropagating: &exact,
+			Frequency: &overflow,
+		}, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "frequency too large")
+		assert.Empty(t, hook.Entries, "no clamp warning expected for overflow input")
+	})
+
+	t.Run("frequencyWhilePropagating_overflow_rejected", func(t *testing.T) {
+		overflow := int64(math.MaxInt64)
+		logger, hook := newLogger()
+		_, err := asyncReplicationConfigFromModel(false, &models.ReplicationAsyncConfig{
+			FrequencyWhilePropagating: &overflow,
+		}, logger)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "frequencyWhilePropagating too large")
+		assert.Empty(t, hook.Entries, "no clamp warning expected for overflow input")
+	})
+}
+
+// TestAsyncReplicationClampWarner verifies the warner's consecutive-duplicate
+// suppression for positive-but-below-minimum runtime overrides on the two
+// Frequency fields. A stable sub-minimum value logs once; changing to a new
+// sub-minimum value re-arms the warning. Only the last warned value per field
+// is remembered, so an A→B→A alternation would log A twice — see the type's
+// doc comment for the tradeoff.
+func TestAsyncReplicationClampWarner(t *testing.T) {
+	makeWarner := func() (*asyncReplicationClampWarner, *test.Hook) {
+		l, h := test.NewNullLogger()
+		return &asyncReplicationClampWarner{logger: l}, h
+	}
+
+	t.Run("subfloor_frequency_warns_once_per_unique_value", func(t *testing.T) {
+		w, hook := makeWarner()
+		subfloor := minFrequency / 2
+		globals := replication.GlobalConfig{
+			AsyncReplicationFrequency: configRuntime.NewDynamicValue(subfloor),
+		}
+		w.checkGlobals(globals)
+		w.checkGlobals(globals)
+		w.checkGlobals(globals)
+		require.Len(t, hook.Entries, 1, "repeat checks with the same value must dedup")
+		assert.Equal(t, "frequency", hook.LastEntry().Data["field"])
+		assert.Equal(t, subfloor, hook.LastEntry().Data["requested"])
+		assert.Equal(t, minFrequency, hook.LastEntry().Data["applied"])
+		assert.Contains(t, hook.LastEntry().Message, "below minimum")
+	})
+
+	t.Run("changed_subfloor_value_warns_again", func(t *testing.T) {
+		w, hook := makeWarner()
+		w.checkGlobals(replication.GlobalConfig{
+			AsyncReplicationFrequency: configRuntime.NewDynamicValue(minFrequency / 2),
 		})
-		require.NoError(t, err)
+		w.checkGlobals(replication.GlobalConfig{
+			AsyncReplicationFrequency: configRuntime.NewDynamicValue(minFrequency / 3),
+		})
+		require.Len(t, hook.Entries, 2, "a different sub-minimum value must re-arm the warning")
+	})
+
+	t.Run("above_floor_value_does_not_warn", func(t *testing.T) {
+		w, hook := makeWarner()
+		w.checkGlobals(replication.GlobalConfig{
+			AsyncReplicationFrequency: configRuntime.NewDynamicValue(minFrequency * 2),
+		})
+		assert.Empty(t, hook.Entries)
+	})
+
+	t.Run("zero_value_does_not_warn", func(t *testing.T) {
+		// Zero is the DynamicValue "not configured" sentinel — not a sub-minimum
+		// override that warrants a Warn.
+		w, hook := makeWarner()
+		w.checkGlobals(replication.GlobalConfig{
+			AsyncReplicationFrequency: configRuntime.NewDynamicValue(time.Duration(0)),
+		})
+		assert.Empty(t, hook.Entries)
+	})
+
+	t.Run("negative_value_does_not_warn", func(t *testing.T) {
+		// Negative runtime overrides are silently ignored by the apply helpers
+		// (the prior cadence is preserved). The warner intentionally does not
+		// cover them — the right place to reject typos is the env-var / YAML
+		// loader at startup.
+		w, hook := makeWarner()
+		w.checkGlobals(replication.GlobalConfig{
+			AsyncReplicationFrequency: configRuntime.NewDynamicValue(-1 * time.Second),
+		})
+		assert.Empty(t, hook.Entries)
+	})
+
+	t.Run("each_field_warns_with_its_own_floor", func(t *testing.T) {
+		// Pick a value above minFrequencyWhilePropagating but below minFrequency.
+		// Both fields share the same value, but only frequency is considered
+		// sub-minimum.
+		w, hook := makeWarner()
+		shared := 2 * time.Second
+		w.checkGlobals(replication.GlobalConfig{
+			AsyncReplicationFrequency:                 configRuntime.NewDynamicValue(shared),
+			AsyncReplicationFrequencyWhilePropagating: configRuntime.NewDynamicValue(shared),
+		})
+		require.Len(t, hook.Entries, 1)
+		assert.Equal(t, "frequency", hook.LastEntry().Data["field"])
 	})
 }
 
@@ -1163,6 +1379,45 @@ func TestEffectiveThreeTierPrecedence(t *testing.T) {
 		result := cfg.Effective(globals)
 		assert.Equal(t, classOverride, result.frequency,
 			"zero global DynamicValue must not override a class-level setting")
+	})
+
+	t.Run("global_config_subfloor_clamps_to_floor", func(t *testing.T) {
+		// A positive but sub-minimum global DynamicValue must clamp up to the
+		// minimum rather than being silently dropped — otherwise an operator who
+		// tried to dial frequency down past the minimum would get the previous
+		// (class or default) value with no signal that their override was
+		// ineffective.
+		cfg := AsyncReplicationConfig{
+			frequency: codeDefault,
+			classOverrides: asyncReplicationClassOverrides{
+				frequency: durationPtr(classOverride),
+			},
+		}
+		globals := replication.GlobalConfig{
+			AsyncReplicationFrequency: configRuntime.NewDynamicValue(minFrequency - time.Second),
+		}
+		result := cfg.Effective(globals)
+		assert.Equal(t, minFrequency, result.frequency,
+			"sub-minimum global DynamicValue must clamp to minFrequency, not be ignored")
+	})
+
+	t.Run("global_config_frequencyWhilePropagating_subfloor_clamps_to_its_own_floor", func(t *testing.T) {
+		// Symmetric to frequency, but guards against a regression where a future
+		// edit might clamp this field against minFrequency instead of its own
+		// distinct minFrequencyWhilePropagating minimum.
+		const fwpClassOverride = 10 * time.Second
+		cfg := AsyncReplicationConfig{
+			frequencyWhilePropagating: defaultFrequencyWhilePropagating,
+			classOverrides: asyncReplicationClassOverrides{
+				frequencyWhilePropagating: durationPtr(fwpClassOverride),
+			},
+		}
+		globals := replication.GlobalConfig{
+			AsyncReplicationFrequencyWhilePropagating: configRuntime.NewDynamicValue(minFrequencyWhilePropagating - time.Millisecond),
+		}
+		result := cfg.Effective(globals)
+		assert.Equal(t, minFrequencyWhilePropagating, result.frequencyWhilePropagating,
+			"sub-minimum global DynamicValue must clamp to minFrequencyWhilePropagating, not minFrequency, and not be ignored")
 	})
 }
 
