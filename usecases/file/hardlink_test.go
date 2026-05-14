@@ -103,7 +103,7 @@ func TestHardlinkFiles(t *testing.T) {
 
 		require.NoError(t, HardlinkFiles([]HardlinkPair{{Src: src, Dst: dst}}))
 
-		assert.Equal(t, getIno(t, src), getIno(t, dst), "hardlinked file must share the source inode")
+		assert.Equal(t, getIno(t, src), getIno(t, dst), "hard-linked file must share the source inode")
 		got, err := os.ReadFile(dst)
 		require.NoError(t, err)
 		assert.Equal(t, []byte("segment data"), got)

@@ -375,7 +375,7 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 			hardlinks = append(hardlinks, file.HardlinkPair{Src: src, Dst: dst})
 			continue
 		}
-		// Mutable files are copied, not hardlinked — a shared inode would let
+		// Mutable files are copied, not hard-linked — a shared inode would let
 		// post-snapshot writes corrupt the staged copy. CopyFile, unlike
 		// HardlinkFiles, doesn't create the destination dir.
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
