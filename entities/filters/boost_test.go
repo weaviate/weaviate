@@ -193,6 +193,42 @@ func TestValidateBoost(t *testing.T) {
 			errMsg:  "exactly one of",
 		},
 		{
+			name: "filter with WithinGeoRange returns error",
+			boost: &Boost{
+				Conditions: []BoostCondition{
+					{Filter: &LocalFilter{Root: &Clause{Operator: OperatorWithinGeoRange}}},
+				},
+			},
+			wantErr: true,
+			errMsg:  "not supported in boost conditions",
+		},
+		{
+			name: "filter with ContainsAny returns error",
+			boost: &Boost{
+				Conditions: []BoostCondition{
+					{Filter: &LocalFilter{Root: &Clause{Operator: ContainsAny}}},
+				},
+			},
+			wantErr: true,
+			errMsg:  "not supported in boost conditions",
+		},
+		{
+			name: "filter with nested unsupported operator returns error",
+			boost: &Boost{
+				Conditions: []BoostCondition{
+					{Filter: &LocalFilter{Root: &Clause{
+						Operator: OperatorAnd,
+						Operands: []Clause{
+							{Operator: OperatorEqual},
+							{Operator: ContainsAll},
+						},
+					}}},
+				},
+			},
+			wantErr: true,
+			errMsg:  "not supported in boost conditions",
+		},
+		{
 			name: "valid filter condition returns no error",
 			boost: &Boost{
 				Weight: 0.5,

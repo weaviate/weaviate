@@ -161,9 +161,7 @@ func validateBoostFilterOps(clause *Clause, condIdx int) error {
 		OperatorAnd, OperatorOr, OperatorNot,
 		OperatorLike, OperatorIsNull:
 		// supported
-	case OperatorWithinGeoRange:
-		return fmt.Errorf("boost condition[%d] filter: operator WithinGeoRange is not supported in boost conditions", condIdx)
-	case ContainsAny, ContainsAll, ContainsNone:
+	default:
 		return fmt.Errorf("boost condition[%d] filter: operator %s is not supported in boost conditions", condIdx, clause.Operator.Name())
 	}
 	for i := range clause.Operands {

@@ -171,7 +171,7 @@ func scoreResult(r *search.Result, conditions []filters.BoostCondition,
 }
 
 // distToScore converts distance-based results (from vector search) to
-// score-based results that applyRankScoring can blend with. Distance is
+// score-based results that applyBoostScoring can blend with. Distance is
 // inverted so that closer objects get higher scores.
 func distToScore(results []search.Result) {
 	for i := range results {
