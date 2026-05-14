@@ -94,3 +94,41 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 	sort.Strings(sorted)
 	return prefix + "_" + strings.Join(sorted, "_")
 }
+
+// migrationDirsForPropertyIndex returns the per-property migration
+// directory names that — if marked tidied on disk — would lie after the
+// given (propName, indexType) bucket has been removed. Called from
+// updatePropertyBuckets after a DELETE so that a subsequent re-enable
+// starts from a clean slate instead of short-circuiting on a stale
+// "previous run completed" sentinel.
+//
+// indexType is the canonical inverted-index discriminator:
+// "filterable", "searchable", or "rangeable".
+//
+// Class-level migration dirs (searchable_map_to_blockmax,
+// filterable_roaringset_refresh) are deliberately omitted — they
+// aggregate state across every property of the class and per-property
+// progress lives inside the dir, not as the dir's own existence.
+// Wholesale-deleting them on a single property's DELETE would corrupt
+// the class-level migration; their per-property entries are pruned by
+// the strategy's own bookkeeping.
+func migrationDirsForPropertyIndex(propName, indexType string) []string {
+	switch indexType {
+	case "filterable":
+		return []string{
+			migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{propName}),
+			MigrationDirPrefixFilterableRetokenize + "_" + propName,
+			migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{propName}),
+		}
+	case "searchable":
+		return []string{
+			migrationDirWithProps(MigrationDirPrefixEnableSearchable, []string{propName}),
+			MigrationDirPrefixSearchableRetokenize + "_" + propName,
+		}
+	case "rangeable":
+		return []string{
+			migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, []string{propName}),
+		}
+	}
+	return nil
+}

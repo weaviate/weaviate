@@ -674,6 +674,23 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	}
 
 	if rt.IsTidied() {
+		// Defense in depth: rt.IsTidied()=true means a previous run reported
+		// a successful migration on this shard. The expected post-migration
+		// state is the strategy's target bucket existing and populated. If
+		// the bucket is missing now (e.g. a DELETE removed the index between
+		// that previous run and this re-trigger), the on-disk sentinel lies
+		// — calling OnMigrationComplete here would re-flip the schema flag
+		// to true and report success, while the customer's index is in fact
+		// empty. Fail loudly instead.
+		for _, propName := range props {
+			bucketName := t.strategy.SourceBucketName(propName)
+			if shard.Store().Bucket(bucketName) == nil {
+				err = fmt.Errorf(
+					"stale migration state on shard %q: tidied sentinel claims property %q is complete, but target bucket %q is missing — usually caused by a DELETE between the previous successful reindex and this one; refusing to silently report success",
+					shard.Name(), propName, bucketName)
+				return zerotime, false, err
+			}
+		}
 		err = t.strategy.OnMigrationComplete(ctx, shard)
 		if err != nil {
 			err = fmt.Errorf("updating inverted index config: %w", err)

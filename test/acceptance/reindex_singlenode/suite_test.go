@@ -161,6 +161,16 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testRepairRangeable(t, restURI)
 	})
 
+	// --- Subtest 11: DELETE-then-re-enable journey ---
+	// Pins the journey: DELETE /properties/{prop}/index/{indexName} followed
+	// by PUT enable-* must actually rebuild the bucket. Without the
+	// migration-dir cleanup + the stale-sentinel defense, the second enable
+	// short-circuits on the prior tidied sentinel, re-flips the schema flag
+	// to true, and silently leaves the customer with an empty index.
+	t.Run("DeleteThenReEnable", func(t *testing.T) {
+		testDeleteThenReEnable(t, restURI)
+	})
+
 	// --- Shared restart: verify all deferred finalizations ---
 	t.Run("PostRestartFinalize", func(t *testing.T) {
 		t.Log("restarting weaviate container for deferred finalize verification")

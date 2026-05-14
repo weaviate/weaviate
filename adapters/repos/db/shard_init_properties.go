@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -102,25 +103,93 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 ) {
 	eg.Go(func() error {
 		if !inverted.HasFilterableIndex(prop) {
-			err := s.removeBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name))
+			mainBucket := helpers.BucketFromPropNameLSM(prop.Name)
+			err := s.removeBucket(ctx, mainBucket)
 			if err != nil {
 				return fmt.Errorf("cannot remove filterable index for %s property: %w", prop.Name, err)
 			}
+			s.cleanStaleMigrationDirs(prop.Name, "filterable")
+			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		if !inverted.HasSearchableIndex(prop) {
-			err := s.removeBucket(ctx, helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			mainBucket := helpers.BucketSearchableFromPropNameLSM(prop.Name)
+			err := s.removeBucket(ctx, mainBucket)
 			if err != nil {
 				return fmt.Errorf("cannot remove searchable index for %s property: %w", prop.Name, err)
 			}
+			s.cleanStaleMigrationDirs(prop.Name, "searchable")
+			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		if !inverted.HasRangeableIndex(prop) {
-			err := s.removeBucket(ctx, helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			mainBucket := helpers.BucketRangeableFromPropNameLSM(prop.Name)
+			err := s.removeBucket(ctx, mainBucket)
 			if err != nil {
 				return fmt.Errorf("cannot remove rangeable index for %s property: %w", prop.Name, err)
 			}
+			s.cleanStaleMigrationDirs(prop.Name, "rangeable")
+			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
 	})
+}
+
+// cleanStaleMigrationDirs removes the per-property runtime-reindex
+// migration directories whose tidied sentinel would lie now that the
+// (propName, indexType) bucket has been removed. Without this, a
+// subsequent re-enable of the same index would short-circuit on the
+// stale sentinel, re-flip the schema flag to true, and report success
+// while leaving the underlying bucket empty.
+//
+// Errors are logged but not propagated: the bucket has already been
+// removed by the time we get here, so the user's DELETE has succeeded
+// at the only level that matters for correctness. A failure here only
+// affects the next re-enable, which will trigger the defense-in-depth
+// check in OnAfterLsmInitAsync and fail with a clear operator error.
+func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
+	migrationsRoot := filepath.Join(s.pathLSM(), ".migrations")
+	for _, dir := range migrationDirsForPropertyIndex(propName, indexType) {
+		path := filepath.Join(migrationsRoot, dir)
+		if err := os.RemoveAll(path); err != nil {
+			s.index.logger.WithField("path", path).
+				Error(fmt.Errorf("failed to clean up stale migration directory after index DELETE: %w; subsequent re-enable will fail loudly via the stale-sentinel check until this directory is removed manually", err))
+		}
+	}
+}
+
+// cleanStaleSidecarDirs removes leftover __reindex / __ingest / __backup
+// sidecar directories that share the just-removed bucket's name as their
+// prefix. A successful migration moves the new data into the main bucket
+// dir at runtime but defers the actual filesystem renames (old-main ->
+// __backup, ingest-dir cleanup) to OnBeforeLsmInit on the next restart.
+// Between completion and restart these sidecars live on disk; a DELETE
+// then re-enable in the same process lifetime would otherwise hit
+// "rename: file exists" the next time RunSwapOnShard tries to move the
+// fresh main into __backup.
+//
+// The sidecar names are <mainBucket>__<strategy-specific-suffix>, where
+// suffixes vary per strategy. Matching by prefix avoids hard-coding every
+// strategy's suffixes here and naturally absorbs future strategies.
+func (s *Shard) cleanStaleSidecarDirs(mainBucketName string) {
+	entries, err := os.ReadDir(s.pathLSM())
+	if err != nil {
+		s.index.logger.WithField("path", s.pathLSM()).
+			Error(fmt.Errorf("failed to enumerate LSM dir for sidecar cleanup after DELETE: %w; a subsequent re-enable may fail with 'file exists' when RunSwapOnShard tries to rotate buckets", err))
+		return
+	}
+	prefix := mainBucketName + "__"
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		path := filepath.Join(s.pathLSM(), entry.Name())
+		if err := os.RemoveAll(path); err != nil {
+			s.index.logger.WithField("path", path).
+				Error(fmt.Errorf("failed to remove stale sidecar bucket dir after index DELETE: %w", err))
+		}
+	}
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
