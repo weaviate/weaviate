@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -296,6 +297,20 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 
 // ListDistributedTasks returns a snapshot of all tasks grouped by namespace. Each [Task] is
 // cloned, so callers may read the returned values without holding the Manager's lock.
+//
+// Tasks within each namespace are sorted deterministically so adjacent
+// polls of the same Manager always return the same slice order, regardless
+// of Go's randomized map iteration. Sort key:
+//
+//  1. STARTED tasks first (most user-relevant — what's actually running).
+//  2. Within priority, by activity-time DESC (newest first). Activity-time
+//     is FinishedAt for terminal tasks, StartedAt otherwise.
+//  3. Tiebreak by ID ASC for full stability.
+//
+// Without this, frontend dashboards polling /v1/tasks at sub-second
+// intervals would see the same set of tasks alternate order request-to-
+// request, looking like state churn that wasn't really happening (see
+// issue #10675).
 func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, error) {
 	// Read-only: holding RLock lets concurrent /indexes polls proceed
 	// without serialising against each other (they still wait on any
@@ -313,8 +328,38 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 		for _, task := range tasks {
 			result[namespace] = append(result[namespace], task.Clone())
 		}
+		sortTasksForDisplay(result[namespace])
 	}
 	return result, nil
+}
+
+// sortTasksForDisplay sorts tasks in place so the slice is identical on
+// every call given the same input set. See [Manager.ListDistributedTasks]
+// for the sort-key rationale. SliceStable is intentional: equal-priority
+// equal-time equal-ID inputs are byte-identical to clone anyway, but
+// SliceStable documents the intent.
+func sortTasksForDisplay(tasks []*Task) {
+	sort.SliceStable(tasks, func(i, j int) bool {
+		iStarted := tasks[i].Status == TaskStatusStarted
+		jStarted := tasks[j].Status == TaskStatusStarted
+		if iStarted != jStarted {
+			return iStarted
+		}
+
+		iWhen := tasks[i].FinishedAt
+		if iWhen.IsZero() {
+			iWhen = tasks[i].StartedAt
+		}
+		jWhen := tasks[j].FinishedAt
+		if jWhen.IsZero() {
+			jWhen = tasks[j].StartedAt
+		}
+		if !iWhen.Equal(jWhen) {
+			return iWhen.After(jWhen)
+		}
+
+		return tasks[i].ID < tasks[j].ID
+	})
 }
 
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {
