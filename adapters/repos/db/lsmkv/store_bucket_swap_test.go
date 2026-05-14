@@ -207,6 +207,85 @@ func TestStore_SwapBucketPointer_StoreClosed(t *testing.T) {
 	require.ErrorIs(t, err, ErrAlreadyClosed)
 }
 
+// TestStore_SwapBucketPointer_ReleasesSourcePathFromRegistry pins the fix
+// for the GlobalBucketRegistry leak after SwapBucketPointer. Without the
+// fix, a back-to-back migration in the same process aborts when the next
+// cycle's ingest bucket tries to claim the same on-disk path and hits
+// ErrBucketAlreadyRegistered.
+//
+// The test simulates the same-process back-to-back retokenize sequence:
+//  1. Create main + ingest sidecar.
+//  2. Swap ingest into main slot (in-memory only; on-disk dir is unchanged).
+//  3. Shut down the old main bucket and rename its dir to backup (mirrors
+//     runtimeSwap step 3 in inverted_reindex_task_generic.go).
+//  4. Simulate the next cycle's pre-cleanup: rm-rf the ingest dir on disk
+//     (mirrors cleanStaleSidecarDirs).
+//  5. CreateOrLoadBucket for a NEW ingest bucket at the same name must
+//     succeed — both the on-disk dir and the registry entry are clear.
+func TestStore_SwapBucketPointer_ReleasesSourcePathFromRegistry(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	store, err := New(dir, dir, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	defer store.Shutdown(ctx)
+
+	const (
+		mainName   = "property_name"
+		ingestName = "property_name__filt_retokenize_ingest"
+		backupName = "property_name__filt_retokenize_backup"
+	)
+
+	require.NoError(t, store.CreateOrLoadBucket(ctx, mainName, WithStrategy(StrategyReplace)))
+	require.NoError(t, store.CreateOrLoadBucket(ctx, ingestName, WithStrategy(StrategyReplace)))
+
+	require.NoError(t, store.Bucket(mainName).Put([]byte("k"), []byte("old")))
+	require.NoError(t, store.Bucket(ingestName).Put([]byte("k"), []byte("new")))
+
+	// Step 2: swap.
+	oldMain, err := store.SwapBucketPointer(ctx, mainName, ingestName)
+	require.NoError(t, err)
+
+	// The source bucket's on-disk path must have been released from the
+	// global registry by SwapBucketPointer.
+	ingestPath := filepath.Join(dir, ingestName)
+	require.NoError(t, GlobalBucketRegistry.TryAdd(ingestPath),
+		"SwapBucketPointer must release the source path from the registry; "+
+			"otherwise back-to-back migrations abort with ErrBucketAlreadyRegistered")
+	// Undo the probe so the rest of the test can re-claim it.
+	GlobalBucketRegistry.Remove(ingestPath)
+
+	// Step 3: shut down old main and rename its dir to backup.
+	oldDir := oldMain.GetDir()
+	require.NoError(t, oldMain.Shutdown(ctx))
+	require.NoError(t, os.Rename(oldDir, filepath.Join(dir, backupName)))
+
+	// Step 4: simulate cleanStaleSidecarDirs wiping the ingest dir on disk.
+	// The swapped-in source bucket lives at this path; queries still work
+	// via mmap'd file handles, but the dir entry on disk is gone.
+	require.NoError(t, os.RemoveAll(ingestPath))
+
+	// Step 5: a NEW ingest bucket must be loadable at the same name. This
+	// is the exact CreateOrLoadBucket call that runtimeSwap's
+	// loadIngestBuckets makes — without the registry release in step 2 it
+	// fails with ErrBucketAlreadyRegistered.
+	require.NoError(t, store.CreateOrLoadBucket(ctx, ingestName, WithStrategy(StrategyReplace)),
+		"second retokenize must be able to claim the same ingest path "+
+			"after a previous swap left the source bucket alive at it")
+
+	// The new ingest bucket must be a different instance from the swapped
+	// one, and it must start empty.
+	newIngest := store.Bucket(ingestName)
+	require.NotNil(t, newIngest)
+	val, err := newIngest.Get([]byte("k"))
+	require.NoError(t, err)
+	assert.Nil(t, val, "fresh ingest bucket must be empty, not loading any prior data")
+}
+
 // --- FinalizeBucketSwap tests ---
 
 func TestStore_FinalizeBucketSwap_HappyPath(t *testing.T) {
