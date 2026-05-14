@@ -13,11 +13,19 @@ package db
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// maxDurationMillis is the largest int64 millisecond value that still fits in
+// a time.Duration (nanoseconds) without wrapping. Used to reject schema inputs
+// that would otherwise overflow during the *time.Millisecond conversion and
+// silently clamp to the minimum.
+const maxDurationMillis = int64(math.MaxInt64 / int64(time.Millisecond))
 
 // asyncReplicationConfigFromModel builds an AsyncReplicationConfig from the
 // class model and multitenancy flag.
@@ -35,7 +43,14 @@ import (
 // values are surfaced through the GlobalConfig DynamicValues and applied by
 // Effective(), so removing an env var restores the per-class schema value
 // without any schema mutation.
-func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.ReplicationAsyncConfig) (config AsyncReplicationConfig, err error) {
+//
+// Frequency minimums (minFrequency, minFrequencyWhilePropagating) are enforced
+// by clamping sub-minimum values up to the minimum and emitting a Warn log
+// entry via the supplied logger. This is intentionally lenient so that
+// collections created before a minimum was raised continue to load and update;
+// the runtime defensive clamp in Effective() would otherwise be the only
+// safety net and would silence the legacy values without operator visibility.
+func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.ReplicationAsyncConfig, logger logrus.FieldLogger) (config AsyncReplicationConfig, err error) {
 	// ---- Code defaults (tier 1) ----
 	if multiTenancyEnabled {
 		config.hashtreeHeight = defaultHashtreeHeightMultiTenant
@@ -70,17 +85,41 @@ func asyncReplicationConfigFromModel(multiTenancyEnabled bool, cfg *models.Repli
 	}
 
 	if cfg.Frequency != nil {
+		if *cfg.Frequency < 0 {
+			return AsyncReplicationConfig{}, fmt.Errorf("frequency must be >= 0")
+		}
+		if *cfg.Frequency > maxDurationMillis {
+			return AsyncReplicationConfig{}, fmt.Errorf("frequency too large: %d ms exceeds max %d ms", *cfg.Frequency, maxDurationMillis)
+		}
 		v := time.Duration(*cfg.Frequency) * time.Millisecond
 		if v < minFrequency {
-			return AsyncReplicationConfig{}, fmt.Errorf("frequency must be >= %v", minFrequency)
+			logger.WithFields(logrus.Fields{
+				"field":     "frequency",
+				"requested": v,
+				"min":       minFrequency,
+				"applied":   minFrequency,
+			}).Warn("async-replication frequency below minimum; clamping to min")
+			v = minFrequency
 		}
 		config.classOverrides.frequency = &v
 	}
 
 	if cfg.FrequencyWhilePropagating != nil {
+		if *cfg.FrequencyWhilePropagating < 0 {
+			return AsyncReplicationConfig{}, fmt.Errorf("frequencyWhilePropagating must be >= 0")
+		}
+		if *cfg.FrequencyWhilePropagating > maxDurationMillis {
+			return AsyncReplicationConfig{}, fmt.Errorf("frequencyWhilePropagating too large: %d ms exceeds max %d ms", *cfg.FrequencyWhilePropagating, maxDurationMillis)
+		}
 		v := time.Duration(*cfg.FrequencyWhilePropagating) * time.Millisecond
-		if v < minFrequency {
-			return AsyncReplicationConfig{}, fmt.Errorf("frequencyWhilePropagating must be >= %v", minFrequency)
+		if v < minFrequencyWhilePropagating {
+			logger.WithFields(logrus.Fields{
+				"field":     "frequencyWhilePropagating",
+				"requested": v,
+				"min":       minFrequencyWhilePropagating,
+				"applied":   minFrequencyWhilePropagating,
+			}).Warn("async-replication frequencyWhilePropagating below minimum; clamping to min")
+			v = minFrequencyWhilePropagating
 		}
 		config.classOverrides.frequencyWhilePropagating = &v
 	}
