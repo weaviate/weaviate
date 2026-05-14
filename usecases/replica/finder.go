@@ -63,9 +63,7 @@ func (e *routeStaleErr) Unwrap() error {
 	return e.Wrapped
 }
 
-var (
-	_ error = (*routeStaleErr)(nil)
-)
+var _ error = (*routeStaleErr)(nil)
 
 type (
 	// senderReply is a container for the data received from a replica
