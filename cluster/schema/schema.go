@@ -491,8 +491,8 @@ func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica
 // No-ops on unknown classes: a node holding no replica of the class
 // has no coord routing decisions to fence.
 func (s *schema) bumpReplicationVersion(class string, v uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	meta := s.unsafeResolveClass(class)
 	if meta == nil {
 		return
