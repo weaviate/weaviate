@@ -234,7 +234,7 @@ func (c *CommitLogCombiner) renameAndCleanUp(tmpName, finalName string,
 	// with duplicate files both with and without the ".condensed" suffix. The
 	// new (and complete) merged file will not carry the suffix whereas the
 	// sources will. This will look to the corrupted file fixer as if a
-	// condensing had gone wrong and will delete the the source
+	// condensing had gone wrong and will delete the source
 
 	if err := c.fs.Rename(tmpName, finalName); err != nil {
 		return errors.Wrapf(err, "rename tmp (%q) to final (%q)", tmpName, finalName)

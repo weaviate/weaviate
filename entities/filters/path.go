@@ -121,7 +121,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 		} else {
 			propertyName, err = schema.ValidatePropertyName(rawPropertyName)
 			// Invalid property name?
-			// Try to parse it as as a reference or a length.
+			// Try to parse it as a reference or a length.
 			if err != nil {
 				untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:]
 				propertyName, err = schema.ValidatePropertyName(untitlizedPropertyName)
