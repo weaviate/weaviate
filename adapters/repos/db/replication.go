@@ -988,7 +988,7 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 			continue
 		}
 
-		decoded, err := storobj.FromBinary(u.Payload)
+		decoded, err := storobj.FromBinaryNetwork(u.Payload)
 		if err != nil {
 			// Flush first so entries before the failure are durable on retry.
 			if flushErr := flushPending(); flushErr != nil {
