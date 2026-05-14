@@ -159,6 +159,32 @@ func validateEnableSearchableProperty(prop *models.Property, tokenization string
 	return nil
 }
 
+// validateFilterableTokenizationChange validates the body for
+// `PUT /v1/schema/{class}/indexes/{prop}` with `{filterable:{tokenization:X}}`.
+// Distinct from validateTokenizationChange: does NOT require a searchable
+// bucket — this is the filterable-only retokenize variant. The caller
+// dispatches to ReindexTypeChangeTokenizationFilterable which runs only
+// the filterable retokenize task.
+func validateFilterableTokenizationChange(prop *models.Property, targetTokenization string) error {
+	if prop == nil {
+		return fmt.Errorf("property not found")
+	}
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok || (dt != entschema.DataTypeText && dt != entschema.DataTypeTextArray) {
+		return fmt.Errorf("property %q is not a text type; filterable.tokenization only applies to text / text[]", prop.Name)
+	}
+	if prop.IndexFilterable == nil || !*prop.IndexFilterable {
+		return fmt.Errorf("property %q has no filterable index; nothing to retokenize. Enable filterable first via {\"filterable\":{\"enabled\":true}}", prop.Name)
+	}
+	if !entschema.IsValidTokenization(targetTokenization) {
+		return fmt.Errorf("invalid tokenization %q", targetTokenization)
+	}
+	if prop.Tokenization == targetTokenization {
+		return fmt.Errorf("property %q already uses tokenization %q", prop.Name, targetTokenization)
+	}
+	return nil
+}
+
 func validateTokenizationChange(
 	appState *state.State,
 	class *models.Class,
@@ -293,11 +319,16 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		if body.Filterable.Rebuild {
 			verbs = append(verbs, "filterable.rebuild")
 		}
+		// Tokenization is a verb on its own ONLY when Enabled is not set.
+		// Mirrors the searchable.tokenization rule above.
+		if body.Filterable.Tokenization != "" && !body.Filterable.Enabled {
+			verbs = append(verbs, "filterable.tokenization")
+		}
 		if body.Filterable.Cancel {
 			verbs = append(verbs, "filterable.cancel")
 		}
 		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in filterable: %v — set exactly one of enabled, rebuild, or cancel", verbs)
+			return fmt.Errorf("conflicting fields in filterable: %v — set exactly one of enabled, rebuild, tokenization, or cancel", verbs)
 		}
 		if len(verbs) == 1 {
 			groupsSet = append(groupsSet, "filterable")

@@ -36,6 +36,9 @@ type IndexUpdateFilterable struct {
 
 	// rebuild
 	Rebuild bool `json:"rebuild,omitempty"`
+
+	// Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.
+	Tokenization string `json:"tokenization,omitempty"`
 }
 
 // Validate validates this index update filterable

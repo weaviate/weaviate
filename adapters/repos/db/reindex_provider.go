@@ -436,6 +436,21 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 		)
 		return []*ShardReindexTaskGeneric{searchableTask, filterableTask}, nil
 
+	case ReindexTypeChangeTokenizationFilterable:
+		if len(payload.Properties) != 1 {
+			return nil, fmt.Errorf("change-tokenization-filterable requires exactly one property")
+		}
+		propName := payload.Properties[0]
+		if payload.TargetTokenization == "" {
+			return nil, fmt.Errorf("change-tokenization-filterable requires targetTokenization")
+		}
+		filterableTask := NewRuntimeFilterableRetokenizeTask(
+			p.logger, p.schemaManager,
+			propName, payload.TargetTokenization,
+			payload.Collection, payload.Collection,
+		)
+		return []*ShardReindexTaskGeneric{filterableTask}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown migration type %q", payload.MigrationType)
 	}
@@ -823,6 +838,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 // the schema for the actual post-swap state.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
+		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
 		mt == ReindexTypeEnableSearchable
 }

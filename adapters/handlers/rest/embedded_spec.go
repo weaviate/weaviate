@@ -7932,6 +7932,10 @@ func init() {
         },
         "rebuild": {
           "type": "boolean"
+        },
+        "tokenization": {
+          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
+          "type": "string"
         }
       }
     },
@@ -18497,6 +18501,10 @@ func init() {
         },
         "rebuild": {
           "type": "boolean"
+        },
+        "tokenization": {
+          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
+          "type": "string"
         }
       }
     },

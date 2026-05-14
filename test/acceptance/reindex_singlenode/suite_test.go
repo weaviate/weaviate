@@ -181,6 +181,14 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testCancelThenRetry(t, restURI)
 	})
 
+	// --- Subtest 12b: change-tokenization on filterable-only ---
+	// Frontend repro 2026-05-14: PUT {searchable:{tokenization:X}} on a
+	// filterable-only text property 400'd with "searchable bucket not
+	// found" and no alternative shape. The fix adds {filterable:{tokenization:X}}.
+	t.Run("ChangeTokenizationFilterable", func(t *testing.T) {
+		testChangeTokenizationFilterable(t, restURI)
+	})
+
 	// --- Subtest 13: DELETE→re-enable repeated 3x ---
 	// Frontend repro 2026-05-14: after 3 enable→DELETE cycles on the same
 	// property the 3rd enable finishes in 1.6s and the schema flag never
@@ -191,7 +199,19 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 		testDeleteThenReEnableMultiCycle(t, restURI)
 	})
 
-	// --- Subtest 14: torn "reindexed but not tidied" resume ---
+	// --- Subtest 14: property-state × migration-type matrix ---
+	// Programmatic enumeration of (data type × pre-state × PUT body shape).
+	// Each cell asserts either (a) clean 202+FINISHED+queryable-bucket or
+	// (b) 4xx with an actionable error. Cells classified as expectUnclear4xx
+	// pin known dispatcher/validator bugs (e.g. filterable.tokenization
+	// silently dropped, searchable.tokenization on filterable-only property
+	// emits "searchable bucket not found"). They are intentionally RED. See
+	// property_state_migration_matrix_test.go for the bug catalog.
+	t.Run("PropertyStateMigrationMatrix", func(t *testing.T) {
+		testPropertyStateMigrationMatrix(t, restURI)
+	})
+
+	// --- Subtest 15: torn "reindexed but not tidied" resume ---
 	// Pins the journey where a prior reindex left the on-disk migration
 	// in IsReindexed+!IsTidied state (real causes: I/O failure mid-
 	// runtimeSwap, container kill between markReindexed and the first
@@ -286,6 +306,35 @@ func submitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody str
 	var result map[string]string
 	require.NoError(t, json.Unmarshal(respBody, &result))
 	return result["taskId"]
+}
+
+// indexUpdateErrorResponse captures the status + body of an
+// expected-to-fail index update request, so tests can assert both the
+// status code AND that the error message names the right next step.
+type indexUpdateErrorResponse struct {
+	StatusCode int
+	Body       string
+}
+
+// submitIndexUpdateExpectingError submits a PUT /indexes request that the
+// test expects to fail at validation. Returns the response status code +
+// body for assertion; does NOT itself require 4xx (so the test can pin
+// the exact code).
+func submitIndexUpdateExpectingError(t *testing.T, restURI, collection, property, jsonBody string) indexUpdateErrorResponse {
+	t.Helper()
+	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(body))
+	return indexUpdateErrorResponse{StatusCode: resp.StatusCode, Body: string(body)}
 }
 
 type indexesResponse struct {

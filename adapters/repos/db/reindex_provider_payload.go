@@ -43,6 +43,12 @@ const (
 
 	// ReindexTypeChangeTokenization retokenizes text properties (searchable + filterable).
 	ReindexTypeChangeTokenization ReindexMigrationType = "change-tokenization"
+
+	// ReindexTypeChangeTokenizationFilterable retokenizes ONLY the filterable
+	// index of a text/text[] property. Used when the property has no
+	// searchable index — change-tokenization (which targets both buckets)
+	// cannot run, so this filterable-scoped variant fills the gap.
+	ReindexTypeChangeTokenizationFilterable ReindexMigrationType = "change-tokenization-filterable"
 )
 
 // ReindexTaskPayload is the JSON-serialized payload stored in the DTM task.

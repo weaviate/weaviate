@@ -241,9 +241,36 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		properties = []string{propertyName}
 		targetTok = body.Searchable.Tokenization
 
+		// Reject early when the property has no searchable index. Otherwise
+		// the downstream validator surfaces a "searchable bucket not
+		// found" error that doesn't tell the caller what to do — they
+		// just see a 400 and the dialog hangs. Filterable-only properties
+		// should use {filterable: {tokenization: X}} instead.
+		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+				fmt.Sprintf("property %q has no searchable index; use {\"filterable\":{\"tokenization\":...}} to retokenize the filterable bucket, or {\"searchable\":{\"enabled\":true,\"tokenization\":...}} to add a searchable index", propertyName)))
+		}
+
 		var err error
 		bucketStrategy, err = validateTokenizationChange(h.appState, class, collection, propertyName, targetTok)
 		if err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+		}
+
+	case body.Filterable != nil && body.Filterable.Tokenization != "":
+		// Change tokenization on a property whose filterable index exists.
+		// Differs from {searchable:{tokenization:X}}: this variant
+		// retokenizes ONLY the filterable bucket, never the searchable.
+		// The right shape for filterable-only text/text[] properties, and
+		// also valid when the property has both indexes and the caller
+		// wants to retokenize only the filterable side (rare but
+		// well-defined: filterable uses Equal semantics, retokenizing it
+		// independently of searchable is meaningful).
+		migrationType = db.ReindexTypeChangeTokenizationFilterable
+		properties = []string{propertyName}
+		targetTok = body.Filterable.Tokenization
+
+		if err := validateFilterableTokenizationChange(targetProp, targetTok); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
 		}
 
@@ -641,6 +668,8 @@ func indexTypeFromMigrationType(mt db.ReindexMigrationType) (string, bool) {
 		// buckets on the same property. Returning a single indexType
 		// would let the caller wipe state for the wrong one.
 		return "", false
+	case db.ReindexTypeChangeTokenizationFilterable:
+		return "filterable", true
 	}
 	return "", false
 }
@@ -665,6 +694,8 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 	case db.ReindexTypeChangeTokenization:
 		// touches both searchable and filterable buckets
 		return indexType == "searchable" || indexType == "filterable", true
+	case db.ReindexTypeChangeTokenizationFilterable:
+		return indexType == "filterable", true
 	}
 	return false, false
 }
@@ -803,7 +834,8 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		if bestPayload.TargetTokenization != "" {
 			idx.Tokenization = bestPayload.TargetTokenization
 		}
-	case db.ReindexTypeChangeTokenization:
+	case db.ReindexTypeChangeTokenization,
+		db.ReindexTypeChangeTokenizationFilterable:
 		if bestPayload.TargetTokenization != "" {
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
@@ -1078,6 +1110,7 @@ func touchesSearchable(t db.ReindexMigrationType) bool {
 		db.ReindexTypeEnableSearchable:
 		return true
 	case db.ReindexTypeRepairFilterable,
+		db.ReindexTypeChangeTokenizationFilterable,
 		db.ReindexTypeEnableFilterable,
 		db.ReindexTypeEnableRangeable,
 		db.ReindexTypeRepairRangeable:
@@ -1095,6 +1128,7 @@ func touchesFilterable(t db.ReindexMigrationType) bool {
 	switch t {
 	case db.ReindexTypeRepairFilterable,
 		db.ReindexTypeChangeTokenization,
+		db.ReindexTypeChangeTokenizationFilterable,
 		db.ReindexTypeEnableFilterable:
 		return true
 	case db.ReindexTypeRepairSearchable,

@@ -275,6 +275,21 @@ func buildRecoveryTasks(
 				payload.Collection, payload.Collection,
 			),
 		}
+	case ReindexTypeChangeTokenizationFilterable:
+		if len(payload.Properties) != 1 {
+			return nil, fmt.Errorf("change-tokenization-filterable requires exactly one property")
+		}
+		if payload.TargetTokenization == "" {
+			return nil, fmt.Errorf("change-tokenization-filterable requires targetTokenization")
+		}
+		propName := payload.Properties[0]
+		raw = []*ShardReindexTaskGeneric{
+			NewRuntimeFilterableRetokenizeTask(
+				logger, schemaManager,
+				propName, payload.TargetTokenization,
+				payload.Collection, payload.Collection,
+			),
+		}
 	default:
 		return nil, fmt.Errorf("unknown migration type %q", payload.MigrationType)
 	}
