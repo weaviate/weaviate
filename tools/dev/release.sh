@@ -124,18 +124,25 @@ USAGE
   release.sh [--journal] [-y|--yes] [command] [args...]
 
 COMMANDS
-  (no command)                    Auto-detect branch and resume from last step.
+  (no command, or 'auto')         Auto-detect current git branch (main →
+                                  cut new stable; stable/vX.Y → next patch on
+                                  that train) and resume from the last step.
 
-  prepare    <ver>                Create prep branch, bump schema.json, run
-                                  prepare_release.sh, push branch, open PR.
+  prepare    <ver>                Create prep branch + delegate schema.json
+                                  bump, make deps, prepare_release.sh to
+                                  tools/dev/create_release.sh; then push the
+                                  branch and open the prepare-release PR.
 
-  qa         <ver>                Poll CI for docker preview tags, create QA
-                                  tracking issue, dispatch E2E + chaos matrix
-                                  via tools/dev/qa_pr.sh.
+  qa         <ver>                Dispatch the E2E + chaos QA matrix for the
+                                  prepare-release PR via tools/dev/qa_pr.sh
+                                  (which creates the QA tracking issue and
+                                  adds it to project board #28).
 
   monitor-qa <ver>                Poll the "Central CI View" project board every
                                   5 min (2 h cap) until E2E and Chaos settle.
                                   Exits 0 (passed), 1 (failed), 2 (timeout).
+                                  REQUIRES --journal (uses state file for run URLs
+                                  + result caching).
 
   finalize   <ver> [<pr#>]        Full post-merge flow: verify PR merged, push
                                   tag, create draft release, wait for Docker Hub
@@ -147,14 +154,21 @@ COMMANDS
                                     image   — check Docker Hub for release image
                                     publish — verify release published; mark done
 
-  status     <ver>                Human-readable summary of the state file:
-                                  PR, QA issue, docker tags, completed steps.
+  status     <ver>                Human-readable state summary: PR, QA issue,
+                                  E2E/Chaos URLs, tag + release. Reads the
+                                  journal file if --journal is on, otherwise
+                                  re-infers state from GitHub on each call.
 
-  reset      <ver>                Delete the state file for <ver> and start over.
+  reset      <ver>                Delete the journal file at
+                                  _local/release/v<ver>.json (no-op in stateless
+                                  mode — nothing on disk to remove).
 
-  reset-step <ver> <step>         Wipe a single step so it re-runs on the next
-                                  invocation. Useful for forcing QA re-dispatch:
+  reset-step <ver> <step>         Wipe a single step from the journal so it
+                                  re-runs on the next invocation. Useful for
+                                  forcing QA re-dispatch:
                                     reset-step 1.36.13 qa_dispatched
+                                  Requires a journal file (i.e. an earlier run
+                                  with --journal).
 
   journals   <clone-path>         List in-progress and completed releases found
                                   in <clone-path>/_local/release/.
@@ -210,22 +224,31 @@ ENVIRONMENT
   QA_PR_SH     Override path to qa_pr.sh (default: tools/dev/qa_pr.sh next to this script)
 
 EXAMPLES
-  # Start or resume the next patch on stable/v1.36:
+  # Start or resume the next patch on the current stable branch:
   cd /path/to/weaviate && bash tools/dev/release.sh
 
-  # Show what's been done for a release in flight:
-  bash tools/dev/release.sh status 1.36.13
+  # Same, but auto-approve every confirm prompt (re-run after aborts):
+  bash tools/dev/release.sh -y
 
-  # Force QA to re-dispatch without losing the rest of the state:
-  bash tools/dev/release.sh reset-step 1.36.13 qa_dispatched
-  bash tools/dev/release.sh qa 1.36.13
+  # Show what's been done for a release in flight (stateless inference):
+  bash tools/dev/release.sh status 1.37.3
+
+  # Same, but persist a journal so monitor-qa / reset-step work:
+  bash tools/dev/release.sh --journal status 1.37.3
+
+  # Poll QA until E2E + chaos settle (requires --journal):
+  bash tools/dev/release.sh --journal monitor-qa 1.37.3
+
+  # Force QA to re-dispatch without losing the rest of the journal:
+  bash tools/dev/release.sh --journal reset-step 1.37.3 qa_dispatched
+  bash tools/dev/release.sh --journal qa 1.37.3
 
   # Verify everything is in order before publishing:
-  bash tools/dev/release.sh verify finalize 1.36.13
+  bash tools/dev/release.sh verify finalize 1.37.3
 
   # Run a single finalize step (e.g. after manual tag push):
-  bash tools/dev/release.sh finalize tag 1.36.13
-  bash tools/dev/release.sh finalize publish 1.36.13
+  bash tools/dev/release.sh finalize tag 1.37.3
+  bash tools/dev/release.sh finalize publish 1.37.3
 HELP
 }
 
@@ -547,7 +570,10 @@ cmd_candidates() {
       | sed 's|.*origin/stable/v||' | sort -V | tail -3)
   while IFS= read -r xy; do
     [[ -z "$xy" ]] && continue
-    local latest; latest=$(git -C "$CLONE" tag --list "v${xy}.*" --sort=-v:refname | head -1)
+    # Ignore pre-release tags (v1.36.14-rc.1) when computing the next patch number —
+    # they confuse ${latest##*.} arithmetic and aren't release tags anyway.
+    local latest; latest=$(git -C "$CLONE" tag --list "v${xy}.*" --sort=-v:refname \
+        | grep -E "^v${xy//./\\.}\.[0-9]+$" | head -1)
     if [[ -n "$latest" ]]; then
       printf "v%s.%d  next patch on %s (latest: %s)\n" \
         "$xy" "$(( ${latest##*.} + 1 ))" "$xy" "$latest"
@@ -741,6 +767,14 @@ cmd_prepare() {
     local CURRENT; CURRENT="$(jq -r '.info.version' "$SPEC")"
     echo ">>> Delegating prepare core to tools/dev/create_release.sh"
     tools/dev/create_release.sh "${VERSION}"
+    # Verify the on-disk bump landed before recording state. create_release.sh
+    # is deterministic, but a stale checkout or jq failure would leave us
+    # claiming success on an unchanged schema.json.
+    local NEW_VER; NEW_VER=$(jq -r '.info.version' "$SPEC")
+    if [[ "$NEW_VER" != "$VERSION" ]]; then
+      echo "ERROR: schema.json bump failed — expected ${VERSION}, got ${NEW_VER}." >&2
+      exit 1
+    fi
     state_complete schema_bump from="$CURRENT" to="$VERSION"
     echo ""
     echo "    ⚠️  Tag v${VERSION} created LOCALLY. Do not push it yet."
@@ -809,17 +843,17 @@ cmd_qa() {
 
   confirm "Dispatch QA pipeline (e2e + chaos) for PR #${PR_NUMBER}?" || exit 1
   echo ">>> Step: Dispatching QA for PR #${PR_NUMBER} via tools/dev/qa_pr.sh"
-  bash "$QA_PR_SH" "$PR_NUMBER"
-  local rc=$?
-  if (( rc != 0 )); then
-    echo ">>> qa_pr.sh exited ${rc}; state not advanced." >&2
+  if ! bash "$QA_PR_SH" "$PR_NUMBER"; then
+    echo ">>> qa_pr.sh failed; state not advanced." >&2
     return 1
   fi
 
   # Look up the just-created QA tracking issue so cmd_status can surface its URL.
+  # Match the exact title qa_pr.sh emits ("Release: v<version>") to avoid
+  # collisions with older issues that merely mention the same version string.
   local QA_ISSUE_NUMBER QA_ISSUE_URL=""
   QA_ISSUE_NUMBER=$(gh issue list --repo weaviate/weaviate-qa \
-    --search "v${VERSION}" --state open --limit 1 \
+    --search "\"Release: v${VERSION}\" in:title" --state open --limit 1 \
     --json number --jq '.[0].number // empty' 2>/dev/null || true)
   [[ -n "$QA_ISSUE_NUMBER" ]] && \
     QA_ISSUE_URL="https://github.com/weaviate/weaviate-qa/issues/${QA_ISSUE_NUMBER}"
@@ -1002,11 +1036,20 @@ cmd_finalize() {
 # ─── cmd_monitor_qa ──────────────────────────────────────────────────────────
 
 cmd_monitor_qa() {
-  [[ -f "$STATE_FILE" ]] || { echo "ERROR: no state file for v${VERSION} — run qa step first." >&2; exit 1; }
+  if [[ -z "$STATE_FILE" ]]; then
+    cat >&2 <<EOF
+ERROR: monitor-qa requires --journal (state file holds the qa_dispatched marker
+       and the QA issue URL). Re-run with:
+         bash $0 --journal monitor-qa ${VERSION}
+EOF
+    exit 1
+  fi
+  [[ -f "$STATE_FILE" ]] || { echo "ERROR: no state file at ${STATE_FILE} for v${VERSION} — run 'qa ${VERSION}' first." >&2; exit 1; }
 
+  # Match the exact title qa_pr.sh emits to avoid colliding with older issues.
   local QA_ISSUE_NUMBER
   QA_ISSUE_NUMBER=$(gh issue list --repo weaviate/weaviate-qa \
-    --search "v${VERSION}" --state open \
+    --search "\"Release: v${VERSION}\" in:title" --state open \
     --json number --jq '.[0].number' 2>/dev/null || true)
   [[ -n "$QA_ISSUE_NUMBER" ]] || {
     echo "ERROR: no open QA issue for v${VERSION} in weaviate/weaviate-qa — dispatch QA first." >&2
@@ -1253,8 +1296,11 @@ cmd_auto() {
       echo ">>> Resuming in-progress release v${AUTO_VERSION}"
     else
       git fetch --tags -q 2>/dev/null || echo "    ⚠️  git fetch --tags failed; using local refs" >&2
+      # Ignore pre-release tags (v1.36.14-rc.1) — they confuse ${LATEST##*.} and
+      # aren't release tags. Match only the bare vX.Y.Z form.
       local LATEST; LATEST=$(git tag --list "v${AUTO_MAJOR}.${AUTO_MINOR}.*" \
-        --sort=-v:refname | head -1)
+        --sort=-v:refname \
+        | grep -E "^v${AUTO_MAJOR}\.${AUTO_MINOR}\.[0-9]+$" | head -1)
       local NEXT_PATCH; NEXT_PATCH=$([[ -n "$LATEST" ]] \
         && echo "$(( ${LATEST##*.} + 1 ))" || echo "0")
       AUTO_VERSION="${AUTO_MAJOR}.${AUTO_MINOR}.${NEXT_PATCH}"
