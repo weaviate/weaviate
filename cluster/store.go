@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -248,6 +249,13 @@ type Store struct {
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
 
+	// Close-and-replace notify: closed on each apply so
+	// WaitForAppliedIndex waiters wake without polling, then a fresh
+	// channel installed so a closed channel never re-fires. Mirrors
+	// changelog.wakeTailersLocked.
+	appliedNotifyMu sync.Mutex
+	appliedNotify   chan struct{}
+
 	// snapshotter is the snapshotter for the store
 	snapshotter fsm.Snapshotter
 
@@ -313,8 +321,10 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
-	// Wire op-state-apply → metaClass.ReplicationVersion bump so per-write
-	// WaitForUpdate fences stale-FSM coord routing.
+	// Entry-path fence against stale-FSM coord routing during a MOVE:
+	// every op-state apply bumps RV so leader-routed schema queries
+	// reflect it, and the per-write WaitForUpdate forces local FSMs
+	// to catch up before routing is built.
 	replicationManager.SetReplicationVersionBumper(schemaManager.BumpReplicationVersion)
 
 	return Store{
@@ -341,7 +351,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			Clock:            clockwork.NewRealClock(),
 			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
 		}),
-		metrics: newStoreMetrics(cfg.NodeID, reg),
+		metrics:       newStoreMetrics(cfg.NodeID, reg),
+		appliedNotify: make(chan struct{}),
 	}
 }
 
@@ -605,31 +616,50 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 	}
 }
 
-// WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
-func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
+// Blocks until the local FSM has applied at least version, ctx is
+// cancelled, or ConsistencyWaitTimeout elapses. Snapshots the notify
+// channel before re-checking lastAppliedIndex so any apply that lands
+// between the snapshot and the re-check is observed without sleeping.
+// period is retained for signature compatibility and ignored.
+func (st *Store) WaitForAppliedIndex(ctx context.Context, version uint64) error {
 	if idx := st.lastAppliedIndex.Load(); idx >= version {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, st.cfg.ConsistencyWaitTimeout)
 	defer cancel()
-	ticker := time.NewTicker(period)
-	defer ticker.Stop()
-	var idx uint64
 	for {
+		st.appliedNotifyMu.Lock()
+		notify := st.appliedNotify
+		st.appliedNotifyMu.Unlock()
+		if idx := st.lastAppliedIndex.Load(); idx >= version {
+			return nil
+		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
-		case <-ticker.C:
-			if idx = st.lastAppliedIndex.Load(); idx >= version {
-				return nil
-			} else {
-				st.log.WithFields(logrus.Fields{
-					"got":  idx,
-					"want": version,
-				}).Debug("wait for update version")
-			}
+			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, st.lastAppliedIndex.Load(), version)
+		case <-notify:
 		}
 	}
+}
+
+// Wakes WaitForAppliedIndex waiters. Waiters re-check after waking,
+// so over-signalling is safe.
+func (st *Store) signalApplied() {
+	st.appliedNotifyMu.Lock()
+	close(st.appliedNotify)
+	st.appliedNotify = make(chan struct{})
+	st.appliedNotifyMu.Unlock()
+}
+
+func (st *Store) Servers() ([]raft.Server, error) {
+	if st.raft == nil {
+		return nil, fmt.Errorf("raft not initialised")
+	}
+	cf := st.raft.GetConfiguration()
+	if err := cf.Error(); err != nil {
+		return nil, fmt.Errorf("get raft configuration: %w", err)
+	}
+	return cf.Configuration().Servers, nil
 }
 
 // IsLeader returns whether this node is the leader of the cluster
@@ -641,7 +671,7 @@ func (st *Store) IsLeader() bool {
 // for a raft log entry to be applied in the FSM Store before authorizing the read to continue.
 func (st *Store) SchemaReader() schema.SchemaReader {
 	f := func(ctx context.Context, version uint64) error {
-		return st.WaitForAppliedIndex(ctx, time.Millisecond*50, version)
+		return st.WaitForAppliedIndex(ctx, version)
 	}
 	return st.schemaManager.NewSchemaReaderWithWaitFunc(f)
 }

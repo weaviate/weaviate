@@ -401,21 +401,30 @@ func (_c *MockFSMUpdater_ReplicationStoreSchemaVersion_Call) RunAndReturn(run fu
 }
 
 // ReplicationUpdateReplicaOpStatus provides a mock function with given fields: ctx, id, state
-func (_m *MockFSMUpdater) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) error {
+func (_m *MockFSMUpdater) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) (uint64, error) {
 	ret := _m.Called(ctx, id, state)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationUpdateReplicaOpStatus")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uint64, api.ShardReplicationState) error); ok {
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, api.ShardReplicationState) (uint64, error)); ok {
+		return rf(ctx, id, state)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, api.ShardReplicationState) uint64); ok {
 		r0 = rf(ctx, id, state)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(uint64)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, uint64, api.ShardReplicationState) error); ok {
+		r1 = rf(ctx, id, state)
+	} else {
+		r1 = ret.Error(1)
 	}
 
-	return r0
+	return r0, r1
 }
 
 // MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationUpdateReplicaOpStatus'
@@ -438,12 +447,59 @@ func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) Run(run func(ctx
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) Return(_a0 error) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
+func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) RunAndReturn(run func(context.Context, uint64, api.ShardReplicationState) (uint64, error)) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// WaitForUpdateAllNodes provides a mock function with given fields: ctx, version
+func (_m *MockFSMUpdater) WaitForUpdateAllNodes(ctx context.Context, version uint64) error {
+	ret := _m.Called(ctx, version)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WaitForUpdateAllNodes")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) error); ok {
+		r0 = rf(ctx, version)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockFSMUpdater_WaitForUpdateAllNodes_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitForUpdateAllNodes'
+type MockFSMUpdater_WaitForUpdateAllNodes_Call struct {
+	*mock.Call
+}
+
+// WaitForUpdateAllNodes is a helper method to define mock.On call
+//   - ctx context.Context
+//   - version uint64
+func (_e *MockFSMUpdater_Expecter) WaitForUpdateAllNodes(ctx interface{}, version interface{}) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
+	return &MockFSMUpdater_WaitForUpdateAllNodes_Call{Call: _e.mock.On("WaitForUpdateAllNodes", ctx, version)}
+}
+
+func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) Run(run func(ctx context.Context, version uint64)) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) Return(_a0 error) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) RunAndReturn(run func(context.Context, uint64, api.ShardReplicationState) error) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
+func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) RunAndReturn(run func(context.Context, uint64) error) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
 	_c.Call.Return(run)
 	return _c
 }

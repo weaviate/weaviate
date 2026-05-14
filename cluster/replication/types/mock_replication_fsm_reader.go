@@ -140,6 +140,54 @@ func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) RunAndRetur
 	return _c
 }
 
+// IsLocalShardWritable provides a mock function with given fields: localNode, collection, shard
+func (_m *MockReplicationFSMReader) IsLocalShardWritable(localNode string, collection string, shard string) bool {
+	ret := _m.Called(localNode, collection, shard)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsLocalShardWritable")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string, string, string) bool); ok {
+		r0 = rf(localNode, collection, shard)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockReplicationFSMReader_IsLocalShardWritable_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsLocalShardWritable'
+type MockReplicationFSMReader_IsLocalShardWritable_Call struct {
+	*mock.Call
+}
+
+// IsLocalShardWritable is a helper method to define mock.On call
+//   - localNode string
+//   - collection string
+//   - shard string
+func (_e *MockReplicationFSMReader_Expecter) IsLocalShardWritable(localNode interface{}, collection interface{}, shard interface{}) *MockReplicationFSMReader_IsLocalShardWritable_Call {
+	return &MockReplicationFSMReader_IsLocalShardWritable_Call{Call: _e.mock.On("IsLocalShardWritable", localNode, collection, shard)}
+}
+
+func (_c *MockReplicationFSMReader_IsLocalShardWritable_Call) Run(run func(localNode string, collection string, shard string)) *MockReplicationFSMReader_IsLocalShardWritable_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_IsLocalShardWritable_Call) Return(_a0 bool) *MockReplicationFSMReader_IsLocalShardWritable_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_IsLocalShardWritable_Call) RunAndReturn(run func(string, string, string) bool) *MockReplicationFSMReader_IsLocalShardWritable_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockReplicationFSMReader creates a new instance of MockReplicationFSMReader. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockReplicationFSMReader(t interface {

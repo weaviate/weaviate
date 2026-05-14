@@ -37,9 +37,10 @@ type Manager struct {
 	schemaReader   schema.SchemaReader
 	nodeSelector   cluster.NodeSelector
 
-	// Bumps the per-class metaClass.ReplicationVersion from every op-mutating
-	// apply, so the per-write WaitForUpdate fence covers op-state transitions
-	// without a per-move RPC fan-out. Wired in store.NewFSM.
+	// Bumped on every op-state-mutating apply so a leader-routed
+	// schema query returns a version reflecting the latest op-state;
+	// the per-write WaitForUpdate fence then catches coords up before
+	// they build routing. nil is tolerated for tests.
 	bumpReplicationVersion func(class string, raftIndex uint64)
 }
 
@@ -52,8 +53,6 @@ func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelec
 	}
 }
 
-// SetReplicationVersionBumper wires the bump callback. nil is tolerated so
-// tests don't have to install a real SchemaManager just to exercise apply.
 func (m *Manager) SetReplicationVersionBumper(fn func(class string, raftIndex uint64)) {
 	m.bumpReplicationVersion = fn
 }
@@ -105,18 +104,38 @@ func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 			if err != nil {
 				return fmt.Errorf("failed to get op uuid from id %d: %w", req.Id, err)
 			}
-			class, err := m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
+			if err := m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
 				Uuid: uuid,
-			})
-			if err != nil {
+			}); err != nil {
 				return err
 			}
-			m.bump(class, c.Version)
+			if class, ok := m.opCollectionByUUID(uuid); ok {
+				m.bump(class, c.Version)
+			}
 			return nil
 		}
 		return err
 	}
 	return nil
+}
+
+// Looks up the source collection for an op so the bump callback knows
+// which class's RV to advance. Returns "" + false if the op isn't in
+// the FSM — the caller should treat this as "no bump needed".
+func (m *Manager) opCollectionByUUID(uuid strfmt.UUID) (string, bool) {
+	op, ok := m.replicationFSM.GetOpByUuid(uuid)
+	if !ok {
+		return "", false
+	}
+	return op.Op.SourceShard.CollectionId, true
+}
+
+func (m *Manager) opCollectionByID(id uint64) (string, bool) {
+	op, ok := m.replicationFSM.GetOpById(id)
+	if !ok {
+		return "", false
+	}
+	return op.Op.SourceShard.CollectionId, true
 }
 
 func (m *Manager) GetReplicationOpUUIDFromId(id uint64) (strfmt.UUID, error) {
@@ -129,11 +148,12 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	class, err := m.replicationFSM.UpdateReplicationOpStatus(req)
-	if err != nil {
+	if err := m.replicationFSM.UpdateReplicationOpStatus(req); err != nil {
 		return err
 	}
-	m.bump(class, c.Version)
+	if class, ok := m.opCollectionByID(req.Id); ok {
+		m.bump(class, c.Version)
+	}
 	return nil
 }
 
@@ -552,12 +572,12 @@ func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
-	class, err := m.replicationFSM.CancelReplication(req)
-	if err != nil {
+	if err := m.replicationFSM.CancelReplication(req); err != nil {
 		return err
 	}
-	m.bump(class, c.Version)
+	if class, ok := m.opCollectionByUUID(req.Uuid); ok {
+		m.bump(class, c.Version)
+	}
 	return nil
 }
 
@@ -566,12 +586,12 @@ func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
-	class, err := m.replicationFSM.DeleteReplication(req)
-	if err != nil {
+	if err := m.replicationFSM.DeleteReplication(req); err != nil {
 		return err
 	}
-	m.bump(class, c.Version)
+	if class, ok := m.opCollectionByUUID(req.Uuid); ok {
+		m.bump(class, c.Version)
+	}
 	return nil
 }
 

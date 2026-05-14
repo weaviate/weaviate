@@ -66,13 +66,13 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			Times(1)
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-			Return(nil)
+			Return(uint64(0), nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
-			Return(nil)
+			Return(uint64(0), nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
-			Return(nil)
+			Return(uint64(0), nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(opId)).
 			Return(uint64(0), nil)
@@ -217,7 +217,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			Times(1)
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-			Return(nil)
+			Return(uint64(0), nil)
 		mockReplicaCopier.EXPECT().
 			CopyReplicaFiles(
 				mock.Anything,
@@ -360,13 +360,13 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				Times(1)
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-				Return(nil)
+				Return(uint64(0), nil)
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
-				Return(nil)
+				Return(uint64(0), nil)
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
-				Return(nil)
+				Return(uint64(0), nil)
 			mockReplicaCopier.EXPECT().
 				CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
@@ -658,13 +658,13 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					Times(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.HYDRATING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.FINALIZING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.READY).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockReplicaCopier.EXPECT().
 					CopyReplicaFiles(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
 					Return(nil)
@@ -1126,7 +1126,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 		Return(api.READY, nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
-		Return(nil)
+		Return(uint64(0), nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)
@@ -1260,7 +1260,7 @@ func TestConsumerOpSkip(t *testing.T) {
 		Return(nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
-		Return(nil)
+		Return(uint64(0), nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)

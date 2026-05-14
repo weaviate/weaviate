@@ -374,6 +374,17 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	return readOk, writeOk
 }
 
+// IsLocalShardWritable is the source-side PREPARE fence: false only when the
+// local node is the SOURCE of an op that has reached DEHYDRATING. Targets
+// always pass — a coord routing a PREPARE here has a fresher view than ours,
+// and "shard not ready" belongs to the storage layer, not the FSM filter.
+func (s *ShardReplicationFSM) IsLocalShardWritable(localNode, collection, shard string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	_, writeOk := s.filterOneReplicaAsSourceReadWrite(localNode, collection, shard)
+	return writeOk
+}
+
 // filterOneReplicaAsSourceReadWrite returns a tuple of boolean (found, readOk, writeOk)
 // if found is true it means there's a source replication op for that replica and readOk and writeOk should be considered
 func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, collection string, shard string) (bool, bool) {

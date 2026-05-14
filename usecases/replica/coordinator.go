@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -137,8 +138,18 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 		defer close(resChan)
 		actives := make([]Result[string], 0, level) // cache for active replicas
 		broadcastErrors := make([]string, 0, len(replicas)-level)
+		// Surface routeStaleErr through the abort so pushWithRouteStaleRetry
+		// can errors.As-detect and rebuild routing. One source per shard
+		// (single-MOVE invariant) ⇒ at most one emitter per broadcast.
+		var staleErr error
 		for r := range prepare() {
-			if r.Err != nil { // connection error
+			if r.Err != nil { // connection error or PREPARE rejection
+				if staleErr == nil {
+					var rs *routeStaleErr
+					if errors.As(r.Err, &rs) {
+						staleErr = r.Err
+					}
+				}
 				c.log.WithField("op", "broadcast").Warn(r.Err)
 				broadcastErrors = append(broadcastErrors, fmt.Errorf("replica %s; %w", r.Value, r.Err).Error())
 				continue
@@ -163,7 +174,11 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
 			errs := fmt.Sprintf("errors: %s", strings.Join(broadcastErrors, ", "))
-			resChan <- Result[string]{Err: fmt.Errorf("%s; broadcast: %w", errs, ErrReplicas)}
+			if staleErr != nil {
+				resChan <- Result[string]{Err: fmt.Errorf("%s; broadcast: %w: %w", errs, ErrReplicas, staleErr)}
+			} else {
+				resChan <- Result[string]{Err: fmt.Errorf("%s; broadcast: %w", errs, ErrReplicas)}
+			}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)

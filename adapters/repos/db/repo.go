@@ -111,6 +111,10 @@ type DB struct {
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
+	// Returns this node's RAFT lastAppliedIndex. Populated into
+	// StatusRouteStale rejection responses so the coordinator's retry
+	// can wait for its local FSM to catch up before rebuilding routing.
+	raftAppliedIndex func() uint64
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
@@ -519,6 +523,10 @@ func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {
 
 func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicationFSM) {
 	db.replicationFSM = replicationFsm
+}
+
+func (db *DB) SetRaftAppliedIndex(f func() uint64) {
+	db.raftAppliedIndex = f
 }
 
 func (db *DB) SetBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) {

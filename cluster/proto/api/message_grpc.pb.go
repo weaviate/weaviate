@@ -21,11 +21,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ClusterService_RemovePeer_FullMethodName = "/weaviate.internal.cluster.ClusterService/RemovePeer"
-	ClusterService_JoinPeer_FullMethodName   = "/weaviate.internal.cluster.ClusterService/JoinPeer"
-	ClusterService_NotifyPeer_FullMethodName = "/weaviate.internal.cluster.ClusterService/NotifyPeer"
-	ClusterService_Apply_FullMethodName      = "/weaviate.internal.cluster.ClusterService/Apply"
-	ClusterService_Query_FullMethodName      = "/weaviate.internal.cluster.ClusterService/Query"
+	ClusterService_RemovePeer_FullMethodName          = "/weaviate.internal.cluster.ClusterService/RemovePeer"
+	ClusterService_JoinPeer_FullMethodName            = "/weaviate.internal.cluster.ClusterService/JoinPeer"
+	ClusterService_NotifyPeer_FullMethodName          = "/weaviate.internal.cluster.ClusterService/NotifyPeer"
+	ClusterService_Apply_FullMethodName               = "/weaviate.internal.cluster.ClusterService/Apply"
+	ClusterService_Query_FullMethodName               = "/weaviate.internal.cluster.ClusterService/Query"
+	ClusterService_WaitForAppliedIndex_FullMethodName = "/weaviate.internal.cluster.ClusterService/WaitForAppliedIndex"
 )
 
 // ClusterServiceClient is the client API for ClusterService service.
@@ -37,6 +38,10 @@ type ClusterServiceClient interface {
 	NotifyPeer(ctx context.Context, in *NotifyPeerRequest, opts ...grpc.CallOption) (*NotifyPeerResponse, error)
 	Apply(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
 	Query(ctx context.Context, in *QueryRequest, opts ...grpc.CallOption) (*QueryResponse, error)
+	// Asks a peer to block until its local FSM has applied at least the
+	// given index — converges all peers on a freshly-committed state
+	// change before irreversible follow-on work.
+	WaitForAppliedIndex(ctx context.Context, in *WaitForAppliedIndexRequest, opts ...grpc.CallOption) (*WaitForAppliedIndexResponse, error)
 }
 
 type clusterServiceClient struct {
@@ -97,6 +102,16 @@ func (c *clusterServiceClient) Query(ctx context.Context, in *QueryRequest, opts
 	return out, nil
 }
 
+func (c *clusterServiceClient) WaitForAppliedIndex(ctx context.Context, in *WaitForAppliedIndexRequest, opts ...grpc.CallOption) (*WaitForAppliedIndexResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WaitForAppliedIndexResponse)
+	err := c.cc.Invoke(ctx, ClusterService_WaitForAppliedIndex_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterServiceServer is the server API for ClusterService service.
 // All implementations should embed UnimplementedClusterServiceServer
 // for forward compatibility.
@@ -106,6 +121,10 @@ type ClusterServiceServer interface {
 	NotifyPeer(context.Context, *NotifyPeerRequest) (*NotifyPeerResponse, error)
 	Apply(context.Context, *ApplyRequest) (*ApplyResponse, error)
 	Query(context.Context, *QueryRequest) (*QueryResponse, error)
+	// Asks a peer to block until its local FSM has applied at least the
+	// given index — converges all peers on a freshly-committed state
+	// change before irreversible follow-on work.
+	WaitForAppliedIndex(context.Context, *WaitForAppliedIndexRequest) (*WaitForAppliedIndexResponse, error)
 }
 
 // UnimplementedClusterServiceServer should be embedded to have
@@ -129,6 +148,9 @@ func (UnimplementedClusterServiceServer) Apply(context.Context, *ApplyRequest) (
 }
 func (UnimplementedClusterServiceServer) Query(context.Context, *QueryRequest) (*QueryResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Query not implemented")
+}
+func (UnimplementedClusterServiceServer) WaitForAppliedIndex(context.Context, *WaitForAppliedIndexRequest) (*WaitForAppliedIndexResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method WaitForAppliedIndex not implemented")
 }
 func (UnimplementedClusterServiceServer) testEmbeddedByValue() {}
 
@@ -240,6 +262,24 @@ func _ClusterService_Query_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterService_WaitForAppliedIndex_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WaitForAppliedIndexRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterServiceServer).WaitForAppliedIndex(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterService_WaitForAppliedIndex_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterServiceServer).WaitForAppliedIndex(ctx, req.(*WaitForAppliedIndexRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterService_ServiceDesc is the grpc.ServiceDesc for ClusterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +306,10 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Query",
 			Handler:    _ClusterService_Query_Handler,
+		},
+		{
+			MethodName: "WaitForAppliedIndex",
+			Handler:    _ClusterService_WaitForAppliedIndex_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

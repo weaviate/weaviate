@@ -704,6 +704,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
+	repo.SetRaftAppliedIndex(appState.ClusterService.Raft.AppliedIndex)
 	repo.SetSchemaGetter(appState.SchemaManager)
 	repo.SetTenantsActivityManager(appState.SchemaManager)
 

@@ -488,8 +488,8 @@ func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica
 	return meta.AddReplicaToShard(v, shard, replica)
 }
 
-// bumpReplicationVersion silently no-ops on unknown classes: a node holding
-// no replica of the class has no coord routing decisions to fence.
+// No-ops on unknown classes: a node holding no replica of the class
+// has no coord routing decisions to fence.
 func (s *schema) bumpReplicationVersion(class string, v uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

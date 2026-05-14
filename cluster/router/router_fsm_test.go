@@ -179,7 +179,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				TargetNode:       "node2",
 				Uuid:             "00000000-0000-0000-0000-000000000000",
 			})
-			_, err := shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+			err := shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Id:      1,
 				State:   testCase.opStatus,
@@ -347,7 +347,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				TargetNode:       "node2",
 				Uuid:             "00000000-0000-0000-0000-000000000000",
 			})
-			_, err := shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+			err := shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Id:      1,
 				State:   testCase.opStatus,

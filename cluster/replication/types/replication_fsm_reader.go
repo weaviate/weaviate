@@ -18,4 +18,9 @@ type ReplicationFSMReader interface {
 	// FilterOneShardReplicasWrite returns the write replicas for a given shard
 	// It returns a tuple of (writeReplicas, additionalWriteReplicas)
 	FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
+	// Source-side fence at PREPARE time: false when the local node is
+	// the source of an op in DEHYDRATING, so the receiver can reject
+	// with StatusRouteStale and force the coordinator to refresh
+	// routing.
+	IsLocalShardWritable(localNode, collection, shard string) bool
 }

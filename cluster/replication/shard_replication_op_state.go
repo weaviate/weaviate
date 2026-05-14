@@ -91,6 +91,11 @@ type ShardReplicationOpStatus struct {
 	// By communicating it with remote nodes, we can ensure that they will wait for the schema version to be the same or greater before proceeding with the operation.
 	SchemaVersion uint64
 
+	// RAFT index of the most recent op-state apply. In-memory only;
+	// a consumer recovering from snapshot skips the fan-out rather
+	// than blocking on an index it doesn't know.
+	LastStateChangeVersion uint64
+
 	// Current is the current state of the shard replication operation
 	Current State
 

@@ -21,7 +21,9 @@ type FSMUpdater interface {
 	ReplicationAddReplicaToShard(ctx context.Context, collection string, shard string, nodeId string, opId uint64) (uint64, error)
 	DeleteReplicaFromShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error)
 	SyncShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error)
-	ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) error
+	// Returns the apply's RAFT index so the caller can fan out a
+	// WaitForUpdateAllNodes on it.
+	ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) (uint64, error)
 	ReplicationRegisterError(ctx context.Context, id uint64, errorToRegister string) error
 	ReplicationRemoveReplicaOp(ctx context.Context, id uint64) error
 	ReplicationCancellationComplete(ctx context.Context, id uint64) error
@@ -29,4 +31,7 @@ type FSMUpdater interface {
 	ReplicationStoreSchemaVersion(ctx context.Context, id uint64, schemaVersion uint64) error
 	UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error)
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
+	// Blocks until every peer in the RAFT configuration has applied at
+	// least version. Convergence checkpoint before irreversible work.
+	WaitForUpdateAllNodes(ctx context.Context, version uint64) error
 }

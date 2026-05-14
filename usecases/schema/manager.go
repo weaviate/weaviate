@@ -278,7 +278,7 @@ func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, te
 		return status, version, err
 	}
 
-	return m.activateTenantIfInactive(ctx, class, status)
+	return m.activateTenantIfInactive(ctx, class, status, version)
 }
 
 // OptimisticTenantStatus tries to query the local state first. It is
@@ -334,7 +334,7 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 }
 
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
-	status map[string]string,
+	status map[string]string, queriedVersion uint64,
 ) (map[string]string, uint64, error) {
 	req := &api.UpdateTenantsRequest{
 		Tenants:               make([]*api.Tenant, 0, len(status)),
@@ -349,8 +349,10 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	}
 
 	if len(req.Tenants) == 0 {
-		// nothing to do, all tenants are already HOT
-		return status, 0, nil
+		// Already HOT — return the leader-queried version so the
+		// caller's WaitForUpdate fences against op-state changes (RV)
+		// the local FSM may not have applied yet.
+		return status, queriedVersion, nil
 	}
 
 	schemaVersion, err := m.schemaManager.UpdateTenants(ctx, class, req)

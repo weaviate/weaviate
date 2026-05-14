@@ -2011,6 +2011,95 @@ func (x *UpdateDistributedTaskUnitProgressRequest) GetUpdatedAtUnixMillis() int6
 	return 0
 }
 
+type WaitForAppliedIndexRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       uint64                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitForAppliedIndexRequest) Reset() {
+	*x = WaitForAppliedIndexRequest{}
+	mi := &file_api_message_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitForAppliedIndexRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitForAppliedIndexRequest) ProtoMessage() {}
+
+func (x *WaitForAppliedIndexRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitForAppliedIndexRequest.ProtoReflect.Descriptor instead.
+func (*WaitForAppliedIndexRequest) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *WaitForAppliedIndexRequest) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+type WaitForAppliedIndexResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Informational — the contract is applied >= requested version when err == nil.
+	Applied       uint64 `protobuf:"varint,1,opt,name=applied,proto3" json:"applied,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitForAppliedIndexResponse) Reset() {
+	*x = WaitForAppliedIndexResponse{}
+	mi := &file_api_message_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitForAppliedIndexResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitForAppliedIndexResponse) ProtoMessage() {}
+
+func (x *WaitForAppliedIndexResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_message_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitForAppliedIndexResponse.ProtoReflect.Descriptor instead.
+func (*WaitForAppliedIndexResponse) Descriptor() ([]byte, []int) {
+	return file_api_message_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *WaitForAppliedIndexResponse) GetApplied() uint64 {
+	if x != nil {
+		return x.Applied
+	}
+	return 0
+}
+
 var File_api_message_proto protoreflect.FileDescriptor
 
 const file_api_message_proto_rawDesc = "" +
@@ -2220,7 +2309,11 @@ const file_api_message_proto_rawDesc = "" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x17\n" +
 	"\aunit_id\x18\x05 \x01(\tR\x06unitId\x12\x1a\n" +
 	"\bprogress\x18\x06 \x01(\x02R\bprogress\x123\n" +
-	"\x16updated_at_unix_millis\x18\a \x01(\x03R\x13updatedAtUnixMillis2\x8d\x04\n" +
+	"\x16updated_at_unix_millis\x18\a \x01(\x03R\x13updatedAtUnixMillis\"6\n" +
+	"\x1aWaitForAppliedIndexRequest\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\x04R\aversion\"7\n" +
+	"\x1bWaitForAppliedIndexResponse\x12\x18\n" +
+	"\aapplied\x18\x01 \x01(\x04R\aapplied2\x96\x05\n" +
 	"\x0eClusterService\x12k\n" +
 	"\n" +
 	"RemovePeer\x12,.weaviate.internal.cluster.RemovePeerRequest\x1a-.weaviate.internal.cluster.RemovePeerResponse\"\x00\x12e\n" +
@@ -2228,7 +2321,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\n" +
 	"NotifyPeer\x12,.weaviate.internal.cluster.NotifyPeerRequest\x1a-.weaviate.internal.cluster.NotifyPeerResponse\"\x00\x12\\\n" +
 	"\x05Apply\x12'.weaviate.internal.cluster.ApplyRequest\x1a(.weaviate.internal.cluster.ApplyResponse\"\x00\x12\\\n" +
-	"\x05Query\x12'.weaviate.internal.cluster.QueryRequest\x1a(.weaviate.internal.cluster.QueryResponse\"\x00B\xe1\x01\n" +
+	"\x05Query\x12'.weaviate.internal.cluster.QueryRequest\x1a(.weaviate.internal.cluster.QueryResponse\"\x00\x12\x86\x01\n" +
+	"\x13WaitForAppliedIndex\x125.weaviate.internal.cluster.WaitForAppliedIndexRequest\x1a6.weaviate.internal.cluster.WaitForAppliedIndexResponse\"\x00B\xe1\x01\n" +
 	"\x1dcom.weaviate.internal.clusterB\fMessageProtoP\x01Z,github.com/weaviate/weaviate/cloud/proto/api\xa2\x02\x03WIC\xaa\x02\x19Weaviate.Internal.Cluster\xca\x02\x19Weaviate\\Internal\\Cluster\xe2\x02%Weaviate\\Internal\\Cluster\\GPBMetadata\xea\x02\x1bWeaviate::Internal::Clusterb\x06proto3"
 
 var (
@@ -2244,7 +2338,7 @@ func file_api_message_proto_rawDescGZIP() []byte {
 }
 
 var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_api_message_proto_goTypes = []any{
 	(ApplyRequest_Type)(0),                             // 0: weaviate.internal.cluster.ApplyRequest.Type
 	(QueryRequest_Type)(0),                             // 1: weaviate.internal.cluster.QueryRequest.Type
@@ -2277,6 +2371,8 @@ var file_api_message_proto_goTypes = []any{
 	(*DeleteAliasRequest)(nil),                         // 28: weaviate.internal.cluster.DeleteAliasRequest
 	(*RecordDistributedTaskUnitCompletionRequest)(nil), // 29: weaviate.internal.cluster.RecordDistributedTaskUnitCompletionRequest
 	(*UpdateDistributedTaskUnitProgressRequest)(nil),   // 30: weaviate.internal.cluster.UpdateDistributedTaskUnitProgressRequest
+	(*WaitForAppliedIndexRequest)(nil),                 // 31: weaviate.internal.cluster.WaitForAppliedIndexRequest
+	(*WaitForAppliedIndexResponse)(nil),                // 32: weaviate.internal.cluster.WaitForAppliedIndexResponse
 }
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
@@ -2293,13 +2389,15 @@ var file_api_message_proto_depIdxs = []int32{
 	8,  // 11: weaviate.internal.cluster.ClusterService.NotifyPeer:input_type -> weaviate.internal.cluster.NotifyPeerRequest
 	10, // 12: weaviate.internal.cluster.ClusterService.Apply:input_type -> weaviate.internal.cluster.ApplyRequest
 	12, // 13: weaviate.internal.cluster.ClusterService.Query:input_type -> weaviate.internal.cluster.QueryRequest
-	7,  // 14: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
-	5,  // 15: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
-	9,  // 16: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
-	11, // 17: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
-	13, // 18: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
-	14, // [14:19] is the sub-list for method output_type
-	9,  // [9:14] is the sub-list for method input_type
+	31, // 14: weaviate.internal.cluster.ClusterService.WaitForAppliedIndex:input_type -> weaviate.internal.cluster.WaitForAppliedIndexRequest
+	7,  // 15: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
+	5,  // 16: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
+	9,  // 17: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
+	11, // 18: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
+	13, // 19: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
+	32, // 20: weaviate.internal.cluster.ClusterService.WaitForAppliedIndex:output_type -> weaviate.internal.cluster.WaitForAppliedIndexResponse
+	15, // [15:21] is the sub-list for method output_type
+	9,  // [9:15] is the sub-list for method input_type
 	9,  // [9:9] is the sub-list for extension type_name
 	9,  // [9:9] is the sub-list for extension extendee
 	0,  // [0:9] is the sub-list for field type_name
@@ -2317,7 +2415,7 @@ func file_api_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_message_proto_rawDesc), len(file_api_message_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   27,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

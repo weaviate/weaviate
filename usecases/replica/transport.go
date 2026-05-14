@@ -59,13 +59,21 @@ const (
 	StatusPreconditionFailed
 	StatusReadOnly
 	StatusObjectNotFound
+	// Replica refused the write because its local view no longer lists
+	// it as a valid write target — coords must refresh routing and
+	// re-issue. Generic name: reusable for future shard-state transitions.
+	StatusRouteStale
 )
 
 // Error reports error happening during replication
 type Error struct {
 	Code StatusCode `json:"code"`
 	Msg  string     `json:"msg,omitempty"`
-	Err  error      `json:"-"`
+	// StatusRouteStale only: source's lastAppliedIndex at rejection. The
+	// coord's retry waits for its local FSM to reach this before rebuilding
+	// routing, else it routes to the same draining replica again.
+	Applied uint64 `json:"applied,omitempty"`
+	Err     error  `json:"-"`
 }
 
 // Empty checks whether e is an empty error which equivalent to e == nil
@@ -75,11 +83,11 @@ func (e *Error) Empty() bool {
 
 // NewError create new replication error
 func NewError(code StatusCode, msg string) *Error {
-	return &Error{code, msg, nil}
+	return &Error{Code: code, Msg: msg}
 }
 
 func (e *Error) Clone() *Error {
-	return &Error{Code: e.Code, Msg: e.Msg, Err: e.Err}
+	return &Error{Code: e.Code, Msg: e.Msg, Applied: e.Applied, Err: e.Err}
 }
 
 // Unwrap underlying error
@@ -117,6 +125,8 @@ func StatusText(code StatusCode) string {
 		return "read only"
 	case StatusObjectNotFound:
 		return "object not found"
+	case StatusRouteStale:
+		return "route stale"
 	default:
 		return ""
 	}

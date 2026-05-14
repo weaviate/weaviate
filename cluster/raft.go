@@ -13,6 +13,8 @@ package cluster
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -20,6 +22,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -39,6 +42,7 @@ type client interface {
 	Query(ctx context.Context, leaderAddr string, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 	Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error)
 	Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error)
+	WaitForAppliedIndex(ctx context.Context, peerRaftAddr string, req *cmd.WaitForAppliedIndexRequest) (*cmd.WaitForAppliedIndexResponse, error)
 }
 
 func NewRaft(selector cluster.NodeSelector, store *Store, client client) *Raft {
@@ -72,7 +76,64 @@ func (s *Raft) WaitUntilDBRestored(ctx context.Context, period time.Duration, cl
 }
 
 func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
-	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
+	return s.store.WaitForAppliedIndex(ctx, schemaVersion)
+}
+
+func (s *Raft) AppliedIndex() uint64 {
+	return s.store.lastAppliedIndex.Load()
+}
+
+func (s *Raft) WaitForAppliedIndex(ctx context.Context, version uint64) (uint64, error) {
+	if err := s.store.WaitForAppliedIndex(ctx, version); err != nil {
+		return s.store.lastAppliedIndex.Load(), err
+	}
+	return s.store.lastAppliedIndex.Load(), nil
+}
+
+// WaitForUpdateAllNodes blocks until every RAFT peer (including local) has
+// applied version. Local wait skips the self-dial. Including local is
+// load-bearing: the caller (replication consumer post-leader-bump) has not
+// necessarily waited for its own apply, and a stale local FSM lets parallel
+// writes routed here build stale routing plans.
+func (s *Raft) WaitForUpdateAllNodes(ctx context.Context, version uint64) error {
+	servers, err := s.store.Servers()
+	if err != nil {
+		return fmt.Errorf("list servers for wait-all-nodes: %w", err)
+	}
+
+	localID := s.store.cfg.NodeID
+	type result struct {
+		peer string
+		err  error
+	}
+	resultsCh := make(chan result, len(servers))
+
+	var wg sync.WaitGroup
+	for _, srv := range servers {
+		srvID := string(srv.ID)
+		peerAddr := string(srv.Address)
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			var callErr error
+			if srvID == localID {
+				_, callErr = s.WaitForAppliedIndex(ctx, version)
+			} else {
+				_, callErr = s.cl.WaitForAppliedIndex(ctx, peerAddr, &cmd.WaitForAppliedIndexRequest{Version: version})
+			}
+			resultsCh <- result{peer: srvID, err: callErr}
+		}, s.log)
+	}
+	wg.Wait()
+	close(resultsCh)
+
+	var firstErr error
+	for r := range resultsCh {
+		if r.err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("peer %q wait for index %d: %w", r.peer, version, r.err)
+		}
+	}
+	return firstErr
 }
 
 func (s *Raft) NodeSelector() cluster.NodeSelector {

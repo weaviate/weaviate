@@ -44,7 +44,7 @@ func driveToState(t *testing.T, fsm *ShardReplicationFSM, opID uint64, state api
 	if state == api.REGISTERED {
 		return
 	}
-	_, err := fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+	err := fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Id:      opID,
 		State:   state,
@@ -114,7 +114,7 @@ func TestShardReplicationFSM_CancelReplication(t *testing.T) {
 				require.NoError(t, fsm.SetUnCancellable(opID))
 			}
 
-			_, err := fsm.CancelReplication(&api.ReplicationCancelRequest{
+			err := fsm.CancelReplication(&api.ReplicationCancelRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Uuid:    uuid,
 			})
@@ -134,7 +134,7 @@ func TestShardReplicationFSM_CancelReplication(t *testing.T) {
 
 	t.Run("unknown UUID wraps ErrReplicationOperationNotFound", func(t *testing.T) {
 		fsm := NewShardReplicationFSM(prometheus.NewRegistry())
-		_, err := fsm.CancelReplication(&api.ReplicationCancelRequest{
+		err := fsm.CancelReplication(&api.ReplicationCancelRequest{
 			Version: api.ReplicationCommandVersionV0,
 			Uuid:    strfmt.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 		})
@@ -205,7 +205,7 @@ func TestShardReplicationFSM_DeleteReplication(t *testing.T) {
 				require.NoError(t, fsm.SetUnCancellable(opID))
 			}
 
-			_, err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
+			err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Uuid:    uuid,
 			})
@@ -225,7 +225,7 @@ func TestShardReplicationFSM_DeleteReplication(t *testing.T) {
 
 	t.Run("unknown UUID wraps ErrReplicationOperationNotFound", func(t *testing.T) {
 		fsm := NewShardReplicationFSM(prometheus.NewRegistry())
-		_, err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
+		err := fsm.DeleteReplication(&api.ReplicationDeleteRequest{
 			Version: api.ReplicationCommandVersionV0,
 			Uuid:    strfmt.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 		})

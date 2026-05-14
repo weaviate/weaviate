@@ -118,23 +118,21 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	return nil
 }
 
-// UpdateReplicationOpStatus returns the op's collection so the caller can
-// bump the per-class ReplicationVersion under the same apply.
-func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdateOpStateRequest) (string, error) {
+func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdateOpStateRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
 	op, ok := s.opsById[c.Id]
 	if !ok {
-		return "", fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
 	}
 	status, ok := s.statusById[op.ID]
 	if !ok {
-		return "", fmt.Errorf("could not find op status for op %d", c.Id)
+		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
 
 	if status.GetCurrentState() == api.CANCELLED {
-		return "", fmt.Errorf("cannot update op %d state, it is already cancelled", c.Id)
+		return fmt.Errorf("cannot update op %d state, it is already cancelled", c.Id)
 	}
 
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
@@ -142,7 +140,7 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	s.statusById[op.ID] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
-	return op.SourceShard.CollectionId, nil
+	return nil
 }
 
 func (s *ShardReplicationFSM) StoreSchemaVersion(c *api.ReplicationStoreSchemaVersionRequest) error {
@@ -184,64 +182,60 @@ func (s *ShardReplicationFSM) GetReplicationOpUUIDFromId(id uint64) (strfmt.UUID
 	return op.UUID, nil
 }
 
-// CancelReplication returns the op's collection for the caller's
-// ReplicationVersion bump (see UpdateReplicationOpStatus).
-func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest) (string, error) {
+func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
 	id, ok := s.idsByUuid[c.Uuid]
 	if !ok {
-		return "", fmt.Errorf("%w: %s", types.ErrReplicationOperationNotFound, c.Uuid)
+		return fmt.Errorf("%w: %s", types.ErrReplicationOperationNotFound, c.Uuid)
 	}
 	op, ok := s.opsById[id]
 	if !ok {
-		return "", fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
 	status, ok := s.statusById[op.ID]
 	if !ok {
-		return "", fmt.Errorf("could not find op status for op %d", id)
+		return fmt.Errorf("could not find op status for op %d", id)
 	}
 
 	// Only allow to cancel ops if they are cancellable (before being added to sharding state)
 	if status.UnCancellable {
-		return "", types.ErrCancellationImpossible
+		return types.ErrCancellationImpossible
 	}
 
 	status.TriggerCancellation()
 	s.statusById[op.ID] = status
 
-	return op.SourceShard.CollectionId, nil
+	return nil
 }
 
-// DeleteReplication returns the op's collection for the caller's
-// ReplicationVersion bump (see UpdateReplicationOpStatus).
-func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest) (string, error) {
+func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
 	id, ok := s.idsByUuid[c.Uuid]
 	if !ok {
-		return "", fmt.Errorf("could not find op %s: %w", c.Uuid, types.ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %s: %w", c.Uuid, types.ErrReplicationOperationNotFound)
 	}
 	op, ok := s.opsById[id]
 	if !ok {
-		return "", fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
 	status, ok := s.statusById[op.ID]
 	if !ok {
-		return "", fmt.Errorf("could not find op status for op %d", id)
+		return fmt.Errorf("could not find op status for op %d", id)
 	}
 
 	// Only allow to delete ops if they are cancellable (before being added to sharding state) and not READY
 	if status.UnCancellable && status.GetCurrentState() != api.READY {
-		return "", types.ErrDeletionImpossible
+		return types.ErrDeletionImpossible
 	}
 
 	status.TriggerDeletion()
 	s.statusById[op.ID] = status
 
-	return op.SourceShard.CollectionId, nil
+	return nil
 }
 
 func (s *ShardReplicationFSM) DeleteAllReplications(c *api.ReplicationDeleteAllRequest) error {

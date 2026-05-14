@@ -46,9 +46,8 @@ type OpConsumer interface {
 // DELETED is a constant representing a temporary deleted state of a replication operation that should not be stored in the FSM.
 const DELETED = "deleted"
 
-// finalizeAndTail seals the source CCL while an uncapped tailer drains it
-// onto target. Idempotent: on retry after StopChangeCapture, both RPCs see
-// "log gone" and we treat that as already-drained.
+// finalizeAndTail seals the source CCL while an uncapped tailer drains it onto
+// target. Idempotent on retry: "log gone" from either RPC means already-drained.
 func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Entry, src, coll, shard, opID string) error {
 	tailCtx, cancelTail := context.WithCancel(ctx)
 	defer cancelTail()
@@ -81,8 +80,8 @@ func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Ent
 	return nil
 }
 
-// isCCLAlreadyGone matches the gRPC-wrapped "log gone" errors source emits
-// after StopChangeCapture — the already-drained signal on retry.
+// isCCLAlreadyGone matches the "log gone" signal source emits after
+// StopChangeCapture — the already-drained marker on retry.
 func isCCLAlreadyGone(err error) bool {
 	if err == nil {
 		return false
@@ -415,11 +414,13 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 		if err := c.checkCancelled(logger, op); err != nil {
 			return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 		}
-		// No error from the state handler, update the state to the next, if this errors we will stop processing
-		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(ctx, op.Op.ID, nextState); err != nil {
+		// ver pins the DEHYDRATING handler's WaitForUpdateAllNodes to the exact apply index.
+		ver, err := c.leaderClient.ReplicationUpdateReplicaOpStatus(ctx, op.Op.ID, nextState)
+		if err != nil {
 			logger.WithError(err).Errorf("failed to update replica status to '%s'", nextState)
 			return api.ShardReplicationState(""), fmt.Errorf("failed to update replica status to '%s': %w", nextState, err)
 		}
+		op.Status.LastStateChangeVersion = ver
 		return nextState, nil
 	}, c.backoffPolicy)
 	if err != nil {
@@ -718,9 +719,16 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 			return api.ShardReplicationState(""), ctx.Err()
 		}
 
-		// Drain CCL onto target while source still owns the shard.
-		// Stale-FSM coord routing is fenced by per-write WaitForUpdate via
-		// metaClass.ReplicationVersion bumped on op-state apply.
+		// Wait for every peer's local FSM to reach DEHYDRATING before sealing
+		// the CCL: post-seal, any source-bound PREPARE is fenced with
+		// StatusRouteStale. Zero on snapshot-recovered ops — skip.
+		if op.Status.LastStateChangeVersion > 0 {
+			if err := c.leaderClient.WaitForUpdateAllNodes(ctx, op.Status.LastStateChangeVersion); err != nil {
+				logger.WithError(err).Error("failure waiting for DEHYDRATING op-state to converge across nodes")
+				return api.ShardReplicationState(""), err
+			}
+		}
+
 		if err := c.finalizeAndTail(ctx, logger, src, coll, shard, opID); err != nil {
 			return api.ShardReplicationState(""), err
 		}

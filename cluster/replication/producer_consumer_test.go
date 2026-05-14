@@ -63,10 +63,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Times(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockReplicaCopier.EXPECT().
 					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -84,7 +84,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
 						once.Do(wg.Done)
-					}).Return(nil).Maybe()
+					}).Return(uint64(0), nil).Maybe()
 			},
 		},
 		{
@@ -102,14 +102,14 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Times(2) // equal to the op plus number of times the op failed
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-					Return(fmt.Errorf("failed to update state")).
+					Return(uint64(0), fmt.Errorf("failed to update state")).
 					Times(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockReplicaCopier.EXPECT().
 					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -127,7 +127,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, id uint64, state api.ShardReplicationState) {
 						once.Do(wg.Done)
-					}).Return(nil).Maybe()
+					}).Return(uint64(0), nil).Maybe()
 			},
 		},
 		{
@@ -145,10 +145,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Times(2) // equal to the op plus number of times the op failed
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockReplicaCopier.EXPECT().
 					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(fmt.Errorf("failed to copy replica")).
@@ -173,7 +173,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
 						once.Do(wg.Done)
-					}).Return(nil).Maybe()
+					}).Return(uint64(0), nil).Maybe()
 			},
 		},
 		{
@@ -190,10 +190,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(api.REGISTERED, nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockReplicaCopier.EXPECT().
 					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -213,7 +213,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
 						once.Do(wg.Done)
-					}).Return(nil).Maybe()
+					}).Return(uint64(0), nil).Maybe()
 			},
 		},
 		{
@@ -231,10 +231,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Times(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockReplicaCopier.EXPECT().
 					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -250,7 +250,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.DEHYDRATING).
-					Return(nil)
+					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					DeleteReplicaFromShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
@@ -258,7 +258,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
 						once.Do(wg.Done)
-					}).Return(nil).Maybe()
+					}).Return(uint64(0), nil).Maybe()
 			},
 		},
 	}

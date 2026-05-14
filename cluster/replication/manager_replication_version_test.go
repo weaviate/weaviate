@@ -13,96 +13,63 @@ package replication_test
 
 import (
 	"encoding/json"
-	"sync"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/schema"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// recordedBump captures one invocation of the registered bumper so the test
-// can assert (class, raftIndex) pairs across multiple op-mutating apply paths.
-type recordedBump struct {
-	class string
-	idx   uint64
-}
-
 // TestManager_ReplicationVersionBump pins the contract that every
-// op-mutating apply on the replication manager invokes the registered
-// version bumper with the op's collection and the apply's RAFT log index.
-// Removing or skipping any of these calls would silently regress the
-// per-write WaitForUpdate fence that prevents stale-FSM coord routing.
+// op-state-mutating apply on the Manager bumps the per-class
+// ReplicationVersion to the apply's RAFT index via the wired bumper.
+// This is the entry-path defense: a leader-routed schema query (e.g.
+// EnsureTenantActiveForWrite) returns version >= bumped RV, and the
+// per-write WaitForUpdate fence on the coord side forces every
+// coord's local FSM to catch up before routing is built.
 func TestManager_ReplicationVersionBump(t *testing.T) {
-	const (
-		className = "TestCollection"
-		shardName = "shard1"
-		srcNode   = "node1"
-		tgtNode   = "node2"
-	)
+	type bumpCall struct {
+		class string
+		index uint64
+	}
 
-	// Build a manager wired to a real SchemaManager (so Replicate's
-	// validation finds the class) plus a recording bumper.
-	newManager := func(t *testing.T) (*replication.Manager, *[]recordedBump, *sync.Mutex) {
+	seed := func(t *testing.T) (*replication.Manager, *[]bumpCall) {
 		t.Helper()
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		sm := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
-		require.NoError(t, sm.AddClass(
-			buildApplyRequest(className, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
-				Class: &models.Class{Class: className, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
-				State: &sharding.State{
-					Physical: map[string]sharding.Physical{shardName: {BelongsToNodes: []string{srcNode}}},
-				},
-			}), srcNode, true, false))
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaReader := schemaManager.NewSchemaReader()
+		mgr := replication.NewManager(schemaReader, mocks.NewMockNodeSelector("localhost"), prometheus.NewPedanticRegistry())
 
-		mgr := replication.NewManager(sm.NewSchemaReader(), mocks.NewMockNodeSelector("localhost"), prometheus.NewPedanticRegistry())
-
-		var (
-			mu      sync.Mutex
-			records []recordedBump
-		)
+		var calls []bumpCall
 		mgr.SetReplicationVersionBumper(func(class string, idx uint64) {
-			mu.Lock()
-			defer mu.Unlock()
-			records = append(records, recordedBump{class: class, idx: idx})
+			calls = append(calls, bumpCall{class: class, index: idx})
 		})
-		return mgr, &records, &mu
-	}
 
-	// Seed an op so subsequent state mutations have something to act on.
-	seedOp := func(t *testing.T, mgr *replication.Manager) strfmt.UUID {
-		t.Helper()
-		opUUID := strfmt.UUID(uuid.NewString())
-		req := &api.ReplicationReplicateShardRequest{
-			Uuid:             opUUID,
-			SourceCollection: className,
-			SourceShard:      shardName,
-			SourceNode:       srcNode,
-			TargetNode:       tgtNode,
+		// Seed an op directly into the FSM (bypassing Replicate's schema
+		// validation which would require a real class).
+		require.NoError(t, mgr.GetReplicationFSM().Replicate(1, &api.ReplicationReplicateShardRequest{
+			Version:          api.ReplicationCommandVersionV0,
+			Uuid:             strfmt.UUID("00000000-0000-0000-0000-000000000001"),
+			SourceNode:       "node1",
+			SourceCollection: "TestClass",
+			SourceShard:      "shard1",
+			TargetNode:       "node2",
 			TransferType:     api.COPY.String(),
-		}
-		body, err := json.Marshal(req)
-		require.NoError(t, err)
-		require.NoError(t, mgr.Replicate(1, &api.ApplyRequest{SubCommand: body}))
-		return opUUID
+		}))
+		return mgr, &calls
 	}
 
 	t.Run("UpdateReplicateOpState bumps with op's class + apply index", func(t *testing.T) {
-		mgr, records, mu := newManager(t)
-		seedOp(t, mgr)
+		mgr, calls := seed(t)
 
 		body, err := json.Marshal(&api.ReplicationUpdateOpStateRequest{
 			Version: api.ReplicationCommandVersionV0,
@@ -112,77 +79,68 @@ func TestManager_ReplicationVersionBump(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, mgr.UpdateReplicateOpState(&api.ApplyRequest{Version: 42, SubCommand: body}))
 
-		mu.Lock()
-		defer mu.Unlock()
-		require.Len(t, *records, 1)
-		assert.Equal(t, recordedBump{class: className, idx: 42}, (*records)[0])
+		require.Len(t, *calls, 1)
+		require.Equal(t, "TestClass", (*calls)[0].class)
+		require.EqualValues(t, 42, (*calls)[0].index)
 	})
 
 	t.Run("CancelReplication bumps with op's class + apply index", func(t *testing.T) {
-		mgr, records, mu := newManager(t)
-		opUUID := seedOp(t, mgr)
+		mgr, calls := seed(t)
 
 		body, err := json.Marshal(&api.ReplicationCancelRequest{
 			Version: api.ReplicationCommandVersionV0,
-			Uuid:    opUUID,
+			Uuid:    strfmt.UUID("00000000-0000-0000-0000-000000000001"),
 		})
 		require.NoError(t, err)
 		require.NoError(t, mgr.CancelReplication(&api.ApplyRequest{Version: 99, SubCommand: body}))
 
-		mu.Lock()
-		defer mu.Unlock()
-		require.Len(t, *records, 1)
-		assert.Equal(t, recordedBump{class: className, idx: 99}, (*records)[0])
+		require.Len(t, *calls, 1)
+		require.Equal(t, "TestClass", (*calls)[0].class)
+		require.EqualValues(t, 99, (*calls)[0].index)
 	})
 
 	t.Run("DeleteReplication bumps with op's class + apply index", func(t *testing.T) {
-		mgr, records, mu := newManager(t)
-		opUUID := seedOp(t, mgr)
+		mgr, calls := seed(t)
 
 		body, err := json.Marshal(&api.ReplicationDeleteRequest{
 			Version: api.ReplicationCommandVersionV0,
-			Uuid:    opUUID,
+			Uuid:    strfmt.UUID("00000000-0000-0000-0000-000000000001"),
 		})
 		require.NoError(t, err)
 		require.NoError(t, mgr.DeleteReplication(&api.ApplyRequest{Version: 7, SubCommand: body}))
 
-		mu.Lock()
-		defer mu.Unlock()
-		require.Len(t, *records, 1)
-		assert.Equal(t, recordedBump{class: className, idx: 7}, (*records)[0])
+		require.Len(t, *calls, 1)
+		require.Equal(t, "TestClass", (*calls)[0].class)
+		require.EqualValues(t, 7, (*calls)[0].index)
 	})
 
-	t.Run("FSM-mutator failure does not bump", func(t *testing.T) {
-		mgr, records, mu := newManager(t)
-		// Skip seedOp: the cancel will fail with op-not-found, must not bump.
+	t.Run("apply on unknown op surfaces the error and skips the bump", func(t *testing.T) {
+		mgr, calls := seed(t)
 
 		body, err := json.Marshal(&api.ReplicationCancelRequest{
 			Version: api.ReplicationCommandVersionV0,
-			Uuid:    strfmt.UUID(uuid.NewString()),
+			Uuid:    strfmt.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
 		})
 		require.NoError(t, err)
 		require.Error(t, mgr.CancelReplication(&api.ApplyRequest{Version: 12, SubCommand: body}))
-
-		mu.Lock()
-		defer mu.Unlock()
-		assert.Empty(t, *records)
+		require.Empty(t, *calls)
 	})
 
-	t.Run("nil bumper is safe", func(t *testing.T) {
-		// No SetReplicationVersionBumper call → nil callback. Apply must not panic.
+	t.Run("nil bumper is tolerated (no panic, no observed bump)", func(t *testing.T) {
 		parser := fakes.NewMockParser()
 		parser.On("ParseClass", mock.Anything).Return(nil)
-		sm := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
-		require.NoError(t, sm.AddClass(
-			buildApplyRequest(className, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
-				Class: &models.Class{Class: className, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
-				State: &sharding.State{
-					Physical: map[string]sharding.Physical{shardName: {BelongsToNodes: []string{srcNode}}},
-				},
-			}), srcNode, true, false))
-		mgr := replication.NewManager(sm.NewSchemaReader(), mocks.NewMockNodeSelector("localhost"), prometheus.NewPedanticRegistry())
-
-		opUUID := seedOp(t, mgr)
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		mgr := replication.NewManager(schemaManager.NewSchemaReader(), mocks.NewMockNodeSelector("localhost"), prometheus.NewPedanticRegistry())
+		require.NoError(t, mgr.GetReplicationFSM().Replicate(1, &api.ReplicationReplicateShardRequest{
+			Version:          api.ReplicationCommandVersionV0,
+			Uuid:             strfmt.UUID("00000000-0000-0000-0000-000000000001"),
+			SourceNode:       "node1",
+			SourceCollection: "TestClass",
+			SourceShard:      "shard1",
+			TargetNode:       "node2",
+			TransferType:     api.COPY.String(),
+		}))
+		// No SetReplicationVersionBumper call → nil callback. Apply must not panic.
 		body, err := json.Marshal(&api.ReplicationUpdateOpStateRequest{
 			Version: api.ReplicationCommandVersionV0,
 			Id:      1,
@@ -190,6 +148,5 @@ func TestManager_ReplicationVersionBump(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NoError(t, mgr.UpdateReplicateOpState(&api.ApplyRequest{Version: 1, SubCommand: body}))
-		_ = opUUID
 	})
 }

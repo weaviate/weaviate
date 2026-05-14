@@ -9,6 +9,10 @@ service ClusterService {
   rpc NotifyPeer(NotifyPeerRequest) returns (NotifyPeerResponse) {}
   rpc Apply(ApplyRequest) returns (ApplyResponse) {}
   rpc Query(QueryRequest) returns (QueryResponse) {}
+  // Asks a peer to block until its local FSM has applied at least the
+  // given index — converges all peers on a freshly-committed state
+  // change before irreversible follow-on work.
+  rpc WaitForAppliedIndex(WaitForAppliedIndexRequest) returns (WaitForAppliedIndexResponse) {}
 }
 
 message JoinPeerRequest {
@@ -282,4 +286,13 @@ message UpdateDistributedTaskUnitProgressRequest {
   string unit_id = 5;
   float progress = 6;
   int64 updated_at_unix_millis = 7;
+}
+
+message WaitForAppliedIndexRequest {
+  uint64 version = 1;
+}
+
+message WaitForAppliedIndexResponse {
+  // Informational — the contract is applied >= requested version when err == nil.
+  uint64 applied = 1;
 }

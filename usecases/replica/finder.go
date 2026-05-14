@@ -46,6 +46,27 @@ var (
 	ErrNoDiffFound = errors.New("no diff found")
 )
 
+// routeStaleErr carries source's RAFT lastAppliedIndex through the abort
+// chain so the coord's retry can wait for its local FSM to catch up before
+// rebuilding routing — otherwise the retry rebuilds against the same stale
+// FSM and re-fails.
+type routeStaleErr struct {
+	Applied uint64
+	Wrapped error
+}
+
+func (e *routeStaleErr) Error() string {
+	return e.Wrapped.Error()
+}
+
+func (e *routeStaleErr) Unwrap() error {
+	return e.Wrapped
+}
+
+var (
+	_ error = (*routeStaleErr)(nil)
+)
+
 type (
 	// senderReply is a container for the data received from a replica
 	senderReply[T any] struct {

@@ -12,6 +12,7 @@
 package types
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -117,6 +118,12 @@ type Router interface {
 	// Returns:
 	//   - hostnames: a slice of all known hostnames; always returns a valid slice, possibly empty.
 	AllHostnames() []string
+
+	// WaitForUpdate blocks until the local node's RAFT FSM has applied
+	// at least the given index. Used by the replica-write retry path
+	// to catch the local FSM up to a rejecting source's
+	// lastAppliedIndex before rebuilding routing.
+	WaitForUpdate(ctx context.Context, version uint64) error
 }
 
 // Replica represents a single replica in the system, containing enough information

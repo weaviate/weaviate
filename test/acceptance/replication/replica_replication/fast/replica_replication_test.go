@@ -21,6 +21,7 @@ import (
 	mathrand "math/rand/v2"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -542,6 +543,10 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	})
 
 	parallelWriteWg := sync.WaitGroup{}
+	// dumpLogsOnce gates dumpReplicaLogsOnce so the first parallel-write
+	// failure dumps the relevant log lines from every node and
+	// subsequent failures stay quiet.
+	var dumpLogsOnce sync.Once
 	// liveIDs is the test-side source of truth for what should exist on each
 	// non-source replica after the move. Seeded with the original paragraphs
 	// so the workload is free to UPDATE/DELETE pre-HYDRATING data too.
@@ -595,6 +600,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 						newID := strfmt.UUID(uuid.New().String())
 						contents := fmt.Sprintf("paragraph#%d", opSeq)
 						if err := createObjectThreadSafe(uri, paragraphClass.Class, map[string]any{"contents": contents}, string(newID), tenant); err != nil {
+							dumpReplicaLogsOnce(t, mainCtx, compose, clusterSize, &dumpLogsOnce)
 							assert.NoError(t, err, "error creating object %s on node %s", newID, uri)
 							continue
 						}
@@ -606,6 +612,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 						}
 						contents := fmt.Sprintf("paragraph#%d-updated-%d", opSeq, opSeq)
 						if err := patchObjectThreadSafe(uri, paragraphClass.Class, string(target), tenant, map[string]any{"contents": contents}); err != nil {
+							dumpReplicaLogsOnce(t, mainCtx, compose, clusterSize, &dumpLogsOnce)
 							assert.NoError(t, err, "error patching object %s on node %s", target, uri)
 							continue
 						}
@@ -616,6 +623,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 							continue
 						}
 						if err := deleteObjectThreadSafe(uri, paragraphClass.Class, string(target), tenant); err != nil {
+							dumpReplicaLogsOnce(t, mainCtx, compose, clusterSize, &dumpLogsOnce)
 							assert.NoError(t, err, "error deleting object %s on node %s", target, uri)
 							continue
 						}
@@ -964,4 +972,57 @@ func deleteObjectThreadSafe(uri, class, id, tenant string) error {
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
+}
+
+// dumpReplicaLogsOnce dumps each node's container logs (filtered to
+// route-stale / DEHYDRATING / retry-related lines) the first time it
+// is invoked; subsequent calls are no-ops via the supplied sync.Once
+// so a flapping parallel-write loop doesn't drown the test output.
+// Filter is intentionally broad: it pulls anything that helps
+// distinguish whether the coord-side retry engaged, whether
+// waitForFSMCatchUp logged its no-applied-index warning, and whether
+// the source-side fence saw DEHYDRATING.
+func dumpReplicaLogsOnce(t *testing.T, ctx context.Context, compose *docker.DockerCompose, clusterSize int, once *sync.Once) {
+	once.Do(func() {
+		for i := 1; i <= clusterSize; i++ {
+			node := compose.GetWeaviateNode(i)
+			if node == nil {
+				continue
+			}
+			logs, err := node.Container().Logs(ctx)
+			if err != nil {
+				t.Logf("weaviate-%d: failed to get logs: %v", i-1, err)
+				continue
+			}
+			buf, _ := io.ReadAll(logs)
+			logs.Close()
+			for _, line := range strings.Split(string(buf), "\n") {
+				if matchesRouteStaleDiagnostics(line) {
+					t.Logf("weaviate-%d: %s", i-1, line)
+				}
+			}
+		}
+	})
+}
+
+func matchesRouteStaleDiagnostics(line string) bool {
+	keywords := []string{
+		"push.retry_route_stale",
+		"without an applied index",
+		"waiting for local FSM to catch up",
+		"source_applied",
+		"is not a current write target",
+		"route stale",
+		"RouteStale",
+		"DEHYDRATING",
+		"FINALIZING",
+		"WaitForUpdateAllNodes",
+		"replicate insertion",
+	}
+	for _, k := range keywords {
+		if strings.Contains(line, k) {
+			return true
+		}
+	}
+	return false
 }
