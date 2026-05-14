@@ -621,6 +621,19 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 //   - Shutting down the returned old bucket
 //   - Persisting any crash-safety markers (sentinel files) around this call
 //   - Finalizing directory renames at a later point (e.g., next restart)
+//
+// Registry side effect: the source bucket's on-disk path is released from
+// [GlobalBucketRegistry] as part of the swap. The source bucket continues to
+// serve queries from its original on-disk directory (the rename is deferred
+// to next-restart finalization), but in-process callers may now load a fresh
+// bucket at that path (typically after wiping the dir via
+// cleanStaleSidecarDirs). Without this release a back-to-back migration in
+// the same process — e.g. two consecutive filterable retokenizations on the
+// same property — aborts at OnAfterLsmInit with
+// "bucket already registered" when the second cycle's ingest bucket tries to
+// claim the same path. The displaced (old-main) bucket has its own registry
+// entry which is cleaned up by the caller's subsequent Shutdown of the
+// returned bucket — that path is NOT released here.
 func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName string) (*Bucket, error) {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -645,6 +658,23 @@ func (s *Store) SwapBucketPointer(ctx context.Context, targetName, sourceName st
 
 	s.bucketsByName[targetName] = sourceBucket
 	delete(s.bucketsByName, sourceName)
+
+	// Release the source bucket's on-disk path from the global registry. See
+	// the function doc above for the full rationale. The source bucket is
+	// still alive and operates from this dir on disk until FinalizeBucketSwap
+	// runs (typically on next restart) — but the registry is purely an
+	// in-process de-duplication shield for CreateOrLoadBucket. Releasing it
+	// lets a same-process back-to-back migration claim the same path after
+	// the on-disk dir has been cleaned by cleanStaleSidecarDirs (called from
+	// CleanStalePartialReindexState at submit time).
+	//
+	// Safety vs the source bucket's eventual Shutdown: Bucket.Shutdown calls
+	// GlobalBucketRegistry.Remove(b.GetDir()) which is idempotent — removing
+	// a path that is not in the registry is a no-op, and the bucket that did
+	// claim the path between the swap and the Shutdown is not affected
+	// because every swap in a chain runs this same Remove, so the path is
+	// released BEFORE the next bucket claims it.
+	GlobalBucketRegistry.Remove(sourceBucket.GetDir())
 
 	return oldBucket, nil
 }
