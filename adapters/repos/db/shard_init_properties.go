@@ -278,6 +278,22 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // The sidecar names are <mainBucket>__<strategy-specific-suffix>, where
 // suffixes vary per strategy. Matching by prefix avoids hard-coding every
 // strategy's suffixes here and naturally absorbs future strategies.
+//
+// In addition to removing the on-disk dirs, this function ALSO drops the
+// dir's entry from [lsmkv.GlobalBucketRegistry]. Background: a successful
+// runtime swap moves the in-memory bucket pointer from the ingest name to
+// the main name (Store.SwapBucketPointer), but leaves the on-disk dir
+// under the ingest name (the dir is renamed by OnBeforeLsmInit on the next
+// restart) AND leaves the registry entry under the ingest dir path
+// (Bucket.Shutdown is never called on the live ingest bucket — it just
+// becomes the main bucket). When a follow-up migration tries to load a
+// fresh ingest bucket at the same path, NewBucket's TryAdd fails with
+// "bucket already registered" and the migration fails. Removing the
+// registry entry alongside the dir keeps the two stores of truth aligned.
+// This is the same Sev 1 family as the DELETE-handler cleanup (which has
+// the same hazard if any ShutdownBucket call along the way was skipped);
+// belt-and-suspenders is the right posture for a leak that produces
+// "FAILED" status on a follow-up migration with no clear remediation.
 func (s *Shard) cleanStaleSidecarDirs(mainBucketName string) {
 	entries, err := os.ReadDir(s.pathLSM())
 	if err != nil {
@@ -294,6 +310,13 @@ func (s *Shard) cleanStaleSidecarDirs(mainBucketName string) {
 			continue
 		}
 		path := filepath.Join(s.pathLSM(), entry.Name())
+		// Drop the registry entry BEFORE removing the dir. The reverse order
+		// is also correct (registry is a separate process-local store), but
+		// the chosen order matches Bucket.Shutdown's defer (registry.Remove
+		// fires before any other shutdown side effect), so a future reader
+		// who already knows that contract finds the same shape here. Either
+		// step is independently safe to retry / call when no entry exists.
+		lsmkv.GlobalBucketRegistry.Remove(path)
 		if err := os.RemoveAll(path); err != nil {
 			s.index.logger.WithField("path", path).
 				Error(fmt.Errorf("failed to remove stale sidecar bucket dir after index DELETE: %w", err))
