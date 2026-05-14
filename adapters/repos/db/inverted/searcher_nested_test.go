@@ -834,13 +834,11 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		assertNestedLeaf(t, innerNot.children[0], "city", []byte("berlin"))
 	})
 
-	t.Run("NOT of IsNull leaf — guard keeps NOT unwrapped (Phase 6)", func(t *testing.T) {
-		// input:  NOT(nested.city IS NULL)
-		// Sub-rule 3 deliberately defers NOT(IsNull) to today's docID-
-		// level dispatch until Phase 6 materialises IsNull at the leaf
-		// LCA. Without the guard, the planner would silently drop the
-		// outer NOT because IsNull=true routes to excludePositions
-		// rather than positives.
+	t.Run("NOT of IsNull leaf — DeMorgan rewrite to flipped IsNull (Phase 6 sub-rule 2)", func(t *testing.T) {
+		// input:  NOT(nested.city IS NULL=true)
+		// Phase 6 sub-rule 2 rewrites NOT(IsNull=v) → IsNull=!v at
+		// extraction time. The NOT is eliminated and the IsNull leaf
+		// returned in its place with the value byte flipped.
 		isNullClause := &filters.Clause{
 			Operator: filters.OperatorIsNull,
 			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: true},
@@ -851,10 +849,10 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 			"Article")
 		require.NoError(t, err)
 
-		assert.Equal(t, filters.OperatorNot, pv.operator)
-		assert.False(t, pv.nested.isWithinRootSubtree, "NOT(IsNull) deferred to Phase 6")
-		require.Len(t, pv.children, 1)
-		assert.Equal(t, filters.OperatorIsNull, pv.children[0].operator)
+		assert.Equal(t, filters.OperatorIsNull, pv.operator, "NOT eliminated; IsNull returned in its place")
+		assert.True(t, pv.nested.isNested, "leaf preserved as nested")
+		require.NotEmpty(t, pv.value)
+		assert.Equal(t, byte(0x00), pv.value[0], "IsNull=true flipped to IsNull=false")
 	})
 
 	t.Run("NOT of flat-property leaf is not wrapped", func(t *testing.T) {

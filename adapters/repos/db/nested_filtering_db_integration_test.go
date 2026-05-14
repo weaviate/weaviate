@@ -3835,13 +3835,13 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	// ----- Constraint at countries[1] -----
 
 	// 1a: countries[1].name = "germany" AND countries[1].garages.cars.model IS NULL
-	// TODO aliszka:nested_filtering: this asserts CURRENT universal IsNull
-	// semantics on the deep path `countries[1].garages.cars.model`. When
-	// the planned existential IsNull rewrite lands, expectations flip:
-	// idMatchNoGarages/idMatchEmptyGarages/idMatchGarageNoCars STOP
-	// matching (vacuous matches go away); idNoMatchModelInOtherGarage
-	// STARTS matching (cross-garage absent satisfies existential). Could
-	// also be obviated by explicit ANY/ALL/NONE quantifiers.
+	//
+	// Phase 6.1 Option A: existential per-element at operand LCA
+	// (countries[1].garages.cars). Vacuous-true preserved (no elements at
+	// LCA → match). Note: idNoMatchModelInOtherGarage is mis-named — under
+	// Option A it matches because garages[0].cars[0] lacks model. See
+	// plan_explicit_array_quantifiers.md for the future explicit
+	// ANY/ALL/NONE alternative.
 	t.Run("regression_1a_countries_value_and_isNull_cars_model", func(t *testing.T) {
 		idMatch := uuid(1)
 		idMatchNoGarages := uuid(2)
@@ -4290,21 +4290,24 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	// ----- Constraint at countries.garages[1] -----
 
 	// 3a: countries.garages[1].city = "berlin" AND countries.garages[1].cars.model IS NULL
-	// TODO aliszka:nested_filtering: this asserts CURRENT universal IsNull
-	// semantics on the deep path `countries.garages[1].cars.model`. When
-	// the planned existential IsNull rewrite lands, vacuous matches
-	// (no cars / no model anywhere) are removed and cross-car-with-model
-	// matches are added. A missing discriminator doc should be added at
-	// that time.
+	//
+	// Phase 6.1 Option A: existential per-element at operand LCA (cars
+	// within pinned garages[1]). L1 version of 1a; the pin moves one level
+	// deeper. idMatchTwoCarsOneWithModel is the L1 analog of 1a's
+	// cross-element discriminator: garages[1] holds two cars, one missing
+	// model, one with model — Option A matches because the no-model car
+	// satisfies the existential. See plan_explicit_array_quantifiers.md
+	// for the future explicit ANY/ALL/NONE alternative.
 	t.Run("regression_3a_garages_value_and_isNull_cars_model", func(t *testing.T) {
 		idMatchMinimal := uuid(1)
 		idMatchNoCars := uuid(2)
 		idMatchEmptyCars := uuid(3)
 		idMatchModelOnlyInG0 := uuid(4)
-		idNoMatchModelInG1 := uuid(5)
-		idNoMatchWrongCity := uuid(6)
-		idNoMatchBerlinAtG0 := uuid(7)
-		idAbsentG1Empty := uuid(8)
+		idMatchTwoCarsOneWithModel := uuid(5)
+		idNoMatchModelInG1 := uuid(6)
+		idNoMatchWrongCity := uuid(7)
+		idNoMatchBerlinAtG0 := uuid(8)
+		idAbsentG1Empty := uuid(9)
 
 		docs := []docDef{
 			{id: idMatchMinimal, countries: []any{map[string]any{"garages": asArr(
@@ -4323,6 +4326,13 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 				map[string]any{"city": "munich", "cars": asArr(car("make", "x", "model", "y"))},
 				map[string]any{"city": "berlin", "cars": asArr(car("make", "x"))},
 			)}}, note: "model only in garages[0]; garages[1] has no model → match (IsNull restricted to garages[1])"},
+			{id: idMatchTwoCarsOneWithModel, countries: []any{map[string]any{"garages": asArr(
+				map[string]any{"city": "munich"},
+				map[string]any{"city": "berlin", "cars": asArr(
+					car("make", "x"),
+					car("make", "y", "model", "z"),
+				)},
+			)}}, note: "garages[1] has two cars; cars[0] lacks model → match (∃ car in garages[1] without model)"},
 			{id: idNoMatchModelInG1, countries: []any{map[string]any{"garages": asArr(
 				map[string]any{"city": "munich"},
 				map[string]any{"city": "berlin", "cars": asArr(car("make", "x", "model", "y"))},
@@ -4345,7 +4355,7 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 			valueFilter("countries.garages[1].city", "berlin"),
 			isNullFilter("countries.garages[1].cars.model", true),
 		)
-		runScenario(t, docs, filter, []strfmt.UUID{idMatchMinimal, idMatchNoCars, idMatchEmptyCars, idMatchModelOnlyInG0})
+		runScenario(t, docs, filter, []strfmt.UUID{idMatchMinimal, idMatchNoCars, idMatchEmptyCars, idMatchModelOnlyInG0, idMatchTwoCarsOneWithModel})
 	})
 
 	// 3b: countries.garages[1].city = "berlin" AND countries.garages[1].cars IS NULL
@@ -4533,10 +4543,10 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	// ----- Constraint at countries.garages.cars[1] -----
 
 	// 5: cars[1].make = "honda" AND cars[1].model IS NULL
-	// TODO aliszka:nested_filtering: this asserts CURRENT universal IsNull
-	// semantics on the deep path `cars[1].model`. When the planned
-	// existential IsNull rewrite lands, expectations flip — vacuous
-	// matches removed, cross-element absent matches added.
+	//
+	// Pin equals operand parent (cars[1] pins down a single element and
+	// IsNull is on that element's model field). No cross-element semantics
+	// applies — the pin restricts universe and operand to one element.
 	t.Run("regression_5_cars_value_and_isNull_model", func(t *testing.T) {
 		idMatchMinimal := uuid(1)
 		idMatchExtraCar := uuid(2)
@@ -4860,8 +4870,12 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 		})
 
 		t.Run("addresses_is_null", func(t *testing.T) {
+			// Phase 6 sub-rule 1: existential per-element at operand's LCA="".
+			// Universe = _exists.""  (nested-root positions). idNoNestedProp
+			// drops (no nested-root positions → vacuous). idEmptyAddresses and
+			// idNoAddresses match (nested exists, addresses absent or empty).
 			runScenario(t, docs, isNullFilter("nested.addresses", true),
-				[]strfmt.UUID{idEmptyAddresses, idNoAddresses, idNoNestedProp})
+				[]strfmt.UUID{idEmptyAddresses, idNoAddresses})
 		})
 
 		t.Run("addresses_city_is_not_null", func(t *testing.T) {
@@ -4872,18 +4886,15 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 				})
 		})
 
-		// TODO aliszka:nested_filtering: locks in CURRENT universal IsNull
-		// on the deep path `nested.addresses.city`. When the planned
-		// existential IsNull rewrite lands, idMixedCities and
-		// idMixedTagsAndCities (some address has city, some doesn't)
-		// would match — only docs with NO addresses or where every
-		// address has city should be excluded under existential.
-		t.Run("regression_addresses_city_is_null_universal", func(t *testing.T) {
+		// Phase 6 sub-rule 1: existential per-element at operand's LCA=
+		// "addresses". ∃ address without city: idAddrNoCity (single empty
+		// address), idMixedCities (addresses[1] empty), idAddrWithTags
+		// (tags-only address has no city), idMixedTagsAndCities (city in [0],
+		// tags in [1], empty in [2] — [1] and [2] qualify). Vacuous matches
+		// (idEmptyAddresses, idNoAddresses, idNoNestedProp) drop.
+		t.Run("regression_addresses_city_is_null_existential", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("nested.addresses.city", true),
-				[]strfmt.UUID{
-					idAddrNoCity, idEmptyAddresses, idNoAddresses, idNoNestedProp,
-					idAddrWithTags,
-				})
+				[]strfmt.UUID{idAddrNoCity, idMixedCities, idAddrWithTags, idMixedTagsAndCities})
 		})
 
 		t.Run("addresses_tags_is_not_null", func(t *testing.T) {
@@ -4891,17 +4902,15 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 				[]strfmt.UUID{idAddrWithTags, idAddrCityAndTags, idMixedTagsAndCities})
 		})
 
-		// TODO aliszka:nested_filtering: locks in CURRENT universal IsNull on
-		// `nested.addresses.tags` (text[]). Under the existential IsNull
-		// rewrite, idMixedTagsAndCities (some address has tags, some
-		// doesn't) would match. Verify scalar-array IsNull semantics in
-		// the rewrite plan.
-		t.Run("regression_addresses_tags_is_null_universal", func(t *testing.T) {
+		// Phase 6 sub-rule 1: existential per-element at operand's LCA=
+		// "addresses". ∃ address without tags: idAddrWithCity (city-only),
+		// idAddrNoCity (empty address), idMixedCities (no tags anywhere),
+		// idMixedTagsAndCities ([0] city-only, [2] empty — both lack tags).
+		// Vacuous matches (idEmptyAddresses, idNoAddresses, idNoNestedProp)
+		// drop.
+		t.Run("regression_addresses_tags_is_null_existential", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("nested.addresses.tags", true),
-				[]strfmt.UUID{
-					idAddrWithCity, idAddrNoCity, idMixedCities,
-					idEmptyAddresses, idNoAddresses, idNoNestedProp,
-				})
+				[]strfmt.UUID{idAddrWithCity, idAddrNoCity, idMixedCities, idMixedTagsAndCities})
 		})
 	})
 
@@ -4987,8 +4996,15 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 		})
 
 		t.Run("addresses_is_null", func(t *testing.T) {
+			// Phase 6 sub-rule 1: existential per-element at operand's LCA="".
+			// Universe = _exists.""  (per-nestedArray-element positions). ∃
+			// nestedArray-element without addresses: idArrCityInSecondElem
+			// ([0] empty), idArrEmptyAddresses (only element has empty []),
+			// idArrNoAddresses (only element has no addresses field),
+			// idArrTagsInSecondElem ([0] empty). idArrEmptyTopLevel and
+			// idArrNoNestedArrayProp drop (no nestedArray elements → vacuous).
 			runScenario(t, docs, isNullFilter("nestedArray.addresses", true),
-				[]strfmt.UUID{idArrEmptyAddresses, idArrNoAddresses, idArrEmptyTopLevel, idArrNoNestedArrayProp})
+				[]strfmt.UUID{idArrCityInSecondElem, idArrEmptyAddresses, idArrNoAddresses, idArrTagsInSecondElem})
 		})
 
 		t.Run("addresses_city_is_not_null", func(t *testing.T) {
@@ -4999,17 +5015,15 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 				})
 		})
 
-		// TODO aliszka:nested_filtering: docs_array variant of universal
-		// IsNull on `nestedArray.addresses.city`. Locks in CURRENT
-		// behavior; flips under the existential IsNull rewrite.
-		// Discriminator docs (idArrMixedAcrossElems etc.) document
-		// expected post-rewrite matches.
-		t.Run("regression_addresses_city_is_null_universal", func(t *testing.T) {
+		// Phase 6 sub-rule 1: existential per-element at operand's LCA=
+		// "addresses". ∃ address without city across all nestedArray
+		// roots. idArrAddrNoCity (only address empty), idArrMixedAcrossElems
+		// (nestedArray[1].addresses[0] empty), idArrAddrWithTags (tags-only),
+		// idArrTagsInSecondElem (nestedArray[1].addresses[0] tags-only).
+		// Vacuous matches drop.
+		t.Run("regression_addresses_city_is_null_existential", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("nestedArray.addresses.city", true),
-				[]strfmt.UUID{
-					idArrAddrNoCity, idArrEmptyAddresses, idArrNoAddresses, idArrEmptyTopLevel, idArrNoNestedArrayProp,
-					idArrAddrWithTags, idArrTagsInSecondElem,
-				})
+				[]strfmt.UUID{idArrAddrNoCity, idArrMixedAcrossElems, idArrAddrWithTags, idArrTagsInSecondElem})
 		})
 
 		t.Run("addresses_tags_is_not_null", func(t *testing.T) {
@@ -5017,15 +5031,14 @@ func TestNestedFilteringIsNullStandalone(t *testing.T) {
 				[]strfmt.UUID{idArrAddrWithTags, idArrAddrCityAndTags, idArrTagsInSecondElem})
 		})
 
-		// TODO aliszka:nested_filtering: docs_array variant of universal
-		// IsNull on `nestedArray.addresses.tags` (text[]). Locks in
-		// CURRENT behavior; flips under the existential IsNull rewrite.
-		t.Run("regression_addresses_tags_is_null_universal", func(t *testing.T) {
+		// Phase 6 sub-rule 1: existential per-element at operand's LCA=
+		// "addresses". ∃ address without tags. idArrAddrWithCity (city-only),
+		// idArrAddrNoCity (empty address), idArrMixedAcrossElems (no tags
+		// anywhere), idArrCityInSecondElem (addresses=[{madrid}] no tags).
+		// Vacuous matches drop.
+		t.Run("regression_addresses_tags_is_null_existential", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("nestedArray.addresses.tags", true),
-				[]strfmt.UUID{
-					idArrAddrWithCity, idArrAddrNoCity, idArrMixedAcrossElems, idArrCityInSecondElem,
-					idArrEmptyAddresses, idArrNoAddresses, idArrEmptyTopLevel, idArrNoNestedArrayProp,
-				})
+				[]strfmt.UUID{idArrAddrWithCity, idArrAddrNoCity, idArrMixedAcrossElems, idArrCityInSecondElem})
 		})
 	})
 }
@@ -8704,14 +8717,28 @@ func TestNestedFilteringIsNullWithArrayIndex(t *testing.T) {
 		t.Run("addresses[1]_IsNotNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.addresses[1]", false), []strfmt.UUID{idBoth, idSecondNoCity})
 		})
+		// Phase 6 sub-rule 1 + arr[N] pin universe restriction: pin
+		// restricts to addresses[1] positions. The "addresses[1] IS NULL"
+		// question reduces to ∅ in the pin universe (if addresses[1] is in
+		// the universe, it exists). Docs without addresses[1] drop as
+		// vacuous (out of pin universe).
+		//
+		// TODO aliszka:nested_filtering: pin-equals-operand case is
+		// recoverable via the hybrid in project_pinned_isnull_recovery.md
+		// (top-level → doc-level denylist). After fix, expected:
+		//   []strfmt.UUID{idOnlyOne, idEmpty, idAbsent}
+		//   (docs that lack addresses[1]).
 		t.Run("addresses[1]_IsNull", func(t *testing.T) {
-			runScenario(t, docs, isNullFilter("doc.addresses[1]", true), []strfmt.UUID{idOnlyOne, idEmpty, idAbsent})
+			runScenario(t, docs, isNullFilter("doc.addresses[1]", true), []strfmt.UUID{})
 		})
 		t.Run("addresses[1].city_IsNotNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.addresses[1].city", false), []strfmt.UUID{idBoth})
 		})
+		// Phase 6 sub-rule 1 + arr[N] pin: ∃ addresses[1] without city in
+		// pin-restricted universe. Only idSecondNoCity (addresses[1] is
+		// empty) qualifies. idOnlyOne / idEmpty / idAbsent drop as vacuous.
 		t.Run("addresses[1].city_IsNull", func(t *testing.T) {
-			runScenario(t, docs, isNullFilter("doc.addresses[1].city", true), []strfmt.UUID{idSecondNoCity, idOnlyOne, idEmpty, idAbsent})
+			runScenario(t, docs, isNullFilter("doc.addresses[1].city", true), []strfmt.UUID{idSecondNoCity})
 		})
 	})
 
@@ -8748,8 +8775,12 @@ func TestNestedFilteringIsNullWithArrayIndex(t *testing.T) {
 		t.Run("docs[1].addresses.city_IsNotNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("docs[1].addresses.city", false), []strfmt.UUID{idBoth})
 		})
+		// Phase 6 sub-rule 1 + arr[N] pin: ∃ address-within-docs[1] without
+		// city. d2's docs[1] is empty (no addresses), d3/d4/d5 have no
+		// docs[1] at all — all drop as vacuous (pin universe ∅). No doc
+		// has a docs[1] with an address-missing-city.
 		t.Run("docs[1].addresses.city_IsNull", func(t *testing.T) {
-			runScenario(t, docs, isNullFilter("docs[1].addresses.city", true), []strfmt.UUID{idSecondNoAddr, idOnlyOne, idEmpty, idAbsent})
+			runScenario(t, docs, isNullFilter("docs[1].addresses.city", true), []strfmt.UUID{})
 		})
 	})
 }
@@ -8915,21 +8946,31 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0]", false),
 				[]strfmt.UUID{idCar1HasTireWithWidth, idCar1HasEmptyTire})
 		})
+		// Phase 6 sub-rule 1 + multi-level arr[N] pin: pin-restricted
+		// universe = cars[1].tires[0] positions. tires[0] always exists
+		// in pin universe by definition; vacuous docs drop.
+		//
+		// TODO aliszka:nested_filtering: pin-equals-operand case is
+		// recoverable via the hybrid in project_pinned_isnull_recovery.md
+		// (top-level → doc-level denylist; J×K iteration for sub-clause).
+		// After fix, expected:
+		//   []strfmt.UUID{idCar1NoTires, idNoCar1, idAbsent}
+		//   (docs that lack cars[1].tires[0]).
 		t.Run("cars[1].tires[0]_IsNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0]", true),
-				[]strfmt.UUID{idCar1NoTires, idNoCar1, idAbsent})
+				[]strfmt.UUID{})
 		})
 		t.Run("cars[1].tires[0].width_IsNotNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0].width", false),
 				[]strfmt.UUID{idCar1HasTireWithWidth})
 		})
-		// TODO aliszka:nested_filtering: this asserts CURRENT universal IsNull
-		// semantics on the deep path `cars[1].tires[0].width`. The planned
-		// existential IsNull rewrite would flip vacuous matches and add
-		// cross-element absent matches.
+		// Phase 6 sub-rule 1 + multi-level arr[N] pin: ∃ tire at
+		// cars[1].tires[0] without width. Only idCar1HasEmptyTire
+		// qualifies (cars[1].tires[0]={} is in pin universe, has no
+		// width). Others drop vacuously.
 		t.Run("regression_cars[1].tires[0].width_IsNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars[1].tires[0].width", true),
-				[]strfmt.UUID{idCar1HasEmptyTire, idCar1NoTires, idNoCar1, idAbsent})
+				[]strfmt.UUID{idCar1HasEmptyTire})
 		})
 	})
 
@@ -8954,22 +8995,24 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars.tires", false),
 				[]strfmt.UUID{idAllTires, idSecondCarTires, idTiresNoWidth})
 		})
+		// Phase 6 sub-rule 1: existential per-element at cars LCA.
+		// ∃ car without tires. idSecondCarTires (cars[0] empty) and
+		// idCarsNoTires (only car empty). idAbsent drops (no cars).
 		t.Run("cars.tires_IsNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars.tires", true),
-				[]strfmt.UUID{idCarsNoTires, idAbsent})
+				[]strfmt.UUID{idSecondCarTires, idCarsNoTires})
 		})
 		t.Run("cars.tires.width_IsNotNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars.tires.width", false),
 				[]strfmt.UUID{idAllTires, idSecondCarTires})
 		})
-		// TODO aliszka:nested_filtering: locks in CURRENT universal IsNull
-		// on the deep path `cars.tires.width`. Flips when the planned
-		// existential IsNull rewrite lands: docs with any tire having a
-		// width would no longer match — only docs where at least one tire
-		// is missing a width.
-		t.Run("regression_cars.tires.width_IsNull_universal", func(t *testing.T) {
+		// Phase 6 sub-rule 1: existential per-element at cars.tires LCA.
+		// ∃ tire without width. Only idTiresNoWidth qualifies; others
+		// either have width on every tire (idAllTires, idSecondCarTires)
+		// or have no tires universe (idCarsNoTires, idAbsent → vacuous).
+		t.Run("regression_cars.tires.width_IsNull_existential", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.cars.tires.width", true),
-				[]strfmt.UUID{idTiresNoWidth, idCarsNoTires, idAbsent})
+				[]strfmt.UUID{idTiresNoWidth})
 		})
 	})
 
@@ -8989,9 +9032,12 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 		t.Run("addresses[1].tags_IsNotNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.addresses[1].tags", false), []strfmt.UUID{idBothHaveTags})
 		})
+		// Phase 6 sub-rule 1 + arr[N] pin: ∃ addresses[1] without tags.
+		// Only idSecondNoTags (addresses[1] is empty). Others drop
+		// vacuously (no addresses[1] in pin universe).
 		t.Run("addresses[1].tags_IsNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.addresses[1].tags", true),
-				[]strfmt.UUID{idSecondNoTags, idOnlyFirst, idAbsent})
+				[]strfmt.UUID{idSecondNoTags})
 		})
 	})
 
@@ -9021,14 +9067,20 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.addresses.tags[2]", false),
 				[]strfmt.UUID{idHasThirdTag, idHasThirdInSecond})
 		})
-		// TODO aliszka:nested_filtering: locks in CURRENT universal IsNull
-		// for scalar-array positional access (`addresses.tags[2]`). Under
-		// the planned existential IsNull rewrite, the expected list would
-		// shift — empty/absent docs no longer match, docs where ANY
-		// address has a missing tags[2] would match.
+		// Phase 6 sub-rule 1 + scalar-array positional pin: pin restricts
+		// universe to positions of tags[2] entries. No doc has tags[2]
+		// missing (any address with tags[2] also has the value there);
+		// docs without tags[2] drop vacuously. Result: empty.
+		//
+		// TODO aliszka:nested_filtering: pin-equals-operand case
+		// (scalar-array positional variant) is recoverable via the
+		// hybrid in project_pinned_isnull_recovery.md. After fix,
+		// expected:
+		//   []strfmt.UUID{idTwoTagsOnly, idEmptyTags, idNoTags, idAbsent}
+		//   (docs that lack a 3rd tag entry anywhere).
 		t.Run("regression_addresses.tags[2]_IsNull", func(t *testing.T) {
 			runScenario(t, docs, isNullFilter("doc.addresses.tags[2]", true),
-				[]strfmt.UUID{idTwoTagsOnly, idEmptyTags, idNoTags, idAbsent})
+				[]strfmt.UUID{})
 		})
 	})
 
@@ -9070,6 +9122,174 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 			textFilter("doc.addresses[1].city", "berlin"),
 		)
 		runScenario(t, docs, filter, []strfmt.UUID{idMatch1, idMatch2})
+	})
+}
+
+// TestNestedFilteringIsNullMultiDescendantCarGap9 is a focused regression
+// baseline that demonstrates gap#9 multi-leaf-per-element affecting IsNull
+// on an array-typed sub-property.
+//
+// Fixture: cars with BOTH `tires` (object[]) AND `tags` (text[]) as
+// descendants. When one car has both, the parent `cars[0]` intermediate
+// element inherits multiple descendant leaves — one per tire, one per
+// tag — so `_exists.cars` for that doc spans more leaves than
+// `_exists.cars.tires` (which only covers tire leaves). AndNot at the
+// cars LCA leaves the tag leaves behind, masquerading as "this car has
+// no tires" and wrongly matching IsNull.
+//
+// The same wrong-leftover happens for `cars.tags IS NULL` with the
+// opposite descendants surviving.
+//
+// Today (broken under gap#9): the multi-descendant car matches BOTH
+// "cars.tires IS NULL" AND "cars.tags IS NULL" simultaneously, which is
+// semantically impossible — the same car can't simultaneously lack
+// both arrays.
+//
+// TODO aliszka:nested_filtering: after gap#9 fix (per-element-index
+// iteration over _idx.cars.N — see project_gap9_multi_element_per_root.md),
+// the multi-descendant car drops out of both filters; only the
+// truly-missing-that-array docs match.
+func TestNestedFilteringIsNullMultiDescendantCarGap9(t *testing.T) {
+	const nestedClass = "IsNullGap9"
+	vTrue := true
+	tok := models.NestedPropertyTokenizationField
+
+	rootProps := []*models.NestedProperty{
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: tok, IndexFilterable: &vTrue},
+				{
+					Name: "tires", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			},
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootProps},
+		},
+	}
+
+	asArr := func(items ...map[string]any) []any {
+		out := make([]any, len(items))
+		for i, item := range items {
+			out[i] = item
+		}
+		return out
+	}
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+	tire := func(width int) map[string]any { return map[string]any{"width": width} }
+	car := func(tagVals []string, tires ...map[string]any) map[string]any {
+		out := map[string]any{}
+		if tagVals != nil {
+			out["tags"] = asTextArr(tagVals...)
+		}
+		if len(tires) > 0 {
+			out["tires"] = asArr(tires...)
+		}
+		return out
+	}
+	isNullFilter := func(path string, isNull bool) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: isNull},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	idBoth := uuid(1)      // cars=[{tags:[a], tires:[{205}]}]  — multi-descendant car (KEY)
+	idTagsOnly := uuid(2)  // cars=[{tags:[a]}]                  — has tags, no tires
+	idTiresOnly := uuid(3) // cars=[{tires:[{205}]}]             — has tires, no tags
+	idEmptyCar := uuid(4)  // cars=[{}]                          — car exists with neither
+	idAbsent := uuid(5)    // no cars                            — vacuous
+	docs := []docDef{
+		{id: idBoth, props: map[string]any{"doc": map[string]any{"cars": asArr(car([]string{"a"}, tire(205)))}}, note: "multi-descendant car (tags + tires)"},
+		{id: idTagsOnly, props: map[string]any{"doc": map[string]any{"cars": asArr(car([]string{"a"}))}}, note: "car with tags only"},
+		{id: idTiresOnly, props: map[string]any{"doc": map[string]any{"cars": asArr(car(nil, tire(205)))}}, note: "car with tires only"},
+		{id: idEmptyCar, props: map[string]any{"doc": map[string]any{"cars": asArr(car(nil))}}, note: "car with neither"},
+		{id: idAbsent, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
+	}
+
+	// regression_cars_tires_IsNull_gap9 — IsNull on the object[]
+	// sub-property `cars.tires`. Today's buggy result includes idBoth
+	// (multi-descendant car) because the tag leaves survive AndNot at
+	// the cars LCA. After gap#9 fix, expected: only idTagsOnly and
+	// idEmptyCar (cars that truly lack tires).
+	//
+	// TODO aliszka:nested_filtering: post-fix expectation:
+	//   []strfmt.UUID{idTagsOnly, idEmptyCar}
+	t.Run("regression_cars_tires_IsNull_gap9", func(t *testing.T) {
+		runScenario(t, docs, isNullFilter("doc.cars.tires", true),
+			[]strfmt.UUID{idBoth, idTagsOnly, idEmptyCar})
+	})
+
+	// regression_cars_tags_IsNull_gap9 — mirror of the above with
+	// roles reversed. Same gap#9 mechanism: tire leaves of idBoth
+	// survive AndNot at cars LCA, wrongly matching "no tags".
+	//
+	// TODO aliszka:nested_filtering: post-fix expectation:
+	//   []strfmt.UUID{idTiresOnly, idEmptyCar}
+	t.Run("regression_cars_tags_IsNull_gap9", func(t *testing.T) {
+		runScenario(t, docs, isNullFilter("doc.cars.tags", true),
+			[]strfmt.UUID{idBoth, idTiresOnly, idEmptyCar})
+	})
+
+	// Sanity: simultaneous match is the smoking gun for gap#9.
+	// Today both filters return idBoth, which is semantically impossible
+	// — the same car can't simultaneously lack BOTH tires and tags when
+	// it clearly has both. After the gap#9 fix, this overlap disappears.
+	//
+	// TODO aliszka:nested_filtering: post-fix expectation: idBoth must
+	// NOT appear in either result list. The intersection of the two
+	// IsNull queries should be {idEmptyCar} (the only car that truly
+	// lacks both arrays).
+	t.Run("gap9_overlap_smoking_gun_documentation", func(t *testing.T) {
+		// Lock in today's overlap as documentation; the post-fix
+		// expectation is captured by the two regression_* tests above.
+		t.Log("idBoth appears in both cars.tires IS NULL AND cars.tags IS NULL today (gap#9). Post-fix: it appears in neither.")
 	})
 }
 
@@ -18212,24 +18432,13 @@ func TestNestedFilteringIsNullNotConsistency3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make",
 			docs,
-			// today IS NOT NULL (universal flip): docs where at
-			// least one cars.make is present.
+			// IS NOT NULL — existential at cars LCA: ∃ car with make.
 			[]strfmt.UUID{idTeslaS, idTeslaPlusNoMake, idTwoTesla},
-			// today IS NULL (universal): every cars lacks make,
-			// or no cars at all (vacuous universal).
-			[]strfmt.UUID{idNoMakeS, idTwoNoMake, idEmpty, idCarsEmptyArray},
-			// expected after scope-aware IsNull (per-element
-			// existential):
-			//   IS NOT NULL: {idTeslaS, idTeslaPlusNoMake, idTwoTesla}
-			//     — exists element with make. Same as today.
-			//   IS NULL:     {idNoMakeS, idTeslaPlusNoMake, idTwoNoMake}
-			//     — exists element without make. idTeslaPlusNoMake
-			//     flips IN; idEmpty and idCarsEmptyArray flip OUT
-			//     (no element to satisfy existential).
-			//   Pair equality holds: NOT(IS NULL) per-element
-			//   inverts at cars[] LCA -> exists element with make
-			//   present == IS NOT NULL per-element. Same logic for
-			//   pair 2.
+			// IS NULL — Phase 6 sub-rule 1 existential per-element at
+			// cars LCA: ∃ car without make. idTeslaPlusNoMake flips IN
+			// (cars[1] has no make); idEmpty / idCarsEmptyArray drop
+			// (no cars universe — vacuous).
+			[]strfmt.UUID{idNoMakeS, idTeslaPlusNoMake, idTwoNoMake},
 		)
 	})
 
@@ -18276,23 +18485,13 @@ func TestNestedFilteringIsNullNotConsistency3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.make",
 			docs,
-			// today IS NOT NULL (existential at the cross-level
-			// scope): doc has at least one garages.cars.make set.
-			// Both same-garage and split-garages mixed docs satisfy.
+			// IS NOT NULL — existential: ∃ car with make.
 			[]strfmt.UUID{idTeslaS, idTeslaPlusNoMakeSameGarage, idTwoTesla, idTeslaPlusNoMakeSplitGarages},
-			// today IS NULL (universal): every garages.cars lacks
-			// make, plus empty / empty-array cases.
-			[]strfmt.UUID{idNoMakeS, idTwoNoMake, idEmpty, idCarsEmptyArray},
-			// expected after scope-aware IsNull (per-element):
-			//   IS NOT NULL: {idTeslaS, idTeslaPlusNoMakeSameGarage,
-			//                 idTwoTesla, idTeslaPlusNoMakeSplitGarages}
-			//     — same as today (existential matches today's
-			//     existential semantic).
-			//   IS NULL:     {idNoMakeS, idTeslaPlusNoMakeSameGarage,
-			//                 idTwoNoMake, idTeslaPlusNoMakeSplitGarages}
-			//     — mixed docs flip IN regardless of garage layout;
-			//     idEmpty and idCarsEmptyArray flip OUT.
-			//   Pair equality preserved.
+			// IS NULL — Phase 6 sub-rule 1 existential per-element at
+			// garages.cars LCA: ∃ car without make (in any garage).
+			// Mixed-layout docs flip IN regardless of garage layout;
+			// idEmpty / idCarsEmptyArray drop (vacuous).
+			[]strfmt.UUID{idNoMakeS, idTeslaPlusNoMakeSameGarage, idTwoNoMake, idTeslaPlusNoMakeSplitGarages},
 		)
 	})
 
@@ -18346,21 +18545,14 @@ func TestNestedFilteringIsNullNotConsistency3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.make",
 			docs,
-			// today IS NOT NULL: at least one make set anywhere
-			// across countries/garages/cars.
+			// IS NOT NULL — existential.
 			[]strfmt.UUID{idTeslaS, idTeslaPlusNoMakeSameGarage, idTwoTesla, idTeslaPlusNoMakeSplitGarages, idTeslaPlusNoMakeSplitCountries},
-			// today IS NULL (universal): no make anywhere across
-			// countries/garages/cars.
-			[]strfmt.UUID{idNoMakeS, idTwoNoMake, idEmpty, idCarsEmptyArray},
-			// expected after scope-aware IsNull (per-element):
-			//   IS NOT NULL: same as today (existential).
-			//   IS NULL:     {idNoMakeS, idTeslaPlusNoMakeSameGarage,
-			//                 idTwoNoMake,
-			//                 idTeslaPlusNoMakeSplitGarages,
-			//                 idTeslaPlusNoMakeSplitCountries}
-			//     — every mixed-layout doc flips IN; idEmpty and
-			//     idCarsEmptyArray flip OUT.
-			//   Pair equality preserved at all 3 levels.
+			// IS NULL — Phase 6 sub-rule 1 existential per-element at
+			// countries.garages.cars LCA. Mixed-layout docs flip IN;
+			// idEmpty drops (no countries — vacuous);
+			// idCarsEmptyArray's lone empty-car satisfies "∃ car
+			// without make" so stays IN.
+			[]strfmt.UUID{idNoMakeS, idTeslaPlusNoMakeSameGarage, idTwoNoMake, idCarsEmptyArray, idTeslaPlusNoMakeSplitGarages, idTeslaPlusNoMakeSplitCountries},
 		)
 	})
 }

@@ -370,10 +370,9 @@ func (s *Searcher) extractPropValuePair(
 // child wrapping level is elided. Mixed-root nodes keep the per-group
 // wrappers as separate children.
 //
-// NOT-of-IsNull is deliberately left alone — today's docID-level
-// dispatch already produces the correct NOT(IsNull) ≡ IsNotNull
-// equivalence. Phase 6 will materialise IsNull at the leaf LCA, at
-// which point this guard can be removed.
+// NOT-of-IsNull never reaches here — buildPropValuePair rewrites it to
+// its DeMorgan dual (Phase 6 sub-rule 2) so the NOT cancels at
+// extraction time. Any NOT seen here has a non-IsNull operand.
 func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair {
 	if pv == nil || len(pv.children) == 0 {
 		return pv
@@ -405,11 +404,6 @@ func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair 
 			return pv
 		}
 		operand := pv.children[0]
-		// Phase 5 guard: defer NOT(IsNull) to the existing docID-level
-		// dispatch until Phase 6 materialises IsNull at the leaf LCA.
-		if operand.operator == filters.OperatorIsNull {
-			return pv
-		}
 		operandRoot := nestedRootProp(operand)
 		if operandRoot == "" {
 			return pv
@@ -420,6 +414,27 @@ func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair 
 	default:
 		return pv
 	}
+}
+
+// flipNestedIsNull returns a copy of pv with its IsNull boolean byte
+// inverted (0x01 ↔ 0x00). Used by buildPropValuePair to apply the
+// DeMorgan rewrite NOT(IsNull=v) → IsNull=!v on nested IsNull leaves.
+// pv must satisfy operator==OperatorIsNull and nested.isNested==true.
+//
+// The value slice is copied to avoid mutating any shared underlying
+// array; pv itself is shallow-cloned for the same reason (the original
+// pv may still be referenced by other parts of the filter tree under
+// pathological reuse, although today's extraction does not share).
+func flipNestedIsNull(pv *propValuePair) *propValuePair {
+	flipped := *pv
+	flipped.value = make([]byte, max(1, len(pv.value)))
+	copy(flipped.value, pv.value)
+	if flipped.value[0] == 0x01 {
+		flipped.value[0] = 0x00
+	} else {
+		flipped.value[0] = 0x01
+	}
+	return &flipped
 }
 
 // buildPropValuePair constructs the propValuePair from filter without
@@ -438,6 +453,16 @@ func (s *Searcher) buildPropValuePair(
 		children, err := s.extractPropValuePairs(ctx, filter.Operands, filter.Operator, className)
 		if err != nil {
 			return nil, err
+		}
+		// Phase 6 sub-rule 2 — DeMorgan rewrite: NOT(IsNull=v) on a nested
+		// path is equivalent to IsNull=!v under Phase 6's scope-aware IsNull
+		// semantics (both invert at the operand's natural LCA, so NOT cancels
+		// algebraically). Rewriting here eliminates the NOT before grouping
+		// and avoids routing IsNull leaves through operator subtrees, which
+		// fetchOperatorSubtreeBitmaps does not support.
+		if filter.Operator == filters.OperatorNot && len(children) == 1 &&
+			children[0].operator == filters.OperatorIsNull && children[0].nested.isNested {
+			return flipNestedIsNull(children[0]), nil
 		}
 		out.children = children
 		out.operator = filter.Operator

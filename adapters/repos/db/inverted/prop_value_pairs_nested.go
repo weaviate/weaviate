@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // nestedInfo groups fields that are only relevant for nested (object/object[])
@@ -71,33 +72,121 @@ func (pv *propValuePair) fetchNestedDocIDs(ctx context.Context, s *Searcher, lim
 	return dbm, nil
 }
 
-// fetchNestedIsNull resolves an IsNull filter for a nested property by reading
-// the existence bitmap from the metadata bucket. relPath="" checks root-level
-// existence (e.g. "addresses IsNull"); a non-empty relPath checks sub-property
-// existence (e.g. "addresses.city IsNull").
+// fetchNestedIsNull resolves an IsNull filter for a nested property.
 //
-// IsNull=false (property exists) → allowlist of matching docIDs.
-// IsNull=true  (property absent) → denylist (complement) of matching docIDs.
+// Two routing rules:
+//
+//  1. IS NULL on the nested root prop itself (relPath="") is a doc-level
+//     question — "doc has no addresses anywhere" — and does not have a
+//     per-element interpretation. It keeps today's universal docID
+//     behavior: returns the prop's _exists positions stripped to docIDs
+//     with isDenyList=true, so the outer machinery inverts at the doc
+//     universe.
+//
+//  2. IS NULL on a sub-property (relPath != "") follows Option A
+//     (Phase 6 sub-rule 1): existential per-element at the operand's
+//     natural LCA. Materialized as universe (_exists.{operandLCA}) AndNot
+//     operand (_exists.{relPath}); both pin-restricted; result is the
+//     positive bitmap at the operand's LCA, then stripped to docIDs.
+//     Returns isDenyList=false.
+//
+// IS NOT NULL is the existential dual in both cases: returns an
+// allowlist of positions where the field exists (today's behavior;
+// unchanged).
+//
+// Pre-Phase-6 universal-at-docID semantics for sub-property IS NULL is
+// no longer expressible implicitly. Until explicit ANY/ALL/NONE
+// quantifiers ship, the closest universal-style query remains
+// `<prop> IS NULL` (IsNull on the array property itself, rule 1
+// above — "no <prop> at all" at the root scope).
 func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
 	if metaBucket == nil {
 		return nil, errors.Errorf("nested IsNull: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
 
-	positionsExists, release, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
+	// pv.value is a little-endian bool: 0x01 = true (IS NULL).
+	isNullTrue := len(pv.value) > 0 && pv.value[0] == 0x01
+
+	// Read operand: positions where the field exists at pv.nested.relPath.
+	operandRaw, operandRel, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
 	if err != nil {
 		return nil, fmt.Errorf("nested IsNull: read exists key for %q: %w", pv.prop, err)
 	}
-	dbmExists, err := pv.restrictByNestedIdx(s, &docBitmap{docIDs: positionsExists, release: release})
+	operand, err := pv.restrictByNestedIdx(s, &docBitmap{docIDs: operandRaw, release: operandRel})
 	if err != nil {
-		return nil, err // restrictByNestedIdx released the bitmap on error
+		return nil, err
 	}
-	defer dbmExists.release()
+	defer operand.release()
 
-	// pv.value is a little-endian bool: 0x01 = true (IsNull — property absent → denylist).
-	dbm := &docBitmap{isDenyList: len(pv.value) > 0 && pv.value[0] == 0x01}
-	dbm.docIDs, dbm.release = s.nestedBitmapOps.MaskRootLeaf(dbmExists.docIDs)
-	return dbm, nil
+	// IS NOT NULL — existential allowlist of positions where the field
+	// exists, stripped to docIDs. Identical behavior for relPath="" (doc
+	// has the prop) and relPath!="" (∃ element with the field).
+	if !isNullTrue {
+		docIDs, docIDsRel := s.nestedBitmapOps.MaskRootLeaf(operand.docIDs)
+		return &docBitmap{docIDs: docIDs, release: docIDsRel}, nil
+	}
+
+	// IS NULL on the array prop itself — doc-level question. Return
+	// denylist so the outer machinery inverts at doc universe.
+	if pv.nested.relPath == "" {
+		docIDs, docIDsRel := s.nestedBitmapOps.MaskRootLeaf(operand.docIDs)
+		return &docBitmap{docIDs: docIDs, release: docIDsRel, isDenyList: true}, nil
+	}
+
+	// IS NULL on sub-property — materialize positive at operand's LCA:
+	// universe AndNot operand.
+	lca, err := pv.isNullOperandLCA()
+	if err != nil {
+		return nil, err
+	}
+
+	universeRaw, universeRel, err := metaBucket.RoaringSetGet(invnested.ExistsKey(lca))
+	if err != nil {
+		return nil, fmt.Errorf("nested IsNull: read exists key for LCA %q: %w", lca, err)
+	}
+	universe, err := pv.restrictByNestedIdx(s, &docBitmap{docIDs: universeRaw, release: universeRel})
+	if err != nil {
+		return nil, err
+	}
+	defer universe.release()
+
+	positive, positiveRel := s.nestedBitmapOps.AndNot(universe.docIDs, operand.docIDs, concurrency.SROAR_MERGE)
+	defer positiveRel()
+
+	docIDs, docIDsRel := s.nestedBitmapOps.MaskRootLeaf(positive)
+	return &docBitmap{docIDs: docIDs, release: docIDsRel}, nil
+}
+
+// isNullOperandLCA returns the operand's natural LCA for an IS NULL filter on
+// a sub-property (pv.nested.relPath != ""). Result is the deepest object[]
+// segment strictly above relPath, or "" if the field is at the top level of
+// the nested root.
+//
+// Examples (under typical schema):
+//
+//	relPath="cars.make"          → "cars"            (parent object[] segment)
+//	relPath="cars.tires.width"   → "cars.tires"      (parent object[] segment)
+//	relPath="cars"               → ""                (no enclosing object[])
+//	relPath="cars.tires"         → "cars"            (parent object[] segment)
+//
+// Caller must ensure relPath != "" — relPath="" is handled by the doc-level
+// branch in fetchNestedIsNull and never reaches this helper.
+func (pv *propValuePair) isNullOperandLCA() (string, error) {
+	if pv.Class == nil {
+		return "", fmt.Errorf("nested IsNull: class is nil for prop %q (cannot resolve operand LCA)", pv.prop)
+	}
+	rootProp, err := schema.GetPropertyByName(pv.Class, pv.prop)
+	if err != nil {
+		return "", fmt.Errorf("nested IsNull: root property %q not found: %w", pv.prop, err)
+	}
+	segs := filnested.SplitPath(pv.nested.relPath)
+	if len(segs) <= 1 {
+		// Field is at the top-level of the nested root — parent is root.
+		return "", nil
+	}
+	parentPath := filnested.JoinPath(segs[:len(segs)-1])
+	return lastIntermediateObjectArrayInProps(rootProp.NestedProperties, parentPath), nil
 }
 
 // fetchNestedPositions fetches the raw position bitmap for a nested value

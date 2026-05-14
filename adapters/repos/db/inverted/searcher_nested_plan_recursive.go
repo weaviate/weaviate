@@ -557,11 +557,19 @@ func constraintAtScope(scope string, indices arrayIndices) (int, bool) {
 // the deepest object[] segment, or "" if none exists. Mirrors the helper in
 // the older executionPlanBuilder so both planners agree on LCA semantics.
 func (b *recPlanBuilder) lastIntermediateObjectArray(path string) string {
+	return lastIntermediateObjectArrayInProps(b.props, path)
+}
+
+// lastIntermediateObjectArrayInProps is the schema-walking core of
+// lastIntermediateObjectArray, decoupled from recPlanBuilder so non-planner
+// callers (e.g. fetchNestedIsNull) can use the same LCA semantics without
+// constructing a builder. Walks segs of path through props; returns the
+// deepest object[] segment encountered, or "" if none exists.
+func lastIntermediateObjectArrayInProps(props []*models.NestedProperty, path string) string {
 	if path == "" {
 		return ""
 	}
 	segs := filnested.SplitPath(path)
-	props := b.props
 	last := ""
 	for i, seg := range segs {
 		np := filnested.FindNestedProp(props, seg)
