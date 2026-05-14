@@ -92,7 +92,10 @@ var (
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
 	regexCompareDigests = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/compareDigests`)
-	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
+	// regxAsyncCheckpoint matches the class-level endpoint
+	// GET/POST/DELETE /replicas/indices/{class}/async-checkpoint (no shard in path).
+	regxAsyncCheckpoint = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)\/async-checkpoint`)
+	regxObjects         = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/references`)
@@ -258,6 +261,25 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 
 		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 		return
+	case regxAsyncCheckpoint.MatchString(path):
+		// The async-checkpoint endpoint is class-level (no shard in the path):
+		// GET    → status for the listed shards
+		// POST   → create or atomically replace the checkpoint
+		// DELETE → remove the active checkpoint (idempotent)
+		switch r.Method {
+		case http.MethodGet:
+			i.getAsyncCheckpointStatus().ServeHTTP(w, r)
+			return
+		case http.MethodPost:
+			i.postAsyncCheckpoint().ServeHTTP(w, r)
+			return
+		case http.MethodDelete:
+			i.deleteAsyncCheckpoint().ServeHTTP(w, r)
+			return
+		default:
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
 	case regxObject.MatchString(path):
 		if r.Method == http.MethodDelete {
 			i.deleteObject().ServeHTTP(w, r)
@@ -1138,4 +1160,195 @@ func (i *replicatedIndices) postRefs() http.Handler {
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
 func (i *replicatedIndices) Close(ctx context.Context) error {
 	return i.requestQueue.Close(ctx)
+}
+
+// Cap for the JSON body on create/delete (the payload is just a shard list
+// plus two int64s).
+const asyncCheckpointMaxBodyBytes = 64 * 1024
+
+// /async-checkpoint inherits this package's existing AuthN (cluster basic-
+// auth wrapper) and DoS bounds (replicatedIndices request queue + 64 KiB
+// body cap). Rolling upgrades: pre-feature nodes return 404; the broadcast
+// helper in finder.go logs and continues, so convergence resumes once the
+// rollout completes (operators see partial "converged" reports until then).
+
+// JSON shapes for the async-checkpoint endpoints. Field names are the wire
+// contract — kept in sync with the HTTP client encoder (replication.go)
+// and tools/async_checkpoint.sh. Root is a raw []byte (base64 on the wire)
+// because hashtree.Digest's pointer-receiver MarshalJSON doesn't fire on
+// non-addressable map values.
+type asyncCheckpointCreateRequest struct {
+	Shards      []string `json:"shards"`
+	CutoffMs    int64    `json:"cutoff_ms"`
+	CreatedAtMs int64    `json:"created_at_ms"`
+}
+
+type asyncCheckpointDeleteRequest struct {
+	Shards []string `json:"shards"`
+}
+
+type asyncCheckpointStatusEntry struct {
+	Root        []byte `json:"root"`
+	CutoffMs    int64  `json:"cutoff_ms"`
+	CreatedAtMs int64  `json:"created_at_ms"`
+}
+
+// readAsyncCheckpointBody enforces the body-size cap and decodes the JSON
+// payload into out. It returns an HTTP status code so the caller can write a
+// consistent response on validation failure.
+func readAsyncCheckpointBody(w http.ResponseWriter, r *http.Request, out interface{}) (int, error) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, asyncCheckpointMaxBodyBytes))
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return http.StatusRequestEntityTooLarge, fmt.Errorf("request body too large")
+		}
+		return http.StatusInternalServerError, fmt.Errorf("read request body: %w", err)
+	}
+	if len(body) == 0 {
+		return http.StatusBadRequest, fmt.Errorf("empty request body")
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return http.StatusBadRequest, fmt.Errorf("decode request body: %w", err)
+	}
+	return 0, nil
+}
+
+func (i *replicatedIndices) postAsyncCheckpoint() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxAsyncCheckpoint.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		className := args[1]
+
+		var req asyncCheckpointCreateRequest
+		if status, err := readAsyncCheckpointBody(w, r, &req); err != nil {
+			http.Error(w, err.Error(), status)
+			return
+		}
+		// Empty shards expands to "all shards of this class on this node"
+		// in DB.CreateAsyncCheckpoint. Cap explicit lists here.
+		if len(req.Shards) > replica.AsyncCheckpointMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards in request (%d > %d)",
+				len(req.Shards), replica.AsyncCheckpointMaxShardsPerRequest),
+				http.StatusBadRequest)
+			return
+		}
+		if req.CutoffMs <= 0 {
+			http.Error(w, "cutoff_ms must be > 0", http.StatusBadRequest)
+			return
+		}
+		if req.CreatedAtMs <= 0 {
+			http.Error(w, "created_at_ms must be > 0", http.StatusBadRequest)
+			return
+		}
+
+		createdAt := time.UnixMilli(req.CreatedAtMs).UTC()
+		// Past-dated values are fine (the tie-breaker handles them); only
+		// reject far-future ones. See replica.AsyncCheckpointCreatedAtSkewTolerance.
+		if skew := time.Until(createdAt); skew > replica.AsyncCheckpointCreatedAtSkewTolerance {
+			http.Error(w,
+				fmt.Sprintf("created_at_ms is too far in the future (%s ahead of this node's clock; tolerance %s)",
+					skew.Truncate(time.Second), replica.AsyncCheckpointCreatedAtSkewTolerance),
+				http.StatusBadRequest)
+			return
+		}
+		if err := i.replicator.CreateAsyncCheckpoint(r.Context(), className, req.Shards, req.CutoffMs, createdAt); err != nil {
+			http.Error(w, "create async checkpoint: "+err.Error(), asyncCheckpointHTTPStatus(err))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+// asyncCheckpointHTTPStatus maps the well-known checkpoint sentinels to
+// HTTP codes. Kept in sync with asyncCheckpointErrorToGRPC.
+func asyncCheckpointHTTPStatus(err error) int {
+	switch {
+	case errors.Is(err, replica.ErrAsyncCheckpointStale):
+		return http.StatusConflict
+	case errors.Is(err, replica.ErrAsyncReplicationNotActive):
+		return http.StatusPreconditionFailed
+	}
+	return http.StatusInternalServerError
+}
+
+func (i *replicatedIndices) deleteAsyncCheckpoint() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxAsyncCheckpoint.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		className := args[1]
+
+		var req asyncCheckpointDeleteRequest
+		if status, err := readAsyncCheckpointBody(w, r, &req); err != nil {
+			http.Error(w, err.Error(), status)
+			return
+		}
+		if len(req.Shards) > replica.AsyncCheckpointMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards in request (%d > %d)",
+				len(req.Shards), replica.AsyncCheckpointMaxShardsPerRequest),
+				http.StatusBadRequest)
+			return
+		}
+
+		if err := i.replicator.DeleteAsyncCheckpoint(r.Context(), className, req.Shards); err != nil {
+			http.Error(w, "delete async checkpoint: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func (i *replicatedIndices) getAsyncCheckpointStatus() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxAsyncCheckpoint.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		className := args[1]
+
+		shards := r.URL.Query()["shards"]
+		if len(shards) > replica.AsyncCheckpointMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards in request (%d > %d)",
+				len(shards), replica.AsyncCheckpointMaxShardsPerRequest),
+				http.StatusBadRequest)
+			return
+		}
+
+		statuses, err := i.replicator.GetAsyncCheckpointStatus(r.Context(), className, shards)
+		if err != nil {
+			http.Error(w, "get async checkpoint status: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := make(map[string]asyncCheckpointStatusEntry, len(statuses))
+		for shardName, s := range statuses {
+			rootBytes, _ := s.Root.MarshalBinary() // can't fail on a fixed-size Digest
+			// Encode inactive shards as Root="" + created_at_ms=0 rather
+			// than the negative time.Time{}.UnixMilli() value, so clients
+			// can use IsZero() as the "inactive" check.
+			createdAtMs := s.CreatedAt.UnixMilli()
+			if s.CutoffMs == 0 {
+				rootBytes = nil
+				createdAtMs = 0
+			}
+			resp[shardName] = asyncCheckpointStatusEntry{
+				Root:        rootBytes,
+				CutoffMs:    s.CutoffMs,
+				CreatedAtMs: createdAtMs,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			i.logger.WithField("action", "get_async_checkpoint_status").Error(err)
+		}
+	})
 }

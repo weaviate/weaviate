@@ -25,6 +25,12 @@ service ReplicationService {
   rpc FindUUIDs (FindUUIDsRequest) returns (FindUUIDsResponse);
   rpc HashTreeLevel (HashTreeLevelRequest) returns (HashTreeLevelResponse);
   rpc CountObjects (CountObjectsRequest) returns (CountObjectsResponse);
+
+  // Async-checkpoint control plane (mirror of the REST endpoint at
+  // /replicas/indices/{class}/async-checkpoint).
+  rpc CreateAsyncCheckpoint (CreateAsyncCheckpointRequest) returns (CreateAsyncCheckpointResponse);
+  rpc DeleteAsyncCheckpoint (DeleteAsyncCheckpointRequest) returns (DeleteAsyncCheckpointResponse);
+  rpc GetAsyncCheckpointStatus (GetAsyncCheckpointStatusRequest) returns (GetAsyncCheckpointStatusResponse);
 }
 
 // ── Shared messages ──────────────────────────────────────────────────────────
@@ -263,4 +269,50 @@ message CountObjectsRequest {
 // CountObjectsResponse carries object count.
 message CountObjectsResponse {
   int32 count = 1;
+}
+
+// ── Async-checkpoint requests / responses ────────────────────────────────────
+
+// CreateAsyncCheckpointRequest. created_at_unix_milli comes from the
+// initiator. Receivers use strict-greater-than against any active
+// checkpoint (equal/older → AlreadyExists). Empty shards expands to "all
+// on this node"; explicit lists are capped at
+// AsyncCheckpointMaxShardsPerRequest (see usecases/replica).
+message CreateAsyncCheckpointRequest {
+  string index = 1;
+  repeated string shards = 2;
+  int64 cutoff_ms = 3;
+  int64 created_at_unix_milli = 4;
+}
+
+// Empty on success; failures surface as gRPC error status.
+message CreateAsyncCheckpointResponse {
+}
+
+// DeleteAsyncCheckpointRequest. Idempotent.
+message DeleteAsyncCheckpointRequest {
+  string index = 1;
+  repeated string shards = 2;
+}
+
+message DeleteAsyncCheckpointResponse {
+}
+
+// GetAsyncCheckpointStatusRequest. Shards not loaded here are omitted
+// from the response (so callers detect absence by entry presence).
+message GetAsyncCheckpointStatusRequest {
+  string index = 1;
+  repeated string shards = 2;
+}
+
+// AsyncCheckpointShardStatus. root is the 16-byte binary Digest; empty
+// (and created_at_unix_milli == 0) means inactive.
+message AsyncCheckpointShardStatus {
+  bytes root = 1;
+  int64 cutoff_ms = 2;
+  int64 created_at_unix_milli = 3;
+}
+
+message GetAsyncCheckpointStatusResponse {
+  map<string, AsyncCheckpointShardStatus> statuses = 1;
 }

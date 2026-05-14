@@ -269,6 +269,101 @@ func (s *ReplicationService) CountObjects(ctx context.Context, req *pb.CountObje
 	return &pb.CountObjectsResponse{Count: int32(count)}, nil
 }
 
+// ── Async-checkpoint operations ──────────────────────────────────────────────
+
+// asyncCheckpointErrorToGRPC maps the well-known checkpoint sentinels to
+// gRPC codes. Kept in sync with asyncCheckpointHTTPStatus.
+func asyncCheckpointErrorToGRPC(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, replica.ErrAsyncCheckpointStale):
+		return status.Errorf(codes.AlreadyExists, "%v", err)
+	case errors.Is(err, replica.ErrAsyncReplicationNotActive):
+		return status.Errorf(codes.FailedPrecondition, "%v", err)
+	}
+	return status.Errorf(codes.Internal, "%v", err)
+}
+
+// CreateAsyncCheckpoint clones the unbounded hashtree on the listed
+// shards. created_at_unix_milli must come from the initiator — it's the
+// convergence tie-breaker. Empty shards = "all on this node"; the cap
+// bounds per-request work since gRPC doesn't have REST's body limit.
+func (s *ReplicationService) CreateAsyncCheckpoint(ctx context.Context, req *pb.CreateAsyncCheckpointRequest) (*pb.CreateAsyncCheckpointResponse, error) {
+	if len(req.GetShards()) > replica.AsyncCheckpointMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"too many shards in request (%d > %d)",
+			len(req.GetShards()), replica.AsyncCheckpointMaxShardsPerRequest)
+	}
+	if req.GetCutoffMs() <= 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "cutoff_ms must be > 0")
+	}
+	if req.GetCreatedAtUnixMilli() <= 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "created_at_unix_milli must be > 0")
+	}
+	createdAt := time.UnixMilli(req.GetCreatedAtUnixMilli()).UTC()
+	// Past-dated values are fine (the tie-breaker handles them); only reject
+	// far-future ones. See replica.AsyncCheckpointCreatedAtSkewTolerance.
+	if skew := time.Until(createdAt); skew > replica.AsyncCheckpointCreatedAtSkewTolerance {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"created_at_unix_milli is too far in the future (%s ahead of this node's clock; tolerance %s)",
+			skew.Truncate(time.Second), replica.AsyncCheckpointCreatedAtSkewTolerance)
+	}
+	if err := s.server.CreateAsyncCheckpoint(ctx, req.GetIndex(), req.GetShards(), req.GetCutoffMs(), createdAt); err != nil {
+		return nil, asyncCheckpointErrorToGRPC(err)
+	}
+	return &pb.CreateAsyncCheckpointResponse{}, nil
+}
+
+// DeleteAsyncCheckpoint clears the active checkpoint on the listed shards.
+// Idempotent. Empty shards = "all on this node".
+func (s *ReplicationService) DeleteAsyncCheckpoint(ctx context.Context, req *pb.DeleteAsyncCheckpointRequest) (*pb.DeleteAsyncCheckpointResponse, error) {
+	if len(req.GetShards()) > replica.AsyncCheckpointMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"too many shards in request (%d > %d)",
+			len(req.GetShards()), replica.AsyncCheckpointMaxShardsPerRequest)
+	}
+	if err := s.server.DeleteAsyncCheckpoint(ctx, req.GetIndex(), req.GetShards()); err != nil {
+		return nil, asyncCheckpointErrorToGRPC(err)
+	}
+	return &pb.DeleteAsyncCheckpointResponse{}, nil
+}
+
+// GetAsyncCheckpointStatus returns the per-shard checkpoint state for the
+// shards hosted on this node. Shards not loaded here are omitted (entry
+// presence distinguishes "loaded but inactive" from "not on this node").
+// Empty shards = "all on this node".
+func (s *ReplicationService) GetAsyncCheckpointStatus(ctx context.Context, req *pb.GetAsyncCheckpointStatusRequest) (*pb.GetAsyncCheckpointStatusResponse, error) {
+	if len(req.GetShards()) > replica.AsyncCheckpointMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"too many shards in request (%d > %d)",
+			len(req.GetShards()), replica.AsyncCheckpointMaxShardsPerRequest)
+	}
+	statuses, err := s.server.GetAsyncCheckpointStatus(ctx, req.GetIndex(), req.GetShards())
+	if err != nil {
+		return nil, asyncCheckpointErrorToGRPC(err)
+	}
+	out := make(map[string]*pb.AsyncCheckpointShardStatus, len(statuses))
+	for shard, st := range statuses {
+		rootBytes, _ := st.Root.MarshalBinary() // can't fail on a fixed-size Digest
+		// Encode inactive shards as Root=nil + CreatedAtUnixMilli=0 rather
+		// than the negative time.Time{}.UnixMilli() value (see the matching
+		// REST handler).
+		createdAtMs := st.CreatedAt.UnixMilli()
+		if st.CutoffMs == 0 {
+			rootBytes = nil
+			createdAtMs = 0
+		}
+		out[shard] = &pb.AsyncCheckpointShardStatus{
+			Root:               rootBytes,
+			CutoffMs:           st.CutoffMs,
+			CreatedAtUnixMilli: createdAtMs,
+		}
+	}
+	return &pb.GetAsyncCheckpointStatusResponse{Statuses: out}, nil
+}
+
 func simpleResponseToProto(r *replica.SimpleResponse) *pb.SimpleReplicaResponse {
 	if r == nil {
 		return &pb.SimpleReplicaResponse{}

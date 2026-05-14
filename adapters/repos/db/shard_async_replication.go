@@ -39,6 +39,7 @@ import (
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -829,6 +830,7 @@ func (s *Shard) mayStopAsyncReplication() {
 
 	s.hashtree = nil
 	s.hashtreeFullyInitialized = false
+	s.clearAsyncCheckpointLocked()
 
 	s.asyncReplicationRWMux.Unlock()
 
@@ -960,6 +962,7 @@ func (s *Shard) disableAsyncReplication(_ context.Context) error {
 
 		s.hashtree = nil
 		s.hashtreeFullyInitialized = false
+		s.clearAsyncCheckpointLocked()
 
 		needDeregister = true
 
@@ -1253,6 +1256,103 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 	return digests[:n], nil
 }
 
+// Short aliases for the exported sentinels (see usecases/replica).
+var (
+	errAsyncReplicationNotActive = replica.ErrAsyncReplicationNotActive
+	errAsyncCheckpointStale      = replica.ErrAsyncCheckpointStale
+)
+
+// CreateAsyncCheckpoint clones s.hashtree into the bounded checkpoint.
+// ctx is checked twice (entry + post-lock) — the Clone() under the lock
+// is uninterruptible (microseconds).
+func (s *Shard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
+		s.metrics.IncAsyncCheckpointCreateFailureCount()
+		return errAsyncReplicationNotActive
+	}
+
+	if s.asyncCheckpointHashtree != nil && !createdAt.After(s.asyncCheckpointCreatedAt) {
+		s.metrics.IncAsyncCheckpointCreateFailureCount()
+		return errAsyncCheckpointStale
+	}
+
+	// Replace atomically — observe the previous lifetime but don't bump the
+	// active-shard counter (an already-active shard stays active). Lifetime
+	// is measured from the local activation time, never the initiator's
+	// createdAt, so clock skew can't yield a negative duration.
+	wasActive := s.asyncCheckpointHashtree != nil
+	if wasActive {
+		s.metrics.ObserveAsyncCheckpointLifetime(time.Since(s.asyncCheckpointActivatedAt))
+	}
+
+	s.asyncCheckpointHashtree = s.hashtree.Clone()
+	s.asyncCheckpointCutoff = cutoffMs
+	s.asyncCheckpointCreatedAt = createdAt
+	s.asyncCheckpointActivatedAt = time.Now()
+
+	s.metrics.IncAsyncCheckpointCreateCount()
+	if !wasActive {
+		s.metrics.IncAsyncCheckpointActive()
+	}
+	return nil
+}
+
+// DeleteAsyncCheckpoint clears the active checkpoint. Idempotent.
+// Counted under async_checkpoint_delete_total only when an active
+// checkpoint was actually cleared (implicit clears via stop/disable go
+// through clearAsyncCheckpointLocked instead).
+func (s *Shard) DeleteAsyncCheckpoint(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+	if s.asyncCheckpointHashtree == nil {
+		return nil
+	}
+	s.metrics.IncAsyncCheckpointDeleteCount()
+	s.clearAsyncCheckpointLocked()
+	return nil
+}
+
+// clearAsyncCheckpointLocked resets the checkpoint state and emits lifetime
+// + active-gauge metrics. Caller holds asyncReplicationRWMux for writing.
+// Shared by DeleteAsyncCheckpoint and the stop/disable cleanup paths.
+func (s *Shard) clearAsyncCheckpointLocked() {
+	if s.asyncCheckpointHashtree != nil {
+		s.metrics.ObserveAsyncCheckpointLifetime(time.Since(s.asyncCheckpointActivatedAt))
+		s.metrics.DecAsyncCheckpointActive()
+	}
+	s.asyncCheckpointHashtree = nil
+	s.asyncCheckpointCutoff = 0
+	s.asyncCheckpointCreatedAt = time.Time{}
+	s.asyncCheckpointActivatedAt = time.Time{}
+}
+
+// AsyncCheckpointRoot returns the active checkpoint's root, cutoff and
+// createdAt; ok=false strictly means "no active checkpoint". This is a
+// pure in-memory read under the async-replication RLock and deliberately
+// does NOT consult ctx — folding cancellation into ok=false would let
+// callers misread a cancelled context as an inactive checkpoint. Callers
+// that need cancellation must check ctx.Err() themselves.
+func (s *Shard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	if s.asyncCheckpointHashtree == nil {
+		return hashtree.Digest{}, 0, time.Time{}, false
+	}
+	return s.asyncCheckpointHashtree.Root(), s.asyncCheckpointCutoff, s.asyncCheckpointCreatedAt, true
+}
+
 // runHashbeatCycle runs one full hashbeat cycle and is called by a scheduler
 // worker goroutine. It uses shard-level state maps (asyncRepLast*) which are
 // only ever accessed from a single worker at a time (enforced by asyncRepWg).
@@ -1452,6 +1552,8 @@ func (s *Shard) hashBeat(
 	}()
 
 	var ht hashtree.AggregatedHashTree
+	var cpht hashtree.AggregatedHashTree
+	var activeCutoff int64
 	var targetNodeOverridesSnapshot additional.AsyncReplicationTargetNodeOverrides
 
 	s.asyncReplicationRWMux.RLock()
@@ -1461,15 +1563,34 @@ func (s *Shard) hashBeat(
 		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
 	}
 	ht = s.hashtree
+	cpht = s.asyncCheckpointHashtree
+	if cpht != nil {
+		activeCutoff = s.asyncCheckpointCutoff
+	}
 	// create a snapshot of targetNodeOverrides to use throughout hashbeat
 	if s.targetNodeOverrides != nil {
 		targetNodeOverridesSnapshot = slices.Clone(s.targetNodeOverrides)
 	}
 	s.asyncReplicationRWMux.RUnlock()
 
+	// Use the checkpoint hashtree first when a checkpoint is active; fall
+	// through to the unbounded tree below when the checkpoint reports no
+	// diffs (it would otherwise stall post-cutoff propagation).
+	activeHT := ht
+	if cpht != nil {
+		activeHT = cpht
+	}
+
 	hashtreeDiffStart := time.Now()
 
-	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, targetNodeOverridesSnapshot)
+	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, activeHT, config.diffPerNodeTimeout, targetNodeOverridesSnapshot)
+	// When the checkpoint tree reports no differences, fall through to the
+	// unbounded tree so this node keeps propagating post-cutoff objects and
+	// continues to receive bounded-tree diffs from other replicas.
+	if cpht != nil && errors.Is(err, replicaerrors.ErrNoDiffFound) {
+		activeCutoff = 0
+		shardDiffReader, err = s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, targetNodeOverridesSnapshot)
+	}
 	if err != nil {
 		if errors.Is(err, replicaerrors.ErrNoDiffFound) && len(targetNodeOverridesSnapshot) > 0 {
 			stats := make([]*hashBeatHostStats, 0, len(targetNodeOverridesSnapshot))
@@ -1525,6 +1646,7 @@ func (s *Shard) hashBeat(
 			finalLeaf,
 			config.propagationLimit-len(localObjectsToPropagate),
 			targetNodeOverridesSnapshot,
+			activeCutoff,
 		)
 		if err != nil {
 			if objectDigestsDiffCtx.Err() != nil {
@@ -1678,6 +1800,7 @@ type objectToPropagate struct {
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
+	asyncCheckpointCutoff int64,
 ) (localObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
 	objectsToPropagate = make([]objectToPropagate, 0, min(limit, config.diffBatchSize))
 
@@ -1695,6 +1818,14 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 	// Computed once so every batch uses the same cut-off; a per-batch recompute
 	// would let objects near the boundary flip eligibility mid-scan.
 	maxUpdateTime := s.getHashBeatMaxUpdateTime(config, targetNodeName, targetNodeOverrides)
+
+	// When the hashbeat cycle is driven by an active checkpoint, additionally
+	// cap propagation at the checkpoint cutoff so only pre-cutoff objects are
+	// sent in this cycle. The unbounded-tree fallback passes cutoff == 0 and
+	// leaves maxUpdateTime unchanged.
+	if asyncCheckpointCutoff > 0 && asyncCheckpointCutoff < maxUpdateTime {
+		maxUpdateTime = asyncCheckpointCutoff
+	}
 
 	currLocalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(currLocalUUIDBytes, initialLeaf<<(64-hashtreeHeight))

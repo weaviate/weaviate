@@ -201,3 +201,34 @@ func (s *switchReplicationClient) CountObjects(ctx context.Context, host string,
 	}
 	return s.restClient.CountObjects(ctx, host, index, shard)
 }
+
+// Async-checkpoint operations follow the same useGRPC() routing as every
+// other replication call. REST stays available regardless so
+// tools/async_checkpoint.sh can drive the same operations from shell.
+
+func (s *switchReplicationClient) CreateAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
+) error {
+	if s.useGRPC() {
+		return s.grpcClient.CreateAsyncCheckpoint(ctx, host, index, shardNames, cutoffMs, createdAt)
+	}
+	return s.restClient.CreateAsyncCheckpoint(ctx, host, index, shardNames, cutoffMs, createdAt)
+}
+
+func (s *switchReplicationClient) DeleteAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string,
+) error {
+	if s.useGRPC() {
+		return s.grpcClient.DeleteAsyncCheckpoint(ctx, host, index, shardNames)
+	}
+	return s.restClient.DeleteAsyncCheckpoint(ctx, host, index, shardNames)
+}
+
+func (s *switchReplicationClient) GetAsyncCheckpointStatus(ctx context.Context,
+	host, index string, shardNames []string,
+) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	if s.useGRPC() {
+		return s.grpcClient.GetAsyncCheckpointStatus(ctx, host, index, shardNames)
+	}
+	return s.restClient.GetAsyncCheckpointStatus(ctx, host, index, shardNames)
+}

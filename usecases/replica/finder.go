@@ -35,6 +35,28 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
+var (
+	// ErrAsyncCheckpointStale fires when the incoming createdAt isn't
+	// strictly newer than the active one. Maps to HTTP 409 / AlreadyExists.
+	ErrAsyncCheckpointStale = errors.New("checkpoint createdAt is not newer than the active one")
+
+	// ErrAsyncReplicationNotActive fires when the shard's hashtree isn't
+	// initialised. Maps to HTTP 412 / FailedPrecondition.
+	ErrAsyncReplicationNotActive = errors.New("async replication is not active on this shard")
+)
+
+// AsyncCheckpointMaxShardsPerRequest bounds per-request work on the gRPC
+// transport (REST already has a 64 KiB body cap; gRPC inherits the
+// cluster-wide ~100 MB MaxRecvMsgSize).
+const AsyncCheckpointMaxShardsPerRequest = 10_000
+
+// AsyncCheckpointCreatedAtSkewTolerance bounds how far in the future a
+// checkpoint's createdAt is allowed to be. Without this, a single
+// far-future createdAt would block every later legitimate create via the
+// strict-greater-than tie-breaker. 5 minutes is above plausible NTP drift
+// but catches obvious garbage. Enforced by both the REST and gRPC handlers.
+const AsyncCheckpointCreatedAtSkewTolerance = 5 * time.Minute
+
 type (
 	// senderReply is a container for the data received from a replica
 	senderReply[T any] struct {
@@ -546,4 +568,145 @@ func reconcile(counts []int) int {
 		return mode
 	}
 	return median
+}
+
+// AsyncCheckpointNodeStatus is the checkpoint state of one replica for one
+// shard. CutoffMs == 0 + zero Root means no active checkpoint on that
+// replica.
+type AsyncCheckpointNodeStatus struct {
+	Node      string
+	CutoffMs  int64
+	CreatedAt time.Time
+	Root      hashtree.Digest
+}
+
+// AsyncCheckpointShardStatus is one node's per-shard checkpoint state.
+// The node name is supplied by the aggregating caller.
+type AsyncCheckpointShardStatus struct {
+	Root      hashtree.Digest
+	CutoffMs  int64
+	CreatedAt time.Time
+}
+
+// remoteReplicaHosts returns host addresses + node names for all non-local
+// replicas of shardName. Unresolvable replicas are skipped.
+func (f *Finder) remoteReplicaHosts(shardName string) (names []string, addrs []string) {
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	if err != nil {
+		return nil, nil
+	}
+	localAddr, localResolved := f.nodeResolver.NodeHostname(f.nodeName)
+	for _, nodeName := range routingPlan.NodeNames() {
+		// Skip self by name; only fall back to addr compare when local
+		// resolved (NodeHostname returns "" for the local node otherwise).
+		if nodeName == f.nodeName {
+			continue
+		}
+		addr, ok := f.nodeResolver.NodeHostname(nodeName)
+		if !ok || (localResolved && addr == localAddr) {
+			continue
+		}
+		names = append(names, nodeName)
+		addrs = append(addrs, addr)
+	}
+	return names, addrs
+}
+
+// groupShardsByAddr returns addr→shards and addr→nodeName for every
+// non-local replica of shardNames. Create/Delete callers can ignore the
+// second map.
+func (f *Finder) groupShardsByAddr(shardNames []string) (map[string][]string, map[string]string) {
+	addrShards := make(map[string][]string)
+	addrToName := make(map[string]string)
+	for _, shardName := range shardNames {
+		names, addrs := f.remoteReplicaHosts(shardName)
+		for i, addr := range addrs {
+			addrShards[addr] = append(addrShards[addr], shardName)
+			addrToName[addr] = names[i]
+		}
+	}
+	return addrShards, addrToName
+}
+
+// BroadcastCreateAsyncCheckpoint fans out one create request per remote
+// node (not per shard). Per-node failures are best-effort: logged at Warn,
+// counted, but never abort the fan-out — convergence retries on the next
+// create cycle.
+func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames []string, cutoffMs int64, createdAt time.Time) (successes, failures int) {
+	addrShards, _ := f.groupShardsByAddr(shardNames)
+	for addr, shards := range addrShards {
+		if err := f.client.cl.CreateAsyncCheckpoint(ctx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
+			failures++
+			f.logger.WithFields(logrus.Fields{
+				"action": "async_checkpoint_broadcast",
+				"op":     "create",
+				"class":  f.class,
+				"addr":   addr,
+				"shards": shards,
+			}).WithError(err).
+				Warn("async-checkpoint create rejected by remote replica")
+			continue
+		}
+		successes++
+	}
+	return successes, failures
+}
+
+// BroadcastDeleteAsyncCheckpoint fans out one delete request per remote
+// node. Idempotent; per-node failures are logged at Warn and counted.
+func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) (successes, failures int) {
+	addrShards, _ := f.groupShardsByAddr(shardNames)
+	for addr, shards := range addrShards {
+		if err := f.client.cl.DeleteAsyncCheckpoint(ctx, addr, f.class, shards); err != nil {
+			failures++
+			f.logger.WithFields(logrus.Fields{
+				"action": "async_checkpoint_broadcast",
+				"op":     "delete",
+				"class":  f.class,
+				"addr":   addr,
+				"shards": shards,
+			}).WithError(err).
+				Warn("async-checkpoint delete rejected by remote replica")
+			continue
+		}
+		successes++
+	}
+	return successes, failures
+}
+
+// BroadcastGetAsyncCheckpointStatus queries one status request per remote
+// node. Unreachable nodes are logged at Debug (status is routinely
+// retried) and omitted from the aggregate.
+func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNames []string) (statuses map[string][]AsyncCheckpointNodeStatus, successes, failures int) {
+	addrShards, addrToName := f.groupShardsByAddr(shardNames)
+
+	statuses = make(map[string][]AsyncCheckpointNodeStatus)
+	for addr, shards := range addrShards {
+		nodeName := addrToName[addr]
+		remoteStatuses, err := f.client.cl.GetAsyncCheckpointStatus(ctx, addr, f.class, shards)
+		if err != nil {
+			failures++
+			f.logger.WithFields(logrus.Fields{
+				"action": "async_checkpoint_broadcast",
+				"op":     "status",
+				"class":  f.class,
+				"addr":   addr,
+				"node":   nodeName,
+				"shards": shards,
+			}).WithError(err).
+				Debug("async-checkpoint status: remote replica unavailable")
+			continue
+		}
+		successes++
+		for shardName, s := range remoteStatuses {
+			statuses[shardName] = append(statuses[shardName], AsyncCheckpointNodeStatus{
+				Node:      nodeName,
+				CutoffMs:  s.CutoffMs,
+				CreatedAt: s.CreatedAt,
+				Root:      s.Root,
+			})
+		}
+	}
+	return statuses, successes, failures
 }

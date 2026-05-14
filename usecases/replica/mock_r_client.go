@@ -15,6 +15,7 @@ package replica
 
 import (
 	context "context"
+	time "time"
 
 	additional "github.com/weaviate/weaviate/entities/additional"
 
@@ -106,6 +107,37 @@ func (_c *MockRClient_CompareDigests_Call) Return(_a0 []types.RepairResponse, _a
 func (_c *MockRClient_CompareDigests_Call) RunAndReturn(run func(context.Context, string, string, string, []types.RepairResponse) ([]types.RepairResponse, error)) *MockRClient_CompareDigests_Call {
 	_c.Call.Return(run)
 	return _c
+}
+
+// CreateAsyncCheckpoint provides a mock function with given fields: ctx, host, index, shardNames, cutoffMs, createdAt
+func (_m *MockRClient) CreateAsyncCheckpoint(ctx context.Context, host string, index string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
+	ret := _m.Called(ctx, host, index, shardNames, cutoffMs, createdAt)
+	if len(ret) == 0 {
+		panic("no return value specified for CreateAsyncCheckpoint")
+	}
+	return ret.Error(0)
+}
+
+// DeleteAsyncCheckpoint provides a mock function with given fields: ctx, host, index, shardNames
+func (_m *MockRClient) DeleteAsyncCheckpoint(ctx context.Context, host string, index string, shardNames []string) error {
+	ret := _m.Called(ctx, host, index, shardNames)
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAsyncCheckpoint")
+	}
+	return ret.Error(0)
+}
+
+// GetAsyncCheckpointStatus provides a mock function with given fields: ctx, host, index, shardNames
+func (_m *MockRClient) GetAsyncCheckpointStatus(ctx context.Context, host string, index string, shardNames []string) (map[string]AsyncCheckpointShardStatus, error) {
+	ret := _m.Called(ctx, host, index, shardNames)
+	if len(ret) == 0 {
+		panic("no return value specified for GetAsyncCheckpointStatus")
+	}
+	var r0 map[string]AsyncCheckpointShardStatus
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(map[string]AsyncCheckpointShardStatus)
+	}
+	return r0, ret.Error(1)
 }
 
 // CountObjects provides a mock function with given fields: ctx, host, index, shard

@@ -367,6 +367,143 @@ func (c *replicationClient) CountObjects(ctx context.Context, host string, index
 	return resp, err
 }
 
+// asyncCheckpointURL builds /replicas/indices/{class}/async-checkpoint,
+// optionally adding shards as repeated query parameters (GET).
+func asyncCheckpointURL(host, index string, shards []string, includeShardsInQuery bool) string {
+	u := url.URL{
+		Scheme: "http",
+		Host:   host,
+		Path:   fmt.Sprintf("/replicas/indices/%s/async-checkpoint", index),
+	}
+	if includeShardsInQuery {
+		q := url.Values{}
+		for _, s := range shards {
+			q.Add("shards", s)
+		}
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
+}
+
+// Wire shapes for the async-checkpoint endpoints. Field names are the
+// contract — mirrored in the REST handler (indices_replicas.go) and
+// tools/async_checkpoint.sh.
+type asyncCheckpointCreateBody struct {
+	Shards      []string `json:"shards"`
+	CutoffMs    int64    `json:"cutoff_ms"`
+	CreatedAtMs int64    `json:"created_at_ms"`
+}
+
+type asyncCheckpointDeleteBody struct {
+	Shards []string `json:"shards"`
+}
+
+type asyncCheckpointStatusEntry struct {
+	Root        []byte `json:"root"` // 16-byte Digest, base64 on the wire; empty when inactive
+	CutoffMs    int64  `json:"cutoff_ms"`
+	CreatedAtMs int64  `json:"created_at_ms"`
+}
+
+func (c *replicationClient) CreateAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
+) error {
+	body, err := json.Marshal(asyncCheckpointCreateBody{
+		Shards:      shardNames,
+		CutoffMs:    cutoffMs,
+		CreatedAtMs: createdAt.UnixMilli(),
+	})
+	if err != nil {
+		return fmt.Errorf("encode async-checkpoint create body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		asyncCheckpointURL(host, index, nil, false), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+	}
+	return nil
+}
+
+func (c *replicationClient) DeleteAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string,
+) error {
+	body, err := json.Marshal(asyncCheckpointDeleteBody{Shards: shardNames})
+	if err != nil {
+		return fmt.Errorf("encode async-checkpoint delete body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		asyncCheckpointURL(host, index, nil, false), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+	}
+	return nil
+}
+
+func (c *replicationClient) GetAsyncCheckpointStatus(ctx context.Context,
+	host, index string, shardNames []string,
+) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		asyncCheckpointURL(host, index, shardNames, true), nil)
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		return nil, fmt.Errorf("status code: %v, error: %s", res.StatusCode, b)
+	}
+	var raw map[string]asyncCheckpointStatusEntry
+	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("decode async-checkpoint status: %w", err)
+	}
+	out := make(map[string]replica.AsyncCheckpointShardStatus, len(raw))
+	for shard, e := range raw {
+		var root hashtree.Digest
+		if len(e.Root) > 0 {
+			// Surface length mismatches rather than silently zeroing — a
+			// malformed root is a protocol violation, not an inactive shard.
+			if err := root.UnmarshalBinary(e.Root); err != nil {
+				return nil, fmt.Errorf("decode async-checkpoint root for shard %q: %w", shard, err)
+			}
+		}
+		// Decode 0 back to time.Time{}, not 1970-01-01, so IsZero() is the
+		// consumer-side "inactive" check (matches the encoder).
+		var createdAt time.Time
+		if e.CreatedAtMs != 0 {
+			createdAt = time.UnixMilli(e.CreatedAtMs)
+		}
+		out[shard] = replica.AsyncCheckpointShardStatus{
+			Root:      root,
+			CutoffMs:  e.CutoffMs,
+			CreatedAt: createdAt,
+		}
+	}
+	return out, nil
+}
+
 func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
