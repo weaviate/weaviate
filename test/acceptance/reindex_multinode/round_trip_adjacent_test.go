@@ -61,26 +61,48 @@ import (
 //     tidied.mig poison the subsequent change-tokenization migration
 //     dir state?
 //  7. EnableSearchableThenChangeTok: same idea for enable-searchable.
+// Each subtest gets its own fresh 3-node cluster. The previous
+// shared-cluster pattern was non-deterministic: after several
+// migrations across different collections on the same long-lived
+// cluster, some node would end up with persistently divergent
+// per-replica data, even though the same subtest passed cleanly in
+// isolation. The pattern is the same shape as the original #10675
+// data-loss (one replica with less data than the others), so the
+// shared-cluster cross-collection accumulation is itself worth a
+// separate Sev investigation — but the journey-specific assertions
+// each subtest pins (does word↔whitespace round-trip work? does
+// enable-filterable then change-tok work?) are about the journey, not
+// about accumulated state. Running each in its own cluster keeps the
+// journey signal clean and surfaces a different test if the
+// cross-collection accumulation reproduces.
 func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
-	ctx := context.Background()
-	compose, cleanup := start3NodeReindexCluster(ctx, t)
-	defer cleanup()
-	defer dumpContainerLogs(ctx, t, compose)
+	withFreshCluster := func(t *testing.T, body func(t *testing.T, compose *docker.DockerCompose)) {
+		t.Helper()
+		ctx := context.Background()
+		compose, cleanup := start3NodeReindexCluster(ctx, t)
+		defer cleanup()
+		defer dumpContainerLogs(ctx, t, compose)
+		body(t, compose)
+	}
 
 	t.Run("MultiRoundRobin_3rounds", func(t *testing.T) {
 		// Journey 1: word→field→word→field. Does the bug compound?
 		// Predict: 3rd round leaves even more replicas with empty buckets
 		// than the 2nd round did.
-		testRoundTripNRounds(t, compose,
-			"RoundTrip3", "word",
-			[]string{"field", "word", "field"})
+		withFreshCluster(t, func(t *testing.T, compose *docker.DockerCompose) {
+			testRoundTripNRounds(t, compose,
+				"RoundTrip3", "word",
+				[]string{"field", "word", "field"})
+		})
 	})
 
 	t.Run("MultiRoundRobin_4rounds", func(t *testing.T) {
 		// Journey 1 (extended): word→field→word→field→word.
-		testRoundTripNRounds(t, compose,
-			"RoundTrip4", "word",
-			[]string{"field", "word", "field", "word"})
+		withFreshCluster(t, func(t *testing.T, compose *docker.DockerCompose) {
+			testRoundTripNRounds(t, compose,
+				"RoundTrip4", "word",
+				[]string{"field", "word", "field", "word"})
+		})
 	})
 
 	t.Run("DifferentTokenizations_word_whitespace_word", func(t *testing.T) {
@@ -88,25 +110,31 @@ func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
 		// different tokenizer pair. If only word↔field is broken, this
 		// passes; if the bug is universal to change-tokenization
 		// round-trips, this fails.
-		testRoundTripNRounds(t, compose,
-			"RoundTripWS", "word",
-			[]string{"whitespace", "word"})
+		withFreshCluster(t, func(t *testing.T, compose *docker.DockerCompose) {
+			testRoundTripNRounds(t, compose,
+				"RoundTripWS", "word",
+				[]string{"whitespace", "word"})
+		})
 	})
 
 	t.Run("DifferentTokenizations_word_lowercase_word", func(t *testing.T) {
 		// Journey 2 (variant): word→lowercase→word.
-		testRoundTripNRounds(t, compose,
-			"RoundTripLC", "word",
-			[]string{"lowercase", "word"})
+		withFreshCluster(t, func(t *testing.T, compose *docker.DockerCompose) {
+			testRoundTripNRounds(t, compose,
+				"RoundTripLC", "word",
+				[]string{"lowercase", "word"})
+		})
 	})
 
 	t.Run("DifferentTokenizations_word_field_lowercase", func(t *testing.T) {
 		// Journey 2 (variant): word→field→lowercase. Asymmetric — the
 		// round-trip doesn't end where it started, but the bug could
 		// still manifest on the second migration.
-		testRoundTripNRounds(t, compose,
-			"RoundTripAsym", "word",
-			[]string{"field", "lowercase"})
+		withFreshCluster(t, func(t *testing.T, compose *docker.DockerCompose) {
+			testRoundTripNRounds(t, compose,
+				"RoundTripAsym", "word",
+				[]string{"field", "lowercase"})
+		})
 	})
 
 	t.Run("MultipleProperties_simultaneous", func(t *testing.T) {
@@ -115,7 +143,7 @@ func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
 		// migration dirs are per-property, so collisions across props
 		// should not happen — if any of the per-property baselines goes
 		// to zero on any replica, that's a separate Sev-1.
-		testMultiPropertyRoundTrip(t, compose)
+		withFreshCluster(t, testMultiPropertyRoundTrip)
 	})
 
 	t.Run("FilterableOnly_RoundTrip", func(t *testing.T) {
@@ -123,7 +151,7 @@ func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
 		// on a filterable-only property. Different reindexer
 		// (FilterableRetokenizeStrategy) but the same swap+schema-flip
 		// state machine.
-		testFilterableOnlyRoundTrip(t, compose)
+		withFreshCluster(t, testFilterableOnlyRoundTrip)
 	})
 
 	t.Run("SearchableOnly_RoundTrip", func(t *testing.T) {
@@ -131,7 +159,7 @@ func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
 		// body shape is {"searchable":{"tokenization":X}}. No sub-task
 		// fan-out for filterable index, so a simpler shape — but still
 		// the same swap+schema-flip path.
-		testSearchableOnlyRoundTrip(t, compose)
+		withFreshCluster(t, testSearchableOnlyRoundTrip)
 	})
 
 	t.Run("EnableFilterableThenChangeTok", func(t *testing.T) {
@@ -140,13 +168,13 @@ func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
 		// .migrations/), then immediately change-tokenization on the
 		// same property. Does enable-filterable's residual state
 		// interfere with the change-tok migration?
-		testEnableFilterableThenChangeTok(t, compose)
+		withFreshCluster(t, testEnableFilterableThenChangeTok)
 	})
 
 	t.Run("EnableSearchableThenChangeTok", func(t *testing.T) {
 		// Journey 7: same idea — start searchable=false, enable
 		// searchable, then change-tokenization.
-		testEnableSearchableThenChangeTok(t, compose)
+		withFreshCluster(t, testEnableSearchableThenChangeTok)
 	})
 }
 
