@@ -306,11 +306,41 @@ func (p *ReindexProvider) processUnits(
 
 		wg.Add(1)
 		unitID := unitID
+		// Wrap Release in a sync.Once so processOneUnit can release the
+		// slot EARLY (right after its local reindex iteration finishes,
+		// BEFORE entering the cross-node barrier wait) without risking a
+		// double-release at goroutine exit.
+		//
+		// Without the early release, the slot stays occupied for the
+		// duration of waitForAllUnitsReindexDone — which deadlocks on
+		// multinode clusters whenever a node owns more local units than
+		// the configured ReindexConcurrency:
+		//
+		//   - Each held slot is one unit blocked at the barrier waiting
+		//     for its peers' progress=1.0.
+		//   - The N+1'th local unit cannot start its reindex because all
+		//     slots are taken by units already in the barrier wait.
+		//   - Peers on other nodes are in the same state, so nobody
+		//     advances and the barrier never releases.
+		//
+		// Releasing the slot before the barrier lets the next pending
+		// local unit start its reindex; once every local unit has
+		// completed its reindex and reported progress=1.0, the barrier
+		// on every node releases at once and the swap phase can run.
+		// The barrier wait is pure polling — no CPU/IO of consequence —
+		// so it does not need a limiter slot. The swap itself is also
+		// cheap (FlushAndSwitch + rename + schema flip via Raft) and
+		// runs without the slot. See processOneUnit for the explicit
+		// releaseSlot() call sites.
+		var slotReleased sync.Once
+		releaseSlot := func() {
+			slotReleased.Do(limiter.Release)
+		}
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
-			defer limiter.Release()
+			defer releaseSlot()
 
-			p.processOneUnit(ctx, task, payload, idx, unitID, recorder)
+			p.processOneUnit(ctx, task, payload, idx, unitID, recorder, releaseSlot)
 		}, p.logger)
 	}
 
@@ -321,6 +351,14 @@ func (p *ReindexProvider) processUnits(
 // For semantic migrations (e.g. change-tokenization), the task is cached so that
 // OnGroupCompleted can reuse the same instance to run the swap phase — this
 // preserves double-write callbacks registered during reindex.
+//
+// releaseSlot returns the concurrency limiter slot held by this unit. The
+// caller in [processUnits] also defers releaseSlot to guarantee release on
+// any exit path; the sync.Once wrapping makes calling it explicitly here
+// safe. We release the slot eagerly after the local reindex finishes (and
+// before entering the cross-node barrier wait) so a node with more local
+// units than the configured ReindexConcurrency does not deadlock — see
+// the comment block in processUnits for the full failure mode.
 func (p *ReindexProvider) processOneUnit(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -328,6 +366,7 @@ func (p *ReindexProvider) processOneUnit(
 	idx *Index,
 	unitID string,
 	recorder distributedtask.TaskCompletionRecorder,
+	releaseSlot func(),
 ) {
 	shardName := payload.UnitToShard[unitID]
 	logger := p.logger.WithField("taskID", task.ID).
@@ -428,6 +467,15 @@ func (p *ReindexProvider) processOneUnit(
 			return
 		}
 	}
+
+	// Local reindex work is done. Free the concurrency limiter slot NOW so
+	// the next pending local unit (if any) can start its reindex while this
+	// goroutine waits at the cross-node barrier. This is the multinode
+	// deadlock fix: holding the slot through the barrier deadlocks any
+	// node that owns more local units than ReindexConcurrency. Format-only
+	// migrations skip the barrier entirely, so the early release just
+	// shaves a few unit-completion-recorder ms off the slot hold time.
+	releaseSlot()
 
 	// For semantic migrations, run the swap phase INLINE before reporting
 	// unit completion. This ordering guarantees that a caller observing
@@ -567,10 +615,15 @@ func (p *ReindexProvider) processOneUnit(
 // Polling uses a small fixed interval. The local node's progress update
 // is observable in the next poll because UpdateDistributedTaskUnitProgress
 // applies through Raft and is read back via the same Raft query.
+//
+// A heartbeat log fires every barrierWaitHeartbeat so a stalled barrier
+// (e.g. a peer node permanently stuck on its reindex) surfaces in
+// operator log queries instead of silently hanging.
 func (p *ReindexProvider) waitForAllUnitsReindexDone(
 	ctx context.Context, task *distributedtask.Task,
 ) error {
 	const pollInterval = 100 * time.Millisecond
+	const barrierWaitHeartbeat = 30 * time.Second
 
 	p.mu.Lock()
 	lister := p.clusterTasks
@@ -584,36 +637,46 @@ func (p *ReindexProvider) waitForAllUnitsReindexDone(
 		return nil
 	}
 
+	logger := p.logger.WithField("taskID", task.ID).
+		WithField("taskVersion", task.Version)
+
 	// Query immediately on entry so a single-unit single-node task
 	// doesn't pay an extra pollInterval before its already-applied
 	// progress update is observed. Subsequent retries wait for the
 	// ticker tick.
-	checkNow := func() (bool, error) {
+	//
+	// Returns done, pendingUnitIDs (for the heartbeat log), err.
+	checkNow := func() (bool, []string, error) {
 		tasksByNamespace, err := lister.ListDistributedTasks(ctx)
 		if err != nil {
-			return false, err
+			return false, nil, err
 		}
 		for _, t := range tasksByNamespace[task.Namespace] {
 			if t.ID != task.ID || t.Version != task.Version {
 				continue
 			}
-			return allReindexDone(t), nil
+			if allReindexDone(t) {
+				return true, nil, nil
+			}
+			return false, pendingReindexUnitIDs(t), nil
 		}
 		// Task not found in the lister output — treat as done; either
 		// it was concurrently cleaned up (terminal + TTL) or a query
 		// glitch hid it. Erring on "done" here is safe because the
 		// downstream swap will fail loudly if the on-disk state is
 		// inconsistent.
-		return true, nil
+		return true, nil, nil
 	}
 
-	if done, err := checkNow(); err == nil && done {
+	if done, _, err := checkNow(); err == nil && done {
 		return nil
 	}
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
+	startedAt := time.Now()
+	lastHeartbeat := startedAt
 	for {
 		select {
 		case <-ctx.Done():
@@ -621,7 +684,7 @@ func (p *ReindexProvider) waitForAllUnitsReindexDone(
 		case <-ticker.C:
 		}
 
-		done, err := checkNow()
+		done, pending, err := checkNow()
 		if err != nil {
 			// Treat transient lookup errors as "not done yet"; the next
 			// poll will retry. This is consistent with the rest of the
@@ -631,7 +694,33 @@ func (p *ReindexProvider) waitForAllUnitsReindexDone(
 		if done {
 			return nil
 		}
+
+		if time.Since(lastHeartbeat) >= barrierWaitHeartbeat {
+			logger.WithField("elapsed", time.Since(startedAt).Round(time.Second).String()).
+				WithField("pendingUnits", pending).
+				Warn("reindex provider: cross-node reindex barrier still waiting; pending units have not yet reached progress=1.0")
+			lastHeartbeat = time.Now()
+		}
 	}
+}
+
+// pendingReindexUnitIDs returns the IDs of units that have not yet
+// reached progress >= 1.0 or terminal status. Used by the barrier
+// heartbeat log to surface which peer(s) are holding the cluster up.
+func pendingReindexUnitIDs(task *distributedtask.Task) []string {
+	var pending []string
+	for id, u := range task.Units {
+		if u.Status == distributedtask.UnitStatusCompleted ||
+			u.Status == distributedtask.UnitStatusFailed {
+			continue
+		}
+		if u.Progress >= 1.0 {
+			continue
+		}
+		pending = append(pending, id)
+	}
+	sort.Strings(pending)
+	return pending
 }
 
 // allReindexDone reports whether every unit in the task has either
