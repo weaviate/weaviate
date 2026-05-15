@@ -63,20 +63,6 @@ code, pre {
   font-size: 12px;
   color: var(--text-dim);
 }
-.conn-key-input {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 4px 8px;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 12px;
-  width: 220px;
-}
-.conn-key-input:focus {
-  outline: none;
-  border-color: var(--accent-2);
-}
 .reset-status {
   font-family: var(--mono);
   font-size: 12px;

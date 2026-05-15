@@ -24,7 +24,6 @@
     <div class="conn-status-bar">
       <span id="conn-light" class="conn-light"></span>
       <span id="conn-status-text">connecting...</span>
-      <input id="conn-key" type="password" class="conn-key-input" placeholder="API key" />
       <button id="reset-btn" class="btn-secondary" title="Re-apply the broken schema (DELETE rangeable on price_cents, DELETE filterable on category, change-tokenization on spec_sheet_path back to word). Fires all three in parallel.">Reset broken state</button>
     </div>
     <div id="reset-status" class="reset-status hidden"></div>
@@ -142,6 +141,7 @@
   </p>
 </footer>
 
+<script src="config.js"></script>
 <script src="app.js"></script>
 <script>hljs.highlightAll();</script>
 </body>

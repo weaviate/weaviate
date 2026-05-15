@@ -21,16 +21,17 @@ imports 1,000,000 deterministic synthetic product objects (seed 42).
 
 ## 2. Open the UI
 
-Either open `index.html` directly, or serve the directory:
+The cluster URL is hardcoded; the API key is injected at server-start time
+from the `WCD_API_KEY` env var (the generated `config.js` is gitignored so
+the token never lands in the repo):
 
 ```bash
 cd tools/dev/bench/demo_indexing_mistakes_ui
-python -m http.server 8089
+WCD_API_KEY=$(wcs --dev token) ./start.sh
 # then open http://localhost:8089
 ```
 
-Set the **Weaviate URL** at the top to your target. For a Weaviate Cloud
-cluster, also fill in the **API key**. Both persist to localStorage.
+If `WCD_API_KEY` is not set, `start.sh` exits with a clear error.
 
 ## 3. Run each card
 
