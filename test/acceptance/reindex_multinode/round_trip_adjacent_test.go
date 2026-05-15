@@ -61,6 +61,7 @@ import (
 //     tidied.mig poison the subsequent change-tokenization migration
 //     dir state?
 //  7. EnableSearchableThenChangeTok: same idea for enable-searchable.
+//
 // Each subtest gets its own fresh 3-node cluster. The previous
 // shared-cluster pattern was non-deterministic: after several
 // migrations across different collections on the same long-lived
@@ -75,16 +76,40 @@ import (
 // about accumulated state. Running each in its own cluster keeps the
 // journey signal clean and surfaces a different test if the
 // cross-collection accumulation reproduces.
-func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
-	withFreshCluster := func(t *testing.T, body func(t *testing.T, compose *docker.DockerCompose)) {
-		t.Helper()
-		ctx := context.Background()
-		compose, cleanup := start3NodeReindexCluster(ctx, t)
-		defer cleanup()
-		defer dumpContainerLogs(ctx, t, compose)
-		body(t, compose)
-	}
+// withFreshCluster wraps a body-fn in the standard 3-node testcontainer
+// lifecycle. Shared by every AdjacentJourneys top-level test so the per-
+// subtest isolation that the original `bc5710c84c` refactor introduced
+// is preserved: each subtest gets a fresh cluster with no inter-test
+// state pollution.
+func withFreshCluster(t *testing.T, body func(t *testing.T, compose *docker.DockerCompose)) {
+	t.Helper()
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+	body(t, compose)
+}
 
+// The AdjacentJourneys suite was originally a single TestMultiNode_*
+// with 10 subtests, each spinning up its own 3-node cluster. Sequentially
+// that exhausted the 20-minute `go test` deadline (~10×~90s startup +
+// migration work = 15+min, plus container teardown). Splitting into one
+// top-level Test* per logical bucket of journeys means:
+//
+//  1. Each Test* gets its own 20-minute deadline.
+//  2. CI can shard reindex-multinode by -run filter and run shards in
+//     parallel (see `test/run.sh` and `.github/workflows/*.yml`).
+//
+// Per-subtest cluster isolation is retained via `withFreshCluster`.
+//
+// The buckets group functionally-related journeys so a CI shard hitting
+// one bucket doesn't take a wildly different amount of wall-time than
+// the next.
+
+// TestMultiNode_ChangeTokenization_AJ_MultiRoundRobin pins the original
+// #10675-shape round-trips: alternating word↔field across 3 and 4 rounds.
+// Bucket: round-robin journeys (Journey 1).
+func TestMultiNode_ChangeTokenization_AJ_MultiRoundRobin(t *testing.T) {
 	t.Run("MultiRoundRobin_3rounds", func(t *testing.T) {
 		// Journey 1: word→field→word→field. Does the bug compound?
 		// Predict: 3rd round leaves even more replicas with empty buckets
@@ -104,7 +129,12 @@ func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
 				[]string{"field", "word", "field", "word"})
 		})
 	})
+}
 
+// TestMultiNode_ChangeTokenization_AJ_DifferentTokenizations exercises
+// non-word-field tokenizer pairs to confirm the bug class is or isn't
+// specific to one tokenizer. Bucket: Journey 2 variants.
+func TestMultiNode_ChangeTokenization_AJ_DifferentTokenizations(t *testing.T) {
 	t.Run("DifferentTokenizations_word_whitespace_word", func(t *testing.T) {
 		// Journey 2: word→whitespace→word. Same migration shape but a
 		// different tokenizer pair. If only word↔field is broken, this
@@ -136,7 +166,13 @@ func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
 				[]string{"field", "lowercase"})
 		})
 	})
+}
 
+// TestMultiNode_ChangeTokenization_AJ_MultiProperty pins the multi-property
+// concurrent-round-trip case (Journey 3). Single subtest, separate Test*
+// so it gets its own 20m budget — the multi-property setup is the
+// slowest subtest in the suite.
+func TestMultiNode_ChangeTokenization_AJ_MultiProperty(t *testing.T) {
 	t.Run("MultipleProperties_simultaneous", func(t *testing.T) {
 		// Journey 3: two text properties, both word→field→word in
 		// sequence on the same collection. Per MigrationDirName the
@@ -145,7 +181,11 @@ func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
 		// to zero on any replica, that's a separate Sev-1.
 		withFreshCluster(t, testMultiPropertyRoundTrip)
 	})
+}
 
+// TestMultiNode_ChangeTokenization_AJ_FilterableSearchable covers the
+// filterable-only and searchable-only variants (Journeys 4 and 5).
+func TestMultiNode_ChangeTokenization_AJ_FilterableSearchable(t *testing.T) {
 	t.Run("FilterableOnly_RoundTrip", func(t *testing.T) {
 		// Journey 4: round-trip via {"filterable":{"tokenization":X}}
 		// on a filterable-only property. Different reindexer
@@ -161,7 +201,12 @@ func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
 		// the same swap+schema-flip path.
 		withFreshCluster(t, testSearchableOnlyRoundTrip)
 	})
+}
 
+// TestMultiNode_ChangeTokenization_AJ_EnableThenChange covers the
+// "enable-then-change-tokenization" sequences (Journeys 6 and 7), which
+// stress whether one strategy's residual state leaks into the next.
+func TestMultiNode_ChangeTokenization_AJ_EnableThenChange(t *testing.T) {
 	t.Run("EnableFilterableThenChangeTok", func(t *testing.T) {
 		// Journey 6: a property starts filterable=false. We enable
 		// filterable (which writes tidied.mig to a per-prop dir under
@@ -204,7 +249,11 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
 
 	importObjects(t, restURI, className, testDocuments)
-	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
+	// Pre-T1 baseline assertion (side-effect: also waits for per-replica
+	// consistency). The actual baseline used for the post-T2 comparison
+	// is recaptured after the rolling restart below, because the raft-
+	// probe imports change the doc count.
+	_ = waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// T1: word → field.
 	taskID := submitIndexUpdate(t, restURI, className, "text",
@@ -239,7 +288,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	// only care about per-replica consistency post-T2, not exact baseline
 	// counts, so re-record the baseline now (still has to be consistent
 	// across replicas).
-	baselines = waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
+	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// T2: field → word.
 	taskID = submitIndexUpdate(t, restURI, className, "text",

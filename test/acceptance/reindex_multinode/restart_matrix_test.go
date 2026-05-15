@@ -163,19 +163,19 @@ func testR1_RestartAfter1Migration(t *testing.T) {
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 	wordBaseline := recordBaselineCounts(t, compose, className, testBM25Queries)
 
-	runChangeTokMigration(t, compose, className, "text", "word") // no-op same-tok migration
-	// Switch to FIELD then back to WORD so the per-node state is the
-	// same word-tokenized data we baselined, but each replica's on-disk
-	// dirs were touched by two migrations.
+	// Single migration: word→field. The validator rejects same-tok
+	// no-op submits (HTTP 400), so the test cannot first do a
+	// "word→word" call to bump the generation — the gen-1 ingest dir
+	// is sufficient to exercise the restart-finalize path.
 	runChangeTokMigration(t, compose, className, "text", "field")
 
 	restartCluster(ctx, t, compose)
 
-	// After restart-finalize, the gen=2 (FIELD) ingest dir was promoted
-	// to canonical and gen=1 was cleaned. Querying word tokens now
-	// returns nothing (FIELD tokenization), but per-replica must be
-	// consistent. The post-restart full-text equality check is the
-	// load-bearing assertion: every replica must return THE SAME count.
+	// After restart-finalize, the gen=1 (FIELD) ingest dir was promoted
+	// to canonical. Querying word tokens now returns nothing (FIELD
+	// tokenization), but per-replica must be consistent. The post-restart
+	// full-text equality check is the load-bearing assertion: every
+	// replica must return THE SAME count.
 	for _, q := range testBM25Queries {
 		counts := perNodeBM25Counts(t, compose, className, q)
 		require.Equalf(t, counts[0], counts[1], "post-restart %q diverges node1/node2", q)

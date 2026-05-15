@@ -59,6 +59,22 @@ type Scheduler struct {
 	completedCallbackFired map[TaskDescriptor]bool
 	groupCallbackFired     map[TaskDescriptor]map[string]bool
 
+	// bootstrapped flips to true once the scheduler has snapshotted the
+	// RAFT-replicated task list and pre-marked every task that was
+	// already terminal at that snapshot. Until this is true, the tick
+	// loop's callback-firing path is gated on a deferred pre-mark so
+	// post-restart callback replay (an old change-tokenization task
+	// re-firing OnTaskCompleted after a newer one already committed the
+	// schema flip) cannot happen. See [Scheduler.preMarkTerminalCallbacksLocked].
+	//
+	// Two paths set this:
+	//  1. Successful [Scheduler.bootstrapProviders] during Start() (the
+	//     happy path: RAFT is ready at Start() time).
+	//  2. First successful tick after a failed Start()-time listing — if
+	//     RAFT wasn't ready yet at Start(), the deferred bootstrap runs
+	//     in tick() before any callbacks fire on this scheduler instance.
+	bootstrapped bool
+
 	stopCh chan struct{}
 
 	// wakeCh signals the run loop to fire a scheduling cycle immediately
@@ -159,10 +175,12 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	// Attempt an initial task listing to bootstrap running tasks. If it fails
 	// (e.g. Raft not ready yet), log and continue — tick() will pick tasks up
-	// once the cluster is ready.
+	// once the cluster is ready, and will run the deferred bootstrap on the
+	// first successful tick so post-restart callback replay is still
+	// suppressed.
 	tasksByNamespace, err := s.listTasks(ctx)
 	if err != nil {
-		s.logger.WithError(err).Warn("initial distributed task listing failed, scheduler will retry on next tick")
+		s.logger.WithError(err).Warn("initial distributed task listing failed; bootstrap deferred to first successful tick")
 	} else {
 		s.bootstrapProviders(tasksByNamespace)
 	}
@@ -204,26 +222,50 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 		s.cleanupStaleTasks(namespace, provider, startedTasks)
 		s.startActiveTasks(namespace, provider, startedTasks)
 
-		// Pre-mark callbacks for already-terminal tasks as fired so the
-		// tick loop's `!s.completedCallbackFired[desc]` and
-		// `!s.groupCallbackFired[desc][groupID]` guards skip them.
-		for desc, task := range tasksByNamespace[namespace] {
-			if task.Status == TaskStatusFinished ||
-				task.Status == TaskStatusFailed ||
-				task.Status == TaskStatusCancelled {
-				s.completedCallbackFired[desc] = true
-				if s.groupCallbackFired[desc] == nil {
-					s.groupCallbackFired[desc] = map[string]bool{}
-				}
-				for _, groupID := range task.Groups() {
-					s.groupCallbackFired[desc][groupID] = true
-				}
-			}
-		}
-
 		s.tasksRunning.
 			WithLabelValues(namespace).
 			Set(float64(len(startedTasks)))
+	}
+
+	// Pre-mark callbacks for already-terminal tasks as fired so the tick
+	// loop's `!s.completedCallbackFired[desc]` and
+	// `!s.groupCallbackFired[desc][groupID]` guards skip them. This MUST
+	// happen for every provider's tasks, not just the providers we have
+	// registered locally — a task in a namespace we don't host can still
+	// appear in tasksByNamespace via RAFT replication.
+	s.preMarkTerminalCallbacksLocked(tasksByNamespace)
+	s.bootstrapped = true
+}
+
+// preMarkTerminalCallbacksLocked sets s.completedCallbackFired and
+// s.groupCallbackFired for every task that is already terminal in the
+// provided snapshot. The intent is to suppress post-restart callback
+// replay: the in-memory `*CallbackFired` maps are empty on every fresh
+// scheduler, and without this pre-mark the tick loop would re-fire
+// OnGroupCompleted + OnTaskCompleted for every task still in the FSM
+// (including tasks whose callbacks already fired before the restart).
+// For semantic migrations that produce a cluster-wide schema flip
+// (change-tokenization, enable-searchable), an older task replaying
+// after a newer one has already committed its flip silently reverts
+// the schema cluster-wide.
+//
+// Caller MUST hold s.mu.
+func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
+	for _, tasks := range tasksByNamespace {
+		for desc, task := range tasks {
+			if task.Status != TaskStatusFinished &&
+				task.Status != TaskStatusFailed &&
+				task.Status != TaskStatusCancelled {
+				continue
+			}
+			s.completedCallbackFired[desc] = true
+			if s.groupCallbackFired[desc] == nil {
+				s.groupCallbackFired[desc] = map[string]bool{}
+			}
+			for _, groupID := range task.Groups() {
+				s.groupCallbackFired[desc][groupID] = true
+			}
+		}
 	}
 }
 
@@ -317,6 +359,23 @@ func (s *Scheduler) tick() {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Deferred bootstrap: if listTasks failed at Start() (typically RAFT
+	// not ready yet), s.bootstrapped is still false. On this first
+	// successful tick, pre-mark every already-terminal task so the
+	// callback-firing loop below doesn't replay OnGroupCompleted /
+	// OnTaskCompleted for tasks that finished before this scheduler
+	// instance existed. Without this, a node that restarts and then
+	// takes a few seconds to rejoin RAFT (so Start()'s listTasks
+	// returned an error) will fire callbacks for every historical
+	// task on its first tick — and the older change-tokenization
+	// tasks' schema flips will revert state that newer tasks have
+	// already committed.
+	if !s.bootstrapped {
+		s.preMarkTerminalCallbacksLocked(tasksByNamespace)
+		s.bootstrapped = true
+		s.logger.Info("distributed task scheduler: deferred bootstrap pre-mark complete on first successful tick")
+	}
 
 	for namespace, provider := range s.providers {
 		tasks := tasksByNamespace[namespace]

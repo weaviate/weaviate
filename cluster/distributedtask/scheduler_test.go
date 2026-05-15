@@ -950,3 +950,236 @@ func TestReactiveFiring_PeriodicTickFallback(t *testing.T) {
 	}, 2*time.Second, 50*time.Millisecond,
 		"periodic tick should clear completed task even with reactive firing wired")
 }
+
+// flappyTasksLister proxies to inner after `failsLeft` failed calls. Used to
+// simulate the post-restart "RAFT not ready at Start() time, ready on next
+// tick" scenario that the deferred bootstrap must handle.
+type flappyTasksLister struct {
+	mu        sync.Mutex
+	failsLeft int
+	err       error
+	inner     TasksLister
+}
+
+func (f *flappyTasksLister) ListDistributedTasks(ctx context.Context) (map[string][]*Task, error) {
+	f.mu.Lock()
+	if f.failsLeft > 0 {
+		f.failsLeft--
+		f.mu.Unlock()
+		return nil, f.err
+	}
+	f.mu.Unlock()
+	return f.inner.ListDistributedTasks(ctx)
+}
+
+// unitAwareTestProvider records OnGroupCompleted / OnTaskCompleted calls so
+// tests can assert whether scheduler callback firing was suppressed for
+// already-terminal tasks. Wraps an inner provider to satisfy the base
+// [Provider] surface; UnitAware methods are added by this type.
+type unitAwareTestProvider struct {
+	*testTaskProvider
+
+	mu                    sync.Mutex
+	onGroupCompletedCalls []string
+	onTaskCompletedCalls  []string
+}
+
+func newUnitAwareTestProvider(t *testing.T) *unitAwareTestProvider {
+	return &unitAwareTestProvider{
+		testTaskProvider: newTestTaskProvider(t, nil),
+	}
+}
+
+func (p *unitAwareTestProvider) OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onGroupCompletedCalls = append(p.onGroupCompletedCalls, task.ID)
+}
+
+func (p *unitAwareTestProvider) OnTaskCompleted(task *Task) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onTaskCompletedCalls = append(p.onTaskCompletedCalls, task.ID)
+}
+
+func (p *unitAwareTestProvider) snapshotCalls() (groups, tasks []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.onGroupCompletedCalls...),
+		append([]string(nil), p.onTaskCompletedCalls...)
+}
+
+// TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails
+// pins the scheduler's deferred-bootstrap path: when listTasks fails at
+// Start() (e.g. RAFT not ready yet on a freshly-rebooted node), the first
+// successful tick MUST pre-mark every already-terminal task as having its
+// callbacks fired. Without this, the tick loop's "fire if not fired" guard
+// would replay OnGroupCompleted + OnTaskCompleted for every historical
+// terminal task — and for change-tokenization migrations, an older task's
+// replayed OnTaskCompleted reverts the schema flip a newer task already
+// committed cluster-wide.
+//
+// This is the bug class behind RestartMatrix R3 / R5: tokenization reverts
+// to a stale target after the post-restart scheduler picks up tasks that
+// completed pre-restart.
+func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	// Build a harness with a unit-aware provider so we can observe callback firing.
+	prov := newUnitAwareTestProvider(t)
+	h := newTestHarness(t)
+	h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
+	h.provider = prov.testTaskProvider
+	h = h.init(t)
+
+	// Pre-populate a FINISHED task BEFORE creating the scheduler under test.
+	// This simulates the previous incarnation's scheduler having completed
+	// the task pre-restart.
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "pre-restart-finished",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"u-1"},
+	}), 1))
+	completeUnit(t, h, h.tasksNamespace, "pre-restart-finished", 1, h.localNodeID, "u-1")
+
+	// Sanity: the task is FINISHED in the manager's state.
+	tasks := h.listManagerTasks(t)[h.tasksNamespace]
+	require.Len(t, tasks, 1)
+	require.Equal(t, TaskStatusFinished, tasks[0].Status)
+
+	// Replace the scheduler's TasksLister with a flappy one that fails the
+	// first call (Start() time) and succeeds afterwards.
+	flappy := &flappyTasksLister{
+		failsLeft: 1,
+		err:       fmt.Errorf("raft not ready"),
+		inner:     h.manager,
+	}
+	h.scheduler = NewScheduler(SchedulerParams{
+		CompletionRecorder: h.completionRecorder,
+		TasksLister:        flappy,
+		TaskCleaner:        h.cleaner,
+		Providers:          h.registeredProviders,
+		Clock:              h.clock,
+		Logger:             h.logger,
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          h.localNodeID,
+		CompletedTaskTTL:   h.completedTaskTTL,
+		TickInterval:       h.schedulerTickInterval,
+	})
+
+	require.NoError(t, h.scheduler.Start(context.Background()))
+	defer h.scheduler.Close()
+	// Wait until the loop goroutine has registered its ticker with the
+	// FakeClock so a subsequent Advance() actually delivers a tick.
+	require.NoError(t, h.clock.BlockUntilContext(context.Background(), 1))
+
+	// Start() saw the flappy lister fail, so bootstrapped MUST still be false.
+	h.scheduler.mu.Lock()
+	require.False(t, h.scheduler.bootstrapped,
+		"bootstrapped must remain false after failed Start()-time listTasks")
+	h.scheduler.mu.Unlock()
+
+	// Advance the clock to fire a tick; listTasks now succeeds, so the
+	// deferred bootstrap should run before any callback firing.
+	h.advanceClock(h.schedulerTickInterval)
+
+	// Wait briefly so the tick goroutine completes.
+	require.Eventually(t, func() bool {
+		h.scheduler.mu.Lock()
+		defer h.scheduler.mu.Unlock()
+		return h.scheduler.bootstrapped
+	}, 2*time.Second, 25*time.Millisecond,
+		"deferred bootstrap must run on first successful tick")
+
+	// CRUCIAL ASSERTION: callbacks were NOT fired for the pre-restart
+	// finished task. The whole point of the pre-mark is to prevent this.
+	groups, taskCalls := prov.snapshotCalls()
+	require.Empty(t, groups,
+		"OnGroupCompleted must NOT fire for tasks already terminal at scheduler start (got %v)", groups)
+	require.Empty(t, taskCalls,
+		"OnTaskCompleted must NOT fire for tasks already terminal at scheduler start (got %v)", taskCalls)
+
+	// Future advances also must not fire replayed callbacks.
+	h.advanceClock(h.schedulerTickInterval)
+	groups, taskCalls = prov.snapshotCalls()
+	require.Empty(t, groups, "no callbacks may fire on later ticks for the same already-terminal task")
+	require.Empty(t, taskCalls, "no callbacks may fire on later ticks for the same already-terminal task")
+}
+
+// TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked unit-tests the
+// pre-mark helper directly. The intent: only Finished/Failed/Cancelled
+// tasks are marked as having their callbacks fired, never Started ones.
+// A regression here would either re-introduce post-restart replay (if
+// terminals stopped being marked) or suppress callbacks for tasks that
+// are actively running (if Started ones got marked too).
+func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
+	s := NewScheduler(SchedulerParams{
+		Logger:             func() logrus.FieldLogger { l, _ := logrustest.NewNullLogger(); return l }(),
+		Providers:          map[string]Provider{"ns": nil},
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          "node-a",
+		CompletedTaskTTL:   24 * time.Hour,
+		TickInterval:       30 * time.Second,
+		CompletionRecorder: nil,
+		TasksLister:        nil,
+		TaskCleaner:        nil,
+	})
+
+	finishedDesc := TaskDescriptor{ID: "finished", Version: 1}
+	failedDesc := TaskDescriptor{ID: "failed", Version: 2}
+	cancelledDesc := TaskDescriptor{ID: "cancelled", Version: 3}
+	startedDesc := TaskDescriptor{ID: "started", Version: 4}
+
+	mkTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
+		task := &Task{
+			TaskDescriptor: d,
+			Status:         status,
+			Units:          map[string]*Unit{},
+		}
+		// Add one unit per group so Task.Groups() yields each group.
+		for i, g := range groups {
+			id := fmt.Sprintf("u-%d", i)
+			task.Units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
+		}
+		return task
+	}
+
+	snapshot := map[string]map[TaskDescriptor]*Task{
+		"ns": {
+			finishedDesc:  mkTask(finishedDesc, TaskStatusFinished, "g1", "g2"),
+			failedDesc:    mkTask(failedDesc, TaskStatusFailed, ""),
+			cancelledDesc: mkTask(cancelledDesc, TaskStatusCancelled, "g1"),
+			startedDesc:   mkTask(startedDesc, TaskStatusStarted, "g1"),
+		},
+	}
+
+	s.mu.Lock()
+	s.preMarkTerminalCallbacksLocked(snapshot)
+	s.mu.Unlock()
+
+	// Finished, failed, cancelled: marked as fired.
+	require.True(t, s.completedCallbackFired[finishedDesc],
+		"Finished task must be pre-marked as completed-callback-fired")
+	require.True(t, s.completedCallbackFired[failedDesc],
+		"Failed task must be pre-marked as completed-callback-fired")
+	require.True(t, s.completedCallbackFired[cancelledDesc],
+		"Cancelled task must be pre-marked as completed-callback-fired")
+
+	// All groups of terminal tasks: marked as fired.
+	require.True(t, s.groupCallbackFired[finishedDesc]["g1"],
+		"Finished task's g1 must be pre-marked")
+	require.True(t, s.groupCallbackFired[finishedDesc]["g2"],
+		"Finished task's g2 must be pre-marked")
+	require.True(t, s.groupCallbackFired[failedDesc][""],
+		"Failed task's implicit group must be pre-marked")
+	require.True(t, s.groupCallbackFired[cancelledDesc]["g1"],
+		"Cancelled task's g1 must be pre-marked")
+
+	// Started task: NOT marked. Its callbacks must still fire when it
+	// transitions to terminal.
+	require.False(t, s.completedCallbackFired[startedDesc],
+		"Started task must NOT be pre-marked — its OnTaskCompleted needs to fire on terminal transition")
+	require.False(t, s.groupCallbackFired[startedDesc]["g1"],
+		"Started task's group must NOT be pre-marked — its OnGroupCompleted needs to fire when the group completes")
+}
