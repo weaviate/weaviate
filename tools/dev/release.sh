@@ -224,8 +224,9 @@ COMMANDS
   monitor-qa <ver>                Poll the "Central CI View" project board every
                                   5 min (2 h cap) until E2E and Chaos settle.
                                   Exits 0 (passed), 1 (failed), 2 (timeout).
-                                  REQUIRES --journal (uses state file for run URLs
-                                  + result caching).
+                                  --journal lets re-runs short-circuit on the
+                                  recorded result; stateless mode re-polls (but
+                                  short-circuits via inference once QA settles).
 
   finalize   <ver> [<pr#>]        Full post-merge flow: verify PR merged, push
                                   tag, create draft release, wait for Docker Hub
@@ -320,7 +321,9 @@ EXAMPLES
   # Same, but persist a journal so monitor-qa / reset-step work:
   bash tools/dev/release.sh --journal status 1.37.3
 
-  # Poll QA until E2E + chaos settle (requires --journal):
+  # Poll QA until E2E + chaos settle (stateless — works, results not persisted):
+  bash tools/dev/release.sh monitor-qa 1.37.3
+  # Same, with --journal so re-runs after Ctrl-C short-circuit on the result:
   bash tools/dev/release.sh --journal monitor-qa 1.37.3
 
   # Force QA to re-dispatch without losing the rest of the journal:
@@ -1137,19 +1140,18 @@ cmd_finalize() {
 
 # ─── cmd_monitor_qa ──────────────────────────────────────────────────────────
 
-# monitor-qa requires the journal so it can record the qa_done step and any
-# qa_run_urls discovered during the poll loop. Without --journal we have no
-# place to persist that state across re-runs.
-_monitor_qa_require_journal() {
-  if [[ -z "$STATE_FILE" ]]; then
-    cat >&2 <<EOF
-ERROR: monitor-qa requires --journal (state file holds the qa_dispatched marker
-       and the QA issue URL). Re-run with:
-         bash $0 --journal monitor-qa ${VERSION}
-EOF
-    exit 1
-  fi
-  [[ -f "$STATE_FILE" ]] || { echo "ERROR: no state file at ${STATE_FILE} for v${VERSION} — run 'qa ${VERSION}' first." >&2; exit 1; }
+# monitor-qa works in both modes:
+#   • --journal:  qa_done + qa_run_urls writes persist; re-runs after Ctrl-C
+#                 short-circuit on the recorded result.
+#   • stateless:  writes go to in-memory inferred state only and are discarded
+#                 at exit. Re-runs re-poll from scratch — but if QA settled in
+#                 the meantime, infer_state catches it and short-circuits.
+# init_release already ensures STATE_FILE exists when --journal is set, so this
+# helper just announces the trade-off when running stateless.
+_monitor_qa_announce_mode() {
+  (( JOURNAL_ENABLED )) && return
+  echo "    ℹ️  Stateless mode — results are reported live but not persisted."
+  echo "       Use --journal monitor-qa ${VERSION} to short-circuit on re-run."
 }
 
 # Sets QA_ISSUE_NUMBER and QA_ISSUE_URL (inherited from cmd_monitor_qa via dynamic scope).
@@ -1237,7 +1239,7 @@ _monitor_qa_poll_once() {
 }
 
 cmd_monitor_qa() {
-  _monitor_qa_require_journal
+  _monitor_qa_announce_mode
   local QA_ISSUE_NUMBER="" QA_ISSUE_URL=""
   _monitor_qa_resolve_issue
 
