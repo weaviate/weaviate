@@ -1099,27 +1099,36 @@ _finalize_publish() {
 
 # ─── cmd_finalize ─────────────────────────────────────────────────────────────
 
+# Finalize sub-steps in the order the full flow runs them.
+# Single source of truth: changing the order here changes both the default
+# full-flow order and the validated set of single-step names.
+FINALIZE_STEPS=(merge tag draft image publish)
+declare -A FINALIZE_HANDLERS=(
+  [merge]=_finalize_merge
+  [tag]=_finalize_tag
+  [draft]=_finalize_draft
+  [image]=_finalize_image
+  [publish]=_finalize_publish
+)
+
 cmd_finalize() {
   require_repo_root
   local STEP="${1:-}"
   local PR_ARG="${2:-}"
 
-  case "$STEP" in
-    merge)   _finalize_merge "$PR_ARG" ;;
-    tag)     _finalize_tag ;;
-    draft)   _finalize_draft ;;
-    image)   _finalize_image ;;
-    publish) _finalize_publish ;;
-    "")
-      echo ">>> Finalizing v${VERSION}"
-      _finalize_merge "$PR_ARG"
-      _finalize_tag
-      _finalize_draft
-      _finalize_image
-      _finalize_publish
-      ;;
-    *) echo "ERROR: unknown finalize step '${STEP}' (merge|tag|draft|image|publish)" >&2; exit 1 ;;
-  esac
+  # Only _finalize_merge reads $PR_ARG; the other handlers ignore extras.
+  if [[ -z "$STEP" ]]; then
+    echo ">>> Finalizing v${VERSION}"
+    local s
+    for s in "${FINALIZE_STEPS[@]}"; do
+      "${FINALIZE_HANDLERS[$s]}" "$PR_ARG"
+    done
+    return
+  fi
+
+  local fn="${FINALIZE_HANDLERS[$STEP]:-}"
+  [[ -n "$fn" ]] || { echo "ERROR: unknown finalize step '${STEP}' (${FINALIZE_STEPS[*]})" >&2; exit 1; }
+  "$fn" "$PR_ARG"
 }
 
 # ─── cmd_monitor_qa ──────────────────────────────────────────────────────────
@@ -1448,22 +1457,28 @@ done
 set -- "${_NEWARGS[@]+"${_NEWARGS[@]}"}"
 unset _a _NEWARGS
 
+# Subcommands that take <version> as $1 and dispatch through init_release.
+# Saves repeating the same `[[ -n "${2:-}" ]] || { usage; exit 1; }; init_release "$2"; cmd_X`
+# pattern for prepare / qa / monitor-qa.
+_init_and() {
+  local fn="$1" ver="${2:-}"
+  [[ -n "$ver" ]] || { usage; exit 1; }
+  init_release "$ver"
+  "$fn"
+}
+
 case "${1:-}" in
-  reset)       cmd_reset       "${2:-}" ;;
-  reset-step)  cmd_reset_step  "${2:-}" "${3:-}" ;;
-  status)      cmd_status      "${2:-}" ;;
-  journals)    cmd_journals    "${2:-}" ;;
-  candidates)  cmd_candidates  "${2:-}" ;;
-  verify)      cmd_verify      "${2:-}" "${3:-}" ;;
-  prepare)
-    [[ -n "${2:-}" ]] || { usage; exit 1; }
-    init_release "$2"; cmd_prepare ;;
-  qa)
-    [[ -n "${2:-}" ]] || { usage; exit 1; }
-    init_release "$2"; cmd_qa ;;
-  monitor-qa)
-    [[ -n "${2:-}" ]] || { usage; exit 1; }
-    init_release "$2"; cmd_monitor_qa ;;
+  ""|auto)        cmd_auto ;;
+  -h|--help|help) usage ;;
+  reset)          cmd_reset       "${2:-}" ;;
+  reset-step)     cmd_reset_step  "${2:-}" "${3:-}" ;;
+  status)         cmd_status      "${2:-}" ;;
+  journals)       cmd_journals    "${2:-}" ;;
+  candidates)     cmd_candidates  "${2:-}" ;;
+  verify)         cmd_verify      "${2:-}" "${3:-}" ;;
+  prepare)        _init_and cmd_prepare    "${2:-}" ;;
+  qa)             _init_and cmd_qa         "${2:-}" ;;
+  monitor-qa)     _init_and cmd_monitor_qa "${2:-}" ;;
   finalize)
     [[ -n "${2:-}" ]] || { usage; exit 1; }
     case "${2:-}" in
@@ -1473,10 +1488,5 @@ case "${1:-}" in
       *)
         init_release "$2"; cmd_finalize "" "${3:-}" ;;
     esac ;;
-  -h|--help|help)
-    usage ;;
-  ""|auto)
-    cmd_auto ;;
-  *)
-    echo "ERROR: unknown command '${1}'" >&2; usage; exit 1 ;;
+  *) echo "ERROR: unknown command '${1}'" >&2; usage; exit 1 ;;
 esac
