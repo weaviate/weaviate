@@ -505,23 +505,22 @@ func runBM25QueryOnNodeWithRetry(t *testing.T, restURI, className, query string)
 	return ids, err
 }
 
-// restartCluster stops all 3 nodes (in reverse order, so the bootstrap
-// node 1 goes last and comes back first) and then starts them again.
-// The cluster is fully down between the last Stop and the first Start.
-// Used by the restart-matrix tests to verify the deferred-finalize
-// design: every per-node migration tracker dir is consumed by
-// FinalizeCompletedMigrations at startup, and follow-up migrations
-// start from a clean state.
+// restartCluster cycles every node serially — stop, start, wait for
+// ready, move on. Used by the restart-matrix tests to verify the
+// deferred-finalize design: every per-node migration tracker dir is
+// consumed by FinalizeCompletedMigrations at startup, and follow-up
+// migrations start from a clean state.
+//
+// Full-cluster simultaneous restart is intentionally NOT used here.
+// Stopping all 3 nodes loses RAFT quorum, and the first node to come
+// back up cannot form a leader alone — its readiness check times out.
+// Serial restart keeps 2/3 nodes up at every step so RAFT continues to
+// function while each node individually cycles through finalize at
+// startup. This is the same shape as a Kubernetes StatefulSet rolling
+// update, which is the production deployment model for Weaviate.
 func restartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
 	t.Helper()
-	// Stop in reverse so node-1 (likely RAFT leader / bootstrap) goes last.
-	for i := 3; i >= 1; i-- {
-		require.NoErrorf(t, compose.StopAt(ctx, i-1, nil), "stop node %d", i)
-	}
-	// Start in order so the bootstrap node comes up first.
-	for i := 1; i <= 3; i++ {
-		require.NoErrorf(t, compose.StartAt(ctx, i-1), "start node %d", i)
-	}
+	rollingRestartCluster(ctx, t, compose)
 }
 
 // rollingRestartCluster stops + restarts each node ONE AT A TIME,

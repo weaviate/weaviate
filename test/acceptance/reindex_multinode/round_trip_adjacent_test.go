@@ -714,9 +714,13 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 		baselinesEqual[p] = perNodeEqualCounts(t, compose, className, "text", p)
 	}
 
-	// Step 1: enable searchable.
+	// Step 1: enable searchable. The backend requires a tokenization on
+	// the request body because the property's existing filterable index
+	// is also tokenized and must agree (see
+	// validateEnableSearchableProperty in handlers_reindex.go). We pick
+	// `word` to match the seed schema.
 	taskID := submitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"enabled":true}}`)
+		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
 	awaitReindexFinished(t, restURI, taskID)
 	require.Eventually(t, func() bool {
 		cls := getClassFromNode(t, restURI, className)

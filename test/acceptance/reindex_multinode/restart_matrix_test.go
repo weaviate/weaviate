@@ -119,7 +119,7 @@ func testR0_RestartThenMigrate(t *testing.T) {
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 	wordBaseline := recordBaselineCounts(t, compose, className, testBM25Queries)
@@ -158,7 +158,7 @@ func testR1_RestartAfter1Migration(t *testing.T) {
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 	wordBaseline := recordBaselineCounts(t, compose, className, testBM25Queries)
@@ -199,7 +199,7 @@ func testR1b_RestartAfter1MigrationThenMigrate(t *testing.T) {
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 	wordBaseline := recordBaselineCounts(t, compose, className, testBM25Queries)
@@ -227,7 +227,7 @@ func testR2_RestartAfter2Migrations(t *testing.T) {
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 	wordBaseline := recordBaselineCounts(t, compose, className, testBM25Queries)
@@ -253,7 +253,7 @@ func testR2b_RestartAfter2MigrationsThenMigrate(t *testing.T) {
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 
@@ -291,7 +291,7 @@ func testR3_RestartAfter3Migrations(t *testing.T) {
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 	wordBaseline := recordBaselineCounts(t, compose, className, testBM25Queries)
@@ -319,7 +319,7 @@ func testR5_RestartAfterManyMigrations(t *testing.T) {
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 	wordBaseline := recordBaselineCounts(t, compose, className, testBM25Queries)
@@ -352,7 +352,7 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 	_ = recordBaselineCounts(t, compose, className, testBM25Queries) // pre-flight sanity
@@ -398,7 +398,7 @@ func TestMultiNode_RollingRestartBetweenMigrations(t *testing.T) {
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 	wordBaseline := recordBaselineCounts(t, compose, className, testBM25Queries)
