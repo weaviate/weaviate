@@ -525,7 +525,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("top-level ContainsAll on int[] collapses to same-root wrapper", func(t *testing.T) {
 		// input:  ContainsAll(nested.numbers, [1, 2])
-		// output (Route 1: operator identity preserved; same-root wrapping
+		// output (first-class-operator approach: operator identity preserved; same-root wrapping
 		// still collapses since ContainsAll is treated as an AND alias by
 		// groupNestedSubtrees / planner):
 		// └── ContainsAll {isWRS:nested}
@@ -540,7 +540,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, filters.ContainsAll, pv.operator,
-			"nested ContainsAll preserves operator identity (Route 1)")
+			"nested ContainsAll preserves operator identity (first-class-operator approach)")
 		assert.True(t, pv.nested.isWithinRootSubtree, "ContainsAll same-root wraps")
 		assert.Equal(t, "nested", pv.prop)
 		require.Len(t, pv.children, 2)
@@ -550,7 +550,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("top-level ContainsAny collapses to same-root OR wrapper", func(t *testing.T) {
 		// input:  ContainsAny(nested.numbers, [1, 2])
-		// output (Route 1: operator identity preserved; same-root wrapping
+		// output (first-class-operator approach: operator identity preserved; same-root wrapping
 		// still collapses since ContainsAny is treated as an OR alias by
 		// groupNestedSubtrees / planner):
 		// └── ContainsAny {isWRS:nested}
@@ -565,7 +565,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, filters.ContainsAny, pv.operator,
-			"nested ContainsAny preserves operator identity (Route 1)")
+			"nested ContainsAny preserves operator identity (first-class-operator approach)")
 		assert.True(t, pv.nested.isWithinRootSubtree, "ContainsAny same-root wraps")
 		assert.Equal(t, "nested", pv.prop)
 		require.Len(t, pv.children, 2)
@@ -612,7 +612,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("top-level nested ContainsNone is a first-class operator", func(t *testing.T) {
 		// input:  ContainsNone(nested.numbers, [1, 2])
-		// output (Route 1: no desugar to NOT(OR), single ContainsNone pvp
+		// output (first-class-operator approach: no desugar to NOT(OR), single ContainsNone pvp
 		// carrying the operand relPath and the per-value children):
 		// └── ContainsNone {prop:nested, relPath:numbers}
 		//     ├── numbers=1
@@ -626,7 +626,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, filters.ContainsNone, pv.operator,
-			"nested ContainsNone preserves operator identity (Route 1)")
+			"nested ContainsNone preserves operator identity (first-class-operator approach)")
 		assert.Equal(t, "nested", pv.prop)
 		assert.Equal(t, "numbers", pv.nested.relPath,
 			"operand path carried on the wrapper so the resolver / planner can read _exists.numbers as universe")
@@ -642,8 +642,8 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 	t.Run("ContainsAny inside AND wraps both levels", func(t *testing.T) {
 		// input:  AND(nested.city=berlin, ContainsAny(nested.numbers, [1, 2]))
 		// output (outer AND collapses; inner ContainsAny also collapses
-		// under sub-rule 1 — both same-root wrappers, ContainsAny keeps
-		// its operator identity under Route 1):
+		// under OR-of-same-root wrapping — both same-root wrappers, ContainsAny keeps
+		// its operator identity under first-class-operator approach):
 		// └── AND {isWRS:nested}
 		//     ├── city:berlin
 		//     └── ContainsAny {isWRS:nested}
@@ -668,7 +668,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 		anyChild := pv.children[1]
 		assert.Equal(t, filters.ContainsAny, anyChild.operator,
-			"inner ContainsAny preserves operator identity (Route 1)")
+			"inner ContainsAny preserves operator identity (first-class-operator approach)")
 		assert.True(t, anyChild.nested.isWithinRootSubtree, "inner ContainsAny same-root wraps")
 		assert.Equal(t, "nested", anyChild.prop)
 		require.Len(t, anyChild.children, 2)

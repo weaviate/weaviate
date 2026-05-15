@@ -195,7 +195,7 @@ func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPla
 	for _, it := range items {
 		switch it.operator {
 		case filters.OperatorOr, filters.OperatorNot, filters.ContainsAny:
-			// ContainsAny is an OR alias on a nested path (Route 1).
+			// ContainsAny is an OR alias on a nested path (first-class-operator approach).
 			lca := b.naturalLCA(it)
 			if lca == scope {
 				if it.operator == filters.OperatorOr || it.operator == filters.ContainsAny {
@@ -250,7 +250,7 @@ func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPla
 // flattenAndOperators unwraps non-tokenization AND wrappers in items. AND is
 // associative, so `[A, AND(B, C)]` is logically the same as `[A, B, C]` and
 // the planner can treat them identically. ContainsAll is treated as an AND
-// alias here under Route 1 — its semantics is identical to AND-of-values-
+// alias here under first-class-operator approach — its semantics is identical to AND-of-values-
 // at-same-element, so unwrapping puts its value leaves at the same scope as
 // sibling conditions. Tokenization wrappers (childrenFromTokenization=true)
 // are NOT unwrapped — they behave as single virtual leaves at normalize time.

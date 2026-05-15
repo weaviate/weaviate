@@ -150,7 +150,7 @@ func normalizeRecGroup(
 		case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
 			filters.ContainsAll, filters.ContainsAny:
 			// ContainsAll / ContainsAny are AND / OR aliases on nested
-			// paths (Route 1); same fetch path as OperatorAnd/Or — the
+			// paths (first-class-operator approach); same fetch path as OperatorAnd/Or — the
 			// planner reads them as operator subtrees and either flattens
 			// (ContainsAll → AND) or plans an OR scope (ContainsAny).
 			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
@@ -339,7 +339,7 @@ func fetchOperatorSubtreeBitmaps(
 	switch node.operator {
 	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
 		filters.ContainsAll, filters.ContainsAny:
-		// ContainsAll / ContainsAny treated as AND / OR aliases (Route 1).
+		// ContainsAll / ContainsAny treated as AND / OR aliases (first-class-operator approach).
 		for _, child := range node.children {
 			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
 				return err

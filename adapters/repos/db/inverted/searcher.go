@@ -386,7 +386,7 @@ func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair 
 	switch pv.operator {
 	case filters.OperatorAnd, filters.OperatorOr, filters.ContainsAll, filters.ContainsAny:
 		// ContainsAll / ContainsAny are AND / OR aliases on a nested path
-		// (Route 1 — operator identity preserved by extractContains).
+		// (first-class-operator approach — operator identity preserved by extractContains).
 		grouped := groupNestedByProp(pv.children, class, pv.operator)
 		if len(grouped) == 1 && grouped[0].nested.isWithinRootSubtree {
 			// Collapse: every child landed in one same-root wrapper.
@@ -1007,7 +1007,7 @@ func (s *Searcher) extractContains(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	// Route 1: on a nested path each Contains* operator keeps its operator
+	// first-class-operator approach: on a nested path each Contains* operator keeps its operator
 	// identity instead of desugaring to AND / OR / NOT(OR). Downstream
 	// switches treat ContainsAll as an AND alias and ContainsAny as an OR
 	// alias; ContainsNone has dedicated dispatch (a first-class resolver

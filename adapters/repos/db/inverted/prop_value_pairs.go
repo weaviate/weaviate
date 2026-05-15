@@ -63,7 +63,7 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		return pv.resolveNestedSubtree(ctx, s)
 	}
 
-	// Nested ContainsNone is a first-class operator (Route 1) with the
+	// Nested ContainsNone is a first-class operator (first-class-operator approach) with the
 	// scalar-array path on pv.nested.relPath. Dispatch BEFORE the isNested
 	// check because the ContainsNone wrapper itself is not a leaf — its
 	// children are the per-value pvps.

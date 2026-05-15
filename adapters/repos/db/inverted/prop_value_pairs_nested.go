@@ -458,7 +458,7 @@ func (pv *propValuePair) resolveNestedSubtree(ctx context.Context, s *Searcher) 
 		// buildNotAtScope handle per-child arr[N] pins internally;
 		// top-level partitioning would fan out into single-child groups
 		// and lose leaf bitmap references. ContainsAny is an OR alias
-		// under Route 1 — same path as OperatorOr.
+		// under first-class-operator approach — same path as OperatorOr.
 		return pv.resolveNestedSubtreeGroup(ctx, s, pv.children)
 	}
 

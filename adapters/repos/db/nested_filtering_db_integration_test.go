@@ -514,7 +514,7 @@ func TestNestedFilteringViaShardWritePath(t *testing.T) {
 			matchesObjectDel: e, matchesArrayDel: e,
 			matchesObjectUpd: e, matchesArrayUpd: e,
 		},
-		// Route 1: ContainsNone is now a first-class operator using
+		// first-class-operator approach: ContainsNone is now a first-class operator using
 		// `_exists.{relPath}` as the inversion universe. For doc125Data
 		// (tags=["electric"]) the only tag IS in the listed set, so no
 		// qualifying tag exists → drops. Array case (id999=[doc124, doc125])
@@ -13243,7 +13243,7 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.tags", filters.ContainsAny, "sport", "luxury"),
 					[]strfmt.UUID{d1, d2, d3})
 			})
-			// Route 1: ContainsNone is now a first-class operator with
+			// first-class-operator approach: ContainsNone is now a first-class operator with
 			// `_exists.tags` as the inversion universe. d2/d3/d4 have at
 			// least one tag outside [sport, luxury] → match. d5 (empty
 			// country, no tags) has no tag positions → universe empty →
@@ -13273,7 +13273,7 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.name", filters.ContainsAny, "new", "york"),
 					[]strfmt.UUID{d1, d2, d3})
 			})
-			// Route 1: ContainsNone is now first-class with universe =
+			// first-class-operator approach: ContainsNone is now first-class with universe =
 			// `_exists.name`. d4 (boston, no "new"/"york" tokens) matches;
 			// d5 (empty country, no name) has no position in the universe
 			// → drops.
@@ -13712,7 +13712,7 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 }
 
 // TestNestedFilteringContainsNoneSiblingScalarArrayLeak regression-locks
-// the Route 1 fix for the ContainsNone universe leak. ContainsNone on a
+// the first-class-operator approach fix for the ContainsNone universe leak. ContainsNone on a
 // nested path is now a first-class operator (no longer desugared to
 // NOT(OR(...))) and uses `_exists.{relPath}` as the inversion universe —
 // the scalar-array path itself, not the broader LCA.
@@ -13819,7 +13819,7 @@ func TestNestedFilteringContainsNoneSiblingScalarArrayLeak(t *testing.T) {
 				"cities": asTextArr("berlin"),
 			}}, note: "no tags at all; only cities sibling — vacuous case"},
 		}
-		// Route 1: ContainsNone is now a first-class operator with universe
+		// first-class-operator approach: ContainsNone is now a first-class operator with universe
 		// = `_exists.tags`. d1 (only-electric tag) and d3 (no tags at all)
 		// both correctly drop. d2 (sport tag, not in listed set) matches.
 		runScenario(t, docs, containsFilter("country.tags", filters.ContainsNone, "electric"),
@@ -13847,7 +13847,7 @@ func TestNestedFilteringContainsNoneSiblingScalarArrayLeak(t *testing.T) {
 				},
 			}}, note: "no tags, only cities — vacuous"},
 		}
-		// Route 1: same as country_object — encoding is bit-identical for
+		// first-class-operator approach: same as country_object — encoding is bit-identical for
 		// DataTypeObject and DataTypeObjectArray with one element, so the
 		// same fix applies regardless of root prop type.
 		runScenario(t, docs, containsFilter("countries.tags", filters.ContainsNone, "electric"),
@@ -13865,7 +13865,7 @@ func TestNestedFilteringContainsNoneSiblingScalarArrayLeak(t *testing.T) {
 // set.
 //
 // The schema includes a sibling `cities: text[]` to exercise the
-// sibling-leak shape inside the correlated AND. Without Route 1's
+// sibling-leak shape inside the correlated AND. Without first-class-operator approach's
 // first-class operator handling, the inside-AND ContainsNone would use
 // `_exists.""` as universe and the cities-leaf would survive AndNot —
 // docs would leak through identically to the standalone case
@@ -14039,7 +14039,7 @@ func TestNestedFilteringContainsNoneInsideCorrelatedAnd(t *testing.T) {
 // flattenAndOperators) so the executor requires the same root to have ALL
 // listed tags AND the matching name.
 //
-// Sibling `cities: text[]` is kept in the schema to confirm Route 1 does
+// Sibling `cities: text[]` is kept in the schema to confirm first-class-operator approach does
 // not introduce a sibling-leak shape on positive operators (none expected;
 // ContainsAll doesn't read the inversion universe).
 //
