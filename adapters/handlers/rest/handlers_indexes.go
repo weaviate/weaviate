@@ -1073,7 +1073,16 @@ func errorResponse(msg string) *models.ErrorResponse {
 // backup buckets on every replica; without a cap, a script that runs
 // PUT /indexes/<prop> per property would fan out N tasks for an
 // N-property collection and overwhelm both LSM compaction and disk.
-const maxConcurrentReindexPerCollection = 4
+//
+// The value is sized to comfortably accommodate realistic batch property
+// changes (e.g. retokenizing every text property on a ~20-property
+// collection in one go) while still preventing pathological unbounded
+// fan-out from a script that loops over hundreds of properties. The
+// original value of 4 was too restrictive: it rejected legitimate batch
+// migrations against modest-sized collections and broke the
+// reindex_concurrent acceptance test which exercises 15 simultaneous
+// non-conflicting submits.
+const maxConcurrentReindexPerCollection = 32
 
 // countStartedTasksForCollection counts STARTED reindex tasks whose
 // payload targets the given collection. Unparseable payloads are
