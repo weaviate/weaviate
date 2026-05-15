@@ -13809,12 +13809,12 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		docs := []docDef{
 			{id: idTeslaWith205, props: wrap(car("tesla", tire(205))), note: "tesla, [205]"},
 			{id: idTeslaNo205, props: wrap(car("tesla", tire(225))), note: "tesla, [225]"},
-			{id: idTeslaMixed, props: wrap(car("tesla", tire(205), tire(225))), note: "tesla, [205,225] — DISCRIM gap#3"},
-			{id: idTeslaNoTires, props: wrap(car("tesla")), note: "tesla, no tires — DISCRIM gap#3"},
-			{id: idSplitTeslaBmw, props: wrap(car("tesla", tire(225)), car("bmw", tire(205))), note: "tesla(225)+bmw(205) — DISCRIM gap#3"},
-			{id: idTeslaPlusOther, props: wrap(car("tesla", tire(205)), car("bmw", tire(225))), note: "tesla(205)+bmw(225) — DISCRIM gap#9"},
+			{id: idTeslaMixed, props: wrap(car("tesla", tire(205), tire(225))), note: "tesla, [205,225] — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaNoTires, props: wrap(car("tesla")), note: "tesla, no tires — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idSplitTeslaBmw, props: wrap(car("tesla", tire(225)), car("bmw", tire(205))), note: "tesla(225)+bmw(205) — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaPlusOther, props: wrap(car("tesla", tire(205)), car("bmw", tire(225))), note: "tesla(205)+bmw(225) — DISCRIM the multi-element / multi-leaf encoding gap"},
 			{id: idBmwOnly, props: wrap(car("bmw", tire(225))), note: "bmw,225"},
-			{id: idEmpty, props: emptyDoc(), note: "no cars — DISCRIM gap#9"},
+			{id: idEmpty, props: emptyDoc(), note: "no cars — DISCRIM the multi-element / multi-leaf encoding gap"},
 		}
 
 		runLevel(t, className, class,
@@ -13877,15 +13877,15 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		docs := []docDef{
 			{id: idTeslaWith205, props: wrapG(garage(car("tesla", tire(205)))), note: "1 garage: tesla,[205]"},
 			{id: idTeslaNo205, props: wrapG(garage(car("tesla", tire(225)))), note: "1 garage: tesla,[225]"},
-			{id: idTeslaMixed, props: wrapG(garage(car("tesla", tire(205), tire(225)))), note: "1 garage: tesla,[205,225] — DISCRIM gap#3"},
-			{id: idTeslaNoTires, props: wrapG(garage(car("tesla"))), note: "1 garage: tesla no tires — DISCRIM gap#3"},
-			{id: idSplitTeslaBmwSameGarage, props: wrapG(garage(car("tesla", tire(225)), car("bmw", tire(205)))), note: "1 garage split-cars — DISCRIM gap#3"},
-			{id: idTeslaPlusOtherSameGarage, props: wrapG(garage(car("tesla", tire(205)), car("bmw", tire(225)))), note: "1 garage tesla+205 first car — DISCRIM gap#9"},
+			{id: idTeslaMixed, props: wrapG(garage(car("tesla", tire(205), tire(225)))), note: "1 garage: tesla,[205,225] — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaNoTires, props: wrapG(garage(car("tesla"))), note: "1 garage: tesla no tires — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idSplitTeslaBmwSameGarage, props: wrapG(garage(car("tesla", tire(225)), car("bmw", tire(205)))), note: "1 garage split-cars — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaPlusOtherSameGarage, props: wrapG(garage(car("tesla", tire(205)), car("bmw", tire(225)))), note: "1 garage tesla+205 first car — DISCRIM the multi-element / multi-leaf encoding gap"},
 			{id: idBmwOnly, props: wrapG(garage(car("bmw", tire(225)))), note: "1 garage: bmw,225"},
-			{id: idEmpty, props: emptyDoc(), note: "no garages — DISCRIM gap#9"},
-			{id: idSplitAcrossGarages, props: wrapG(garage(car("tesla", tire(225))), garage(car("bmw", tire(205)))), note: "g[0]=tesla(225); g[1]=bmw(205) — DISCRIM L1 gap#3"},
-			{id: idTeslaG0PlusOtherG1, props: wrapG(garage(car("tesla", tire(205))), garage(car("bmw", tire(225)))), note: "g[0]=tesla(205); g[1]=bmw(225) — DISCRIM L1 gap#9"},
-			{id: idTwoTeslasOneSatisfiesG, props: wrapG(garage(car("tesla", tire(225))), garage(car("tesla", tire(205)))), note: "g[0]=tesla(225); g[1]=tesla(205) — DISCRIM L1 gap#9"},
+			{id: idEmpty, props: emptyDoc(), note: "no garages — DISCRIM the multi-element / multi-leaf encoding gap"},
+			{id: idSplitAcrossGarages, props: wrapG(garage(car("tesla", tire(225))), garage(car("bmw", tire(205)))), note: "g[0]=tesla(225); g[1]=bmw(205) — DISCRIM L1 the NOT-inside-AND encoding gap"},
+			{id: idTeslaG0PlusOtherG1, props: wrapG(garage(car("tesla", tire(205))), garage(car("bmw", tire(225)))), note: "g[0]=tesla(205); g[1]=bmw(225) — DISCRIM L1 the multi-element / multi-leaf encoding gap"},
+			{id: idTwoTeslasOneSatisfiesG, props: wrapG(garage(car("tesla", tire(225))), garage(car("tesla", tire(205)))), note: "g[0]=tesla(225); g[1]=tesla(205) — DISCRIM L1 the multi-element / multi-leaf encoding gap"},
 		}
 
 		// Today's expected at L1:
@@ -13960,17 +13960,17 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		idTeslaPlusOtherSameGarage := uuid(6)
 		idBmwOnly := uuid(7)
 		idEmptyDoc := uuid(8)
-		idEmptyGarage := uuid(9) // garage exists but has no cars — DISCRIM gap#9
+		idEmptyGarage := uuid(9) // garage exists but has no cars — DISCRIM the multi-element / multi-leaf encoding gap
 		docs := []docDef{
 			{id: idTeslaWith205, props: wrap(car("tesla", tire(205))), note: "tesla,[205]"},
 			{id: idTeslaNo205, props: wrap(car("tesla", tire(225))), note: "tesla,[225]"},
-			{id: idTeslaMixed, props: wrap(car("tesla", tire(205), tire(225))), note: "tesla,[205,225] — DISCRIM gap#3"},
-			{id: idTeslaNoTires, props: wrap(car("tesla")), note: "tesla no tires — DISCRIM gap#3"},
-			{id: idSplitTeslaBmwSameGarage, props: wrap(car("tesla", tire(225)), car("bmw", tire(205))), note: "split-cars-same-garage — DISCRIM gap#3"},
-			{id: idTeslaPlusOtherSameGarage, props: wrap(car("tesla", tire(205)), car("bmw", tire(225))), note: "tesla+205 first — DISCRIM gap#9"},
+			{id: idTeslaMixed, props: wrap(car("tesla", tire(205), tire(225))), note: "tesla,[205,225] — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaNoTires, props: wrap(car("tesla")), note: "tesla no tires — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idSplitTeslaBmwSameGarage, props: wrap(car("tesla", tire(225)), car("bmw", tire(205))), note: "split-cars-same-garage — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaPlusOtherSameGarage, props: wrap(car("tesla", tire(205)), car("bmw", tire(225))), note: "tesla+205 first — DISCRIM the multi-element / multi-leaf encoding gap"},
 			{id: idBmwOnly, props: wrap(car("bmw", tire(225))), note: "bmw,225"},
-			{id: idEmptyDoc, props: emptyDoc(), note: "no garage — DISCRIM gap#9"},
-			{id: idEmptyGarage, props: emptyGarage(), note: "garage with no cars — DISCRIM gap#9"},
+			{id: idEmptyDoc, props: emptyDoc(), note: "no garage — DISCRIM the multi-element / multi-leaf encoding gap"},
+			{id: idEmptyGarage, props: emptyGarage(), note: "garage with no cars — DISCRIM the multi-element / multi-leaf encoding gap"},
 		}
 
 		runLevel(t, className, class,
@@ -14042,15 +14042,15 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		docs := []docDef{
 			{id: idTeslaWith205, props: wrapC(country(garage(car("tesla", tire(205))))), note: "single chain: tesla,[205]"},
 			{id: idTeslaNo205, props: wrapC(country(garage(car("tesla", tire(225))))), note: "single chain: tesla,[225]"},
-			{id: idTeslaMixed, props: wrapC(country(garage(car("tesla", tire(205), tire(225))))), note: "tesla,[205,225] — DISCRIM gap#3"},
-			{id: idTeslaNoTires, props: wrapC(country(garage(car("tesla")))), note: "tesla no tires — DISCRIM gap#3"},
-			{id: idSplitTeslaBmwSameGarage, props: wrapC(country(garage(car("tesla", tire(225)), car("bmw", tire(205))))), note: "split-cars-same-garage — DISCRIM gap#3"},
-			{id: idTeslaPlusOtherSameGarage, props: wrapC(country(garage(car("tesla", tire(205)), car("bmw", tire(225))))), note: "tesla+205 first car — DISCRIM gap#9"},
+			{id: idTeslaMixed, props: wrapC(country(garage(car("tesla", tire(205), tire(225))))), note: "tesla,[205,225] — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaNoTires, props: wrapC(country(garage(car("tesla")))), note: "tesla no tires — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idSplitTeslaBmwSameGarage, props: wrapC(country(garage(car("tesla", tire(225)), car("bmw", tire(205))))), note: "split-cars-same-garage — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaPlusOtherSameGarage, props: wrapC(country(garage(car("tesla", tire(205)), car("bmw", tire(225))))), note: "tesla+205 first car — DISCRIM the multi-element / multi-leaf encoding gap"},
 			{id: idBmwOnly, props: wrapC(country(garage(car("bmw", tire(225))))), note: "single chain: bmw,225"},
-			{id: idEmpty, props: emptyDoc(), note: "no countries — DISCRIM gap#9"},
-			{id: idSplitAcrossGarages, props: wrapC(country(garage(car("tesla", tire(225))), garage(car("bmw", tire(205))))), note: "split-across-garages within country — DISCRIM L1+ gap#3"},
-			{id: idSplitAcrossCountries, props: wrapC(country(garage(car("tesla", tire(225)))), country(garage(car("bmw", tire(205))))), note: "split-across-countries — DISCRIM L2 gap#3"},
-			{id: idTwoTeslasAcrossCountries, props: wrapC(country(garage(car("tesla", tire(225)))), country(garage(car("tesla", tire(205))))), note: "tesla in both c[0],c[1]; only c[1] has 205 — DISCRIM L2 gap#9"},
+			{id: idEmpty, props: emptyDoc(), note: "no countries — DISCRIM the multi-element / multi-leaf encoding gap"},
+			{id: idSplitAcrossGarages, props: wrapC(country(garage(car("tesla", tire(225))), garage(car("bmw", tire(205))))), note: "split-across-garages within country — DISCRIM L1+ the NOT-inside-AND encoding gap"},
+			{id: idSplitAcrossCountries, props: wrapC(country(garage(car("tesla", tire(225)))), country(garage(car("bmw", tire(205))))), note: "split-across-countries — DISCRIM L2 the NOT-inside-AND encoding gap"},
+			{id: idTwoTeslasAcrossCountries, props: wrapC(country(garage(car("tesla", tire(225)))), country(garage(car("tesla", tire(205))))), note: "tesla in both c[0],c[1]; only c[1] has 205 — DISCRIM L2 the multi-element / multi-leaf encoding gap"},
 		}
 
 		// Today's expected at L2:
@@ -14126,21 +14126,21 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		idTeslaPlusOtherSameGarage := uuid(6)
 		idBmwOnly := uuid(7)
 		idEmptyDoc := uuid(8)
-		idEmptyCountry := uuid(9) // country exists but has no garages — DISCRIM gap#9
+		idEmptyCountry := uuid(9) // country exists but has no garages — DISCRIM the multi-element / multi-leaf encoding gap
 		idSplitAcrossGarages := uuid(10)
 		idTeslaG0PlusOtherG1 := uuid(11)
 		docs := []docDef{
 			{id: idTeslaWith205, props: wrap(garage(car("tesla", tire(205)))), note: "1 garage tesla,[205]"},
 			{id: idTeslaNo205, props: wrap(garage(car("tesla", tire(225)))), note: "1 garage tesla,[225]"},
-			{id: idTeslaMixed, props: wrap(garage(car("tesla", tire(205), tire(225)))), note: "1 garage tesla,[205,225] — DISCRIM gap#3"},
-			{id: idTeslaNoTires, props: wrap(garage(car("tesla"))), note: "1 garage tesla no tires — DISCRIM gap#3"},
-			{id: idSplitTeslaBmwSameGarage, props: wrap(garage(car("tesla", tire(225)), car("bmw", tire(205)))), note: "split-cars-same-garage — DISCRIM gap#3"},
-			{id: idTeslaPlusOtherSameGarage, props: wrap(garage(car("tesla", tire(205)), car("bmw", tire(225)))), note: "tesla+205 first — DISCRIM gap#9"},
+			{id: idTeslaMixed, props: wrap(garage(car("tesla", tire(205), tire(225)))), note: "1 garage tesla,[205,225] — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaNoTires, props: wrap(garage(car("tesla"))), note: "1 garage tesla no tires — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idSplitTeslaBmwSameGarage, props: wrap(garage(car("tesla", tire(225)), car("bmw", tire(205)))), note: "split-cars-same-garage — DISCRIM the NOT-inside-AND encoding gap"},
+			{id: idTeslaPlusOtherSameGarage, props: wrap(garage(car("tesla", tire(205)), car("bmw", tire(225)))), note: "tesla+205 first — DISCRIM the multi-element / multi-leaf encoding gap"},
 			{id: idBmwOnly, props: wrap(garage(car("bmw", tire(225)))), note: "1 garage bmw,225"},
-			{id: idEmptyDoc, props: emptyDoc(), note: "no country — DISCRIM gap#9"},
-			{id: idEmptyCountry, props: emptyCountry(), note: "country with no garages — DISCRIM gap#9"},
-			{id: idSplitAcrossGarages, props: wrap(garage(car("tesla", tire(225))), garage(car("bmw", tire(205)))), note: "g[0]=tesla(225); g[1]=bmw(205) — DISCRIM L1+ gap#3"},
-			{id: idTeslaG0PlusOtherG1, props: wrap(garage(car("tesla", tire(205))), garage(car("bmw", tire(225)))), note: "g[0]=tesla(205); g[1]=bmw(225) — DISCRIM L1+ gap#9"},
+			{id: idEmptyDoc, props: emptyDoc(), note: "no country — DISCRIM the multi-element / multi-leaf encoding gap"},
+			{id: idEmptyCountry, props: emptyCountry(), note: "country with no garages — DISCRIM the multi-element / multi-leaf encoding gap"},
+			{id: idSplitAcrossGarages, props: wrap(garage(car("tesla", tire(225))), garage(car("bmw", tire(205)))), note: "g[0]=tesla(225); g[1]=bmw(205) — DISCRIM L1+ the NOT-inside-AND encoding gap"},
+			{id: idTeslaG0PlusOtherG1, props: wrap(garage(car("tesla", tire(205))), garage(car("bmw", tire(225)))), note: "g[0]=tesla(205); g[1]=bmw(225) — DISCRIM L1+ the multi-element / multi-leaf encoding gap"},
 		}
 
 		runLevel(t, className, class,
@@ -19028,9 +19028,9 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 
 		// TODO aliszka:nested_filtering: Context 1 — standalone NOT.
 		// Today: doc-level NOT (no cars with color=red anywhere; empty
-		// docs vacuously match). Option A: per-cars-element exists
+		// docs vacuously match). per-element inversion: per-cars-element exists
 		// color!=red — empty docs lose the match; mixed-color docs
-		// gain it. Option B: with no enclosing combinator, behaves
+		// gain it. universal-within-scope inversion: with no enclosing combinator, behaves
 		// like today (NOT inverts at the doc universe).
 		t.Run("ctx1_standalone_NOT", func(t *testing.T) {
 			runScenario(t, notF(colorRedF()), want.standalone)
@@ -19038,7 +19038,7 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 
 		// TODO aliszka:nested_filtering: Context 2 — sibling at SAME
 		// root. Enclosing AND's LCA = cars[]. Today's contribution
-		// of NOT is doc-level. Option A and Option B both invert at
+		// of NOT is doc-level. per-element inversion and universal-within-scope inversion both invert at
 		// cars[] (operand's natural LCA = enclosing LCA), so they
 		// agree here.
 		t.Run("ctx2_AND_same_root_sibling", func(t *testing.T) {
@@ -19047,9 +19047,9 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 
 		// TODO aliszka:nested_filtering: Context 3 — sibling at OUTER
 		// scope (top-level owner). Enclosing AND's LCA = doc.
-		// Option A: NOT still inverts at cars[] (operand's natural
+		// per-element inversion: NOT still inverts at cars[] (operand's natural
 		// LCA — context-free), so mixed-color docs flip IN.
-		// Option B: NOT inverts at the enclosing AND's LCA = doc,
+		// universal-within-scope inversion: NOT inverts at the enclosing AND's LCA = doc,
 		// matching today's behavior. THIS IS THE A vs B
 		// discriminator across the 5 contexts.
 		t.Run("ctx3_AND_outer_scope_sibling", func(t *testing.T) {
@@ -19058,7 +19058,7 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 
 		// TODO aliszka:nested_filtering: Context 4 — OR with
 		// same-root sibling. Today's NOT docID-unioned with cars.
-		// make=tesla. Option A and Option B both invert at cars[]
+		// make=tesla. per-element inversion and universal-within-scope inversion both invert at cars[]
 		// (enclosing OR's LCA = cars[] = operand LCA).
 		t.Run("ctx4_OR_same_root_sibling", func(t *testing.T) {
 			runScenario(t, orF(makeF(), notF(colorRedF())), want.orSameRoot)
@@ -19066,7 +19066,7 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 
 		// TODO aliszka:nested_filtering: Context 5 — NOT inside an
 		// inner OR which is inside an outer AND. The NOT's enclosing
-		// scope is the inner OR (LCA = cars[]). Option A and Option
+		// scope is the inner OR (LCA = cars[]). per-element inversion and Option
 		// B agree here.
 		t.Run("ctx5_AND_with_OR_containing_NOT", func(t *testing.T) {
 			runScenario(t, andF(makeF(), orF(yearF(), notF(colorRedF()))), want.andOrMix)
