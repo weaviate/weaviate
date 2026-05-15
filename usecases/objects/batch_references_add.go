@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // AddReferences Class Instances in batch to the connected DB
@@ -43,6 +44,18 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	batchReferences := validateReferencesConcurrently(ctx, refs, b.logger)
+
+	for idx := range batchReferences {
+		if batchReferences[idx].Err != nil {
+			continue
+		}
+		fromClass, _, err := b.resolveNS(principal, batchReferences[idx].From.Class.String())
+		if err != nil {
+			batchReferences[idx].Err = err
+			continue
+		}
+		batchReferences[idx].From.Class = schema.ClassName(fromClass)
+	}
 
 	uniqueClass := map[string]struct{}{}
 	type classAndShard struct {
@@ -90,6 +103,25 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
+	// Parallel array of qualified target classes, keyed by ref index. The
+	// stored beacon (refs[i].To.Class) is normalised to the short form so
+	// the on-disk URI stays namespace-portable; the qualified form is held
+	// here in memory for MT validation, authz, and the target-side
+	// uniqueClassShard map.
+	qualifiedTargets := make([]string, len(refs))
+	for i := range refs {
+		if refs[i].Err != nil || refs[i].To == nil || refs[i].To.Class == "" {
+			continue
+		}
+		qualified, _, err := b.resolveNS(principal, refs[i].To.Class)
+		if err != nil {
+			refs[i].Err = err
+			continue
+		}
+		qualifiedTargets[i] = qualified
+		refs[i].To.Class = namespacing.StripQualification(qualified)
+	}
+
 	// MT validation must be done after auto-detection as we cannot know the target class beforehand in all cases
 	type classAndShard struct {
 		Class string
@@ -103,8 +135,11 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		}
 
 		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
-			// can only validate multi-tenancy when everything above succeeds
-			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, ref.To, ref.Tenant, fetchedClasses)
+			// Build a qualified-target view for the schema lookup inside MT
+			// validation; the storage struct refs[i].To stays short.
+			targetQualified := *ref.To
+			targetQualified.Class = qualifiedTargets[i]
+			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, &targetQualified, ref.Tenant, fetchedClasses)
 			if err != nil {
 				refs[i].Err = err
 			}
@@ -113,7 +148,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			}
 		}
 
-		uniqueClassShard[ref.To.Class+"#"+ref.Tenant] = classAndShard{Class: ref.To.Class, Shard: ref.Tenant}
+		uniqueClassShard[qualifiedTargets[i]+"#"+ref.Tenant] = classAndShard{Class: qualifiedTargets[i], Shard: ref.Tenant}
 	}
 
 	shardsDataPaths := make([]string, 0, len(uniqueClassShard))

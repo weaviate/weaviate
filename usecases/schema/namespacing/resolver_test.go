@@ -124,6 +124,26 @@ func TestNamespaceFromQualified(t *testing.T) {
 	}
 }
 
+func TestStripQualification(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "no separator returns input unchanged", in: "MyClass", want: "MyClass"},
+		{name: "qualified name returns entity portion", in: "alpha:MyClass", want: "MyClass"},
+		{name: "empty input returns empty", in: "", want: ""},
+		{name: "trailing separator returns empty entity", in: "alpha:", want: ""},
+		{name: "leading separator returns input after separator", in: ":MyClass", want: "MyClass"},
+		{name: "multiple separators split only on first", in: "alpha:beta:MyClass", want: "beta:MyClass"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, StripQualification(tc.in))
+		})
+	}
+}
+
 func TestQualifyClass(t *testing.T) {
 	cases := []struct {
 		testName          string

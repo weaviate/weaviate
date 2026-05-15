@@ -58,9 +58,13 @@ func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.
 	return fetchedClass[className].Class, fetchedClass[className].Version, fetchedClass, nil
 }
 
-// validateNames validates class and property names
+// validateNames validates class and property names. The class portion accepts
+// either a plain class name or a namespace-qualified "<namespace>:<Class>"
+// — callers run namespacing.Resolve before this point, so on
+// namespace-enabled clusters the class is already in its qualified internal
+// form.
 func validateReferenceName(class, property string) error {
-	if _, err := schema.ValidateClassName(class); err != nil {
+	if _, err := schema.ValidateQualifiedClassName(class); err != nil {
 		return err
 	}
 

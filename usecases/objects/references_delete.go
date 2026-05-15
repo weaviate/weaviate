@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
@@ -26,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // DeleteReferenceInput represents required inputs to delete a reference from an existing object.
@@ -47,8 +47,26 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	defer m.metrics.DeleteReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	input.Class = schema.UppercaseClassName(input.Class)
-	input.Class, _ = m.resolveAlias(input.Class)
+	if input.Class != "" {
+		class, _, err := m.resolveNS(principal, input.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		input.Class = class
+	}
+
+	// Parse and prefix-validate the target beacon up front so a namespaced
+	// caller submitting "<otherNS>:Animal" gets a 422 before any object
+	// lookup work — same contract as add/update.
+	beacon, err := crossref.Parse(input.Reference.Beacon.String())
+	if err != nil {
+		return &Error{"cannot parse beacon", StatusBadRequest, err}
+	}
+	if beacon.Class != "" {
+		if err := namespacing.ValidateNamespacePrefix(principal, m.config.Config.Namespaces.Enabled, beacon.Class, "class"); err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+	}
 
 	// We are fetching the existing object and get to know if the UUID exists
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
@@ -100,10 +118,6 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{"source object", StatusInternalServerError, err}
 	}
 
-	beacon, err := crossref.Parse(input.Reference.Beacon.String())
-	if err != nil {
-		return &Error{"cannot parse beacon", StatusBadRequest, err}
-	}
 	if input.Class != "" && beacon.Class == "" {
 		toClass, toBeacon, replace, err := m.autodetectToClass(class, input.Property, beacon)
 		if err != nil {
@@ -112,6 +126,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		if replace {
 			input.Reference.Class = toClass
 			input.Reference.Beacon = toBeacon
+			beacon.Class = string(toClass)
 		}
 	}
 

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // AddObjectReference to an existing object. If the class contains a network
@@ -40,8 +41,13 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	defer m.metrics.AddReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	input.Class = schema.UppercaseClassName(input.Class)
-	input.Class, _ = m.resolveAlias(input.Class)
+	if input.Class != "" {
+		class, _, err := m.resolveNS(principal, input.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		input.Class = class
+	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
@@ -101,6 +107,20 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
+	if targetRef.Class != "" {
+		qualifiedTarget, _, err := m.resolveNS(principal, targetRef.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		shortTarget := namespacing.StripQualification(qualifiedTarget)
+		// Two views: qualified for in-memory ops (authz + existence right
+		// below), short for the stored beacon (reparsed from input.Ref into
+		// the target passed to AddReference further down).
+		targetRef.Class = qualifiedTarget
+		input.Ref.Class = strfmt.URI(shortTarget)
+		input.Ref.Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, targetRef.TargetID).String())
+	}
+
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(targetRef.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
@@ -132,8 +152,11 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if shouldValidateMultiTenantRef(tenant, source, target) {
+		// targetRef carries the qualified target class (the in-memory ops
+		// view); the reparsed `target` above carries the short class for
+		// storage. MT validation needs the qualified form for schema lookup.
 		_, err = validateReferenceMultiTenancy(ctx, principal,
-			m.schemaManager, m.vectorRepo, source, target, tenant, fetchedClass)
+			m.schemaManager, m.vectorRepo, source, targetRef, tenant, fetchedClass)
 		if err != nil {
 			switch {
 			case errors.As(err, &autherrs.Forbidden{}):

@@ -45,6 +45,7 @@ import (
 	nearText2 "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearThermal"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type generativeParser interface {
@@ -60,16 +61,22 @@ type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
 	aliasGetter        aliasGetter
+	principal          *models.Principal
+	namespacesEnabled  bool
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
 	aliasGetter aliasGetter,
+	principal *models.Principal,
+	namespacesEnabled bool,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
 		aliasGetter:        aliasGetter,
+		principal:          principal,
+		namespacesEnabled:  namespacesEnabled,
 	}
 }
 
@@ -100,7 +107,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, targetVectors, vectorSearch)
+	out.Properties, err = p.extractPropertiesRequest(req.Properties, req.Collection, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -699,20 +706,20 @@ func isNested(dataType []string) bool {
 	return len(dataType) == 1 && schema.IsNested(schema.DataType(dataType[0]))
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass classGetterWithAuthzFunc, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
 		// No properties selected at all, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		nonRefProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
+		nonRefProps, err := getAllNonRefNonBlobProperties(p.authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
 		return nonRefProps, nil
 	}
 
-	class, err := authorizedGetClass(className)
+	class, err := p.authorizedGetClass(className)
 	if err != nil {
 		return nil, err
 	}
@@ -720,7 +727,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 	if reqProps.ReturnAllNonrefProperties {
 		// No non-ref return properties selected, return all non-ref properties.
 		// Ignore blobs to not overload the response
-		returnProps, err := getAllNonRefNonBlobProperties(authorizedGetClass, className)
+		returnProps, err := getAllNonRefNonBlobProperties(p.authorizedGetClass, className)
 		if err != nil {
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
@@ -757,6 +764,14 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 	}
 
 	if len(reqProps.RefProperties) > 0 {
+		// className arrives qualified at this layer (top-level service.go
+		// already ran namespacing.Resolve; recursive calls below pass the
+		// previously-qualified linked class as the new className). Extract
+		// the parent's namespace so every linked-class lookup happens against
+		// the qualified storage form. NamespaceFromQualified returns "" on
+		// non-namespace clusters, so QualifiedName is a no-op there.
+		parentNS := namespacing.NamespaceFromQualified(className)
+
 		for _, prop := range reqProps.RefProperties {
 			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
@@ -769,6 +784,9 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 				// use datatype of the reference property to get the name of the linked class
 				linkedClassName = schemaProp.DataType[0]
 			} else {
+				if err := namespacing.ValidateNamespacePrefix(p.principal, p.namespacesEnabled, prop.TargetCollection, "class"); err != nil {
+					return nil, err
+				}
 				linkedClassName = prop.TargetCollection
 				if linkedClassName == "" {
 					return nil, fmt.Errorf(
@@ -777,14 +795,15 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
 			}
-			linkedClass, err := authorizedGetClass(linkedClassName)
+			linkedClassName = namespacing.QualifiedName(parentNS, linkedClassName)
+			linkedClass, err := p.authorizedGetClass(linkedClassName)
 			if err != nil {
 				return nil, err
 			}
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
+				refProperties, err = p.extractPropertiesRequest(prop.Properties, linkedClassName, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
@@ -797,7 +816,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			}
 
 			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
+				refProperties, err = getAllNonRefNonBlobProperties(p.authorizedGetClass, linkedClassName)
 				if err != nil {
 					return nil, errors.Wrap(err, "get all non ref non blob properties")
 				}

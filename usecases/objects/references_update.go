@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // PutReferenceInput represents required inputs to add a reference to an existing object.
@@ -50,8 +51,13 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	defer m.metrics.UpdateReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	input.Class = schema.UppercaseClassName(input.Class)
-	input.Class, _ = m.resolveAlias(input.Class)
+	if input.Class != "" {
+		class, _, err := m.resolveNS(principal, input.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		input.Class = class
+	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
@@ -109,6 +115,19 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				input.Refs[i].Beacon = toBeacon
 				parsedTargetRefs[i].Class = string(toClass)
 			}
+		}
+		if parsedTargetRefs[i].Class != "" {
+			qualifiedTarget, _, err := m.resolveNS(principal, parsedTargetRefs[i].Class)
+			if err != nil {
+				return &Error{err.Error(), StatusUnprocessableEntity, err}
+			}
+			shortTarget := namespacing.StripQualification(qualifiedTarget)
+			// Qualified for downstream authz / existence; short for the
+			// beacon that gets serialized when input.Refs is written to the
+			// source object's property bytes below.
+			parsedTargetRefs[i].Class = qualifiedTarget
+			input.Refs[i].Class = strfmt.URI(shortTarget)
+			input.Refs[i].Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, parsedTargetRefs[i].TargetID).String())
 		}
 
 		// only check authZ once per class/tenant combination

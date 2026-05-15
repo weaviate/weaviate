@@ -46,6 +46,18 @@ func NamespaceFromQualified(name string) string {
 	return ""
 }
 
+// StripQualification returns the entity portion of a qualified name
+// ("<ns>:<entity>") — the substring after the first namespace separator.
+// Names without the separator are returned unchanged. Used at write
+// boundaries that must persist a short, namespace-portable form (e.g.
+// cross-reference beacons) regardless of which form the caller submitted.
+func StripQualification(name string) string {
+	if _, entity, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
+		return entity
+	}
+	return name
+}
+
 // qualify prepends principal.Namespace to name.
 func qualify(principal *models.Principal, name string) string {
 	if principal == nil {

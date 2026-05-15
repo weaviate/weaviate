@@ -26,6 +26,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -178,18 +179,25 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	if req.State == nil {
 		return fmt.Errorf("%w: nil sharding state", ErrBadRequest)
 	}
-	// validate xrefs within the class for existence
+	// validate xrefs within the class for existence. On namespace-enabled
+	// clusters req.Class.Class arrives qualified ("customer1:Zoo"), but
+	// Property.DataType entries are validated as short names by
+	// ValidateClassName, so we stitch the parent namespace onto each
+	// referenced class before the existence check. parentNS is "" on
+	// non-namespace clusters, so QualifiedName is a no-op there.
+	parentNS := namespacing.NamespaceFromQualified(req.Class.Class)
 	for _, prop := range req.Class.Properties {
 		if !entSchema.IsRefDataType(prop.DataType) {
 			// don't need to validate non-xref data types
 			continue
 		}
 		for _, dt := range prop.DataType {
-			if dt == req.Class.Class {
+			qualifiedDT := namespacing.QualifiedName(parentNS, dt)
+			if qualifiedDT == req.Class.Class {
 				// self-references are always allowed
 				continue
 			}
-			if s.schema.classExists(dt) {
+			if s.schema.classExists(qualifiedDT) {
 				// class exists, all good
 				continue
 			}

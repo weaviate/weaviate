@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -185,15 +184,6 @@ func NewManager(schemaManager schemaManager,
 		metrics:           metrics,
 		allocChecker:      allocChecker,
 	}
-}
-
-// resolveAlias is the alias-only resolver still used by the reference
-// endpoints (AddObjectReference / UpdateObjectReferences /
-// DeleteObjectReference). It is namespace-unaware on purpose; the
-// reference path will move to namespacing.Resolve once beacon resolution
-// is namespace-aware end to end.
-func (m *Manager) resolveAlias(class string) (className, aliasName string) {
-	return alias.ResolveAlias(m.schemaManager, class)
 }
 
 // resolveNS qualifies name with the principal's namespace (if enabled)
