@@ -5,24 +5,42 @@
 // the browser can hit /v1/graphql directly without a Python runtime. No
 // client-side caching - every press of "Run query" hits the server fresh.
 //
-// The target cluster is hardcoded so viewers don't have to configure anything.
-// The cluster needs anonymous read access enabled for the GraphQL endpoint
-// to be reachable without an API key.
+// The target cluster is hardcoded. The API key input persists in
+// localStorage so the viewer pastes it once. The cluster requires Bearer
+// auth for both /v1/meta and /v1/graphql; until the key is set every card
+// will surface a 401 from the server.
 
 const BASE_URL = "https://uqkg8qogqj6phkndzmyhww.c0.europe-west3.dev.gcp.weaviate.cloud";
-const COLLECTION = "IndexingMistakesDemo";
+const CLASS = "IndexingMistakesDemo";
+const LS_KEY = "imd-apikey";
 
 const connLight = document.getElementById("conn-light");
 const connStatusText = document.getElementById("conn-status-text");
+const keyInput = document.getElementById("conn-key");
+const resetBtn = document.getElementById("reset-btn");
+const resetStatus = document.getElementById("reset-status");
 
 // -- Connection helpers ------------------------------------------------------
 
 function baseUrl() {
   return BASE_URL.replace(/\/+$/, "");
 }
-function authHeaders() {
-  return { "content-type": "application/json" };
+function apiKey() {
+  return keyInput.value.trim();
 }
+function authHeaders() {
+  const h = { "content-type": "application/json" };
+  const k = apiKey();
+  if (k) h["authorization"] = `Bearer ${k}`;
+  return h;
+}
+
+// Persist API key across reloads.
+keyInput.value = localStorage.getItem(LS_KEY) || "";
+keyInput.addEventListener("change", () => {
+  localStorage.setItem(LS_KEY, apiKey());
+  pingServer();
+});
 
 async function pingServer() {
   try {
@@ -30,11 +48,13 @@ async function pingServer() {
     if (!r.ok) throw new Error(`status ${r.status}`);
     const meta = await r.json();
     connLight.className = "conn-light ok";
-    connStatusText.textContent = `connected to ${new URL(baseUrl()).hostname} (v${meta.version || "?"})`;
+    connStatusText.textContent = `connected (v${meta.version || "?"})`;
     return true;
   } catch (e) {
     connLight.className = "conn-light bad";
-    connStatusText.textContent = `unreachable: ${e.message}`;
+    connStatusText.textContent = apiKey()
+      ? `unreachable: ${e.message}`
+      : `API key required`;
     return false;
   }
 }
@@ -72,12 +92,101 @@ async function timedGql(query) {
   return { body, ms: t1 - t0 };
 }
 
+// -- Reset (re-break the schema) --------------------------------------------
+//
+// After the viewer fixes each mistake from the Weaviate console, this button
+// reverts each property to its broken state so the demo can be re-run. All
+// three operations fire in parallel - they target distinct properties so the
+// per-property submit lock added in a7bb362854 lets them all through.
+//
+//   1. price_cents:     DELETE the rangefilters index
+//   2. category:        DELETE the filterable index
+//   3. spec_sheet_path: change tokenization back to "word"
+
+async function deleteIndex(prop, indexType) {
+  const url = `${baseUrl()}/v1/schema/${CLASS}/properties/${prop}/index/${indexType}`;
+  const r = await fetch(url, { method: "DELETE", headers: authHeaders(), cache: "no-store" });
+  if (r.status === 200 || r.status === 204) return { ok: true, status: r.status, note: "deleted" };
+  if (r.status === 404 || r.status === 400) {
+    // Already in the broken state (no such index); idempotent no-op.
+    return { ok: true, status: r.status, note: "already broken" };
+  }
+  const body = await r.text();
+  return { ok: false, status: r.status, note: body.slice(0, 200) };
+}
+
+async function changeTokenization(prop, tokenization) {
+  const url = `${baseUrl()}/v1/schema/${CLASS}/indexes/${prop}`;
+  const body = JSON.stringify({ searchable: { tokenization } });
+  const r = await fetch(url, { method: "PUT", headers: authHeaders(), body, cache: "no-store" });
+  const text = await r.text();
+  if (r.status === 400 && /already uses tokenization/i.test(text)) {
+    return { ok: true, status: 400, note: "already broken" };
+  }
+  if (r.status !== 202) {
+    return { ok: false, status: r.status, note: text.slice(0, 200) };
+  }
+  const parsed = JSON.parse(text);
+  const taskId = parsed.taskId;
+  if (!taskId) return { ok: false, status: r.status, note: "no taskId in 202 body" };
+  // Poll until terminal.
+  const t0 = Date.now();
+  while (Date.now() - t0 < 120_000) {
+    await new Promise(res => setTimeout(res, 1000));
+    const statusURL = `${baseUrl()}/v1/schema/${CLASS}/indexes/${prop}`;
+    const sr = await fetch(statusURL, { headers: authHeaders(), cache: "no-store" });
+    if (!sr.ok) continue;
+    const sjson = await sr.json();
+    // GET /indexes returns a property entry with `indexes:[{type,status,...}]`.
+    const flagOff = (sjson.indexes || []).every(i =>
+      i.type !== "searchable" || i.status === "ready"
+    );
+    if (flagOff) return { ok: true, status: 202, note: `task ${taskId} finished` };
+  }
+  return { ok: false, status: 202, note: `task ${taskId} did not finish within 120s` };
+}
+
+async function doReset() {
+  if (!apiKey()) {
+    resetStatus.textContent = "API key required";
+    resetStatus.className = "reset-status visible bad";
+    return;
+  }
+  resetBtn.disabled = true;
+  const previousLabel = resetBtn.textContent;
+  resetBtn.textContent = "Resetting...";
+  resetStatus.className = "reset-status visible";
+  resetStatus.textContent = "firing 3 operations in parallel...";
+
+  const t0 = performance.now();
+  const ops = [
+    ["price_cents (rangefilters)",     deleteIndex("price_cents", "rangefilters")],
+    ["category (filterable)",          deleteIndex("category", "filterable")],
+    ["spec_sheet_path (tokenization)", changeTokenization("spec_sheet_path", "word")],
+  ];
+  const results = await Promise.all(ops.map(([_, p]) => p));
+  const elapsed = Math.round(performance.now() - t0);
+
+  const lines = ops.map(([label, _], i) => {
+    const r = results[i];
+    const mark = r.ok ? "ok" : "FAIL";
+    return `[${mark}] ${label} - HTTP ${r.status} - ${r.note}`;
+  });
+  const allOk = results.every(r => r.ok);
+  resetStatus.className = `reset-status visible ${allOk ? "ok" : "bad"}`;
+  resetStatus.textContent = `${allOk ? "Reset complete" : "Reset finished with errors"} in ${elapsed} ms\n` + lines.join("\n");
+
+  resetBtn.textContent = previousLabel;
+  resetBtn.disabled = false;
+}
+resetBtn.addEventListener("click", doReset);
+
 // -- Query templates ---------------------------------------------------------
 
 function qPriceRange() {
   return `{
     Get {
-      ${COLLECTION}(
+      ${CLASS}(
         where: {
           operator: And,
           operands: [
@@ -95,7 +204,7 @@ function qPriceRange() {
 function qPriceRangeCount() {
   return `{
     Aggregate {
-      ${COLLECTION}(
+      ${CLASS}(
         where: {
           operator: And,
           operands: [
@@ -111,7 +220,7 @@ function qPriceRangeCount() {
 function qPathEqual() {
   return `{
     Get {
-      ${COLLECTION}(
+      ${CLASS}(
         where: { path: ["spec_sheet_path"], operator: Equal, valueText: "/products/cameras/gopro" },
         limit: 10
       ) {
@@ -124,7 +233,7 @@ function qPathEqual() {
 function qCategoryEqual() {
   return `{
     Get {
-      ${COLLECTION}(
+      ${CLASS}(
         where: { path: ["category"], operator: Equal, valueText: "Cameras > Action" },
         limit: 10
       ) {
@@ -136,7 +245,7 @@ function qCategoryEqual() {
 function qCategoryEqualCount() {
   return `{
     Aggregate {
-      ${COLLECTION}(
+      ${CLASS}(
         where: { path: ["category"], operator: Equal, valueText: "Cameras > Action" }
       ) { meta { count } }
     }
@@ -258,21 +367,17 @@ document.querySelectorAll(".run-btn").forEach(btn => {
 async function onRun(btn) {
   const action = btn.dataset.action;
   const card = btn.closest(".card");
-  const cardName = card.dataset.card;
   const container = card.querySelector(".result");
 
   switch (action) {
     case "run-price-range":
       return runWithButton(btn, container, async () => {
-        // Issue both in parallel - aggregate hits the same brute-force path
-        // as Get, so the slow one wins. We report the slower wall-clock so
-        // the user sees the worst-case cost of the misconfiguration.
         const [get, count] = await Promise.all([
           timedGql(qPriceRange()),
           timedGql(qPriceRangeCount()),
         ]);
-        const rows = get.body.data.Get[COLLECTION] || [];
-        const total = count.body.data.Aggregate[COLLECTION][0]?.meta?.count ?? null;
+        const rows = get.body.data.Get[CLASS] || [];
+        const total = count.body.data.Aggregate[CLASS][0]?.meta?.count ?? null;
         renderResults(container, {
           latencyMs: Math.max(get.ms, count.ms),
           totalCount: total,
@@ -286,7 +391,7 @@ async function onRun(btn) {
     case "run-path-equal":
       return runWithButton(btn, container, async () => {
         const { body, ms } = await timedGql(qPathEqual());
-        const rows = body.data.Get[COLLECTION] || [];
+        const rows = body.data.Get[CLASS] || [];
         renderResults(container, {
           latencyMs: ms,
           rows,
@@ -301,8 +406,8 @@ async function onRun(btn) {
           timedGql(qCategoryEqual()),
           timedGql(qCategoryEqualCount()),
         ]);
-        const rows = get.body.data.Get[COLLECTION] || [];
-        const total = count.body.data.Aggregate[COLLECTION][0]?.meta?.count ?? null;
+        const rows = get.body.data.Get[CLASS] || [];
+        const total = count.body.data.Aggregate[CLASS][0]?.meta?.count ?? null;
         renderResults(container, {
           latencyMs: Math.max(get.ms, count.ms),
           totalCount: total,
@@ -312,6 +417,5 @@ async function onRun(btn) {
           emptyNote: "No matching rows."
         });
       });
-
   }
 }

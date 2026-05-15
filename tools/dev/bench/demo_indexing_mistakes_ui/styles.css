@@ -63,6 +63,34 @@ code, pre {
   font-size: 12px;
   color: var(--text-dim);
 }
+.conn-key-input {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  width: 220px;
+}
+.conn-key-input:focus {
+  outline: none;
+  border-color: var(--accent-2);
+}
+.reset-status {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text-dim);
+}
+.reset-status.hidden { display: none; }
+.reset-status.visible { display: block; }
+.reset-status.ok { border-color: var(--good); }
+.reset-status.bad { border-color: var(--bad); }
 .conn-light {
   width: 8px;
   height: 8px;
