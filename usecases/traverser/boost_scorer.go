@@ -27,7 +27,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/filters"
@@ -46,15 +45,11 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 
 	nowTime := time.Now()
 
-	// Pre-parse decay parameters and pre-compile Like patterns once.
+	// Pre-parse decay parameters once.
 	decayParams := make([]parsedDecay, len(boost.Conditions))
-	likeCache := make(map[string]*regexp.Regexp)
 	for i, cond := range boost.Conditions {
 		if cond.Decay != nil {
 			decayParams[i] = parseDecayParams(cond.Decay)
-		}
-		if cond.Filter != nil {
-			precompileLikePatterns(cond.Filter.Root, likeCache)
 		}
 	}
 
@@ -65,7 +60,7 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 	// Compute boost score for each result.
 	boostScores := make([]float32, len(results))
 	for i := range results {
-		boostScores[i] = scoreResult(&results[i], boost.Conditions, decayParams, propertyValueScores, i, nowTime, likeCache)
+		boostScores[i] = scoreResult(&results[i], boost.Conditions, decayParams, propertyValueScores, i, nowTime)
 	}
 
 	// Normalize primary scores to [0,1] using min-max.
@@ -152,7 +147,7 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 // uses abs(weight) so the score range is [-1, 1].
 func scoreResult(r *search.Result, conditions []filters.BoostCondition,
 	decayParams []parsedDecay, propertyValueScores [][]float32, resultIdx int,
-	nowTime time.Time, likeCache map[string]*regexp.Regexp,
+	nowTime time.Time,
 ) float32 {
 	var weightedSum, weightSum float32
 
@@ -167,7 +162,7 @@ func scoreResult(r *search.Result, conditions []filters.BoostCondition,
 		var condScore float32
 
 		if cond.Filter != nil {
-			if matchesFilter(cond.Filter, props, likeCache) {
+			if matchesFilter(cond.Filter, props) {
 				condScore = 1.0
 			}
 		} else if cond.Decay != nil {
@@ -277,19 +272,19 @@ func extractProps(r *search.Result) map[string]interface{} {
 }
 
 // matchesFilter evaluates a LocalFilter against an object's properties in-memory.
-// This handles the common filter operators used in prefer conditions.
-func matchesFilter(filter *filters.LocalFilter, props map[string]interface{}, likeCache map[string]*regexp.Regexp) bool {
+// This handles the common filter operators used in boost conditions.
+func matchesFilter(filter *filters.LocalFilter, props map[string]interface{}) bool {
 	if filter == nil || filter.Root == nil || props == nil {
 		return false
 	}
-	return matchesClause(filter.Root, props, likeCache)
+	return matchesClause(filter.Root, props)
 }
 
-func matchesClause(clause *filters.Clause, props map[string]interface{}, likeCache map[string]*regexp.Regexp) bool {
+func matchesClause(clause *filters.Clause, props map[string]interface{}) bool {
 	switch clause.Operator {
 	case filters.OperatorAnd:
 		for i := range clause.Operands {
-			if !matchesClause(&clause.Operands[i], props, likeCache) {
+			if !matchesClause(&clause.Operands[i], props) {
 				return false
 			}
 		}
@@ -297,7 +292,7 @@ func matchesClause(clause *filters.Clause, props map[string]interface{}, likeCac
 
 	case filters.OperatorOr:
 		for i := range clause.Operands {
-			if matchesClause(&clause.Operands[i], props, likeCache) {
+			if matchesClause(&clause.Operands[i], props) {
 				return true
 			}
 		}
@@ -305,16 +300,16 @@ func matchesClause(clause *filters.Clause, props map[string]interface{}, likeCac
 
 	case filters.OperatorNot:
 		if len(clause.Operands) > 0 {
-			return !matchesClause(&clause.Operands[0], props, likeCache)
+			return !matchesClause(&clause.Operands[0], props)
 		}
 		return false
 
 	default:
-		return matchesValueClause(clause, props, likeCache)
+		return matchesValueClause(clause, props)
 	}
 }
 
-func matchesValueClause(clause *filters.Clause, props map[string]interface{}, likeCache map[string]*regexp.Regexp) bool {
+func matchesValueClause(clause *filters.Clause, props map[string]interface{}) bool {
 	if clause.On == nil || clause.Value == nil {
 		return false
 	}
@@ -322,21 +317,13 @@ func matchesValueClause(clause *filters.Clause, props map[string]interface{}, li
 	propName := string(clause.On.Property)
 	propVal, exists := props[propName]
 	if !exists {
-		if clause.Operator == filters.OperatorIsNull {
-			return clause.Value.Value == true
-		}
 		return false
 	}
 
-	if clause.Operator == filters.OperatorIsNull {
-		isNull := propVal == nil
-		return isNull == (clause.Value.Value == true)
-	}
-
-	return compareValues(clause.Operator, propVal, clause.Value.Value, likeCache)
+	return compareValues(clause.Operator, propVal, clause.Value.Value)
 }
 
-func compareValues(op filters.Operator, propVal, filterVal interface{}, likeCache map[string]*regexp.Regexp) bool {
+func compareValues(op filters.Operator, propVal, filterVal interface{}) bool {
 	// Try boolean comparison.
 	if boolVal, ok := asBool(propVal); ok {
 		if filterBool, ok := asBool(filterVal); ok {
@@ -391,8 +378,6 @@ func compareValues(op filters.Operator, propVal, filterVal interface{}, likeCach
 				return strProp < strFilter
 			case filters.OperatorLessThanEqual:
 				return strProp <= strFilter
-			case filters.OperatorLike:
-				return matchLikeCached(strProp, strFilter, likeCache)
 			default:
 				return false
 			}
@@ -425,36 +410,6 @@ func asFloat64(v interface{}) (float64, bool) {
 	default:
 		return 0, false
 	}
-}
-
-// precompileLikePatterns walks a filter clause tree and pre-compiles any Like
-// operator patterns into the cache so they aren't recompiled per document.
-func precompileLikePatterns(clause *filters.Clause, cache map[string]*regexp.Regexp) {
-	if clause == nil {
-		return
-	}
-	if clause.Operator == filters.OperatorLike && clause.Value != nil {
-		if pattern, ok := clause.Value.Value.(string); ok {
-			if _, exists := cache[pattern]; !exists {
-				regexStr := "^" + regexp.QuoteMeta(pattern) + "$"
-				regexStr = strings.ReplaceAll(regexStr, `\*`, ".*")
-				regexStr = strings.ReplaceAll(regexStr, `\?`, ".")
-				if re, err := regexp.Compile(regexStr); err == nil {
-					cache[pattern] = re
-				}
-			}
-		}
-	}
-	for i := range clause.Operands {
-		precompileLikePatterns(&clause.Operands[i], cache)
-	}
-}
-
-func matchLikeCached(value, pattern string, cache map[string]*regexp.Regexp) bool {
-	if re, ok := cache[pattern]; ok {
-		return re.MatchString(value)
-	}
-	return false
 }
 
 // --- Decay scoring on search results ---

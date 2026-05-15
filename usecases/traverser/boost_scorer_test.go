@@ -14,7 +14,6 @@ package traverser
 import (
 	"fmt"
 	"math"
-	"regexp"
 	"testing"
 	"time"
 
@@ -290,7 +289,7 @@ func TestScoreResult_FilterMatch(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now(), nil)
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
 	assert.InDelta(t, 1.0, float64(score), 0.001)
 }
 
@@ -299,7 +298,7 @@ func TestScoreResult_FilterNoMatch(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now(), nil)
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -308,7 +307,7 @@ func TestScoreResult_FilterMissingProperty(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now(), nil)
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -317,7 +316,7 @@ func TestScoreResult_NilSchema(t *testing.T) {
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now(), nil)
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
 
@@ -344,7 +343,7 @@ func TestScoreResult_WeightedAverage(t *testing.T) {
 			Weight: 1.0, // doesn't match → score 0.0
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now(), nil)
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
 	// (2*1.0 + 1*0.0) / (2+1) = 0.6667
 	assert.InDelta(t, 0.6667, float64(score), 0.01)
 }
@@ -361,7 +360,7 @@ func TestScoreResult_ZeroWeight(t *testing.T) {
 			Weight: 0, // zero weight defaults to 1.0
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now(), nil)
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
 	assert.InDelta(t, 1.0, float64(score), 0.001)
 }
 
@@ -376,10 +375,10 @@ func TestMatchesFilter_And(t *testing.T) {
 			{On: &filters.Path{Property: "b"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorEqual},
 		},
 	}}
-	assert.True(t, matchesFilter(filter, props, nil))
+	assert.True(t, matchesFilter(filter, props))
 
 	props["b"] = false
-	assert.False(t, matchesFilter(filter, props, nil))
+	assert.False(t, matchesFilter(filter, props))
 }
 
 func TestMatchesFilter_Or(t *testing.T) {
@@ -391,10 +390,10 @@ func TestMatchesFilter_Or(t *testing.T) {
 			{On: &filters.Path{Property: "b"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorEqual},
 		},
 	}}
-	assert.True(t, matchesFilter(filter, props, nil))
+	assert.True(t, matchesFilter(filter, props))
 
 	props["b"] = false
-	assert.False(t, matchesFilter(filter, props, nil))
+	assert.False(t, matchesFilter(filter, props))
 }
 
 func TestMatchesFilter_Not(t *testing.T) {
@@ -405,28 +404,15 @@ func TestMatchesFilter_Not(t *testing.T) {
 			{On: &filters.Path{Property: "a"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorEqual},
 		},
 	}}
-	assert.True(t, matchesFilter(filter, props, nil))
-}
-
-func TestMatchesFilter_IsNull(t *testing.T) {
-	// Property exists and is non-nil → isNull=false
-	props := map[string]interface{}{"a": "hello"}
-	assert.False(t, matchesFilter(&filters.LocalFilter{Root: &filters.Clause{
-		On: &filters.Path{Property: "a"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorIsNull,
-	}}, props, nil))
-
-	// Property missing → isNull=true
-	assert.True(t, matchesFilter(&filters.LocalFilter{Root: &filters.Clause{
-		On: &filters.Path{Property: "missing"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorIsNull,
-	}}, props, nil))
+	assert.True(t, matchesFilter(filter, props))
 }
 
 func TestMatchesFilter_NilInputs(t *testing.T) {
-	assert.False(t, matchesFilter(nil, map[string]interface{}{}, nil))
-	assert.False(t, matchesFilter(&filters.LocalFilter{}, map[string]interface{}{}, nil))
+	assert.False(t, matchesFilter(nil, map[string]interface{}{}))
+	assert.False(t, matchesFilter(&filters.LocalFilter{}, map[string]interface{}{}))
 	assert.False(t, matchesFilter(&filters.LocalFilter{Root: &filters.Clause{
 		On: &filters.Path{Property: "a"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorEqual,
-	}}, nil, nil))
+	}}, nil))
 }
 
 // --- compareValues tests ---
@@ -452,7 +438,7 @@ func TestCompareValues_Numeric(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, compareValues(tt.op, tt.propVal, tt.filterV, nil))
+			assert.Equal(t, tt.expected, compareValues(tt.op, tt.propVal, tt.filterV))
 		})
 	}
 }
@@ -474,25 +460,15 @@ func TestCompareValues_String(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, compareValues(tt.op, tt.prop, tt.filter, nil))
+			assert.Equal(t, tt.expected, compareValues(tt.op, tt.prop, tt.filter))
 		})
 	}
 }
 
 func TestCompareValues_Boolean(t *testing.T) {
-	assert.True(t, compareValues(filters.OperatorEqual, true, true, nil))
-	assert.False(t, compareValues(filters.OperatorEqual, true, false, nil))
-	assert.True(t, compareValues(filters.OperatorNotEqual, true, false, nil))
-}
-
-func TestCompareValues_Like(t *testing.T) {
-	cache := make(map[string]*regexp.Regexp)
-	precompileLikePatterns(&filters.Clause{
-		Operator: filters.OperatorLike,
-		Value:    &filters.Value{Value: "Lap*"},
-	}, cache)
-	assert.True(t, compareValues(filters.OperatorLike, "Laptop Pro", "Lap*", cache))
-	assert.False(t, compareValues(filters.OperatorLike, "Desktop", "Lap*", cache))
+	assert.True(t, compareValues(filters.OperatorEqual, true, true))
+	assert.False(t, compareValues(filters.OperatorEqual, true, false))
+	assert.True(t, compareValues(filters.OperatorNotEqual, true, false))
 }
 
 // --- Decay function tests ---
@@ -728,53 +704,6 @@ func TestTryParseDate(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// --- precompileLikePatterns ---
-
-func TestPrecompileLikePatterns(t *testing.T) {
-	cache := make(map[string]*regexp.Regexp)
-	clause := &filters.Clause{
-		Operator: filters.OperatorLike,
-		Value:    &filters.Value{Value: "hello*"},
-	}
-	precompileLikePatterns(clause, cache)
-	require.Contains(t, cache, "hello*")
-	assert.True(t, cache["hello*"].MatchString("hello world"))
-	assert.False(t, cache["hello*"].MatchString("world hello"))
-}
-
-func TestPrecompileLikePatterns_QuestionMark(t *testing.T) {
-	cache := make(map[string]*regexp.Regexp)
-	clause := &filters.Clause{
-		Operator: filters.OperatorLike,
-		Value:    &filters.Value{Value: "h?llo"},
-	}
-	precompileLikePatterns(clause, cache)
-	assert.True(t, cache["h?llo"].MatchString("hello"))
-	assert.True(t, cache["h?llo"].MatchString("hallo"))
-	assert.False(t, cache["h?llo"].MatchString("heello"))
-}
-
-func TestPrecompileLikePatterns_Nested(t *testing.T) {
-	cache := make(map[string]*regexp.Regexp)
-	clause := &filters.Clause{
-		Operator: filters.OperatorAnd,
-		Operands: []filters.Clause{
-			{Operator: filters.OperatorLike, Value: &filters.Value{Value: "a*"}},
-			{Operator: filters.OperatorLike, Value: &filters.Value{Value: "b*"}},
-		},
-	}
-	precompileLikePatterns(clause, cache)
-	assert.Len(t, cache, 2)
-	assert.Contains(t, cache, "a*")
-	assert.Contains(t, cache, "b*")
-}
-
-func TestPrecompileLikePatterns_NilClause(t *testing.T) {
-	cache := make(map[string]*regexp.Regexp)
-	precompileLikePatterns(nil, cache) // should not panic
-	assert.Empty(t, cache)
-}
-
 // --- extractProps ---
 
 func TestExtractProps(t *testing.T) {
@@ -850,7 +779,7 @@ func TestScoreResult_NegativeWeightDemotes(t *testing.T) {
 			Weight: -1.0,
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now(), nil)
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
 	// weight=-1, condScore=1 → weightedSum = -1*1 = -1, weightSum = 1 → -1/1 = -1
 	assert.InDelta(t, -1.0, float64(score), 0.001)
 }
@@ -879,7 +808,7 @@ func TestScoreResult_MixedPositiveNegativeWeights(t *testing.T) {
 			Weight: -1.0,
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now(), nil)
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
 	// (2*1 + -1*1) / (2+1) = 1/3 ≈ 0.333
 	assert.InDelta(t, 0.333, float64(score), 0.01)
 }
@@ -1127,7 +1056,7 @@ func TestScoreResult_NegativeWeightNonMatch(t *testing.T) {
 			Weight: -1.0,
 		},
 	}
-	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now(), nil)
+	score := scoreResult(&r, conds, make([]parsedDecay, len(conds)), nil, 0, time.Now())
 	// condScore=0 (no match), weight=-1 → weightedSum=-1*0=0, weightSum=1 → 0/1=0
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }

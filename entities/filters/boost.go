@@ -170,8 +170,7 @@ func validateBoostFilterOps(clause *Clause, condIdx int) error {
 	case OperatorEqual, OperatorNotEqual,
 		OperatorGreaterThan, OperatorGreaterThanEqual,
 		OperatorLessThan, OperatorLessThanEqual,
-		OperatorAnd, OperatorOr, OperatorNot,
-		OperatorLike, OperatorIsNull:
+		OperatorAnd, OperatorOr, OperatorNot:
 		// supported
 	default:
 		return fmt.Errorf("boost condition[%d] filter: operator %s is not supported in boost conditions", condIdx, clause.Operator.Name())
