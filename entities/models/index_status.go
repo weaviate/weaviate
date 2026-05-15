@@ -125,48 +125,6 @@ func (m *IndexStatus) validateAlgorithm(formats strfmt.Registry) error {
 	return nil
 }
 
-var indexStatusTypeTargetAlgorithmPropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["wand","blockmax"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		indexStatusTypeTargetAlgorithmPropEnum = append(indexStatusTypeTargetAlgorithmPropEnum, v)
-	}
-}
-
-const (
-
-	// IndexStatusTargetAlgorithmWand captures enum value "wand"
-	IndexStatusTargetAlgorithmWand string = "wand"
-
-	// IndexStatusTargetAlgorithmBlockmax captures enum value "blockmax"
-	IndexStatusTargetAlgorithmBlockmax string = "blockmax"
-)
-
-// prop value enum
-func (m *IndexStatus) validateTargetAlgorithmEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, indexStatusTypeTargetAlgorithmPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *IndexStatus) validateTargetAlgorithm(formats strfmt.Registry) error {
-	if swag.IsZero(m.TargetAlgorithm) { // not required
-		return nil
-	}
-
-	// value enum
-	if err := m.validateTargetAlgorithmEnum("targetAlgorithm", "body", m.TargetAlgorithm); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 var indexStatusTypeStatusPropEnum []interface{}
 
 func init() {
@@ -212,6 +170,48 @@ func (m *IndexStatus) validateStatus(formats strfmt.Registry) error {
 
 	// value enum
 	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var indexStatusTypeTargetAlgorithmPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["wand","blockmax"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		indexStatusTypeTargetAlgorithmPropEnum = append(indexStatusTypeTargetAlgorithmPropEnum, v)
+	}
+}
+
+const (
+
+	// IndexStatusTargetAlgorithmWand captures enum value "wand"
+	IndexStatusTargetAlgorithmWand string = "wand"
+
+	// IndexStatusTargetAlgorithmBlockmax captures enum value "blockmax"
+	IndexStatusTargetAlgorithmBlockmax string = "blockmax"
+)
+
+// prop value enum
+func (m *IndexStatus) validateTargetAlgorithmEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, indexStatusTypeTargetAlgorithmPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *IndexStatus) validateTargetAlgorithm(formats strfmt.Registry) error {
+	if swag.IsZero(m.TargetAlgorithm) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateTargetAlgorithmEnum("targetAlgorithm", "body", m.TargetAlgorithm); err != nil {
 		return err
 	}
 

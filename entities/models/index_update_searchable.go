@@ -34,7 +34,7 @@ type IndexUpdateSearchable struct {
 	// enabled
 	Enabled bool `json:"enabled,omitempty"`
 
-	// rebuild
+	// When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -> wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.
 	Rebuild bool `json:"rebuild,omitempty"`
 
 	// tokenization
