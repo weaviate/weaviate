@@ -17,11 +17,11 @@ Covers, per property:
 Usage:
     .venv/bin/python tools/dev/bench/demo_reindex_ui_import.py
 
-Requires a Weaviate already running on localhost:8080 (grpc 50051) with
-`DISTRIBUTED_TASKS_ENABLED=true` if you want to exercise reindex from the UI
-afterwards.
+Connects to a local Weaviate by default (localhost:8080 / grpc 50051).
+Set WCD_URL and WCD_API_KEY to target a Weaviate Cloud cluster instead.
 """
 
+import os
 import random
 import sys
 import time
@@ -34,6 +34,7 @@ from weaviate.classes.config import (
     Property,
     Tokenization,
 )
+from weaviate.classes.init import Auth
 
 COLLECTION_NAME = "ReindexUIDemo"
 NUM_OBJECTS = 1_000_000
@@ -243,7 +244,20 @@ def main() -> int:
     sys.stdout.reconfigure(line_buffering=True)
     rng = random.Random(SEED)
 
-    client = weaviate.connect_to_local(port=8080, grpc_port=50051)
+    wcd_url = os.environ.get("WCD_URL")
+    wcd_key = os.environ.get("WCD_API_KEY")
+    if wcd_url:
+        if not wcd_key:
+            print("WCD_URL is set but WCD_API_KEY is empty", file=sys.stderr)
+            return 2
+        print(f"Connecting to Weaviate Cloud at {wcd_url}...")
+        client = weaviate.connect_to_weaviate_cloud(
+            cluster_url=wcd_url,
+            auth_credentials=Auth.api_key(wcd_key),
+        )
+    else:
+        print("Connecting to local Weaviate at localhost:8080 (grpc 50051)...")
+        client = weaviate.connect_to_local(port=8080, grpc_port=50051)
     try:
         if client.collections.exists(COLLECTION_NAME):
             print(f"Deleting existing collection {COLLECTION_NAME}...")
@@ -273,8 +287,9 @@ def main() -> int:
         elapsed = time.monotonic() - t0
         print(f"  Import complete in {elapsed:.1f}s ({NUM_OBJECTS / elapsed:,.0f} obj/s)")
 
+        target = wcd_url if wcd_url else "localhost:8080"
         print()
-        print("Ready. The UI can now point at localhost:8080 and load the")
+        print(f"Ready. The UI can now point at {target} and load the")
         print(f"'{COLLECTION_NAME}' collection to exercise every index-state combination.")
         print("No reindex migrations have been triggered — do that from the UI.")
         return 0
