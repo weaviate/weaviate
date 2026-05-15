@@ -300,6 +300,14 @@ func MergePropsMasked(old, new []*models.Property, mask []string) []*models.Prop
 		if allow(command.PropertyFieldTokenization) && new[idx].Tokenization != "" {
 			mergedProps[oldIdx].Tokenization = new[idx].Tokenization
 		}
+		if allow(command.PropertyFieldBucketGeneration) {
+			// BucketGeneration is monotonically increasing; semantic
+			// runtime-reindex migrations bump it atomically with the
+			// schema-flag flip. Replace unconditionally — callers always
+			// submit the next-generation value when the field is in the
+			// mask.
+			mergedProps[oldIdx].BucketGeneration = new[idx].BucketGeneration
+		}
 
 		if allow(command.PropertyFieldNestedProperties) {
 			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(

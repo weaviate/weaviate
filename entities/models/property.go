@@ -32,6 +32,17 @@ import (
 // swagger:model Property
 type Property struct {
 
+	// BucketGeneration is an internal, RAFT-replicated counter bumped each time
+	// a semantic runtime-reindex migration changes the format of this property's
+	// inverted-index buckets (e.g. change-tokenization, enable-filterable,
+	// enable-searchable). Bucket name resolution at query/index time embeds
+	// the generation, so a single RAFT commit that flips the schema flag AND
+	// bumps the generation atomically cuts the entire cluster over from the
+	// old bucket to the new one. Defaults to 0 (no migration applied); the
+	// generation-aware bucket resolver returns the legacy unsuffixed bucket
+	// name when the generation is 0.
+	BucketGeneration int64 `json:"bucketGeneration,omitempty"`
+
 	// Data type of the property (required). If it starts with a capital (for example Person), may be a reference to another type.
 	DataType []string `json:"dataType"`
 

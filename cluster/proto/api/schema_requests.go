@@ -66,6 +66,12 @@ const (
 	PropertyFieldIndexRangeFilters = "indexRangeFilters"
 	PropertyFieldTokenization      = "tokenization"
 	PropertyFieldNestedProperties  = "nestedProperties"
+	// PropertyFieldBucketGeneration is the fieldmask tag for the internal
+	// BucketGeneration counter. Bumped (together with the relevant index
+	// flag or tokenization) by semantic runtime-reindex migrations so a
+	// single RAFT commit cuts the entire cluster over from the
+	// previous-generation bucket to the next.
+	PropertyFieldBucketGeneration = "bucketGeneration"
 )
 
 type UpdatePropertyRequest struct {
