@@ -190,11 +190,6 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if !h.appState.ServerConfig.Config.DistributedTasks.Enabled {
-		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(
-			"distributed tasks must be enabled for reindex (set DISTRIBUTED_TASKS_ENABLED=true)"))
-	}
-
 	class := h.appState.SchemaManager.ReadOnlyClass(collection)
 	if class == nil {
 		return schema.NewSchemaObjectsIndexesUpdateNotFound()

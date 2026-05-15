@@ -1270,10 +1270,6 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("DISTRIBUTED_TASKS_ENABLED"); v != "" {
-		config.DistributedTasks.Enabled = entcfg.Enabled(v)
-	}
-
 	if err = parser.ParseDynamicIntWithValidation(
 		"REINDEX_CONCURRENCY", DefaultReindexConcurrency,
 		func(val int) error {

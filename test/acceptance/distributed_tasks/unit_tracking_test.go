@@ -973,7 +973,6 @@ func startDTMCluster(ctx context.Context, t *testing.T) (restURI, debugURI strin
 
 	compose, err := docker.New().
 		WithWeaviateWithDebugPort().
-		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
 		WithWeaviateEnv("SHARD_NOOP_PROVIDER_ENABLED", "true").
@@ -991,7 +990,6 @@ func start3NodeDTMCluster(ctx context.Context, t *testing.T) (*docker.DockerComp
 
 	compose, err := docker.New().
 		With3NodeCluster().
-		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
 		WithWeaviateEnv("SHARD_NOOP_PROVIDER_ENABLED", "true").

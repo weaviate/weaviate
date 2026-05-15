@@ -39,7 +39,6 @@ func TestMultiTenant_ReindexSuite(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviate().
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		Start(ctx)
 	require.NoError(t, err)

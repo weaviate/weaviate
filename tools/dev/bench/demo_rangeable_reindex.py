@@ -86,7 +86,6 @@ def start_weaviate(binary_path: str, data_dir: str) -> subprocess.Popen:
         "DISABLE_TELEMETRY": "true",
         "LOG_LEVEL": "error",
         "PERSISTENCE_DATA_PATH": data_dir,
-        "DISTRIBUTED_TASKS_ENABLED": "true",
     }
     print("Starting Weaviate...")
     proc = subprocess.Popen(

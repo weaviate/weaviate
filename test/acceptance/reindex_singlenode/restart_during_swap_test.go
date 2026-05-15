@@ -73,7 +73,6 @@ func TestRestartDuringSwap(t *testing.T) {
 	compose, err := docker.New().
 		WithWeaviate().
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
-		WithWeaviateEnv("DISTRIBUTED_TASKS_ENABLED", "true").
 		// 1s tick gives us up to ~1s after FINISHED is reported in RAFT
 		// before OnGroupCompleted fires — comfortably wider than the time
 		// needed to issue StopAt(... 0 timeout) and kill the container.

@@ -559,7 +559,6 @@ type Profiling struct {
 }
 
 type DistributedTasksConfig struct {
-	Enabled               bool                       `json:"enabled" yaml:"enabled"`
 	CompletedTaskTTL      time.Duration              `json:"completedTaskTTL" yaml:"completedTaskTTL"`
 	SchedulerTickInterval time.Duration              `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
 	ReindexConcurrency    *runtime.DynamicValue[int] `json:"reindexConcurrency" yaml:"reindexConcurrency"`

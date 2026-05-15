@@ -920,65 +920,63 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		migrator.RecountProperties(ctx)
 	}
 
-	if appState.ServerConfig.Config.DistributedTasks.Enabled {
-		providers := map[string]distributedtask.Provider{}
+	providers := map[string]distributedtask.Provider{}
 
-		if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
-			shardNoopProvider := distributedtask.NewShardNoopProvider(
-				appState.Cluster.LocalName(), appState.Logger, repo,
-				appState.ServerConfig.Config.Persistence.DataPath,
-			)
-			providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
-			setupShardNoopDebugHandler(appState, shardNoopProvider)
-		}
-
-		reindexProvider := db.NewReindexProvider(
-			repo, appState.SchemaManager, appState.Logger,
-			appState.Cluster.LocalName(),
-			appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
-			serverShutdownCtx,
+	if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
+		shardNoopProvider := distributedtask.NewShardNoopProvider(
+			appState.Cluster.LocalName(), appState.Logger, repo,
+			appState.ServerConfig.Config.Persistence.DataPath,
 		)
-		// Seed the provider's per-(descriptor, unit) cache with the
-		// SAME task instances we just registered with the static
-		// ShardReindexerV3. This ensures OnGroupCompleted's swap phase
-		// reuses these instances (whose double-write callbacks were
-		// re-registered during shard init) instead of taking the
-		// rehydrate path, which would attempt to load already-loaded
-		// ingest buckets and fail.
-		db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
-		providers[db.ReindexNamespace] = reindexProvider
-		// Expose the provider on AppState so the REST cancel handler can
-		// synchronise on the local goroutine before cleaning partial
-		// reindex state on disk.
-		appState.ReindexProvider = reindexProvider
-
-		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
-			CompletionRecorder: appState.ClusterService.Raft,
-			TasksLister:        appState.ClusterService.Raft,
-			TaskCleaner:        appState.ClusterService.Raft,
-			Providers:          providers,
-			Logger:             appState.Logger,
-			MetricsRegisterer:  metricsRegisterer,
-			LocalNode:          appState.Cluster.LocalName(),
-			TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
-
-			// Using a single global value for now to keep it simple. If there is a need
-			// this can be changed to provide a value per provider.
-			CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
-		})
-		enterrors.GoWrapper(func() {
-			// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
-			// and stopping tasks.
-			// Additionally, not-ready RAFT state could lead to lose of local task metadata.
-			if metaStoreReady.waitForMetaStore() != nil {
-				return
-			}
-			if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
-				appState.Logger.WithError(err).WithField("action", "startup").
-					Error("failed to start distributed task scheduler")
-			}
-		}, appState.Logger)
+		providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
+		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
+
+	reindexProvider := db.NewReindexProvider(
+		repo, appState.SchemaManager, appState.Logger,
+		appState.Cluster.LocalName(),
+		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
+		serverShutdownCtx,
+	)
+	// Seed the provider's per-(descriptor, unit) cache with the
+	// SAME task instances we just registered with the static
+	// ShardReindexerV3. This ensures OnGroupCompleted's swap phase
+	// reuses these instances (whose double-write callbacks were
+	// re-registered during shard init) instead of taking the
+	// rehydrate path, which would attempt to load already-loaded
+	// ingest buckets and fail.
+	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
+	providers[db.ReindexNamespace] = reindexProvider
+	// Expose the provider on AppState so the REST cancel handler can
+	// synchronise on the local goroutine before cleaning partial
+	// reindex state on disk.
+	appState.ReindexProvider = reindexProvider
+
+	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
+		CompletionRecorder: appState.ClusterService.Raft,
+		TasksLister:        appState.ClusterService.Raft,
+		TaskCleaner:        appState.ClusterService.Raft,
+		Providers:          providers,
+		Logger:             appState.Logger,
+		MetricsRegisterer:  metricsRegisterer,
+		LocalNode:          appState.Cluster.LocalName(),
+		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+
+		// Using a single global value for now to keep it simple. If there is a need
+		// this can be changed to provide a value per provider.
+		CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+	})
+	enterrors.GoWrapper(func() {
+		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
+		// and stopping tasks.
+		// Additionally, not-ready RAFT state could lead to lose of local task metadata.
+		if metaStoreReady.waitForMetaStore() != nil {
+			return
+		}
+		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
+			appState.Logger.WithError(err).WithField("action", "startup").
+				Error("failed to start distributed task scheduler")
+		}
+	}, appState.Logger)
 
 	return appState
 }
@@ -1164,9 +1162,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
-	if appState.ServerConfig.Config.DistributedTasks.Enabled {
-		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
-	}
+	setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
 
 	telemeter := telemetry.New(
 		appState.DB,
