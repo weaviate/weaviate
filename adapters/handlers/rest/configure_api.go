@@ -937,6 +937,15 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
 	)
+	// Wire the cluster-wide task surface (list + unthrottled progress) so
+	// processOneUnit's semantic-migration barrier wait can (a) push the
+	// "reindex done" progress=1.0 signal without it being dropped by
+	// ThrottledRecorder, and (b) detect when all units across all nodes
+	// have finished their reindex phase. This is what lets the swap run
+	// INLINE before the unit is marked completed, closing the
+	// FINISHED-before-schema-flip race pinned by
+	// TestSingleNode_FinishedStatusRaceWithSchemaFlag.
+	reindexProvider.SetClusterTasks(appState.ClusterService.Raft)
 	// Seed the provider's per-(descriptor, unit) cache with the
 	// SAME task instances we just registered with the static
 	// ShardReindexerV3. This ensures OnGroupCompleted's swap phase

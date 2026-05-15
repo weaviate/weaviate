@@ -15,17 +15,27 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // NewRuntimeSearchableRetokenizeTask creates a ShardReindexTaskGeneric configured
 // for runtime (live) retokenization of a searchable property. It rebuilds the
 // searchable (BM25) index with a different tokenization strategy.
+//
+// schemaManager is wired into the strategy so OnMigrationComplete can flip
+// the schema's Tokenization. Historically the schema flip lived only in the
+// FilterableRetokenize sibling, which worked when both sub-tasks ran. After
+// createReindexTasks gained the defense that skips the filterable sub-task
+// for properties without a filterable bucket (IndexFilterable=false), the
+// searchable strategy must carry the schema flip too.
 func NewRuntimeSearchableRetokenizeTask(
 	logger logrus.FieldLogger,
+	schemaManager *schema.Manager,
 	propName, targetTokenization, className, bucketStrategy string,
 	collectionName string,
 ) *ShardReindexTaskGeneric {
 	strategy := &SearchableRetokenizeStrategy{
+		schemaManager:      schemaManager,
 		propName:           propName,
 		targetTokenization: targetTokenization,
 		className:          className,
