@@ -438,6 +438,89 @@ func TestNamespaces_References(t *testing.T) {
 		assert.True(t, sawHasAnimals, "hasAnimals property should be present after AddProperty")
 	})
 
+	t.Run("self-referencing class on NS cluster (Zoo.relatedTo -> Zoo)", func(t *testing.T) {
+		// The RAFT cross-ref existence check has a self-ref special case:
+		// `qualifiedDT == req.Class.Class` short-circuits the existence
+		// lookup. On NS clusters req.Class.Class is qualified but
+		// Property.DataType is short — without parent-namespace stitching
+		// the comparison fails and the class create fails with
+		// "reference property to nonexistent class".
+		const class = "SelfRef"
+		helper.CreateClassAuth(t, &models.Class{
+			Class: class,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "relatedTo", DataType: []string{class}},
+			},
+		}, user1Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+
+		// And the self-ref works end-to-end: two instances, one referencing
+		// the other.
+		a, b := newID(), newID()
+		createIn(t, user1Key, class, a, map[string]any{"name": "a"})
+		createIn(t, user1Key, class, b, map[string]any{"name": "b"})
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + class + "/" + string(b))},
+			a, class, "relatedTo", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+	})
+
+	t.Run("multi-target ref DataType on NS cluster", func(t *testing.T) {
+		// hasOther points at TWO classes. Both must qualify against the
+		// parent's namespace via the per-element loop in the schema
+		// validators (use-case validateProperty + RAFT cluster/schema).
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      "MultiRefAlpha",
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      "MultiRefBeta",
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class: "MultiRefSource",
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "hasOther", DataType: []string{"MultiRefAlpha", "MultiRefBeta"}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:MultiRefSource", adminKey)
+			helper.DeleteClassAuth(t, "customer1:MultiRefAlpha", adminKey)
+			helper.DeleteClassAuth(t, "customer1:MultiRefBeta", adminKey)
+		})
+
+		// Reference each multi-target via an explicit class in the beacon.
+		srcID, alphaID, betaID := newID(), newID(), newID()
+		createIn(t, user1Key, "MultiRefSource", srcID, map[string]any{"name": "src"})
+		createIn(t, user1Key, "MultiRefAlpha", alphaID, map[string]any{"name": "a"})
+		createIn(t, user1Key, "MultiRefBeta", betaID, map[string]any{"name": "b"})
+
+		for _, ref := range []struct{ cls, id string }{
+			{"MultiRefAlpha", string(alphaID)},
+			{"MultiRefBeta", string(betaID)},
+		} {
+			_, err := helper.AddReferenceReturn(t,
+				&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + ref.cls + "/" + ref.id)},
+				srcID, "MultiRefSource", "hasOther", "", helper.CreateAuth(user1Key))
+			require.NoError(t, err, "multi-target ref to %s should succeed on NS cluster", ref.cls)
+		}
+
+		// Stored beacons stay short for both targets.
+		got, err := helper.GetObjectAuth(t, "customer1:MultiRefSource", srcID, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["hasOther"].([]interface{})
+		require.Len(t, refs, 2)
+		for _, r := range refs {
+			beaconStr, _ := r.(map[string]any)["beacon"].(string)
+			// Beacon format: weaviate://localhost/<class>/<uuid>. The class
+			// segment must not carry a namespace prefix.
+			assert.NotContains(t, beaconStr, "customer1:",
+				"stored multi-target beacon must be short (no namespace prefix in the class segment): %s", beaconStr)
+		}
+	})
+
 	t.Run("gRPC filter MultiTarget rejects cross-namespace TargetCollection with 422", func(t *testing.T) {
 		grpcClient, conn := newGrpcClient(t)
 		defer conn.Close()
