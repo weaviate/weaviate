@@ -444,18 +444,18 @@ function run_aof_group() {
   local -a package_paths=("$@")
 
   echo "Group $group_name packages: ${package_paths[*]}"
-  if [[ -n "$AOF_GROUP_RUN" ]]; then
+  if [[ -n "${AOF_GROUP_RUN:-}" ]]; then
     echo "  -run filter: $AOF_GROUP_RUN"
   fi
-  if [[ -n "$AOF_GROUP_SKIP" ]]; then
+  if [[ -n "${AOF_GROUP_SKIP:-}" ]]; then
     echo "  -skip filter: $AOF_GROUP_SKIP"
   fi
 
   local -a extra_flags=()
-  if [[ -n "$AOF_GROUP_RUN" ]]; then
+  if [[ -n "${AOF_GROUP_RUN:-}" ]]; then
     extra_flags+=(-run "$AOF_GROUP_RUN")
   fi
-  if [[ -n "$AOF_GROUP_SKIP" ]]; then
+  if [[ -n "${AOF_GROUP_SKIP:-}" ]]; then
     extra_flags+=(-skip "$AOF_GROUP_SKIP")
   fi
 

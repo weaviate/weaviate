@@ -12,6 +12,7 @@
 package db
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -111,17 +112,42 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 // by [parseMigrationDirName]):
 //
 //   - Find the highest gen `T` with `tidied.mig` present.
-//   - If `T` exists:
-//   - Finalize `T`: rename `…_<ingestSuffix-base>_<T>/` → canonical
+//   - Find the highest gen `M` with `merged.mig` present (regardless of
+//     tidied). `merged.mig` means the reindex iteration completed and its
+//     segments were prepended into the ingest bucket — i.e. the ingest
+//     dir on disk holds the complete dataset under the target tokenization.
+//     `tidied.mig` is only set later (after the in-memory bucket pointer
+//     swap and the per-prop old-main→backup directory rename); if the
+//     runtime swap failed between `markMerged` and `markTidied`, we have
+//     `merged.mig` without `tidied.mig`.
+//   - effective = max(T, M).
+//   - If `effective` exists:
+//   - If `effective == T`: standard path. Finalize `T`: rename
+//     `…_<ingestSuffix-base>_<T>/` → canonical
 //     `property_<prop>_<index>/`, remove `…_<backupSuffix-base>_<T>/`.
-//   - Remove every dir on disk (sidecars + tracker) with gen < T —
-//     these are pre-T_data, no longer referenced.
-//   - Remove the tracker dir for `T` itself.
-//   - If `T` does not exist (no tidied migration), do nothing — any
-//     untidied in-flight migration on disk is the recovery path's
+//   - If `effective == M > T`: recovery path. The in-process runtime
+//     swap on this node crashed AFTER `markMerged` but BEFORE
+//     `markTidied`, so the ingest dir at gen M holds the
+//     target-tokenization data the schema expects and is safe to
+//     promote even though the canonical-name rename never ran. Write
+//     `swapped.mig` + `tidied.mig` sentinels into gen-M's tracker dir
+//     (so the namespace becomes self-consistent on disk and the same
+//     finalize path runs) and then promote gen M the same way.
+//     CRITICAL: this means the cluster-wide schema flip
+//     [ReindexProvider.flipSemanticMigrationSchema] has likely already
+//     committed via RAFT (the DTM task was FINISHED before this node
+//     died, otherwise the unit would not have transitioned terminal),
+//     so the canonical bucket MUST have target-tokenization data on
+//     restart — otherwise this node serves the old data under the new
+//     schema → divergence vs other replicas → #10675-shape bug.
+//   - Remove every dir on disk (sidecars + tracker) with gen < effective
+//     — these are pre-`effective` data, no longer referenced.
+//   - Remove the tracker dir for `effective` itself.
+//   - If neither `T` nor `M` exists, do nothing — any earlier-stage
+//     in-flight migration on disk is the recovery path's
 //     responsibility ([DiscoverInFlightReindexTasks]).
-//   - Generations with `gen > T` are in-flight (next migration) and
-//     left alone — recovery picks them up via their `payload.mig`.
+//   - Generations with `gen > effective` are in-flight (next migration)
+//     and left alone — recovery picks them up via their `payload.mig`.
 //
 // CRITICAL: This MUST be called BEFORE bucket loading, NEVER on live
 // buckets. Renaming directories while buckets are open would corrupt
@@ -145,11 +171,13 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 
 	// Group entries by namespace (prefix returned by parseMigrationDirName).
 	// Within each namespace, find the highest tidied gen and any lower
-	// gens to clean up. Higher (untidied) gens are deferred to recovery.
+	// gens to clean up. Higher (untidied) gens are deferred to recovery
+	// EXCEPT when they have merged.mig — see the recovery path below.
 	type genInfo struct {
 		dirName string
 		gen     int
 		tidied  bool
+		merged  bool
 	}
 	groups := map[string][]genInfo{}
 	for _, entry := range entries {
@@ -164,34 +192,78 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			continue
 		}
 		tidied := fileExists(filepath.Join(migrationsDir, name, "tidied.mig"))
+		merged := fileExists(filepath.Join(migrationsDir, name, "merged.mig"))
 		groups[namespace] = append(groups[namespace], genInfo{
 			dirName: name,
 			gen:     gen,
 			tidied:  tidied,
+			merged:  merged,
 		})
 	}
 
 	for namespace, gens := range groups {
-		// Find the highest tidied gen.
+		// Find the highest tidied gen and the highest merged gen.
+		// The "effective" promotion candidate is the larger of the two
+		// — see the godoc on FinalizeCompletedMigrations for why a
+		// merged-but-not-tidied gen is safe (and required) to promote.
 		highestTidied := -1
+		highestMerged := -1
 		for _, g := range gens {
 			if g.tidied && g.gen > highestTidied {
 				highestTidied = g.gen
 			}
+			if g.merged && g.gen > highestMerged {
+				highestMerged = g.gen
+			}
 		}
-		if highestTidied < 0 {
-			// No tidied migration in this namespace — recovery owns
-			// any in-flight state. Move on.
+		effective := highestTidied
+		if highestMerged > effective {
+			effective = highestMerged
+		}
+		if effective < 0 {
+			// No tidied or merged migration in this namespace — recovery
+			// owns any earlier-stage in-flight state. Move on.
 			continue
 		}
 
-		// Finalize the highest tidied gen, then remove every gen <
-		// highestTidied (their data was superseded by this gen's
-		// successful swap).
+		// If the effective promotion gen lacks tidied.mig, this is the
+		// recovery path: the in-process runtime swap on this node died
+		// after markMerged but before markTidied. Write the missing
+		// sentinels so the rest of the finalize logic sees a consistent
+		// tracker and the same ingest→canonical rename runs. The schema
+		// flip has likely already committed cluster-wide via the DTM
+		// task's FINISHED state; promoting gen-effective here is what
+		// makes this node's bucket data consistent with that schema.
+		if effective > highestTidied {
+			for _, g := range gens {
+				if g.gen != effective {
+					continue
+				}
+				migDir := filepath.Join(migrationsDir, g.dirName)
+				if err := writeRecoveryTidiedSentinels(migDir); err != nil {
+					logger.WithField("migration", g.dirName).WithError(err).
+						Error("reindex finalize: failed to write recovery tidied sentinels; this node may end up with stale data after restart")
+					// Skip the recovery path; fall back to the tidied
+					// gen if any (existing behavior).
+					effective = highestTidied
+				} else {
+					logger.WithField("migration", g.dirName).WithField("gen", effective).
+						Info("reindex finalize: recovered untidied gen — runtime swap died post-merge, completing finalize from disk state")
+				}
+				break
+			}
+			if effective < 0 {
+				continue
+			}
+		}
+
+		// Finalize the effective promotion gen, then remove every gen <
+		// effective (their data was superseded by this gen's complete
+		// or recovered ingest dir).
 		for _, g := range gens {
 			migDir := filepath.Join(migrationsDir, g.dirName)
 			switch {
-			case g.gen == highestTidied:
+			case g.gen == effective:
 				finalizeMigrationDir(lsmPath, migDir, g.dirName, logger)
 				// finalizeMigrationDir performs the ingest→canonical
 				// rename + backup removal. We also remove the tracker
@@ -200,20 +272,58 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 					logger.WithField("path", migDir).WithError(err).
 						Warn("reindex finalize: failed to remove finalized tracker dir")
 				}
-			case g.gen < highestTidied:
+			case g.gen < effective:
 				// Stale older gen: remove tracker dir AND its sidecar
 				// dirs (their backup/ingest/reindex dirs on disk are
-				// orphaned by the newer migration's swap).
+				// orphaned by the newer migration's swap, OR — in the
+				// recovery path — they are the previous gen's old live
+				// main that the failed swap never renamed to backup;
+				// either way they're stale relative to the effective
+				// gen's promoted data).
 				removeStaleSidecarsForGen(lsmPath, namespace, g.dirName, logger)
 				if err := os.RemoveAll(migDir); err != nil {
 					logger.WithField("path", migDir).WithError(err).
 						Warn("reindex finalize: failed to remove stale older-gen tracker dir")
 				}
 			default:
-				// gen > highestTidied: in-flight, recovery handles.
+				// gen > effective: even-earlier in-flight (e.g. crashed
+				// before markMerged); recovery handles via its own
+				// payload.mig read.
 			}
 		}
 	}
+}
+
+// writeRecoveryTidiedSentinels is the recovery-path equivalent of the
+// per-prop swapped.mig writes that runtimeSwap step 3 emits plus the
+// global swapped.mig and tidied.mig writes that come right after. It is
+// called at startup only, when the on-disk state shows merged.mig but
+// neither swapped.mig nor tidied.mig — i.e. the runtime swap crashed
+// after `markMerged` and before completing the per-prop directory
+// renames. The tracker carries `merged.mig` which means the prepend
+// step finished and the ingest dir holds a complete, target-tokenization
+// dataset; FinalizeCompletedMigrations needs the swapped/tidied
+// sentinels in order to drive its existing ingest→canonical rename
+// path. Writing them retroactively is safe because no buckets are
+// loaded yet (we are pre-shard-init) and the underlying invariant
+// (ingest dir holds the right data) has been verified by the
+// `markMerged` semantics. We do NOT write swapped-per-prop sentinels
+// because the existing finalize loop does not consume them.
+func writeRecoveryTidiedSentinels(migDir string) error {
+	for _, name := range []string{"swapped.mig", "tidied.mig"} {
+		p := filepath.Join(migDir, name)
+		if fileExists(p) {
+			continue
+		}
+		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			return fmt.Errorf("create %s: %w", name, err)
+		}
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // removeStaleSidecarsForGen removes the `__<...>_<gen>` sidecar dirs
