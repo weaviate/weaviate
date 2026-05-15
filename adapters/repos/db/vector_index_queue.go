@@ -97,14 +97,12 @@ func NewVectorIndexQueue(
 	}
 	viq.DiskQueue = q
 
-	if viq.asyncEnabled {
-		err = q.Init()
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to initialize vector index queue")
-		}
-
-		shard.scheduler.RegisterQueue(&viq)
+	err = q.Init()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to initialize vector index queue")
 	}
+
+	shard.scheduler.RegisterQueue(&viq)
 
 	return &viq, nil
 }
