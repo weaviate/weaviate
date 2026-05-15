@@ -238,9 +238,43 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 	}
 
 	// Step 6: if one submit was rejected as a 409 conflict, retry it now
-	// — the other migration has finished, so the retry should be accepted
-	// and finish cleanly. This verifies the user-facing serialization
-	// contract: "wait for the first to finish, then retry the second".
+	// — the accepted migration has finished, so the retry should be
+	// accepted and finish cleanly. This verifies the user-facing
+	// serialization contract: "wait for the first to finish, then retry
+	// the second".
+	//
+	// Before retrying we wait for the ACCEPTED task's schema flag flip
+	// to land, not just the task's FINISHED status. The FINISHED status
+	// is observable before OnGroupCompleted's swap completes (separate
+	// scheduler tick), and during that window OnMigrationComplete's
+	// UpdateProperty RAFT command will still fire and run
+	// shard.updatePropertyBuckets with the OTHER flag still false —
+	// which would wipe the retry's working bucket dirs. The schema
+	// flag flip is the user-observable proof that the migration has
+	// fully committed. See TestSingleNode_FinishedStatusRaceWithSchemaFlag
+	// for the documented FINISHED-vs-schema race that motivates this
+	// extra wait.
+	if len(rejected) == 1 {
+		acceptedLabel := accepted[0].label
+		require.Eventually(t, func() bool {
+			c := helper.GetClass(t, collection)
+			if c == nil {
+				return false
+			}
+			for _, p := range c.Properties {
+				if p.Name != propName {
+					continue
+				}
+				if strings.Contains(acceptedLabel, "filterable") {
+					return p.IndexFilterable != nil && *p.IndexFilterable
+				}
+				return p.IndexRangeFilters != nil && *p.IndexRangeFilters
+			}
+			return false
+		}, 60*time.Second, 250*time.Millisecond,
+			"schema flag for the accepted %s migration must flip before retrying the rejected one — "+
+				"FINISHED status alone is not sufficient", acceptedLabel)
+	}
 	for _, r := range rejected {
 		body := `{"filterable":{"enabled":true}}`
 		if strings.Contains(r.label, "rangeable") {
