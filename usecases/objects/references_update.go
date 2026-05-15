@@ -93,7 +93,8 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		return typedErr
 	}
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
+		principal, m.config.Config.Namespaces.Enabled)
 	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {

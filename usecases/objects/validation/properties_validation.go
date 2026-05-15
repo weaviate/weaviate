@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -602,10 +603,31 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, err
 	}
 
-	if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
+	// Namespace handling for refs submitted via the Properties payload.
+	// className arrives qualified on NS-enabled clusters (caller's resolveNS
+	// runs upstream). Validate the prefix on the target so a namespaced
+	// caller can't smuggle a foreign namespace in (same 422 contract as the
+	// dedicated /references endpoints), then qualify the target for the
+	// existence check while normalising the stored beacon to the short form.
+	if ref.Class != "" {
+		if err := namespacing.ValidateNamespacePrefix(v.principal, v.namespacesEnabled, ref.Class, "class"); err != nil {
+			return nil, err
+		}
+	}
+	parentNS := namespacing.NamespaceFromQualified(className)
+	qualifiedTarget := namespacing.QualifiedName(parentNS, ref.Class)
+	shortTarget := namespacing.StripQualification(qualifiedTarget)
+
+	// Existence check keys on the qualified target so the lookup hits the
+	// right shard on NS-enabled clusters.
+	refQualified := *ref
+	refQualified.Class = qualifiedTarget
+	if err = v.ValidateExistence(ctx, &refQualified, errVal, tenant); err != nil {
 		return nil, err
 	}
 
+	// Stored beacon stays short for namespace portability.
+	ref.Class = shortTarget
 	// Validate whether reference exists based on given Type
 	return ref.SingleRef(), nil
 }

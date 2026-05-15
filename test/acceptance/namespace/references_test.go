@@ -356,6 +356,40 @@ func TestNamespaces_References(t *testing.T) {
 		require.NoError(t, err, "namespaced filter on a ref property should not fail with class-not-found")
 	})
 
+	t.Run("create object with ref property in Properties payload (NS happy path)", func(t *testing.T) {
+		// Reproduction guard: object create that *embeds* the ref in the
+		// Properties payload (instead of using the dedicated /references
+		// endpoint). On NS clusters the validation path runs
+		// ValidateExistence against the short class from the user-submitted
+		// beacon, but storage is qualified — the existence check misses
+		// and the request fails. Asserting NoError here will fail until
+		// the validation path is namespace-aware.
+		zooID, animalID := newID(), newID()
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "a"})
+
+		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID:    zooID,
+			Class: "Zoo",
+			Properties: map[string]any{
+				"name": "z-inline-ref",
+				"hasAnimals": []any{
+					map[string]any{"beacon": "weaviate://localhost/Animal/" + string(animalID)},
+				},
+			},
+		}, user1Key)
+		require.NoError(t, err, "creating an object with a ref property in Properties must succeed on NS clusters")
+
+		// Stored shape: still short.
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.Len(t, refs, 1)
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t,
+			"weaviate://localhost/Animal/"+string(animalID), beaconStr,
+			"stored beacon stays short even when the ref is submitted inline")
+	})
+
 	t.Run("AddProperty adds a cross-ref property to an existing namespaced class", func(t *testing.T) {
 		// Pre-WS9: AddClassProperty would call ReadOnlyClass("Animal") (short)
 		// while storage has "customer1:Animal" (qualified), hitting

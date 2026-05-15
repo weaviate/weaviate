@@ -81,7 +81,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		return typedErr
 	}
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
+		principal, m.config.Config.Namespaces.Enabled)
 	targetRef, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
