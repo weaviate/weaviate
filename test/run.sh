@@ -44,6 +44,7 @@ function main() {
   run_acceptance_compaction=false
   run_acceptance_recovery=false
   run_acceptance_reindex_multinode=false
+  run_acceptance_reindex_multinode_aj=false
   run_acceptance_reindex_singlenode=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -87,6 +88,7 @@ function main() {
           --acceptance-compaction|-ac) run_all_tests=false; run_acceptance_compaction=true;;
           --acceptance-recovery|-ar) run_all_tests=false; run_acceptance_recovery=true;;
           --acceptance-reindex-multinode|-arm) run_all_tests=false; run_acceptance_reindex_multinode=true;;
+          --acceptance-reindex-multinode-aj|-armaj) run_all_tests=false; run_acceptance_reindex_multinode_aj=true;;
           --acceptance-reindex-singlenode|-ars) run_all_tests=false; run_acceptance_reindex_singlenode=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -245,8 +247,13 @@ function main() {
   fi
 
   if $run_acceptance_reindex_multinode; then
-    echo "running reindex multinode acceptance tests"
+    echo "running reindex multinode acceptance tests (everything except AdjacentJourneys)"
     run_acceptance_reindex_multinode
+  fi
+
+  if $run_acceptance_reindex_multinode_aj; then
+    echo "running reindex multinode adjacent-journeys acceptance tests"
+    run_acceptance_reindex_multinode_aj
   fi
 
   if $run_acceptance_reindex_singlenode; then
@@ -423,6 +430,12 @@ function get_fast_acceptance_packages() {
 # Parameters:
 #   $1: group_name - display name for the group (e.g., "1", "2")
 #   $@: package_paths - list of package paths to run
+#
+# Optional env vars (read by this function):
+#   AOF_GROUP_RUN  - if non-empty, passed as `-run "$AOF_GROUP_RUN"` to go test
+#   AOF_GROUP_SKIP - if non-empty, passed as `-skip "$AOF_GROUP_SKIP"` to go test
+# Use these to shard a heavy test package across multiple CI jobs.
+#
 # Stress tests automatically get different flags (no timeout, no race detector).
 # Returns 1 if any test fails, 0 if all succeed.
 function run_aof_group() {
@@ -431,6 +444,20 @@ function run_aof_group() {
   local -a package_paths=("$@")
 
   echo "Group $group_name packages: ${package_paths[*]}"
+  if [[ -n "$AOF_GROUP_RUN" ]]; then
+    echo "  -run filter: $AOF_GROUP_RUN"
+  fi
+  if [[ -n "$AOF_GROUP_SKIP" ]]; then
+    echo "  -skip filter: $AOF_GROUP_SKIP"
+  fi
+
+  local -a extra_flags=()
+  if [[ -n "$AOF_GROUP_RUN" ]]; then
+    extra_flags+=(-run "$AOF_GROUP_RUN")
+  fi
+  if [[ -n "$AOF_GROUP_SKIP" ]]; then
+    extra_flags+=(-skip "$AOF_GROUP_SKIP")
+  fi
 
   local testFailed=0
   for path in "${package_paths[@]}"; do
@@ -439,12 +466,12 @@ function run_aof_group() {
 
       # Stress tests need different test configuration (no timeout, no race detector)
       if [[ "$pkg" == "test/acceptance/stress_tests" ]]; then
-        if ! go test -count 1 "$pkg"; then
+        if ! go test -count 1 "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
       else
-        if ! go test -count 1 -timeout=20m -race "$pkg"; then
+        if ! go test -count 1 -timeout=20m -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
@@ -580,8 +607,31 @@ function run_acceptance_reindex_multinode() {
     --build-arg EXTRA_BUILD_ARGS="-race" \
     weaviate
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
-  echo_green "acceptance — reindex-multinode"
-  run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
+  echo_green "acceptance — reindex-multinode (excluding AdjacentJourneys; see -aj shard)"
+  # Skip the AdjacentJourneys top-level tests — they spin up their own
+  # 3-node cluster per subtest and collectively exceed the 20-min go-test
+  # deadline. They run in the separate `-aj` shard, in parallel in CI.
+  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_' \
+    run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
+}
+
+function run_acceptance_reindex_multinode_aj() {
+  echo_green "acceptance — reindex-multinode-aj (AdjacentJourneys only): building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  echo_green "acceptance — reindex-multinode-aj"
+  # AdjacentJourneys was split into multiple TestMultiNode_ChangeTokenization_AJ_*
+  # top-level tests (see test/acceptance/reindex_multinode/round_trip_adjacent_test.go).
+  # Each one spins up its own 3-node clusters per subtest, so dedicating
+  # an independent CI shard gives the suite its own 20-min budget.
+  AOF_GROUP_RUN='TestMultiNode_ChangeTokenization_AJ_' \
+    run_aof_group "reindex-multinode-aj" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_singlenode() {
