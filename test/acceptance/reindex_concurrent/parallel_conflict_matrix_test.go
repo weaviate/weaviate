@@ -374,10 +374,21 @@ func testParallel_EnableFilterableChangeTokenization(t *testing.T, restURI strin
 				"both zero = empty filterable bucket (Sev 1)")
 	}
 	if rB.terminal == "FINISHED" {
+		// Mirror the rA dual-query pattern at line 369-374: under the
+		// Journey 3 canonical wiring (Journey-3 OnTaskCompleted schema
+		// flip), change-tokenization's word→field flip actually lands by
+		// the time the task transitions to FINISHED. seedTextObjects
+		// stored "word_<i> word_<i>" per object; under FIELD tokenization
+		// the stored term is the whole "word_0 word_0", so bm25(word_0)
+		// tokenized as FIELD = ["word_0"] does NOT match. Either form
+		// hitting proves the searchable bucket is populated (the bug
+		// being pinned is "empty searchable bucket = Sev 1 data loss").
 		hits := bm25HitsForProp(t, class, "name", "word_0")
-		assert.Greater(t, hits, 0,
+		hitsFieldFallback := bm25HitsForProp(t, class, "name", "word_0 word_0")
+		assert.Greater(t, hits+hitsFieldFallback, 0,
 			"[enable-filterable+change-tok] after FINISHED on change-tok side, "+
-				"bm25(word_0) must hit; empty searchable bucket = Sev 1 silent data loss")
+				"at least one bm25(word_0) or bm25('word_0 word_0') must hit; "+
+				"both zero = empty searchable bucket (Sev 1 silent data loss)")
 	}
 }
 
