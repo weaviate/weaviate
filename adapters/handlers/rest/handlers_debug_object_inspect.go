@@ -23,9 +23,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
@@ -33,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -124,8 +127,26 @@ func setupDebugObjectInspectHandler(appState *state.State) {
 				continue
 			}
 
-			owner, _ := appState.SchemaManager.SchemaReader.ShardOwner(canonicalClass, shardName)
 			localName := appState.Cluster.LocalName()
+
+			// Multi-replica fan-out: ask every replica of this shard
+			// independently and aggregate per-replica answers. Only the
+			// outermost (non-forwarded) request fans out; forwarded requests
+			// answer for their own local replica only.
+			if params.AllReplicas && !params.Forwarded {
+				replicas, _ := appState.SchemaManager.ShardReplicas(canonicalClass, shardName)
+				if len(replicas) == 0 {
+					// Fall back to the single-owner path below.
+				} else {
+					perReplica := fanOutReplicas(r, appState, idx, replicas, shardName, localName, params, ids, logger)
+					for _, id := range ids {
+						response.Results[id] = mergeReplicaResults(shardName, id, perReplica)
+					}
+					continue
+				}
+			}
+
+			owner, _ := appState.SchemaManager.SchemaReader.ShardOwner(canonicalClass, shardName)
 			isLocal := owner == "" || owner == localName
 
 			if !isLocal && !params.Forwarded {
@@ -194,18 +215,20 @@ type inspectParams struct {
 	DumpAll         bool     // shorthand for "every bucket in the shard"
 	Limit           int
 	Verbose         bool // include the full storobj.Object and the detailed consistency breakdown
+	AllReplicas     bool // fan out to every replica of the resolved shard and return per-replica results
 	Forwarded       bool // _forwarded=1 — already proxied, do not forward again
 }
 
 func parseInspectParams(r *http.Request) (inspectParams, error) {
 	q := r.URL.Query()
 	p := inspectParams{
-		Collection: strings.TrimSpace(q.Get("collection")),
-		Tenant:     strings.TrimSpace(q.Get("tenant")),
-		Limit:      1000,
-		Forwarded:  q.Get("_forwarded") == "1",
-		DumpAll:    q.Get("all") == "true",
-		Verbose:    q.Get("verbose") == "true",
+		Collection:  strings.TrimSpace(q.Get("collection")),
+		Tenant:      strings.TrimSpace(q.Get("tenant")),
+		Limit:       1000,
+		Forwarded:   q.Get("_forwarded") == "1",
+		DumpAll:     q.Get("all") == "true",
+		Verbose:     q.Get("verbose") == "true",
+		AllReplicas: q.Get("all_replicas") == "true",
 	}
 	if p.Collection == "" {
 		return p, fmt.Errorf("collection is required")
@@ -281,6 +304,153 @@ func forwardObjectInspect(r *http.Request, appState *state.State, ownerNode stri
 	return remote.Results, nil
 }
 
+// fanOutReplicas queries every replica of `shardName` in parallel and returns
+// a map keyed by node name. Each node-keyed map holds the per-UUID result for
+// that replica. Local replica is served from this process; remote replicas
+// are reached via HTTP forwarding with `_forwarded=1`.
+func fanOutReplicas(r *http.Request, appState *state.State, idx *db.Index,
+	replicas []string, shardName, localName string, params inspectParams,
+	ids []string, logger *logrus.Entry,
+) map[string]map[string]*inspectUUIDResult {
+	out := make(map[string]map[string]*inspectUUIDResult, len(replicas))
+	var mu sync.Mutex
+
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	eg.SetLimit(-1)
+
+	for _, node := range replicas {
+		node := node
+		eg.Go(func() error {
+			var idMap map[string]*inspectUUIDResult
+
+			if node == localName {
+				idMap = make(map[string]*inspectUUIDResult, len(ids))
+				shard, release, err := idx.GetShard(r.Context(), shardName)
+				if err != nil || shard == nil {
+					msg := "shard not loaded"
+					if err != nil {
+						msg = err.Error()
+					}
+					for _, id := range ids {
+						idMap[id] = &inspectUUIDResult{
+							Shard: shardName, Node: node, Found: false, Error: msg,
+						}
+					}
+				} else {
+					func() {
+						defer release()
+						inspectShard(r.Context(), shard, params, ids, shardName, node, idMap, logger)
+					}()
+				}
+			} else {
+				remote, err := forwardObjectInspect(r, appState, node, ids, params)
+				if err != nil {
+					logger.WithField("node", node).WithField("shard", shardName).
+						Error(err)
+					idMap = make(map[string]*inspectUUIDResult, len(ids))
+					for _, id := range ids {
+						idMap[id] = &inspectUUIDResult{
+							Shard: shardName, Node: node, Forwarded: false, Found: false,
+							Error: fmt.Sprintf("failed to forward to replica %q: %v", node, err),
+						}
+					}
+				} else {
+					idMap = remote
+					for _, res := range idMap {
+						if res == nil {
+							continue
+						}
+						res.Forwarded = true
+						res.Shard = shardName
+						res.Node = node
+					}
+				}
+			}
+
+			mu.Lock()
+			out[node] = idMap
+			mu.Unlock()
+			return nil
+		})
+	}
+	_ = eg.Wait()
+	return out
+}
+
+// mergeReplicaResults builds the per-UUID aggregate from the per-replica
+// outcomes. The top-level summary fields are populated from the first replica
+// that found the object; every replica's view appears under .Replicas. Two
+// cluster-level flags are computed:
+//   - Consistent: every replica's local consistency.ok is true.
+//   - Match: every replica agrees on whether the object exists and, if it
+//     does, on its LastUpdateTimeUnix. Catches "one replica is on a stale
+//     version" divergence.
+func mergeReplicaResults(shardName, id string,
+	perReplica map[string]map[string]*inspectUUIDResult,
+) *inspectUUIDResult {
+	agg := &inspectUUIDResult{
+		Shard:    shardName,
+		Replicas: make(map[string]*inspectUUIDResult, len(perReplica)),
+	}
+	for node, idMap := range perReplica {
+		res, ok := idMap[id]
+		if !ok || res == nil {
+			continue
+		}
+		agg.Replicas[node] = res
+	}
+	for node, res := range agg.Replicas {
+		if res.Found {
+			agg.Found = true
+			agg.DocID = res.DocID
+			agg.UpdateTime = res.UpdateTime
+			agg.Node = node
+			agg.Consistency = res.Consistency
+			agg.Details = res.Details
+			agg.Object = res.Object
+			agg.Buckets = res.Buckets
+			break
+		}
+	}
+
+	// Compute cluster-wide flags. With zero replicas captured we leave them
+	// unset (nil) so the JSON omits them — the question is meaningless.
+	if len(agg.Replicas) == 0 {
+		return agg
+	}
+
+	allConsistent := true
+	allMatch := true
+	var refFound bool
+	var refUpdate int64
+	first := true
+	for _, res := range agg.Replicas {
+		// Consistent: per-replica consistency.ok must be true. A replica that
+		// errored out or didn't find the object cannot count as consistent.
+		if res.Consistency == nil || !res.Consistency.Ok {
+			allConsistent = false
+		}
+		// Match: every replica must agree on Found and (when Found) UpdateTime.
+		if first {
+			refFound = res.Found
+			refUpdate = res.UpdateTime
+			first = false
+			continue
+		}
+		if res.Found != refFound {
+			allMatch = false
+			continue
+		}
+		if res.Found && res.UpdateTime != refUpdate {
+			allMatch = false
+		}
+	}
+	agg.Consistent = &allConsistent
+	agg.Match = &allMatch
+	agg.Healthy = agg.Found && allConsistent && allMatch
+	return agg
+}
+
 // inspectShard handles one shard's worth of UUIDs entirely against local data.
 func inspectShard(ctx context.Context, shard db.ShardLike,
 	params inspectParams, ids []string, shardName, localName string,
@@ -331,6 +501,7 @@ func inspectShard(ctx context.Context, shard db.ShardLike,
 		}
 		res.Found = true
 		res.DocID = obj.DocID
+		res.UpdateTime = obj.LastUpdateTimeUnix()
 		docIDsForDump[obj.DocID] = id
 
 		// Behavioural consistency checks. The full report is always computed;
@@ -338,6 +509,7 @@ func inspectShard(ctx context.Context, shard db.ShardLike,
 		// — pass ?verbose=true for the detailed breakdown and the full object.
 		full := checkObjectConsistency(ctx, shard, objectsBucket, obj, uuidBytes, logger)
 		res.Consistency = summarize(full)
+		res.Healthy = res.Found && res.Consistency != nil && res.Consistency.Ok
 		if params.Verbose {
 			res.Object = obj
 			res.Details = full
@@ -995,16 +1167,36 @@ type inspectResponse struct {
 }
 
 type inspectUUIDResult struct {
-	Shard       string                 `json:"shard,omitempty"`
-	Node        string                 `json:"node,omitempty"`
-	Forwarded   bool                   `json:"forwarded,omitempty"`
-	Found       bool                   `json:"found"`
-	Error       string                 `json:"error,omitempty"`
-	DocID       uint64                 `json:"docID,omitempty"`
-	Object      *storobj.Object        `json:"object,omitempty"`      // only set in verbose mode
-	Consistency *consistencySummary    `json:"consistency,omitempty"` // always set when found
-	Details     *consistencyReport     `json:"details,omitempty"`     // only set in verbose mode
-	Buckets     map[string]*bucketDump `json:"buckets,omitempty"`
+	Shard      string `json:"shard,omitempty"`
+	Node       string `json:"node,omitempty"`
+	Forwarded  bool   `json:"forwarded,omitempty"`
+	Found      bool   `json:"found"`
+	Error      string `json:"error,omitempty"`
+	DocID      uint64 `json:"docID,omitempty"`
+	UpdateTime int64  `json:"updateTime,omitempty"` // LastUpdateTimeUnix; used to detect divergence across replicas
+	// only set in verbose mode
+	Object *storobj.Object `json:"object,omitempty"`
+	// always set when found
+	Consistency *consistencySummary `json:"consistency,omitempty"`
+	// only set in verbose mode
+	Details *consistencyReport     `json:"details,omitempty"`
+	Buckets map[string]*bucketDump `json:"buckets,omitempty"`
+	// Replicas is set when ?all_replicas=true. Each entry holds the per-replica
+	// view of the same UUID; the top-level Found/DocID/Consistency/etc. fields
+	// reflect the first replica that successfully found the object (or stay
+	// zero-valued if none did).
+	Replicas map[string]*inspectUUIDResult `json:"replicas,omitempty"`
+	// Consistent is true iff every replica's local consistency.ok is true.
+	// Only set when ?all_replicas=true.
+	Consistent *bool `json:"consistent,omitempty"`
+	// Match is true iff every replica agrees on the object's existence and,
+	// when found, its LastUpdateTimeUnix. Detects "one node is on an older
+	// version of the object" divergence. Only set when ?all_replicas=true.
+	Match *bool `json:"match,omitempty"`
+	// Healthy is the one-glance summary: the object was found, every replica
+	// (in all_replicas mode) is internally consistent, and every replica
+	// agrees on the object's version. False under any failure mode.
+	Healthy bool `json:"healthy"`
 }
 
 // consistencySummary is the terse default view: just ok/not-ok per property,
