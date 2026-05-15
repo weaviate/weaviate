@@ -246,14 +246,29 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	createCollection(t, restURI, className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	// Use a closure so the URI is re-resolved at defer-time. The
+	// rolling restart below replaces node-1's container; capturing
+	// compose.GetWeaviateNode(1).URI() at defer-registration time
+	// would bake in the pre-restart port and the cleanup DELETE
+	// would race a "connection refused" against the cluster.
+	defer func() {
+		deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	}()
 
 	importObjects(t, restURI, className, testDocuments)
-	// Pre-T1 baseline assertion (side-effect: also waits for per-replica
-	// consistency). The actual baseline used for the post-T2 comparison
-	// is recaptured after the rolling restart below, because the raft-
-	// probe imports change the doc count.
-	_ = waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
+	// Capture baseline BEFORE T1, while tokenization is still WORD.
+	// Post-T2 is also WORD (round-trip), so the same baseline is the
+	// correct assertion target. We deliberately do NOT re-capture
+	// post-T1 because at that point the tokenization is FIELD and
+	// every word-token query returns 0, which waitForPerReplicaBaseline
+	// (correctly) rejects as a non-baseline.
+	//
+	// The raft-probe imports during the rolling restart write objects
+	// whose only text is the literal string "raft-probe" — that string
+	// matches none of testBM25Queries (alpha, bravo charlie, echo foxtrot
+	// golf, mike november oscar), so the baseline counts are unchanged
+	// by those probes.
+	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// T1: word → field.
 	taskID := submitIndexUpdate(t, restURI, className, "text",
@@ -283,12 +298,6 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	}
 	// Re-fetch URI after the rolling restart.
 	restURI = compose.GetWeaviateNode(1).URI()
-
-	// The "raft-probe" imports above add objects (one per restart). We
-	// only care about per-replica consistency post-T2, not exact baseline
-	// counts, so re-record the baseline now (still has to be consistent
-	// across replicas).
-	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// T2: field → word.
 	taskID = submitIndexUpdate(t, restURI, className, "text",
