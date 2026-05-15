@@ -52,12 +52,21 @@ func (sm *SchemaManager) QuerySchema() ([]byte, error) {
 	return payload, nil
 }
 
-func (sm *SchemaManager) QueryCollectionsCount() ([]byte, error) {
-	// Build the response, marshal and return
-	response := cmd.QueryCollectionsCountResponse{Count: sm.schema.CollectionsCount()}
+func (sm *SchemaManager) QueryCollectionsCount(req *cmd.QueryRequest) ([]byte, error) {
+	// Empty SubCommand keeps the historical cluster-global behavior.
+	namespace := ""
+	if len(req.SubCommand) > 0 {
+		subCommand := cmd.QueryCollectionsCountRequest{}
+		if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+			return []byte{}, fmt.Errorf("%w: unmarshal collections count request: %w", ErrBadRequest, err)
+		}
+		namespace = subCommand.Namespace
+	}
+
+	response := cmd.QueryCollectionsCountResponse{Count: sm.schema.CollectionsCount(namespace)}
 	payload, err := json.Marshal(&response)
 	if err != nil {
-		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+		return []byte{}, fmt.Errorf("marshal collections count response (namespace=%q): %w", namespace, err)
 	}
 	return payload, nil
 }

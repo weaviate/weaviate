@@ -109,7 +109,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig)
+	asyncConfig, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(class.MultiTenancyConfig), class.ReplicationConfig.AsyncConfig, m.logger.WithField("class", class.Class))
 	if err != nil {
 		return fmt.Errorf("async replication config: %w", err)
 	}
@@ -243,6 +243,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		return errors.Wrap(err, "create index")
 	}
 
+	idx.usageLimits = m.db.usageLimits
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()

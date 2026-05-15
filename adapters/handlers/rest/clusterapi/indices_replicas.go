@@ -90,6 +90,8 @@ var (
 		`\/shards\/(` + sh + `)\/objects/digestsInRange`)
 	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
+	regexCompareDigests = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects/compareDigests`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
@@ -235,6 +237,14 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 	case regxOverwriteObjects.MatchString(path):
 		if r.Method == http.MethodPut {
 			i.putOverwriteObjects().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
+	case regexCompareDigests.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.postCompareDigests().ServeHTTP(w, r)
 			return
 		}
 
@@ -719,6 +729,87 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 		}
 
 		w.Write(resBytes)
+	})
+}
+
+// postCompareDigests compares a binary-encoded list of source digests against
+// local state and returns the actionable subset. Wire format on both sides is
+// replica.CompareDigestsRecordLength bytes per record (see usecases/replica
+// for the record layout and flag bits).
+func (i *replicatedIndices) postCompareDigests() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regexCompareDigests.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, replica.CompareDigestsMaxBodyBytes))
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var sourceDigests []types.RepairResponse
+		if len(body) > 0 {
+			if len(body)%replica.CompareDigestsRecordLength != 0 {
+				http.Error(w, "invalid binary payload length", http.StatusBadRequest)
+				return
+			}
+			n := len(body) / replica.CompareDigestsRecordLength
+			sourceDigests = make([]types.RepairResponse, n)
+			for j := 0; j < n; j++ {
+				off := j * replica.CompareDigestsRecordLength
+				rec := body[off : off+replica.CompareDigestsRecordLength]
+				id, err := uuid.FromBytes(rec[:16])
+				if err != nil {
+					http.Error(w, "parse uuid from binary: "+err.Error(), http.StatusBadRequest)
+					return
+				}
+				sourceDigests[j] = types.RepairResponse{
+					ID:         id.String(),
+					UpdateTime: int64(binary.BigEndian.Uint64(rec[16:24])),
+					Deleted:    rec[24]&replica.CompareDigestsFlagDeleted != 0,
+				}
+			}
+		}
+
+		stale, err := i.replicator.CompareDigests(r.Context(), index, shard, sourceDigests)
+		if err != nil {
+			http.Error(w, "compare digests: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Encode all records before writing headers so that a UUID parse error
+		// doesn't produce an http.Error after headers have been sent.
+		out := make([]byte, 0, len(stale)*replica.CompareDigestsRecordLength)
+		var obuf [replica.CompareDigestsRecordLength]byte
+		for _, d := range stale {
+			id, err := uuid.Parse(d.ID)
+			if err != nil {
+				http.Error(w, "parse uuid: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			copy(obuf[:16], id[:])
+			binary.BigEndian.PutUint64(obuf[16:24], uint64(d.UpdateTime))
+			obuf[24] = 0
+			if d.Deleted {
+				obuf[24] = replica.CompareDigestsFlagDeleted
+			}
+			out = append(out, obuf[:]...)
+		}
+
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", strconv.Itoa(len(out)))
+		w.Write(out) //nolint:errcheck
 	})
 }
 

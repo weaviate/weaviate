@@ -25,6 +25,37 @@ import (
 
 const AuditLogVersion = 2
 
+// auditFields produces the per-request audit log fields shared between
+// Authorize and FilterAuthorizedResources. On namespace enabled clusters it adds
+// either namespace=<short> for namespace-bound principals or
+// global_operator=true for operator-level principals; NS-disabled clusters
+// emit neither field.
+func (m *Manager) auditFields(principal *models.Principal) logrus.Fields {
+	f := logrus.Fields{
+		"action":           "authorize",
+		"user":             principal.Username,
+		"component":        authorization.ComponentName,
+		"rbac_log_version": AuditLogVersion,
+	}
+	if m.namespacesEnabled {
+		switch {
+		case principal.IsGlobalOperator:
+			f["global_operator"] = true
+		case principal.Namespace != "":
+			f["namespace"] = principal.Namespace
+		default:
+			// Defense-in-depth: every namespace enabled principal must be classified
+			// as namespace-bound or global upstream. If a producer drifts,
+			// default to global (no namespace claim is leaked) and warn so
+			// the gap surfaces.
+			m.logger.WithField("user", principal.Username).
+				Warn("rbac: principal missing namespace and global classification on namespace enabled cluster; defaulting to global_operator")
+			f["global_operator"] = true
+		}
+	}
+	return f
+}
+
 func (m *Manager) authorize(ctx context.Context, principal *models.Principal, verb string, skipAudit bool, resources ...string) error {
 	if principal == nil {
 		return fmt.Errorf("rbac: %w", errors.NewUnauthenticated())
@@ -34,13 +65,10 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		return fmt.Errorf("at least 1 resource is required")
 	}
 
-	logger := m.logger.WithFields(logrus.Fields{
-		"action":           "authorize",
-		"user":             principal.Username,
-		"component":        authorization.ComponentName,
-		"request_action":   verb,
-		"rbac_log_version": AuditLogVersion,
-	})
+	logger := m.logger.
+		WithFields(m.auditFields(principal)).
+		WithField("request_action", verb).
+		WithField("audit_mode", "authorize")
 	if !m.rbacConf.IpInAuditDisabled {
 		sourceIp := ctx.Value("sourceIp")
 		logger = logger.WithField("source_ip", sourceIp)
@@ -80,7 +108,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 
 		if allowed {
 			permResults = append(permResults, logrus.Fields{
-				"resource": prettyPermissionsResources(perm),
+				"resource": prettyPermissionsResources(principal, perm),
 				"results":  prettyStatus(allowed),
 			})
 		}
@@ -89,7 +117,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 			if !skipAudit {
 				logger.WithField("permissions", permResults).Error("authorization denied")
 			}
-			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(perm)))
+			return fmt.Errorf("rbac: %w", errors.NewForbidden(principal, prettyPermissionsActions(perm), prettyPermissionsResources(principal, perm)))
 		}
 	}
 
@@ -123,12 +151,14 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 		return nil, fmt.Errorf("at least 1 resource is required")
 	}
 
-	logger := m.logger.WithFields(logrus.Fields{
-		"action":         "authorize",
-		"user":           principal.Username,
-		"component":      authorization.ComponentName,
-		"request_action": verb,
-	})
+	logger := m.logger.
+		WithFields(m.auditFields(principal)).
+		WithField("request_action", verb).
+		WithField("audit_mode", "filter")
+	if !m.rbacConf.IpInAuditDisabled {
+		sourceIp := ctx.Value("sourceIp")
+		logger = logger.WithField("source_ip", sourceIp)
+	}
 	if clientIdentifier, _ := ctx.Value("clientIdentifier").(string); clientIdentifier != "" {
 		logger = logger.WithField("client_identifier", clientIdentifier)
 	}
@@ -165,7 +195,7 @@ func (m *Manager) FilterAuthorizedResources(ctx context.Context, principal *mode
 			}
 
 			permResults = append(permResults, logrus.Fields{
-				"resource": prettyPermissionsResources(perm),
+				"resource": prettyPermissionsResources(principal, perm),
 				"results":  prettyStatus(allowed),
 			})
 			allowedResources = append(allowedResources, resource)

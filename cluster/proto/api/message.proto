@@ -73,7 +73,9 @@ message ApplyRequest {
     TYPE_CREATE_USER_WITH_KEY = 85;
 
     TYPE_ADD_NAMESPACE = 90;
-    TYPE_DELETE_NAMESPACE = 91;
+    TYPE_DELETE_USERS_IN_NAMESPACE = 91;
+    TYPE_CHANGE_NAMESPACE_STATE = 92;
+    TYPE_REMOVE_NAMESPACE_ENTITY = 93;
 
     // originally was rolling back schema before raft
     reserved 99;

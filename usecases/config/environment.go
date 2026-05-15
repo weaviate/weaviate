@@ -61,6 +61,8 @@ const (
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 
 	DefaultTrackVectorDimensionsInterval = 5 * time.Minute
+
+	DefaultNamespaceCleanupInterval = 30 * time.Second
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -994,6 +996,13 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMSkipWriteClassNameEnabled = true
 	}
 
+	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
+		DefaultNamespaceCleanupInterval,
+		parser.ValidateDurationGreaterThanEqual0,
+		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
+		return err
+	}
+
 	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
 		return fmt.Errorf("parse raft config: %w", err)
 	}
@@ -1002,6 +1011,14 @@ func FromEnv(config *Config) error {
 		"REPLICATION_MINIMUM_FACTOR",
 		func(val int) { config.Replication.MinimumFactor = val },
 		DefaultMinimumReplicationFactor,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"REPLICATION_MAXIMUM_FACTOR",
+		func(val int) { config.Replication.MaximumFactor = val },
+		DefaultMaximumReplicationFactor,
 	); err != nil {
 		return err
 	}
@@ -1194,6 +1211,10 @@ func FromEnv(config *Config) error {
 		config.AsyncIndexingEnabled = true
 	}
 
+	// Free-Tier guardrail env vars. See docs/usage_limits.md for the full
+	// design (chokepoint location, supported deployment shapes, runtime
+	// override semantics). Defaults are -1 / "" / unlimited so the feature
+	// is opt-in and existing deployments are unaffected.
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
 		func(val int) {
@@ -1203,6 +1224,40 @@ func FromEnv(config *Config) error {
 	); err != nil {
 		return err
 	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_OBJECTS_COUNT",
+		func(val int) {
+			config.UsageLimits.MaxObjectsCount = configRuntime.NewDynamicValue(val)
+		},
+		DefaultMaximumAllowedObjectsCount,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION",
+		func(val int) {
+			config.UsageLimits.MaxTenantsPerCollection = configRuntime.NewDynamicValue(val)
+		},
+		DefaultMaximumAllowedTenantsPerCollection,
+	); err != nil {
+		return err
+	}
+
+	if err := parseInt(
+		"MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION",
+		func(val int) {
+			config.UsageLimits.MaxShardsPerCollection = configRuntime.NewDynamicValue(val)
+		},
+		DefaultMaximumAllowedShardsPerCollection,
+	); err != nil {
+		return err
+	}
+
+	parseString("USAGE_LIMITS_ERROR_MESSAGE", func(val string) {
+		config.UsageLimits.ErrorMessage = configRuntime.NewDynamicValue(val)
+	}, DefaultUsageLimitsErrorMessage)
 
 	// explicitly reset sentry config
 	sentry.Config = nil
@@ -1753,6 +1808,7 @@ const (
 	DefaultMCPWriteAccessEnabled               = false
 	DefaultGRPCIdleConnTimeout                 = 5 * time.Minute
 	DefaultMinimumReplicationFactor            = 1
+	DefaultMaximumReplicationFactor            = 0 // 0 / negative = no cap
 	DefaultAsyncReplicationSchedulerWorkers    = 10
 	// MaxAsyncReplicationSchedulerWorkers is the hard ceiling on the worker
 	// pool size. The scheduler's internal channel buffers (workCh, resultCh,
@@ -1762,6 +1818,10 @@ const (
 	MaxAsyncReplicationSchedulerWorkers            = 100
 	DefaultAsyncReplicationHashtreeInitConcurrency = 100
 	DefaultMaximumAllowedCollectionsCount          = -1 // unlimited
+	DefaultMaximumAllowedObjectsCount              = -1 // unlimited
+	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
+	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
+	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"
@@ -1772,6 +1832,18 @@ const DefaultGossipBindPort = 7946
 
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
+
+// parseString reads a string env var, applying defaultValue when unset.
+// Mirrors the parseInt family but for plain strings; no validation hook
+// here on purpose — callers (e.g. Config.Validate()) are the right place
+// to enforce semantic rules so all errors surface together at startup.
+func parseString(envName string, cb func(val string), defaultValue string) {
+	if v := os.Getenv(envName); v != "" {
+		cb(v)
+		return
+	}
+	cb(defaultValue)
+}
 
 func parseStringList(varName string, cb func(val []string), defaultValue []string) {
 	if v := os.Getenv(varName); v != "" {

@@ -278,10 +278,11 @@ func (c *Client) classifyPrincipal(claims map[string]interface{}, username strin
 	case nsValue != "" && globalSet && globalValue:
 		return "", false, errors.New(401, "unauthorized: token must not carry both a namespace claim and a global-principal claim set to true")
 	case nsValue != "":
-		if !c.nsExister.Exists(nsValue) {
-			return "", false, errors.New(401, "unauthorized: namespace '%s' does not exist", nsValue)
+		// Error message is intentionally vague to avoid leaking namespace
+		// existence to unauthenticated clients.
+		if !c.nsExister.IsActive(nsValue) {
+			return "", false, errors.New(401, "unauthorized: namespace '%s' does not exist or is being deleted", nsValue)
 		}
-		// TODO: also reject when namespace is in 'deleting' state.
 		return nsValue, false, nil
 	case globalSet && globalValue:
 		return "", true, nil

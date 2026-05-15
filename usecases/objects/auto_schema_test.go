@@ -602,8 +602,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		authorizer: fakeAuthorizer{},
-		logger:     logger,
+		logger: logger,
 	}
 
 	var obj *models.Object
@@ -630,8 +629,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 			DefaultNumber: "number",
 			DefaultDate:   "date",
 		},
-		authorizer: fakeAuthorizer{},
-		logger:     logger,
+		logger: logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -711,8 +709,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 			DefaultNumber: "int",
 			DefaultDate:   "date",
 		},
-		authorizer: fakeAuthorizer{},
-		logger:     logger,
+		logger: logger,
 	}
 	obj := &models.Object{
 		Class: "Publication",
@@ -1290,7 +1287,6 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
 		},
-		authorizer: fakeAuthorizer{},
 	}
 
 	for i, tc := range testCases {
@@ -1652,8 +1648,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 			DefaultString: schema.DataTypeText.String(),
 			DefaultDate:   schema.DataTypeDate.String(),
 		},
-		logger:     logger,
-		authorizer: fakeAuthorizer{},
+		logger: logger,
 	}
 
 	knownClasses := map[string]versioned.Class{
@@ -1695,18 +1690,4 @@ func assertPropsMatch(t *testing.T, propsA, propsB []*models.Property) {
 		assert.Equal(t, pA.DataType, pB.DataType)
 		test_utils.AssertNestedPropsMatch(t, pA.NestedProperties, pB.NestedProperties)
 	}
-}
-
-type fakeAuthorizer struct{}
-
-func (f fakeAuthorizer) Authorize(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
-	return nil
-}
-
-func (f fakeAuthorizer) AuthorizeSilent(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
-	return nil
-}
-
-func (f fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	return resources, nil
 }

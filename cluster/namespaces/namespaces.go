@@ -24,21 +24,49 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
+// SchemaNamespaceLister returns the classes and aliases that belong to a
+// namespace.
+type SchemaNamespaceLister interface {
+	ClassesInNamespace(namespace string) ([]string, error)
+	AliasesInNamespace(namespace string) []string
+}
+
+// DynusersNamespaceLister returns the dynamic DB users that belong to a
+// namespace.
+type DynusersNamespaceLister interface {
+	UsersInNamespace(namespace string) []string
+}
+
 // Manager is the RAFT FSM adapter. It does not own state.
 type Manager struct {
 	controller *usecasesNamespaces.Controller
+	schema     SchemaNamespaceLister
+	dynusers   DynusersNamespaceLister
 	logger     logrus.FieldLogger
 }
 
-// NewManager wraps the provided controller. A nil controller is a wiring
-// bug — panic so a missing controller fails loudly at startup rather than
-// letting the Count()==0 startup invariant pass against an uninitialized
-// state map.
-func NewManager(controller *usecasesNamespaces.Controller, logger logrus.FieldLogger) *Manager {
+// NewManager wraps the controller and the listers RemoveEntity consults
+// to verify the namespace is empty. Panics on a nil controller or nil
+// schema lister. The dynusers lister is optional: deployments without
+// dynamic users pass nil and the user check is skipped.
+func NewManager(
+	controller *usecasesNamespaces.Controller,
+	schema SchemaNamespaceLister,
+	dynusers DynusersNamespaceLister,
+	logger logrus.FieldLogger,
+) *Manager {
 	if controller == nil {
 		panic("cluster/namespaces: controller must not be nil")
 	}
-	return &Manager{controller: controller, logger: logger}
+	if schema == nil {
+		panic("cluster/namespaces: schema lister must not be nil")
+	}
+	return &Manager{
+		controller: controller,
+		schema:     schema,
+		dynusers:   dynusers,
+		logger:     logger,
+	}
 }
 
 // Add applies an AddNamespace RAFT command. It rejects malformed payloads
@@ -52,16 +80,59 @@ func (m *Manager) Add(c *cmd.ApplyRequest) error {
 	return m.controller.Create(req.Namespace)
 }
 
-// Delete applies a DeleteNamespace RAFT command. It returns
-// [usecasesNamespaces.ErrNotFound] when the target namespace does not
-// exist, and [usecasesNamespaces.ErrBadRequest] when the payload is
-// malformed.
-func (m *Manager) Delete(c *cmd.ApplyRequest) error {
-	req := &cmd.DeleteNamespaceRequest{}
+// ChangeState applies a ChangeNamespaceState RAFT command, transitioning
+// the namespace into the target state. Returns
+// [usecasesNamespaces.ErrBadRequest] for malformed payloads or unknown
+// target states, [usecasesNamespaces.ErrNotFound] when the namespace does
+// not exist, and [usecasesNamespaces.ErrInvalidStateTransition] when the
+// requested transition is forbidden.
+func (m *Manager) ChangeState(c *cmd.ApplyRequest) error {
+	req := &cmd.ChangeNamespaceStateRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
 	}
-	return m.controller.Delete(req.Name)
+	return m.controller.ChangeState(req.Name, req.TargetState)
+}
+
+// RemoveEntity applies a RemoveNamespaceEntity RAFT command. Returns
+// [usecasesNamespaces.ErrBadRequest] for malformed payloads,
+// [usecasesNamespaces.ErrNotFound] when the namespace does not exist,
+// [usecasesNamespaces.ErrInvalidState] when called on an active namespace,
+// and [usecasesNamespaces.ErrNamespaceNotEmpty] when classes, aliases, or
+// users still remain in the namespace.
+func (m *Manager) RemoveEntity(c *cmd.ApplyRequest) error {
+	req := &cmd.RemoveNamespaceEntityRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	classes, err := m.schema.ClassesInNamespace(req.Name)
+	if err != nil {
+		return fmt.Errorf("list classes in namespace %q: %w", req.Name, err)
+	}
+	if len(classes) > 0 {
+		return fmt.Errorf("%w: %d class(es) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(classes), req.Name)
+	}
+	if aliases := m.schema.AliasesInNamespace(req.Name); len(aliases) > 0 {
+		return fmt.Errorf("%w: %d alias(es) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(aliases), req.Name)
+	}
+	// dynusers is nil when dynamic users are disabled.
+	if m.dynusers != nil {
+		if users := m.dynusers.UsersInNamespace(req.Name); len(users) > 0 {
+			return fmt.Errorf("%w: %d user(s) remain in %q", usecasesNamespaces.ErrNamespaceNotEmpty, len(users), req.Name)
+		}
+	}
+	return m.controller.RemoveEntity(req.Name)
+}
+
+// Exists proxies to the controller. Lets the apply switch satisfy
+// [usecasesNamespaces.Exister] from a single namespaceManager reference.
+func (m *Manager) Exists(name string) bool {
+	return m.controller.Exists(name)
+}
+
+// IsActive proxies to the controller.
+func (m *Manager) IsActive(name string) bool {
+	return m.controller.IsActive(name)
 }
 
 // Get handles a QueryGetNamespaces query. An empty Names slice returns all

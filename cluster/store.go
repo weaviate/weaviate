@@ -319,6 +319,11 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
+	var dynusersLister namespaces.DynusersNamespaceLister
+	if cfg.DynamicUserController != nil {
+		dynusersLister = cfg.DynamicUserController
+	}
+
 	return Store{
 		cfg:          cfg,
 		log:          cfg.Logger,
@@ -337,7 +342,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
-		namespaceManager:   namespaces.NewManager(cfg.NamespacesController, cfg.Logger),
+		namespaceManager:   namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, cfg.Logger),
 		replicationManager: replicationManager,
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
 			Clock:            clockwork.NewRealClock(),

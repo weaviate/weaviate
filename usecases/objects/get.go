@@ -33,7 +33,10 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
-	class, _ = m.resolveNS(principal, class)
+	class, _, err := m.resolveNS(principal, class)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("%v", err)
+	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
 		return nil, err
@@ -60,6 +63,10 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
+	if m.config.Config.Namespaces.Enabled {
+		return nil, NewErrEndpointGone("listing objects without a class is not supported; specify the ?class= query parameter")
+	}
+
 	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects("", tenant, ""))
 	if err != nil {
 		return nil, err
@@ -112,6 +119,10 @@ func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Princip
 func (m *Manager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {
+	className, _, err := m.resolveNS(principal, className)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("%v", err)
+	}
 	class, err := m.schemaManager.GetClass(ctx, principal, className)
 	return class, err
 }

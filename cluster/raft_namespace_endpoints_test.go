@@ -28,8 +28,8 @@ import (
 
 // setupRaftForNamespaceTests spins up a single-node RAFT cluster wired through
 // NewMockStore and waits until it has leadership. Tests can then exercise the
-// AddNamespace / DeleteNamespace / GetNamespaces endpoints end-to-end (from
-// client call through Execute/Query, RAFT apply, back up).
+// namespace endpoints end-to-end (from client call through Execute/Query,
+// RAFT apply, back up).
 func setupRaftForNamespaceTests(t *testing.T) (*Raft, context.Context, func()) {
 	t.Helper()
 	ctx := context.Background()
@@ -54,7 +54,7 @@ func setupRaftForNamespaceTests(t *testing.T) (*Raft, context.Context, func()) {
 }
 
 func TestRaftNamespaceEndpoints(t *testing.T) {
-	srv, _, cleanup := setupRaftForNamespaceTests(t)
+	srv, ctx, cleanup := setupRaftForNamespaceTests(t)
 	defer cleanup()
 
 	// Initially empty.
@@ -64,30 +64,34 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 	assert.Empty(t, all)
 
 	t.Run("add a namespace", func(t *testing.T) {
-		require.NoError(t, srv.AddNamespace(cmd.Namespace{Name: "customer1"}))
+		version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "customer1"})
+		require.NoError(t, err)
+		require.NoError(t, srv.WaitForUpdate(ctx, version))
 		assert.Equal(t, 1, srv.NamespaceCount())
 	})
 
 	t.Run("add a duplicate returns ErrAlreadyExists", func(t *testing.T) {
-		err := srv.AddNamespace(cmd.Namespace{Name: "customer1"})
+		_, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "customer1"})
 		require.Error(t, err)
 		assert.ErrorIs(t, err, usecasesNamespaces.ErrAlreadyExists)
 	})
 
 	t.Run("add an invalid name returns ErrBadRequest", func(t *testing.T) {
-		err := srv.AddNamespace(cmd.Namespace{Name: "BadName"})
+		_, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "BadName"})
 		require.Error(t, err)
 		assert.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
 	})
 
 	t.Run("add a reserved name returns ErrBadRequest", func(t *testing.T) {
-		err := srv.AddNamespace(cmd.Namespace{Name: "admin"})
+		_, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "admin"})
 		require.Error(t, err)
 		assert.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
 	})
 
 	t.Run("add a second namespace and list all", func(t *testing.T) {
-		require.NoError(t, srv.AddNamespace(cmd.Namespace{Name: "customer2"}))
+		version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "customer2"})
+		require.NoError(t, err)
+		require.NoError(t, srv.WaitForUpdate(ctx, version))
 		assert.Equal(t, 2, srv.NamespaceCount())
 
 		all, err := srv.GetNamespaces()
@@ -106,17 +110,22 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 		assert.Equal(t, "customer1", got[0].Name)
 	})
 
-	t.Run("delete an existing namespace", func(t *testing.T) {
-		require.NoError(t, srv.DeleteNamespace("customer1"))
+	t.Run("two-phase delete an existing namespace", func(t *testing.T) {
+		version, err := srv.ChangeNamespaceState(ctx, "customer1", cmd.NamespaceStateDeleting)
+		require.NoError(t, err)
+		require.NoError(t, srv.WaitForUpdate(ctx, version))
+		assert.Equal(t, 2, srv.NamespaceCount(), "entity stays until RemoveNamespaceEntity")
+
+		version, err = srv.RemoveNamespaceEntity(ctx, "customer1")
+		require.NoError(t, err)
+		require.NoError(t, srv.WaitForUpdate(ctx, version))
 		assert.Equal(t, 1, srv.NamespaceCount())
 	})
 
-	t.Run("delete a missing namespace returns ErrNotFound", func(t *testing.T) {
-		err := srv.DeleteNamespace("never-existed")
+	t.Run("ChangeNamespaceState on missing returns ErrNotFound", func(t *testing.T) {
+		_, err := srv.ChangeNamespaceState(ctx, "never-existed", cmd.NamespaceStateDeleting)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, usecasesNamespaces.ErrNotFound)
-
-		// State was not altered.
 		assert.Equal(t, 1, srv.NamespaceCount())
 	})
 }

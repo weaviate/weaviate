@@ -575,7 +575,7 @@ func (s *BackupTestSuite) VerifyObjectsDoNotExist(t *testing.T) {
 	t.Helper()
 
 	// After class deletion, trying to get the class should return an error
-	_, err := helper.GetClassWithoutAssert(t, s.config.ClassName)
+	_, err := helper.GetClassWithoutAssert(t, s.config.ClassName, "")
 	require.Error(t, err, "class %s should not exist after deletion", s.config.ClassName)
 }
 

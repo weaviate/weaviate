@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // newTestHandlerWithNamespaces returns a Handler that has the cluster-wide
@@ -133,7 +134,7 @@ func TestAddClass(t *testing.T) {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.wantClass
 				}), mock.Anything).Return(nil)
-				sm.On("QueryCollectionsCount").Return(0, nil)
+				sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
 			}
 
 			got, _, err := handler.AddClass(context.Background(), tt.principal, class)
@@ -220,6 +221,80 @@ func TestAddAlias(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.wantAlias, got.Alias)
 			require.Equal(t, tt.wantClass, got.Class)
+		})
+	}
+}
+
+// TestAddClass_NamespacedCollectionLimit checks that the
+// MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
+// namespaces are enabled, using principal.Namespace as the selector.
+//
+// The mock matcher on QueryCollectionsCount(<principalNS>) is what proves
+// the selector: a row only passes if AddClass requested the count for the
+// caller's namespace.
+func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		principalNS   string
+		limit         int
+		existingCount int
+		wantErr       bool
+	}{
+		{
+			name:          "same namespace at cap rejects",
+			principalNS:   "customer1",
+			limit:         1,
+			existingCount: 1,
+			wantErr:       true,
+		},
+		{
+			name:          "under cap succeeds",
+			principalNS:   "customer1",
+			limit:         1,
+			existingCount: 0,
+			wantErr:       false,
+		},
+		{
+			name:          "different namespace under cap succeeds",
+			principalNS:   "customer2",
+			limit:         10,
+			existingCount: 0,
+			wantErr:       false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, true)
+			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.limit)
+
+			sm.On("QueryCollectionsCount", tt.principalNS).Return(tt.existingCount, nil)
+			if !tt.wantErr {
+				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
+					return c.Class == tt.principalNS+":Movies"
+				}), mock.Anything).Return(nil)
+			}
+
+			class := &models.Class{
+				Class:             "Movies",
+				Vectorizer:        "model1",
+				VectorIndexConfig: map[string]interface{}{},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			_, _, err := handler.AddClass(context.Background(), namespacedPrincipal(tt.principalNS), class)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				le, ok := usagelimits.AsLimitExceeded(err)
+				require.True(t, ok, "expected *LimitExceededError, got %T: %v", err, err)
+				assert.Equal(t, usagelimits.LimitCollections, le.Limit)
+				assert.Equal(t, int64(tt.limit), le.Value)
+			} else {
+				require.NoError(t, err)
+			}
+			sm.AssertExpectations(t)
 		})
 	}
 }

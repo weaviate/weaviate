@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be empty, need at least one object for batching")
@@ -39,7 +40,10 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
-		cls, _ := b.resolveNS(principal, obj.Class)
+		cls, _, err := b.resolveNS(principal, obj.Class)
+		if err != nil {
+			return nil, NewErrInvalidUserInput("%v", err)
+		}
 		obj.Class = cls
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
@@ -138,7 +142,33 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
+	// Reaggregate a unanimous limit-exceeded into a top-level error so
+	// the REST/gRPC handler can map it to 429 / RESOURCE_EXHAUSTED.
+	if le := unanimousLimitExceeded(res); le != nil {
+		return nil, le
+	}
+
 	return res, nil
+}
+
+// unanimousLimitExceeded returns a *usagelimits.LimitExceededError if and
+// only if every BatchObject in res carries the same limit-exceeded error
+// (matching Limit + Value). Otherwise nil.
+func unanimousLimitExceeded(res BatchObjects) *usagelimits.LimitExceededError {
+	if len(res) == 0 {
+		return nil
+	}
+	first, ok := usagelimits.AsLimitExceeded(res[0].Err)
+	if !ok {
+		return nil
+	}
+	for i := 1; i < len(res); i++ {
+		got, ok := usagelimits.AsLimitExceeded(res[i].Err)
+		if !ok || got.Limit != first.Limit || got.Value != first.Value {
+			return nil
+		}
+	}
+	return first
 }
 
 func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *models.Principal,
