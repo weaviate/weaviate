@@ -45,8 +45,6 @@ import (
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
 
-const DefaultBoostDepth = 100
-
 // Explorer is a helper construct to perform vector-based searches. It does not
 // contain monitoring or authorization checks. It should thus never be directly
 // used by an API, but through a Traverser.
@@ -152,7 +150,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 
 	// When boost is set, overfetch to give boost room to reorder results.
 	// The candidate pool size is controlled by boost.Depth (per-query) with
-	// a default of DefaultBoostDepth. Capped at QueryMaximumResults.
+	// a default of QueryBoostDefaultDepth. Capped at QueryMaximumResults.
 	// We also zero the offset so boost sees all top candidates from position 0;
 	// the original offset/limit are stored on the Boost struct and applied
 	// after boost re-sorts.
@@ -162,7 +160,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 
 		overfetch := params.Boost.Depth
 		if overfetch == 0 {
-			overfetch = DefaultBoostDepth
+			overfetch = e.config.QueryBoostDefaultDepth
 		}
 		if overfetch > int(e.config.QueryMaximumResults) {
 			overfetch = int(e.config.QueryMaximumResults)
