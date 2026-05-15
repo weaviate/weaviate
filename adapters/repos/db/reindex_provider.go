@@ -402,32 +402,48 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
 	}
 
-	// genFor returns the generation suffix N to use for this migration on this
-	// shard, given the strategy's dir prefix and its props suffix (e.g. "_text"
-	// or sorted-joined "_p1_p2", or "" for class-level strategies).
-	genFor := func(prefix, propSuffix string) int {
+	// genFor returns the generation suffix N to use for this migration on
+	// this shard, given the strategy's dir prefix and its props suffix
+	// (e.g. "_text" or sorted-joined "_p1_p2", or "" for class-level
+	// strategies). The ok return is always true on the normal path
+	// (rehydrate=false). On rehydrate=true, ok=false means there is no
+	// in-flight migration for this strategy on disk — every prior
+	// generation's tracker dir was already cleaned up by either
+	// `FinalizeCompletedMigrations` (at startup) or the end-of-swap trim
+	// (in-process). The caller MUST skip task instantiation in that case;
+	// instantiating with a fabricated gen would later try to swap from
+	// reindex bucket dirs that no longer exist.
+	genFor := func(prefix, propSuffix string) (int, bool) {
 		if rehydrate {
-			// Reconstruct against the highest existing gen on disk. If none
-			// exists (recovery race / corrupted state) fall back to 1 — the
-			// strategy will fail loudly at runtimeSwap rather than silently
-			// reusing stale state.
 			if gen := maxMigrationGeneration(lsmPath, prefix, propSuffix); gen > 0 {
-				return gen
+				return gen, true
 			}
-			return 1
+			return 0, false
 		}
-		return nextMigrationGeneration(lsmPath, prefix, propSuffix)
+		return nextMigrationGeneration(lsmPath, prefix, propSuffix), true
 	}
 
+	// On the normal path (rehydrate=false) genFor always returns ok=true.
+	// On rehydrate (post-restart) ok=false means the strategy has no
+	// in-flight on-disk state — `FinalizeCompletedMigrations` at startup
+	// or the end-of-swap trim already cleaned up. Re-instantiating with
+	// a fabricated gen would fail at runtimeSwap with "reindex bucket
+	// not found", so callers skip task instantiation in that case.
 	switch payload.MigrationType {
 	case ReindexTypeRepairSearchable:
-		gen := genFor(MigrationDirSearchableMapToBlockmax, "")
+		gen, ok := genFor(MigrationDirSearchableMapToBlockmax, "")
+		if !ok {
+			return nil, nil
+		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeMapToBlockmaxTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeRepairFilterable:
-		gen := genFor(MigrationDirFilterableRoaringsetRefresh, "")
+		gen, ok := genFor(MigrationDirFilterableRoaringsetRefresh, "")
+		if !ok {
+			return nil, nil
+		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeRoaringSetRefreshTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
@@ -437,13 +453,19 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 		// rangeable is rebuilt from the existing filterable bucket either
 		// way. The validator at submit time gates which one is allowed
 		// based on the property's current IndexRangeFilters state.
-		gen := genFor(MigrationDirPrefixFilterableToRangeable, propsSuffix(payload.Properties))
+		gen, ok := genFor(MigrationDirPrefixFilterableToRangeable, propsSuffix(payload.Properties))
+		if !ok {
+			return nil, nil
+		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
-		gen := genFor(MigrationDirPrefixEnableFilterable, propsSuffix(payload.Properties))
+		gen, ok := genFor(MigrationDirPrefixEnableFilterable, propsSuffix(payload.Properties))
+		if !ok {
+			return nil, nil
+		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeEnableFilterableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
@@ -452,7 +474,10 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("enable-searchable requires targetTokenization")
 		}
-		gen := genFor(MigrationDirPrefixEnableSearchable, propsSuffix(payload.Properties))
+		gen, ok := genFor(MigrationDirPrefixEnableSearchable, propsSuffix(payload.Properties))
+		if !ok {
+			return nil, nil
+		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeEnableSearchableTask(p.logger, payload.Properties, payload.Collection, payload.TargetTokenization, gen),
 		}, nil
@@ -478,22 +503,23 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 		// case, so the defense lives here: only dispatch the filterable
 		// retokenize sub-task when the property actually has a filterable
 		// index.
-		searchableGen := genFor(MigrationDirPrefixSearchableRetokenize, "_"+propName)
-		tasks := []*ShardReindexTaskGeneric{
-			NewRuntimeSearchableRetokenizeTask(
+		var tasks []*ShardReindexTaskGeneric
+		if searchableGen, ok := genFor(MigrationDirPrefixSearchableRetokenize, "_"+propName); ok {
+			tasks = append(tasks, NewRuntimeSearchableRetokenizeTask(
 				p.logger, propName, payload.TargetTokenization,
 				payload.Collection, payload.BucketStrategy, payload.Collection,
 				searchableGen,
-			),
+			))
 		}
 		if p.propertyHasFilterableBucket(payload.Collection, propName) {
-			filterableGen := genFor(MigrationDirPrefixFilterableRetokenize, "_"+propName)
-			tasks = append(tasks, NewRuntimeFilterableRetokenizeTask(
-				p.logger,
-				propName, payload.TargetTokenization,
-				payload.Collection, payload.Collection,
-				filterableGen,
-			))
+			if filterableGen, ok := genFor(MigrationDirPrefixFilterableRetokenize, "_"+propName); ok {
+				tasks = append(tasks, NewRuntimeFilterableRetokenizeTask(
+					p.logger,
+					propName, payload.TargetTokenization,
+					payload.Collection, payload.Collection,
+					filterableGen,
+				))
+			}
 		}
 		return tasks, nil
 
@@ -505,7 +531,10 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("change-tokenization-filterable requires targetTokenization")
 		}
-		filterableGen := genFor(MigrationDirPrefixFilterableRetokenize, "_"+propName)
+		filterableGen, ok := genFor(MigrationDirPrefixFilterableRetokenize, "_"+propName)
+		if !ok {
+			return nil, nil
+		}
 		filterableTask := NewRuntimeFilterableRetokenizeTask(
 			p.logger,
 			propName, payload.TargetTokenization,
@@ -877,6 +906,20 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			if err != nil {
 				logger.WithField("unit", unitID).WithError(err).
 					Error("reindex provider: OnGroupCompleted: creating reindex tasks")
+				continue
+			}
+			if len(unitTasks) == 0 {
+				// No in-flight migration state on disk for this strategy
+				// on this shard — `FinalizeCompletedMigrations` at startup
+				// already promoted the canonical bucket and cleared the
+				// tracker, OR the end-of-swap trim cleaned up before we
+				// crashed. Either way there is nothing to swap. This is
+				// the normal post-restart path for a task whose FSM entry
+				// is still FINISHED but whose local-process state was lost
+				// — the swap callbacks already ran (and persisted to
+				// disk via the canonical bucket) before the restart.
+				logger.WithField("unit", unitID).
+					Info("reindex provider: OnGroupCompleted: no in-flight state on disk for this unit (post-restart of already-finalized migration); skipping swap")
 				continue
 			}
 			rehydrate = true

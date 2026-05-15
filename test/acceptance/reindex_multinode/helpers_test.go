@@ -524,17 +524,39 @@ func restartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCom
 }
 
 // rollingRestartCluster stops + restarts each node ONE AT A TIME,
-// waiting for the node to be ready before moving on. Mimics a
-// Kubernetes StatefulSet rolling update — the failure mode that hid
-// weaviate/weaviate#10675 in Frontend Claude's prod environment, where
-// pods rolled at different times produced different on-disk states for
-// the same migration.
+// waiting for the node to be ready (and for RAFT to accept writes
+// again) before moving on. Mimics a Kubernetes StatefulSet rolling
+// update — the failure mode that hid weaviate/weaviate#10675 in
+// Frontend Claude's prod environment, where pods rolled at different
+// times produced different on-disk states for the same migration.
+//
+// Without the readiness wait, the test would race the node's
+// FinalizeCompletedMigrations + shard-init + bucket-load — queries to
+// a not-yet-ready node return 0 across the board even though the
+// promoted canonical dir is present on disk. That manifested as a
+// per-replica `[6 6 0]`/`[0 0 0]` failure that looks identical to the
+// real #10675 prod data-loss bug but is just a missing test barrier.
 func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
 	t.Helper()
 	for i := 1; i <= 3; i++ {
 		t.Logf("rolling restart: cycling node %d", i)
 		require.NoErrorf(t, compose.StopAt(ctx, i-1, nil), "stop node %d", i)
 		require.NoErrorf(t, compose.StartAt(ctx, i-1), "start node %d", i)
+
+		// Wait for this node's HTTP endpoint to respond before moving
+		// on. tryGetSchema is cheap and exercises the same routing
+		// path the test asserts against. 60s is generous for the
+		// FinalizeCompletedMigrations + shard-init phase.
+		restartedURI := compose.GetWeaviateNode(i).URI()
+		require.Eventuallyf(t, func() bool {
+			resp, err := http.Get(fmt.Sprintf("http://%s/v1/.well-known/ready", restartedURI))
+			if err != nil {
+				return false
+			}
+			defer resp.Body.Close()
+			return resp.StatusCode == http.StatusOK
+		}, 60*time.Second, 500*time.Millisecond,
+			"node %d should be ready after rolling restart", i)
 	}
 }
 
