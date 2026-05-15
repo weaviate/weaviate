@@ -118,6 +118,36 @@ func validateEnableFilterableProperty(prop *models.Property) error {
 	return nil
 }
 
+// validateRebuildFilterableDataType guards repair-filterable against
+// property types whose schema-default flips IndexFilterable=true but
+// which have no inverted bucket on disk: blob (skipped by the schema
+// migrator), geoCoordinates (indexed via a dedicated geo index), and
+// phoneNumber (indexed via parsed sub-fields). References (non-primitive
+// data types) likewise have no inverted bucket.
+//
+// Without this guard the dispatcher's "is IndexFilterable enabled?"
+// check passes for these types — the schema sets the flag to true even
+// though no bucket exists — and the rebuild task crashes at swap time
+// with `target bucket "property_p" not found in store`. That surfaces
+// as a TASK FAILED rather than a clean 4xx, leaving the caller with
+// no actionable signal.
+//
+// The error wording deliberately ends with "nothing to rebuild" to
+// disambiguate from validateEnableFilterableProperty's wording
+// ("does not support a filterable index"), so a caller comparing the
+// two paths can tell which one rejected them.
+func validateRebuildFilterableDataType(prop *models.Property) error {
+	dt, ok := entschema.AsPrimitive(prop.DataType)
+	if !ok {
+		return fmt.Errorf("property %q type %v does not support a filterable inverted index; nothing to rebuild", prop.Name, prop.DataType)
+	}
+	switch dt { //nolint:exhaustive // intentional allow-by-default
+	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
+		return fmt.Errorf("property %q type %q does not support a filterable inverted index; nothing to rebuild", prop.Name, dt)
+	}
+	return nil
+}
+
 // validateEnableSearchableProperty validates that the property is a
 // suitable target for enable-searchable: text/text[] type, not already
 // searchable, with a valid tokenization specified.
