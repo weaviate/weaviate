@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // ExtractFilters converts a proto Filters tree into an internal filter Clause.
@@ -29,10 +30,14 @@ import (
 // rejected. Inner class segments in such paths are taken from caller input
 // and are not auto-qualified by the resolver, so allowing them through
 // would silently fail downstream when the schema lookup misses the
-// unqualified inner class. New-style FilterTarget filters keep working
-// because their nested class segments come from the schema (which already
-// stores qualified names).
-func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuthzFunc, className, tenant string, namespacesEnabled bool) (filters.Clause, error) {
+// unqualified inner class.
+//
+// New-style FilterTarget filters are namespace-aware: the recursion in
+// extractPathNew stitches the parent class's namespace onto each nested
+// linked class (whether derived from the schema's Property.DataType or
+// from the caller-supplied MultiTarget.TargetCollection), mirroring the
+// gRPC search parser's read-side stitching for ref-properties.
+func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuthzFunc, className, tenant string, namespacesEnabled bool, principal *models.Principal) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
 
 	switch filterIn.Operator {
@@ -49,7 +54,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 
 		clauses := make([]filters.Clause, len(filterIn.Filters))
 		for i, clause := range filterIn.Filters {
-			retClause, err := ExtractFilters(clause, authorizedGetClass, className, tenant, namespacesEnabled)
+			retClause, err := ExtractFilters(clause, authorizedGetClass, className, tenant, namespacesEnabled, principal)
 			if err != nil {
 				return filters.Clause{}, err
 			}
@@ -113,7 +118,7 @@ func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuth
 				return filters.Clause{}, err
 			}
 		} else {
-			path, dataType2, err := extractPathNew(authorizedGetClass, className, tenant, filterIn.Target, returnFilter.Operator)
+			path, dataType2, err := extractPathNew(authorizedGetClass, className, tenant, filterIn.Target, returnFilter.Operator, namespacesEnabled, principal)
 			if err != nil {
 				return filters.Clause{}, err
 			}
@@ -307,11 +312,20 @@ func extractPath(className string, on []string) (*filters.Path, error) {
 	return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(on[0]), Child: nil}, nil
 }
 
-func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tenant string, target *pb.FilterTarget, operator filters.Operator) (*filters.Path, schema.DataType, error) {
+func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tenant string, target *pb.FilterTarget, operator filters.Operator, namespacesEnabled bool, principal *models.Principal) (*filters.Path, schema.DataType, error) {
 	class, err := authorizedGetClass(className)
 	if err != nil {
 		return nil, "", err
 	}
+	// className arrives qualified at this layer (top-level service.go ran
+	// namespacing.Resolve on the search/aggregate/delete collection name;
+	// recursive calls below pass the previously-qualified linked class as
+	// the new className). Extract the parent's namespace so nested ref
+	// classes — whether from Property.DataType (always short) or from
+	// caller-supplied MultiTarget.TargetCollection — qualify against the
+	// same namespace as the source class. parentNS is "" on non-namespace
+	// clusters, so QualifiedName is a no-op there.
+	parentNS := namespacing.NamespaceFromQualified(className)
 	switch target.Target.(type) {
 	case *pb.FilterTarget_Property:
 		dt, err := extractDataType(authorizedGetClass, operator, className, tenant, []string{target.GetProperty()})
@@ -329,14 +343,19 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 		if len(refProp.DataType) != 1 {
 			return nil, "", fmt.Errorf("expected reference property with a single target, got %v for %v ", refProp.DataType, refProp.Name)
 		}
-		child, property, err := extractPathNew(authorizedGetClass, refProp.DataType[0], tenant, singleTarget.Target, operator)
+		linkedClassName := namespacing.QualifiedName(parentNS, refProp.DataType[0])
+		child, property, err := extractPathNew(authorizedGetClass, linkedClassName, tenant, singleTarget.Target, operator, namespacesEnabled, principal)
 		if err != nil {
 			return nil, "", err
 		}
 		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: child}, property, nil
 	case *pb.FilterTarget_MultiTarget:
 		multiTarget := target.GetMultiTarget()
-		child, property, err := extractPathNew(authorizedGetClass, multiTarget.TargetCollection, tenant, multiTarget.Target, operator)
+		if err := namespacing.ValidateNamespacePrefix(principal, namespacesEnabled, multiTarget.TargetCollection, "class"); err != nil {
+			return nil, "", err
+		}
+		linkedClassName := namespacing.QualifiedName(parentNS, multiTarget.TargetCollection)
+		child, property, err := extractPathNew(authorizedGetClass, linkedClassName, tenant, multiTarget.Target, operator, namespacesEnabled, principal)
 		if err != nil {
 			return nil, "", err
 		}

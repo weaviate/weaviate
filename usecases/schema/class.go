@@ -142,11 +142,19 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
+	// Cross-ref Property.DataType entries are short class names (schema
+	// rejects ":" in DataType). When the parent class is namespace-qualified,
+	// stitch the parent namespace onto the looked-up name so authz hits the
+	// qualified storage resource. AddClass relaxes ref-existence validation,
+	// so the existence check itself is downstream (cluster/schema/manager.go);
+	// the stitching here keeps authz consistent.
+	parentNS := namespacing.NamespaceFromQualified(cls.Class)
 	classGetterWithAuth := func(name string) (*models.Class, error) {
-		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+		qualified := namespacing.QualifiedName(parentNS, name)
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(qualified)...); err != nil {
 			return nil, err
 		}
-		return h.schemaReader.ReadOnlyClass(name), nil
+		return h.schemaReader.ReadOnlyClass(qualified), nil
 	}
 
 	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {

@@ -151,7 +151,7 @@ func TestBatchDeleteRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := batchDeleteParamsFromProto(tt.req, getClass, false)
+			out, err := batchDeleteParamsFromProto(tt.req, getClass, false, nil)
 			require.Equal(t, tt.error, err)
 
 			if tt.error == nil {
@@ -200,7 +200,7 @@ func TestBatchDeleteRequest_NamespacesEnabledRejectsRefPath(t *testing.T) {
 		_, err := batchDeleteParamsFromProto(&pb.BatchDeleteRequest{
 			Collection: collection,
 			Filters:    refPathFilter,
-		}, getClass, true)
+		}, getClass, true, nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "reference-path filters")
 		require.Contains(t, err.Error(), "Filters.target")
@@ -210,7 +210,7 @@ func TestBatchDeleteRequest_NamespacesEnabledRejectsRefPath(t *testing.T) {
 		_, err := batchDeleteParamsFromProto(&pb.BatchDeleteRequest{
 			Collection: collection,
 			Filters:    directFilter,
-		}, getClass, true)
+		}, getClass, true, nil)
 		require.NoError(t, err)
 	})
 }

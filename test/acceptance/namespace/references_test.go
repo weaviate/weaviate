@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/objects"
+	schemaCli "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
@@ -329,5 +330,103 @@ func TestNamespaces_References(t *testing.T) {
 		}
 		assert.True(t, foundResolved,
 			"gRPC ref-resolve should inline the customer1:Animal target via the source namespace; got name=%q", resolvedName)
+	})
+
+	t.Run("gRPC filter-by-ref via SingleTarget reaches the right shard on NS cluster", func(t *testing.T) {
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		req := searchReq("Zoo", 10)
+		req.Properties = &pb.PropertiesRequest{NonRefProperties: []string{"name"}}
+		req.Filters = &pb.Filters{
+			Operator: pb.Filters_OPERATOR_EQUAL,
+			Target: &pb.FilterTarget{
+				Target: &pb.FilterTarget_SingleTarget{
+					SingleTarget: &pb.FilterReferenceSingleTarget{
+						On: "hasAnimals",
+						Target: &pb.FilterTarget{
+							Target: &pb.FilterTarget_Property{Property: "name"},
+						},
+					},
+				},
+			},
+			TestValue: &pb.Filters_ValueText{ValueText: "tiger"},
+		}
+		_, err := grpcClient.Search(authCtx(user1Key), req)
+		require.NoError(t, err, "namespaced filter on a ref property should not fail with class-not-found")
+	})
+
+	t.Run("AddProperty adds a cross-ref property to an existing namespaced class", func(t *testing.T) {
+		// Pre-WS9: AddClassProperty would call ReadOnlyClass("Animal") (short)
+		// while storage has "customer1:Animal" (qualified), hitting
+		// ErrRefToNonexistentClass at the use-case validator.
+		// WS9: classGetterWithAuth stitches parent's namespace onto the short
+		// class name before lookup, so the cross-ref data type resolves.
+		const class = "PostHocZoo"
+		// Create Zoo without the hasAnimals property, and Animal alongside.
+		helper.CreateClassAuth(t, &models.Class{
+			Class: class,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+			},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class: "PostHocAnimal",
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+class, adminKey)
+			helper.DeleteClassAuth(t, "customer1:PostHocAnimal", adminKey)
+		})
+
+		// Now add the cross-ref property — DataType is short, parent class
+		// gets qualified internally to customer1:PostHocZoo.
+		_, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(
+			schemaCli.NewSchemaObjectsPropertiesAddParams().
+				WithClassName(class).
+				WithBody(&models.Property{Name: "hasAnimals", DataType: []string{"PostHocAnimal"}}),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err, "adding a cross-ref property to an existing class must work on NS-enabled clusters")
+
+		// Verify schema reflects the new property.
+		got := helper.GetClassAuth(t, "customer1:"+class, adminKey)
+		var sawHasAnimals bool
+		for _, p := range got.Properties {
+			if p.Name == "hasAnimals" {
+				sawHasAnimals = true
+				assert.Equal(t, []string{"PostHocAnimal"}, p.DataType,
+					"DataType is stored short for namespace portability")
+			}
+		}
+		assert.True(t, sawHasAnimals, "hasAnimals property should be present after AddProperty")
+	})
+
+	t.Run("gRPC filter MultiTarget rejects cross-namespace TargetCollection with 422", func(t *testing.T) {
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		req := searchReq("Zoo", 10)
+		req.Properties = &pb.PropertiesRequest{NonRefProperties: []string{"name"}}
+		req.Filters = &pb.Filters{
+			Operator: pb.Filters_OPERATOR_EQUAL,
+			Target: &pb.FilterTarget{
+				Target: &pb.FilterTarget_MultiTarget{
+					MultiTarget: &pb.FilterReferenceMultiTarget{
+						On:               "hasAnimals",
+						TargetCollection: "customer2:Animal", // foreign namespace
+						Target: &pb.FilterTarget{
+							Target: &pb.FilterTarget_Property{Property: "name"},
+						},
+					},
+				},
+			},
+			TestValue: &pb.Filters_ValueText{ValueText: "anything"},
+		}
+		_, err := grpcClient.Search(authCtx(user1Key), req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
 }

@@ -388,7 +388,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, config.Namespaces.Enabled)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, config.Namespaces.Enabled, p.principal)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
