@@ -25,10 +25,28 @@ import (
 )
 
 // FilterableToRangeableStrategy implements MigrationStrategy for building
-// RoaringSetRange (rangeable) indexes from existing RoaringSet (filterable)
-// data. This creates new rangeable buckets alongside existing filterable ones.
+// RoaringSetRange (rangeable) indexes. The strategy is used both as
+// "enable-rangeable" (the property currently has no rangeable index) and as
+// "repair-rangeable" (the rangeable index already exists and is being
+// refreshed).
+//
+// Backfill source. The reindex iterator scans the objects bucket and runs
+// the inverted analyzer to derive per-property values. It does NOT read
+// from the filterable bucket — that bucket may not even exist (e.g. a
+// numeric property created with IndexFilterable=false explicitly). The
+// "FilterableToRangeable" name is historical; treat it as "build rangeable
+// from objects".
+//
+// Schema-flag gating. During the backfill scan, IndexRangeFilters is still
+// false on the target property until OnMigrationComplete flips it. Without
+// an AnalyzerOverlay forcing the rangeable flag on, the analyzer would
+// either drop the property entirely (HasAnyInvertedIndex=false when the
+// property is also IndexFilterable=false) or emit it with
+// HasRangeableIndex=false. Either way the new rangeable bucket would end
+// up empty and the task would still report FINISHED — the silent
+// data-loss bug pinned by the int__filt=false_range=nil/false matrix
+// cells.
 type FilterableToRangeableStrategy struct {
-	noAnalyzerOverlay
 	schemaManager *schema.Manager
 	propNames     []string
 }
@@ -86,17 +104,24 @@ func (s *FilterableToRangeableStrategy) WriteToReindexBucket(shard ShardLike, bu
 	return nil
 }
 
+// ShouldProcessProperty always returns true. Scope is driven by the
+// reindexTaskConfig.selectedPropsByCollection set in the task constructor,
+// not by the live schema flag — during this migration IndexRangeFilters
+// is still false on every targeted property, and IndexFilterable may also
+// be false (the data is rebuilt from the objects bucket, not from
+// filterable).
 func (s *FilterableToRangeableStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return property.HasFilterableIndex
+	return true
 }
 
 func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if !property.HasFilterableIndex {
-			return nil
-		}
+		// Don't gate on HasFilterableIndex — the property may be
+		// IndexFilterable=false, and we still need to populate the
+		// rangeable bucket from the live write. Scope is enforced via
+		// propsByName.
 		if _, ok := propsByName[property.Name]; !ok {
 			return nil
 		}
@@ -116,9 +141,7 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if !property.HasFilterableIndex {
-			return nil
-		}
+		// Don't gate on HasFilterableIndex — see MakeAddCallback.
 		if _, ok := propsByName[property.Name]; !ok {
 			return nil
 		}
@@ -149,6 +172,24 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 				WithError(err).Error("PreReindexHook: failed to create rangeable bucket")
 		}
 	}
+}
+
+// AnalyzerOverlay forces IndexRangeFilters=true on the targeted properties
+// while the backfill iterator scans the objects bucket. Until
+// OnMigrationComplete flips the RAFT-stored schema flag, the analyzer would
+// otherwise emit the property with HasRangeableIndex=false (and skip it
+// entirely via HasAnyInvertedIndex when IndexFilterable is also false),
+// leaving the new rangeable bucket empty — the silent-FINISHED data-loss
+// failure mode pinned by the property-state matrix.
+func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
+	if len(props) == 0 {
+		return nil
+	}
+	out := make(map[string]inverted.PropertyOverlay, len(props))
+	for _, p := range props {
+		out[p] = inverted.PropertyOverlay{ForceRangeable: true}
+	}
+	return out
 }
 
 // OnMigrationComplete updates the schema to set IndexRangeFilters=true on
