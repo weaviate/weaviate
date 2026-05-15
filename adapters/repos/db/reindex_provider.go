@@ -287,6 +287,52 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
+	// For semantic migrations (change-tokenization, enable-rangeable), use
+	// two-phase execution: reindex only, then swap after all units complete.
+	// For format-only migrations, run the full lifecycle per shard.
+	semantic := IsSemanticMigration(payload.MigrationType)
+
+	// Re-entry guard. The DTM scheduler can relaunch our task handle a
+	// few tens of ms after the previous handle's per-unit goroutines
+	// finished — wg.Wait() returns once recordUnitCompletion is called
+	// from the worker, but the RAFT apply that flips the unit to
+	// Completed (and lets the scheduler skip the relaunch) races the
+	// next scheduler tick. We've observed the two "starting unit" logs
+	// ~70ms apart on the same unit in CI (acceptance large
+	// reindex-multinode-aj, MultiRoundRobin round 1).
+	//
+	// Without this guard, the relaunched processOneUnit calls
+	// createReindexTasks(rehydrate=false), which picks
+	// nextMigrationGeneration = max(existing)+1 = N+1 — a different
+	// generation than the previous, in-flight run at gen N. The new
+	// tasks (gen N+1) get written into p.reindexTasks[desc][unitID],
+	// clobbering the gen-N task instances that OnGroupCompleted relies
+	// on. When OnGroupCompleted then calls RunSwapOnShard on the
+	// cached gen N+1 task, its tracker points at the (just-mkdir'd)
+	// .migrations/<dir>_N+1/ which has no reindexed.mig → "shard is
+	// not in reindexed state" → swap fails → migration is half-applied
+	// on this replica → #10675-shape per-replica data divergence.
+	//
+	// Skip the work outright instead of re-running the cached task: the
+	// first run's RunReindexOnlyOnShard either is in flight or has
+	// already called RecordDistributedTaskUnitCompletion, and rerunning
+	// OnAfterLsmInit on the same task instance would APPEND to the
+	// task's callbackDisableFuncs list and double every subsequent
+	// double-write callback fire. The FSM-side recorder calls are
+	// idempotent against terminal units (manager.UpdateUnitProgress
+	// silently ignores updates to terminal units), so the second run
+	// has nothing useful to do.
+	if semantic {
+		p.mu.Lock()
+		cached := p.reindexTasks[task.TaskDescriptor][unitID]
+		p.mu.Unlock()
+		if len(cached) > 0 {
+			logger.WithField("nTasks", len(cached)).
+				Info("reindex provider: skipping re-entered unit (scheduler relaunched handle before FSM saw prior completion)")
+			return
+		}
+	}
+
 	// Create the reindex task(s) for this migration type.
 	tasks, err := p.createReindexTasks(payload, concreteShard.pathLSM(), false)
 	if err != nil {
@@ -315,13 +361,11 @@ func (p *ReindexProvider) processOneUnit(
 		})
 	}
 
-	// For semantic migrations (change-tokenization, enable-rangeable), use
-	// two-phase execution: reindex only, then swap after all units complete.
-	// For format-only migrations, run the full lifecycle per shard.
-	semantic := IsSemanticMigration(payload.MigrationType)
-
 	// Cache task instances for semantic migrations so OnGroupCompleted can
 	// call RunSwapOnShard on the same instances (with callbacks registered).
+	// On the re-entry path we already retrieved tasks from the cache, so
+	// this write is a no-op (same map value); guard the nil-map alloc and
+	// write here for the fresh-task path.
 	if semantic {
 		p.mu.Lock()
 		if p.reindexTasks[task.TaskDescriptor] == nil {
