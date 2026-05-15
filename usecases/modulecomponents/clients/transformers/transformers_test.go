@@ -83,6 +83,7 @@ type fakeHandler struct {
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, "/vectors", r.URL.String())
 	assert.Equal(f.t, http.MethodPost, r.Method)
+	assert.Equal(f.t, "application/json", r.Header.Get("Content-Type"))
 
 	if f.serverError != nil {
 		w.WriteHeader(http.StatusInternalServerError)
