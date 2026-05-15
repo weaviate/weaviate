@@ -444,3 +444,438 @@ func countMultiCached(c *shardedMultipleLockCache[float32]) int {
 	}
 	return count
 }
+
+func TestMultiCache_GetDocUnsupported(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("UInt64 cache returns error instead of panic", func(t *testing.T) {
+		var vecForID common.VectorForID[uint64] = func(ctx context.Context, id uint64) ([]uint64, error) {
+			return []uint64{1, 2, 3}, nil
+		}
+		cache := NewShardedMultiUInt64LockCache(vecForID, 1000, logger, 0, nil)
+
+		// GetDoc should return error, not panic
+		_, err := cache.GetDoc(context.Background(), 0)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not supported")
+	})
+
+	t.Run("Byte cache returns error instead of panic", func(t *testing.T) {
+		var vecForID common.VectorForID[byte] = func(ctx context.Context, id uint64) ([]byte, error) {
+			return []byte{1, 2, 3}, nil
+		}
+		cache := NewShardedMultiByteLockCache(vecForID, 1000, logger, 0, nil)
+
+		// GetDoc should return error, not panic
+		_, err := cache.GetDoc(context.Background(), 0)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not supported")
+	})
+
+	t.Run("Float32 cache with multipleVectorForDocID works", func(t *testing.T) {
+		expectedVecs := [][]float32{{1.0, 2.0}, {3.0, 4.0}}
+		var multiVecForID common.VectorForID[[]float32] = func(ctx context.Context, id uint64) ([][]float32, error) {
+			return expectedVecs, nil
+		}
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+
+		vecs, err := cache.GetDoc(context.Background(), 0)
+		assert.NoError(t, err)
+		assert.Equal(t, expectedVecs, vecs)
+	})
+}
+
+func TestMultiCache_BoundsChecks(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("GetKeys returns zero values for out-of-bounds id", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = nil
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		multiCache := cache.(*shardedMultipleLockCache[float32])
+
+		outOfBoundsID := uint64(len(multiCache.cache) + 100)
+
+		// Should not panic, should return 0, 0
+		docID, relativeID := cache.GetKeys(outOfBoundsID)
+		assert.Equal(t, uint64(0), docID)
+		assert.Equal(t, uint64(0), relativeID)
+	})
+
+	t.Run("SetKeys silently ignores out-of-bounds id", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = nil
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		multiCache := cache.(*shardedMultipleLockCache[float32])
+
+		outOfBoundsID := uint64(len(multiCache.cache) + 100)
+
+		// Should not panic
+		cache.SetKeys(outOfBoundsID, 42, 7)
+
+		// Verify nothing changed (can't really verify for out-of-bounds, just ensure no panic)
+	})
+
+	t.Run("Prefetch does not panic for out-of-bounds id", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = nil
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		multiCache := cache.(*shardedMultipleLockCache[float32])
+
+		outOfBoundsID := uint64(len(multiCache.cache) + 100)
+
+		// Should not panic
+		cache.Prefetch(outOfBoundsID)
+	})
+
+	t.Run("MultiGet returns error for out-of-bounds ids", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = func(ctx context.Context, id uint64) ([][]float32, error) {
+			return [][]float32{{1.0}}, nil
+		}
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		multiCache := cache.(*shardedMultipleLockCache[float32])
+
+		// Pre-populate keys for valid IDs so cache miss doesn't fail
+		multiCache.vectorDocID[0] = CacheKeys{DocID: 0, RelativeID: 0}
+		multiCache.vectorDocID[1] = CacheKeys{DocID: 1, RelativeID: 0}
+
+		outOfBoundsID := uint64(len(multiCache.cache) + 100)
+		ids := []uint64{0, outOfBoundsID, 1}
+
+		vecs, errs := cache.MultiGet(context.Background(), ids)
+
+		assert.Len(t, vecs, 3)
+		assert.NotNil(t, errs)
+		assert.Nil(t, errs[0])
+		assert.ErrorContains(t, errs[1], "out of bounds")
+		assert.Nil(t, errs[2])
+	})
+
+	t.Run("PreloadPassage silently ignores out-of-bounds id", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = nil
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		multiCache := cache.(*shardedMultipleLockCache[float32])
+
+		outOfBoundsID := uint64(len(multiCache.cache) + 100)
+		initialCount := cache.CountVectors()
+
+		// Should not panic
+		multiCache.PreloadPassage(outOfBoundsID, 1, 0, []float32{1.0, 2.0})
+
+		// Count should not increase
+		assert.Equal(t, initialCount, cache.CountVectors())
+	})
+
+	t.Run("PreloadMulti only counts successfully stored vectors", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = nil
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		multiCache := cache.(*shardedMultipleLockCache[float32])
+
+		validID := uint64(0)
+		outOfBoundsID := uint64(len(multiCache.cache) + 100)
+		ids := []uint64{validID, outOfBoundsID}
+		vecs := [][]float32{{1.0, 2.0}, {3.0, 4.0}}
+
+		initialCount := cache.CountVectors()
+
+		// Should not panic
+		multiCache.PreloadMulti(1, ids, vecs)
+
+		// Only one vector should be stored (the valid one)
+		assert.Equal(t, initialCount+1, cache.CountVectors())
+	})
+}
+
+func TestMultiCache_CountAccuracy(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("count not incremented when handleCacheMiss returns error", func(t *testing.T) {
+		// Simulates a vectorForID that returns an error
+		var multiVecForID common.VectorForID[[]float32] = func(ctx context.Context, id uint64) ([][]float32, error) {
+			return nil, errors.New("storage error")
+		}
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		multiCache := cache.(*shardedMultipleLockCache[float32])
+
+		// Setup keys for ID 0
+		multiCache.vectorDocID[0] = CacheKeys{DocID: 0, RelativeID: 0}
+
+		initialCount := cache.CountVectors()
+
+		// Get should trigger cache miss with error
+		vec, err := cache.Get(context.Background(), 0)
+		assert.Error(t, err)
+		assert.Nil(t, vec)
+
+		// Count should NOT have increased since nothing was cached
+		assert.Equal(t, initialCount, cache.CountVectors())
+	})
+
+	t.Run("count incremented only once for concurrent misses on same id", func(t *testing.T) {
+		callCount := 0
+		var mu sync.Mutex
+		var multiVecForID common.VectorForID[[]float32] = func(ctx context.Context, id uint64) ([][]float32, error) {
+			mu.Lock()
+			callCount++
+			mu.Unlock()
+			// Simulate some delay to allow concurrent calls
+			time.Sleep(10 * time.Millisecond)
+			return [][]float32{{1.0, 2.0}}, nil
+		}
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		multiCache := cache.(*shardedMultipleLockCache[float32])
+
+		// Setup keys for ID 0
+		multiCache.vectorDocID[0] = CacheKeys{DocID: 0, RelativeID: 0}
+
+		// Launch multiple concurrent gets for the same ID
+		var wg sync.WaitGroup
+		concurrentGets := 10
+		wg.Add(concurrentGets)
+
+		for i := 0; i < concurrentGets; i++ {
+			go func() {
+				defer wg.Done()
+				_, _ = cache.Get(context.Background(), 0)
+			}()
+		}
+
+		wg.Wait()
+
+		// Count should be exactly 1, not 10
+		assert.Equal(t, int64(1), cache.CountVectors())
+
+		// Verify the vector was cached (subsequent calls shouldn't increment)
+		_, _ = cache.Get(context.Background(), 0)
+		assert.Equal(t, int64(1), cache.CountVectors())
+	})
+
+	t.Run("count matches actual cached vectors after concurrent operations", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = func(ctx context.Context, id uint64) ([][]float32, error) {
+			return [][]float32{{float32(id)}}, nil
+		}
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		multiCache := cache.(*shardedMultipleLockCache[float32])
+
+		// Setup keys for multiple IDs
+		numIDs := 100
+		for i := 0; i < numIDs; i++ {
+			multiCache.vectorDocID[i] = CacheKeys{DocID: uint64(i), RelativeID: 0}
+		}
+
+		// Concurrent gets for all IDs, with multiple goroutines per ID
+		var wg sync.WaitGroup
+		goroutinesPerID := 5
+
+		for id := 0; id < numIDs; id++ {
+			for g := 0; g < goroutinesPerID; g++ {
+				wg.Add(1)
+				go func(id uint64) {
+					defer wg.Done()
+					_, _ = cache.Get(context.Background(), id)
+				}(uint64(id))
+			}
+		}
+
+		wg.Wait()
+
+		// Count should equal number of unique IDs, not total goroutines
+		assert.Equal(t, int64(numIDs), cache.CountVectors())
+
+		// Verify by actually counting cached vectors
+		actualCached := countMultiCached(multiCache)
+		assert.Equal(t, numIDs, actualCached)
+		assert.Equal(t, int64(actualCached), cache.CountVectors())
+	})
+}
+
+func TestPreloadCountAccuracy(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("shardedLockCache Preload does not increment count on overwrite", func(t *testing.T) {
+		cache := NewShardedFloat32LockCache(nil, nil, 1000, 1, logger, false, 0, nil)
+		slc := cache.(*shardedLockCache[float32])
+
+		// First preload - should increment count
+		slc.Preload(0, []float32{1.0, 2.0})
+		assert.Equal(t, int64(1), cache.CountVectors())
+
+		// Second preload to same slot - should NOT increment count
+		slc.Preload(0, []float32{3.0, 4.0})
+		assert.Equal(t, int64(1), cache.CountVectors())
+
+		// Preload to new slot - should increment
+		slc.Preload(1, []float32{5.0, 6.0})
+		assert.Equal(t, int64(2), cache.CountVectors())
+
+		// Verify actual cache content
+		assert.Equal(t, 2, countCached(slc))
+	})
+
+	t.Run("shardedMultipleLockCache PreloadPassage does not increment count on overwrite", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = nil
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		smlc := cache.(*shardedMultipleLockCache[float32])
+
+		// First preload - should increment count
+		smlc.PreloadPassage(0, 100, 0, []float32{1.0, 2.0})
+		assert.Equal(t, int64(1), cache.CountVectors())
+
+		// Second preload to same slot - should NOT increment count
+		smlc.PreloadPassage(0, 100, 0, []float32{3.0, 4.0})
+		assert.Equal(t, int64(1), cache.CountVectors())
+
+		// Preload to new slot - should increment
+		smlc.PreloadPassage(1, 100, 1, []float32{5.0, 6.0})
+		assert.Equal(t, int64(2), cache.CountVectors())
+
+		// Verify actual cache content
+		assert.Equal(t, 2, countMultiCached(smlc))
+	})
+
+	t.Run("shardedMultipleLockCache PreloadMulti does not increment count on overwrite", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = nil
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		smlc := cache.(*shardedMultipleLockCache[float32])
+
+		// First batch preload - should count all 3
+		ids1 := []uint64{0, 1, 2}
+		vecs1 := [][]float32{{1.0}, {2.0}, {3.0}}
+		smlc.PreloadMulti(100, ids1, vecs1)
+		assert.Equal(t, int64(3), cache.CountVectors())
+
+		// Second batch with overlap - only new entries should be counted
+		// ids 1, 2 are overwrites, id 3 is new
+		ids2 := []uint64{1, 2, 3}
+		vecs2 := [][]float32{{10.0}, {20.0}, {30.0}}
+		smlc.PreloadMulti(100, ids2, vecs2)
+		assert.Equal(t, int64(4), cache.CountVectors()) // 3 original + 1 new
+
+		// Verify actual cache content
+		assert.Equal(t, 4, countMultiCached(smlc))
+	})
+
+	t.Run("shardedMultipleLockCache PreloadMulti mixed new and existing ids", func(t *testing.T) {
+		var multiVecForID common.VectorForID[[]float32] = nil
+		cache := NewShardedMultiFloat32LockCache(multiVecForID, 1000, logger, false, 0, nil)
+		smlc := cache.(*shardedMultipleLockCache[float32])
+
+		// Pre-populate some slots
+		smlc.PreloadPassage(0, 100, 0, []float32{1.0})
+		smlc.PreloadPassage(2, 100, 2, []float32{2.0})
+		smlc.PreloadPassage(4, 100, 4, []float32{3.0})
+		assert.Equal(t, int64(3), cache.CountVectors())
+
+		// Batch with mix: 0, 2, 4 exist; 1, 3, 5 are new
+		ids := []uint64{0, 1, 2, 3, 4, 5}
+		vecs := [][]float32{{10.0}, {20.0}, {30.0}, {40.0}, {50.0}, {60.0}}
+		smlc.PreloadMulti(200, ids, vecs)
+
+		// Should only add 3 new entries (ids 1, 3, 5)
+		assert.Equal(t, int64(6), cache.CountVectors())
+		assert.Equal(t, 6, countMultiCached(smlc))
+	})
+}
+
+func TestShardedLockCache_HandleCacheMissCountAccuracy(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	t.Run("count not incremented when vectorForID returns nil", func(t *testing.T) {
+		var vecForID common.VectorForID[float32] = func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, nil // returns nil vector, no error
+		}
+		cache := NewShardedFloat32LockCache(vecForID, nil, 1000, 1, logger, false, 0, nil)
+		slc := cache.(*shardedLockCache[float32])
+
+		initialCount := cache.CountVectors()
+
+		// Get triggers cache miss, vectorForID returns nil
+		vec, err := cache.Get(context.Background(), 0)
+		assert.NoError(t, err)
+		assert.Nil(t, vec)
+
+		// Count should NOT have increased since nothing was cached
+		assert.Equal(t, initialCount, cache.CountVectors())
+		assert.Equal(t, 0, countCached(slc))
+	})
+
+	t.Run("count not incremented when vectorForID returns error", func(t *testing.T) {
+		var vecForID common.VectorForID[float32] = func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, errors.New("storage error")
+		}
+		cache := NewShardedFloat32LockCache(vecForID, nil, 1000, 1, logger, false, 0, nil)
+		slc := cache.(*shardedLockCache[float32])
+
+		initialCount := cache.CountVectors()
+
+		vec, err := cache.Get(context.Background(), 0)
+		assert.Error(t, err)
+		assert.Nil(t, vec)
+
+		// Count should NOT have increased
+		assert.Equal(t, initialCount, cache.CountVectors())
+		assert.Equal(t, 0, countCached(slc))
+	})
+
+	t.Run("count incremented only once for concurrent misses on same id", func(t *testing.T) {
+		var vecForID common.VectorForID[float32] = func(ctx context.Context, id uint64) ([]float32, error) {
+			// Simulate some delay to allow concurrent calls
+			time.Sleep(10 * time.Millisecond)
+			return []float32{float32(id)}, nil
+		}
+		cache := NewShardedFloat32LockCache(vecForID, nil, 1000, 1, logger, false, 0, nil)
+		slc := cache.(*shardedLockCache[float32])
+
+		// Launch multiple concurrent gets for the same ID
+		var wg sync.WaitGroup
+		concurrentGets := 10
+		wg.Add(concurrentGets)
+
+		for i := 0; i < concurrentGets; i++ {
+			go func() {
+				defer wg.Done()
+				_, _ = cache.Get(context.Background(), 0)
+			}()
+		}
+
+		wg.Wait()
+
+		// Count should be exactly 1, not 10
+		assert.Equal(t, int64(1), cache.CountVectors())
+		assert.Equal(t, 1, countCached(slc))
+
+		// Subsequent gets should not increment count
+		_, _ = cache.Get(context.Background(), 0)
+		assert.Equal(t, int64(1), cache.CountVectors())
+	})
+
+	t.Run("count matches actual cached vectors after concurrent operations", func(t *testing.T) {
+		var vecForID common.VectorForID[float32] = func(ctx context.Context, id uint64) ([]float32, error) {
+			return []float32{float32(id)}, nil
+		}
+		cache := NewShardedFloat32LockCache(vecForID, nil, 1000, 1, logger, false, 0, nil)
+		slc := cache.(*shardedLockCache[float32])
+
+		// Concurrent gets for multiple IDs, with multiple goroutines per ID
+		numIDs := 50
+		goroutinesPerID := 5
+
+		var wg sync.WaitGroup
+		for id := 0; id < numIDs; id++ {
+			for g := 0; g < goroutinesPerID; g++ {
+				wg.Add(1)
+				go func(id uint64) {
+					defer wg.Done()
+					_, _ = cache.Get(context.Background(), id)
+				}(uint64(id))
+			}
+		}
+
+		wg.Wait()
+
+		// Count should equal number of unique IDs, not total goroutines
+		assert.Equal(t, int64(numIDs), cache.CountVectors())
+
+		// Verify by actually counting cached vectors
+		actualCached := countCached(slc)
+		assert.Equal(t, numIDs, actualCached)
+		assert.Equal(t, int64(actualCached), cache.CountVectors())
+	})
+}
