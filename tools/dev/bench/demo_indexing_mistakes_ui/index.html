@@ -67,18 +67,19 @@
     </div>
   </section>
 
-  <!-- Mistake 2: spec_sheet_path equality with word tokenization -->
+  <!-- Mistake 2: spec_sheet_path "any of" with word tokenization -->
   <section class="card" data-card="spec_sheet_path">
     <header>
-      <h2>2. Equality filter on a WORD-tokenized path</h2>
+      <h2>2. "Any of" filter on a WORD-tokenized path</h2>
       <p class="explainer">
-        Equality filter on <code>spec_sheet_path</code>. The caller expects an
-        exact path match, but WORD tokenization splits on <code>/</code> and
-        <code>-</code> and <code>.</code> on both sides of the comparison.
-        What ships to the engine is "does the path's token set contain
-        <code>products</code> AND <code>cameras</code> AND <code>gopro</code>?",
-        which matches genuine GoPro camera paths alongside accessory,
-        comparison, and review URLs from other brands.
+        Filter <code>spec_sheet_path</code> against any of five known GoPro
+        spec-sheet paths. With FIELD tokenization the engine compares each
+        stored path as one opaque token and returns exactly the five matches.
+        Under WORD tokenization each value splinters on <code>/</code> and
+        <code>-</code> and <code>.</code>, so the filter degenerates into
+        "does the path contain any of these tokens" — sweeping in accessory,
+        comparison, and review URLs that merely share <code>gopro</code> or
+        <code>spec</code> or <code>products</code> with the genuine paths.
       </p>
       <p class="schema-state">
         <code>spec_sheet_path</code> <span class="type-pill">text</span>
@@ -88,13 +89,17 @@
     <div class="card-body">
       <div class="query">
         <pre><code class="language-python">products.query.fetch_objects(
-    filters=Filter.by_property("spec_sheet_path").equal(
-        "/products/cameras/gopro"
-    ),
+    filters=Filter.by_property("spec_sheet_path").contains_any([
+        "/products/cameras/gopro/hero-12-black/spec.pdf",
+        "/products/cameras/gopro/hero-11-silver/spec.pdf",
+        "/products/cameras/gopro/max-360/spec.pdf",
+        "/products/cameras/gopro/hero-mini/spec.pdf",
+        "/products/cameras/gopro/fusion-4k/spec.pdf",
+    ]),
     limit=10,
     return_properties=["spec_sheet_path", "category", "brand", "name"],
 )</code></pre>
-        <button class="btn-primary run-btn" data-action="run-path-equal">Run query</button>
+        <button class="btn-primary run-btn" data-action="run-path-any-of">Run query</button>
       </div>
       <div class="result" id="result-spec_sheet_path">
         <p class="placeholder">Press <em>Run query</em> to execute.</p>

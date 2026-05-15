@@ -195,11 +195,30 @@ function qPriceRangeCount() {
   }`;
 }
 
-function qPathEqual() {
+// Keep this list in sync with CANONICAL_GOPRO_OBJECTS in
+// demo_indexing_mistakes_import.py — the ingest script injects exactly these
+// five spec_sheet_path values as canonical records, so the post-migration
+// (field-tokenization) state of mistake 2 always returns 5 rows.
+const CANONICAL_GOPRO_PATHS = [
+  "/products/cameras/gopro/hero-12-black/spec.pdf",
+  "/products/cameras/gopro/hero-11-silver/spec.pdf",
+  "/products/cameras/gopro/max-360/spec.pdf",
+  "/products/cameras/gopro/hero-mini/spec.pdf",
+  "/products/cameras/gopro/fusion-4k/spec.pdf",
+];
+
+// GraphQL where-filters take scalar values only, so we express "any of these
+// 5 paths" as Or(Equal × 5). The Python snippet shown in the UI uses the
+// v4 client's `.contains_any([...])`, which the client transport translates
+// to the same semantics.
+function qPathContainsAny() {
+  const operands = CANONICAL_GOPRO_PATHS.map(p =>
+    `{ path: ["spec_sheet_path"], operator: Equal, valueText: ${JSON.stringify(p)} }`
+  ).join(", ");
   return `{
     Get {
       ${CLASS}(
-        where: { path: ["spec_sheet_path"], operator: Equal, valueText: "/products/cameras/gopro" },
+        where: { operator: Or, operands: [${operands}] },
         limit: 10
       ) {
         spec_sheet_path category brand name
@@ -366,15 +385,15 @@ async function onRun(btn) {
         });
       });
 
-    case "run-path-equal":
+    case "run-path-any-of":
       return runWithButton(btn, container, async () => {
-        const { body, ms } = await timedGql(qPathEqual());
+        const { body, ms } = await timedGql(qPathContainsAny());
         const rows = body.data.Get[CLASS] || [];
         renderResults(container, {
           latencyMs: ms,
           rows,
           renderRow: r => rowGeneric(r, "spec_sheet_path"),
-          emptyNote: "Equality filter returned no rows."
+          emptyNote: "Any-of filter returned no rows."
         });
       });
 

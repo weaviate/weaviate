@@ -294,6 +294,83 @@ DESCRIPTION_BITS = [
 SUPPORT_DOMAIN_PREFIXES = ["support", "help", "service", "care"]
 
 
+# -- Canonical GoPro records ---------------------------------------------------
+#
+# The UI's "any of" query in mistake 2 references these five spec-sheet paths
+# explicitly. We prepend them as the first five records of the batch so the
+# dataset is guaranteed to contain them regardless of how the random generator
+# falls out. Keep this list in sync with the CANONICAL_GOPRO_PATHS constant in
+# demo_indexing_mistakes_ui/app.js and the displayed snippet in index.html.
+
+CANONICAL_GOPRO_OBJECTS = [
+    {
+        "name": "GoPro Hero 12 Black",
+        "description": "Flagship action camera with 5.3K60 video and HyperSmooth 6.0 stabilisation.",
+        "brand": "GoPro",
+        "in_stock": True,
+        "release_date": "2023-09-14T00:00:00Z",
+        "weight_grams": 154,
+        "price_cents": 39_999,
+        "spec_sheet_path": "/products/cameras/gopro/hero-12-black/spec.pdf",
+        "sku": "GP-ACT-BLK-001",
+        "category": "Cameras > Action",
+        "support_email": "support@gopro.com",
+    },
+    {
+        "name": "GoPro Hero 11 Silver",
+        "description": "Mid-range action camera with 5.3K30 video and TimeWarp 3.0.",
+        "brand": "GoPro",
+        "in_stock": True,
+        "release_date": "2022-09-15T00:00:00Z",
+        "weight_grams": 154,
+        "price_cents": 29_999,
+        "spec_sheet_path": "/products/cameras/gopro/hero-11-silver/spec.pdf",
+        "sku": "GP-ACT-SLV-002",
+        "category": "Cameras > Action",
+        "support_email": "support@gopro.com",
+    },
+    {
+        "name": "GoPro Max 360",
+        "description": "Dual-lens 360-degree camera that captures spherical 5.6K video.",
+        "brand": "GoPro",
+        "in_stock": True,
+        "release_date": "2019-10-24T00:00:00Z",
+        "weight_grams": 163,
+        "price_cents": 49_999,
+        "spec_sheet_path": "/products/cameras/gopro/max-360/spec.pdf",
+        "sku": "GP-360-BLK-003",
+        "category": "Cameras > 360",
+        "support_email": "support@gopro.com",
+    },
+    {
+        "name": "GoPro Hero Mini",
+        "description": "Compact action camera with single-button control and 5.3K video.",
+        "brand": "GoPro",
+        "in_stock": True,
+        "release_date": "2023-09-28T00:00:00Z",
+        "weight_grams": 133,
+        "price_cents": 19_999,
+        "spec_sheet_path": "/products/cameras/gopro/hero-mini/spec.pdf",
+        "sku": "GP-ACT-BLK-004",
+        "category": "Cameras > Action",
+        "support_email": "support@gopro.com",
+    },
+    {
+        "name": "GoPro Fusion 4K",
+        "description": "Legacy 360 camera capturing 5.2K spherical footage with OverCapture.",
+        "brand": "GoPro",
+        "in_stock": False,
+        "release_date": "2017-11-15T00:00:00Z",
+        "weight_grams": 222,
+        "price_cents": 24_999,
+        "spec_sheet_path": "/products/cameras/gopro/fusion-4k/spec.pdf",
+        "sku": "GP-360-BLK-005",
+        "category": "Cameras > 360",
+        "support_email": "support@gopro.com",
+    },
+]
+
+
 def _model_name(rng: random.Random) -> str:
     prefix = rng.choice(MODEL_PREFIXES)
     number = rng.randint(1, 999)
@@ -411,13 +488,20 @@ def main() -> int:
         )
 
         collection = client.collections.get(COLLECTION_NAME)
-        print(f"Importing {NUM_OBJECTS:,} objects...")
+        print(
+            f"Importing {NUM_OBJECTS:,} objects "
+            f"({len(CANONICAL_GOPRO_OBJECTS)} canonical + "
+            f"{NUM_OBJECTS - len(CANONICAL_GOPRO_OBJECTS):,} random)..."
+        )
         t0 = time.monotonic()
         with collection.batch.fixed_size(batch_size=BATCH_SIZE) as batch:
-            for i in range(NUM_OBJECTS):
+            for canonical in CANONICAL_GOPRO_OBJECTS:
+                batch.add_object(properties=canonical)
+            random_count = NUM_OBJECTS - len(CANONICAL_GOPRO_OBJECTS)
+            for i in range(random_count):
                 batch.add_object(properties=_make_object(i, rng))
-                if (i + 1) % PROGRESS_EVERY == 0:
-                    done = i + 1
+                done = i + 1 + len(CANONICAL_GOPRO_OBJECTS)
+                if done % PROGRESS_EVERY == 0:
                     rate = done / (time.monotonic() - t0)
                     print(f"  {done:>10,} / {NUM_OBJECTS:,}  ({rate:,.0f} obj/s)")
         errors = collection.batch.failed_objects
