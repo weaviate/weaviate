@@ -21,17 +21,18 @@ imports 1,000,000 deterministic synthetic product objects (seed 42).
 
 ## 2. Open the UI
 
-The cluster URL is hardcoded; the API key is injected at server-start time
-from the `WCD_API_KEY` env var (the generated `config.js` is gitignored so
-the token never lands in the repo):
+`start.py` runs a tiny same-origin proxy: static files at `/`, everything
+under `/api/*` is forwarded to the dev cluster with `WCD_API_KEY` injected
+as a Bearer token server-side. The browser never sees the API key, and the
+cluster's CORS policy (which only allows the console origin) is irrelevant.
 
 ```bash
 cd tools/dev/bench/demo_indexing_mistakes_ui
-WCD_API_KEY=$(wcs --dev token) ./start.sh
+WCD_API_KEY=$(wcs --dev token) ./start.py
 # then open http://localhost:8089
 ```
 
-If `WCD_API_KEY` is not set, `start.sh` exits with a clear error.
+If `WCD_API_KEY` is not set, `start.py` exits with a clear error.
 
 ## 3. Run each card
 
