@@ -12,8 +12,10 @@ queries from the UI to see the difference.
 
 The deliberate mistakes are:
 
-  1. price_cents (int)        filterable=False, rangeable=False
-     -> Range queries (price between X and Y) fall back to brute force.
+  1. price_cents (int)        filterable=True, rangeable=False
+     -> Range queries work but are slow: the filterable inverted bucket
+        is walked value by value. Adding rangeable gives the engine a
+        sorted bitmap structure and the same query becomes much faster.
 
   2. spec_sheet_path (text)   tokenization=WORD
      -> Path-shaped searches like "/products/cameras/gopro" tokenize on
@@ -109,12 +111,15 @@ PROPERTIES = [
         index_range_filters=True,
     ),
 
-    # --- mistake 1: int with no rangeable, no filterable -------------------
-    # Range queries on this property fall back to brute force.
+    # --- mistake 1: int with filterable but no rangeable -------------------
+    # The range query works (it has a filterable inverted bucket to consult)
+    # but is slow: the engine has to walk the bucket value by value to
+    # satisfy the range. Adding indexRangeFilters gives it a sorted bitmap
+    # structure and the same query becomes much faster.
     Property(
         name="price_cents",
         data_type=DataType.INT,
-        index_filterable=False,
+        index_filterable=True,
         index_range_filters=False,
     ),
 
@@ -315,11 +320,35 @@ def _make_object(i: int, rng: random.Random) -> dict:
 
     name = f"{brand} {model}"
     sku = f"{brand[:2].upper()}-{sku_tag}-{color}-{serial:03d}"
-    # Path includes the brand slug so demo searches for a brand
-    # produce false-positive matches across other category subtrees.
-    spec_sheet_path = (
-        f"/products/{category_dir}/{brand.lower()}/{model.lower().replace(' ', '-')}/spec.pdf"
-    )
+    model_slug = model.lower().replace(" ", "-")
+    brand_slug = brand.lower()
+
+    # 18% of non-GoPro products get a path that references GoPro as either a
+    # comparison target, accessory compatibility, or review subject. With
+    # WORD tokenization the path field splits on '/' and '-' and the token
+    # `gopro` survives - so a BM25 search for `/products/cameras/gopro` will
+    # surface these alongside the genuine GoPro paths. That is the false
+    # positive the demo is designed to expose; without these variants the
+    # word-tokenization symptom is invisible because every match really is a
+    # GoPro path.
+    if brand != "GoPro" and rng.random() < 0.18:
+        variant = rng.choice(["vs", "for", "review"])
+        if variant == "vs":
+            spec_sheet_path = (
+                f"/products/{category_dir}/{brand_slug}/{model_slug}-vs-gopro/spec.pdf"
+            )
+        elif variant == "for":
+            spec_sheet_path = (
+                f"/products/accessories/{brand_slug}/for-gopro-hero/{model_slug}.pdf"
+            )
+        else:
+            spec_sheet_path = (
+                f"/reviews/{category_dir}/{brand_slug}-vs-gopro-{model_slug}.pdf"
+            )
+    else:
+        spec_sheet_path = (
+            f"/products/{category_dir}/{brand_slug}/{model_slug}/spec.pdf"
+        )
 
     support_prefix = (
         "support" if rng.random() < 0.85 else rng.choice(SUPPORT_DOMAIN_PREFIXES)

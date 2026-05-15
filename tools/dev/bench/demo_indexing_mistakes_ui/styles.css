@@ -193,6 +193,17 @@ code, pre {
   flex-direction: column;
   gap: 12px;
 }
+/* Let highlight.js color tokens inside .query pre but keep the surrounding
+ * background and padding from the .query pre rule below. Without this the
+ * atom-one-dark theme would paint its own background, producing a nested
+ * dark-on-dark box with double padding. */
+.query pre code.hljs {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
 .query pre {
   margin: 0;
   background: var(--code-bg);

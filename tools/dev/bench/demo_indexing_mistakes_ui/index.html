@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Common Indexing Mistakes Demo</title>
 <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/atom-one-dark.min.css" />
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/languages/python.min.js"></script>
 </head>
 <body>
 <header class="topbar">
@@ -36,31 +40,27 @@
 </header>
 
 <main class="cards">
-  <!-- Mistake 1: price_cents range query -->
+  <!-- Mistake 1: price_cents range query is slow without rangeable -->
   <section class="card" data-card="price_cents">
     <header>
-      <h2>1. Range query with no rangeable index</h2>
+      <h2>1. Range query without a rangeable index</h2>
       <p class="explainer">
-        Range filters on <code>price_cents</code> have no rangeable inverted
-        index and no filterable index, so Weaviate refuses the query outright
-        with <code>requires inverted index</code>. From the catalog operator's
-        POV, the storefront just broke.
+        <code>price_cents</code> has a filterable inverted bucket but no
+        rangeable one. The range query works - but the engine has to walk
+        the bucket value by value to satisfy <code>BETWEEN 30000 AND 40000</code>.
+        On a 1M-object catalog that lands in the hundreds-of-ms range. Enable
+        <code>indexRangeFilters</code> and the same query gets a sorted
+        bitmap structure to consult, ending in single-digit ms.
       </p>
       <p class="schema-state">
         <code>price_cents</code> <span class="type-pill">int</span>
-        <span class="flag bad">filterable=false</span>
+        <span class="flag neutral">filterable=true</span>
         <span class="flag bad">rangeable=false</span>
       </p>
     </header>
     <div class="card-body">
       <div class="query">
-        <pre><code class="lang-py">import weaviate
-from weaviate.classes.query import Filter
-
-client = weaviate.connect_to_local()
-products = client.collections.get("IndexingMistakesDemo")
-
-results = products.query.fetch_objects(
+        <pre><code class="language-python">products.query.fetch_objects(
     filters=(
         Filter.by_property("price_cents").greater_or_equal(30000)
         &amp; Filter.by_property("price_cents").less_or_equal(40000)
@@ -83,8 +83,9 @@ results = products.query.fetch_objects(
       <p class="explainer">
         BM25 search for <code>/products/cameras/gopro</code> against a WORD-tokenized
         path field. The slashes and dots are dropped, so the term matches any
-        path containing the literal word <code>gopro</code> anywhere - for
-        example in unrelated categories.
+        path containing the literal word <code>gopro</code> anywhere - including
+        accessory listings, review URLs, and competitor-comparison paths under
+        other brands.
       </p>
       <p class="schema-state">
         <code>spec_sheet_path</code> <span class="type-pill">text</span>
@@ -93,7 +94,7 @@ results = products.query.fetch_objects(
     </header>
     <div class="card-body">
       <div class="query">
-        <pre><code class="lang-py">results = products.query.bm25(
+        <pre><code class="language-python">products.query.bm25(
     query="/products/cameras/gopro",
     query_properties=["spec_sheet_path"],
     limit=10,
@@ -113,9 +114,9 @@ results = products.query.fetch_objects(
       <h2>3. Equality filter on a non-filterable property</h2>
       <p class="explainer">
         Filter <code>category == "Cameras &gt; Action"</code> against a property
-        with no inverted filterable bucket. Same fate as the price card:
-        Weaviate refuses with <code>requires inverted index</code>. The
-        category facet on the storefront stops working.
+        with no inverted filterable bucket. Weaviate refuses upfront with
+        <code>requires inverted index</code> - the category facet on the
+        storefront stops working entirely.
       </p>
       <p class="schema-state">
         <code>category</code> <span class="type-pill">text</span>
@@ -125,7 +126,7 @@ results = products.query.fetch_objects(
     </header>
     <div class="card-body">
       <div class="query">
-        <pre><code class="lang-py">results = products.query.fetch_objects(
+        <pre><code class="language-python">products.query.fetch_objects(
     filters=Filter.by_property("category").equal("Cameras &gt; Action"),
     limit=10,
     return_properties=["name", "brand", "category", "sku", "price_cents"],
@@ -147,5 +148,6 @@ results = products.query.fetch_objects(
 </footer>
 
 <script src="app.js"></script>
+<script>hljs.highlightAll();</script>
 </body>
 </html>
