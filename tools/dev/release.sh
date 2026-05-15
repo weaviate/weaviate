@@ -414,46 +414,50 @@ resolve_pr_number() {
 #     keep init_release fast and to avoid blocking on transient CI noise.
 #   • Step timestamps are recorded as "inferred" rather than wall-clock times,
 #     since we can't recover when the work was originally done.
-infer_state() {
-  local pr_json pr_number="" pr_url="" pr_state="" merge_sha=""
-  pr_json=$(gh_pr_for_branch "$PREP_BRANCH")
-  if [[ -n "$pr_json" ]]; then
-    pr_number=$(jq -r '.number // empty' <<<"$pr_json")
-    pr_url=$(jq -r '.url // empty'       <<<"$pr_json")
-    pr_state=$(jq -r '.state // empty'   <<<"$pr_json")
-    merge_sha=$(jq -r '.mergeCommit.oid // empty' <<<"$pr_json")
-  fi
+# All _infer_* helpers below populate locals in infer_state via dynamic scope.
+# Only _infer_build_state_json writes the script-global INFERRED_STATE_JSON.
 
-  local prep_exists="false"
-  git_remote_branch_exists "$PREP_BRANCH" && prep_exists="true"
+# Sets pr_number, pr_url, pr_state, merge_sha from the latest PR for PREP_BRANCH.
+_infer_pr_meta() {
+  local pr_json; pr_json=$(gh_pr_for_branch "$PREP_BRANCH")
+  [[ -n "$pr_json" ]] || return 0
+  pr_number=$(jq -r '.number // empty' <<<"$pr_json")
+  pr_url=$(jq -r '.url // empty'       <<<"$pr_json")
+  pr_state=$(jq -r '.state // empty'   <<<"$pr_json")
+  merge_sha=$(jq -r '.mergeCommit.oid // empty' <<<"$pr_json")
+}
 
-  local qa_issue_number qa_issue_url=""
+# Sets qa_issue_number and qa_issue_url (--state all to also catch closed
+# issues from already-published releases).
+_infer_qa_issue() {
   qa_issue_number=$(gh_qa_issue_number "$VERSION" all)
   [[ -n "$qa_issue_number" ]] && qa_issue_url=$(qa_issue_url_for "$qa_issue_number")
+}
 
-  local qa_e2e="" qa_chaos="" qa_e2e_url="" qa_chaos_url=""
-  if [[ -n "$qa_issue_number" ]]; then
-    local board
-    board=$(gh api graphql -F n="$qa_issue_number" -f query="$GRAPHQL_BOARD_QUERY" 2>/dev/null || true)
-    if [[ -n "$board" ]] && jq -e '.data.repository.issue' <<<"$board" >/dev/null 2>&1; then
-      qa_e2e=$(_board_field      "$board" single "E2E")
-      qa_chaos=$(_board_field    "$board" single "Chaos")
-      qa_e2e_url=$(_board_field  "$board" text   "E2E Job")
-      qa_chaos_url=$(_board_field "$board" text  "Chaos Job")
-    fi
-  fi
+# Sets qa_e2e, qa_chaos, qa_e2e_url, qa_chaos_url from the "Central CI View" board.
+_infer_qa_board() {
+  [[ -n "$qa_issue_number" ]] || return 0
+  local board
+  board=$(gh api graphql -F n="$qa_issue_number" -f query="$GRAPHQL_BOARD_QUERY" 2>/dev/null || true)
+  [[ -n "$board" ]] && jq -e '.data.repository.issue' <<<"$board" >/dev/null 2>&1 || return 0
+  qa_e2e=$(_board_field       "$board" single "E2E")
+  qa_chaos=$(_board_field     "$board" single "Chaos")
+  qa_e2e_url=$(_board_field   "$board" text   "E2E Job")
+  qa_chaos_url=$(_board_field "$board" text   "Chaos Job")
+}
 
-  local tag_exists="false"
-  git_remote_tag_exists "v${VERSION}" && tag_exists="true"
+# Sets rel_draft and rel_url from a draft or published release for v$VERSION.
+_infer_release() {
+  local rel_json
+  rel_json=$(gh release view "v${VERSION}" --repo "$REPO" --json isDraft,url 2>/dev/null || true)
+  [[ -n "$rel_json" ]] || return 0
+  rel_draft=$(jq -r '.isDraft' <<<"$rel_json")
+  rel_url=$(jq -r '.url'       <<<"$rel_json")
+}
 
-  local rel_json="" rel_draft="" rel_url=""
-  rel_json=$(gh release view "v${VERSION}" --repo "$REPO" \
-    --json isDraft,url 2>/dev/null || true)
-  if [[ -n "$rel_json" ]]; then
-    rel_draft=$(jq -r '.isDraft' <<<"$rel_json")
-    rel_url=$(jq -r '.url'       <<<"$rel_json")
-  fi
-
+# Build INFERRED_STATE_JSON from the locals populated by the helpers above.
+# This is the single writer of the script-global INFERRED_STATE_JSON.
+_infer_build_state_json() {
   INFERRED_STATE_JSON=$(jq -n \
     --arg v   "$VERSION" \
     --arg sb  "$STABLE_BRANCH" \
@@ -500,7 +504,10 @@ infer_state() {
         + (if $rel_draft == "false"     then {release_published: {at:"inferred", url:$rel_url}} else {} end)
       )
     }')
+}
 
+# Print a 1-5 line summary of what we found.
+_infer_print_summary() {
   local _mode_note
   if (( JOURNAL_ENABLED )); then
     _mode_note="will seed journal at ${STATE_FILE}"
@@ -514,6 +521,23 @@ infer_state() {
   [[ "$tag_exists" == "true" ]]  && echo "    tag:          v${VERSION} pushed"
   [[ -n "$rel_url" ]]            && echo "    release:      ${rel_url} (draft=${rel_draft})"
   return 0  # ensure trailing `[[ ]] && echo` short-circuits don't bubble up under set -e
+}
+
+infer_state() {
+  local pr_number="" pr_url="" pr_state="" merge_sha=""
+  local prep_exists="false" tag_exists="false"
+  local qa_issue_number="" qa_issue_url=""
+  local qa_e2e="" qa_chaos="" qa_e2e_url="" qa_chaos_url=""
+  local rel_draft="" rel_url=""
+
+  _infer_pr_meta
+  git_remote_branch_exists "$PREP_BRANCH" && prep_exists="true"
+  _infer_qa_issue
+  _infer_qa_board
+  git_remote_tag_exists "v${VERSION}" && tag_exists="true"
+  _infer_release
+  _infer_build_state_json
+  _infer_print_summary
 }
 
 # ─── read-only subcommands ────────────────────────────────────────────────────
@@ -1267,111 +1291,105 @@ print_await_merge() {
 
 # ─── cmd_auto ─────────────────────────────────────────────────────────────────
 
-cmd_auto() {
-  local BRANCH; BRANCH=$(git rev-parse --abbrev-ref HEAD)
+# All _auto_* helpers below populate AUTO_VERSION / AUTO_MAJOR / AUTO_MINOR
+# in cmd_auto via dynamic scope.
 
-  local AUTO_VERSION AUTO_MAJOR AUTO_MINOR
+# On main → prepare a new minor release by cutting stable/vX.Y from HEAD.
+_auto_from_main() {
+  git fetch --all --prune --tags -q 2>/dev/null || echo "    ⚠️  git fetch failed; using local refs" >&2
+  local LATEST_XY; LATEST_XY=$(git branch -r --list 'origin/stable/v*' \
+    | sed 's|.*origin/stable/v||' | sort -V | tail -1)
+  [[ -n "$LATEST_XY" ]] || { echo "ERROR: no stable/v* branches found on remote." >&2; exit 1; }
+  AUTO_MAJOR="${LATEST_XY%%.*}"
+  AUTO_MINOR=$(( ${LATEST_XY##*.} + 1 ))
+  AUTO_VERSION="${AUTO_MAJOR}.${AUTO_MINOR}.0"
+  local NEW_STABLE="stable/v${AUTO_MAJOR}.${AUTO_MINOR}"
 
-  if [[ "$BRANCH" == "main" ]]; then
-    # On main → prepare a new minor release by cutting stable/vX.Y from HEAD.
-    git fetch --all --prune --tags -q 2>/dev/null || echo "    ⚠️  git fetch failed; using local refs" >&2
-    local LATEST_XY; LATEST_XY=$(git branch -r --list 'origin/stable/v*' \
-      | sed 's|.*origin/stable/v||' | sort -V | tail -1)
-    [[ -n "$LATEST_XY" ]] || { echo "ERROR: no stable/v* branches found on remote." >&2; exit 1; }
-    AUTO_MAJOR="${LATEST_XY%%.*}"
-    AUTO_MINOR=$(( ${LATEST_XY##*.} + 1 ))
-    AUTO_VERSION="${AUTO_MAJOR}.${AUTO_MINOR}.0"
-    local NEW_STABLE="stable/v${AUTO_MAJOR}.${AUTO_MINOR}"
-
-    echo ">>> New minor release: v${AUTO_VERSION} (branch: ${NEW_STABLE})"
-
-    if git_local_ref_exists "refs/remotes/origin/${NEW_STABLE}"; then
-      echo ">>> ${NEW_STABLE} already on remote — checking out"
-      git checkout "$NEW_STABLE"
-      local LOCAL_SHA REMOTE_SHA
-      LOCAL_SHA=$(git rev-parse HEAD)
-      REMOTE_SHA=$(git rev-parse "refs/remotes/origin/${NEW_STABLE}")
-      if [[ "$LOCAL_SHA" != "$REMOTE_SHA" ]]; then
-        echo "    ⚠️  Local ${NEW_STABLE} (${LOCAL_SHA:0:8}) differs from remote (${REMOTE_SHA:0:8})."
-        echo "       Reconcile manually before continuing."
-      fi
-    else
-      confirm "Cut new stable branch ${NEW_STABLE} from main HEAD and push to origin?" || exit 1
-      echo ">>> Creating ${NEW_STABLE} from main HEAD"
-      git checkout -b "$NEW_STABLE"
-      git push -u origin "$NEW_STABLE"
-      echo "    ✅ ${NEW_STABLE} created and pushed"
+  echo ">>> New minor release: v${AUTO_VERSION} (branch: ${NEW_STABLE})"
+  if git_local_ref_exists "refs/remotes/origin/${NEW_STABLE}"; then
+    echo ">>> ${NEW_STABLE} already on remote — checking out"
+    git checkout "$NEW_STABLE"
+    local LOCAL_SHA REMOTE_SHA
+    LOCAL_SHA=$(git rev-parse HEAD)
+    REMOTE_SHA=$(git rev-parse "refs/remotes/origin/${NEW_STABLE}")
+    if [[ "$LOCAL_SHA" != "$REMOTE_SHA" ]]; then
+      echo "    ⚠️  Local ${NEW_STABLE} (${LOCAL_SHA:0:8}) differs from remote (${REMOTE_SHA:0:8})."
+      echo "       Reconcile manually before continuing."
     fi
-
-  elif [[ "$BRANCH" =~ ^stable/v([0-9]+)\.([0-9]+)$ ]]; then
-    AUTO_MAJOR="${BASH_REMATCH[1]}"
-    AUTO_MINOR="${BASH_REMATCH[2]}"
-
-    # Check for an in-progress release for this minor. Journal-mode scans the
-    # local STATE_DIR; stateless mode scans remote prepare-release-v* branches
-    # (treating any prep branch whose release tag isn't yet on the remote as
-    # in-progress — same heuristic, derived from GitHub instead of disk).
-    local IN_PROGRESS=""
-    if (( JOURNAL_ENABLED )) && [[ -d "$STATE_DIR" ]]; then
-      for j in "$STATE_DIR"/v*.json; do
-        [[ -f "$j" ]] || continue
-        local jv; jv=$(jq -r .version "$j")
-        if [[ "$jv" == "${AUTO_MAJOR}.${AUTO_MINOR}."* ]]; then
-          local pub; pub=$(jq -r '.steps.release_published // empty' "$j")
-          [[ -z "$pub" ]] && IN_PROGRESS="$jv"
-        fi
-      done
-    fi
-    if [[ -z "$IN_PROGRESS" ]]; then
-      local _remote="https://github.com/${REPO}.git"
-      local _candidates _pv
-      _candidates=$(git ls-remote --heads "$_remote" \
-        "prepare-release-v${AUTO_MAJOR}.${AUTO_MINOR}.*" 2>/dev/null \
-        | awk '{print $2}' | sed 's|^refs/heads/prepare-release-v||' | sort -V)
-      while IFS= read -r _pv; do
-        [[ -z "$_pv" ]] && continue
-        if ! git_remote_tag_exists "v${_pv}"; then
-          IN_PROGRESS="$_pv"  # last one wins → highest version
-        fi
-      done <<< "$_candidates"
-    fi
-
-    if [[ -n "$IN_PROGRESS" ]]; then
-      AUTO_VERSION="$IN_PROGRESS"
-      echo ">>> Resuming in-progress release v${AUTO_VERSION}"
-    else
-      git fetch --tags -q 2>/dev/null || echo "    ⚠️  git fetch --tags failed; using local refs" >&2
-      # Ignore pre-release tags (v1.36.14-rc.1) — they confuse ${LATEST##*.} and
-      # aren't release tags. Match only the bare vX.Y.Z form.
-      local LATEST; LATEST=$(git tag --list "v${AUTO_MAJOR}.${AUTO_MINOR}.*" \
-        --sort=-v:refname \
-        | grep -E "^v${AUTO_MAJOR}\.${AUTO_MINOR}\.[0-9]+$" | head -1)
-      local NEXT_PATCH; NEXT_PATCH=$([[ -n "$LATEST" ]] \
-        && echo "$(( ${LATEST##*.} + 1 ))" || echo "0")
-      AUTO_VERSION="${AUTO_MAJOR}.${AUTO_MINOR}.${NEXT_PATCH}"
-      echo ">>> Starting new release v${AUTO_VERSION}"
-    fi
-
-  elif [[ "$BRANCH" =~ ^prepare-release-v([0-9]+\.[0-9]+\.[0-9]+(-(rc|alpha|beta)\.[0-9]+)?)$ ]]; then
-    AUTO_VERSION="${BASH_REMATCH[1]}"
-    AUTO_MAJOR="${AUTO_VERSION%%.*}"
-    local _rest="${AUTO_VERSION#*.}"
-    AUTO_MINOR="${_rest%%.*}"
-    echo ">>> On prepare branch — resuming v${AUTO_VERSION}"
-
-  else
-    echo "ERROR: Unrecognized branch '${BRANCH}'." >&2
-    echo "       Expected: stable/vX.Y or prepare-release-vX.Y.Z" >&2
-    exit 1
+    return
   fi
+  confirm "Cut new stable branch ${NEW_STABLE} from main HEAD and push to origin?" || exit 1
+  echo ">>> Creating ${NEW_STABLE} from main HEAD"
+  git checkout -b "$NEW_STABLE"
+  git push -u origin "$NEW_STABLE"
+  echo "    ✅ ${NEW_STABLE} created and pushed"
+}
 
-  init_release "$AUTO_VERSION"
+# Echo the version of any in-progress release for ${AUTO_MAJOR}.${AUTO_MINOR}, or empty.
+# Journal-mode scans local STATE_DIR; stateless mode scans remote prepare-release-v*
+# branches whose tags aren't yet pushed (same heuristic, from GitHub instead of disk).
+_auto_scan_in_progress() {
+  if (( JOURNAL_ENABLED )) && [[ -d "$STATE_DIR" ]]; then
+    local j jv pub
+    for j in "$STATE_DIR"/v*.json; do
+      [[ -f "$j" ]] || continue
+      jv=$(jq -r .version "$j")
+      [[ "$jv" == "${AUTO_MAJOR}.${AUTO_MINOR}."* ]] || continue
+      pub=$(jq -r '.steps.release_published // empty' "$j")
+      [[ -z "$pub" ]] && { echo "$jv"; return; }
+    done
+  fi
+  local _remote="https://github.com/${REPO}.git"
+  local _candidates _pv result=""
+  _candidates=$(git ls-remote --heads "$_remote" \
+    "prepare-release-v${AUTO_MAJOR}.${AUTO_MINOR}.*" 2>/dev/null \
+    | awk '{print $2}' | sed 's|^refs/heads/prepare-release-v||' | sort -V)
+  while IFS= read -r _pv; do
+    [[ -z "$_pv" ]] && continue
+    if ! git_remote_tag_exists "v${_pv}"; then
+      result="$_pv"  # keep going — last (highest) wins
+    fi
+  done <<< "$_candidates"
+  echo "$result"
+}
 
-  local NEXT; NEXT=$(determine_next_step)
-  echo ">>> Next step: ${NEXT}"
-  echo ""
+# Compute the next patch version on stable/v${AUTO_MAJOR}.${AUTO_MINOR}.
+# Ignores pre-release tags (vX.Y.Z-rc.N) — they aren't release tags and would
+# confuse ${LATEST##*.}.
+_auto_next_patch_version() {
+  git fetch --tags -q 2>/dev/null || echo "    ⚠️  git fetch --tags failed; using local refs" >&2
+  local LATEST; LATEST=$(git tag --list "v${AUTO_MAJOR}.${AUTO_MINOR}.*" --sort=-v:refname \
+    | grep -E "^v${AUTO_MAJOR}\.${AUTO_MINOR}\.[0-9]+$" | head -1)
+  local NEXT_PATCH; NEXT_PATCH=$([[ -n "$LATEST" ]] && echo "$(( ${LATEST##*.} + 1 ))" || echo "0")
+  echo "${AUTO_MAJOR}.${AUTO_MINOR}.${NEXT_PATCH}"
+}
 
-  case "$NEXT" in
+# On stable/vX.Y → resume any in-progress release, or cut a new patch.
+_auto_from_stable() {
+  AUTO_MAJOR="$1"
+  AUTO_MINOR="$2"
+  local IN_PROGRESS; IN_PROGRESS=$(_auto_scan_in_progress)
+  if [[ -n "$IN_PROGRESS" ]]; then
+    AUTO_VERSION="$IN_PROGRESS"
+    echo ">>> Resuming in-progress release v${AUTO_VERSION}"
+  else
+    AUTO_VERSION=$(_auto_next_patch_version)
+    echo ">>> Starting new release v${AUTO_VERSION}"
+  fi
+}
+
+# On prepare-release-vX.Y.Z[-rc.N] → resume that exact release.
+_auto_from_prep_branch() {
+  AUTO_VERSION="$1"
+  AUTO_MAJOR="${AUTO_VERSION%%.*}"
+  local _rest="${AUTO_VERSION#*.}"
+  AUTO_MINOR="${_rest%%.*}"
+  echo ">>> On prepare branch — resuming v${AUTO_VERSION}"
+}
+
+# Dispatch to the right handler for the resolved next step.
+_auto_dispatch() {
+  case "$1" in
     prepare)     cmd_prepare ;;
     qa)          cmd_qa ;;
     await_merge) print_await_merge ;;
@@ -1382,6 +1400,38 @@ cmd_auto() {
       echo "   Release: ${RELEASE_URL}"
       ;;
   esac
+}
+
+cmd_auto() {
+  local BRANCH; BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  local AUTO_VERSION="" AUTO_MAJOR="" AUTO_MINOR=""
+
+  case "$BRANCH" in
+    main)
+      _auto_from_main
+      ;;
+    stable/v*)
+      [[ "$BRANCH" =~ ^stable/v([0-9]+)\.([0-9]+)$ ]] || {
+        echo "ERROR: Unrecognized stable branch '${BRANCH}'." >&2; exit 1; }
+      _auto_from_stable "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+      ;;
+    prepare-release-v*)
+      [[ "$BRANCH" =~ ^prepare-release-v([0-9]+\.[0-9]+\.[0-9]+(-(rc|alpha|beta)\.[0-9]+)?)$ ]] || {
+        echo "ERROR: Unrecognized prepare branch '${BRANCH}'." >&2; exit 1; }
+      _auto_from_prep_branch "${BASH_REMATCH[1]}"
+      ;;
+    *)
+      echo "ERROR: Unrecognized branch '${BRANCH}'." >&2
+      echo "       Expected: main, stable/vX.Y, or prepare-release-vX.Y.Z" >&2
+      exit 1
+      ;;
+  esac
+
+  init_release "$AUTO_VERSION"
+  local NEXT; NEXT=$(determine_next_step)
+  echo ">>> Next step: ${NEXT}"
+  echo ""
+  _auto_dispatch "$NEXT"
 }
 
 # ─── entry point ──────────────────────────────────────────────────────────────
