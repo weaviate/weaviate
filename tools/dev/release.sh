@@ -44,6 +44,7 @@ REPO="weaviate/weaviate"
 STATE_DIR="_local/release"
 SPEC="openapi-specs/schema.json"
 QA_PR_SH="${QA_PR_SH:-$(cd "$(dirname "$0")" && pwd)/qa_pr.sh}"
+CREATE_RELEASE_SH="${CREATE_RELEASE_SH:-$(cd "$(dirname "$0")" && pwd)/create_release.sh}"
 
 # X.Y.Z or X.Y.Z-rc.N / -alpha.N / -beta.N (lowercase pre-release tags only).
 VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+(-(rc|alpha|beta)\.[0-9]+)?$'
@@ -303,7 +304,8 @@ STATE SOURCES
     reset-step <ver> <step>
 
 ENVIRONMENT
-  QA_PR_SH     Override path to qa_pr.sh (default: tools/dev/qa_pr.sh next to this script)
+  QA_PR_SH          Override path to qa_pr.sh         (default: next to this script)
+  CREATE_RELEASE_SH Override path to create_release.sh (default: next to this script)
 
 EXAMPLES
   # Start or resume the next patch on the current stable branch:
@@ -834,8 +836,8 @@ _prepare_setup_branch() {
 }
 
 # Delegate the prep core (schema.json bump + make deps + prepare_release.sh)
-# to tools/dev/create_release.sh. We're already on PREP_BRANCH, so no
-# --branch flag — create_release.sh just runs the in-place mechanics.
+# to create_release.sh. We're already on PREP_BRANCH, so no --branch flag —
+# create_release.sh just runs the in-place mechanics.
 _prepare_run_create_release() {
   if git rev-parse "v${VERSION}" &>/dev/null 2>&1; then
     echo ">>> Tag v${VERSION} already exists locally — skipping create_release.sh"
@@ -843,9 +845,11 @@ _prepare_run_create_release() {
     state_ensure prepare_release_sh tag=preexisting
     return
   fi
+  [[ -x "$CREATE_RELEASE_SH" || -f "$CREATE_RELEASE_SH" ]] || {
+    echo "ERROR: create_release.sh not found at $CREATE_RELEASE_SH" >&2; exit 1; }
   local CURRENT; CURRENT="$(jq -r '.info.version' "$SPEC")"
-  echo ">>> Delegating prepare core to tools/dev/create_release.sh"
-  tools/dev/create_release.sh "${VERSION}"
+  echo ">>> Delegating prepare core to $CREATE_RELEASE_SH"
+  bash "$CREATE_RELEASE_SH" "${VERSION}"
   # Verify the on-disk bump landed before recording state. create_release.sh
   # is deterministic, but a stale checkout or jq failure would leave us
   # claiming success on an unchanged schema.json.
