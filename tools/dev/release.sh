@@ -762,33 +762,35 @@ require_repo_root() {
 
 # ─── cmd_prepare ─────────────────────────────────────────────────────────────
 
-cmd_prepare() {
-  require_repo_root
-  echo ">>> Release: v${VERSION}  branch: ${STABLE_BRANCH}"
-  # journal file (if --journal) is already created by init_release
-
-  git fetch --all --prune --tags -q
-
-  # Merge-forward audit — informational, never gates.
+# Merge-forward audit — informational, never gates.
+_prepare_audit_merge_forward() {
   local PREV_MINOR=$(( MINOR_VER - 1 ))
   local PREV_STABLE="stable/v${MAJOR}.${PREV_MINOR}"
   echo ""
   echo ">>> Merge-forward audit: ${PREV_STABLE} → ${STABLE_BRANCH}"
-  if git_local_ref_exists "refs/remotes/origin/${PREV_STABLE}"; then
-    local COUNT; COUNT=$(git log --oneline "origin/${PREV_STABLE}" ^"origin/${STABLE_BRANCH}" | wc -l | tr -d ' ')
-    local AUDIT_STATUS; AUDIT_STATUS=$([[ "$COUNT" -eq 0 ]] && echo "In Sync" || echo "Needs Attention")
-    echo "    ${PREV_STABLE} → ${STABLE_BRANCH}: ${AUDIT_STATUS}"
-    state_complete merge_forward_audit status="$AUDIT_STATUS"
-  else
+  if ! git_local_ref_exists "refs/remotes/origin/${PREV_STABLE}"; then
     echo "    (no ${PREV_STABLE} on remote — skipping)"
+    return
   fi
+  local COUNT; COUNT=$(git log --oneline "origin/${PREV_STABLE}" ^"origin/${STABLE_BRANCH}" | wc -l | tr -d ' ')
+  local AUDIT_STATUS; AUDIT_STATUS=$([[ "$COUNT" -eq 0 ]] && echo "In Sync" || echo "Needs Attention")
+  echo "    ${PREV_STABLE} → ${STABLE_BRANCH}: ${AUDIT_STATUS}"
+  state_complete merge_forward_audit status="$AUDIT_STATUS"
+}
 
+# Get onto PREP_BRANCH. Three modes:
+#   recorded → state already knows about the branch; just check it out
+#   existing → branch exists on remote; check out and warn on local/remote drift
+#   new      → cut a fresh branch off STABLE_BRANCH
+_prepare_setup_branch() {
   echo ""
   echo ">>> Preparing branch ${PREP_BRANCH}"
   if state_done branch_setup; then
     echo "    Branch setup already recorded — checking out ${PREP_BRANCH}"
     git checkout "${PREP_BRANCH}"
-  elif git_local_ref_exists "refs/remotes/origin/${PREP_BRANCH}"; then
+    return
+  fi
+  if git_local_ref_exists "refs/remotes/origin/${PREP_BRANCH}"; then
     echo "    Branch already on remote — checking out"
     git checkout "${PREP_BRANCH}"
     local LOCAL_SHA REMOTE_SHA
@@ -799,46 +801,52 @@ cmd_prepare() {
       echo "       Reconcile manually before continuing."
     fi
     state_complete branch_setup mode=existing
-  else
-    git checkout "${STABLE_BRANCH}"
-    git pull -q
-    git checkout -b "${PREP_BRANCH}"
-    state_complete branch_setup mode=new
+    return
   fi
+  git checkout "${STABLE_BRANCH}"
+  git pull -q
+  git checkout -b "${PREP_BRANCH}"
+  state_complete branch_setup mode=new
+}
 
-  # Delegate the prep core (schema.json bump + make deps + prepare_release.sh)
-  # to tools/dev/create_release.sh. We're already on PREP_BRANCH, so no
-  # --branch flag — create_release.sh just runs the in-place mechanics.
+# Delegate the prep core (schema.json bump + make deps + prepare_release.sh)
+# to tools/dev/create_release.sh. We're already on PREP_BRANCH, so no
+# --branch flag — create_release.sh just runs the in-place mechanics.
+_prepare_run_create_release() {
   if git rev-parse "v${VERSION}" &>/dev/null 2>&1; then
     echo ">>> Tag v${VERSION} already exists locally — skipping create_release.sh"
     state_ensure schema_bump tag=preexisting
     state_ensure prepare_release_sh tag=preexisting
-  else
-    local CURRENT; CURRENT="$(jq -r '.info.version' "$SPEC")"
-    echo ">>> Delegating prepare core to tools/dev/create_release.sh"
-    tools/dev/create_release.sh "${VERSION}"
-    # Verify the on-disk bump landed before recording state. create_release.sh
-    # is deterministic, but a stale checkout or jq failure would leave us
-    # claiming success on an unchanged schema.json.
-    local NEW_VER; NEW_VER=$(jq -r '.info.version' "$SPEC")
-    if [[ "$NEW_VER" != "$VERSION" ]]; then
-      echo "ERROR: schema.json bump failed — expected ${VERSION}, got ${NEW_VER}." >&2
-      exit 1
-    fi
-    state_complete schema_bump from="$CURRENT" to="$VERSION"
-    echo ""
-    echo "    ⚠️  Tag v${VERSION} created LOCALLY. Do not push it yet."
-    state_complete prepare_release_sh
+    return
   fi
+  local CURRENT; CURRENT="$(jq -r '.info.version' "$SPEC")"
+  echo ">>> Delegating prepare core to tools/dev/create_release.sh"
+  tools/dev/create_release.sh "${VERSION}"
+  # Verify the on-disk bump landed before recording state. create_release.sh
+  # is deterministic, but a stale checkout or jq failure would leave us
+  # claiming success on an unchanged schema.json.
+  local NEW_VER; NEW_VER=$(jq -r '.info.version' "$SPEC")
+  if [[ "$NEW_VER" != "$VERSION" ]]; then
+    echo "ERROR: schema.json bump failed — expected ${VERSION}, got ${NEW_VER}." >&2
+    exit 1
+  fi
+  state_complete schema_bump from="$CURRENT" to="$VERSION"
+  echo ""
+  echo "    ⚠️  Tag v${VERSION} created LOCALLY. Do not push it yet."
+  state_complete prepare_release_sh
+}
 
+_prepare_push_branch() {
   confirm "Push ${PREP_BRANCH} to origin?" || exit 1
   echo ">>> Pushing ${PREP_BRANCH}"
   git push -u origin "${PREP_BRANCH}"
   state_complete branch_push
+}
 
-  # Create PR (idempotent — skip if one already exists for this branch).
+# Sets PR_NUMBER and PR_URL (inherited from cmd_prepare's locals via dynamic scope).
+# Idempotent: if a PR already exists for PREP_BRANCH, reuse it instead of creating a duplicate.
+_prepare_open_or_reuse_pr() {
   local EXISTING_PR; EXISTING_PR=$(gh_pr_for_branch "${PREP_BRANCH}" | jq -r '.number // ""')
-  local PR_NUMBER PR_URL
   if [[ -n "$EXISTING_PR" ]]; then
     PR_NUMBER="$EXISTING_PR"
     PR_URL="https://github.com/${REPO}/pull/${EXISTING_PR}"
@@ -861,10 +869,23 @@ cmd_prepare() {
     PR_NUMBER="${PR_URL##*/}"
     echo ">>> PR created: ${PR_URL}"
   fi
-
   state_set pr_number "$PR_NUMBER"
   state_set pr_url    "$PR_URL"
   state_ensure pr_create
+}
+
+cmd_prepare() {
+  require_repo_root
+  echo ">>> Release: v${VERSION}  branch: ${STABLE_BRANCH}"
+  # journal file (if --journal) is already created by init_release
+  git fetch --all --prune --tags -q
+
+  local PR_NUMBER="" PR_URL=""
+  _prepare_audit_merge_forward
+  _prepare_setup_branch
+  _prepare_run_create_release
+  _prepare_push_branch
+  _prepare_open_or_reuse_pr
 
   gate_banner "GATE 1 — prep branch and PR ready" \
     "PR: ${PR_URL}" \
@@ -1079,7 +1100,10 @@ cmd_finalize() {
 
 # ─── cmd_monitor_qa ──────────────────────────────────────────────────────────
 
-cmd_monitor_qa() {
+# monitor-qa requires the journal so it can record the qa_done step and any
+# qa_run_urls discovered during the poll loop. Without --journal we have no
+# place to persist that state across re-runs.
+_monitor_qa_require_journal() {
   if [[ -z "$STATE_FILE" ]]; then
     cat >&2 <<EOF
 ERROR: monitor-qa requires --journal (state file holds the qa_dispatched marker
@@ -1089,22 +1113,102 @@ EOF
     exit 1
   fi
   [[ -f "$STATE_FILE" ]] || { echo "ERROR: no state file at ${STATE_FILE} for v${VERSION} — run 'qa ${VERSION}' first." >&2; exit 1; }
+}
 
-  local QA_ISSUE_NUMBER
+# Sets QA_ISSUE_NUMBER and QA_ISSUE_URL (inherited from cmd_monitor_qa via dynamic scope).
+# Exits 1 if no open issue exists — that means QA was never dispatched.
+_monitor_qa_resolve_issue() {
   QA_ISSUE_NUMBER=$(gh_qa_issue_number "$VERSION")
   [[ -n "$QA_ISSUE_NUMBER" ]] || {
     echo "ERROR: no open QA issue for v${VERSION} in weaviate/weaviate-qa — dispatch QA first." >&2
     exit 1; }
-  local QA_ISSUE_URL; QA_ISSUE_URL=$(qa_issue_url_for "$QA_ISSUE_NUMBER")
+  QA_ISSUE_URL=$(qa_issue_url_for "$QA_ISSUE_NUMBER")
+}
 
-  if state_done qa_done; then
-    local result; result=$(state_get '.steps.qa_done.result')
-    echo ">>> QA already settled: ${result}"
-    [[ "$result" == "passed" ]] && return 0 || return 1
+# If qa_done was already recorded (re-run after a prior settle), short-circuit
+# without polling. Returns:
+#   0 → already settled, passed
+#   1 → already settled, failed
+#   2 → not settled yet; caller must run the poll loop
+_monitor_qa_short_circuit_if_done() {
+  state_done qa_done || return 2
+  local result; result=$(state_get '.steps.qa_done.result')
+  echo ">>> QA already settled: ${result}"
+  [[ "$result" == "passed" ]]
+}
+
+# One iteration of the poll loop. Echoes a status line on success.
+# Returns:
+#   0 → continue polling (matched terminal state or unfinished but no error)
+#   2 → terminal Passed
+#   3 → terminal Failed
+# Sets E2E_RUN_URL / CHAOS_RUN_URL / urls_saved in caller scope (dynamic scope).
+_monitor_qa_poll_once() {
+  local board_data
+  if ! board_data=$(gh api graphql -F n="$QA_ISSUE_NUMBER" -f query="$GRAPHQL_BOARD_QUERY" 2>&1); then
+    echo "    ⚠️  graphql call failed: ${board_data:0:200}" >&2
+    return 0
+  fi
+  if ! jq -e '.data.repository.issue' <<<"$board_data" >/dev/null 2>&1; then
+    echo "    ⚠️  unexpected graphql response shape — skipping cycle (first 200 chars: ${board_data:0:200})" >&2
+    return 0
   fi
 
-  local E2E_RUN_URL="" CHAOS_RUN_URL="" urls_saved=0
+  local matched; matched=$(jq -r '
+    [.data.repository.issue.projectItems.nodes[] | select(.project.title=="Central CI View")]
+    | length' <<<"$board_data")
+  if [[ "$matched" == "0" ]]; then
+    echo "    ⚠️  issue not yet linked to 'Central CI View' — waiting" >&2
+  fi
 
+  local e2e_status chaos_status e2e_url chaos_url
+  e2e_status=$(_board_field   "$board_data" single "E2E")
+  chaos_status=$(_board_field "$board_data" single "Chaos")
+  e2e_url=$(_board_field      "$board_data" text   "E2E Job")
+  chaos_url=$(_board_field    "$board_data" text   "Chaos Job")
+  e2e_status="${e2e_status:-—}"
+  chaos_status="${chaos_status:-—}"
+  [[ -n "$e2e_url"   ]] && E2E_RUN_URL="$e2e_url"
+  [[ -n "$chaos_url" ]] && CHAOS_RUN_URL="$chaos_url"
+  if (( ! urls_saved )) && [[ -n "$E2E_RUN_URL" || -n "$CHAOS_RUN_URL" ]]; then
+    state_complete qa_run_urls e2e="${E2E_RUN_URL:-}" chaos="${CHAOS_RUN_URL:-}"
+    [[ -n "$E2E_RUN_URL"   ]] && echo "    E2E:   ${E2E_RUN_URL}"
+    [[ -n "$CHAOS_RUN_URL" ]] && echo "    Chaos: ${CHAOS_RUN_URL}"
+    urls_saved=1
+  fi
+
+  echo "    [$(date '+%H:%M')] E2E: ${e2e_status}  Chaos: ${chaos_status}"
+
+  local e2e_done=0 chaos_done=0
+  [[ "$e2e_status" == "Passed" || "$e2e_status" == "Failed" ]] && e2e_done=1
+  [[ "$chaos_status" == "Passed" || "$chaos_status" == "Failed" ]] && chaos_done=1
+  (( e2e_done && chaos_done )) || return 0
+
+  echo ""
+  if [[ "$e2e_status" == "Passed" && "$chaos_status" == "Passed" ]]; then
+    echo "    ✅ QA green — E2E: Passed  Chaos: Passed"
+    [[ -n "$E2E_RUN_URL"   ]] && echo "       E2E run:   ${E2E_RUN_URL}"
+    [[ -n "$CHAOS_RUN_URL" ]] && echo "       Chaos run: ${CHAOS_RUN_URL}"
+    state_complete qa_done result=passed e2e="$e2e_status" chaos="$chaos_status"
+    return 2
+  fi
+  echo "    ❌ QA failed — E2E: ${e2e_status}  Chaos: ${chaos_status}"
+  [[ -n "$E2E_RUN_URL"   ]] && echo "       E2E run:   ${E2E_RUN_URL}"
+  [[ -n "$CHAOS_RUN_URL" ]] && echo "       Chaos run: ${CHAOS_RUN_URL}"
+  state_complete qa_done result=failed e2e="$e2e_status" chaos="$chaos_status"
+  return 3
+}
+
+cmd_monitor_qa() {
+  _monitor_qa_require_journal
+  local QA_ISSUE_NUMBER="" QA_ISSUE_URL=""
+  _monitor_qa_resolve_issue
+
+  local short_rc=0
+  _monitor_qa_short_circuit_if_done || short_rc=$?
+  (( short_rc == 2 )) || return $short_rc  # 0 or 1 → already settled; 2 → fall through.
+
+  local E2E_RUN_URL="" CHAOS_RUN_URL="" urls_saved=0
   echo ">>> Monitoring QA for v${VERSION}"
   echo "    Issue: ${QA_ISSUE_URL}"
   echo "    Polling every 5 min (2h cap). Ctrl-C to abort."
@@ -1116,67 +1220,13 @@ EOF
   # The "E2E Job" / "Chaos Job" text fields hold the run URLs once the downstream workflows start.
   local deadline=$(( $(date +%s) + 7200 ))
   while (( $(date +%s) < deadline )); do
-    local board_data
-    if ! board_data=$(gh api graphql -F n="$QA_ISSUE_NUMBER" -f query="$GRAPHQL_BOARD_QUERY" 2>&1); then
-      echo "    ⚠️  graphql call failed: ${board_data:0:200}" >&2
-      sleep 300
-      continue
-    fi
-
-    if ! jq -e '.data.repository.issue' <<<"$board_data" >/dev/null 2>&1; then
-      echo "    ⚠️  unexpected graphql response shape — skipping cycle (first 200 chars: ${board_data:0:200})" >&2
-      sleep 300
-      continue
-    fi
-
-    local matched; matched=$(jq -r '
-      [.data.repository.issue.projectItems.nodes[] | select(.project.title=="Central CI View")]
-      | length' <<<"$board_data")
-    if [[ "$matched" == "0" ]]; then
-      echo "    ⚠️  issue not yet linked to 'Central CI View' — waiting" >&2
-    fi
-
-    local e2e_status chaos_status e2e_url chaos_url
-    e2e_status=$(_board_field   "$board_data" single "E2E")
-    chaos_status=$(_board_field "$board_data" single "Chaos")
-    e2e_url=$(_board_field      "$board_data" text   "E2E Job")
-    chaos_url=$(_board_field    "$board_data" text   "Chaos Job")
-    e2e_status="${e2e_status:-—}"
-    chaos_status="${chaos_status:-—}"
-    [[ -n "$e2e_url"   ]] && E2E_RUN_URL="$e2e_url"
-    [[ -n "$chaos_url" ]] && CHAOS_RUN_URL="$chaos_url"
-    if (( ! urls_saved )) && [[ -n "$E2E_RUN_URL" || -n "$CHAOS_RUN_URL" ]]; then
-      state_complete qa_run_urls e2e="${E2E_RUN_URL:-}" chaos="${CHAOS_RUN_URL:-}"
-      [[ -n "$E2E_RUN_URL"   ]] && echo "    E2E:   ${E2E_RUN_URL}"
-      [[ -n "$CHAOS_RUN_URL" ]] && echo "    Chaos: ${CHAOS_RUN_URL}"
-      urls_saved=1
-    fi
-
-    echo "    [$(date '+%H:%M')] E2E: ${e2e_status}  Chaos: ${chaos_status}"
-
-    local e2e_done=0 chaos_done=0
-    [[ "$e2e_status" == "Passed" || "$e2e_status" == "Failed" ]] && e2e_done=1
-    [[ "$chaos_status" == "Passed" || "$chaos_status" == "Failed" ]] && chaos_done=1
-
-    if (( e2e_done && chaos_done )); then
-      if [[ "$e2e_status" == "Passed" && "$chaos_status" == "Passed" ]]; then
-        echo ""
-        echo "    ✅ QA green — E2E: Passed  Chaos: Passed"
-        [[ -n "$E2E_RUN_URL"   ]] && echo "       E2E run:   ${E2E_RUN_URL}"
-        [[ -n "$CHAOS_RUN_URL" ]] && echo "       Chaos run: ${CHAOS_RUN_URL}"
-        state_complete qa_done result=passed e2e="$e2e_status" chaos="$chaos_status"
-        return 0
-      else
-        echo ""
-        echo "    ❌ QA failed — E2E: ${e2e_status}  Chaos: ${chaos_status}"
-        [[ -n "$E2E_RUN_URL"   ]] && echo "       E2E run:   ${E2E_RUN_URL}"
-        [[ -n "$CHAOS_RUN_URL" ]] && echo "       Chaos run: ${CHAOS_RUN_URL}"
-        state_complete qa_done result=failed e2e="$e2e_status" chaos="$chaos_status"
-        return 1
-      fi
-    fi
-
-    sleep 300
+    local rc=0; _monitor_qa_poll_once || rc=$?
+    case $rc in
+      0) sleep 300 ;;             # continue polling
+      2) return 0 ;;              # passed
+      3) return 1 ;;              # failed
+      *) echo "internal: _monitor_qa_poll_once returned $rc" >&2; return 1 ;;
+    esac
   done
 
   echo "⚠️  monitor-qa timed out after 2h — check board manually: ${QA_ISSUE_URL}"
