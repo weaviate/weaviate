@@ -971,7 +971,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// on its periodic tick (default 1 minute), so a barrier opening from the
 	// last unit's terminal transition would stagger across nodes by up to
 	// one tick interval. See [distributedtask.SchedulerNotifier].
-	appState.ClusterService.Raft.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
+	appState.ClusterService.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
