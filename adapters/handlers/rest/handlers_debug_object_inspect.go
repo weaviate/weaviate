@@ -322,6 +322,18 @@ func forwardObjectInspect(r *http.Request, appState *state.State, ownerNode stri
 	q.Set("_forwarded", "1")
 	q.Del("collection")
 	q.Set("collection", params.Collection)
+	// Reflect parsed `params` onto the forwarded URL so flags we set
+	// internally (POST forces Verbose, the outer caller's choice of
+	// AllReplicas / DumpAll / Limit / Tenant) reach the remote node even when
+	// they weren't on the original request line.
+	if params.Verbose {
+		q.Set("verbose", "true")
+	} else {
+		q.Del("verbose")
+	}
+	// Forwarded requests must never recursively fan out — the outer caller
+	// already orchestrates per-replica dispatch.
+	q.Del("all_replicas")
 
 	url := fmt.Sprintf("http://%s:6060/debug/objects/inspect?%s", addr, q.Encode())
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
