@@ -994,7 +994,7 @@ func enforceNamespaceStartupInvariants(enabled bool, lsmSkipWriteClassNameEnable
 
 	switch {
 	case enabled && !lsmSkipWriteClassNameEnabled:
-		return fmt.Errorf("NAMESPACES_ENABLED=true requires LSMSkipWriteClassNameEnabled=true")
+		return fmt.Errorf("internal invariant violated: NAMESPACES_ENABLED=true but LSMSkipWriteClassNameEnabled=false; environment.go env-var wiring is broken")
 	case enabled && nonNamespacedCount > 0:
 		return fmt.Errorf("NAMESPACES_ENABLED=true but cluster has %d non-namespaced collection(s) (e.g. %q); namespaces can only be enabled on newly bootstrapped clusters or on clusters whose collections are all already namespace-qualified", nonNamespacedCount, nonNamespacedExample)
 	case !enabled && nsCount > 0:

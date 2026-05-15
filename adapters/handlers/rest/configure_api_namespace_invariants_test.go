@@ -73,7 +73,7 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			classNames:                   nil,
 			nsCount:                      0,
 			wantErr:                      true,
-			errSubstr:                    "PERSISTENCE_LSM_SKIP_WRITE_CLASSNAME_ENABLED=true",
+			errSubstr:                    "internal invariant violated",
 		},
 		{
 			name:       "disabled, fresh cluster",
