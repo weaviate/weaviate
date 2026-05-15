@@ -76,6 +76,40 @@ type Provider interface {
 	StartTask(task *Task) (TaskHandle, error)
 }
 
+// RecoveryAwareProvider is an optional interface providers implement to
+// participate in post-restart callback retry. The Scheduler's bootstrap
+// pre-mark (which normally suppresses replay of callbacks that fired
+// pre-restart) calls into this hook for every terminal task; if the
+// provider reports the local-side callback as NOT yet durably complete,
+// the scheduler skips the pre-mark for that task so the next tick
+// re-fires OnGroupCompleted and the provider's recovery path can
+// finish the half-applied work.
+//
+// Motivating scenario (RollingRestartMidMigration): a node's
+// OnGroupCompleted started running, completed swap for 2 of 3 local
+// shards, then context-cancelled mid-shutdown of the 3rd shard's
+// reindex bucket because the rolling restart began. The task is
+// FINISHED in RAFT (the unit-completion was recorded before
+// OnGroupCompleted fired), so without this hook the bootstrap pre-mark
+// silently suppresses the retry and the 3rd shard stays at the old
+// tokenization forever — per-replica divergence (#10675 family).
+type RecoveryAwareProvider interface {
+	Provider
+
+	// LocalCallbacksDone returns true iff this provider has verified,
+	// from durable local state, that OnGroupCompleted (and any
+	// follow-up local recovery) has completed successfully for every
+	// unit assigned to localNode. Returning false means "the
+	// bootstrap pre-mark should NOT suppress callback replay for
+	// this task — let OnGroupCompleted re-fire on next tick so the
+	// provider can finish recovery."
+	//
+	// Called from [Scheduler.preMarkTerminalCallbacksLocked] under
+	// s.mu, ONCE per terminal task at bootstrap. Implementations
+	// should treat this as a cheap on-disk check.
+	LocalCallbacksDone(task *Task, localNode string) bool
+}
+
 // UnitAwareProvider fires per-group callbacks as groups complete (mid-flight),
 // then a global OnTaskCompleted when the task reaches terminal state.
 //

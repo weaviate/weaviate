@@ -1183,3 +1183,148 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 	require.False(t, s.groupCallbackFired[startedDesc]["g1"],
 		"Started task's group must NOT be pre-marked — its OnGroupCompleted needs to fire when the group completes")
 }
+
+// recoveryAwareTestProvider is a minimal provider that implements
+// [RecoveryAwareProvider] for the bootstrap pre-mark unit tests. The
+// LocalCallbacksDone return value is configurable so tests can pin
+// each branch (recovery-needed vs done) without standing up a real
+// reindex backend.
+type recoveryAwareTestProvider struct {
+	doneByDesc map[TaskDescriptor]bool
+}
+
+func (p *recoveryAwareTestProvider) SetCompletionRecorder(_ TaskCompletionRecorder) {
+}
+func (p *recoveryAwareTestProvider) GetLocalTasks() []TaskDescriptor { return nil }
+func (p *recoveryAwareTestProvider) CleanupTask(_ TaskDescriptor) error {
+	return nil
+}
+
+func (p *recoveryAwareTestProvider) StartTask(_ *Task) (TaskHandle, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (p *recoveryAwareTestProvider) LocalCallbacksDone(task *Task, _ string) bool {
+	if v, ok := p.doneByDesc[task.TaskDescriptor]; ok {
+		return v
+	}
+	return true
+}
+
+// TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending pins that
+// a [RecoveryAwareProvider] reporting LocalCallbacksDone=false for a
+// FINISHED task causes the bootstrap pre-mark to skip that task — so
+// OnGroupCompleted will re-fire on the next scheduler tick and complete
+// any half-applied local state. This is the RollingRestartMidMigration
+// regression: without the hook, the half-applied swap is silently
+// suppressed forever.
+func TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending(t *testing.T) {
+	pendingDesc := TaskDescriptor{ID: "pending-recovery", Version: 1}
+	doneDesc := TaskDescriptor{ID: "done", Version: 2}
+	failedDesc := TaskDescriptor{ID: "failed-not-checked", Version: 3}
+
+	provider := &recoveryAwareTestProvider{
+		doneByDesc: map[TaskDescriptor]bool{
+			pendingDesc: false,
+			doneDesc:    true,
+			// failedDesc not in map → default true; but the pre-mark
+			// SHOULD NOT consult it (failed tasks bypass the hook).
+		},
+	}
+
+	s := NewScheduler(SchedulerParams{
+		Logger:             func() logrus.FieldLogger { l, _ := logrustest.NewNullLogger(); return l }(),
+		Providers:          map[string]Provider{"ns": provider},
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          "node-a",
+		CompletedTaskTTL:   24 * time.Hour,
+		TickInterval:       30 * time.Second,
+		CompletionRecorder: nil,
+		TasksLister:        nil,
+		TaskCleaner:        nil,
+	})
+
+	mkTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
+		task := &Task{
+			TaskDescriptor: d,
+			Status:         status,
+			Units:          map[string]*Unit{},
+		}
+		for i, g := range groups {
+			id := fmt.Sprintf("u-%d", i)
+			task.Units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
+		}
+		return task
+	}
+
+	snapshot := map[string]map[TaskDescriptor]*Task{
+		"ns": {
+			pendingDesc: mkTask(pendingDesc, TaskStatusFinished, "g1", "g2"),
+			doneDesc:    mkTask(doneDesc, TaskStatusFinished, "g1"),
+			failedDesc:  mkTask(failedDesc, TaskStatusFailed, "g1"),
+		},
+	}
+
+	s.mu.Lock()
+	s.preMarkTerminalCallbacksLocked(snapshot)
+	s.mu.Unlock()
+
+	// pending-recovery: LocalCallbacksDone=false → NOT pre-marked.
+	require.False(t, s.completedCallbackFired[pendingDesc],
+		"pending-recovery task MUST NOT be pre-marked — OnGroupCompleted needs to re-fire to complete the half-applied swap")
+	require.False(t, s.groupCallbackFired[pendingDesc]["g1"],
+		"pending-recovery task's g1 MUST NOT be pre-marked")
+	require.False(t, s.groupCallbackFired[pendingDesc]["g2"],
+		"pending-recovery task's g2 MUST NOT be pre-marked")
+
+	// done: LocalCallbacksDone=true → pre-marked normally.
+	require.True(t, s.completedCallbackFired[doneDesc],
+		"done task MUST be pre-marked")
+	require.True(t, s.groupCallbackFired[doneDesc]["g1"],
+		"done task's g1 MUST be pre-marked")
+
+	// failed: hook NOT consulted; pre-marked normally.
+	require.True(t, s.completedCallbackFired[failedDesc],
+		"failed task MUST be pre-marked — the recovery-aware hook only applies to FINISHED tasks")
+	require.True(t, s.groupCallbackFired[failedDesc]["g1"],
+		"failed task's g1 MUST be pre-marked")
+}
+
+// TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged
+// pins that a provider WITHOUT the optional RecoveryAwareProvider
+// interface behaves exactly as the original pre-mark (every terminal
+// task and group fired). The new code path must be strictly additive.
+func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *testing.T) {
+	finishedDesc := TaskDescriptor{ID: "finished", Version: 1}
+
+	// Pass a Provider that does NOT implement RecoveryAwareProvider.
+	s := NewScheduler(SchedulerParams{
+		Logger:             func() logrus.FieldLogger { l, _ := logrustest.NewNullLogger(); return l }(),
+		Providers:          map[string]Provider{"ns": &testTaskProvider{}},
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          "node-a",
+		CompletedTaskTTL:   24 * time.Hour,
+		TickInterval:       30 * time.Second,
+		CompletionRecorder: nil,
+		TasksLister:        nil,
+		TaskCleaner:        nil,
+	})
+
+	task := &Task{
+		TaskDescriptor: finishedDesc,
+		Status:         TaskStatusFinished,
+		Units: map[string]*Unit{
+			"u-0": {ID: "u-0", GroupID: "g1", NodeID: "node-a"},
+		},
+	}
+	snapshot := map[string]map[TaskDescriptor]*Task{
+		"ns": {finishedDesc: task},
+	}
+
+	s.mu.Lock()
+	s.preMarkTerminalCallbacksLocked(snapshot)
+	s.mu.Unlock()
+
+	require.True(t, s.completedCallbackFired[finishedDesc])
+	require.True(t, s.groupCallbackFired[finishedDesc]["g1"])
+}

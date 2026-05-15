@@ -1006,6 +1006,18 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			return fmt.Errorf("flushing reindex bucket %q: %w", reindexName, err)
 		}
 		reindexDir := reindexBucket.GetDir()
+		// FOLLOW-UP: store.ShutdownBucket / bucket.Shutdown does not abort
+		// an in-flight long-running compaction when ctx is cancelled —
+		// it waits for the compaction to finish naturally and only then
+		// observes the cancellation, returning "long-running compaction
+		// in progress: context canceled". During a graceful shutdown
+		// (rolling restart) this means the swap can be interrupted mid-
+		// flight even though there's a clean exit path that doesn't
+		// touch the compaction's output. The recovery hook below
+		// (RecoveryAwareProvider.LocalCallbacksDone) catches the resulting
+		// half-applied state on the next boot, but the *underlying* LSM
+		// shutdown should also be made compaction-aware so the swap
+		// completes cleanly on the original node. Tracked separately.
 		if err := store.ShutdownBucket(ctx, reindexName); err != nil {
 			return fmt.Errorf("shutting down reindex bucket %q: %w", reindexName, err)
 		}

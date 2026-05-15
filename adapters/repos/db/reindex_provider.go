@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -1024,6 +1026,139 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.WithError(err).Error("reindex provider: OnTaskCompleted: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state)")
 	}
+}
+
+// LocalCallbacksDone implements [distributedtask.RecoveryAwareProvider].
+// Returns false iff this node has at least one tracker dir for the
+// task's (property, indexType) that is *started* but neither *tidied*
+// nor *merged* — i.e., the local OnGroupCompleted's RunSwapOnShard was
+// interrupted mid-flight (e.g. context-cancelled during rolling restart
+// while shutting down a reindex bucket whose compaction was still
+// running).
+//
+// Returning false tells the scheduler bootstrap pre-mark to skip this
+// task so the next tick re-fires OnGroupCompleted; the rehydrate path
+// inside OnGroupCompleted picks up the half-applied state from disk and
+// completes the swap. Without this, the bootstrap silently suppresses
+// the retry and the affected shard stays at the OLD tokenization while
+// the cluster-wide schema flip has already committed → per-replica
+// divergence (#10675 family, RollingRestartMidMigration repro).
+//
+// Returns true (no recovery needed) when:
+//   - The task is not a semantic migration (format-only migrations do
+//     their work entirely inside RunOnShard, no swap barrier to recover).
+//   - No tracker dir matches the property/index tuple (already cleaned
+//     up by a prior next-restart finalize — there is nothing to recover).
+//   - All matching trackers have tidied.mig or merged.mig (swap
+//     completed locally).
+//   - Local payload load / index lookup / shard lookup fails (caller
+//     cannot meaningfully retry; defaulting to "done" avoids an
+//     infinite re-fire loop on a permanently broken task).
+func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
+	var payload ReindexTaskPayload
+	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		return true
+	}
+	if !IsSemanticMigration(payload.MigrationType) {
+		return true
+	}
+	if p.db == nil {
+		return true
+	}
+	idx := p.db.GetIndex(entschema.ClassName(payload.Collection))
+	if idx == nil {
+		return true
+	}
+	indexTypes := semanticMigrationIndexTypes(payload.MigrationType)
+	if len(indexTypes) == 0 {
+		return true
+	}
+
+	for unitID, nodeName := range payload.UnitToNode {
+		if nodeName != localNode {
+			continue
+		}
+		shardName := payload.UnitToShard[unitID]
+		shard, err := lookupShardByName(idx, shardName)
+		if err != nil {
+			continue
+		}
+		concrete, err := unwrapShard(context.Background(), shard)
+		if err != nil {
+			continue
+		}
+		lsmPath := concrete.pathLSM()
+		for _, indexType := range indexTypes {
+			for _, propName := range payload.Properties {
+				prefixes := migrationDirsForPropertyIndex(propName, indexType)
+				if hasUntidiedTracker(lsmPath, prefixes) {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// semanticMigrationIndexTypes returns the inverted-index discriminators
+// each semantic migration type writes per-property tracker dirs for.
+// Format-only migrations don't appear here because LocalCallbacksDone
+// short-circuits on !IsSemanticMigration before calling this.
+func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
+	switch mt {
+	case ReindexTypeChangeTokenization:
+		return []string{"searchable", "filterable"}
+	case ReindexTypeChangeTokenizationFilterable:
+		return []string{"filterable"}
+	case ReindexTypeEnableSearchable:
+		return []string{"searchable"}
+	case ReindexTypeEnableFilterable:
+		return []string{"filterable"}
+	case ReindexTypeRepairSearchable, ReindexTypeRepairFilterable,
+		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		// Format-only migrations. Returning nil short-circuits
+		// LocalCallbacksDone's recovery check — they don't go through
+		// the swap barrier so there's nothing to recover at this layer.
+		return nil
+	}
+	return nil
+}
+
+// hasUntidiedTracker returns true iff at least one of the named tracker
+// prefixes has a generation directory on disk that has started.mig but
+// neither tidied.mig nor merged.mig — the signature of a swap that
+// began but did not commit. Trackers that have tidied/merged are NOT a
+// recovery signal (they are completed migrations waiting for the next
+// restart's FinalizeCompletedMigrations to promote them to canonical).
+// A completely missing tracker dir is also NOT a recovery signal: a
+// prior FinalizeCompletedMigrations already promoted-and-removed it.
+func hasUntidiedTracker(lsmPath string, prefixes []string) bool {
+	migsDir := filepath.Join(lsmPath, ".migrations")
+	entries, err := os.ReadDir(migsDir)
+	if err != nil {
+		return false
+	}
+	prefixSet := map[string]bool{}
+	for _, p := range prefixes {
+		prefixSet[p] = true
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		base, _, ok := parseMigrationDirName(entry.Name())
+		if !ok || !prefixSet[base] {
+			continue
+		}
+		dirPath := filepath.Join(migsDir, entry.Name())
+		if fileExistsInDir(dirPath, "tidied.mig") || fileExistsInDir(dirPath, "merged.mig") {
+			continue
+		}
+		// Tracker dir exists for this strategy but neither tidied.mig
+		// nor merged.mig is present — local swap was interrupted.
+		return true
+	}
+	return false
 }
 
 // flipSemanticMigrationSchema issues the cluster-wide RAFT update that

@@ -251,12 +251,35 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 //
 // Caller MUST hold s.mu.
 func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
-	for _, tasks := range tasksByNamespace {
+	for namespace, tasks := range tasksByNamespace {
+		provider := s.providers[namespace]
 		for desc, task := range tasks {
 			if task.Status != TaskStatusFinished &&
 				task.Status != TaskStatusFailed &&
 				task.Status != TaskStatusCancelled {
 				continue
+			}
+			// Recovery hook: if the provider implements
+			// [RecoveryAwareProvider] and reports local-side callback
+			// work as NOT yet done, skip the pre-mark for this task so
+			// the next tick re-fires OnGroupCompleted and the
+			// provider's recovery path can complete (e.g. a swap that
+			// got context-cancelled during a rolling restart). Failed /
+			// cancelled tasks are NOT subject to this check — the
+			// provider semantically owns the "should the schema-flip
+			// callback be retried" decision only for the FINISHED case;
+			// retrying a cancelled task's OnGroupCompleted could
+			// re-apply a half-baked swap the user explicitly aborted.
+			if task.Status == TaskStatusFinished {
+				if r, ok := provider.(RecoveryAwareProvider); ok {
+					if !r.LocalCallbacksDone(task, s.localNode) {
+						s.logger.WithField("namespace", namespace).
+							WithField("taskID", desc.ID).
+							WithField("taskVersion", desc.Version).
+							Info("scheduler bootstrap: skipping pre-mark for terminal task with pending local recovery (callbacks will re-fire on next tick)")
+						continue
+					}
+				}
 			}
 			s.completedCallbackFired[desc] = true
 			if s.groupCallbackFired[desc] == nil {
