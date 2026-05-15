@@ -374,19 +374,10 @@ func testParallel_EnableFilterableChangeTokenization(t *testing.T, restURI strin
 				"both zero = empty filterable bucket (Sev 1)")
 	}
 	if rB.terminal == "FINISHED" {
-		// Mirror the rA branch's dual-query pattern: after change-tok to
-		// FIELD the stored term is the full whole-string token
-		// "word_0 word_0", so bare-token bm25("word_0") cannot hit. The
-		// migration writes the bucket correctly under field semantics
-		// (verified independently by isolating the bucket-write path).
-		// Either query landing is enough to prove the bucket has data;
-		// both zero would be the genuine Sev 1.
-		hitsBare := bm25HitsForProp(t, class, "name", "word_0")
-		hitsField := bm25HitsForProp(t, class, "name", "word_0 word_0")
-		assert.Greater(t, hitsBare+hitsField, 0,
+		hits := bm25HitsForProp(t, class, "name", "word_0")
+		assert.Greater(t, hits, 0,
 			"[enable-filterable+change-tok] after FINISHED on change-tok side, "+
-				"at least one of bm25('word_0') or bm25('word_0 word_0') must hit; "+
-				"both zero = empty searchable bucket = Sev 1 silent data loss")
+				"bm25(word_0) must hit; empty searchable bucket = Sev 1 silent data loss")
 	}
 }
 

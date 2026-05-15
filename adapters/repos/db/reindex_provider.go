@@ -54,35 +54,6 @@ type ReindexProvider struct {
 	localNode     string
 	concurrency   func() int
 
-	// clusterTasks lets the provider poll the cluster-wide task state and
-	// push UNTHROTTLED progress updates from within processOneUnit. Used by
-	// the semantic-migration barrier wait to:
-	//
-	//   1. push the "reindex phase done" signal (progress = 1.0) so that
-	//      other nodes' barriers can observe it. The recorder passed via
-	//      [SetCompletionRecorder] is wrapped in a [ThrottledRecorder]
-	//      that drops progress updates within a fixed interval (3s as of
-	//      e565fa2764). The reindex iteration's last 0.99 update would
-	//      typically be inside that window, silently dropping the 1.0
-	//      signal and deadlocking the barrier. We bypass the throttle by
-	//      writing the 1.0 directly via [Raft.UpdateDistributedTaskUnitProgress].
-	//
-	//   2. poll the cluster-wide task state until every unit has reached
-	//      progress >= 1.0 (or terminated), at which point it is safe to
-	//      run the local swap inline — BEFORE marking the unit completed
-	//      and the task transitions to FINISHED.
-	//
-	// Pre-flip ordering closes the race documented in
-	// TestSingleNode_FinishedStatusRaceWithSchemaFlag: a poller observing
-	// task.Status == FINISHED can rely on the schema flag having flipped
-	// (rather than racing the OnGroupCompleted swap that previously ran on
-	// the next scheduler tick).
-	//
-	// May be nil in test setups that construct the provider without a
-	// cluster service; the barrier wait short-circuits in that case (the
-	// swap still runs synchronously, just without the cross-node wait).
-	clusterTasks ReindexClusterTaskAPI
-
 	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
 	// fires after StartTask's per-task goroutine has already returned (its ctx
 	// is gone by then), so we cannot use the per-task ctx for the swap phase —
@@ -103,14 +74,6 @@ type ReindexProvider struct {
 	// the double-write callbacks registered via OnAfterLsmInit. Creating new
 	// task instances in OnGroupCompleted would lose those callbacks.
 	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
-
-	// swappedUnits records which (task, unit) pairs have already had their
-	// local swap performed (inline in processOneUnit). OnGroupCompleted
-	// consults this map to skip a duplicate swap when the inline path
-	// already finished. Without this, the scheduler's post-FINISHED tick
-	// would try to swap a second time and fail with "reindex bucket not
-	// found" (runtimeSwap consumes those buckets).
-	swappedUnits map[distributedtask.TaskDescriptor]map[string]bool
 }
 
 // NewReindexProvider creates a new ReindexProvider. The concurrency function
@@ -139,47 +102,7 @@ func NewReindexProvider(
 		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
-		swappedUnits:   make(map[distributedtask.TaskDescriptor]map[string]bool),
 	}
-}
-
-// ReindexClusterTaskAPI is the minimal cluster surface the reindex
-// provider needs to coordinate the semantic-migration barrier:
-//
-//   - ListDistributedTasks: poll cluster-wide task state to detect when
-//     every unit has finished its reindex phase.
-//   - UpdateDistributedTaskUnitProgress: push the "reindex done"
-//     progress=1.0 signal WITHOUT the throttling that the scheduler-
-//     wrapped recorder applies (the throttle would drop the 1.0 signal
-//     when it arrives shortly after the iteration's final 0.99 update,
-//     deadlocking the barrier).
-//
-// [cluster.Raft] satisfies this interface; tests can supply a fake.
-type ReindexClusterTaskAPI interface {
-	distributedtask.TasksLister
-	UpdateDistributedTaskUnitProgress(
-		ctx context.Context,
-		namespace, taskID string, version uint64,
-		nodeID, unitID string,
-		progress float32,
-	) error
-}
-
-// SetClusterTasks wires the cluster-wide task surface into the provider.
-// Called after construction (typically in configure_api.go) so the
-// semantic-migration barrier wait in processOneUnit can detect when all
-// units across all nodes have finished their reindex phase, then run the
-// local swap inline BEFORE marking the unit completed — closing the
-// "FINISHED before swap" race documented in
-// TestSingleNode_FinishedStatusRaceWithSchemaFlag.
-//
-// Safe to call multiple times; the last call wins. Safe to leave unset for
-// in-process tests that don't run a real cluster — the barrier wait
-// short-circuits in that case (single-unit single-node only).
-func (p *ReindexProvider) SetClusterTasks(api ReindexClusterTaskAPI) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.clusterTasks = api
 }
 
 func (p *ReindexProvider) SetCompletionRecorder(recorder distributedtask.TaskCompletionRecorder) {
@@ -306,41 +229,11 @@ func (p *ReindexProvider) processUnits(
 
 		wg.Add(1)
 		unitID := unitID
-		// Wrap Release in a sync.Once so processOneUnit can release the
-		// slot EARLY (right after its local reindex iteration finishes,
-		// BEFORE entering the cross-node barrier wait) without risking a
-		// double-release at goroutine exit.
-		//
-		// Without the early release, the slot stays occupied for the
-		// duration of waitForAllUnitsReindexDone — which deadlocks on
-		// multinode clusters whenever a node owns more local units than
-		// the configured ReindexConcurrency:
-		//
-		//   - Each held slot is one unit blocked at the barrier waiting
-		//     for its peers' progress=1.0.
-		//   - The N+1'th local unit cannot start its reindex because all
-		//     slots are taken by units already in the barrier wait.
-		//   - Peers on other nodes are in the same state, so nobody
-		//     advances and the barrier never releases.
-		//
-		// Releasing the slot before the barrier lets the next pending
-		// local unit start its reindex; once every local unit has
-		// completed its reindex and reported progress=1.0, the barrier
-		// on every node releases at once and the swap phase can run.
-		// The barrier wait is pure polling — no CPU/IO of consequence —
-		// so it does not need a limiter slot. The swap itself is also
-		// cheap (FlushAndSwitch + rename + schema flip via Raft) and
-		// runs without the slot. See processOneUnit for the explicit
-		// releaseSlot() call sites.
-		var slotReleased sync.Once
-		releaseSlot := func() {
-			slotReleased.Do(limiter.Release)
-		}
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
-			defer releaseSlot()
+			defer limiter.Release()
 
-			p.processOneUnit(ctx, task, payload, idx, unitID, recorder, releaseSlot)
+			p.processOneUnit(ctx, task, payload, idx, unitID, recorder)
 		}, p.logger)
 	}
 
@@ -351,14 +244,6 @@ func (p *ReindexProvider) processUnits(
 // For semantic migrations (e.g. change-tokenization), the task is cached so that
 // OnGroupCompleted can reuse the same instance to run the swap phase — this
 // preserves double-write callbacks registered during reindex.
-//
-// releaseSlot returns the concurrency limiter slot held by this unit. The
-// caller in [processUnits] also defers releaseSlot to guarantee release on
-// any exit path; the sync.Once wrapping makes calling it explicitly here
-// safe. We release the slot eagerly after the local reindex finishes (and
-// before entering the cross-node barrier wait) so a node with more local
-// units than the configured ReindexConcurrency does not deadlock — see
-// the comment block in processUnits for the full failure mode.
 func (p *ReindexProvider) processOneUnit(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -366,7 +251,6 @@ func (p *ReindexProvider) processOneUnit(
 	idx *Index,
 	unitID string,
 	recorder distributedtask.TaskCompletionRecorder,
-	releaseSlot func(),
 ) {
 	shardName := payload.UnitToShard[unitID]
 	logger := p.logger.WithField("taskID", task.ID).
@@ -468,122 +352,6 @@ func (p *ReindexProvider) processOneUnit(
 		}
 	}
 
-	// Local reindex work is done. Free the concurrency limiter slot NOW so
-	// the next pending local unit (if any) can start its reindex while this
-	// goroutine waits at the cross-node barrier. This is the multinode
-	// deadlock fix: holding the slot through the barrier deadlocks any
-	// node that owns more local units than ReindexConcurrency. Format-only
-	// migrations skip the barrier entirely, so the early release just
-	// shaves a few unit-completion-recorder ms off the slot hold time.
-	releaseSlot()
-
-	// For semantic migrations, run the swap phase INLINE before reporting
-	// unit completion. This ordering guarantees that a caller observing
-	// task.Status == FINISHED sees the schema flag flipped on every node —
-	// closing the race documented in
-	// TestSingleNode_FinishedStatusRaceWithSchemaFlag, where the previous
-	// design fired the swap from OnGroupCompleted on the next scheduler
-	// tick AFTER all units were already terminal.
-	//
-	// The cross-node barrier (no shard swaps before every other shard has
-	// finished reindex) is preserved by waitForAllUnitsReindexDone: each
-	// node reports progress=1.0 when its local reindex finishes, then
-	// polls the cluster-wide task state until every unit has reached
-	// progress >= 1.0 or terminated. Only then does the local swap run.
-	//
-	// OnGroupCompleted remains as a defensive fallback for the post-restart
-	// rehydrate path: if a node crashed between sending progress=1.0 and
-	// completing the swap, the on-disk sentinel is still IsReindexed (no
-	// IsTidied), so OnGroupCompleted's "rebuild tasks from disk" branch
-	// runs the swap. See swappedUnits below for the duplicate-swap guard.
-	if semantic {
-		// Step 1: signal reindex-phase complete. Other nodes' barriers
-		// will see this unit's progress = 1.0 even though it hasn't
-		// reported completion yet.
-		//
-		// CRITICAL: this update MUST bypass the [ThrottledRecorder] that
-		// wraps the scheduler-supplied recorder. The iteration's final
-		// progress update (capped at 0.99) is typically within the
-		// throttle interval (3s as of e565fa2764), so a subsequent
-		// recorder.UpdateDistributedTaskUnitProgress(1.0) would be
-		// silently dropped, leaving the cross-node barrier deadlocked.
-		// We bypass by writing directly through clusterTasks
-		// ([cluster.Raft]).
-		p.mu.Lock()
-		direct := p.clusterTasks
-		p.mu.Unlock()
-		if direct != nil {
-			if err := direct.UpdateDistributedTaskUnitProgress(
-				ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, 1.0,
-			); err != nil {
-				logger.WithError(err).Error("reindex provider: failed to report reindex-phase progress=1.0 (direct path); barrier may rely on snapshot fallback")
-			}
-		} else {
-			// Fallback for test setups without a cluster surface: try
-			// the throttled recorder. Most test setups have only one
-			// unit on this node anyway, in which case
-			// waitForAllUnitsReindexDone short-circuits regardless.
-			if err := recorder.UpdateDistributedTaskUnitProgress(
-				ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, 1.0,
-			); err != nil {
-				logger.WithError(err).Error("reindex provider: failed to report reindex-phase progress=1.0 (throttled fallback path)")
-			}
-		}
-
-		// Step 2: barrier — wait until every unit in the task has reached
-		// progress >= 1.0 or is terminal. For single-node single-unit tasks
-		// this returns immediately after the local update above; for
-		// multi-node tasks it polls the cluster.
-		if err := p.waitForAllUnitsReindexDone(ctx, task); err != nil {
-			logger.WithError(err).Error("reindex provider: barrier wait aborted; aborting swap")
-			p.failUnit(ctx, task, unitID, recorder,
-				fmt.Sprintf("barrier wait: %v", err))
-			return
-		}
-
-		// Step 3: run the swap inline on this unit. Match the
-		// failure-handling shape of OnGroupCompleted: on swap error,
-		// log loudly and continue the loop, but do NOT mark the unit
-		// as failed. The pre-existing contract (see the "swap
-		// INCOMPLETE" comment in OnGroupCompleted) is that a swap
-		// failure does not abort the task — it leaves a half-applied
-		// migration that the operator notices via the structured log
-		// line. Promoting that to a unit-failure would be a behaviour
-		// change visible to PropertyStateMigrationMatrix cells that
-		// today pass with a silent-swap-failure (e.g.
-		// dt=text__filt=false_srch=*_PUT_searchable_tokenization_field,
-		// where ChangeTokenization dispatches a filterable sub-task on
-		// a property that has no filterable bucket). Closing that
-		// dispatcher bug is a separate change; this one only fixes
-		// the FINISHED-before-schema-flip race.
-		//
-		// markUnitSwapped fires UNCONDITIONALLY after the loop, even
-		// when some sub-tasks' swaps failed. The reason: a partial
-		// success leaves the on-disk state for the SUCCEEDED tasks in
-		// a post-swap state (reindex/ingest buckets consumed, main
-		// pointer flipped). A second pass through OnGroupCompleted's
-		// RunSwapOnShard would re-enter runtimeSwap on those tasks
-		// and fail with "reindex bucket not found" (the buckets are
-		// gone), masking the original error. We mark the unit
-		// swapped so OnGroupCompleted skips entirely — the operator
-		// sees the original swap error from this inline attempt's
-		// log, not a confusing post-mortem failure.
-		allSwapped := true
-		for _, reindexTask := range tasks {
-			if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
-				logger.WithField("task", reindexTask.Name()).WithError(err).
-					Error("reindex provider: inline swap failed — migration half-applied on this shard")
-				allSwapped = false
-			}
-		}
-		p.markUnitSwapped(task.TaskDescriptor, unitID)
-		if allSwapped {
-			logger.Info("reindex provider: inline swap complete")
-		} else {
-			logger.Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; downstream schema state may be inconsistent")
-		}
-	}
-
 	logger.Info("reindex provider: unit completed")
 
 	if err := recorder.RecordDistributedTaskUnitCompletion(
@@ -591,178 +359,6 @@ func (p *ReindexProvider) processOneUnit(
 	); err != nil {
 		logger.WithError(err).Error("reindex provider: failed to record completion")
 	}
-}
-
-// waitForAllUnitsReindexDone blocks until every unit in the given task has
-// reached one of:
-//
-//   - progress >= 1.0 (reindex phase reported done by the unit's local node), OR
-//   - status == Completed or Failed (unit is terminal — either it already
-//     completed normally, which implies progress = 1.0, or it failed and the
-//     barrier should release rather than deadlock).
-//
-// This is the cross-node barrier for the semantic-migration swap: each node
-// reports progress=1.0 when its local reindex finishes, then waits here
-// before running its local swap. The barrier ensures no shard serves
-// new-tokenization queries while another shard still serves old.
-//
-// Returns ctx.Err() if the caller's context is cancelled (typically server
-// shutdown or task cancellation). If the cluster lister is unset (test
-// setups without a Raft service), short-circuits to nil after a single
-// in-memory poll — the local progress update is enough to release the
-// barrier in single-node tests.
-//
-// Polling uses a small fixed interval. The local node's progress update
-// is observable in the next poll because UpdateDistributedTaskUnitProgress
-// applies through Raft and is read back via the same Raft query.
-//
-// A heartbeat log fires every barrierWaitHeartbeat so a stalled barrier
-// (e.g. a peer node permanently stuck on its reindex) surfaces in
-// operator log queries instead of silently hanging.
-func (p *ReindexProvider) waitForAllUnitsReindexDone(
-	ctx context.Context, task *distributedtask.Task,
-) error {
-	const pollInterval = 100 * time.Millisecond
-	const barrierWaitHeartbeat = 30 * time.Second
-
-	p.mu.Lock()
-	lister := p.clusterTasks
-	p.mu.Unlock()
-	if lister == nil {
-		// Test setup without a cluster lister — degrade to a single
-		// in-memory check on the snapshot we already hold. Single-node
-		// tests that exercise this path always have one unit, so the
-		// local progress update we just sent satisfies the barrier
-		// trivially.
-		return nil
-	}
-
-	logger := p.logger.WithField("taskID", task.ID).
-		WithField("taskVersion", task.Version)
-
-	// Query immediately on entry so a single-unit single-node task
-	// doesn't pay an extra pollInterval before its already-applied
-	// progress update is observed. Subsequent retries wait for the
-	// ticker tick.
-	//
-	// Returns done, pendingUnitIDs (for the heartbeat log), err.
-	checkNow := func() (bool, []string, error) {
-		tasksByNamespace, err := lister.ListDistributedTasks(ctx)
-		if err != nil {
-			return false, nil, err
-		}
-		for _, t := range tasksByNamespace[task.Namespace] {
-			if t.ID != task.ID || t.Version != task.Version {
-				continue
-			}
-			if allReindexDone(t) {
-				return true, nil, nil
-			}
-			return false, pendingReindexUnitIDs(t), nil
-		}
-		// Task not found in the lister output — treat as done; either
-		// it was concurrently cleaned up (terminal + TTL) or a query
-		// glitch hid it. Erring on "done" here is safe because the
-		// downstream swap will fail loudly if the on-disk state is
-		// inconsistent.
-		return true, nil, nil
-	}
-
-	if done, _, err := checkNow(); err == nil && done {
-		return nil
-	}
-
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-
-	startedAt := time.Now()
-	lastHeartbeat := startedAt
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-
-		done, pending, err := checkNow()
-		if err != nil {
-			// Treat transient lookup errors as "not done yet"; the next
-			// poll will retry. This is consistent with the rest of the
-			// reindex provider's "log + retry" stance toward Raft hiccups.
-			continue
-		}
-		if done {
-			return nil
-		}
-
-		if time.Since(lastHeartbeat) >= barrierWaitHeartbeat {
-			logger.WithField("elapsed", time.Since(startedAt).Round(time.Second).String()).
-				WithField("pendingUnits", pending).
-				Warn("reindex provider: cross-node reindex barrier still waiting; pending units have not yet reached progress=1.0")
-			lastHeartbeat = time.Now()
-		}
-	}
-}
-
-// pendingReindexUnitIDs returns the IDs of units that have not yet
-// reached progress >= 1.0 or terminal status. Used by the barrier
-// heartbeat log to surface which peer(s) are holding the cluster up.
-func pendingReindexUnitIDs(task *distributedtask.Task) []string {
-	var pending []string
-	for id, u := range task.Units {
-		if u.Status == distributedtask.UnitStatusCompleted ||
-			u.Status == distributedtask.UnitStatusFailed {
-			continue
-		}
-		if u.Progress >= 1.0 {
-			continue
-		}
-		pending = append(pending, id)
-	}
-	sort.Strings(pending)
-	return pending
-}
-
-// allReindexDone reports whether every unit in the task has either
-// finished its reindex phase (progress >= 1.0) or terminated. Failed
-// units release the barrier so a healthy unit's swap doesn't deadlock
-// waiting for the failed peer.
-func allReindexDone(task *distributedtask.Task) bool {
-	for _, u := range task.Units {
-		if u.Status == distributedtask.UnitStatusCompleted ||
-			u.Status == distributedtask.UnitStatusFailed {
-			continue
-		}
-		if u.Progress >= 1.0 {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-// markUnitSwapped records that the given (task, unit) pair has had its
-// inline swap performed in processOneUnit. OnGroupCompleted reads this
-// map to skip a duplicate swap when the scheduler tick that observes the
-// FINISHED task fires the callback. Without this guard,
-// reindexTask.RunSwapOnShard would fail with "reindex bucket not found"
-// (runtimeSwap consumes those buckets).
-func (p *ReindexProvider) markUnitSwapped(desc distributedtask.TaskDescriptor, unitID string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.swappedUnits[desc] == nil {
-		p.swappedUnits[desc] = map[string]bool{}
-	}
-	p.swappedUnits[desc][unitID] = true
-}
-
-// isUnitSwapped reports whether the inline swap path in processOneUnit
-// already completed the swap for this (task, unit) pair. See
-// [markUnitSwapped] for the rationale.
-func (p *ReindexProvider) isUnitSwapped(desc distributedtask.TaskDescriptor, unitID string) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.swappedUnits[desc] != nil && p.swappedUnits[desc][unitID]
 }
 
 // maxReindexPropertiesPerTask caps the number of properties in a single
@@ -829,29 +425,18 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 			return nil, fmt.Errorf("change-tokenization requires bucketStrategy")
 		}
 
-		// ChangeTokenization historically spawns one sub-task per inverted
-		// index that COULD be re-tokenized (searchable + filterable). For
-		// a property that has IndexFilterable=false but IndexSearchable=true,
-		// the filterable sub-task has no source bucket to swap into and
-		// runtimeSwap fails with "target bucket property_X not found". The
-		// pre-existing OnGroupCompleted code swallowed this as a "swap
-		// INCOMPLETE" log line; queries against the searchable bucket
-		// happened to pass because the test ran them BEFORE the next
-		// scheduler tick fired OnGroupCompleted. The inline-swap path
-		// introduced for the FINISHED-before-flag-flip race closes that
-		// timing window, so the silent failure now surfaces as a
-		// schema/bucket mismatch (searchable bucket has new tokenization,
-		// schema still reports old because filterable's
-		// OnMigrationComplete — which carries the schema flip for
-		// change-tokenization — never ran).
-		//
-		// Filter the sub-task list at task-creation time: only spawn the
-		// filterable retokenize when the property actually has a
-		// filterable index. The handler-side validator does not (yet)
-		// cover this case, so the defense lives here.
+		// ChangeTokenization spawns one sub-task per inverted index that
+		// COULD be re-tokenized (searchable + filterable). For a property
+		// that has IndexFilterable=false but IndexSearchable=true, the
+		// filterable sub-task has no source bucket to swap into and
+		// runtimeSwap would fail with "target bucket property_X not
+		// found". The handler-side validator does not (yet) cover this
+		// case, so the defense lives here: only dispatch the filterable
+		// retokenize sub-task when the property actually has a filterable
+		// index.
 		tasks := []*ShardReindexTaskGeneric{
 			NewRuntimeSearchableRetokenizeTask(
-				p.logger, p.schemaManager, propName, payload.TargetTokenization,
+				p.logger, propName, payload.TargetTokenization,
 				payload.Collection, payload.BucketStrategy, payload.Collection,
 			),
 		}
@@ -889,8 +474,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 // [createReindexTasks] to decide whether ChangeTokenization's filterable
 // sub-task should be created — submitting it for a filterable=false
 // property would spawn a retokenize on a non-existent source bucket and
-// fail the swap (see the comment in createReindexTasks for the failure
-// chain).
+// fail the swap.
 //
 // A missing class or property is treated as "no filterable bucket"; the
 // task creator returns the (possibly empty) set of remaining sub-tasks
@@ -1182,21 +766,6 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			continue
 		}
 
-		// Skip units whose swap ran inline in processOneUnit. The inline
-		// swap path (added to close the FINISHED-before-swap race; see
-		// processOneUnit's semantic branch) already consumed the reindex
-		// buckets, so a second RunSwapOnShard here would fail with
-		// "reindex bucket not found". OnGroupCompleted remains valid for
-		// the post-restart rehydrate path, where the inline swap did
-		// not run because the original processOneUnit goroutine was
-		// killed before reaching it — in that case isUnitSwapped returns
-		// false and the rehydrate branch below picks up the swap.
-		if p.isUnitSwapped(task.TaskDescriptor, unitID) {
-			logger.WithField("unit", unitID).
-				Debug("reindex provider: OnGroupCompleted: skipping unit; inline swap already ran")
-			continue
-		}
-
 		shardName := payload.UnitToShard[unitID]
 		shard, err := lookupShardByName(idx, shardName)
 		if err != nil {
@@ -1280,7 +849,6 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	p.mu.Lock()
 	delete(p.payloads, task.TaskDescriptor)
 	delete(p.reindexTasks, task.TaskDescriptor)
-	delete(p.swappedUnits, task.TaskDescriptor)
 	p.mu.Unlock()
 
 	p.logger.WithField("taskID", task.ID).WithField("status", task.Status).

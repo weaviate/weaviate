@@ -240,20 +240,6 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return fmt.Errorf("shard %q is not in reindexed state", concreteShard.Name())
 	}
 
-	// Idempotency: if the swap has already been fully performed (markTidied)
-	// or partially performed past the bucket-consuming step (markSwapped or
-	// markPrepended), a second invocation here would fail with "reindex
-	// bucket not found" because runtimeSwap has already shut down those
-	// buckets. Treat this as success — the work the caller asked for is
-	// done. This handles the case where processOneUnit's inline swap
-	// completed but OnGroupCompleted's scheduler-tick visit retries it, as
-	// well as the symmetric case where a partial-success inline swap left
-	// at least one sub-task tidied and OnGroupCompleted retries that one.
-	if rt.IsTidied() {
-		logger.Info("swap already complete (IsTidied) — treating retry as no-op")
-		return nil
-	}
-
 	props, err := t.readPropsToReindex(rt)
 	if err != nil {
 		return fmt.Errorf("reading props: %w", err)
