@@ -136,6 +136,7 @@ func (c *Client) vectorize(ctx context.Context, input string,
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
+	req.Header.Set("Content-Type", "application/json")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
