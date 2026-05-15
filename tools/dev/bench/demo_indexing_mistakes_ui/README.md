@@ -1,6 +1,6 @@
 # Common Indexing Mistakes - Demo UI
 
-A visual demo of five typical Weaviate indexing misconfigurations against a
+A visual demo of three typical Weaviate indexing misconfigurations against a
 1,000,000-object product catalog. Each card runs a pre-canned query and shows
 wall-clock latency, total match count (where applicable), and the top result
 rows so the failure mode is visible at a glance.
@@ -38,9 +38,11 @@ cluster, also fill in the **API key**. Both persist to localStorage.
 |---|---|---|---|---|
 | 1 | Range query | `price_cents` (int, filterable=false, rangeable=false) | `price_cents BETWEEN 30000 AND 40000` | Weaviate refuses the query with `requires inverted index`. The storefront price filter is broken. |
 | 2 | Path search | `spec_sheet_path` (text, tokenization=word) | BM25 `"/products/cameras/gopro"` | Top results include paths from other categories that happen to contain `gopro` as a token. |
-| 3 | SKU lookup | `sku` (text, tokenization=word) | BM25 `"GP-ACT-BLK-001"` | The SKU splits into four tokens. Top results are unrelated SKUs sharing one or two tokens. |
-| 4 | Equality filter | `category` (text, filterable=false) | `category == "Cameras > Action"` | Weaviate refuses the query with `requires inverted index`. The category facet is broken. |
-| 5 | Email search | `support_email` (text, tokenization=word) | BM25 `"info@nikon.com"` | Splits into `info`, `nikon`, `com`. No product has `info@` prefix, so the top results all read `support@nikon.com` - the wrong addresses. |
+| 3 | Equality filter | `category` (text, filterable=false) | `category == "Cameras > Action"` | Weaviate refuses the query with `requires inverted index`. The category facet is broken. |
+
+The displayed code snippets use the v4 Python client; the UI itself happens to
+use GraphQL over the browser fetch API for transport convenience, but the
+Python form is what you should use in real code.
 
 ## 4. Fix each mistake from the Weaviate console
 
@@ -52,15 +54,13 @@ UI never caches, so the new state shows immediately.
 |---|---|---|
 | 1 | `price_cents` | Enable `indexRangeFilters: true` (and `indexFilterable: true`). |
 | 2 | `spec_sheet_path` | Change tokenization to `field` so the path is an opaque token. |
-| 3 | `sku` | Change tokenization to `field` so the SKU is an opaque token. |
-| 4 | `category` | Enable `indexFilterable: true` so equality has an inverted bucket. |
-| 5 | `support_email` | Change tokenization to `field` so the email is an opaque token. |
+| 3 | `category` | Enable `indexFilterable: true` so equality has an inverted bucket. |
 
 ## Notes
 
 - The wall-clock latency is measured client-side via `performance.now()`. On a
   local Weaviate that's effectively the server latency.
 - The Aggregate `meta.count` queries hit the same code path the filter does, so
-  the slow cards (1, 4) also surface their cost via the count query.
+  the slow cards (1, 3) also surface their cost via the count query.
 - `fetch` uses `cache: "no-store"` everywhere - re-running after a reindex
   reflects the new state immediately.

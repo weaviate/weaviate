@@ -1,9 +1,9 @@
 // Demo UI for the "Common Indexing Mistakes" build.
 //
-// Runs pre-canned GraphQL queries against a Weaviate REST endpoint and renders
-// the resulting wall-clock latency, top results, and (where applicable) total
-// match counts. No client-side caching - every press of "Run query" hits the
-// server fresh.
+// The cards display Python client snippets so viewers see what they should
+// actually use in their own code; the transport here is GraphQL only because
+// the browser can hit /v1/graphql directly without a Python runtime. No
+// client-side caching - every press of "Run query" hits the server fresh.
 
 const LS_URL_KEY = "imd-url";
 const LS_KEY_KEY = "imd-apikey";
@@ -149,19 +149,6 @@ function qPathBm25() {
   }`;
 }
 
-function qSkuBm25() {
-  return `{
-    Get {
-      ${COLLECTION}(
-        bm25: { query: "GP-ACT-BLK-001", properties: ["sku"] },
-        limit: 10
-      ) {
-        sku brand category name
-      }
-    }
-  }`;
-}
-
 function qCategoryEqual() {
   return `{
     Get {
@@ -180,22 +167,6 @@ function qCategoryEqualCount() {
       ${COLLECTION}(
         where: { path: ["category"], operator: Equal, valueText: "Cameras > Action" }
       ) { meta { count } }
-    }
-  }`;
-}
-
-function qEmailBm25() {
-  // Use a prefix that doesn't exist in the data so the only thing BM25 can
-  // match on is the domain tokens. The top results will be `support@nikon.com`
-  // even though we asked for `info@nikon.com` - that's the false positive.
-  return `{
-    Get {
-      ${COLLECTION}(
-        bm25: { query: "info@nikon.com", properties: ["support_email"] },
-        limit: 10
-      ) {
-        support_email brand category name
-      }
     }
   }`;
 }
@@ -352,18 +323,6 @@ async function onRun(btn) {
         });
       });
 
-    case "run-sku-bm25":
-      return runWithButton(btn, container, async () => {
-        const { body, ms } = await timedGql(qSkuBm25());
-        const rows = body.data.Get[COLLECTION] || [];
-        renderResults(container, {
-          latencyMs: ms,
-          rows,
-          renderRow: r => rowGeneric(r, "sku"),
-          emptyNote: "BM25 returned no rows."
-        });
-      });
-
     case "run-category-equal":
       return runWithButton(btn, container, async () => {
         const [get, count] = await Promise.all([
@@ -382,16 +341,5 @@ async function onRun(btn) {
         });
       });
 
-    case "run-email-bm25":
-      return runWithButton(btn, container, async () => {
-        const { body, ms } = await timedGql(qEmailBm25());
-        const rows = body.data.Get[COLLECTION] || [];
-        renderResults(container, {
-          latencyMs: ms,
-          rows,
-          renderRow: r => rowGeneric(r, "support_email"),
-          emptyNote: "BM25 returned no rows."
-        });
-      });
   }
 }

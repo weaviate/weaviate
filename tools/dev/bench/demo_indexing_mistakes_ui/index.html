@@ -12,7 +12,7 @@
     <div class="title-block">
       <h1>Common Indexing Mistakes</h1>
       <p class="subtitle">
-        One million product-catalog objects, five deliberately wrong schema
+        One million product-catalog objects, three deliberately wrong schema
         choices. Run each card to see the failure mode. Fix it from the
         Weaviate console, then re-run to see the difference.
       </p>
@@ -54,22 +54,20 @@
     </header>
     <div class="card-body">
       <div class="query">
-        <pre><code class="lang-gql">{
-  Get {
-    IndexingMistakesDemo(
-      where: {
-        operator: And,
-        operands: [
-          { path: ["price_cents"], operator: GreaterThanEqual, valueInt: 30000 },
-          { path: ["price_cents"], operator: LessThanEqual,    valueInt: 40000 }
-        ]
-      },
-      limit: 10
-    ) {
-      name brand category price_cents sku
-    }
-  }
-}</code></pre>
+        <pre><code class="lang-py">import weaviate
+from weaviate.classes.query import Filter
+
+client = weaviate.connect_to_local()
+products = client.collections.get("IndexingMistakesDemo")
+
+results = products.query.fetch_objects(
+    filters=(
+        Filter.by_property("price_cents").greater_or_equal(30000)
+        &amp; Filter.by_property("price_cents").less_or_equal(40000)
+    ),
+    limit=10,
+    return_properties=["name", "brand", "category", "price_cents", "sku"],
+)</code></pre>
         <button class="btn-primary run-btn" data-action="run-price-range">Run query</button>
       </div>
       <div class="result" id="result-price_cents">
@@ -95,16 +93,12 @@
     </header>
     <div class="card-body">
       <div class="query">
-        <pre><code class="lang-gql">{
-  Get {
-    IndexingMistakesDemo(
-      bm25: { query: "/products/cameras/gopro", properties: ["spec_sheet_path"] },
-      limit: 10
-    ) {
-      spec_sheet_path category brand name
-    }
-  }
-}</code></pre>
+        <pre><code class="lang-py">results = products.query.bm25(
+    query="/products/cameras/gopro",
+    query_properties=["spec_sheet_path"],
+    limit=10,
+    return_properties=["spec_sheet_path", "category", "brand", "name"],
+)</code></pre>
         <button class="btn-primary run-btn" data-action="run-path-bm25">Run query</button>
       </div>
       <div class="result" id="result-spec_sheet_path">
@@ -113,44 +107,10 @@
     </div>
   </section>
 
-  <!-- Mistake 3: sku BM25 lookup -->
-  <section class="card" data-card="sku">
-    <header>
-      <h2>3. SKU searched with WORD tokenization</h2>
-      <p class="explainer">
-        BM25 lookup for <code>GP-ACT-BLK-001</code> against a WORD-tokenized SKU
-        field. The hyphens split the SKU into four tokens, so the lookup matches
-        every product sharing <em>any</em> of those tokens.
-      </p>
-      <p class="schema-state">
-        <code>sku</code> <span class="type-pill">text</span>
-        <span class="flag bad">tokenization=word</span>
-      </p>
-    </header>
-    <div class="card-body">
-      <div class="query">
-        <pre><code class="lang-gql">{
-  Get {
-    IndexingMistakesDemo(
-      bm25: { query: "GP-ACT-BLK-001", properties: ["sku"] },
-      limit: 10
-    ) {
-      sku brand category name
-    }
-  }
-}</code></pre>
-        <button class="btn-primary run-btn" data-action="run-sku-bm25">Run query</button>
-      </div>
-      <div class="result" id="result-sku">
-        <p class="placeholder">Press <em>Run query</em> to execute.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Mistake 4: category equality filter, not filterable -->
+  <!-- Mistake 3: category equality filter, not filterable -->
   <section class="card" data-card="category">
     <header>
-      <h2>4. Equality filter on a non-filterable property</h2>
+      <h2>3. Equality filter on a non-filterable property</h2>
       <p class="explainer">
         Filter <code>category == "Cameras &gt; Action"</code> against a property
         with no inverted filterable bucket. Same fate as the price card:
@@ -165,56 +125,14 @@
     </header>
     <div class="card-body">
       <div class="query">
-        <pre><code class="lang-gql">{
-  Get {
-    IndexingMistakesDemo(
-      where: { path: ["category"], operator: Equal, valueText: "Cameras > Action" },
-      limit: 10
-    ) {
-      name brand category sku price_cents
-    }
-  }
-}</code></pre>
+        <pre><code class="lang-py">results = products.query.fetch_objects(
+    filters=Filter.by_property("category").equal("Cameras &gt; Action"),
+    limit=10,
+    return_properties=["name", "brand", "category", "sku", "price_cents"],
+)</code></pre>
         <button class="btn-primary run-btn" data-action="run-category-equal">Run query</button>
       </div>
       <div class="result" id="result-category">
-        <p class="placeholder">Press <em>Run query</em> to execute.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Mistake 5: support_email BM25 -->
-  <section class="card" data-card="support_email">
-    <header>
-      <h2>5. Email searched with WORD tokenization</h2>
-      <p class="explainer">
-        BM25 search for <code>info@nikon.com</code> against a WORD-tokenized
-        email field. The query splits on <code>@</code> and <code>.</code> into
-        <code>info</code>, <code>nikon</code>, <code>com</code>. No product
-        actually uses <code>info@</code> as a prefix, so the top results all
-        say <code>support@nikon.com</code> - BM25 matched on the domain tokens
-        and silently returned the wrong addresses.
-      </p>
-      <p class="schema-state">
-        <code>support_email</code> <span class="type-pill">text</span>
-        <span class="flag bad">tokenization=word</span>
-      </p>
-    </header>
-    <div class="card-body">
-      <div class="query">
-        <pre><code class="lang-gql">{
-  Get {
-    IndexingMistakesDemo(
-      bm25: { query: "info@nikon.com", properties: ["support_email"] },
-      limit: 10
-    ) {
-      support_email brand category name
-    }
-  }
-}</code></pre>
-        <button class="btn-primary run-btn" data-action="run-email-bm25">Run query</button>
-      </div>
-      <div class="result" id="result-support_email">
         <p class="placeholder">Press <em>Run query</em> to execute.</p>
       </div>
     </div>
