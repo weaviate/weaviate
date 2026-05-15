@@ -94,6 +94,12 @@ func deleteCollection(t *testing.T, restURI, className string) {
 }
 
 // importObjects imports objects with a text property into the collection.
+//
+// Uses consistency_level=ALL so the POST does not return until every
+// replica has applied the write. Without this, the default (single-replica
+// ack) lets the next query race ahead of replication — a baseline check
+// that immediately polls all three nodes can see node1=6 / node2=5 / etc.,
+// failing the per-replica equality assertion. See R0 flake repro.
 func importObjects(t *testing.T, restURI, className string, texts []string) {
 	t.Helper()
 
@@ -109,7 +115,7 @@ func importObjects(t *testing.T, restURI, className string, texts []string) {
 		require.NoError(t, err)
 
 		resp, err := http.Post(
-			fmt.Sprintf("http://%s/v1/objects", restURI),
+			fmt.Sprintf("http://%s/v1/objects?consistency_level=ALL", restURI),
 			"application/json",
 			bytes.NewReader(body),
 		)
