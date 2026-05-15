@@ -1030,3 +1030,155 @@ func TestValidateBodyExclusivity(t *testing.T) {
 		})
 	}
 }
+
+// -----------------------------------------------------------------------------
+// countStartedTasksForCollection / per-collection concurrent reindex cap.
+//
+// Pins (1) the count function only counts STARTED tasks targeting the named
+// collection, ignoring terminal-status tasks and tasks targeting other
+// collections; and (2) the comparison against
+// maxConcurrentReindexPerCollection has the right semantics: a fresh submit
+// is admitted exactly when there are strictly fewer than the cap already
+// STARTED, so the effective max number of simultaneously running tasks is
+// equal to the cap constant (not cap-1 and not cap+1).
+//
+// Regression: the cap value was originally 4, which broke the
+// reindex_concurrent acceptance test that submits 10 text + 5 int = 15
+// concurrent non-conflicting tasks. The cap is now sized to accommodate
+// realistic batch property migrations.
+// -----------------------------------------------------------------------------
+
+func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.T) {
+	mkPayload := func(coll string) db.ReindexTaskPayload {
+		return db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeChangeTokenization,
+			Collection:    coll,
+			Properties:    []string{"p"},
+		}
+	}
+
+	cases := []struct {
+		name       string
+		collection string
+		tasks      []*distributedtask.Task
+		want       int
+	}{
+		{
+			name:       "no tasks",
+			collection: "C",
+			tasks:      nil,
+			want:       0,
+		},
+		{
+			name:       "single STARTED for collection",
+			collection: "C",
+			tasks: []*distributedtask.Task{
+				buildTask(t, "t1", distributedtask.TaskStatusStarted, mkPayload("C"), nil),
+			},
+			want: 1,
+		},
+		{
+			name:       "FINISHED/FAILED/CANCELLED ignored",
+			collection: "C",
+			tasks: []*distributedtask.Task{
+				buildTask(t, "t1", distributedtask.TaskStatusStarted, mkPayload("C"), nil),
+				buildTask(t, "t2", distributedtask.TaskStatusFinished, mkPayload("C"), nil),
+				buildTask(t, "t3", distributedtask.TaskStatusFailed, mkPayload("C"), nil),
+				buildTask(t, "t4", distributedtask.TaskStatusCancelled, mkPayload("C"), nil),
+			},
+			want: 1,
+		},
+		{
+			name:       "other collection ignored",
+			collection: "C",
+			tasks: []*distributedtask.Task{
+				buildTask(t, "t1", distributedtask.TaskStatusStarted, mkPayload("C"), nil),
+				buildTask(t, "t2", distributedtask.TaskStatusStarted, mkPayload("OtherCollection"), nil),
+			},
+			want: 1,
+		},
+		{
+			name:       "case-insensitive match on collection name",
+			collection: "ConcurrentReindexTest",
+			tasks: []*distributedtask.Task{
+				// Lower-case stored payload — must still match the canonical
+				// collection name passed by the handler.
+				buildTask(t, "t1", distributedtask.TaskStatusStarted,
+					mkPayload("concurrentreindextest"), nil),
+			},
+			want: 1,
+		},
+		{
+			name:       "unparseable payload silently skipped",
+			collection: "C",
+			tasks: []*distributedtask.Task{
+				buildTask(t, "t1", distributedtask.TaskStatusStarted, mkPayload("C"), nil),
+				{
+					Namespace: db.ReindexNamespace,
+					TaskDescriptor: distributedtask.TaskDescriptor{
+						ID:      "garbage",
+						Version: 1,
+					},
+					Payload: []byte("not valid json"),
+					Status:  distributedtask.TaskStatusStarted,
+				},
+			},
+			want: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := countStartedTasksForCollection(tc.collection, tc.tasks)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// Pins the boundary of the cap comparison: a submit is rejected only when
+// the inflight count is greater than or equal to the cap. With the current
+// `inflight >= max` predicate, this means:
+//   - inflight == max-1 → admit (caller becomes the max-th simultaneously
+//     running task)
+//   - inflight == max → reject (admitting would push us above the cap)
+//
+// If the comparison were ever flipped to `inflight > max`, the cap would
+// silently grow by one (max+1 simultaneous). If it were `inflight+1 >= max`
+// the cap would silently shrink to max-1. Both have caused outages of this
+// kind before — the test pins the exact arithmetic so a future refactor
+// can't drift the semantics.
+func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
+	mkStarted := func(id, coll string) *distributedtask.Task {
+		return buildTask(t, id, distributedtask.TaskStatusStarted,
+			db.ReindexTaskPayload{
+				MigrationType: db.ReindexTypeChangeTokenization,
+				Collection:    coll,
+				Properties:    []string{"p_" + id},
+			}, nil)
+	}
+
+	const collection = "C"
+	cap := maxConcurrentReindexPerCollection
+
+	// At the cap minus one, a submit must be admitted.
+	tasksAtCapMinusOne := make([]*distributedtask.Task, 0, cap-1)
+	for i := 0; i < cap-1; i++ {
+		tasksAtCapMinusOne = append(tasksAtCapMinusOne,
+			mkStarted(fmtTaskID(i), collection))
+	}
+	got := countStartedTasksForCollection(collection, tasksAtCapMinusOne)
+	require.Equal(t, cap-1, got)
+	require.False(t, got >= cap,
+		"with %d inflight (cap=%d) the submit must be admitted", got, cap)
+
+	// At exactly the cap, a submit must be rejected.
+	tasksAtCap := append(tasksAtCapMinusOne, mkStarted(fmtTaskID(cap-1), collection))
+	got = countStartedTasksForCollection(collection, tasksAtCap)
+	require.Equal(t, cap, got)
+	require.True(t, got >= cap,
+		"with %d inflight (cap=%d) the submit must be rejected", got, cap)
+}
+
+func fmtTaskID(i int) string {
+	return "t-" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))
+}
