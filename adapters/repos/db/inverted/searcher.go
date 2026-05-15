@@ -357,7 +357,7 @@ func (s *Searcher) extractPropValuePair(
 // same-root grouping rule of groupNestedByProp at every AND / OR node
 // it finds, and additionally marks NOT-of-nested-operand as
 // isWithinRootSubtree so the scope-aware planner inverts the NOT at
-// the operand's natural LCA (sub-rule 3). Leaf nodes pass through;
+// the operand's natural LCA (top-level NOT wrapping). Leaf nodes pass through;
 // their children are still walked so AND / OR / NOT nodes deeper in
 // the tree get processed. Pre-marked wrappers (isWithinRootSubtree=
 // true, e.g. tokenization wrappers from buildNestedTextFilterPair)
@@ -371,7 +371,7 @@ func (s *Searcher) extractPropValuePair(
 // wrappers as separate children.
 //
 // NOT-of-IsNull never reaches here — buildPropValuePair rewrites it to
-// its DeMorgan dual (Phase 6 sub-rule 2) so the NOT cancels at
+// its DeMorgan dual (singleton-NOT/OR wrapping) so the NOT cancels at
 // extraction time. Any NOT seen here has a non-IsNull operand.
 func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair {
 	if pv == nil || len(pv.children) == 0 {
@@ -454,7 +454,7 @@ func (s *Searcher) buildPropValuePair(
 		if err != nil {
 			return nil, err
 		}
-		// Phase 6 sub-rule 2 — DeMorgan rewrite: NOT(IsNull=v) on a nested
+		// DeMorgan rewrite: NOT(IsNull=v) on a nested
 		// path is equivalent to IsNull=!v under Phase 6's scope-aware IsNull
 		// semantics (both invert at the operand's natural LCA, so NOT cancels
 		// algebraically). Rewriting here eliminates the NOT before grouping

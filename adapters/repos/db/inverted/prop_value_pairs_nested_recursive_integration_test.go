@@ -203,7 +203,7 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 		// docNoMatch: postcode=10115 at leaf 1, city exists at leaf 2 (a
 		// different address than the postcode hit).
 		//
-		// Phase 6.5 strict-existential: IsNull on a top-level addresses
+		// correlated-AND IsNull alignment strict-existential: IsNull on a top-level addresses
 		// sub-field has operand LCA "" (root). The IsNull leaf materializes
 		// as _exists."" AndNot _exists.city, restricted to the leaf's
 		// arr[N] pins. Both docs have an address-element without city
@@ -222,7 +222,7 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 		vb := store.Bucket(valueBucket)
 		mb := store.Bucket(metaBucket)
 		writeNestedValue(t, vb, "postcode", "10115", []uint64{enc(1, 1, docMatch), enc(1, 1, docNoMatch)})
-		// Phase 6.5 requires _exists."" to be populated: existential =
+		// correlated-AND IsNull alignment requires _exists."" to be populated: existential =
 		// _exists."" AndNot _exists.{operand}. Both docs have addr[0];
 		// docNoMatch also has addr[1] (where city lives).
 		writeExistsAt(t, mb, "", []uint64{enc(1, 1, docMatch), enc(1, 1, docNoMatch), enc(1, 2, docNoMatch)})
@@ -237,7 +237,7 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 	})
 
 	t.Run("isnull_true_standalone_produces_strict_existential_positive", func(t *testing.T) {
-		// addresses.city IS NULL — the only condition. Phase 6.5 materializes
+		// addresses.city IS NULL — the only condition. correlated-AND IsNull alignment materializes
 		// this as a positive: _exists."" AndNot _exists.city restricted to the
 		// leaf's arr[N] pins (none here, so the full root universe).
 		// docMatch: has at least one address (root present) but no city anywhere.
@@ -263,7 +263,7 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 	})
 
 	t.Run("isnull_true_with_arrN_restricts_existential_universe", func(t *testing.T) {
-		// addresses[1].city IS NULL — Phase 6.5 materializes as a positive:
+		// addresses[1].city IS NULL — correlated-AND IsNull alignment materializes as a positive:
 		// _exists."" AndNot _exists.city, both restricted by addresses[1].
 		// Match docs where addresses[1] exists AND addresses[1] has no city.
 		// docMatch: addresses[1] exists with no city set on it.

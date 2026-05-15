@@ -84,8 +84,8 @@ func (pv *propValuePair) fetchNestedDocIDs(ctx context.Context, s *Searcher, lim
 //     stripped to docIDs with isDenyList=true, so the outer machinery
 //     inverts at the doc universe.
 //
-//  2. IS NULL on a sub-property (relPath != "") follows Option A
-//     (Phase 6.1): strict-existential per-element at the operand's natural
+//  2. IS NULL on a sub-property (relPath != "") follows per-element inversion
+//     (scope-aware IsNull): strict-existential per-element at the operand's natural
 //     LCA. Materialized as universe (_exists.{operandLCA}) AndNot
 //     operand (_exists.{relPath}); both pin-restricted; result is the
 //     positive bitmap at the operand's LCA, then stripped to docIDs.

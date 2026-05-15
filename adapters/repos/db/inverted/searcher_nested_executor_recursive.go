@@ -78,7 +78,7 @@ func (e *recExecutor) execute(ctx context.Context, plan recPlanNode) (*sroar.Bit
 		return nil, nil, err
 	}
 	if plan == nil {
-		return nil, nil, fmt.Errorf("recExecutor.execute: nil plan (Phase 6.5: IsNull is materialized as a positive; the no-positive path was removed)")
+		return nil, nil, fmt.Errorf("recExecutor.execute: nil plan (correlated-AND IsNull alignment: IsNull is materialized as a positive; the no-positive path was removed)")
 	}
 	return e.evalNode(ctx, plan, nil)
 }

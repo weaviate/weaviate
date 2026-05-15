@@ -26,7 +26,7 @@ import (
 // recGroupInput is the normalized form fed to the recursive plan + executor.
 // Tokenization wrappers have been collapsed into single virtual leaves; IsNull
 // leaves are materialized as strict-existential positives at their operand
-// LCA (Phase 6.5).
+// LCA (correlated-AND IsNull alignment).
 type recGroupInput struct {
 	// positives are the *propValuePair entries the recursive planner consumes
 	// as logical leaves. Each entry has a corresponding rawsByCond bitmap.
@@ -65,7 +65,7 @@ type recBitmapFetcher interface {
 // It is decoupled from the Searcher via recBitmapFetcher so unit tests can
 // inject synthetic bitmaps. Token wrappers are AndAll-collapsed; IsNull=false
 // becomes a positive existence leaf; IsNull=true is materialized as a
-// strict-existential positive at the operand's LCA (Phase 6.5).
+// strict-existential positive at the operand's LCA (correlated-AND IsNull alignment).
 //
 // The two tokenization patterns are both handled:
 //

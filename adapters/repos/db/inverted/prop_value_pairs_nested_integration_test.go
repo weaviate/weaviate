@@ -2189,7 +2189,7 @@ func TestNestedIsNull(t *testing.T) {
 	})
 
 	t.Run("object[] — sub-property IsNull", func(t *testing.T) {
-		// output (Phase 6 sub-rule 1 — existential per-element at operand LCA):
+		// output (existential per-element at operand LCA):
 		// addresses.city IsNull false → allowlist {doc1}  (∃ address with city)
 		// addresses.city IsNull true  → allowlist {doc2}  (∃ address without city)
 		//   doc3 (no addresses) drops under vacuous-element rule.
@@ -2268,7 +2268,7 @@ func TestNestedIsNull(t *testing.T) {
 	})
 
 	t.Run("object — sub-property IsNull", func(t *testing.T) {
-		// output (Phase 6 sub-rule 1 — existential per-element at operand LCA):
+		// output (existential per-element at operand LCA):
 		// meta.isbn IsNull false → allowlist {doc4}  (meta has isbn)
 		// meta.isbn IsNull true  → allowlist {doc6}  (meta exists but no isbn)
 		//   doc5 (no meta) drops under vacuous-element rule.
@@ -2308,7 +2308,7 @@ func TestNestedIsNull(t *testing.T) {
 	})
 
 	t.Run("object[] — intermediate object sub-property IsNull", func(t *testing.T) {
-		// output (Phase 6 sub-rule 1 — existential per-element at operand LCA):
+		// output (existential per-element at operand LCA):
 		// container.owner IsNull false → allowlist {doc7}  (∃ container with owner)
 		// container.owner IsNull true  → allowlist {doc8}  (∃ container without owner)
 
@@ -2350,7 +2350,7 @@ func TestNestedIsNull(t *testing.T) {
 	})
 
 	t.Run("object[] — intermediate object[] sub-property IsNull", func(t *testing.T) {
-		// output (Phase 6 sub-rule 1 — existential per-element at operand LCA):
+		// output (existential per-element at operand LCA):
 		// container.items IsNull false → allowlist {doc8}  (∃ container with items)
 		// container.items IsNull true  → allowlist {doc7}  (∃ container without items)
 
@@ -3930,7 +3930,7 @@ func TestNestedFilteringIsNull(t *testing.T) {
 			})
 
 			t.Run("root sub-property IsNull true — existential per-element at root", func(t *testing.T) {
-				// Phase 6 sub-rule 1: universe = ExistsKey("") = [doc5,doc6,doc7];
+				// Existential-per-element IsNull: universe = ExistsKey("") = [doc5,doc6,doc7];
 				// operand = ExistsKey("addresses") = [doc5,doc7]; AndNot = [doc6].
 				pv, err := searcher.extractPropValuePair(context.Background(),
 					isNullClause(prop+".addresses", true), "PlanTestClass")
@@ -3957,7 +3957,7 @@ func TestNestedFilteringIsNull(t *testing.T) {
 			})
 
 			t.Run("deep sub-property IsNull true — existential per-element at addresses", func(t *testing.T) {
-				// Phase 6 sub-rule 1: universe = ExistsKey("addresses") = [doc5,doc7];
+				// Existential-per-element IsNull: universe = ExistsKey("addresses") = [doc5,doc7];
 				// operand = ExistsKey("addresses.city") = [doc5]; AndNot = [doc7].
 				pv, err := searcher.extractPropValuePair(context.Background(),
 					isNullClause(prop+".addresses.city", true), "PlanTestClass")
@@ -4577,7 +4577,7 @@ func TestNestedFilteringIsNullAndMultiLevelArrayIndex(t *testing.T) {
 		mb := store.Bucket(metaBucketName)
 
 		// ExistsKey(""): all positions where the nested root has any data —
-		// needed by Phase 6 sub-rule 1 as the universe for IsNull operands
+		// needed by OR-of-same-root wrapping as the universe for IsNull operands
 		// whose natural LCA is "" (single-segment relPath like "addresses").
 		writeNestedExists(t, mb, "", []uint64{
 			e1(1, doc5), e1(2, doc5),
@@ -4605,7 +4605,7 @@ func TestNestedFilteringIsNullAndMultiLevelArrayIndex(t *testing.T) {
 
 		// "addresses[1] IsNull false" → allowlist of docs with a second address element
 		runDeny(t, searcher, isNullFlt("nested.addresses[1]", false), false, []uint64{doc5, doc8})
-		// "addresses[1] IsNull true" — Phase 6 sub-rule 1: universe is the pin
+		// "addresses[1] IsNull true" — Existential-per-element IsNull: universe is the pin
 		// slice (positions of addresses[1]); operand is _exists.addresses
 		// pin-restricted to the same set. AndNot = ∅. Empty because if a doc
 		// has addresses[1] in its pin universe, addresses[1] necessarily
@@ -4614,7 +4614,7 @@ func TestNestedFilteringIsNullAndMultiLevelArrayIndex(t *testing.T) {
 		runDeny(t, searcher, isNullFlt("nested.addresses[1]", true), false, []uint64{})
 		// "addresses[1].city IsNull false" → only doc5 has city in addresses[1]
 		runDeny(t, searcher, isNullFlt("nested.addresses[1].city", false), false, []uint64{doc5})
-		// "addresses[1].city IsNull true" — Phase 6 sub-rule 1: universe is
+		// "addresses[1].city IsNull true" — Existential-per-element IsNull: universe is
 		// _exists.addresses pin-restricted = {addresses[1] of doc5, doc8};
 		// operand is _exists.addresses.city pin-restricted = {addresses[1] of
 		// doc5}. AndNot = {addresses[1] of doc8} → doc8.

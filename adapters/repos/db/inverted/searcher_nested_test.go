@@ -431,7 +431,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		// nested LCA):
 		// └── AND {isWRS:nested}
 		//     ├── city:berlin
-		//     └── OR {isWRS:nested}     ← inner OR wraps under sub-rule 1
+		//     └── OR {isWRS:nested}     ← inner OR wraps under OR-of-same-root wrapping
 		//         ├── title:alpha
 		//         └── title:beta
 		pv, err := s.extractPropValuePair(t.Context(),
@@ -493,7 +493,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("OR(AND(A,B), leaf) — outer OR and inner AND both wrap", func(t *testing.T) {
 		// input:  OR(AND(nested.city=berlin, nested.title=alpha), nested.title=beta)
-		// output (both levels collapse; outer OR also wraps under sub-rule 1):
+		// output (both levels collapse; outer OR also wraps under OR-of-same-root wrapping):
 		// └── OR {isWRS:nested}
 		//     ├── AND {isWRS:nested}  ← inner AND collapsed
 		//     │   ├── city:berlin
@@ -547,7 +547,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("top-level ContainsAny collapses to same-root OR wrapper", func(t *testing.T) {
 		// input:  ContainsAny(nested.numbers, [1, 2])
-		// output (desugared OR collapses under sub-rule 1; OR-of-same-root
+		// output (desugared OR collapses under OR-of-same-root wrapping; OR-of-same-root
 		// wraps so the planner evaluates per-element at the nested LCA):
 		// └── OR {isWRS:nested}
 		//     ├── numbers=1
@@ -569,8 +569,8 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("top-level ContainsNone wraps both NOT and inner OR", func(t *testing.T) {
 		// input:  ContainsNone(nested.numbers, [1, 2])
-		// output (NOT(OR) — inner OR same-root wraps under sub-rule 1
-		// and outer NOT same-root operand wraps under sub-rule 3):
+		// output (NOT(OR) — inner OR same-root wraps under OR-of-same-root wrapping
+		// and outer NOT same-root operand wraps under top-level NOT wrapping):
 		// └── NOT {isWRS:nested}
 		//     └── OR {isWRS:nested}
 		//         ├── numbers=1
@@ -584,7 +584,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, filters.OperatorNot, pv.operator)
-		assert.True(t, pv.nested.isWithinRootSubtree, "outer NOT wraps under sub-rule 3")
+		assert.True(t, pv.nested.isWithinRootSubtree, "outer NOT wraps under top-level NOT wrapping")
 		assert.Equal(t, "nested", pv.prop)
 		require.Len(t, pv.children, 1)
 
@@ -598,7 +598,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 	t.Run("ContainsAny inside AND wraps both levels", func(t *testing.T) {
 		// input:  AND(nested.city=berlin, ContainsAny(nested.numbers, [1, 2]))
 		// output (outer AND collapses; inner OR also collapses under
-		// sub-rule 1 — both same-root wrappers):
+		// OR-of-same-root wrapping — both same-root wrappers):
 		// └── AND {isWRS:nested}
 		//     ├── city:berlin
 		//     └── OR {isWRS:nested}
@@ -630,7 +630,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("standalone OR of same-root leaves wraps and collapses", func(t *testing.T) {
 		// input:  OR(nested.city=berlin, nested.title=alpha)
-		// output (sub-rule 1: OR of same-root children wraps with
+		// output (OR-of-same-root wrapping: OR of same-root children wraps with
 		// isWithinRootSubtree=true, then collapses in place):
 		// └── OR {isWRS:nested}
 		//     ├── city:berlin
@@ -648,9 +648,9 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		assertNestedLeaf(t, pv.children[1], "title", []byte("alpha"))
 	})
 
-	t.Run("standalone NOT of nested leaf wraps under sub-rule 3", func(t *testing.T) {
+	t.Run("standalone NOT of nested leaf wraps under top-level NOT wrapping", func(t *testing.T) {
 		// input:  NOT(nested.city=berlin)
-		// output (sub-rule 3: standalone NOT with a nested-rooted
+		// output (top-level NOT wrapping: standalone NOT with a nested-rooted
 		// operand wraps so the planner inverts at the operand's LCA
 		// per-element):
 		// └── NOT {isWRS:nested}
@@ -670,7 +670,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 	t.Run("AND with NOT(leaf) inside — outer AND and inner NOT both wrap", func(t *testing.T) {
 		// input:  AND(nested.city=berlin, NOT(nested.title=alpha))
 		// output (outer AND collapses under same-root grouping; inner
-		// NOT also wraps under sub-rule 3):
+		// NOT also wraps under top-level NOT wrapping):
 		// └── AND {isWRS:nested}
 		//     ├── city:berlin
 		//     └── NOT {isWRS:nested}    ← inner NOT also wraps
@@ -689,17 +689,17 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 		notChild := pv.children[1]
 		assert.Equal(t, filters.OperatorNot, notChild.operator)
-		assert.True(t, notChild.nested.isWithinRootSubtree, "inner NOT wraps under sub-rule 3")
+		assert.True(t, notChild.nested.isWithinRootSubtree, "inner NOT wraps under top-level NOT wrapping")
 		assert.Equal(t, "nested", notChild.prop)
 		require.Len(t, notChild.children, 1)
 		assertNestedLeaf(t, notChild.children[0], "title", []byte("alpha"))
 	})
 
-	// --- sub-rule 1 (OR grouping) positive cases ---
+	// --- OR-of-same-root wrapping (OR grouping) positive cases ---
 
 	t.Run("OR with leaf + NOT(same-root) — both OR and inner NOT wrap", func(t *testing.T) {
 		// input:  OR(nested.city=berlin, NOT(nested.title=alpha))
-		// output (sub-rule 1 wraps the OR; sub-rule 3 wraps the inner
+		// output (OR-of-same-root wrapping wraps the OR; top-level NOT wrapping wraps the inner
 		// NOT):
 		// └── OR {isWRS:nested}
 		//     ├── city:berlin
@@ -718,7 +718,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 		notChild := pv.children[1]
 		assert.Equal(t, filters.OperatorNot, notChild.operator)
-		assert.True(t, notChild.nested.isWithinRootSubtree, "inner NOT wraps under sub-rule 3")
+		assert.True(t, notChild.nested.isWithinRootSubtree, "inner NOT wraps under top-level NOT wrapping")
 		assert.Equal(t, "nested", notChild.prop)
 		require.Len(t, notChild.children, 1)
 		assertNestedLeaf(t, notChild.children[0], "title", []byte("alpha"))
@@ -726,7 +726,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("OR of two NOTs at same root — OR and both NOTs wrap", func(t *testing.T) {
 		// input:  OR(NOT(nested.city=berlin), NOT(nested.title=alpha))
-		// output (sub-rule 1 wraps the OR; sub-rule 3 wraps each NOT):
+		// output (OR-of-same-root wrapping wraps the OR; top-level NOT wrapping wraps each NOT):
 		// └── OR {isWRS:nested}
 		//     ├── NOT {isWRS:nested}
 		//     │   └── city:berlin
@@ -746,7 +746,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		require.Len(t, pv.children, 2)
 		for i, child := range pv.children {
 			assert.Equal(t, filters.OperatorNot, child.operator, "child[%d] should be NOT", i)
-			assert.True(t, child.nested.isWithinRootSubtree, "child[%d] NOT wraps under sub-rule 3", i)
+			assert.True(t, child.nested.isWithinRootSubtree, "child[%d] NOT wraps under top-level NOT wrapping", i)
 			assert.Equal(t, "nested", child.prop, "child[%d] prop", i)
 		}
 	})
@@ -769,12 +769,12 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		require.Len(t, pv.children, 3)
 	})
 
-	// --- sub-rule 3 (top-level NOT marking) positive cases ---
+	// --- top-level NOT wrapping (top-level NOT marking) positive cases ---
 
-	t.Run("NOT of nested AND wraps both levels under sub-rule 3", func(t *testing.T) {
+	t.Run("NOT of nested AND wraps both levels under top-level NOT wrapping", func(t *testing.T) {
 		// input:  NOT(AND(nested.city=berlin, nested.title=alpha))
 		// output (inner AND collapses under same-root grouping; outer
-		// NOT wraps under sub-rule 3):
+		// NOT wraps under top-level NOT wrapping):
 		// └── NOT {isWRS:nested}
 		//     └── AND {isWRS:nested}
 		//         ├── city:berlin
@@ -791,11 +791,11 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 		innerAnd := pv.children[0]
 		assert.Equal(t, filters.OperatorAnd, innerAnd.operator)
-		assert.True(t, innerAnd.nested.isWithinRootSubtree, "inner AND wraps under sub-rule 1")
+		assert.True(t, innerAnd.nested.isWithinRootSubtree, "inner AND wraps under OR-of-same-root wrapping")
 		require.Len(t, innerAnd.children, 2)
 	})
 
-	t.Run("NOT of nested OR wraps both levels under sub-rule 3", func(t *testing.T) {
+	t.Run("NOT of nested OR wraps both levels under top-level NOT wrapping", func(t *testing.T) {
 		// input:  NOT(OR(nested.city=berlin, nested.title=alpha))
 		// output: both wrap.
 		pv, err := s.extractPropValuePair(t.Context(),
@@ -810,7 +810,7 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 		innerOr := pv.children[0]
 		assert.Equal(t, filters.OperatorOr, innerOr.operator)
-		assert.True(t, innerOr.nested.isWithinRootSubtree, "inner OR wraps under sub-rule 1")
+		assert.True(t, innerOr.nested.isWithinRootSubtree, "inner OR wraps under OR-of-same-root wrapping")
 		require.Len(t, innerOr.children, 2)
 	})
 
@@ -834,9 +834,9 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		assertNestedLeaf(t, innerNot.children[0], "city", []byte("berlin"))
 	})
 
-	t.Run("NOT of IsNull leaf — DeMorgan rewrite to flipped IsNull (Phase 6 sub-rule 2)", func(t *testing.T) {
+	t.Run("NOT of IsNull leaf — DeMorgan rewrite to flipped IsNull (singleton-NOT/OR wrapping)", func(t *testing.T) {
 		// input:  NOT(nested.city IS NULL=true)
-		// Phase 6 sub-rule 2 rewrites NOT(IsNull=v) → IsNull=!v at
+		// singleton-NOT/OR wrapping rewrites NOT(IsNull=v) → IsNull=!v at
 		// extraction time. The NOT is eliminated and the IsNull leaf
 		// returned in its place with the value byte flipped.
 		isNullClause := &filters.Clause{

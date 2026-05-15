@@ -296,7 +296,7 @@ func groupNestedByProp(children []*propValuePair, class *models.Class, parentOpe
 	// children unless the singleton is a nested NOT/OR operator subtree —
 	// wrapping it ensures the planner evaluates scope-aware NOT/OR at the
 	// operand's natural LCA even when the parent AND has cross-root or scalar
-	// siblings (sub-rule 2). Flat conditions retain their position.
+	// siblings (singleton-NOT/OR wrapping). Flat conditions retain their position.
 	result := make([]*propValuePair, 0, len(children))
 	emitted := make(map[string]bool, len(propOrder))
 	for _, child := range children {

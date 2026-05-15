@@ -819,7 +819,7 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 }
 
 // TestRecExecutorRootAnchor and TestRecExecutorExcludePositions are retired:
-// Phase 6.5 moved IsNull=true to a strict-existential positive at the operand
+// correlated-AND IsNull alignment moved IsNull=true to a strict-existential positive at the operand
 // LCA. The executor's exclude machinery (withExcludes, recExclude,
 // withPlanLCAs) and the no-positive path (executeRootAnchor) are gone.
 // End-to-end IsNull coverage lives in the DB-level integration tests
@@ -836,7 +836,7 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 //     `cancelled_via_*` sub-tests cover the three execute() dispatches with
 //     a non-nil plan: canUseRawAndAll (raw AndAll, no idx loop),
 //     runIdxLoopRecursive (per-element idx iteration), and evalSplit
-//     (multi-branch dispatch). Phase 6.5 removed the rootAnchor (plan==nil)
+//     (multi-branch dispatch). correlated-AND IsNull alignment removed the rootAnchor (plan==nil)
 //     path; nil plan now returns an error.
 //
 //   - Inner: runIdxLoopRecursive's start-of-function check and evalSplit's

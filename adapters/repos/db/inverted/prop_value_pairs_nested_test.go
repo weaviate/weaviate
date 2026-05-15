@@ -328,11 +328,11 @@ func TestGroupNestedByProp(t *testing.T) {
 		// output:
 		// ├── addresses.city                              ← leaf singleton, no wrapper
 		// └── correlated(cars)[NOT(cars.make)]            ← singleton NOT wraps under
-		//                                                   sub-rule 2 so the planner
+		//                                                   singleton-NOT/OR wrapping so the planner
 		//                                                   evaluates per-element NOT
 		//                                                   at cars LCA
 		{
-			name: "NOT singleton with cross-root sibling wraps under sub-rule 2",
+			name: "NOT singleton with cross-root sibling wraps under singleton-NOT/OR wrapping",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				{
@@ -349,11 +349,11 @@ func TestGroupNestedByProp(t *testing.T) {
 		// output:
 		// ├── addresses.city                              ← leaf singleton, no wrapper
 		// └── correlated(cars)[OR(cars.make, cars.year)]  ← singleton OR wraps under
-		//                                                   sub-rule 2 so the planner
+		//                                                   singleton-NOT/OR wrapping so the planner
 		//                                                   evaluates per-element OR
 		//                                                   at cars LCA
 		{
-			name: "OR singleton with cross-root sibling wraps under sub-rule 2",
+			name: "OR singleton with cross-root sibling wraps under singleton-NOT/OR wrapping",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				{
@@ -374,7 +374,7 @@ func TestGroupNestedByProp(t *testing.T) {
 		// ├── addresses.city  ← leaf singleton, no wrapper (no benefit)
 		// └── cars.make       ← leaf singleton, no wrapper (no benefit)
 		// Leaves share docID-level semantics with their wrapped form so
-		// sub-rule 2 deliberately leaves them as-is.
+		// singleton-NOT/OR wrapping deliberately leaves them as-is.
 		{
 			name: "direct nested leaf singletons stay opaque even with cross-root sibling",
 			children: []*propValuePair{
