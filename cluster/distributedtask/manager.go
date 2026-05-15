@@ -37,6 +37,16 @@ type Manager struct {
 	mu    sync.RWMutex
 	tasks map[string]map[string]*Task // namespace -> taskID -> Task
 
+	// conflictDetectors is the per-namespace registry consulted by
+	// [Manager.AddTask] before appending a new task. nil-safe (and any
+	// missing namespace is also nil-safe): no detector → no extra
+	// rejection, behavior matches the pre-hook code.
+	//
+	// Set once at startup via [Manager.SetConflictDetectors]. Reading
+	// it during AddTask under m.mu is safe — the setter takes m.mu, so
+	// no concurrent read/write race.
+	conflictDetectors map[string]ConflictDetector
+
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
@@ -50,6 +60,19 @@ type Manager struct {
 	// Manager's write lock to ensure every successful apply produces a
 	// wake-up that observers cannot miss.
 	notifier SchedulerNotifier
+}
+
+// SetConflictDetectors installs the per-namespace conflict-detection
+// hook called by [Manager.AddTask]. Safe to call once at startup after
+// both the Manager and the providers exist (see configure_api.go
+// wiring). Subsequent calls overwrite the previous registration.
+//
+// Pass nil to disable conflict checking (e.g. unit tests that exercise
+// AddTask in isolation).
+func (m *Manager) SetConflictDetectors(detectors map[string]ConflictDetector) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.conflictDetectors = detectors
 }
 
 // SetSchedulerNotifier installs the scheduler wake-up notifier. Safe to
@@ -117,6 +140,24 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 
 		if seqNum <= task.Version {
 			return fmt.Errorf("task %s/%s is already finished with version %d", r.Namespace, r.Id, task.Version)
+		}
+	}
+
+	// Cluster-wide conflict check: if a provider registered a
+	// [ConflictDetector] for this namespace, give it the chance to
+	// reject the new task based on the FSM-stored task list. This
+	// closes the multi-node parallel-submit race the REST handler's
+	// per-node submit lock cannot cover (#10675 family,
+	// parallel-migration bug). The detector must be a pure function
+	// of (newPayload, existingTasks) — see the ConflictDetector
+	// godoc on the FSM-determinism contract.
+	if cd, ok := m.conflictDetectors[r.Namespace]; ok && cd != nil {
+		var existing []*Task
+		for _, t := range m.tasks[r.Namespace] {
+			existing = append(existing, t)
+		}
+		if err := cd.CheckConflict(r.Payload, existing); err != nil {
+			return fmt.Errorf("task %s/%s conflicts with existing task: %w", r.Namespace, r.Id, err)
 		}
 	}
 

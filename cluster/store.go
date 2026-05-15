@@ -364,6 +364,14 @@ func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sc
 	st.distributedTasksManager.SetSchedulerNotifier(notifier)
 }
 
+// SetDistributedTaskConflictDetectors installs the per-namespace
+// conflict-detection hooks on the distributed task FSM Manager. Called
+// once at startup from MakeAppState. See
+// [distributedtask.ConflictDetector] for the contract.
+func (st *Store) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
+	st.distributedTasksManager.SetConflictDetectors(detectors)
+}
+
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.
 // this method work as a protection from applying anything was applied to the db

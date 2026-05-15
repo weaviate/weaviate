@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"testing"
 	"time"
@@ -22,6 +23,112 @@ import (
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
+
+// fakeConflictDetector lets the manager-side conflict-hook test pin
+// every branch of [Manager.AddTask]'s ConflictDetector invocation
+// without standing up the real reindex provider.
+type fakeConflictDetector struct {
+	called     int
+	rejectWith error
+}
+
+func (f *fakeConflictDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {
+}
+func (f *fakeConflictDetector) GetLocalTasks() []TaskDescriptor    { return nil }
+func (f *fakeConflictDetector) CleanupTask(_ TaskDescriptor) error { return nil }
+func (f *fakeConflictDetector) StartTask(_ *Task) (TaskHandle, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f *fakeConflictDetector) CheckConflict(_ []byte, _ []*Task) error {
+	f.called++
+	return f.rejectWith
+}
+
+// TestManager_AddTask_ConflictDetector pins the cluster-wide
+// conflict-rejection hook integrated into [Manager.AddTask]. Closes
+// the multi-node parallel-submit race the REST handler's per-node
+// submit lock cannot cover (parallel-migration bug #54).
+func TestManager_AddTask_ConflictDetector(t *testing.T) {
+	t.Run("hook NOT called when no detector registered for the namespace", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeConflictDetector{rejectWith: fmt.Errorf("would reject")}
+		// Register the detector under a DIFFERENT namespace.
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+			"other-namespace": detector,
+		})
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+
+		require.NoError(t, h.manager.AddTask(c, 100))
+		require.Zero(t, detector.called,
+			"detector for a different namespace MUST NOT be consulted")
+	})
+
+	t.Run("hook called and accepts on no-conflict", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeConflictDetector{rejectWith: nil}
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+			"test": detector,
+		})
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+
+		require.NoError(t, h.manager.AddTask(c, 100))
+		require.Equal(t, 1, detector.called,
+			"detector MUST be consulted exactly once per AddTask")
+	})
+
+	t.Run("hook rejects → AddTask returns error and task is NOT added", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeConflictDetector{
+			rejectWith: fmt.Errorf("simulated conflict: parallel migration on same prop"),
+		}
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+			"test": detector,
+		})
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+
+		err := h.manager.AddTask(c, 100)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "simulated conflict")
+
+		// Confirm the task was NOT registered.
+		tasks, err2 := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err2)
+		require.Empty(t, tasks["test"],
+			"rejected task MUST NOT appear in the FSM-stored task list")
+	})
+
+	t.Run("hook nil-safe: SetConflictDetectors(nil) is a no-op", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.SetConflictDetectors(nil)
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+		require.NoError(t, h.manager.AddTask(c, 100))
+	})
+}
 
 func TestManager_AddTask_Failures(t *testing.T) {
 	t.Run("add duplicate task", func(t *testing.T) {

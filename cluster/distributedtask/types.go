@@ -76,6 +76,41 @@ type Provider interface {
 	StartTask(task *Task) (TaskHandle, error)
 }
 
+// ConflictDetector is an optional interface providers implement so the
+// [Manager.AddTask] RAFT-apply path can reject a new task whose payload
+// conflicts with an already-running task in the same namespace.
+//
+// Motivation: the REST handler holds a per-(collection, property)
+// in-memory lock and runs [checkReindexConflict] before submitting,
+// which closes the same-node race. But two parallel PUT
+// /indexes/{prop} requests served by *different* nodes both pass the
+// per-node lock + check (neither has called AddDistributedTask yet at
+// the moment they each query the cluster task list) and both submit a
+// RAFT task. At that point two reindex migrations race on shared
+// on-disk state for the property and one of them ends up FAILED —
+// the multi-node face of weaviate/weaviate#10675 (issue tracked as
+// "parallel-migration bug #54").
+//
+// Putting the conflict check inside [Manager.AddTask] under m.mu makes
+// it RAFT-deterministic: every node consults the same FSM-stored task
+// list at apply time and rejects the duplicate identically, returning
+// the conflict error to the originating client.
+//
+// FSM-determinism contract: CheckConflict MUST be a pure function of
+// (newPayload, existingTasks). It must not read mutable process state
+// (clocks, network, schema, RNG) — different nodes applying the same
+// log entry must reach the same accept/reject decision.
+type ConflictDetector interface {
+	Provider
+
+	// CheckConflict is called under [Manager.mu] before a new task is
+	// appended to the FSM-stored task list. existingTasks is the full
+	// namespace-scoped task list at apply time. Return a non-nil error
+	// to reject the new task; the error propagates back to the
+	// AddDistributedTask caller.
+	CheckConflict(newPayload []byte, existingTasks []*Task) error
+}
+
 // RecoveryAwareProvider is an optional interface providers implement to
 // participate in post-restart callback retry. The Scheduler's bootstrap
 // pre-mark (which normally suppresses replay of callbacks that fired

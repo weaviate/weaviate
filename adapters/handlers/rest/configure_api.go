@@ -972,6 +972,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// last unit's terminal transition would stagger across nodes by up to
 	// one tick interval. See [distributedtask.SchedulerNotifier].
 	appState.ClusterService.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
+	// Cluster-wide conflict check: any provider implementing
+	// [distributedtask.ConflictDetector] participates in the
+	// FSM-deterministic reject-on-conflict path inside
+	// [Manager.AddTask]. This closes the multi-node parallel-submit
+	// race the REST handler's per-node submit lock cannot cover (see
+	// [distributedtask.ConflictDetector] godoc for the parallel-
+	// migration bug #54 / #10675 family).
+	conflictDetectors := map[string]distributedtask.ConflictDetector{}
+	for ns, p := range providers {
+		if cd, ok := p.(distributedtask.ConflictDetector); ok {
+			conflictDetectors[ns] = cd
+		}
+	}
+	appState.ClusterService.SetDistributedTaskConflictDetectors(conflictDetectors)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.

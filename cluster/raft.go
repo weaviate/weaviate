@@ -68,6 +68,15 @@ func (s *Raft) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sche
 	s.store.SetDistributedTaskSchedulerNotifier(notifier)
 }
 
+// SetDistributedTaskConflictDetectors installs the per-namespace
+// conflict-detection hooks on the underlying distributed task FSM
+// Manager. Called once at startup from MakeAppState, after the
+// providers are registered. See [distributedtask.ConflictDetector] for
+// the FSM-determinism contract.
+func (s *Raft) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
+	s.store.SetDistributedTaskConflictDetectors(detectors)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
