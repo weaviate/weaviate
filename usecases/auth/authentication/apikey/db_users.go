@@ -383,7 +383,7 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	_, ok := c.data.Users[userIdentifier]
+	_, ok := c.data.IdentifierToId[userIdentifier]
 	return ok, nil
 }
 
