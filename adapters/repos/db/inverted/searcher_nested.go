@@ -40,7 +40,13 @@ func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 		return nil, fmt.Errorf("nested path %q: %w", path, err)
 	}
 
-	if !isNestedFilterable(leaf) {
+	// TODO aliszka:nested_filtering when rangeable / searchable nested
+	// filtering support is added, add corresponding schema.IsNestedRangeable
+	// and schema.IsNestedSearchable checks alongside the filterable check
+	// below. The validator currently rejects non-filterable leaves at parse
+	// time; the check below stays as a defensive safeguard for any code path
+	// that bypasses validation.
+	if !schema.IsNestedFilterable(leaf) {
 		return nil, fmt.Errorf("nested property %q is not filterable", path)
 	}
 

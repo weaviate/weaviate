@@ -12,9 +12,9 @@
 package filters
 
 import (
+	"fmt"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -26,11 +26,11 @@ import (
 //   - nested.city == "x": valid dot-notation path, delegated to validateNestedPathClause
 func validateNestedProp(prop *models.Property, propName schema.PropertyName, isPropLengthFilter bool, cw *clauseWrapper) error {
 	if isPropLengthFilter {
-		return errors.Errorf("property length filtering is not supported for nested properties")
+		return fmt.Errorf("property length filtering is not supported for nested properties")
 	}
 
 	if !strings.Contains(string(propName), ".") {
-		return errors.Errorf("property %q is of type %q; use dot notation to filter on a sub-property",
+		return fmt.Errorf("property %q is of type %q; use dot notation to filter on a sub-property",
 			propName, schema.DataType(prop.DataType[0]))
 	}
 
@@ -50,7 +50,7 @@ func validateNestedPathClause(prop *models.Property, propName schema.PropertyNam
 	for i, seg := range segments[1:] {
 		np := findNestedProp(nestedProps, seg)
 		if np == nil {
-			return errors.Errorf("nested path %q: sub-property %q not found", propName, seg)
+			return fmt.Errorf("nested path %q: sub-property %q not found", propName, seg)
 		}
 
 		isLast := i == len(segments[1:])-1
@@ -59,16 +59,23 @@ func validateNestedPathClause(prop *models.Property, propName schema.PropertyNam
 		if !isLast {
 			// Intermediate sub-property must be object or object[].
 			if !schema.IsNested(dt) {
-				return errors.Errorf("nested path %q: sub-property %q must be object or object[], got %q",
+				return fmt.Errorf("nested path %q: sub-property %q must be object or object[], got %q",
 					propName, seg, dt)
 			}
 			nestedProps = np.NestedProperties
 		} else {
 			// Leaf sub-property must be a filterable primitive, not object/object[].
 			if schema.IsNested(dt) {
-				return errors.Errorf("nested path %q: sub-property %q is of type %q; "+
+				return fmt.Errorf("nested path %q: sub-property %q is of type %q; "+
 					"filtering on object types is not supported, specify a primitive sub-property",
 					propName, seg, dt)
+			}
+			// TODO aliszka:nested_filtering when rangeable / searchable nested
+			// filtering support is added, add corresponding
+			// schema.IsNestedRangeable and schema.IsNestedSearchable checks
+			// alongside the filterable check below.
+			if !schema.IsNestedFilterable(np) {
+				return fmt.Errorf("nested path %q: sub-property %q is not filterable", propName, seg)
 			}
 			return validateNestedLeafType(propName, np, cw)
 		}
@@ -99,14 +106,14 @@ func validateNestedLeafType(propName schema.PropertyName, np *models.NestedPrope
 
 	if baseType, ok := schema.IsArrayType(dt); ok {
 		if !cw.isType(baseType) {
-			return errors.Errorf("nested path %q: data type filter cannot use %q on type %q, use %q instead",
+			return fmt.Errorf("nested path %q: data type filter cannot use %q on type %q, use %q instead",
 				propName, cw.getValueNameFromType(), dt, valueNameFromDataType(baseType))
 		}
 		return nil
 	}
 
 	if !cw.isType(dt) {
-		return errors.Errorf("nested path %q: data type filter cannot use %q on type %q, use %q instead",
+		return fmt.Errorf("nested path %q: data type filter cannot use %q on type %q, use %q instead",
 			propName, cw.getValueNameFromType(), dt, valueNameFromDataType(dt))
 	}
 	return nil

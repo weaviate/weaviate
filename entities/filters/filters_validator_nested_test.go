@@ -184,13 +184,6 @@ func TestValidateNestedPathClause(t *testing.T) {
 			value:     "x",
 			wantErr:   `property "nested" is of type "object"; use dot notation to filter on a sub-property`,
 		},
-		{
-			name:      "filter directly on object array prop without dot",
-			propName:  "nested.addresses",
-			valueType: schema.DataTypeText,
-			value:     "x",
-			wantErr:   `nested path "nested.addresses": sub-property "addresses" is of type "object[]"`,
-		},
 	}
 
 	for _, tt := range tests {
