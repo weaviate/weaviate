@@ -176,15 +176,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
 
 	importObjects(t, restURI, className, testDocuments)
-
-	baselines := make(map[string][]int)
-	for _, q := range testBM25Queries {
-		counts := perNodeBM25Counts(t, compose, className, q)
-		require.Equalf(t, counts[0], counts[1], "baseline %q n1=%d n2=%d", q, counts[0], counts[1])
-		require.Equalf(t, counts[0], counts[2], "baseline %q n1=%d n3=%d", q, counts[0], counts[2])
-		require.Greaterf(t, counts[0], 0, "baseline %q must match", q)
-		baselines[q] = counts
-	}
+	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// T1: word → field.
 	taskID := submitIndexUpdate(t, restURI, className, "text",
@@ -219,14 +211,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	// only care about per-replica consistency post-T2, not exact baseline
 	// counts, so re-record the baseline now (still has to be consistent
 	// across replicas).
-	for _, q := range testBM25Queries {
-		counts := perNodeBM25Counts(t, compose, className, q)
-		require.Equalf(t, counts[0], counts[1],
-			"after-restart baseline %q inconsistent: n1=%d n2=%d", q, counts[0], counts[1])
-		require.Equalf(t, counts[0], counts[2],
-			"after-restart baseline %q inconsistent: n1=%d n3=%d", q, counts[0], counts[2])
-		baselines[q] = counts
-	}
+	baselines = waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// T2: field → word.
 	taskID = submitIndexUpdate(t, restURI, className, "text",
@@ -372,29 +357,50 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "word")
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "word")
 
-	var failures []string
-	for _, q := range testBM25Queries {
-		titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
-		bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
-		for i := 0; i < 3; i++ {
-			if titleActual[i] != baselinesTitle[q][i] {
-				failures = append(failures,
-					fmt.Sprintf("prop=title query=%q node%d expected=%d actual=%d",
-						q, i+1, baselinesTitle[q][i], titleActual[i]))
-			}
-			if bodyActual[i] != baselinesBody[q][i] {
-				failures = append(failures,
-					fmt.Sprintf("prop=body query=%q node%d expected=%d actual=%d",
-						q, i+1, baselinesBody[q][i], bodyActual[i]))
+	// Poll until each property's per-replica counts settle to the
+	// baseline. The schema flip propagates faster than per-node
+	// OnGroupCompleted runs in some races; see perReplicaConvergenceTimeout.
+	var (
+		lastTitle, lastBody map[string][]int
+		failures            []string
+	)
+	deadline := time.Now().Add(perReplicaConvergenceTimeout)
+	for time.Now().Before(deadline) {
+		lastTitle = make(map[string][]int, len(testBM25Queries))
+		lastBody = make(map[string][]int, len(testBM25Queries))
+		failures = failures[:0]
+		for _, q := range testBM25Queries {
+			titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
+			bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
+			lastTitle[q] = titleActual
+			lastBody[q] = bodyActual
+			for i := 0; i < 3; i++ {
+				if titleActual[i] != baselinesTitle[q][i] {
+					failures = append(failures,
+						fmt.Sprintf("prop=title query=%q node%d expected=%d actual=%d",
+							q, i+1, baselinesTitle[q][i], titleActual[i]))
+				}
+				if bodyActual[i] != baselinesBody[q][i] {
+					failures = append(failures,
+						fmt.Sprintf("prop=body query=%q node%d expected=%d actual=%d",
+							q, i+1, baselinesBody[q][i], bodyActual[i]))
+				}
 			}
 		}
+		if len(failures) == 0 {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if len(failures) > 0 {
-		sort.Strings(failures)
-		t.Fatalf(
-			"per-replica inverted-bucket mismatch after concurrent two-property round-trip; %d mismatches:\n  %s",
-			len(failures), strings.Join(failures, "\n  "))
+
+	for _, q := range testBM25Queries {
+		t.Logf("post-concurrent title %q: baseline=%v actual=%v", q, baselinesTitle[q], lastTitle[q])
+		t.Logf("post-concurrent body %q: baseline=%v actual=%v", q, baselinesBody[q], lastBody[q])
 	}
+	sort.Strings(failures)
+	t.Fatalf(
+		"per-replica inverted-bucket mismatch after concurrent two-property round-trip (after %s wait); %d mismatches:\n  %s",
+		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
 // ----------------------------------------------------------------------------
@@ -425,16 +431,7 @@ func testRoundTripNRounds(
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)
-
-	baselines := make(map[string][]int)
-	for _, q := range testBM25Queries {
-		counts := perNodeBM25Counts(t, compose, className, q)
-		require.Equalf(t, counts[0], counts[1],
-			"baseline %q inconsistent: n1=%d n2=%d", q, counts[0], counts[1])
-		require.Equalf(t, counts[0], counts[2],
-			"baseline %q inconsistent: n1=%d n3=%d", q, counts[0], counts[2])
-		baselines[q] = counts
-	}
+	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	currentTok := startTok
 	for roundIdx, targetTok := range sequence {
@@ -499,29 +496,37 @@ func testMultiPropertyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	awaitReindexFinished(t, restURI, taskID)
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "word")
 
+	// Poll both properties' per-replica counts until they match the
+	// baseline. Same settle-window rationale as assertPerReplicaConsistent.
 	var failures []string
-	for _, q := range testBM25Queries {
-		titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
-		bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
-		for i := 0; i < 3; i++ {
-			if titleActual[i] != baselinesTitle[q][i] {
-				failures = append(failures,
-					fmt.Sprintf("prop=title q=%q node%d expected=%d actual=%d",
-						q, i+1, baselinesTitle[q][i], titleActual[i]))
-			}
-			if bodyActual[i] != baselinesBody[q][i] {
-				failures = append(failures,
-					fmt.Sprintf("prop=body q=%q node%d expected=%d actual=%d",
-						q, i+1, baselinesBody[q][i], bodyActual[i]))
+	deadline := time.Now().Add(perReplicaConvergenceTimeout)
+	for time.Now().Before(deadline) {
+		failures = failures[:0]
+		for _, q := range testBM25Queries {
+			titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
+			bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
+			for i := 0; i < 3; i++ {
+				if titleActual[i] != baselinesTitle[q][i] {
+					failures = append(failures,
+						fmt.Sprintf("prop=title q=%q node%d expected=%d actual=%d",
+							q, i+1, baselinesTitle[q][i], titleActual[i]))
+				}
+				if bodyActual[i] != baselinesBody[q][i] {
+					failures = append(failures,
+						fmt.Sprintf("prop=body q=%q node%d expected=%d actual=%d",
+							q, i+1, baselinesBody[q][i], bodyActual[i]))
+				}
 			}
 		}
+		if len(failures) == 0 {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if len(failures) > 0 {
-		sort.Strings(failures)
-		t.Fatalf(
-			"per-replica multi-property round-trip mismatch; %d mismatches:\n  %s",
-			len(failures), strings.Join(failures, "\n  "))
-	}
+	sort.Strings(failures)
+	t.Fatalf(
+		"per-replica multi-property round-trip mismatch (after %s wait); %d mismatches:\n  %s",
+		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
 func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
@@ -568,23 +573,30 @@ func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	awaitReindexFinished(t, restURI, taskID)
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
+	// Poll Equal-filter per-replica counts until they match baseline.
 	var failures []string
-	for _, p := range probes {
-		actual := perNodeEqualCounts(t, compose, className, "text", p)
-		for i := 0; i < 3; i++ {
-			if actual[i] != baselines[p][i] {
-				failures = append(failures,
-					fmt.Sprintf("filter=Equal(%q) node%d expected=%d actual=%d",
-						p, i+1, baselines[p][i], actual[i]))
+	deadline := time.Now().Add(perReplicaConvergenceTimeout)
+	for time.Now().Before(deadline) {
+		failures = failures[:0]
+		for _, p := range probes {
+			actual := perNodeEqualCounts(t, compose, className, "text", p)
+			for i := 0; i < 3; i++ {
+				if actual[i] != baselines[p][i] {
+					failures = append(failures,
+						fmt.Sprintf("filter=Equal(%q) node%d expected=%d actual=%d",
+							p, i+1, baselines[p][i], actual[i]))
+				}
 			}
 		}
+		if len(failures) == 0 {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if len(failures) > 0 {
-		sort.Strings(failures)
-		t.Fatalf(
-			"filterable-only per-replica mismatch after word→field→word round-trip; %d mismatches:\n  %s",
-			len(failures), strings.Join(failures, "\n  "))
-	}
+	sort.Strings(failures)
+	t.Fatalf(
+		"filterable-only per-replica mismatch after word→field→word round-trip (after %s wait); %d mismatches:\n  %s",
+		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
 func testSearchableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
@@ -606,15 +618,7 @@ func testSearchableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 
 	importObjects(t, restURI, className, testDocuments)
 
-	baselines := make(map[string][]int)
-	for _, q := range testBM25Queries {
-		counts := perNodeBM25Counts(t, compose, className, q)
-		require.Equalf(t, counts[0], counts[1],
-			"searchable-only baseline %q inconsistent: n1=%d n2=%d", q, counts[0], counts[1])
-		require.Equalf(t, counts[0], counts[2],
-			"searchable-only baseline %q inconsistent: n1=%d n3=%d", q, counts[0], counts[2])
-		baselines[q] = counts
-	}
+	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	taskID := submitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"field"}}`)
@@ -648,11 +652,7 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	defer deleteCollection(t, restURI, className)
 
 	importObjects(t, restURI, className, testDocuments)
-
-	baselines := make(map[string][]int)
-	for _, q := range testBM25Queries {
-		baselines[q] = perNodeBM25Counts(t, compose, className, q)
-	}
+	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// Step 1: enable filterable. This writes a tidied.mig per-prop.
 	taskID := submitIndexUpdate(t, restURI, className, "text",
@@ -740,50 +740,61 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 		baselinesBM25[q] = perNodeBM25Counts(t, compose, className, q)
 	}
 
-	// Step 2: change-tokenization word→field on BOTH indexes via
-	// change-tok-both shape — this spawns two sub-tasks (filterable +
-	// searchable) and is the most stressful shape for the
-	// per-property/per-shard migration dir state.
+	// Step 2: change-tokenization word→field via filterable. The
+	// property's `tokenization` field is per-property, not per-index, so
+	// a single change-tok-filterable updates the cluster-wide schema and
+	// rebuilds the filterable bucket. The searchable bucket is left at
+	// the old tokenization for now — exercising the divergent-bucket
+	// state. A second `{"searchable":{"tokenization":"field"}}` would be
+	// rejected by validateTokenizationChange ("already uses tokenization
+	// X") because the schema flip from step 2 already landed.
 	taskID = submitIndexUpdate(t, restURI, className, "text",
-		`{"filterable":{"tokenization":"field"},"searchable":{"tokenization":"field"}}`)
+		`{"filterable":{"tokenization":"field"}}`)
 	awaitReindexFinished(t, restURI, taskID)
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
-	// Step 3: back to word.
+	// Step 3: back to word via filterable. Same single-request shape.
 	taskID = submitIndexUpdate(t, restURI, className, "text",
-		`{"filterable":{"tokenization":"word"},"searchable":{"tokenization":"word"}}`)
+		`{"filterable":{"tokenization":"word"}}`)
 	awaitReindexFinished(t, restURI, taskID)
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
-	// Assert both filterable (Equal) and searchable (BM25) results
-	// match per replica.
+	// Poll until both filterable (Equal) and searchable (BM25) per-replica
+	// counts match the baseline. Same settle-window rationale as
+	// assertPerReplicaConsistent.
 	var failures []string
-	for _, p := range probes {
-		actual := perNodeEqualCounts(t, compose, className, "text", p)
-		for i := 0; i < 3; i++ {
-			if actual[i] != baselinesEqual[p][i] {
-				failures = append(failures,
-					fmt.Sprintf("Equal(%q) node%d expected=%d actual=%d",
-						p, i+1, baselinesEqual[p][i], actual[i]))
+	deadline := time.Now().Add(perReplicaConvergenceTimeout)
+	for time.Now().Before(deadline) {
+		failures = failures[:0]
+		for _, p := range probes {
+			actual := perNodeEqualCounts(t, compose, className, "text", p)
+			for i := 0; i < 3; i++ {
+				if actual[i] != baselinesEqual[p][i] {
+					failures = append(failures,
+						fmt.Sprintf("Equal(%q) node%d expected=%d actual=%d",
+							p, i+1, baselinesEqual[p][i], actual[i]))
+				}
 			}
 		}
-	}
-	for _, q := range testBM25Queries {
-		actual := perNodeBM25Counts(t, compose, className, q)
-		for i := 0; i < 3; i++ {
-			if actual[i] != baselinesBM25[q][i] {
-				failures = append(failures,
-					fmt.Sprintf("BM25(%q) node%d expected=%d actual=%d",
-						q, i+1, baselinesBM25[q][i], actual[i]))
+		for _, q := range testBM25Queries {
+			actual := perNodeBM25Counts(t, compose, className, q)
+			for i := 0; i < 3; i++ {
+				if actual[i] != baselinesBM25[q][i] {
+					failures = append(failures,
+						fmt.Sprintf("BM25(%q) node%d expected=%d actual=%d",
+							q, i+1, baselinesBM25[q][i], actual[i]))
+				}
 			}
 		}
+		if len(failures) == 0 {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if len(failures) > 0 {
-		sort.Strings(failures)
-		t.Fatalf(
-			"enable-searchable+change-tok-both round-trip mismatch; %d mismatches:\n  %s",
-			len(failures), strings.Join(failures, "\n  "))
-	}
+	sort.Strings(failures)
+	t.Fatalf(
+		"enable-searchable+change-tok round-trip mismatch (after %s wait); %d mismatches:\n  %s",
+		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
 // assertPerReplicaAgreement requires every replica to return the same
@@ -791,31 +802,67 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 // This is weaker than assertPerReplicaConsistent and is the right check
 // after an asymmetric migration where we don't have a precomputed
 // baseline.
+// perReplicaConvergenceTimeout is the budget for per-replica counts to
+// settle after the schema flip lands. The reindex task transitions to
+// FINISHED when units are terminal, then OnGroupCompleted (the per-shard
+// in-memory bucket swap) and OnTaskCompleted (the cluster-wide schema
+// flip via RAFT) fire on each node's next scheduler tick. The schema
+// flip RAFT-propagates instantly, but the swap on each replica is local
+// and can lag the cross-node schema observation by a tick. Real
+// data-loss bugs (the #10675 prod failure mode) leave a replica's
+// bucket persistently empty — those still fail this assertion after the
+// budget elapses. The budget exists to absorb the OnGroupCompleted tick
+// lag, NOT to mask divergence.
+const perReplicaConvergenceTimeout = 60 * time.Second
+
+// assertPerReplicaAgreement polls per-replica counts for each query
+// until every replica returns the same count. The poll catches the
+// post-swap settle window where one replica's OnGroupCompleted has not
+// yet fired even though the RAFT schema flip has already propagated.
+// On timeout, fail with the last observed counts so it's clear which
+// replica diverged.
 func assertPerReplicaAgreement(
 	t *testing.T, compose *docker.DockerCompose,
 	className string, queries []string, label string,
 ) {
 	t.Helper()
 
-	var failures []string
-	for _, q := range queries {
-		counts := perNodeBM25Counts(t, compose, className, q)
-		t.Logf("%s %q: %v", label, q, counts)
-		if counts[0] != counts[1] || counts[0] != counts[2] {
-			failures = append(failures,
-				fmt.Sprintf("query=%q counts=%v (replicas disagree)", q, counts))
+	var (
+		lastCounts map[string][]int
+		failures   []string
+	)
+	deadline := time.Now().Add(perReplicaConvergenceTimeout)
+	for time.Now().Before(deadline) {
+		lastCounts = make(map[string][]int, len(queries))
+		failures = failures[:0]
+		for _, q := range queries {
+			counts := perNodeBM25Counts(t, compose, className, q)
+			lastCounts[q] = counts
+			if counts[0] != counts[1] || counts[0] != counts[2] {
+				failures = append(failures,
+					fmt.Sprintf("query=%q counts=%v (replicas disagree)", q, counts))
+			}
 		}
+		if len(failures) == 0 {
+			for _, q := range queries {
+				t.Logf("%s %q: %v", label, q, lastCounts[q])
+			}
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if len(failures) > 0 {
-		sort.Strings(failures)
-		t.Fatalf("%s — per-replica disagreement; %d mismatches:\n  %s",
-			label, len(failures), strings.Join(failures, "\n  "))
+
+	for _, q := range queries {
+		t.Logf("%s %q: %v", label, q, lastCounts[q])
 	}
+	sort.Strings(failures)
+	t.Fatalf("%s — per-replica disagreement (after %s wait); %d mismatches:\n  %s",
+		label, perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
-// assertPerReplicaConsistent requires every replica to match the
-// per-node baseline counts exactly. Use after a symmetric round-trip
-// where post-migration counts must equal pre-migration counts.
+// assertPerReplicaConsistent polls per-replica counts until every
+// replica matches the per-node baseline exactly. Same settle-window
+// rationale as assertPerReplicaAgreement.
 func assertPerReplicaConsistent(
 	t *testing.T, compose *docker.DockerCompose,
 	className string, queries []string, baselines map[string][]int,
@@ -823,24 +870,41 @@ func assertPerReplicaConsistent(
 ) {
 	t.Helper()
 
-	var failures []string
-	for _, q := range queries {
-		actual := perNodeBM25Counts(t, compose, className, q)
-		expected := baselines[q]
-		t.Logf("%s %q: baseline=%v actual=%v", label, q, expected, actual)
-		for i := 0; i < 3; i++ {
-			if actual[i] != expected[i] {
-				failures = append(failures,
-					fmt.Sprintf("query=%q node%d expected=%d actual=%d",
-						q, i+1, expected[i], actual[i]))
+	var (
+		lastActual map[string][]int
+		failures   []string
+	)
+	deadline := time.Now().Add(perReplicaConvergenceTimeout)
+	for time.Now().Before(deadline) {
+		lastActual = make(map[string][]int, len(queries))
+		failures = failures[:0]
+		for _, q := range queries {
+			actual := perNodeBM25Counts(t, compose, className, q)
+			lastActual[q] = actual
+			expected := baselines[q]
+			for i := 0; i < 3; i++ {
+				if actual[i] != expected[i] {
+					failures = append(failures,
+						fmt.Sprintf("query=%q node%d expected=%d actual=%d",
+							q, i+1, expected[i], actual[i]))
+				}
 			}
 		}
+		if len(failures) == 0 {
+			for _, q := range queries {
+				t.Logf("%s %q: baseline=%v actual=%v", label, q, baselines[q], lastActual[q])
+			}
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	if len(failures) > 0 {
-		sort.Strings(failures)
-		t.Fatalf("%s — per-replica mismatch; %d mismatches:\n  %s",
-			label, len(failures), strings.Join(failures, "\n  "))
+
+	for _, q := range queries {
+		t.Logf("%s %q: baseline=%v actual=%v", label, q, baselines[q], lastActual[q])
 	}
+	sort.Strings(failures)
+	t.Fatalf("%s — per-replica mismatch (after %s wait); %d mismatches:\n  %s",
+		label, perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
 }
 
 func captureBaselineCounts(
@@ -859,4 +923,54 @@ func captureBaselineCounts(
 		baselines[q] = counts
 	}
 	return baselines
+}
+
+// waitForPerReplicaBaseline polls each query across all three replicas
+// until counts agree and are non-zero (a real baseline must match at
+// least one doc). importObjects uses the default write consistency, so
+// after the synchronous POST returns there can be a brief window where
+// the third replica has not finished the replication leg yet. Without
+// this, the very first baseline-capture line of every test races the
+// replication latency on a freshly-started cluster.
+func waitForPerReplicaBaseline(
+	t *testing.T, compose *docker.DockerCompose,
+	className string, queries []string,
+) map[string][]int {
+	t.Helper()
+
+	var (
+		lastCounts map[string][]int
+		failures   []string
+	)
+	deadline := time.Now().Add(perReplicaConvergenceTimeout)
+	for time.Now().Before(deadline) {
+		lastCounts = make(map[string][]int, len(queries))
+		failures = failures[:0]
+		for _, q := range queries {
+			counts := perNodeBM25Counts(t, compose, className, q)
+			lastCounts[q] = counts
+			if counts[0] != counts[1] || counts[0] != counts[2] {
+				failures = append(failures,
+					fmt.Sprintf("baseline %q inconsistent: %v", q, counts))
+			} else if counts[0] == 0 {
+				failures = append(failures,
+					fmt.Sprintf("baseline %q is zero on every replica", q))
+			}
+		}
+		if len(failures) == 0 {
+			for _, q := range queries {
+				t.Logf("baseline %q: %v", q, lastCounts[q])
+			}
+			return lastCounts
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	for _, q := range queries {
+		t.Logf("baseline %q: %v", q, lastCounts[q])
+	}
+	sort.Strings(failures)
+	t.Fatalf("baseline did not converge across replicas within %s; %d issues:\n  %s",
+		perReplicaConvergenceTimeout, len(failures), strings.Join(failures, "\n  "))
+	return nil
 }
