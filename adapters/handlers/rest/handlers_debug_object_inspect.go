@@ -339,27 +339,64 @@ func forwardObjectInspect(r *http.Request, appState *state.State, ownerNode stri
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
+	// A restarted replica can take tens of seconds to finish RAFT replay and
+	// register the local index — until then it returns 404
+	// "collection not found or not ready". Retry a few times so transient
+	// catch-up windows don't break the fan-out.
+	const (
+		maxAttempts = 5
+		backoff     = 2 * time.Second
+	)
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+		} else {
+			body, readErr := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if readErr != nil {
+				lastErr = readErr
+			} else if resp.StatusCode == http.StatusOK {
+				var remote inspectResponse
+				if err := json.Unmarshal(body, &remote); err != nil {
+					return nil, fmt.Errorf("unmarshal remote response: %w", err)
+				}
+				return remote.Results, nil
+			} else {
+				lastErr = fmt.Errorf("remote returned %d: %s", resp.StatusCode, string(body))
+				// Only the "not ready" case is worth retrying; anything else
+				// (4xx for a bad request, 5xx after the node is fully up) is
+				// terminal.
+				if !isRemoteNotReady(resp.StatusCode, body) {
+					return nil, lastErr
+				}
+			}
+		}
+		if attempt == maxAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
+	return nil, lastErr
+}
+
+// isRemoteNotReady detects the transient "still bootstrapping" 404 we emit
+// while a restarted replica is catching up on RAFT — see the
+// "collection not found or not ready" path at the top of the handler.
+func isRemoteNotReady(status int, body []byte) bool {
+	if status != http.StatusNotFound {
+		return false
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("remote returned %d: %s", resp.StatusCode, string(body))
-	}
-	var remote inspectResponse
-	if err := json.Unmarshal(body, &remote); err != nil {
-		return nil, fmt.Errorf("unmarshal remote response: %w", err)
-	}
-	return remote.Results, nil
+	return bytes.Contains(body, []byte("collection not found or not ready"))
 }
 
 // fanOutReplicas queries every replica of `shardName` in parallel and returns
