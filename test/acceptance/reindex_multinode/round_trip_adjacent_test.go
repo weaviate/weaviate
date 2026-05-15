@@ -1,0 +1,858 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package reindex_multinode
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
+)
+
+// TestMultiNode_ChangeTokenization_AdjacentJourneys enumerates every realistic
+// adjacent journey to the word→field→word round-trip data-loss bug
+// (weaviate/weaviate#10675). Each subtest creates a fresh collection on the
+// same shared 3-node cluster (saves the ~20s per-suite startup tax).
+//
+// Each journey is independently RED-expected on the current branch state.
+// The failure pattern to look for is the same as the pinning test:
+//
+//   - task reaches FINISHED on every node
+//   - the schema flag flips correctly on every node
+//   - but on N-1 replicas, the post-migration inverted bucket is empty,
+//     so a BM25/filter query routed directly to that replica returns 0
+//     hits for every term that should have matched.
+//
+// Cross-journey predictions encoded as assertions (any of these failing
+// counts as a Sev-1 finding worth a separate fix):
+//
+//  1. MultiRoundRobin_3rounds / _4rounds: do the empty-bucket replicas
+//     STAY broken across more rounds, or does the bug compound (more
+//     replicas empty)?
+//  2. DifferentTokenizations_*: is the bug specific to word↔field, or
+//     does it also bite word↔whitespace, word↔lowercase, etc.?
+//  3. MultipleProperties: do two simultaneous round-trips on different
+//     props collide via shared migration dirs (they shouldn't — per
+//     MigrationDirName they're per-prop — but if they do, that's a
+//     separate Sev-1)?
+//  4. FilterableOnly_RoundTrip: same bug shape on filterable=true,
+//     searchable=false via the change-tokenization-filterable body
+//     shape?
+//  5. SearchableOnly_RoundTrip: same bug shape on searchable=true,
+//     filterable=false (change-tok-both is impossible here, only
+//     {"searchable":{"tokenization":X}} applies)?
+//  6. EnableFilterableThenChangeTok: does enable-filterable's
+//     tidied.mig poison the subsequent change-tokenization migration
+//     dir state?
+//  7. EnableSearchableThenChangeTok: same idea for enable-searchable.
+func TestMultiNode_ChangeTokenization_AdjacentJourneys(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	t.Run("MultiRoundRobin_3rounds", func(t *testing.T) {
+		// Journey 1: word→field→word→field. Does the bug compound?
+		// Predict: 3rd round leaves even more replicas with empty buckets
+		// than the 2nd round did.
+		testRoundTripNRounds(t, compose,
+			"RoundTrip3", "word",
+			[]string{"field", "word", "field"})
+	})
+
+	t.Run("MultiRoundRobin_4rounds", func(t *testing.T) {
+		// Journey 1 (extended): word→field→word→field→word.
+		testRoundTripNRounds(t, compose,
+			"RoundTrip4", "word",
+			[]string{"field", "word", "field", "word"})
+	})
+
+	t.Run("DifferentTokenizations_word_whitespace_word", func(t *testing.T) {
+		// Journey 2: word→whitespace→word. Same migration shape but a
+		// different tokenizer pair. If only word↔field is broken, this
+		// passes; if the bug is universal to change-tokenization
+		// round-trips, this fails.
+		testRoundTripNRounds(t, compose,
+			"RoundTripWS", "word",
+			[]string{"whitespace", "word"})
+	})
+
+	t.Run("DifferentTokenizations_word_lowercase_word", func(t *testing.T) {
+		// Journey 2 (variant): word→lowercase→word.
+		testRoundTripNRounds(t, compose,
+			"RoundTripLC", "word",
+			[]string{"lowercase", "word"})
+	})
+
+	t.Run("DifferentTokenizations_word_field_lowercase", func(t *testing.T) {
+		// Journey 2 (variant): word→field→lowercase. Asymmetric — the
+		// round-trip doesn't end where it started, but the bug could
+		// still manifest on the second migration.
+		testRoundTripNRounds(t, compose,
+			"RoundTripAsym", "word",
+			[]string{"field", "lowercase"})
+	})
+
+	t.Run("MultipleProperties_simultaneous", func(t *testing.T) {
+		// Journey 3: two text properties, both word→field→word in
+		// sequence on the same collection. Per MigrationDirName the
+		// migration dirs are per-property, so collisions across props
+		// should not happen — if any of the per-property baselines goes
+		// to zero on any replica, that's a separate Sev-1.
+		testMultiPropertyRoundTrip(t, compose)
+	})
+
+	t.Run("FilterableOnly_RoundTrip", func(t *testing.T) {
+		// Journey 4: round-trip via {"filterable":{"tokenization":X}}
+		// on a filterable-only property. Different reindexer
+		// (FilterableRetokenizeStrategy) but the same swap+schema-flip
+		// state machine.
+		testFilterableOnlyRoundTrip(t, compose)
+	})
+
+	t.Run("SearchableOnly_RoundTrip", func(t *testing.T) {
+		// Journey 5: filterable=false, searchable=true. The only valid
+		// body shape is {"searchable":{"tokenization":X}}. No sub-task
+		// fan-out for filterable index, so a simpler shape — but still
+		// the same swap+schema-flip path.
+		testSearchableOnlyRoundTrip(t, compose)
+	})
+
+	t.Run("EnableFilterableThenChangeTok", func(t *testing.T) {
+		// Journey 6: a property starts filterable=false. We enable
+		// filterable (which writes tidied.mig to a per-prop dir under
+		// .migrations/), then immediately change-tokenization on the
+		// same property. Does enable-filterable's residual state
+		// interfere with the change-tok migration?
+		testEnableFilterableThenChangeTok(t, compose)
+	})
+
+	t.Run("EnableSearchableThenChangeTok", func(t *testing.T) {
+		// Journey 7: same idea — start searchable=false, enable
+		// searchable, then change-tokenization.
+		testEnableSearchableThenChangeTok(t, compose)
+	})
+}
+
+// TestMultiNode_ChangeTokenization_RestartThenRoundTrip pins journey 8:
+// T1 word→field, RESTART every node (graceful), then T2 field→word.
+// Hypothesis: a node restart between rounds triggers
+// FinalizeCompletedMigrations on shard init, which cleans up the
+// completed-but-not-tidied migration directory for the first migration.
+// If that cleanup is what's missing from the in-process round-trip path,
+// a restart-between should produce CONSISTENT replicas where the
+// in-process version produces empty ones.
+//
+// Standalone test (cluster-restart shape doesn't share with the
+// AdjacentJourneys cluster).
+func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	const className = "RestartRoundTrip"
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+	})
+	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+
+	importObjects(t, restURI, className, testDocuments)
+
+	baselines := make(map[string][]int)
+	for _, q := range testBM25Queries {
+		counts := perNodeBM25Counts(t, compose, className, q)
+		require.Equalf(t, counts[0], counts[1], "baseline %q n1=%d n2=%d", q, counts[0], counts[1])
+		require.Equalf(t, counts[0], counts[2], "baseline %q n1=%d n3=%d", q, counts[0], counts[2])
+		require.Greaterf(t, counts[0], 0, "baseline %q must match", q)
+		baselines[q] = counts
+	}
+
+	// T1: word → field.
+	taskID := submitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"tokenization":"field"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
+
+	// Restart every node, one at a time, so FinalizeCompletedMigrations
+	// runs on each node's shard init.
+	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
+		t.Logf("restarting node %d between rounds", nodeIdx+1)
+		require.NoError(t, compose.StopAt(ctx, nodeIdx, nil))
+		require.NoError(t, compose.StartAt(ctx, nodeIdx))
+
+		restartedURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
+		require.Eventually(t, func() bool {
+			_, err := runBM25QueryOnNode(t, restartedURI, className, "alpha")
+			return err == nil
+		}, 60*time.Second, 1*time.Second,
+			"node %d should be ready after restart", nodeIdx+1)
+
+		writeURI := compose.GetWeaviateNode(((nodeIdx + 1) % 3) + 1).URI()
+		require.Eventually(t, func() bool {
+			return tryImportObject(writeURI, className, "raft-probe") == nil
+		}, 90*time.Second, 1*time.Second,
+			"raft quorum should be restored after restart of node %d", nodeIdx+1)
+	}
+	// Re-fetch URI after the rolling restart.
+	restURI = compose.GetWeaviateNode(1).URI()
+
+	// The "raft-probe" imports above add objects (one per restart). We
+	// only care about per-replica consistency post-T2, not exact baseline
+	// counts, so re-record the baseline now (still has to be consistent
+	// across replicas).
+	for _, q := range testBM25Queries {
+		counts := perNodeBM25Counts(t, compose, className, q)
+		require.Equalf(t, counts[0], counts[1],
+			"after-restart baseline %q inconsistent: n1=%d n2=%d", q, counts[0], counts[1])
+		require.Equalf(t, counts[0], counts[2],
+			"after-restart baseline %q inconsistent: n1=%d n3=%d", q, counts[0], counts[2])
+		baselines[q] = counts
+	}
+
+	// T2: field → word.
+	taskID = submitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"tokenization":"word"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
+
+	assertPerReplicaConsistent(t, compose, className, testBM25Queries, baselines,
+		"restart-between-rounds")
+}
+
+// TestMultiNode_ChangeTokenization_MTRoundTrip pins journey 9: same
+// word→field→word, but on a multi-tenant class. Per-tenant tracker paths
+// might bypass the bug (different on-disk layout) — or they might hit
+// the same root cause and break per-tenant.
+func TestMultiNode_ChangeTokenization_MTRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	const className = "MTRoundTrip"
+	const tenant = "tenanta"
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createMTCollection(t, restURI, className, 3, []*models.Property{
+		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	createTenants(t, restURI, className, []string{tenant})
+	importObjectsTenant(t, restURI, className, tenant, testDocuments)
+
+	// Per-tenant baseline.
+	baselines := make(map[string][]int)
+	for _, q := range testBM25Queries {
+		counts := perNodeBM25CountsTenant(t, compose, className, tenant, q)
+		require.Equalf(t, counts[0], counts[1],
+			"MT baseline %q inconsistent: n1=%d n2=%d", q, counts[0], counts[1])
+		require.Equalf(t, counts[0], counts[2],
+			"MT baseline %q inconsistent: n1=%d n3=%d", q, counts[0], counts[2])
+		require.Greaterf(t, counts[0], 0, "MT baseline %q must match", q)
+		baselines[q] = counts
+	}
+
+	// word → field.
+	taskID := submitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"tokenization":"field"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
+
+	// field → word.
+	taskID = submitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"tokenization":"word"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
+
+	var failures []string
+	for _, q := range testBM25Queries {
+		actual := perNodeBM25CountsTenant(t, compose, className, tenant, q)
+		expected := baselines[q]
+		t.Logf("MT post-round-trip %q: baseline=%v actual=%v", q, expected, actual)
+		for i := 0; i < 3; i++ {
+			if actual[i] != expected[i] {
+				failures = append(failures,
+					fmt.Sprintf("query=%q node%d tenant=%s expected=%d actual=%d",
+						q, i+1, tenant, expected[i], actual[i]))
+			}
+		}
+	}
+	if len(failures) > 0 {
+		sort.Strings(failures)
+		t.Fatalf(
+			"per-replica MT inverted-bucket mismatch after word→field→word; %d mismatches:\n  %s",
+			len(failures), strings.Join(failures, "\n  "))
+	}
+}
+
+// TestMultiNode_ChangeTokenization_ConcurrentDifferentProps pins
+// journey 10: two distinct text properties getting change-tok migrations
+// concurrently. Per MigrationDirName the dirs are per-property, so
+// collisions shouldn't happen — but if the in-process scheduler
+// serializes through any shared per-shard state, this can expose it.
+func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	const className = "ConcurrentProps"
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
+		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	// Each object has distinct content in title and body so we can
+	// query each property independently.
+	importObjectsTwoProps(t, restURI, className, testDocuments)
+
+	baselinesTitle := captureBaselineCounts(t, compose, className, "title", testBM25Queries)
+	baselinesBody := captureBaselineCounts(t, compose, className, "body", testBM25Queries)
+
+	// Fire two change-tok migrations in parallel.
+	var wg sync.WaitGroup
+	var titleTaskID, bodyTaskID string
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		titleTaskID = submitIndexUpdate(t, restURI, className, "title",
+			`{"searchable":{"tokenization":"field"}}`)
+	}()
+	go func() {
+		defer wg.Done()
+		bodyTaskID = submitIndexUpdate(t, restURI, className, "body",
+			`{"searchable":{"tokenization":"field"}}`)
+	}()
+	wg.Wait()
+
+	awaitReindexFinished(t, restURI, titleTaskID)
+	awaitReindexFinished(t, restURI, bodyTaskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "title", "field")
+	awaitTokenizationOnAllNodes(t, compose, className, "body", "field")
+
+	// Now reverse, in parallel.
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		titleTaskID = submitIndexUpdate(t, restURI, className, "title",
+			`{"searchable":{"tokenization":"word"}}`)
+	}()
+	go func() {
+		defer wg.Done()
+		bodyTaskID = submitIndexUpdate(t, restURI, className, "body",
+			`{"searchable":{"tokenization":"word"}}`)
+	}()
+	wg.Wait()
+
+	awaitReindexFinished(t, restURI, titleTaskID)
+	awaitReindexFinished(t, restURI, bodyTaskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "title", "word")
+	awaitTokenizationOnAllNodes(t, compose, className, "body", "word")
+
+	var failures []string
+	for _, q := range testBM25Queries {
+		titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
+		bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
+		for i := 0; i < 3; i++ {
+			if titleActual[i] != baselinesTitle[q][i] {
+				failures = append(failures,
+					fmt.Sprintf("prop=title query=%q node%d expected=%d actual=%d",
+						q, i+1, baselinesTitle[q][i], titleActual[i]))
+			}
+			if bodyActual[i] != baselinesBody[q][i] {
+				failures = append(failures,
+					fmt.Sprintf("prop=body query=%q node%d expected=%d actual=%d",
+						q, i+1, baselinesBody[q][i], bodyActual[i]))
+			}
+		}
+	}
+	if len(failures) > 0 {
+		sort.Strings(failures)
+		t.Fatalf(
+			"per-replica inverted-bucket mismatch after concurrent two-property round-trip; %d mismatches:\n  %s",
+			len(failures), strings.Join(failures, "\n  "))
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Helpers below — kept in this file so the adjacent-journey tests are
+// self-contained and can be moved/deleted as a unit.
+// ----------------------------------------------------------------------------
+
+// testRoundTripNRounds drives a sequence of change-tokenization migrations
+// on a single property and asserts that after EVERY round, every replica
+// returns the baseline count for every probe query. The baseline is
+// captured before the first round and (for symmetric round-trip
+// sequences) every subsequent round that lands back on the starting
+// tokenization is expected to match the baseline exactly.
+//
+// For asymmetric sequences (e.g. word→field→lowercase), we only assert
+// per-replica equality across nodes (no per-replica drift), not equality
+// to the original baseline.
+func testRoundTripNRounds(
+	t *testing.T, compose *docker.DockerCompose,
+	className, startTok string, sequence []string,
+) {
+	t.Helper()
+
+	restURI := compose.GetWeaviateNode(1).URI()
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{Name: "text", DataType: []string{"text"}, Tokenization: startTok},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	importObjects(t, restURI, className, testDocuments)
+
+	baselines := make(map[string][]int)
+	for _, q := range testBM25Queries {
+		counts := perNodeBM25Counts(t, compose, className, q)
+		require.Equalf(t, counts[0], counts[1],
+			"baseline %q inconsistent: n1=%d n2=%d", q, counts[0], counts[1])
+		require.Equalf(t, counts[0], counts[2],
+			"baseline %q inconsistent: n1=%d n3=%d", q, counts[0], counts[2])
+		baselines[q] = counts
+	}
+
+	currentTok := startTok
+	for roundIdx, targetTok := range sequence {
+		t.Logf("round %d/%d: %s → %s", roundIdx+1, len(sequence), currentTok, targetTok)
+		taskID := submitIndexUpdate(t, restURI, className, "text",
+			fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok))
+		awaitReindexFinished(t, restURI, taskID)
+		awaitTokenizationOnAllNodes(t, compose, className, "text", targetTok)
+		currentTok = targetTok
+
+		// After every round, all three replicas must agree on counts
+		// per query. If they don't, we've found a per-replica
+		// divergence — that's the bug, regardless of which round it
+		// shows up on.
+		assertPerReplicaAgreement(t, compose, className, testBM25Queries,
+			fmt.Sprintf("after round %d (now %s)", roundIdx+1, targetTok))
+
+		// Additionally: when we're back on the starting tokenization,
+		// the counts should match the baseline (semantic round-trip
+		// has no information loss).
+		if targetTok == startTok {
+			assertPerReplicaConsistent(t, compose, className, testBM25Queries, baselines,
+				fmt.Sprintf("round %d back-to-%s", roundIdx+1, startTok))
+		}
+	}
+}
+
+func testMultiPropertyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+
+	const className = "MultiProp"
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
+		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	importObjectsTwoProps(t, restURI, className, testDocuments)
+
+	baselinesTitle := captureBaselineCounts(t, compose, className, "title", testBM25Queries)
+	baselinesBody := captureBaselineCounts(t, compose, className, "body", testBM25Queries)
+
+	// Sequential round-trip on title.
+	taskID := submitIndexUpdate(t, restURI, className, "title",
+		`{"searchable":{"tokenization":"field"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "title", "field")
+	taskID = submitIndexUpdate(t, restURI, className, "title",
+		`{"searchable":{"tokenization":"word"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "title", "word")
+
+	// Then on body.
+	taskID = submitIndexUpdate(t, restURI, className, "body",
+		`{"searchable":{"tokenization":"field"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "body", "field")
+	taskID = submitIndexUpdate(t, restURI, className, "body",
+		`{"searchable":{"tokenization":"word"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "body", "word")
+
+	var failures []string
+	for _, q := range testBM25Queries {
+		titleActual := perNodeBM25CountsProperty(t, compose, className, "title", q)
+		bodyActual := perNodeBM25CountsProperty(t, compose, className, "body", q)
+		for i := 0; i < 3; i++ {
+			if titleActual[i] != baselinesTitle[q][i] {
+				failures = append(failures,
+					fmt.Sprintf("prop=title q=%q node%d expected=%d actual=%d",
+						q, i+1, baselinesTitle[q][i], titleActual[i]))
+			}
+			if bodyActual[i] != baselinesBody[q][i] {
+				failures = append(failures,
+					fmt.Sprintf("prop=body q=%q node%d expected=%d actual=%d",
+						q, i+1, baselinesBody[q][i], bodyActual[i]))
+			}
+		}
+	}
+	if len(failures) > 0 {
+		sort.Strings(failures)
+		t.Fatalf(
+			"per-replica multi-property round-trip mismatch; %d mismatches:\n  %s",
+			len(failures), strings.Join(failures, "\n  "))
+	}
+}
+
+func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+
+	const className = "FilterableOnlyRT"
+	trueVal, falseVal := true, false
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{
+			Name: "text", DataType: []string{"text"},
+			Tokenization:    "word",
+			IndexFilterable: &trueVal,
+			IndexSearchable: &falseVal,
+		},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	importObjects(t, restURI, className, testDocuments)
+
+	// Filterable-only properties don't support BM25; use Equal filter on
+	// a term we know appears in baseline docs ("alpha").
+	probes := []string{"alpha", "bravo", "charlie", "kilo"}
+	baselines := make(map[string][]int)
+	for _, p := range probes {
+		counts := perNodeEqualCounts(t, compose, className, "text", p)
+		require.Equalf(t, counts[0], counts[1],
+			"filterable-only baseline %q inconsistent: n1=%d n2=%d", p, counts[0], counts[1])
+		require.Equalf(t, counts[0], counts[2],
+			"filterable-only baseline %q inconsistent: n1=%d n3=%d", p, counts[0], counts[2])
+		baselines[p] = counts
+	}
+
+	// word → field via change-tokenization-filterable body shape.
+	taskID := submitIndexUpdate(t, restURI, className, "text",
+		`{"filterable":{"tokenization":"field"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
+
+	// field → word.
+	taskID = submitIndexUpdate(t, restURI, className, "text",
+		`{"filterable":{"tokenization":"word"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
+
+	var failures []string
+	for _, p := range probes {
+		actual := perNodeEqualCounts(t, compose, className, "text", p)
+		for i := 0; i < 3; i++ {
+			if actual[i] != baselines[p][i] {
+				failures = append(failures,
+					fmt.Sprintf("filter=Equal(%q) node%d expected=%d actual=%d",
+						p, i+1, baselines[p][i], actual[i]))
+			}
+		}
+	}
+	if len(failures) > 0 {
+		sort.Strings(failures)
+		t.Fatalf(
+			"filterable-only per-replica mismatch after word→field→word round-trip; %d mismatches:\n  %s",
+			len(failures), strings.Join(failures, "\n  "))
+	}
+}
+
+func testSearchableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+
+	const className = "SearchableOnlyRT"
+	trueVal, falseVal := true, false
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{
+			Name: "text", DataType: []string{"text"},
+			Tokenization:    "word",
+			IndexFilterable: &falseVal,
+			IndexSearchable: &trueVal,
+		},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	importObjects(t, restURI, className, testDocuments)
+
+	baselines := make(map[string][]int)
+	for _, q := range testBM25Queries {
+		counts := perNodeBM25Counts(t, compose, className, q)
+		require.Equalf(t, counts[0], counts[1],
+			"searchable-only baseline %q inconsistent: n1=%d n2=%d", q, counts[0], counts[1])
+		require.Equalf(t, counts[0], counts[2],
+			"searchable-only baseline %q inconsistent: n1=%d n3=%d", q, counts[0], counts[2])
+		baselines[q] = counts
+	}
+
+	taskID := submitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"tokenization":"field"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
+
+	taskID = submitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"tokenization":"word"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
+
+	assertPerReplicaConsistent(t, compose, className, testBM25Queries, baselines,
+		"searchable-only round-trip")
+}
+
+func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+
+	const className = "EnableFilterableThenTok"
+	trueVal, falseVal := true, false
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{
+			Name: "text", DataType: []string{"text"},
+			Tokenization:    "word",
+			IndexFilterable: &falseVal,
+			IndexSearchable: &trueVal,
+		},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	importObjects(t, restURI, className, testDocuments)
+
+	baselines := make(map[string][]int)
+	for _, q := range testBM25Queries {
+		baselines[q] = perNodeBM25Counts(t, compose, className, q)
+	}
+
+	// Step 1: enable filterable. This writes a tidied.mig per-prop.
+	taskID := submitIndexUpdate(t, restURI, className, "text",
+		`{"filterable":{"enabled":true}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	require.Eventually(t, func() bool {
+		cls := getClassFromNode(t, restURI, className)
+		for _, p := range cls.Properties {
+			if p.Name == "text" && p.IndexFilterable != nil && *p.IndexFilterable {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 200*time.Millisecond,
+		"text.IndexFilterable should be true after enable-filterable")
+
+	// Step 2: change-tokenization word→field on the same property.
+	// Hypothesis: enable-filterable's tidied.mig poisons the new
+	// change-tok migration dir state, leaving N-1 replicas with empty
+	// post-swap buckets.
+	taskID = submitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"tokenization":"field"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
+
+	// Step 3: round-trip back to word.
+	taskID = submitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"tokenization":"word"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
+
+	assertPerReplicaConsistent(t, compose, className, testBM25Queries, baselines,
+		"enable-filterable then change-tok round-trip")
+}
+
+func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+
+	const className = "EnableSearchableThenTok"
+	trueVal, falseVal := true, false
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{
+			Name: "text", DataType: []string{"text"},
+			Tokenization:    "word",
+			IndexFilterable: &trueVal,
+			IndexSearchable: &falseVal,
+		},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	importObjects(t, restURI, className, testDocuments)
+
+	// Pre-state: filterable-only — baseline via Equal.
+	probes := []string{"alpha", "bravo", "charlie", "kilo"}
+	baselinesEqual := make(map[string][]int)
+	for _, p := range probes {
+		baselinesEqual[p] = perNodeEqualCounts(t, compose, className, "text", p)
+	}
+
+	// Step 1: enable searchable.
+	taskID := submitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"enabled":true}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	require.Eventually(t, func() bool {
+		cls := getClassFromNode(t, restURI, className)
+		for _, p := range cls.Properties {
+			if p.Name == "text" && p.IndexSearchable != nil && *p.IndexSearchable {
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 200*time.Millisecond,
+		"text.IndexSearchable should be true after enable-searchable")
+
+	// Now BM25 is available — record those baselines for downstream
+	// post-round-trip comparison.
+	baselinesBM25 := make(map[string][]int)
+	for _, q := range testBM25Queries {
+		baselinesBM25[q] = perNodeBM25Counts(t, compose, className, q)
+	}
+
+	// Step 2: change-tokenization word→field on BOTH indexes via
+	// change-tok-both shape — this spawns two sub-tasks (filterable +
+	// searchable) and is the most stressful shape for the
+	// per-property/per-shard migration dir state.
+	taskID = submitIndexUpdate(t, restURI, className, "text",
+		`{"filterable":{"tokenization":"field"},"searchable":{"tokenization":"field"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
+
+	// Step 3: back to word.
+	taskID = submitIndexUpdate(t, restURI, className, "text",
+		`{"filterable":{"tokenization":"word"},"searchable":{"tokenization":"word"}}`)
+	awaitReindexFinished(t, restURI, taskID)
+	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
+
+	// Assert both filterable (Equal) and searchable (BM25) results
+	// match per replica.
+	var failures []string
+	for _, p := range probes {
+		actual := perNodeEqualCounts(t, compose, className, "text", p)
+		for i := 0; i < 3; i++ {
+			if actual[i] != baselinesEqual[p][i] {
+				failures = append(failures,
+					fmt.Sprintf("Equal(%q) node%d expected=%d actual=%d",
+						p, i+1, baselinesEqual[p][i], actual[i]))
+			}
+		}
+	}
+	for _, q := range testBM25Queries {
+		actual := perNodeBM25Counts(t, compose, className, q)
+		for i := 0; i < 3; i++ {
+			if actual[i] != baselinesBM25[q][i] {
+				failures = append(failures,
+					fmt.Sprintf("BM25(%q) node%d expected=%d actual=%d",
+						q, i+1, baselinesBM25[q][i], actual[i]))
+			}
+		}
+	}
+	if len(failures) > 0 {
+		sort.Strings(failures)
+		t.Fatalf(
+			"enable-searchable+change-tok-both round-trip mismatch; %d mismatches:\n  %s",
+			len(failures), strings.Join(failures, "\n  "))
+	}
+}
+
+// assertPerReplicaAgreement requires every replica to return the same
+// count for the same query (not necessarily a specific baseline value).
+// This is weaker than assertPerReplicaConsistent and is the right check
+// after an asymmetric migration where we don't have a precomputed
+// baseline.
+func assertPerReplicaAgreement(
+	t *testing.T, compose *docker.DockerCompose,
+	className string, queries []string, label string,
+) {
+	t.Helper()
+
+	var failures []string
+	for _, q := range queries {
+		counts := perNodeBM25Counts(t, compose, className, q)
+		t.Logf("%s %q: %v", label, q, counts)
+		if counts[0] != counts[1] || counts[0] != counts[2] {
+			failures = append(failures,
+				fmt.Sprintf("query=%q counts=%v (replicas disagree)", q, counts))
+		}
+	}
+	if len(failures) > 0 {
+		sort.Strings(failures)
+		t.Fatalf("%s — per-replica disagreement; %d mismatches:\n  %s",
+			label, len(failures), strings.Join(failures, "\n  "))
+	}
+}
+
+// assertPerReplicaConsistent requires every replica to match the
+// per-node baseline counts exactly. Use after a symmetric round-trip
+// where post-migration counts must equal pre-migration counts.
+func assertPerReplicaConsistent(
+	t *testing.T, compose *docker.DockerCompose,
+	className string, queries []string, baselines map[string][]int,
+	label string,
+) {
+	t.Helper()
+
+	var failures []string
+	for _, q := range queries {
+		actual := perNodeBM25Counts(t, compose, className, q)
+		expected := baselines[q]
+		t.Logf("%s %q: baseline=%v actual=%v", label, q, expected, actual)
+		for i := 0; i < 3; i++ {
+			if actual[i] != expected[i] {
+				failures = append(failures,
+					fmt.Sprintf("query=%q node%d expected=%d actual=%d",
+						q, i+1, expected[i], actual[i]))
+			}
+		}
+	}
+	if len(failures) > 0 {
+		sort.Strings(failures)
+		t.Fatalf("%s — per-replica mismatch; %d mismatches:\n  %s",
+			label, len(failures), strings.Join(failures, "\n  "))
+	}
+}
+
+func captureBaselineCounts(
+	t *testing.T, compose *docker.DockerCompose,
+	className, property string, queries []string,
+) map[string][]int {
+	t.Helper()
+
+	baselines := make(map[string][]int)
+	for _, q := range queries {
+		counts := perNodeBM25CountsProperty(t, compose, className, property, q)
+		require.Equalf(t, counts[0], counts[1],
+			"baseline prop=%s q=%q inconsistent: n1=%d n2=%d", property, q, counts[0], counts[1])
+		require.Equalf(t, counts[0], counts[2],
+			"baseline prop=%s q=%q inconsistent: n1=%d n3=%d", property, q, counts[0], counts[2])
+		baselines[q] = counts
+	}
+	return baselines
+}
