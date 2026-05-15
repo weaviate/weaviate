@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -158,22 +160,38 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 // affects the next re-enable, which will trigger the defense-in-depth
 // check in OnAfterLsmInitAsync and fail with a clear operator error.
 func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
-	migrationsRoot := filepath.Join(s.pathLSM(), ".migrations")
-	// Every migration tracker dir on disk carries a per-node generation
-	// suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
-	// generations on disk simultaneously when the last migration's trim
-	// hasn't run (e.g. crash before markTidied → next-restart finalize
-	// cleans up everything). Match by prefix and walk every entry so we
-	// don't miss old generations.
+	cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
+}
+
+// cleanStaleMigrationDirsAt is the pure-function form of
+// [Shard.cleanStaleMigrationDirs]: takes an explicit lsmPath + logger so the
+// preservation logic can be unit-tested without standing up a Shard.
+//
+// Every migration tracker dir on disk carries a per-node generation
+// suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
+// generations on disk simultaneously when the last migration's trim
+// hasn't run (e.g. crash before markTidied → next-restart finalize
+// cleans up everything). Match by prefix and walk every entry so we
+// don't miss old generations.
+//
+// Tracker dirs with tidied.mig / merged.mig are PRESERVED — they are
+// live deferred-finalize state for a successfully completed migration,
+// NOT stale partial state. Wiping them out from under the in-memory
+// bucket pointer is what produces the #10675-shape silent data loss on
+// back-to-back submits without a restart (R2/R2b on the controller
+// node).
+func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logrus.FieldLogger) {
+	migrationsRoot := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsRoot)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			s.index.logger.WithField("path", migrationsRoot).
+			logger.WithField("path", migrationsRoot).
 				Error(fmt.Errorf("read migrations dir for stale-state cleanup: %w", err))
 		}
 		return
 	}
 	prefixes := migrationDirsForPropertyIndex(propName, indexType)
+	preserved := completedMigrationGens(lsmPath, prefixes)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -189,9 +207,15 @@ func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
 		if !matches {
 			continue
 		}
+		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
+			logger.WithField("path", filepath.Join(migrationsRoot, name)).
+				WithField("gen", gen).
+				Info("partial-reindex cleanup: preserving deferred-finalize tracker dir (tidied/merged present)")
+			continue
+		}
 		path := filepath.Join(migrationsRoot, name)
 		if err := os.RemoveAll(path); err != nil {
-			s.index.logger.WithField("path", path).
+			logger.WithField("path", path).
 				Error(fmt.Errorf("failed to clean up stale migration directory after index DELETE: %w; subsequent re-enable will fail loudly via the stale-sentinel check until this directory is removed manually", err))
 		}
 	}
@@ -246,6 +270,15 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		"operation":   "CleanStalePartialReindexState",
 	})
 
+	// Compute the set of completed-but-deferred migration generations for
+	// this (prop, indexType). Any tracker dir with tidied.mig or merged.mig
+	// represents a successfully finished in-process migration whose ingest
+	// sidecar dir is the live backing store of the in-memory main bucket
+	// pointer — wiping it here is the #10675-shape silent data loss this
+	// gate exists to prevent (R2/R2b on the controller node).
+	preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
+	preserveGens := completedMigrationGens(s.pathLSM(), preservePrefixes)
+
 	prefix := mainBucketName + "__"
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string
@@ -260,6 +293,15 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		if bucketName == mainBucketName {
 			continue
 		}
+		// Skip live sidecar buckets that back a completed-but-deferred
+		// migration (in-memory bucket pointer still references them; their
+		// dir on disk is the canonical bucket's data until next-restart
+		// finalize renames it).
+		if len(preserveGens) > 0 {
+			if _, gen, ok := parseMigrationDirName(bucketName); ok && preserveGens[gen] {
+				continue
+			}
+		}
 		if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
 			return fmt.Errorf(
 				"shutting down stale sidecar bucket %q before partial-reindex cleanup: %w",
@@ -267,15 +309,29 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		}
 		shutDown = append(shutDown, bucketName)
 	}
-	logger.WithField("buckets_shut_down", shutDown).Info("partial-reindex cleanup: sidecar buckets shut down")
+	logger.WithField("buckets_shut_down", shutDown).
+		WithField("preserved_gens", preserveGensSlice(preserveGens)).
+		Info("partial-reindex cleanup: sidecar buckets shut down")
 
 	// Step 2 + 3: remove the sidecar dirs and migration dir. Both call the
-	// existing helpers, which log errors rather than panic.
-	s.cleanStaleSidecarDirs(mainBucketName)
+	// existing helpers, which log errors rather than panic. Pass through
+	// the preserved gens so the deferred-finalize state survives.
+	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, preserveGens)
 	s.cleanStaleMigrationDirs(propName, indexType)
 	logger.Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
 
 	return nil
+}
+
+// preserveGensSlice flattens a preserved-gens set into a sorted []int for
+// stable structured-log output.
+func preserveGensSlice(preserveGens map[int]bool) []int {
+	out := make([]int, 0, len(preserveGens))
+	for g := range preserveGens {
+		out = append(out, g)
+	}
+	sort.Ints(out)
+	return out
 }
 
 // mainBucketForPropertyIndex returns the canonical main bucket name on
@@ -324,6 +380,21 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // belt-and-suspenders is the right posture for a leak that produces
 // "FAILED" status on a follow-up migration with no clear remediation.
 func (s *Shard) cleanStaleSidecarDirs(mainBucketName string) {
+	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, nil)
+}
+
+// cleanStaleSidecarDirsWithPreserved is the gen-aware variant used by the
+// CANCEL→retry and pre-submit defense-in-depth paths. `preserveGens` lists
+// the generations whose sidecar dirs MUST be kept on disk because they
+// belong to a completed-but-deferred migration (their tracker dir has
+// tidied.mig / merged.mig). Wiping those out from under the in-memory
+// bucket pointer produces #10675-shape silent data loss on the next
+// submit-without-restart sequence.
+//
+// Pass nil to wipe every matching sidecar dir (the DELETE→re-enable
+// callers, which already removed the main bucket and have no live state
+// to protect).
+func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preserveGens map[int]bool) {
 	entries, err := os.ReadDir(s.pathLSM())
 	if err != nil {
 		s.index.logger.WithField("path", s.pathLSM()).
@@ -337,6 +408,14 @@ func (s *Shard) cleanStaleSidecarDirs(mainBucketName string) {
 		}
 		if !strings.HasPrefix(entry.Name(), prefix) {
 			continue
+		}
+		if len(preserveGens) > 0 {
+			if _, gen, ok := parseMigrationDirName(entry.Name()); ok && preserveGens[gen] {
+				s.index.logger.WithField("path", filepath.Join(s.pathLSM(), entry.Name())).
+					WithField("gen", gen).
+					Info("partial-reindex cleanup: preserving deferred-finalize sidecar dir (live bucket pointer)")
+				continue
+			}
 		}
 		path := filepath.Join(s.pathLSM(), entry.Name())
 		// Drop the registry entry BEFORE removing the dir. The reverse order

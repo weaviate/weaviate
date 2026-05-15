@@ -97,6 +97,61 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 	return highest
 }
 
+// completedMigrationGens returns the set of generation numbers whose
+// migration tracker dir (for any of the strategy prefixes in `prefixes`)
+// has `tidied.mig` or `merged.mig` on disk — i.e., migrations that
+// completed successfully in-process and whose sidecar dirs are LIVE data
+// pointed at by the in-memory bucket pointers, awaiting next-restart
+// finalize to be promoted to canonical names.
+//
+// Called from the submit-handler and cancel-handler pre-submit cleanup
+// path ([Shard.CleanStalePartialReindexState]) so the cleanup can skip
+// tracker and sidecar dirs that belong to a completed-but-deferred
+// migration on the same property. Without this gate, a back-to-back
+// submit-without-restart sequence wipes the prior completed migration's
+// live ingest dir out from under its in-memory bucket pointer → the
+// canonical bucket becomes empty → silent #10675-shape data loss on the
+// submitting node.
+//
+// `prefixes` is the strategy-dir prefixes from
+// [migrationDirsForPropertyIndex] for the (propName, indexType) tuple.
+func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
+	out := map[int]bool{}
+	migrationsDir := filepath.Join(lsmPath, ".migrations")
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		return out
+	}
+	prefixSet := map[string]bool{}
+	for _, p := range prefixes {
+		prefixSet[p] = true
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		base, gen, ok := parseMigrationDirName(entry.Name())
+		if !ok {
+			continue
+		}
+		if !prefixSet[base] {
+			continue
+		}
+		dirPath := filepath.Join(migrationsDir, entry.Name())
+		if fileExistsInDir(dirPath, "tidied.mig") || fileExistsInDir(dirPath, "merged.mig") {
+			out[gen] = true
+		}
+	}
+	return out
+}
+
+// fileExistsInDir is a small helper for [completedMigrationGens]; returns
+// true iff the named file is present in dirPath as a regular file.
+func fileExistsInDir(dirPath, fileName string) bool {
+	info, err := os.Stat(filepath.Join(dirPath, fileName))
+	return err == nil && !info.IsDir()
+}
+
 // FinalizeCompletedMigrations scans the shard's .migrations/ directory for
 // completed migrations that still need filesystem cleanup, and runs the
 // deferred ingest→canonical rename for each.
