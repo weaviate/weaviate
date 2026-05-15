@@ -138,7 +138,7 @@ async function doReset() {
 
   const t0 = performance.now();
   const ops = [
-    ["price_cents (rangefilters)",     deleteIndex("price_cents", "rangefilters")],
+    ["price_cents (rangeFilters)",     deleteIndex("price_cents", "rangeFilters")],
     ["category (filterable)",          deleteIndex("category", "filterable")],
     ["spec_sheet_path (tokenization)", changeTokenization("spec_sheet_path", "word")],
   ];
