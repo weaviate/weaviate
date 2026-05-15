@@ -76,16 +76,18 @@
     </div>
   </section>
 
-  <!-- Mistake 2: spec_sheet_path BM25 with word tokenization -->
+  <!-- Mistake 2: spec_sheet_path equality with word tokenization -->
   <section class="card" data-card="spec_sheet_path">
     <header>
-      <h2>2. File path searched with WORD tokenization</h2>
+      <h2>2. Equality filter on a WORD-tokenized path</h2>
       <p class="explainer">
-        BM25 search for <code>/products/cameras/gopro</code> against a WORD-tokenized
-        path field. The slashes and dots are dropped, so the term matches any
-        path containing the literal word <code>gopro</code> anywhere - including
-        accessory listings, review URLs, and competitor-comparison paths under
-        other brands.
+        Equality filter on <code>spec_sheet_path</code>. The caller expects an
+        exact path match, but WORD tokenization splits on <code>/</code> and
+        <code>-</code> and <code>.</code> on both sides of the comparison.
+        What ships to the engine is "does the path's token set contain
+        <code>products</code> AND <code>cameras</code> AND <code>gopro</code>?",
+        which matches genuine GoPro camera paths alongside accessory,
+        comparison, and review URLs from other brands.
       </p>
       <p class="schema-state">
         <code>spec_sheet_path</code> <span class="type-pill">text</span>
@@ -94,13 +96,14 @@
     </header>
     <div class="card-body">
       <div class="query">
-        <pre><code class="language-python">products.query.bm25(
-    query="/products/cameras/gopro",
-    query_properties=["spec_sheet_path"],
+        <pre><code class="language-python">products.query.fetch_objects(
+    filters=Filter.by_property("spec_sheet_path").equal(
+        "/products/cameras/gopro"
+    ),
     limit=10,
     return_properties=["spec_sheet_path", "category", "brand", "name"],
 )</code></pre>
-        <button class="btn-primary run-btn" data-action="run-path-bm25">Run query</button>
+        <button class="btn-primary run-btn" data-action="run-path-equal">Run query</button>
       </div>
       <div class="result" id="result-spec_sheet_path">
         <p class="placeholder">Press <em>Run query</em> to execute.</p>

@@ -136,11 +136,11 @@ function qPriceRangeCount() {
   }`;
 }
 
-function qPathBm25() {
+function qPathEqual() {
   return `{
     Get {
       ${COLLECTION}(
-        bm25: { query: "/products/cameras/gopro", properties: ["spec_sheet_path"] },
+        where: { path: ["spec_sheet_path"], operator: Equal, valueText: "/products/cameras/gopro" },
         limit: 10
       ) {
         spec_sheet_path category brand name
@@ -311,15 +311,15 @@ async function onRun(btn) {
         });
       });
 
-    case "run-path-bm25":
+    case "run-path-equal":
       return runWithButton(btn, container, async () => {
-        const { body, ms } = await timedGql(qPathBm25());
+        const { body, ms } = await timedGql(qPathEqual());
         const rows = body.data.Get[COLLECTION] || [];
         renderResults(container, {
           latencyMs: ms,
           rows,
           renderRow: r => rowGeneric(r, "spec_sheet_path"),
-          emptyNote: "BM25 returned no rows."
+          emptyNote: "Equality filter returned no rows."
         });
       });
 
