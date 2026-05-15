@@ -43,6 +43,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 	params.Group = nil
 	params.GroupBy = nil
+	params.Boost = nil
 
 	if params.Pagination == nil {
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
@@ -90,6 +91,7 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	}
 	params.Group = nil
 	params.GroupBy = nil
+	params.Boost = nil
 
 	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
 	if err != nil {
@@ -163,7 +165,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
 
 	subsearchWrap.HybridSearch = nil
-	subsearchWrap.Boost = nil // boost is applied after hybrid fusion, not during sub-searches
+	subsearchWrap.Boost = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
 	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
