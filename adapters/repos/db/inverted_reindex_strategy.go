@@ -96,7 +96,7 @@ type MigrationStrategy interface {
 	//
 	// Strategies that don't need an overlay (the live schema flag is
 	// already true for the targeted properties — e.g. retokenize,
-	// map→blockmax, roaring-set refresh, rangeable) should return nil.
+	// map→blockmax, roaring-set refresh) should return nil.
 	AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay
 
 	// OnMigrationComplete is called when the migration is fully tidied on a
@@ -110,10 +110,10 @@ type MigrationStrategy interface {
 
 // noAnalyzerOverlay supplies the default "no overlay" implementation of
 // AnalyzerOverlay for strategies whose target properties already have the
-// relevant schema flag set (retokenize, map→blockmax, roaring-set refresh,
-// rangeable). Embed this struct to get the nil-return default; strategies
-// that need a real overlay (enable-filterable, enable-searchable) define
-// their own method which shadows the embed.
+// relevant schema flag set (retokenize, map→blockmax, roaring-set refresh).
+// Embed this struct to get the nil-return default; strategies that need a
+// real overlay (enable-filterable, enable-searchable, enable-rangeable)
+// define their own method which shadows the embed.
 type noAnalyzerOverlay struct{}
 
 func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {

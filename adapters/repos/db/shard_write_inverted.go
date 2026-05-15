@@ -116,10 +116,12 @@ func (s *Shard) AnalyzeObjectForMigration(object *storobj.Object) ([]inverted.Pr
 // never mutated.
 //
 // This is required by runtime reindex strategies that build a brand-new
-// inverted bucket (e.g. EnableFilterableStrategy, EnableSearchableStrategy):
-// during the backfill scan the schema flag is still false, so without the
-// overlay the analyzer would skip the very property the migration is
-// trying to populate, producing an empty target bucket.
+// inverted bucket (e.g. EnableFilterableStrategy, EnableSearchableStrategy,
+// FilterableToRangeableStrategy): during the backfill scan the target
+// schema flag is still false, so without the overlay the analyzer would
+// either skip the very property the migration is trying to populate, or
+// emit it with the wrong HasXIndex flags, producing an empty target
+// bucket and a silent FINISHED-with-empty-bucket failure.
 //
 // Pass overlay == nil for migrations that do not need a schema override
 // (e.g. retokenize / map→blockmax, where the source bucket already exists
