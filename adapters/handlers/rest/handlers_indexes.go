@@ -415,15 +415,28 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
 
+	// Capture the property's tokenization at submit-time. OnTaskCompleted
+	// will check this in the schema-flip mutator so a post-restart
+	// FSM-replay of an older task can't override a newer task's already-
+	// applied schema flip. See the OriginalTokenization godoc on
+	// ReindexTaskPayload for the full rationale.
+	var originalTok string
+	if migrationType == db.ReindexTypeChangeTokenization ||
+		migrationType == db.ReindexTypeChangeTokenizationFilterable ||
+		migrationType == db.ReindexTypeEnableSearchable {
+		originalTok = targetProp.Tokenization
+	}
+
 	payload := db.ReindexTaskPayload{
-		MigrationType:      migrationType,
-		Collection:         collection,
-		Properties:         properties,
-		TargetTokenization: targetTok,
-		BucketStrategy:     bucketStrategy,
-		Tenants:            tenants,
-		UnitToNode:         unitToNode,
-		UnitToShard:        unitToShard,
+		MigrationType:        migrationType,
+		Collection:           collection,
+		Properties:           properties,
+		TargetTokenization:   targetTok,
+		OriginalTokenization: originalTok,
+		BucketStrategy:       bucketStrategy,
+		Tenants:              tenants,
+		UnitToNode:           unitToNode,
+		UnitToShard:          unitToShard,
 	}
 
 	// Build a human-readable task ID with a random suffix for uniqueness.

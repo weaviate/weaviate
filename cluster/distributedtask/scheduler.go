@@ -174,6 +174,26 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 // bootstrapProviders cleans up stale local tasks and starts tasks that are currently active,
 // based on the initial task listing from the Raft log.
+//
+// Suppresses post-restart callback replay: tasks already at a terminal
+// status (Finished / Failed / Cancelled) at scheduler-start time have
+// either already had their OnGroupCompleted + OnTaskCompleted fire on
+// this node before the restart, OR (rare) they will have fired on
+// another node and the result is in the RAFT-replicated state we just
+// re-loaded. Either way, re-firing them on this fresh scheduler can
+// only revert work that newer tasks have already cluster-wide
+// committed (the classic shape: an older change-tokenization task's
+// schema flip replaying after a newer one has already moved the
+// schema past it). Mark them as already-fired so the tick loop's
+// "fire if not yet fired" guard skips them.
+//
+// The trade-off — a node that died in the exact window between
+// OnGroupCompleted committing on it and OnTaskCompleted starting
+// (sub-millisecond) would skip the schema flip on this node, but the
+// flip is RAFT-replicated and any peer that fired it captures the
+// state cluster-wide. The reindex provider's `OnTaskCompleted` is
+// also idempotent at the mutator level, so a peer firing immediately
+// before this one dying is the same outcome.
 func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescriptor]*Task) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -183,6 +203,23 @@ func (s *Scheduler) bootstrapProviders(tasksByNamespace map[string]map[TaskDescr
 
 		s.cleanupStaleTasks(namespace, provider, startedTasks)
 		s.startActiveTasks(namespace, provider, startedTasks)
+
+		// Pre-mark callbacks for already-terminal tasks as fired so the
+		// tick loop's `!s.completedCallbackFired[desc]` and
+		// `!s.groupCallbackFired[desc][groupID]` guards skip them.
+		for desc, task := range tasksByNamespace[namespace] {
+			if task.Status == TaskStatusFinished ||
+				task.Status == TaskStatusFailed ||
+				task.Status == TaskStatusCancelled {
+				s.completedCallbackFired[desc] = true
+				if s.groupCallbackFired[desc] == nil {
+					s.groupCallbackFired[desc] = map[string]bool{}
+				}
+				for _, groupID := range task.Groups() {
+					s.groupCallbackFired[desc][groupID] = true
+				}
+			}
+		}
 
 		s.tasksRunning.
 			WithLabelValues(namespace).

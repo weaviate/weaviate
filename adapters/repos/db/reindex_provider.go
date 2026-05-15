@@ -1056,6 +1056,26 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 				if prop.Tokenization == payload.TargetTokenization {
 					return false
 				}
+				// Stale-replay guard: only flip if the schema is still
+				// at the pre-migration state this task expected. After a
+				// node restart, the DTM scheduler re-fires
+				// OnTaskCompleted for already-FINISHED tasks; if T_1
+				// (word→field) replays after T_2 (field→word) already
+				// committed, prop.Tokenization is currently "word",
+				// T_1.OriginalTokenization is also "word" — but T_1's
+				// flip to "field" would silently revert T_2's correct
+				// state. Refuse to flip when the schema isn't where
+				// this task started. Empty OriginalTokenization (older
+				// payloads without the field, or non-change-tok
+				// migration types) falls through to the legacy behavior.
+				if payload.OriginalTokenization != "" && prop.Tokenization != payload.OriginalTokenization {
+					logger.WithFields(logrus.Fields{
+						"current":  prop.Tokenization,
+						"expected": payload.OriginalTokenization,
+						"target":   payload.TargetTokenization,
+					}).Info("reindex provider: schema is not at this task's pre-migration tokenization — a newer task moved past us, skipping replayed flip")
+					return false
+				}
 				prop.Tokenization = payload.TargetTokenization
 				return true
 			})
