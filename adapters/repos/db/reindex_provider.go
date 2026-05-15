@@ -23,6 +23,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 
@@ -844,15 +845,166 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 }
 
 // OnTaskCompleted fires after all units across all nodes are terminal.
-// Cleanup cached payload data.
+// For semantic migrations (change-tokenization, enable-filterable,
+// enable-searchable), this is the cluster-wide cutover point: every
+// node's local OnGroupCompleted has already run the in-memory bucket
+// pointer swap (RunSwapOnShard), so issuing the RAFT-idempotent schema
+// flip here propagates the new schema to every node within RAFT-apply
+// latency — well after every node already has the new bucket content
+// pointed-to from its main bucket name.
+//
+// RAFT-idempotency: every node's scheduler fires OnTaskCompleted; every
+// node's call issues the same UpdatePropertyInternal. applyPerPropertySchemaUpdate's
+// mutator returns apply=false when the property is already at the
+// target state, so RAFT applies exactly one commit (the first to land);
+// the remaining N-1 calls are no-ops at the FSM layer.
+//
+// Failed / cancelled tasks: skip the schema flip. The migration did not
+// complete successfully across the cluster, so the schema should reflect
+// the pre-migration state. Per-shard cleanup of partial bucket state is
+// handled by the existing CleanStalePartialReindexState path on next
+// restart or next reindex submission.
+//
+// Also clears cached payload + reindex task data for the descriptor.
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
+	// Cleanup cached state up-front so a failed-task early return below
+	// doesn't leak the cache. The schema flip path below re-loads payload
+	// via the local task object (task.Payload), not the cache, so this
+	// is safe.
+	payload, payloadErr := p.loadPayload(task)
 	p.mu.Lock()
 	delete(p.payloads, task.TaskDescriptor)
 	delete(p.reindexTasks, task.TaskDescriptor)
 	p.mu.Unlock()
 
-	p.logger.WithField("taskID", task.ID).WithField("status", task.Status).
-		Info("reindex provider: OnTaskCompleted")
+	logger := p.logger.WithField("taskID", task.ID).WithField("status", task.Status)
+	logger.Info("reindex provider: OnTaskCompleted")
+
+	if task.Status != distributedtask.TaskStatusFinished {
+		// Failed / cancelled / still-running: do not flip the schema.
+		// (still-running shouldn't happen for OnTaskCompleted but we guard
+		// defensively rather than racing the FSM.)
+		return
+	}
+	if payloadErr != nil {
+		// Without a valid payload we cannot determine the migration type
+		// or which schema field to flip. Log loudly — this should never
+		// happen post-FINISHED on a well-formed task, but if it does the
+		// schema flip cannot proceed and operators need a signal.
+		logger.WithError(payloadErr).Error("reindex provider: OnTaskCompleted: failed to load payload; schema flip will not run")
+		return
+	}
+	if !IsSemanticMigration(payload.MigrationType) {
+		// Format-only migrations (repair-*, enable-rangeable) flip their
+		// (non-query-semantic) metadata inside RunSwapOnShard per shard.
+		// Nothing left to do at the cluster-wide level.
+		return
+	}
+
+	// p.serverCtx survives task callback returns (the per-task ctx is gone
+	// by the time OnTaskCompleted fires from a scheduler tick) and is
+	// cancelled on graceful shutdown.
+	ctx := p.serverCtx
+	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
+		logger.WithError(err).Error("reindex provider: OnTaskCompleted: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state)")
+	}
+}
+
+// flipSemanticMigrationSchema issues the cluster-wide RAFT update that
+// completes a semantic migration. For change-tokenization the schema's
+// Tokenization is set to the target; for enable-filterable the per-property
+// IndexFilterable flag is set to true; for enable-searchable the
+// IndexSearchable flag is set to true and Tokenization to the target.
+//
+// applyPerPropertySchemaUpdate is idempotent at the mutator level (returns
+// apply=false when the value already matches) so multiple nodes firing
+// OnTaskCompleted produce at most one RAFT commit.
+func (p *ReindexProvider) flipSemanticMigrationSchema(
+	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
+) error {
+	if p.schemaManager == nil {
+		// Defensive: legacy test setups constructed without a schema
+		// manager would have skipped the schema flip in the old
+		// strategy-side code too. Match that behavior.
+		return nil
+	}
+
+	switch payload.MigrationType {
+	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
+		if payload.TargetTokenization == "" {
+			return fmt.Errorf("change-tokenization without targetTokenization in payload")
+		}
+		missing, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+			[]string{api.PropertyFieldTokenization},
+			func(prop *models.Property) bool {
+				if prop.Tokenization == payload.TargetTokenization {
+					return false
+				}
+				prop.Tokenization = payload.TargetTokenization
+				return true
+			})
+		if err != nil {
+			return fmt.Errorf("flip tokenization: %w", err)
+		}
+		if len(missing) > 0 {
+			// change-tokenization is a single-property migration; a
+			// missing property between submit and finalize is a hard
+			// error (matches FilterableRetokenizeStrategy's pre-existing
+			// behavior).
+			return fmt.Errorf("property %v not found in class %q at finalize", missing, payload.Collection)
+		}
+		logger.WithField("tokenization", payload.TargetTokenization).
+			Info("reindex provider: change-tokenization cutover committed")
+		return nil
+
+	case ReindexTypeEnableFilterable:
+		trueVal := true
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+			[]string{api.PropertyFieldIndexFilterable},
+			func(prop *models.Property) bool {
+				if prop.IndexFilterable != nil && *prop.IndexFilterable {
+					return false
+				}
+				prop.IndexFilterable = &trueVal
+				return true
+			})
+		if err != nil {
+			return fmt.Errorf("flip indexFilterable: %w", err)
+		}
+		// Missing properties are tolerated for the multi-property
+		// enable-* strategies — a property dropped between submit and
+		// finalize is the same outcome we'd want anyway.
+		logger.Info("reindex provider: enable-filterable cutover committed")
+		return nil
+
+	case ReindexTypeEnableSearchable:
+		if payload.TargetTokenization == "" {
+			return fmt.Errorf("enable-searchable without targetTokenization in payload")
+		}
+		trueVal := true
+		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
+			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization},
+			func(prop *models.Property) bool {
+				if prop.IndexSearchable != nil && *prop.IndexSearchable && prop.Tokenization == payload.TargetTokenization {
+					return false
+				}
+				prop.IndexSearchable = &trueVal
+				prop.Tokenization = payload.TargetTokenization
+				return true
+			})
+		if err != nil {
+			return fmt.Errorf("flip indexSearchable+tokenization: %w", err)
+		}
+		logger.WithField("tokenization", payload.TargetTokenization).
+			Info("reindex provider: enable-searchable cutover committed")
+		return nil
+
+	default:
+		// IsSemanticMigration gate above should exclude every other
+		// migration type, so reaching this default is a programming
+		// error.
+		return fmt.Errorf("unexpected semantic migration type %q in OnTaskCompleted", payload.MigrationType)
+	}
 }
 
 // IsSemanticMigration returns true for migration types that change query
