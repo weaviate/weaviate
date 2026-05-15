@@ -315,6 +315,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
 				fmt.Sprintf("property %q does not have a filterable index", propertyName)))
 		}
+		if err := validateRebuildFilterableDataType(targetProp); err != nil {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+		}
 
 	case body.Rangeable != nil && body.Rangeable.Enabled:
 		migrationType = db.ReindexTypeEnableRangeable

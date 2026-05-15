@@ -401,6 +401,81 @@ func TestValidateRebuildRangeableProperty(t *testing.T) {
 	})
 }
 
+// TestValidateRebuildFilterableDataType pins the data-type guard that
+// repair-filterable must apply. Without it, types whose schema default
+// forces IndexFilterable=true but which have no inverted bucket on disk
+// (geoCoordinates, phoneNumber, blob, references) would pass the
+// "index enabled" check and the rebuild dispatch would crash downstream
+// with `target bucket "property_p" not found in store`.
+func TestValidateRebuildFilterableDataType(t *testing.T) {
+	t.Run("text ok", func(t *testing.T) {
+		prop := &models.Property{Name: "p", DataType: []string{"text"}}
+		require.NoError(t, validateRebuildFilterableDataType(prop))
+	})
+
+	t.Run("int ok", func(t *testing.T) {
+		prop := &models.Property{Name: "p", DataType: []string{"int"}}
+		require.NoError(t, validateRebuildFilterableDataType(prop))
+	})
+
+	t.Run("boolean ok", func(t *testing.T) {
+		prop := &models.Property{Name: "p", DataType: []string{"boolean"}}
+		require.NoError(t, validateRebuildFilterableDataType(prop))
+	})
+
+	t.Run("uuid ok", func(t *testing.T) {
+		prop := &models.Property{Name: "p", DataType: []string{"uuid"}}
+		require.NoError(t, validateRebuildFilterableDataType(prop))
+	})
+
+	t.Run("date ok", func(t *testing.T) {
+		prop := &models.Property{Name: "p", DataType: []string{"date"}}
+		require.NoError(t, validateRebuildFilterableDataType(prop))
+	})
+
+	t.Run("number ok", func(t *testing.T) {
+		prop := &models.Property{Name: "p", DataType: []string{"number"}}
+		require.NoError(t, validateRebuildFilterableDataType(prop))
+	})
+
+	t.Run("rebuild rejected for geoCoordinates", func(t *testing.T) {
+		// Schema migrator defaults IndexFilterable=true even for
+		// geoCoordinates, so the prior "is the flag true?" check let this
+		// through and the rebuild crashed at swap time.
+		prop := &models.Property{Name: "p", DataType: []string{"geoCoordinates"}}
+		err := validateRebuildFilterableDataType(prop)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "does not support a filterable inverted index")
+		require.Contains(t, err.Error(), "nothing to rebuild")
+		require.Contains(t, err.Error(), "geoCoordinates")
+	})
+
+	t.Run("rebuild rejected for phoneNumber", func(t *testing.T) {
+		prop := &models.Property{Name: "p", DataType: []string{"phoneNumber"}}
+		err := validateRebuildFilterableDataType(prop)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "does not support a filterable inverted index")
+		require.Contains(t, err.Error(), "phoneNumber")
+	})
+
+	t.Run("rebuild rejected for blob", func(t *testing.T) {
+		prop := &models.Property{Name: "p", DataType: []string{"blob"}}
+		err := validateRebuildFilterableDataType(prop)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "does not support a filterable inverted index")
+		require.Contains(t, err.Error(), "blob")
+	})
+
+	t.Run("rebuild rejected for reference type", func(t *testing.T) {
+		// Reference (non-primitive) data types have no inverted bucket.
+		prop := &models.Property{Name: "p", DataType: []string{"SomeClass"}}
+		err := validateRebuildFilterableDataType(prop)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "does not support a filterable inverted index")
+		require.Contains(t, err.Error(), "nothing to rebuild")
+	})
+}
+
 func TestRequestedCancel(t *testing.T) {
 	t.Run("none", func(t *testing.T) {
 		typ, ok := requestedCancel(&models.IndexUpdateRequest{
