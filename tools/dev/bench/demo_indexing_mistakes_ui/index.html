@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Common Indexing Mistakes Demo</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="title-block">
+      <h1>Common Indexing Mistakes</h1>
+      <p class="subtitle">
+        One million product-catalog objects, five deliberately wrong schema
+        choices. Run each card to see the failure mode. Fix it from the
+        Weaviate console, then re-run to see the difference.
+      </p>
+    </div>
+    <div class="conn-block">
+      <label>
+        <span>Weaviate URL</span>
+        <input id="conn-url" type="text" placeholder="http://localhost:8080" />
+      </label>
+      <label>
+        <span>API key (cloud only)</span>
+        <input id="conn-key" type="password" placeholder="optional" />
+      </label>
+      <div class="conn-status">
+        <span id="conn-light" class="conn-light"></span>
+        <span id="conn-status-text">disconnected</span>
+        <button id="conn-test" class="btn-secondary">Test</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="cards">
+  <!-- Mistake 1: price_cents range query -->
+  <section class="card" data-card="price_cents">
+    <header>
+      <h2>1. Range query with no rangeable index</h2>
+      <p class="explainer">
+        Range filters on <code>price_cents</code> have no rangeable inverted
+        index and no filterable index, so Weaviate refuses the query outright
+        with <code>requires inverted index</code>. From the catalog operator's
+        POV, the storefront just broke.
+      </p>
+      <p class="schema-state">
+        <code>price_cents</code> <span class="type-pill">int</span>
+        <span class="flag bad">filterable=false</span>
+        <span class="flag bad">rangeable=false</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="lang-gql">{
+  Get {
+    IndexingMistakesDemo(
+      where: {
+        operator: And,
+        operands: [
+          { path: ["price_cents"], operator: GreaterThanEqual, valueInt: 30000 },
+          { path: ["price_cents"], operator: LessThanEqual,    valueInt: 40000 }
+        ]
+      },
+      limit: 10
+    ) {
+      name brand category price_cents sku
+    }
+  }
+}</code></pre>
+        <button class="btn-primary run-btn" data-action="run-price-range">Run query</button>
+      </div>
+      <div class="result" id="result-price_cents">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mistake 2: spec_sheet_path BM25 with word tokenization -->
+  <section class="card" data-card="spec_sheet_path">
+    <header>
+      <h2>2. File path searched with WORD tokenization</h2>
+      <p class="explainer">
+        BM25 search for <code>/products/cameras/gopro</code> against a WORD-tokenized
+        path field. The slashes and dots are dropped, so the term matches any
+        path containing the literal word <code>gopro</code> anywhere - for
+        example in unrelated categories.
+      </p>
+      <p class="schema-state">
+        <code>spec_sheet_path</code> <span class="type-pill">text</span>
+        <span class="flag bad">tokenization=word</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="lang-gql">{
+  Get {
+    IndexingMistakesDemo(
+      bm25: { query: "/products/cameras/gopro", properties: ["spec_sheet_path"] },
+      limit: 10
+    ) {
+      spec_sheet_path category brand name
+    }
+  }
+}</code></pre>
+        <button class="btn-primary run-btn" data-action="run-path-bm25">Run query</button>
+      </div>
+      <div class="result" id="result-spec_sheet_path">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mistake 3: sku BM25 lookup -->
+  <section class="card" data-card="sku">
+    <header>
+      <h2>3. SKU searched with WORD tokenization</h2>
+      <p class="explainer">
+        BM25 lookup for <code>GP-ACT-BLK-001</code> against a WORD-tokenized SKU
+        field. The hyphens split the SKU into four tokens, so the lookup matches
+        every product sharing <em>any</em> of those tokens.
+      </p>
+      <p class="schema-state">
+        <code>sku</code> <span class="type-pill">text</span>
+        <span class="flag bad">tokenization=word</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="lang-gql">{
+  Get {
+    IndexingMistakesDemo(
+      bm25: { query: "GP-ACT-BLK-001", properties: ["sku"] },
+      limit: 10
+    ) {
+      sku brand category name
+    }
+  }
+}</code></pre>
+        <button class="btn-primary run-btn" data-action="run-sku-bm25">Run query</button>
+      </div>
+      <div class="result" id="result-sku">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mistake 4: category equality filter, not filterable -->
+  <section class="card" data-card="category">
+    <header>
+      <h2>4. Equality filter on a non-filterable property</h2>
+      <p class="explainer">
+        Filter <code>category == "Cameras &gt; Action"</code> against a property
+        with no inverted filterable bucket. Same fate as the price card:
+        Weaviate refuses with <code>requires inverted index</code>. The
+        category facet on the storefront stops working.
+      </p>
+      <p class="schema-state">
+        <code>category</code> <span class="type-pill">text</span>
+        <span class="flag bad">filterable=false</span>
+        <span class="flag neutral">tokenization=field</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="lang-gql">{
+  Get {
+    IndexingMistakesDemo(
+      where: { path: ["category"], operator: Equal, valueText: "Cameras > Action" },
+      limit: 10
+    ) {
+      name brand category sku price_cents
+    }
+  }
+}</code></pre>
+        <button class="btn-primary run-btn" data-action="run-category-equal">Run query</button>
+      </div>
+      <div class="result" id="result-category">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Mistake 5: support_email BM25 -->
+  <section class="card" data-card="support_email">
+    <header>
+      <h2>5. Email searched with WORD tokenization</h2>
+      <p class="explainer">
+        BM25 search for <code>info@nikon.com</code> against a WORD-tokenized
+        email field. The query splits on <code>@</code> and <code>.</code> into
+        <code>info</code>, <code>nikon</code>, <code>com</code>. No product
+        actually uses <code>info@</code> as a prefix, so the top results all
+        say <code>support@nikon.com</code> - BM25 matched on the domain tokens
+        and silently returned the wrong addresses.
+      </p>
+      <p class="schema-state">
+        <code>support_email</code> <span class="type-pill">text</span>
+        <span class="flag bad">tokenization=word</span>
+      </p>
+    </header>
+    <div class="card-body">
+      <div class="query">
+        <pre><code class="lang-gql">{
+  Get {
+    IndexingMistakesDemo(
+      bm25: { query: "info@nikon.com", properties: ["support_email"] },
+      limit: 10
+    ) {
+      support_email brand category name
+    }
+  }
+}</code></pre>
+        <button class="btn-primary run-btn" data-action="run-email-bm25">Run query</button>
+      </div>
+      <div class="result" id="result-support_email">
+        <p class="placeholder">Press <em>Run query</em> to execute.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <p>
+    Fix each mistake in the Weaviate console, then re-run the same card. The
+    UI never caches results.
+  </p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
