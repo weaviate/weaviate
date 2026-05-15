@@ -80,37 +80,41 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		wantReason string
 	}
 
-	// Property scope of each migration type:
-	//   - repair-searchable    -> searchable
-	//   - repair-filterable    -> filterable
-	//   - enable-searchable    -> searchable
-	//   - enable-filterable    -> filterable
-	//   - enable-rangeable     -> rangeable (does not conflict with anything else)
-	//   - change-tokenization  -> searchable + filterable
+	// Conflict rule: any two reindex migrations on the same (collection,
+	// property) tuple conflict, regardless of which bucket type they
+	// primarily write to. See typesConflict's godoc for the bug
+	// (weaviate/weaviate#10675) that motivated dropping the per-bucket-type
+	// exception for enable-rangeable.
 	cases := []row{
 		// Same type, same property — conflict.
-		{"repair-searchable vs repair-searchable", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairSearchable, []string{"p"}, true, "searchable"},
-		{"repair-filterable vs repair-filterable", db.ReindexTypeRepairFilterable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "filterable"},
-		{"enable-searchable vs enable-searchable", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "searchable"},
-		{"enable-filterable vs enable-filterable", db.ReindexTypeEnableFilterable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "filterable"},
-		{"change-tokenization vs change-tokenization", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeTokenization, []string{"p"}, true, "searchable and filterable"},
+		{"repair-searchable vs repair-searchable", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairSearchable, []string{"p"}, true, "overlapping properties"},
+		{"repair-filterable vs repair-filterable", db.ReindexTypeRepairFilterable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"enable-searchable vs enable-searchable", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
+		{"enable-filterable vs enable-filterable", db.ReindexTypeEnableFilterable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
+		{"change-tokenization vs change-tokenization", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeTokenization, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs enable-rangeable (same prop)", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableRangeable, []string{"p"}, true, "overlapping properties"},
 
-		// Cross-type — change-tokenization conflicts with EVERY searchable-
-		// or filterable-touching type.
-		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairSearchable, []string{"p"}, true, "searchable"},
-		{"change-tok vs enable-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableSearchable, []string{"p"}, true, "searchable"},
-		{"change-tok vs repair-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairFilterable, []string{"p"}, true, "filterable"},
-		{"change-tok vs enable-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableFilterable, []string{"p"}, true, "filterable"},
+		// Cross-type same-property — all conflict under the new rule.
+		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairSearchable, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs enable-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs repair-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs enable-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 
-		// enable-rangeable is isolated — no conflict with anything.
-		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairSearchable, []string{"p"}, false, ""},
-		{"enable-rangeable vs repair-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairFilterable, []string{"p"}, false, ""},
-		{"enable-rangeable vs enable-rangeable (same prop)", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableRangeable, []string{"p"}, false, ""},
-		{"enable-rangeable vs change-tokenization", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeTokenization, []string{"p"}, false, ""},
+		// enable-rangeable now conflicts with anything else on the same prop —
+		// shared on-disk migration state (filterable_to_rangeable_<prop>) is
+		// destroyed by the OnMigrationComplete updatePropertyBuckets path
+		// otherwise. Same prop = conflict.
+		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairSearchable, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs repair-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs enable-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs enable-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs change-tokenization", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeTokenization, []string{"p"}, true, "overlapping properties"},
 
-		// Searchable-only vs filterable-only never conflicts (different bucket).
-		{"repair-searchable vs repair-filterable (same prop)", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairFilterable, []string{"p"}, false, ""},
-		{"enable-searchable vs enable-filterable (same prop)", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableFilterable, []string{"p"}, false, ""},
+		// Searchable-only vs filterable-only on the same property also conflicts:
+		// MergeProps fans out across all flags on OnMigrationComplete so the same
+		// cross-pollination concern applies.
+		{"repair-searchable vs repair-filterable (same prop)", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"enable-searchable vs enable-filterable (same prop)", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 	}
 
 	for _, tc := range cases {

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -42,6 +43,44 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 
 type indexesHandlers struct {
 	appState *state.State
+
+	// submitLocks serializes the checkReindexConflict + AddDistributedTask
+	// critical section per (collection, property) on this node. Without
+	// it, two HTTP handlers serving parallel PUT /indexes/{prop} requests
+	// can both pass the conflict check (neither sees the other yet) and
+	// both successfully submit a RAFT task — at which point the two
+	// migrations race on shared on-disk state for the property and one
+	// of them ends up FAILED. The lock makes the submit-side
+	// "check then add" pair atomic for the common single-node case;
+	// multi-node concurrent submits to the same property are still
+	// possible in theory but no realistic UI/CLI workflow produces them.
+	//
+	// We use a property-scoped key rather than collection-scoped so an
+	// idle property does not block a submit on a different property of
+	// the same collection. The per-collection cap
+	// maxConcurrentReindexPerCollection still gates burst submissions.
+	submitLocksMu sync.Mutex
+	submitLocks   map[string]*sync.Mutex
+}
+
+// submitLock returns the per-(collection, property) mutex for the
+// check-and-submit critical section, allocating one on first use. The
+// map is keyed by collection-lowercased + property so that case-folded
+// collection lookups (matching the rest of the conflict logic) hit the
+// same lock entry.
+func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mutex {
+	key := strings.ToLower(collection) + "/" + propertyName
+	h.submitLocksMu.Lock()
+	defer h.submitLocksMu.Unlock()
+	if h.submitLocks == nil {
+		h.submitLocks = make(map[string]*sync.Mutex)
+	}
+	m, ok := h.submitLocks[key]
+	if !ok {
+		m = &sync.Mutex{}
+		h.submitLocks[key] = m
+	}
+	return m
 }
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
@@ -395,8 +434,21 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		taskID = fmt.Sprintf("%s:%s:%s:%s", collection, migrationType, properties[0], suffix)
 	}
 
-	// Check for conflicting active tasks. Two tasks conflict if they would
-	// touch the same bucket type for the same property.
+	// Serialize the conflict-check + submit critical section per
+	// (collection, property) on this node. Without the lock, two
+	// parallel HTTP requests on the same property can both pass
+	// checkReindexConflict (each runs before the other has called
+	// AddDistributedTask and registered itself in the task list) and
+	// both successfully submit — which is exactly the race the
+	// frontend hit on weaviate/weaviate#10675. See the submitLocks
+	// field godoc for the multi-node caveat.
+	propLock := h.submitLock(collection, propertyName)
+	propLock.Lock()
+	defer propLock.Unlock()
+
+	// Check for conflicting active tasks. Any two reindex migrations on
+	// the same (collection, property) tuple conflict; see typesConflict's
+	// godoc for the on-disk state race that motivated the rule.
 	if h.appState.ClusterService != nil {
 		tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
 		if err == nil {
@@ -1165,34 +1217,56 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	return "", nil
 }
 
-// typesConflict returns a non-empty reason string if two migration types on
-// the same collection would touch the same bucket type for overlapping
-// properties.
+// typesConflict returns a non-empty reason string if two reindex migrations
+// on the same collection target overlapping properties. Any two migrations
+// on the same (collection, property) tuple conflict, regardless of which
+// bucket type they primarily write to.
+//
+// Earlier versions of this function allowed parallel migrations as long as
+// they wrote to different bucket types (e.g. enable-filterable +
+// enable-rangeable on the same property). That was wrong: when one of those
+// migrations completed, its OnMigrationComplete fired an UpdateProperty RAFT
+// command. MergeProps in cluster/schema/meta_class.go preserves the still-
+// false sibling flag (the other migration hasn't flipped its flag yet), so
+// the RAFT-applied schema carries the in-progress migration's flag as
+// false. On apply, Migrator.UpdateProperty → Shard.updatePropertyBuckets
+// runs cleanStaleMigrationDirs for every index whose flag is now false,
+// which removes the in-flight migration's <lsm>/.migrations/<dir>/ working
+// directory — including the per-property filterable_to_rangeable sentinel
+// shared between filterable and rangeable cleanup sets. The next
+// markProgress in the still-running migration then fails with
+// "progress.mig.000000001: no such file or directory" and the task ends up
+// FAILED. The frontend repro on weaviate/weaviate#10675 hit this with
+// parallel enable-filterable + enable-rangeable on a numeric property.
+//
+// Closing that window is best done at submit time: reject any new task
+// whose property set overlaps an in-flight task's property set, so the
+// caller gets a clean 409 and can serialize the operations themselves.
+// Empty props means "all properties" for that type (reserved for a future
+// whole-collection rebuild) and overlaps with everything.
 func typesConflict(newType db.ReindexMigrationType, newProps []string,
 	existType db.ReindexMigrationType, existProps []string,
 ) string {
-	newSearchable := touchesSearchable(newType)
-	newFilterable := touchesFilterable(newType)
-	existSearchable := touchesSearchable(existType)
-	existFilterable := touchesFilterable(existType)
+	// Sanity-check the migration types via the exhaustive bucket-touch
+	// predicates so an unknown ReindexMigrationType still panics loudly
+	// at the conflict-check boundary rather than slipping through as
+	// "no conflict". Result values are intentionally discarded — the
+	// conflict rule below does not depend on which buckets are touched.
+	_ = touchesSearchable(newType)
+	_ = touchesFilterable(newType)
+	_ = touchesSearchable(existType)
+	_ = touchesFilterable(existType)
 
-	// No overlap in bucket types → no conflict.
-	if (!newSearchable || !existSearchable) && (!newFilterable || !existFilterable) {
+	if !propsOverlap(newProps, existProps) {
 		return ""
 	}
-
-	// Both touch the same bucket type. Check property overlap.
-	// Empty props means "all properties" for that type.
-	if propsOverlap(newProps, existProps) {
-		if newSearchable && existSearchable && newFilterable && existFilterable {
-			return "both touch searchable and filterable indexes for overlapping properties"
-		}
-		if newSearchable && existSearchable {
-			return "both touch searchable indexes for overlapping properties"
-		}
-		return "both touch filterable indexes for overlapping properties"
+	if newType == existType {
+		return fmt.Sprintf("already running %s for overlapping properties", newType)
 	}
-	return ""
+	return fmt.Sprintf("already running %s for overlapping properties; "+
+		"concurrent %s on the same property would race on shared on-disk "+
+		"migration state — wait for the in-flight task to finish before "+
+		"submitting another", existType, newType)
 }
 
 // touchesSearchable reports whether migration type t writes to the searchable
