@@ -310,7 +310,7 @@ func TestNamespaces_References(t *testing.T) {
 		var resolvedName string
 		for _, result := range resp.Results {
 			// Find our Zoo by name.
-			zooName, _ := result.Properties.NonRefProps.Fields["name"]
+			zooName := result.Properties.NonRefProps.Fields["name"]
 			if zooName == nil || zooName.GetTextValue() != "z-grpc" {
 				continue
 			}
