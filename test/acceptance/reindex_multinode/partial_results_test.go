@@ -67,12 +67,12 @@ import (
 //     throughout the migration.
 //   - Asserting the partial-results window is bounded:
 //     1. duration <= partialWindowBudget (700ms — generous to absorb
-//        CI noise; locally observed ~80ms)
+//     CI noise; locally observed ~80ms)
 //     2. partial-count samples <= partialSampleBudget (15 — generous
-//        for the 25ms probe interval times 3 nodes times the bounded
-//        window)
+//     for the 25ms probe interval times 3 nodes times the bounded
+//     window)
 //     3. AFTER the bounded window, every sample is either the full
-//        baseline count or zero (no late partial samples).
+//     baseline count or zero (no late partial samples).
 //
 // A more aggressive design (schema-version-aware bucket lookup via the
 // BucketGeneration counter wired into the query path) would collapse
