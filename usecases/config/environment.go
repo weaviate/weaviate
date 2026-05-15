@@ -473,6 +473,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SKIP_WRITE_CLASSNAME_ENABLED")) {
+		config.Persistence.LSMSkipWriteClassNameEnabled = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_MIN_MMAP_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -988,6 +992,9 @@ func FromEnv(config *Config) error {
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
+	if config.Namespaces.Enabled {
+		config.Persistence.LSMSkipWriteClassNameEnabled = true
+	}
 
 	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
 		DefaultNamespaceCleanupInterval,
