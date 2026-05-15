@@ -17,6 +17,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,9 +38,11 @@ func TestParseInspectParams(t *testing.T) {
 			name: "ids and collection only",
 			url:  "/x?collection=Foo&ids=" + sampleUUID + "," + altUUID,
 			want: want{params: inspectParams{
-				Collection: "Foo",
-				IDs:        []string{sampleUUID, altUUID},
-				Limit:      1000,
+				Collection:      "Foo",
+				IDs:             []string{sampleUUID, altUUID},
+				Limit:           1000,
+				ReindexTimeout:  30 * time.Second,
+				ReindexInterval: time.Second,
 			}},
 		},
 		{
@@ -51,18 +54,38 @@ func TestParseInspectParams(t *testing.T) {
 				IDs:             []string{sampleUUID},
 				BucketAllowlist: []string{"property_year", "objects"},
 				Limit:           42,
+				ReindexTimeout:  30 * time.Second,
+				ReindexInterval: time.Second,
 			}},
 		},
 		{
 			name: "all=true and forwarded sentinel",
 			url:  "/x?collection=Foo&ids=" + sampleUUID + "&all=true&_forwarded=1",
 			want: want{params: inspectParams{
-				Collection: "Foo",
-				IDs:        []string{sampleUUID},
-				DumpAll:    true,
-				Forwarded:  true,
-				Limit:      1000,
+				Collection:      "Foo",
+				IDs:             []string{sampleUUID},
+				DumpAll:         true,
+				Forwarded:       true,
+				Limit:           1000,
+				ReindexTimeout:  30 * time.Second,
+				ReindexInterval: time.Second,
 			}},
+		},
+		{
+			name: "reindex timing overrides",
+			url:  "/x?collection=Foo&ids=" + sampleUUID + "&reindex_timeout=15s&reindex_interval=500ms",
+			want: want{params: inspectParams{
+				Collection:      "Foo",
+				IDs:             []string{sampleUUID},
+				Limit:           1000,
+				ReindexTimeout:  15 * time.Second,
+				ReindexInterval: 500 * time.Millisecond,
+			}},
+		},
+		{
+			name: "invalid reindex_timeout",
+			url:  "/x?collection=Foo&ids=" + sampleUUID + "&reindex_timeout=nope",
+			want: want{errSub: "invalid reindex_timeout"},
 		},
 		{
 			name: "missing collection",

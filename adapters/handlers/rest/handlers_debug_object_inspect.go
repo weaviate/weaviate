@@ -57,6 +57,12 @@ import (
 // If the resolved shard is owned by another node, the request is forwarded via
 // HTTP to that node's debug port (default 6060). The forwarded request carries
 // _forwarded=1 to prevent loops.
+//
+// On POST, the handler will additionally re-put any UUID it reports as
+// unhealthy (consistency.ok=false or, in all_replicas mode, consistent/match
+// false) and poll the inspection until every targeted UUID becomes healthy or
+// the timeout elapses. The response contains the initial (broken) result and
+// the final result.
 func setupDebugObjectInspectHandler(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug_objects_inspect")
 
@@ -74,10 +80,6 @@ func setupDebugObjectInspectHandler(appState *state.State) {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "collection not found or not ready"})
 			return
 		}
-		// DB.GetIndex lowercases the lookup key, but SchemaReader.ShardFromUUID
-		// /ShardOwner use exact-case map keys. Use the canonical name stored
-		// on the index to avoid spurious "could not resolve shard" errors when
-		// the caller passes a different case.
 		canonicalClass := idx.Config.ClassName.String()
 
 		classInfo := appState.SchemaManager.ClassInfo(canonicalClass)
@@ -89,121 +91,147 @@ func setupDebugObjectInspectHandler(appState *state.State) {
 			return
 		}
 
-		// Group UUIDs by shard name. Schema layer returns the shard for non-MT;
-		// for MT the shard equals the tenant.
-		bucketsByUUID := make(map[string]string)
-		for _, idStr := range params.IDs {
-			parsed, err := uuid.Parse(idStr)
-			if err != nil {
-				bucketsByUUID[idStr] = ""
-				continue
-			}
-			if mtEnabled {
-				bucketsByUUID[idStr] = params.Tenant
-			} else {
-				bucketsByUUID[idStr] = appState.SchemaManager.
-					ShardFromUUID(canonicalClass, parsed[:])
-			}
+		// POST forces verbose internally so we can re-put the object using the
+		// decoded body. We strip verbose-only fields again before responding
+		// unless the caller actually asked for them.
+		stripAfter := r.Method == http.MethodPost && !params.Verbose
+		inspectParamsForRun := params
+		if r.Method == http.MethodPost {
+			inspectParamsForRun.Verbose = true
 		}
 
-		grouped := make(map[string][]string)
-		for id, shardName := range bucketsByUUID {
-			grouped[shardName] = append(grouped[shardName], id)
+		before := runInspection(r, appState, idx, canonicalClass, mtEnabled, inspectParamsForRun, logger)
+
+		// GET — return inspection as-is.
+		if r.Method != http.MethodPost {
+			writeJSON(w, http.StatusOK, before)
+			return
 		}
 
-		response := inspectResponse{
-			Collection: params.Collection,
-			Results:    map[string]*inspectUUIDResult{},
+		// POST — try to fix every unhealthy UUID, then poll until healthy or
+		// the timeout elapses.
+		post := reindexAndPoll(r, appState, idx, canonicalClass, mtEnabled, inspectParamsForRun, before, logger)
+		if stripAfter {
+			stripVerboseFromResponse(&post.Before)
+			stripVerboseFromResponse(&post.After)
 		}
-
-		for shardName, ids := range grouped {
-			if shardName == "" {
-				for _, id := range ids {
-					response.Results[id] = &inspectUUIDResult{
-						Found: false,
-						Error: "could not resolve shard for uuid",
-					}
-				}
-				continue
-			}
-
-			localName := appState.Cluster.LocalName()
-
-			// Multi-replica fan-out: ask every replica of this shard
-			// independently and aggregate per-replica answers. Only the
-			// outermost (non-forwarded) request fans out; forwarded requests
-			// answer for their own local replica only.
-			if params.AllReplicas && !params.Forwarded {
-				replicas, _ := appState.SchemaManager.ShardReplicas(canonicalClass, shardName)
-				if len(replicas) == 0 {
-					// Fall back to the single-owner path below.
-				} else {
-					perReplica := fanOutReplicas(r, appState, idx, replicas, shardName, localName, params, ids, logger)
-					for _, id := range ids {
-						response.Results[id] = mergeReplicaResults(shardName, id, perReplica)
-					}
-					continue
-				}
-			}
-
-			owner, _ := appState.SchemaManager.SchemaReader.ShardOwner(canonicalClass, shardName)
-			isLocal := owner == "" || owner == localName
-
-			if !isLocal && !params.Forwarded {
-				if remoteResults, err := forwardObjectInspect(r, appState, owner, ids, params); err == nil {
-					for id, res := range remoteResults {
-						if res != nil {
-							res.Forwarded = true
-							res.Shard = shardName
-							res.Node = owner
-						}
-						response.Results[id] = res
-					}
-					continue
-				} else {
-					logger.WithField("node", owner).WithField("shard", shardName).
-						Error(err)
-					for _, id := range ids {
-						response.Results[id] = &inspectUUIDResult{
-							Shard:     shardName,
-							Node:      owner,
-							Forwarded: false,
-							Found:     false,
-							Error:     fmt.Sprintf("failed to forward to owning node %q: %v", owner, err),
-						}
-					}
-					continue
-				}
-			}
-
-			shard, release, err := idx.GetShard(r.Context(), shardName)
-			if err != nil || shard == nil {
-				msg := "tenant not loaded or shard missing"
-				if err != nil {
-					msg = err.Error()
-				}
-				for _, id := range ids {
-					response.Results[id] = &inspectUUIDResult{
-						Shard: shardName,
-						Node:  localName,
-						Found: false,
-						Error: msg,
-					}
-				}
-				if release != nil {
-					release()
-				}
-				continue
-			}
-
-			func() {
-				defer release()
-				inspectShard(r.Context(), shard, params, ids, shardName, localName, response.Results, logger)
-			}()
-		}
-
-		writeJSON(w, http.StatusOK, response)
+		writeJSON(w, http.StatusOK, post)
 	})
+}
+
+// runInspection executes a full inspection cycle against the given params and
+// returns the aggregated response. Used by both GET and POST paths.
+func runInspection(r *http.Request, appState *state.State, idx *db.Index,
+	canonicalClass string, mtEnabled bool, params inspectParams, logger *logrus.Entry,
+) inspectResponse {
+	// Group UUIDs by shard name. Schema layer returns the shard for non-MT;
+	// for MT the shard equals the tenant.
+	bucketsByUUID := make(map[string]string)
+	for _, idStr := range params.IDs {
+		parsed, err := uuid.Parse(idStr)
+		if err != nil {
+			bucketsByUUID[idStr] = ""
+			continue
+		}
+		if mtEnabled {
+			bucketsByUUID[idStr] = params.Tenant
+		} else {
+			uuidBytes, _ := parsed.MarshalBinary()
+			bucketsByUUID[idStr] = appState.SchemaManager.
+				ShardFromUUID(canonicalClass, uuidBytes)
+		}
+	}
+
+	grouped := make(map[string][]string)
+	for id, shardName := range bucketsByUUID {
+		grouped[shardName] = append(grouped[shardName], id)
+	}
+
+	response := inspectResponse{
+		Collection: params.Collection,
+		Results:    map[string]*inspectUUIDResult{},
+	}
+
+	for shardName, ids := range grouped {
+		if shardName == "" {
+			for _, id := range ids {
+				response.Results[id] = &inspectUUIDResult{
+					Found: false,
+					Error: "could not resolve shard for uuid",
+				}
+			}
+			continue
+		}
+
+		localName := appState.Cluster.LocalName()
+
+		if params.AllReplicas && !params.Forwarded {
+			replicas, _ := appState.SchemaManager.ShardReplicas(canonicalClass, shardName)
+			if len(replicas) > 0 {
+				perReplica := fanOutReplicas(r, appState, idx, replicas, shardName, localName, params, ids, logger)
+				for _, id := range ids {
+					response.Results[id] = mergeReplicaResults(shardName, id, perReplica)
+				}
+				continue
+			}
+		}
+
+		owner, _ := appState.SchemaManager.ShardOwner(canonicalClass, shardName)
+		isLocal := owner == "" || owner == localName
+
+		if !isLocal && !params.Forwarded {
+			if remoteResults, err := forwardObjectInspect(r, appState, owner, ids, params); err == nil {
+				for id, res := range remoteResults {
+					if res != nil {
+						res.Forwarded = true
+						res.Shard = shardName
+						res.Node = owner
+					}
+					response.Results[id] = res
+				}
+				continue
+			} else {
+				logger.WithField("node", owner).WithField("shard", shardName).Error(err)
+				for _, id := range ids {
+					response.Results[id] = &inspectUUIDResult{
+						Shard:     shardName,
+						Node:      owner,
+						Forwarded: false,
+						Found:     false,
+						Error:     fmt.Sprintf("failed to forward to owning node %q: %v", owner, err),
+					}
+				}
+				continue
+			}
+		}
+
+		shard, release, err := idx.GetShard(r.Context(), shardName)
+		if err != nil || shard == nil {
+			msg := "tenant not loaded or shard missing"
+			if err != nil {
+				msg = err.Error()
+			}
+			for _, id := range ids {
+				response.Results[id] = &inspectUUIDResult{
+					Shard: shardName,
+					Node:  localName,
+					Found: false,
+					Error: msg,
+				}
+			}
+			if release != nil {
+				release()
+			}
+			continue
+		}
+
+		func() {
+			defer release()
+			inspectShard(r.Context(), shard, params, ids, shardName, localName, response.Results, logger)
+		}()
+	}
+
+	return response
 }
 
 // inspectParams captures the parsed query string.
@@ -214,21 +242,39 @@ type inspectParams struct {
 	BucketAllowlist []string // explicit per-bucket dump scope
 	DumpAll         bool     // shorthand for "every bucket in the shard"
 	Limit           int
-	Verbose         bool // include the full storobj.Object and the detailed consistency breakdown
-	AllReplicas     bool // fan out to every replica of the resolved shard and return per-replica results
-	Forwarded       bool // _forwarded=1 — already proxied, do not forward again
+	Verbose         bool          // include the full storobj.Object and the detailed consistency breakdown
+	AllReplicas     bool          // fan out to every replica of the resolved shard and return per-replica results
+	Forwarded       bool          // _forwarded=1 — already proxied, do not forward again
+	ReindexTimeout  time.Duration // POST: max wall-clock time to wait for healthy after re-put
+	ReindexInterval time.Duration // POST: poll interval between consecutive inspections
 }
 
 func parseInspectParams(r *http.Request) (inspectParams, error) {
 	q := r.URL.Query()
 	p := inspectParams{
-		Collection:  strings.TrimSpace(q.Get("collection")),
-		Tenant:      strings.TrimSpace(q.Get("tenant")),
-		Limit:       1000,
-		Forwarded:   q.Get("_forwarded") == "1",
-		DumpAll:     q.Get("all") == "true",
-		Verbose:     q.Get("verbose") == "true",
-		AllReplicas: q.Get("all_replicas") == "true",
+		Collection:      strings.TrimSpace(q.Get("collection")),
+		Tenant:          strings.TrimSpace(q.Get("tenant")),
+		Limit:           1000,
+		Forwarded:       q.Get("_forwarded") == "1",
+		DumpAll:         q.Get("all") == "true",
+		Verbose:         q.Get("verbose") == "true",
+		AllReplicas:     q.Get("all_replicas") == "true",
+		ReindexTimeout:  30 * time.Second,
+		ReindexInterval: time.Second,
+	}
+	if v := strings.TrimSpace(q.Get("reindex_timeout")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return p, fmt.Errorf("invalid reindex_timeout: %q", v)
+		}
+		p.ReindexTimeout = d
+	}
+	if v := strings.TrimSpace(q.Get("reindex_interval")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return p, fmt.Errorf("invalid reindex_interval: %q", v)
+		}
+		p.ReindexInterval = d
 	}
 	if p.Collection == "" {
 		return p, fmt.Errorf("collection is required")
@@ -399,18 +445,31 @@ func mergeReplicaResults(shardName, id string,
 		}
 		agg.Replicas[node] = res
 	}
+	// Pick the replica with the highest UpdateTime as the source of truth
+	// for the aggregate. Matters for divergence cases (match=false) — POST
+	// reads .Object from this aggregate when deciding what body to re-put,
+	// so we want the most recent version to win, not whichever replica Go's
+	// map iteration happened to visit first.
+	var newest *inspectUUIDResult
+	var newestNode string
 	for node, res := range agg.Replicas {
-		if res.Found {
-			agg.Found = true
-			agg.DocID = res.DocID
-			agg.UpdateTime = res.UpdateTime
-			agg.Node = node
-			agg.Consistency = res.Consistency
-			agg.Details = res.Details
-			agg.Object = res.Object
-			agg.Buckets = res.Buckets
-			break
+		if !res.Found {
+			continue
 		}
+		if newest == nil || res.UpdateTime > newest.UpdateTime {
+			newest = res
+			newestNode = node
+		}
+	}
+	if newest != nil {
+		agg.Found = true
+		agg.DocID = newest.DocID
+		agg.UpdateTime = newest.UpdateTime
+		agg.Node = newestNode
+		agg.Consistency = newest.Consistency
+		agg.Details = newest.Details
+		agg.Object = newest.Object
+		agg.Buckets = newest.Buckets
 	}
 
 	// Compute cluster-wide flags. With zero replicas captured we leave them
@@ -1164,6 +1223,163 @@ func printableKey(k []byte) string {
 type inspectResponse struct {
 	Collection string                        `json:"collection"`
 	Results    map[string]*inspectUUIDResult `json:"results"`
+}
+
+type postInspectResponse struct {
+	Collection string                     `json:"collection"`
+	Before     inspectResponse            `json:"before"`             // initial broken state (before reindex)
+	After      inspectResponse            `json:"after"`              // state after reindex + polling
+	Reindex    map[string]*reindexOutcome `json:"reindex"`            // per-uuid summary of the reindex attempt
+	TimedOut   bool                       `json:"timedOut,omitempty"` // true if the poll loop hit the timeout
+}
+
+type reindexOutcome struct {
+	WasHealthy   bool   `json:"wasHealthy"`         // result of the initial inspection
+	Attempted    bool   `json:"attempted"`          // true if we actually called DB.PutObject
+	HealthyAtEnd bool   `json:"healthyAtEnd"`       // result after the final inspection
+	Iterations   int    `json:"iterations"`         // number of inspections performed in the polling loop
+	ElapsedMs    int64  `json:"elapsedMs"`          // wall-clock time spent in the poll loop
+	Error        string `json:"error,omitempty"`    // reason the re-put or fetch failed, if any
+	NewDocID     uint64 `json:"newDocID,omitempty"` // docID observed after reindex
+}
+
+// reindexAndPoll handles the POST flow: re-put every UUID that the initial
+// inspection reported as unhealthy, then poll until they all report healthy or
+// the timeout elapses. The decoded object body lives on `before.Results[id].Object`
+// because the caller forced Verbose=true for the initial run.
+func reindexAndPoll(r *http.Request, appState *state.State, idx *db.Index,
+	canonicalClass string, mtEnabled bool, params inspectParams,
+	before inspectResponse, logger *logrus.Entry,
+) postInspectResponse {
+	out := postInspectResponse{
+		Collection: params.Collection,
+		Before:     before,
+		Reindex:    map[string]*reindexOutcome{},
+	}
+
+	// Pass 1: identify and re-put.
+	var targets []string
+	for _, id := range params.IDs {
+		res := before.Results[id]
+		oc := &reindexOutcome{}
+		if res == nil {
+			oc.Error = "no result"
+			out.Reindex[id] = oc
+			continue
+		}
+		oc.WasHealthy = res.Healthy
+		out.Reindex[id] = oc
+
+		if res.Healthy {
+			oc.HealthyAtEnd = true
+			continue
+		}
+
+		obj := res.Object
+		// In all_replicas mode the body is only attached to the top-level
+		// result; if it's missing, walk the replicas for the first body.
+		if obj == nil && res.Replicas != nil {
+			for _, rr := range res.Replicas {
+				if rr != nil && rr.Object != nil {
+					obj = rr.Object
+					break
+				}
+			}
+		}
+		if obj == nil {
+			oc.Error = "no decoded object body available — cannot re-put"
+			continue
+		}
+
+		err := appState.DB.PutObject(
+			r.Context(), &obj.Object,
+			obj.Vector, obj.Vectors, obj.MultiVectors,
+			nil, 0,
+		)
+		if err != nil {
+			oc.Error = err.Error()
+			logger.WithField("uuid", id).Error(err)
+			continue
+		}
+		oc.Attempted = true
+		targets = append(targets, id)
+	}
+
+	if len(targets) == 0 {
+		out.After = before
+		return out
+	}
+
+	// Pass 2: poll until every target is healthy or we time out.
+	deadline := time.Now().Add(params.ReindexTimeout)
+	var after inspectResponse
+	iterations := 0
+	loopStart := time.Now()
+	for {
+		iterations++
+		after = runInspection(r, appState, idx, canonicalClass, mtEnabled, params, logger)
+
+		allHealthy := true
+		for _, id := range targets {
+			res := after.Results[id]
+			if res == nil || !res.Healthy {
+				allHealthy = false
+				break
+			}
+		}
+		if allHealthy {
+			break
+		}
+		if time.Now().After(deadline) {
+			out.TimedOut = true
+			break
+		}
+		// Respect ctx cancellation; otherwise sleep and re-poll.
+		select {
+		case <-r.Context().Done():
+			out.TimedOut = true
+		case <-time.After(params.ReindexInterval):
+		}
+		if r.Context().Err() != nil {
+			break
+		}
+	}
+	elapsed := time.Since(loopStart).Milliseconds()
+	out.After = after
+
+	for _, id := range targets {
+		oc := out.Reindex[id]
+		if oc == nil {
+			continue
+		}
+		oc.Iterations = iterations
+		oc.ElapsedMs = elapsed
+		if res := after.Results[id]; res != nil {
+			oc.HealthyAtEnd = res.Healthy
+			oc.NewDocID = res.DocID
+		}
+	}
+	return out
+}
+
+// stripVerboseFromResponse trims fields that are only meant for verbose mode
+// (the decoded object body, the detailed consistency report) from every
+// per-uuid and per-replica result.
+func stripVerboseFromResponse(resp *inspectResponse) {
+	for _, res := range resp.Results {
+		stripVerboseFromResult(res)
+	}
+}
+
+func stripVerboseFromResult(res *inspectUUIDResult) {
+	if res == nil {
+		return
+	}
+	res.Object = nil
+	res.Details = nil
+	for _, r := range res.Replicas {
+		stripVerboseFromResult(r)
+	}
 }
 
 type inspectUUIDResult struct {
