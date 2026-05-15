@@ -266,7 +266,7 @@ func buildRecoveryTasks(
 		propName := payload.Properties[0]
 		raw = []*ShardReindexTaskGeneric{
 			NewRuntimeSearchableRetokenizeTask(
-				logger, propName, payload.TargetTokenization,
+				logger, schemaManager, propName, payload.TargetTokenization,
 				payload.Collection, payload.BucketStrategy, payload.Collection,
 			),
 			NewRuntimeFilterableRetokenizeTask(

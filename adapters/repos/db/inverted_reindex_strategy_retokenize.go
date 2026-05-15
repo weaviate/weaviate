@@ -18,16 +18,33 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
-
-// schemaManager field kept for future use but OnMigrationComplete is a no-op
-// for searchable — the filterable strategy (which runs second) updates the schema.
 
 // SearchableRetokenizeStrategy implements MigrationStrategy for rebuilding the
 // searchable (BM25) index for a text property with a different tokenization
 // strategy (e.g. WORD → FIELD).
+//
+// Historically the schema's Tokenization flip was deferred to the sibling
+// FilterableRetokenize strategy (which runs second for the dual-index
+// ChangeTokenization migration) so the update happened exactly once. With
+// the createReindexTasks defense that skips the filterable sub-task when the
+// property has no filterable bucket (IndexFilterable=false), the searchable
+// strategy is the only one that runs, and the schema flip MUST happen here
+// — otherwise the searchable bucket gets re-tokenized but the schema still
+// reports the old tokenization, queries are tokenized against the old
+// schema while the bucket holds the new tokens, and BM25 returns 0 hits
+// (the failure shape pinned by the property_state_migration_matrix
+// dt=text__filt=false_srch=*_PUT_searchable_tokenization_field cells).
+//
+// applyPerPropertySchemaUpdate is idempotent (no-op when the schema already
+// reports the target tokenization), so it's safe to call from both
+// strategies when both run.
 type SearchableRetokenizeStrategy struct {
 	noAnalyzerOverlay
+	schemaManager      *schema.Manager
 	propName           string
 	targetTokenization string
 	className          string
@@ -185,9 +202,37 @@ func (s *SearchableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
 	// No-op: the searchable bucket already exists.
 }
 
-// OnMigrationComplete is a no-op for the searchable strategy. The schema
-// update happens in the filterable strategy which runs after this one.
-func (s *SearchableRetokenizeStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+// OnMigrationComplete flips the schema's Tokenization for this property.
+// Mirrors the equivalent update in FilterableRetokenizeStrategy so that
+// ChangeTokenization migrations on properties with NO filterable index
+// (where createReindexTasks skips the filterable sub-task) still update
+// the schema. Both strategies use applyPerPropertySchemaUpdate, which
+// is idempotent: when both sub-tasks run, the second call is a no-op
+// because the schema already reports the target tokenization.
+func (s *SearchableRetokenizeStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
+	if s.schemaManager == nil {
+		// Defensive: legacy call sites that constructed the strategy
+		// without a schema manager (mostly tests) skip the schema flip;
+		// the bucket has already been re-tokenized by runtimeSwap.
+		return nil
+	}
+	className := shard.Index().Config.ClassName.String()
+	missing, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, []string{s.propName},
+		[]string{api.PropertyFieldTokenization},
+		func(prop *models.Property) bool {
+			if prop.Tokenization == s.targetTokenization {
+				return false // already correct (sibling strategy flipped it)
+			}
+			prop.Tokenization = s.targetTokenization
+			return true
+		})
+	if err != nil {
+		return err
+	}
+	// Single-property strategy: a missing target property is a hard error.
+	if len(missing) > 0 {
+		return fmt.Errorf("property %q not found in class %q", s.propName, className)
+	}
 	return nil
 }
 

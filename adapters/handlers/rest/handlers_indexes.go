@@ -906,38 +906,34 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		return
 	}
 
-	// Apply per-migration-type side effects (tokenization fields) and the
-	// status string for the winning task.
-	switch bestPayload.MigrationType {
-	case db.ReindexTypeEnableSearchable:
-		if bestPayload.TargetTokenization != "" {
-			idx.Tokenization = bestPayload.TargetTokenization
-		}
-	case db.ReindexTypeChangeTokenization,
-		db.ReindexTypeChangeTokenizationFilterable:
-		if bestPayload.TargetTokenization != "" {
-			idx.TargetTokenization = bestPayload.TargetTokenization
-		}
-	case db.ReindexTypeRepairSearchable:
-		// repair-searchable today always migrates WAND -> Block Max WAND.
-		// Surfacing the targetAlgorithm lets the UI render the in-flight
-		// algorithm switch the same way it renders targetTokenization for
-		// change-tokenization. The reverse direction is not yet supported;
-		// see the docs on IndexUpdateSearchable.rebuild.
-		idx.TargetAlgorithm = models.IndexStatusTargetAlgorithmBlockmax
-	case db.ReindexTypeRepairFilterable,
-		db.ReindexTypeEnableFilterable, db.ReindexTypeEnableRangeable,
-		db.ReindexTypeRepairRangeable:
-		// No tokenization or algorithm side effects for these types.
-	}
+	// Decide the status first; only THEN apply per-migration-type side
+	// effects (Tokenization / TargetTokenization / TargetAlgorithm). Setting
+	// those fields ahead of the status decision was the source of the
+	// "post-FINISHED targetAlgorithm bleed" bug: for a RepairSearchable task
+	// that has FINISHED with the schema flag already flipped (UsingBlockMaxWAND
+	// == true), the status switch correctly leaves the entry as the base
+	// "ready", but the unconditional TargetAlgorithm assignment above had
+	// already poisoned the response with an in-flight signal that no longer
+	// applies. The post-rebuild contract (verified by
+	// TestSingleNode_ReindexSuite/MapToBlockmax) is: once the schema flag
+	// has caught up, the synthetic "targetAlgorithm" / "targetTokenization"
+	// fields must be empty.
+	//
+	// The rule is: a side-effect field is surfaced only when the status
+	// switch below changes idx.Status away from "ready" (i.e., we are
+	// actually painting an in-flight or finalizing-window signal). When the
+	// status stays "ready", we keep idx in its base state.
+	surfaceSyntheticFields := false
 
 	switch best.Status {
 	case distributedtask.TaskStatusFailed:
 		idx.Status = "failed"
 		idx.Progress = aggregateProgress(best)
+		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusCancelled:
 		idx.Status = "cancelled"
 		idx.Progress = aggregateProgress(best)
+		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusStarted:
 		progress := aggregateProgress(best)
 		idx.Progress = progress
@@ -950,6 +946,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		} else {
 			idx.Status = "pending"
 		}
+		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
 		// The DTM declares a task FINISHED once every unit is terminal, but
 		// for semantic migrations (enable-*, change-tokenization) the actual
@@ -978,7 +975,41 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		if !flagOn && finalizeWindow > 0 && time.Since(best.FinishedAt) < finalizeWindow {
 			idx.Status = "indexing"
 			idx.Progress = 1.0
+			surfaceSyntheticFields = true
 		}
+	}
+
+	// Only paint the per-migration-type "in-flight" side-effect fields when
+	// the status switch actually surfaced an in-flight or finalizing signal.
+	// If the entry stayed "ready" (FINISHED + flag-on, or FINISHED outside
+	// the finalize window), the migration has either completed and propagated
+	// to the schema (the schema-derived fields above are authoritative) or
+	// the task is stale and shouldn't pollute the response.
+	if !surfaceSyntheticFields {
+		return
+	}
+
+	switch bestPayload.MigrationType {
+	case db.ReindexTypeEnableSearchable:
+		if bestPayload.TargetTokenization != "" {
+			idx.Tokenization = bestPayload.TargetTokenization
+		}
+	case db.ReindexTypeChangeTokenization,
+		db.ReindexTypeChangeTokenizationFilterable:
+		if bestPayload.TargetTokenization != "" {
+			idx.TargetTokenization = bestPayload.TargetTokenization
+		}
+	case db.ReindexTypeRepairSearchable:
+		// repair-searchable today always migrates WAND -> Block Max WAND.
+		// Surfacing the targetAlgorithm lets the UI render the in-flight
+		// algorithm switch the same way it renders targetTokenization for
+		// change-tokenization. The reverse direction is not yet supported;
+		// see the docs on IndexUpdateSearchable.rebuild.
+		idx.TargetAlgorithm = models.IndexStatusTargetAlgorithmBlockmax
+	case db.ReindexTypeRepairFilterable,
+		db.ReindexTypeEnableFilterable, db.ReindexTypeEnableRangeable,
+		db.ReindexTypeRepairRangeable:
+		// No tokenization or algorithm side effects for these types.
 	}
 }
 
