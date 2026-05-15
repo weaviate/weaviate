@@ -31,9 +31,11 @@ func NewRuntimeEnableFilterableTask(
 	logger logrus.FieldLogger,
 	propNames []string,
 	collectionName string,
+	generation int,
 ) *ShardReindexTaskGeneric {
 	strategy := &EnableFilterableStrategy{
-		propNames: propNames,
+		propNames:  propNames,
+		generation: generation,
 	}
 
 	selectedProps := make(map[string]struct{}, len(propNames))

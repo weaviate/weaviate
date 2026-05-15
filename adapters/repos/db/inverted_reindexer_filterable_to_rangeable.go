@@ -26,10 +26,12 @@ func NewRuntimeFilterableToRangeableTask(
 	schemaManager *schema.Manager,
 	propNames []string,
 	collectionName string,
+	generation int,
 ) *ShardReindexTaskGeneric {
 	strategy := &FilterableToRangeableStrategy{
 		schemaManager: schemaManager,
 		propNames:     propNames,
+		generation:    generation,
 	}
 
 	selectedProps := make(map[string]struct{}, len(propNames))

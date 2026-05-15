@@ -13,6 +13,7 @@ package db
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -93,6 +94,43 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 	copy(sorted, propNames)
 	sort.Strings(sorted)
 	return prefix + "_" + strings.Join(sorted, "_")
+}
+
+// genSuffix returns the per-migration generation suffix, e.g. "_2".
+// Every concrete strategy's MigrationDirName / ReindexSuffix / IngestSuffix /
+// BackupSuffix appends this so back-to-back in-process migrations on the
+// same (prop, indexType) tuple don't collide on dir paths. Generation is
+// computed per-node at task start by [nextMigrationGeneration]; the
+// previous live main bucket lives at `…_ingest_<N-1>` (the in-memory
+// pointer was already swapped to it; on-disk rename is deferred to the
+// next-restart finalize), and the new migration writes to `…_ingest_<N>`.
+//
+// Generation 0 is reserved for the canonical (post-finalize) bucket at
+// `property_<prop>_<index>`, which has no suffix. Live migrations always
+// use generation ≥ 1.
+func genSuffix(generation int) string {
+	return "_" + strconv.Itoa(generation)
+}
+
+// parseMigrationDirName splits a migration dir name (e.g.
+// "searchable_retokenize_text_2", "enable_filterable_p1_p2_3",
+// "searchable_map_to_blockmax_1") into its (prefix, generation) parts.
+// The "prefix" returned is everything up to and excluding the trailing
+// "_<N>" — for per-property strategies it includes the property name(s).
+//
+// Returns ok=false if the input does not end with "_<positive-int>". The
+// finalize / recovery paths use this to enumerate generations on disk and
+// pick the right strategy instance + gen.
+func parseMigrationDirName(name string) (prefix string, generation int, ok bool) {
+	idx := strings.LastIndex(name, "_")
+	if idx <= 0 || idx == len(name)-1 {
+		return "", 0, false
+	}
+	gen, err := strconv.Atoi(name[idx+1:])
+	if err != nil || gen < 1 {
+		return "", 0, false
+	}
+	return name[:idx], gen, true
 }
 
 // migrationDirsForPropertyIndex returns the per-property migration

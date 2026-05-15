@@ -26,10 +26,11 @@ import (
 // corruption recovery.
 type RoaringSetRefreshStrategy struct {
 	noAnalyzerOverlay
+	generation int // see genSuffix godoc
 }
 
 func (s *RoaringSetRefreshStrategy) MigrationDirName() string {
-	return MigrationDirFilterableRoaringsetRefresh
+	return MigrationDirFilterableRoaringsetRefresh + genSuffix(s.generation)
 }
 
 func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {
@@ -37,15 +38,15 @@ func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *RoaringSetRefreshStrategy) ReindexSuffix() string {
-	return "__roaringset_reindex"
+	return "__roaringset_reindex" + genSuffix(s.generation)
 }
 
 func (s *RoaringSetRefreshStrategy) IngestSuffix() string {
-	return "__roaringset_ingest"
+	return "__roaringset_ingest" + genSuffix(s.generation)
 }
 
 func (s *RoaringSetRefreshStrategy) BackupSuffix() string {
-	return "__roaringset_backup"
+	return "__roaringset_backup" + genSuffix(s.generation)
 }
 
 func (s *RoaringSetRefreshStrategy) SourceStrategy() string {

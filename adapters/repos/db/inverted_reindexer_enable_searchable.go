@@ -32,10 +32,12 @@ func NewRuntimeEnableSearchableTask(
 	propNames []string,
 	collectionName string,
 	tokenization string,
+	generation int,
 ) *ShardReindexTaskGeneric {
 	strategy := &EnableSearchableStrategy{
 		propNames:    propNames,
 		tokenization: tokenization,
+		generation:   generation,
 	}
 
 	selectedProps := make(map[string]struct{}, len(propNames))

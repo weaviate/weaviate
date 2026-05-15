@@ -159,8 +159,37 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 // check in OnAfterLsmInitAsync and fail with a clear operator error.
 func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
 	migrationsRoot := filepath.Join(s.pathLSM(), ".migrations")
-	for _, dir := range migrationDirsForPropertyIndex(propName, indexType) {
-		path := filepath.Join(migrationsRoot, dir)
+	// Every migration tracker dir on disk carries a per-node generation
+	// suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
+	// generations on disk simultaneously when the last migration's trim
+	// hasn't run (e.g. crash before markTidied → next-restart finalize
+	// cleans up everything). Match by prefix and walk every entry so we
+	// don't miss old generations.
+	entries, err := os.ReadDir(migrationsRoot)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			s.index.logger.WithField("path", migrationsRoot).
+				Error(fmt.Errorf("read migrations dir for stale-state cleanup: %w", err))
+		}
+		return
+	}
+	prefixes := migrationDirsForPropertyIndex(propName, indexType)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		matches := false
+		for _, p := range prefixes {
+			if name == p || strings.HasPrefix(name, p+"_") {
+				matches = true
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		path := filepath.Join(migrationsRoot, name)
 		if err := os.RemoveAll(path); err != nil {
 			s.index.logger.WithField("path", path).
 				Error(fmt.Errorf("failed to clean up stale migration directory after index DELETE: %w; subsequent re-enable will fail loudly via the stale-sentinel check until this directory is removed manually", err))

@@ -24,12 +24,14 @@ func NewRuntimeSearchableRetokenizeTask(
 	logger logrus.FieldLogger,
 	propName, targetTokenization, className, bucketStrategy string,
 	collectionName string,
+	generation int,
 ) *ShardReindexTaskGeneric {
 	strategy := &SearchableRetokenizeStrategy{
 		propName:           propName,
 		targetTokenization: targetTokenization,
 		className:          className,
 		bucketStrategy:     bucketStrategy,
+		generation:         generation,
 	}
 
 	selectedProps := map[string]struct{}{

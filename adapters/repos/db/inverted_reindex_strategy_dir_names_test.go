@@ -19,6 +19,11 @@ import (
 // Changing any string here would silently leave existing on-disk migration
 // state in a directory that finalize/debug no longer recognise, so these
 // assertions guard against accidental renames.
+//
+// Every strategy carries a per-migration generation (`_<N>`) appended to
+// the dir name. The tests below use generation 7 to exercise the suffix
+// composition; the per-strategy base (everything before `_7`) is what
+// pins the wire format.
 func TestMigrationDirName(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -27,53 +32,53 @@ func TestMigrationDirName(t *testing.T) {
 	}{
 		{
 			name:     "MapToBlockmax",
-			got:      (&MapToBlockmaxStrategy{}).MigrationDirName(),
-			expected: "searchable_map_to_blockmax",
+			got:      (&MapToBlockmaxStrategy{generation: 7}).MigrationDirName(),
+			expected: "searchable_map_to_blockmax_7",
 		},
 		{
 			name:     "RoaringSetRefresh",
-			got:      (&RoaringSetRefreshStrategy{}).MigrationDirName(),
-			expected: "filterable_roaringset_refresh",
+			got:      (&RoaringSetRefreshStrategy{generation: 7}).MigrationDirName(),
+			expected: "filterable_roaringset_refresh_7",
 		},
 		{
 			name:     "FilterableToRangeable_noProps",
-			got:      (&FilterableToRangeableStrategy{}).MigrationDirName(),
-			expected: "filterable_to_rangeable",
+			got:      (&FilterableToRangeableStrategy{generation: 7}).MigrationDirName(),
+			expected: "filterable_to_rangeable_7",
 		},
 		{
 			name:     "FilterableToRangeable_withProps",
-			got:      (&FilterableToRangeableStrategy{propNames: []string{"a", "b"}}).MigrationDirName(),
-			expected: "filterable_to_rangeable_a_b",
+			got:      (&FilterableToRangeableStrategy{propNames: []string{"a", "b"}, generation: 7}).MigrationDirName(),
+			expected: "filterable_to_rangeable_a_b_7",
 		},
 		{
 			name:     "SearchableRetokenize",
-			got:      (&SearchableRetokenizeStrategy{propName: "title"}).MigrationDirName(),
-			expected: "searchable_retokenize_title",
+			got:      (&SearchableRetokenizeStrategy{propName: "title", generation: 7}).MigrationDirName(),
+			expected: "searchable_retokenize_title_7",
 		},
 		{
 			name:     "FilterableRetokenize",
-			got:      (&FilterableRetokenizeStrategy{propName: "title"}).MigrationDirName(),
-			expected: "filterable_retokenize_title",
+			got:      (&FilterableRetokenizeStrategy{propName: "title", generation: 7}).MigrationDirName(),
+			expected: "filterable_retokenize_title_7",
 		},
 		{
 			name:     "EnableFilterable_noProps",
-			got:      (&EnableFilterableStrategy{}).MigrationDirName(),
-			expected: "enable_filterable",
+			got:      (&EnableFilterableStrategy{generation: 7}).MigrationDirName(),
+			expected: "enable_filterable_7",
 		},
 		{
 			name:     "EnableFilterable_withProps",
-			got:      (&EnableFilterableStrategy{propNames: []string{"a", "b"}}).MigrationDirName(),
-			expected: "enable_filterable_a_b",
+			got:      (&EnableFilterableStrategy{propNames: []string{"a", "b"}, generation: 7}).MigrationDirName(),
+			expected: "enable_filterable_a_b_7",
 		},
 		{
 			name:     "EnableSearchable_noProps",
-			got:      (&EnableSearchableStrategy{}).MigrationDirName(),
-			expected: "enable_searchable",
+			got:      (&EnableSearchableStrategy{generation: 7}).MigrationDirName(),
+			expected: "enable_searchable_7",
 		},
 		{
 			name:     "EnableSearchable_withProps",
-			got:      (&EnableSearchableStrategy{propNames: []string{"a", "b"}}).MigrationDirName(),
-			expected: "enable_searchable_a_b",
+			got:      (&EnableSearchableStrategy{propNames: []string{"a", "b"}, generation: 7}).MigrationDirName(),
+			expected: "enable_searchable_a_b_7",
 		},
 	}
 

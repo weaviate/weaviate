@@ -26,29 +26,27 @@ import (
 type MapToBlockmaxStrategy struct {
 	noAnalyzerOverlay
 	schemaManager *schema.Manager
+	generation    int // see genSuffix godoc
 }
 
 func (s *MapToBlockmaxStrategy) MigrationDirName() string {
-	return MigrationDirSearchableMapToBlockmax
+	return MigrationDirSearchableMapToBlockmax + genSuffix(s.generation)
 }
 
 func (s *MapToBlockmaxStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName)
 }
 
-// Backward compat: existing in-progress migrations use __blockmax_reindex on disk.
 func (s *MapToBlockmaxStrategy) ReindexSuffix() string {
-	return "__blockmax_reindex"
+	return "__blockmax_reindex" + genSuffix(s.generation)
 }
 
-// Backward compat: existing in-progress migrations use __blockmax_ingest on disk.
 func (s *MapToBlockmaxStrategy) IngestSuffix() string {
-	return "__blockmax_ingest"
+	return "__blockmax_ingest" + genSuffix(s.generation)
 }
 
-// Backward compat: existing in-progress migrations use __blockmax_map on disk.
 func (s *MapToBlockmaxStrategy) BackupSuffix() string {
-	return "__blockmax_map"
+	return "__blockmax_map" + genSuffix(s.generation)
 }
 
 func (s *MapToBlockmaxStrategy) SourceStrategy() string {

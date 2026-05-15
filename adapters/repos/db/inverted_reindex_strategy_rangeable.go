@@ -49,12 +49,11 @@ import (
 type FilterableToRangeableStrategy struct {
 	schemaManager *schema.Manager
 	propNames     []string
+	generation    int // see genSuffix godoc
 }
 
 func (s *FilterableToRangeableStrategy) MigrationDirName() string {
-	// Include property names in the dir so multiple per-property tasks
-	// on the same shard don't share tracker state.
-	return migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, s.propNames)
+	return migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, s.propNames) + genSuffix(s.generation)
 }
 
 func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string {
@@ -62,15 +61,15 @@ func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string
 }
 
 func (s *FilterableToRangeableStrategy) ReindexSuffix() string {
-	return "__rangeable_reindex"
+	return "__rangeable_reindex" + genSuffix(s.generation)
 }
 
 func (s *FilterableToRangeableStrategy) IngestSuffix() string {
-	return "__rangeable_ingest"
+	return "__rangeable_ingest" + genSuffix(s.generation)
 }
 
 func (s *FilterableToRangeableStrategy) BackupSuffix() string {
-	return "__rangeable_backup"
+	return "__rangeable_backup" + genSuffix(s.generation)
 }
 
 func (s *FilterableToRangeableStrategy) SourceStrategy() string {

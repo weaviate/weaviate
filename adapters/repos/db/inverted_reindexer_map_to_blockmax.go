@@ -31,8 +31,9 @@ func NewRuntimeMapToBlockmaxTask(
 	schemaManager *schema.Manager,
 	propNames []string,
 	collectionName string,
+	generation int,
 ) *ShardReindexTaskGeneric {
-	strategy := &MapToBlockmaxStrategy{schemaManager: schemaManager}
+	strategy := &MapToBlockmaxStrategy{schemaManager: schemaManager, generation: generation}
 
 	selectedProps := make(map[string]struct{}, len(propNames))
 	for _, p := range propNames {
@@ -65,10 +66,17 @@ func NewRuntimeMapToBlockmaxTask(
 }
 
 // NewFileMapToBlockmaxReindexTracker creates a file-based reindex tracker
-// for the searchable map-to-blockmax migration. This is a backward-compatible
-// wrapper around NewFileReindexTracker used by the debug handler. The dir
-// name must match MapToBlockmaxStrategy.MigrationDirName() — both reference
-// MigrationDirSearchableMapToBlockmax so they cannot drift.
+// for the most recent searchable map-to-blockmax migration. This is used by
+// the debug handler to inspect on-disk migration state. Migration dirs carry
+// a per-node generation suffix (`_<N>`); the debug handler doesn't know the
+// gen, so we pick the highest existing one. Returns a tracker pointing at
+// the first generation if no on-disk state exists yet — operators using the
+// debug endpoint to inspect a not-yet-started migration see the same
+// "not_started" output they did before.
 func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
-	return NewFileReindexTracker(lsmPath, MigrationDirSearchableMapToBlockmax, keyParser)
+	gen := maxMigrationGeneration(lsmPath, MigrationDirSearchableMapToBlockmax, "")
+	if gen == 0 {
+		gen = 1
+	}
+	return NewFileReindexTracker(lsmPath, MigrationDirSearchableMapToBlockmax+genSuffix(gen), keyParser)
 }

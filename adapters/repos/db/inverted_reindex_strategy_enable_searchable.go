@@ -31,10 +31,11 @@ import (
 type EnableSearchableStrategy struct {
 	propNames    []string
 	tokenization string
+	generation   int // see genSuffix godoc
 }
 
 func (s *EnableSearchableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixEnableSearchable, s.propNames)
+	return migrationDirWithProps(MigrationDirPrefixEnableSearchable, s.propNames) + genSuffix(s.generation)
 }
 
 func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {
@@ -42,15 +43,15 @@ func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *EnableSearchableStrategy) ReindexSuffix() string {
-	return "__enable_searchable_reindex"
+	return "__enable_searchable_reindex" + genSuffix(s.generation)
 }
 
 func (s *EnableSearchableStrategy) IngestSuffix() string {
-	return "__enable_searchable_ingest"
+	return "__enable_searchable_ingest" + genSuffix(s.generation)
 }
 
 func (s *EnableSearchableStrategy) BackupSuffix() string {
-	return "__enable_searchable_backup"
+	return "__enable_searchable_backup" + genSuffix(s.generation)
 }
 
 func (s *EnableSearchableStrategy) SourceStrategy() string {

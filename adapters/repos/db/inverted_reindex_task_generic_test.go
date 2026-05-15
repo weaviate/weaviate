@@ -140,13 +140,15 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	}
 
 	// Start migration (reloadShards=false → runtime swap)
-	strategy := &testMigrationStrategy{}
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
-	reindexBucketName := searchBucketName + "__blockmax_reindex"
-	ingestBucketName := searchBucketName + "__blockmax_ingest"
+	// Per-migration generation suffix (`_<N>`) is appended to every
+	// sidecar bucket name. The test strategy uses gen=1.
+	reindexBucketName := searchBucketName + "__blockmax_reindex_1"
+	ingestBucketName := searchBucketName + "__blockmax_ingest_1"
 	require.NotNil(t, shard.store.Bucket(reindexBucketName))
 	require.NotNil(t, shard.store.Bucket(ingestBucketName))
 
@@ -195,7 +197,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	}
 
 	// Temporary buckets should be cleaned up
-	backupBucketName := searchBucketName + "__blockmax_map"
+	backupBucketName := searchBucketName + "__blockmax_map_1"
 	assert.Nil(t, shard.store.Bucket(backupBucketName), "backup bucket should not exist")
 	assert.Nil(t, shard.store.Bucket(reindexBucketName), "reindex bucket should not exist")
 	assert.Nil(t, shard.store.Bucket(ingestBucketName), "ingest bucket should not exist")
@@ -203,11 +205,13 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	// Verify reindex dir is gone from disk (segments were prepended into ingest).
 	assert.False(t, dirExists(filepath.Join(shard.pathLSM(), reindexBucketName)),
 		"reindex dir should not exist on disk")
-	// Backup dir persists on disk until next startup — runtimeSwap defers
-	// filesystem cleanup (ingest→main rename, backup removal) to
-	// FinalizeCompletedMigrations which runs in OnBeforeLsmInit.
-	assert.True(t, dirExists(filepath.Join(shard.pathLSM(), backupBucketName)),
-		"backup dir should still exist on disk (deferred finalize)")
+	// Backup dir is removed at end of runtimeSwap by the per-migration
+	// trim (`trimOlderGenerationsLocked`), which deletes the current
+	// gen's backup along with any older generations. This is part of
+	// the bounded-depth invariant — at most one tidied gen + one
+	// in-flight gen on disk at any time. See `docs/runtime-reindex.md`.
+	assert.False(t, dirExists(filepath.Join(shard.pathLSM(), backupBucketName)),
+		"backup dir should be removed by end-of-swap trim")
 
 	// New writes should still work after migration
 	postMigrationObj := createTestObjectWithText(className, "post migration "+uuid.NewString())
@@ -238,7 +242,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, objects[i]))
 	}
 
-	strategy := &testMigrationStrategy{}
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
@@ -255,7 +259,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	shardName := shard.Name()
 	require.NoError(t, shard.Shutdown(ctx))
 
-	strategy2 := &testMigrationStrategy{}
+	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task2 := newTestTask(idx.logger, strategy2)
 	idx.shardReindexer = &testShardReindexer{task: task2}
 
@@ -264,7 +268,19 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	shard2 := shd2.(*Shard)
 	idx.shards.Store(shardName, shd2)
 
-	assert.True(t, strategy2.migrationCompleted, "OnMigrationComplete should fire on restart")
+	// After per-migration-generation refactor, FinalizeCompletedMigrations
+	// runs at shard init, finalizes the tidied gen (renames ingest dir →
+	// canonical, removes backup, removes the tracker dir). With the
+	// tracker dir gone, the new task's OnAfterLsmInit sees IsStarted=
+	// false and returns early — so OnMigrationComplete does NOT fire on
+	// restart. This is correct: the migration was tidied in the original
+	// swap and its OnMigrationComplete fired then; firing it again
+	// on restart is unnecessary (and now impossible). Asserting that
+	// canonical bucket exists post-restart is the load-bearing check.
+	searchBucketName := helpers.BucketSearchableFromPropNameLSM("title")
+	require.NotNil(t, shard2.store.Bucket(searchBucketName),
+		"canonical main bucket should be loaded after restart-finalize")
+	_ = strategy2.migrationCompleted // intentionally unused: OnMigrationComplete no longer fires on restart
 
 	// All objects should be readable
 	for _, obj := range objects {

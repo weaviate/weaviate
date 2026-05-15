@@ -28,8 +28,9 @@ func NewRuntimeRoaringSetRefreshTask(
 	logger logrus.FieldLogger,
 	propNames []string,
 	collectionName string,
+	generation int,
 ) *ShardReindexTaskGeneric {
-	strategy := &RoaringSetRefreshStrategy{}
+	strategy := &RoaringSetRefreshStrategy{generation: generation}
 
 	selectedProps := make(map[string]struct{}, len(propNames))
 	for _, p := range propNames {

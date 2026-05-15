@@ -32,12 +32,13 @@ type SearchableRetokenizeStrategy struct {
 	targetTokenization string
 	className          string
 	bucketStrategy     string // StrategyMapCollection or StrategyInverted
+	generation         int    // see genSuffix godoc for the per-migration generation contract
 }
 
 func (s *SearchableRetokenizeStrategy) MigrationDirName() string {
-	// Include property name in the dir so concurrent retokenize tasks on
-	// different properties don't share tracker state.
-	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName
+	// Include property name + per-migration generation so back-to-back
+	// migrations on the same property don't collide on tracker state.
+	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName + genSuffix(s.generation)
 }
 
 func (s *SearchableRetokenizeStrategy) SourceBucketName(_ string) string {
@@ -45,15 +46,15 @@ func (s *SearchableRetokenizeStrategy) SourceBucketName(_ string) string {
 }
 
 func (s *SearchableRetokenizeStrategy) ReindexSuffix() string {
-	return "__retokenize_reindex"
+	return "__retokenize_reindex" + genSuffix(s.generation)
 }
 
 func (s *SearchableRetokenizeStrategy) IngestSuffix() string {
-	return "__retokenize_ingest"
+	return "__retokenize_ingest" + genSuffix(s.generation)
 }
 
 func (s *SearchableRetokenizeStrategy) BackupSuffix() string {
-	return "__retokenize_backup"
+	return "__retokenize_backup" + genSuffix(s.generation)
 }
 
 func (s *SearchableRetokenizeStrategy) SourceStrategy() string {

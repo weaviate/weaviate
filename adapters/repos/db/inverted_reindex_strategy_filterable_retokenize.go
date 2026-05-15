@@ -29,12 +29,11 @@ type FilterableRetokenizeStrategy struct {
 	propName           string
 	targetTokenization string
 	className          string
+	generation         int // see genSuffix godoc
 }
 
 func (s *FilterableRetokenizeStrategy) MigrationDirName() string {
-	// Include property name in the dir so concurrent retokenize tasks on
-	// different properties don't share tracker state.
-	return MigrationDirPrefixFilterableRetokenize + "_" + s.propName
+	return MigrationDirPrefixFilterableRetokenize + "_" + s.propName + genSuffix(s.generation)
 }
 
 func (s *FilterableRetokenizeStrategy) SourceBucketName(_ string) string {
@@ -42,15 +41,15 @@ func (s *FilterableRetokenizeStrategy) SourceBucketName(_ string) string {
 }
 
 func (s *FilterableRetokenizeStrategy) ReindexSuffix() string {
-	return "__filt_retokenize_reindex"
+	return "__filt_retokenize_reindex" + genSuffix(s.generation)
 }
 
 func (s *FilterableRetokenizeStrategy) IngestSuffix() string {
-	return "__filt_retokenize_ingest"
+	return "__filt_retokenize_ingest" + genSuffix(s.generation)
 }
 
 func (s *FilterableRetokenizeStrategy) BackupSuffix() string {
-	return "__filt_retokenize_backup"
+	return "__filt_retokenize_backup" + genSuffix(s.generation)
 }
 
 func (s *FilterableRetokenizeStrategy) SourceStrategy() string {

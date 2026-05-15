@@ -139,7 +139,19 @@ func DiscoverInFlightReindexTasks(
 					continue
 				}
 
-				tasks, err := buildRecoveryTasks(rec, shardName, logger, schemaManager)
+				// Parse the per-node generation suffix from the migration dir
+				// name. With per-migration generation, the strategy instances
+				// reconstructed here MUST use the same gen as the in-flight
+				// state on disk, otherwise their SourceBucketName / Reindex
+				// SuffixName paths won't match the on-disk dirs.
+				_, generation, parseOk := parseMigrationDirName(migEntry.Name())
+				if !parseOk {
+					logger.WithField("migrationDir", migDir).
+						Warn("reindex recovery: migration dir name missing _<gen> suffix; skipping")
+					continue
+				}
+
+				tasks, err := buildRecoveryTasks(rec, shardName, generation, logger, schemaManager)
 				if err != nil {
 					logger.WithField("migrationDir", migDir).WithError(err).
 						Warn("reindex recovery: skipping migration; cannot build tasks")
@@ -221,6 +233,7 @@ func loadReindexRecoveryRecord(migDir string, logger logrus.FieldLogger) (reinde
 func buildRecoveryTasks(
 	rec reindexRecoveryRecord,
 	shardName string,
+	generation int,
 	logger logrus.FieldLogger,
 	schemaManager *schema.Manager,
 ) ([]*ShardReindexTaskGeneric, error) {
@@ -232,26 +245,26 @@ func buildRecoveryTasks(
 	switch payload.MigrationType {
 	case ReindexTypeRepairSearchable:
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeMapToBlockmaxTask(logger, schemaManager, payload.Properties, payload.Collection),
+			NewRuntimeMapToBlockmaxTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeRepairFilterable:
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeRoaringSetRefreshTask(logger, payload.Properties, payload.Collection),
+			NewRuntimeRoaringSetRefreshTask(logger, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(logger, schemaManager, payload.Properties, payload.Collection),
+			NewRuntimeFilterableToRangeableTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableFilterable:
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection),
+			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableSearchable:
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("%s requires targetTokenization", payload.MigrationType)
 		}
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization),
+			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization, generation),
 		}
 	case ReindexTypeChangeTokenization:
 		if len(payload.Properties) != 1 {
@@ -268,11 +281,13 @@ func buildRecoveryTasks(
 			NewRuntimeSearchableRetokenizeTask(
 				logger, propName, payload.TargetTokenization,
 				payload.Collection, payload.BucketStrategy, payload.Collection,
+				generation,
 			),
 			NewRuntimeFilterableRetokenizeTask(
 				logger,
 				propName, payload.TargetTokenization,
 				payload.Collection, payload.Collection,
+				generation,
 			),
 		}
 	case ReindexTypeChangeTokenizationFilterable:
@@ -288,6 +303,7 @@ func buildRecoveryTasks(
 				logger,
 				propName, payload.TargetTokenization,
 				payload.Collection, payload.Collection,
+				generation,
 			),
 		}
 	default:

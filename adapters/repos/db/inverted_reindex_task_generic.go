@@ -1088,9 +1088,148 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
+
+	// Step 7: Trim older generations on disk.
+	//
+	// Each migration on a (prop, indexType) tuple lives in its own
+	// gen-suffixed sidecar dirs and `.migrations/<prefix>_<prop>_<N>`
+	// tracker dir. After this swap successfully tidied at gen N, every
+	// older gen on disk is by definition obsolete: their reindex dirs
+	// were already removed during their own runtimeSwap step 2; their
+	// backup dirs are the pre-T_N data we no longer need; their tracker
+	// dirs would otherwise survive until next-restart finalize. Clean
+	// them up now so the on-disk depth never exceeds 2 generations
+	// (this gen + maybe one in-flight successor) regardless of how many
+	// in-process migrations have run on this prop since the last
+	// restart.
+	//
+	// Best-effort: log errors, don't fail the migration. The next-restart
+	// FinalizeCompletedMigrations is idempotent across multiple
+	// generations and will sweep up anything we missed.
+	t.trimOlderGenerationsLocked(logger, shard, rt, props)
+
 	logger.Info("runtime swap: migration complete")
 
 	return nil
+}
+
+// trimOlderGenerationsLocked removes on-disk leftovers from generations
+// older than `currentGen` for the strategy's (prefix, propNamesSuffix).
+// Called after `markTidied()` at the end of [runtimeSwap].
+//
+// Removes, per shard:
+//   - all `…_<reindexSuffix-base>_<M>/`, `…_<ingestSuffix-base>_<M>/`,
+//     `…_<backupSuffix-base>_<M>/` dirs with M < currentGen, plus the
+//     `…_<backupSuffix-base>_<currentGen>/` dir produced by this swap
+//     (the pre-T_N data we no longer need).
+//   - all `.migrations/<migrationDirPrefix><propSuffix>_<M>/` for
+//     M < currentGen.
+//
+// Keeps:
+//   - The current gen's ingest dir (the live main's physical dir, still
+//     referenced by the in-memory bucket pointer until next-restart
+//     finalize renames it to canonical).
+//   - The current gen's migration tracker dir (its tidied.mig is the
+//     signal next-restart finalize uses to promote the ingest dir to
+//     canonical).
+func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
+	logger logrus.FieldLogger, shard ShardLike, _ reindexTracker, props []string,
+) {
+	concrete, err := unwrapShard(context.Background(), shard)
+	if err != nil {
+		logger.WithError(err).Warn("runtime swap: trim: failed to unwrap shard; skipping cleanup")
+		return
+	}
+	lsmPath := concrete.pathLSM()
+	currentGen := t.strategy.MigrationDirName()
+	currentReindex := t.strategy.ReindexSuffix()
+	currentIngest := t.strategy.IngestSuffix()
+	currentBackup := t.strategy.BackupSuffix()
+
+	// Reverse the gen suffix off each current suffix to get the
+	// suffix-without-gen base for prefix matching against older
+	// generations on disk. genSuffix = "_<N>"; everything before the last
+	// "_<digits>" is the base. parseMigrationDirName does this for the
+	// migration dir name; for the bucket suffixes we extract the same way.
+	currentReindexBase, _, _ := parseMigrationDirName(currentReindex)
+	currentIngestBase, _, _ := parseMigrationDirName(currentIngest)
+	currentBackupBase, _, _ := parseMigrationDirName(currentBackup)
+	currentMigBase, currentGenN, _ := parseMigrationDirName(currentGen)
+
+	// Bucket sidecar dirs live at the top of the LSM dir. Match by
+	// "_<base>_<M>" suffix on names that start with the prop's main
+	// bucket name. The current gen's ingest dir is intentionally kept.
+	entries, err := os.ReadDir(lsmPath)
+	if err != nil {
+		logger.WithError(err).Warn("runtime swap: trim: failed to read LSM dir; skipping cleanup")
+	} else {
+		for _, propName := range props {
+			mainBucket := t.strategy.SourceBucketName(propName)
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if !strings.HasPrefix(name, mainBucket) {
+					continue
+				}
+				// Strip the mainBucket prefix to inspect the suffix.
+				rest := name[len(mainBucket):]
+				if len(rest) == 0 {
+					continue // the live main bucket itself
+				}
+				suffixBase, suffixGen, ok := parseMigrationDirName(rest)
+				if !ok {
+					continue
+				}
+				switch suffixBase {
+				case currentReindexBase, currentBackupBase:
+					// Always obsolete after tidied (reindex is already
+					// removed during runtimeSwap step 2; current-gen
+					// backup is the pre-T_N data we no longer need).
+					t.removeAllSafe(logger, filepath.Join(lsmPath, name))
+				case currentIngestBase:
+					if suffixGen < currentGenN {
+						t.removeAllSafe(logger, filepath.Join(lsmPath, name))
+					}
+				}
+			}
+		}
+	}
+
+	// Migration tracker dirs: remove all for older gens of THIS strategy
+	// + prop tuple.
+	migsDir := filepath.Join(lsmPath, ".migrations")
+	migEntries, err := os.ReadDir(migsDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.WithError(err).Warn("runtime swap: trim: failed to read .migrations dir; skipping cleanup")
+		}
+		return
+	}
+	for _, entry := range migEntries {
+		if !entry.IsDir() {
+			continue
+		}
+		base, gen, ok := parseMigrationDirName(entry.Name())
+		if !ok {
+			continue
+		}
+		if base != currentMigBase {
+			continue
+		}
+		if gen >= currentGenN {
+			continue
+		}
+		t.removeAllSafe(logger, filepath.Join(migsDir, entry.Name()))
+	}
+}
+
+func (t *ShardReindexTaskGeneric) removeAllSafe(logger logrus.FieldLogger, path string) {
+	if err := os.RemoveAll(path); err != nil {
+		logger.WithField("path", path).WithError(err).
+			Warn("runtime swap: trim: failed to remove obsolete dir; next-restart finalize will sweep")
+	}
 }
 
 // -----------------------------------------------------------------------------

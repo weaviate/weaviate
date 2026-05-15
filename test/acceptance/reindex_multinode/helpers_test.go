@@ -505,6 +505,40 @@ func runBM25QueryOnNodeWithRetry(t *testing.T, restURI, className, query string)
 	return ids, err
 }
 
+// restartCluster stops all 3 nodes (in reverse order, so the bootstrap
+// node 1 goes last and comes back first) and then starts them again.
+// The cluster is fully down between the last Stop and the first Start.
+// Used by the restart-matrix tests to verify the deferred-finalize
+// design: every per-node migration tracker dir is consumed by
+// FinalizeCompletedMigrations at startup, and follow-up migrations
+// start from a clean state.
+func restartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+	// Stop in reverse so node-1 (likely RAFT leader / bootstrap) goes last.
+	for i := 3; i >= 1; i-- {
+		require.NoErrorf(t, compose.StopAt(ctx, i-1, nil), "stop node %d", i)
+	}
+	// Start in order so the bootstrap node comes up first.
+	for i := 1; i <= 3; i++ {
+		require.NoErrorf(t, compose.StartAt(ctx, i-1), "start node %d", i)
+	}
+}
+
+// rollingRestartCluster stops + restarts each node ONE AT A TIME,
+// waiting for the node to be ready before moving on. Mimics a
+// Kubernetes StatefulSet rolling update — the failure mode that hid
+// weaviate/weaviate#10675 in Frontend Claude's prod environment, where
+// pods rolled at different times produced different on-disk states for
+// the same migration.
+func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+	for i := 1; i <= 3; i++ {
+		t.Logf("rolling restart: cycling node %d", i)
+		require.NoErrorf(t, compose.StopAt(ctx, i-1, nil), "stop node %d", i)
+		require.NoErrorf(t, compose.StartAt(ctx, i-1), "start node %d", i)
+	}
+}
+
 // dumpContainerLogs prints container logs for all nodes on test failure.
 func dumpContainerLogs(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
 	t.Helper()

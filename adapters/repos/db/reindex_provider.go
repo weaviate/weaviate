@@ -274,8 +274,19 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
+	// Unwrap up front: the lsmPath is needed by createReindexTasks to
+	// pick the per-shard generation suffix for this migration's
+	// sidecar dirs. We also need the concrete shard for persistRecoveryRecord
+	// below.
+	concreteShard, unwrapErr := unwrapShard(ctx, shard)
+	if unwrapErr != nil {
+		p.failUnit(ctx, task, unitID, recorder,
+			fmt.Sprintf("unwrap shard: %v", unwrapErr))
+		return
+	}
+
 	// Create the reindex task(s) for this migration type.
-	tasks, err := p.createReindexTasks(payload)
+	tasks, err := p.createReindexTasks(payload, concreteShard.pathLSM(), false)
 	if err != nil {
 		p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", err))
 		return
@@ -323,12 +334,6 @@ func (p *ReindexProvider) processOneUnit(
 	// arriving between shard init and OnGroupCompleted's swap go only to
 	// the old main bucket (no ingest double-write) and are lost on swap.
 	// See [ReindexProvider.persistRecoveryRecord] for the on-disk shape.
-	concreteShard, unwrapErr := unwrapShard(ctx, shard)
-	if unwrapErr != nil {
-		p.failUnit(ctx, task, unitID, recorder,
-			fmt.Sprintf("unwrap shard for recovery: %v", unwrapErr))
-		return
-	}
 	if err := p.persistRecoveryRecord(task, payload, unitID, concreteShard.pathLSM(), tasks); err != nil {
 		// A failure to persist the recovery record means a restart in the
 		// next few seconds would lose the in-flight reindex's double-write
@@ -368,7 +373,23 @@ func (p *ReindexProvider) processOneUnit(
 // callers or a corrupt RAFT replay carrying a pathological array length.
 const maxReindexPropertiesPerTask = 1024
 
-func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*ShardReindexTaskGeneric, error) {
+// createReindexTasks constructs the strategy/task instances for a payload.
+// Each per-strategy bucket-sidecar dir and the migration tracker dir carry
+// a per-node generation suffix `_<N>` so back-to-back in-process
+// migrations on the same property don't collide on dir paths.
+//
+// lsmPath is required because the generation is computed per-shard from
+// the shard's local on-disk state. When rehydrate is true (called from
+// [OnGroupCompleted]'s rehydrate path after a process restart lost the
+// in-memory task cache), the generation is the highest existing
+// in-flight one on disk — we want to reconstruct the SAME strategy
+// instance the original processOneUnit constructed. When rehydrate is
+// false (the fresh-task path from processOneUnit), the generation is
+// `max(existing) + 1`.
+//
+// See `docs/runtime-reindex.md` for the deferred-finalize + per-migration-
+// generation design rationale.
+func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPath string, rehydrate bool) ([]*ShardReindexTaskGeneric, error) {
 	// Every migration type requires at least one property — repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
 	// needs exactly one property. Check up front so each arm only deals with
@@ -381,15 +402,34 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
 	}
 
+	// genFor returns the generation suffix N to use for this migration on this
+	// shard, given the strategy's dir prefix and its props suffix (e.g. "_text"
+	// or sorted-joined "_p1_p2", or "" for class-level strategies).
+	genFor := func(prefix, propSuffix string) int {
+		if rehydrate {
+			// Reconstruct against the highest existing gen on disk. If none
+			// exists (recovery race / corrupted state) fall back to 1 — the
+			// strategy will fail loudly at runtimeSwap rather than silently
+			// reusing stale state.
+			if gen := maxMigrationGeneration(lsmPath, prefix, propSuffix); gen > 0 {
+				return gen
+			}
+			return 1
+		}
+		return nextMigrationGeneration(lsmPath, prefix, propSuffix)
+	}
+
 	switch payload.MigrationType {
 	case ReindexTypeRepairSearchable:
+		gen := genFor(MigrationDirSearchableMapToBlockmax, "")
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeMapToBlockmaxTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
+			NewRuntimeMapToBlockmaxTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeRepairFilterable:
+		gen := genFor(MigrationDirFilterableRoaringsetRefresh, "")
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeRoaringSetRefreshTask(p.logger, payload.Properties, payload.Collection),
+			NewRuntimeRoaringSetRefreshTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
@@ -397,21 +437,24 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 		// rangeable is rebuilt from the existing filterable bucket either
 		// way. The validator at submit time gates which one is allowed
 		// based on the property's current IndexRangeFilters state.
+		gen := genFor(MigrationDirPrefixFilterableToRangeable, propsSuffix(payload.Properties))
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
+			NewRuntimeFilterableToRangeableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
+		gen := genFor(MigrationDirPrefixEnableFilterable, propsSuffix(payload.Properties))
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableFilterableTask(p.logger, payload.Properties, payload.Collection),
+			NewRuntimeEnableFilterableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableSearchable:
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("enable-searchable requires targetTokenization")
 		}
+		gen := genFor(MigrationDirPrefixEnableSearchable, propsSuffix(payload.Properties))
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableSearchableTask(p.logger, payload.Properties, payload.Collection, payload.TargetTokenization),
+			NewRuntimeEnableSearchableTask(p.logger, payload.Properties, payload.Collection, payload.TargetTokenization, gen),
 		}, nil
 
 	case ReindexTypeChangeTokenization:
@@ -435,17 +478,21 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 		// case, so the defense lives here: only dispatch the filterable
 		// retokenize sub-task when the property actually has a filterable
 		// index.
+		searchableGen := genFor(MigrationDirPrefixSearchableRetokenize, "_"+propName)
 		tasks := []*ShardReindexTaskGeneric{
 			NewRuntimeSearchableRetokenizeTask(
 				p.logger, propName, payload.TargetTokenization,
 				payload.Collection, payload.BucketStrategy, payload.Collection,
+				searchableGen,
 			),
 		}
 		if p.propertyHasFilterableBucket(payload.Collection, propName) {
+			filterableGen := genFor(MigrationDirPrefixFilterableRetokenize, "_"+propName)
 			tasks = append(tasks, NewRuntimeFilterableRetokenizeTask(
 				p.logger,
 				propName, payload.TargetTokenization,
 				payload.Collection, payload.Collection,
+				filterableGen,
 			))
 		}
 		return tasks, nil
@@ -458,16 +505,36 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("change-tokenization-filterable requires targetTokenization")
 		}
+		filterableGen := genFor(MigrationDirPrefixFilterableRetokenize, "_"+propName)
 		filterableTask := NewRuntimeFilterableRetokenizeTask(
 			p.logger,
 			propName, payload.TargetTokenization,
 			payload.Collection, payload.Collection,
+			filterableGen,
 		)
 		return []*ShardReindexTaskGeneric{filterableTask}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown migration type %q", payload.MigrationType)
 	}
+}
+
+// propsSuffix returns the "_p1_p2..." prop-names suffix that
+// migrationDirWithProps appends after a strategy prefix. Returns "" for
+// empty prop slices. Kept in sync with [migrationDirWithProps] — must
+// produce the same suffix string the strategy's MigrationDirName() will
+// emit, so [nextMigrationGeneration] / [maxMigrationGeneration] scan
+// against the same target.
+func propsSuffix(propNames []string) string {
+	if len(propNames) == 0 {
+		return ""
+	}
+	// migrationDirWithProps sorts the names; replicate that here so the
+	// resulting suffix matches.
+	sorted := make([]string, len(propNames))
+	copy(sorted, propNames)
+	sort.Strings(sorted)
+	return "_" + strings.Join(sorted, "_")
 }
 
 // propertyHasFilterableBucket reports whether the named property carries
@@ -799,8 +866,14 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		// a rehydration step before RunSwapOnShard.
 		rehydrate := false
 		if len(unitTasks) == 0 {
+			concreteShard, unwrapErr := unwrapShard(ctx, shard)
+			if unwrapErr != nil {
+				logger.WithField("unit", unitID).WithError(unwrapErr).
+					Error("reindex provider: OnGroupCompleted: unwrap shard for rehydrate")
+				continue
+			}
 			var err error
-			unitTasks, err = p.createReindexTasks(payload)
+			unitTasks, err = p.createReindexTasks(payload, concreteShard.pathLSM(), true)
 			if err != nil {
 				logger.WithField("unit", unitID).WithError(err).
 					Error("reindex provider: OnGroupCompleted: creating reindex tasks")
