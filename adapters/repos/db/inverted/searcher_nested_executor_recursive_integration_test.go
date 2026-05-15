@@ -1478,7 +1478,7 @@ func TestRecExecutorRunIdxLoopRecursiveCursor(t *testing.T) {
 // TestRecExecutorEvalOr exercises evalOr against hand-constructed OR plans.
 // The planner produces recOrNode for OR-operator pvps (Step 3); evalOr unions
 // child results via the OrAll primitive. Output shape matches children's
-// shape — under Phase 1 of position-level eval, children return rootDoc, so
+// shape — under Phase 1 of position-level evaluation, children return rootDoc, so
 // the OR result is rootDoc. execute() then MaskRootLeaf's to docIDs.
 func TestRecExecutorEvalOr(t *testing.T) {
 	class := filterExamplesClass()

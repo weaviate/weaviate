@@ -18895,8 +18895,8 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 
 		// ctx2_AND_same_root_sibling — sibling at SAME root.
 		// Enclosing AND's LCA = cars[]. NOT inverts at cars[]
-		// (operand's natural LCA = enclosing LCA). Option A and
-		// Option B agree here.
+		// (operand's natural LCA = enclosing LCA). per-element inversion and
+		// universal-within-scope inversion agree here.
 		t.Run("ctx2_AND_same_root_sibling", func(t *testing.T) {
 			runScenario(t, andF(makeF(), notF(colorRedF())), want.andSameRoot)
 		})
@@ -18990,8 +18990,8 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			wantSet{
 				// ctx1 standalone — TODO aliszka:nested_filtering:
 				// locks in CURRENT root-universe NOT.
-				//   Option A: {d2,d4,d5,d6} — d6 in, d7 out.
-				//   Option B: {d2,d4,d5,d7} — same as today (no
+				//   per-element inversion: {d2,d4,d5,d6} — d6 in, d7 out.
+				//   universal-within-scope inversion: {d2,d4,d5,d7} — same as today (no
 				//             enclosing combinator).
 				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
 				// ctx2 AND same-root — option A and option B agree:
@@ -19000,15 +19000,15 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 				// ctx3 AND outer-scope — TODO aliszka:nested_filtering:
 				// locks in CURRENT docID-level NOT. THIS is the A vs B
 				// discriminator.
-				//   Option A: {d2,d4,d5,d6} — d6 in.
-				//   Option B: {d2,d4,d5} — same as today (enclosing
+				//   per-element inversion: {d2,d4,d5,d6} — d6 in.
+				//   universal-within-scope inversion: {d2,d4,d5} — same as today (enclosing
 				//             LCA = doc).
 				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
 				// ctx4 OR same-root — TODO aliszka:nested_filtering:
 				// locks in CURRENT root-universe NOT (top-level OR
 				// doesn't trigger scope-aware NOT yet).
-				//   Option A: {d1,d2,d4,d5,d6,d8} — d6 in, d7 out.
-				//   Option B: same as Option A (enclosing OR's LCA =
+				//   per-element inversion: {d1,d2,d4,d5,d6,d8} — d6 in, d7 out.
+				//   universal-within-scope inversion: same as per-element inversion (enclosing OR's LCA =
 				//             cars = operand LCA).
 				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixed, idEmpty, idTesla2020RedOwnerBob},
 				// ctx5 mix — passes under today, option A, and option B.
@@ -19079,8 +19079,8 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			wantSet{
 				// ctx1 standalone — TODO aliszka:nested_filtering:
 				// locks in CURRENT root-universe NOT.
-				//   Option A: {d2,d4,d5,d6,d9}.
-				//   Option B: {d2,d4,d5,d7} — same as today.
+				//   per-element inversion: {d2,d4,d5,d6,d9}.
+				//   universal-within-scope inversion: {d2,d4,d5,d7} — same as today.
 				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
 				// ctx2 AND same-root — option A and option B agree.
 				// idMixedSameGarage and idMixedSplitGarages flip in.
@@ -19088,13 +19088,13 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 				// ctx3 AND outer-scope — TODO aliszka:nested_filtering:
 				// locks in CURRENT docID-level NOT. THIS is the A vs B
 				// discriminator.
-				//   Option A: {d2,d4,d5,d6,d9}.
-				//   Option B: {d2,d4,d5} — same as today.
+				//   per-element inversion: {d2,d4,d5,d6,d9}.
+				//   universal-within-scope inversion: {d2,d4,d5} — same as today.
 				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
 				// ctx4 OR same-root — TODO aliszka:nested_filtering:
 				// locks in CURRENT root-universe NOT.
-				//   Option A: {d1,d2,d4,d5,d6,d8,d9}.
-				//   Option B: same as Option A.
+				//   per-element inversion: {d1,d2,d4,d5,d6,d8,d9}.
+				//   universal-within-scope inversion: same as per-element inversion.
 				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idEmpty, idTesla2020RedOwnerBob, idMixedSplitGarages},
 				// ctx5 mix — passes under today, option A, and option B.
 				andOrMix: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idTesla2020RedOwnerBob, idMixedSplitGarages},
@@ -19165,8 +19165,8 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			wantSet{
 				// ctx1 standalone — TODO aliszka:nested_filtering:
 				// locks in CURRENT root-universe NOT.
-				//   Option A: {d2,d4,d5,d6,d9,d10}.
-				//   Option B: {d2,d4,d5,d7} — same as today.
+				//   per-element inversion: {d2,d4,d5,d6,d9,d10}.
+				//   universal-within-scope inversion: {d2,d4,d5,d7} — same as today.
 				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
 				// ctx2 AND same-root — option A and option B agree.
 				// All mixed-layout docs (same garage, split garages,
@@ -19175,13 +19175,13 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 				// ctx3 AND outer-scope — TODO aliszka:nested_filtering:
 				// locks in CURRENT docID-level NOT. THIS is the A vs B
 				// discriminator.
-				//   Option A: {d2,d4,d5,d6,d9,d10}.
-				//   Option B: {d2,d4,d5} — same as today.
+				//   per-element inversion: {d2,d4,d5,d6,d9,d10}.
+				//   universal-within-scope inversion: {d2,d4,d5} — same as today.
 				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
 				// ctx4 OR same-root — TODO aliszka:nested_filtering:
 				// locks in CURRENT root-universe NOT.
-				//   Option A: {d1,d2,d4,d5,d6,d8,d9,d10}.
-				//   Option B: same as Option A.
+				//   per-element inversion: {d1,d2,d4,d5,d6,d8,d9,d10}.
+				//   universal-within-scope inversion: same as per-element inversion.
 				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idEmpty, idTesla2020RedOwnerBob, idMixedSplitGarages, idMixedSplitCountries},
 				// ctx5 mix — passes under today, option A, and option B.
 				// Cross-country split docs flip alongside cross-garage

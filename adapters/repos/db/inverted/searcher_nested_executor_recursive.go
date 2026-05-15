@@ -797,7 +797,7 @@ func (e *recExecutor) intersectScope(scope, parentScope *sroar.Bitmap) (*sroar.B
 // evalOr evaluates each child of an OR node and returns their union via OrAll.
 // Output shape matches the children's shape — OrAll preserves position bits, so
 // the OR works regardless of whether children return raw or rootDoc bitmaps
-// (transitional during the position-level eval rollout: Phase 1 inner functions
+// (transitional during the position-level evaluation rollout: Phase 1 inner functions
 // still emit rootDoc; Phase 2 flips them to raw and OR semantics are unchanged).
 //
 // parentScope is passed through to each child's evalNode unchanged. Children's

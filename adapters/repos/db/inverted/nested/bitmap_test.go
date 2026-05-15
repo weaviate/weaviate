@@ -826,12 +826,12 @@ func TestBitmapOps_CrossLeafCopresenceAll(t *testing.T) {
 }
 
 // TestBitmapOps_CrossLeafCopresenceAll_IdxLoopSimulation simulates the
-// position-level eval cars-level AND combining step end-to-end. For
+// position-level evaluation cars-level AND combining step end-to-end. For
 // each (garage K, car L) iteration, it narrows the per-condition raw
 // bitmaps by car_scope = _idx.garages.cars[L] ∩ _idx.garages[K] and
 // applies CrossLeafCopresenceAll. Per-iteration results are OR'd into the
 // accumulator. Scenarios mirror the doc walkthroughs from the
-// position-level eval discussion.
+// position-level evaluation discussion.
 func TestBitmapOps_CrossLeafCopresenceAll_IdxLoopSimulation(t *testing.T) {
 	ops := newTrackingOps(t)
 	// Co-presence groups by (root, doc) via the package-level zeroLeafBits.
