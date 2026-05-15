@@ -15,20 +15,23 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // NewRuntimeFilterableRetokenizeTask creates a ShardReindexTaskGeneric configured
 // for runtime (live) retokenization of a filterable property. It rebuilds the
 // filterable (RoaringSet) index with a different tokenization strategy.
+//
+// The schema flip (Tokenization field) is no longer performed by this
+// strategy — it now happens cluster-wide in
+// [ReindexProvider.OnTaskCompleted] after every node's local
+// OnGroupCompleted has run the bucket pointer swap. The strategy
+// constructor therefore no longer needs the schema.Manager.
 func NewRuntimeFilterableRetokenizeTask(
 	logger logrus.FieldLogger,
-	schemaManager *schema.Manager,
 	propName, targetTokenization, className string,
 	collectionName string,
 ) *ShardReindexTaskGeneric {
 	strategy := &FilterableRetokenizeStrategy{
-		schemaManager:      schemaManager,
 		propName:           propName,
 		targetTokenization: targetTokenization,
 		className:          className,

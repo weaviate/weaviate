@@ -403,7 +403,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 
 	case ReindexTypeEnableFilterable:
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableFilterableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection),
+			NewRuntimeEnableFilterableTask(p.logger, payload.Properties, payload.Collection),
 		}, nil
 
 	case ReindexTypeEnableSearchable:
@@ -411,7 +411,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 			return nil, fmt.Errorf("enable-searchable requires targetTokenization")
 		}
 		return []*ShardReindexTaskGeneric{
-			NewRuntimeEnableSearchableTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, payload.TargetTokenization),
+			NewRuntimeEnableSearchableTask(p.logger, payload.Properties, payload.Collection, payload.TargetTokenization),
 		}, nil
 
 	case ReindexTypeChangeTokenization:
@@ -443,7 +443,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 		}
 		if p.propertyHasFilterableBucket(payload.Collection, propName) {
 			tasks = append(tasks, NewRuntimeFilterableRetokenizeTask(
-				p.logger, p.schemaManager,
+				p.logger,
 				propName, payload.TargetTokenization,
 				payload.Collection, payload.Collection,
 			))
@@ -459,7 +459,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload) ([]*Sh
 			return nil, fmt.Errorf("change-tokenization-filterable requires targetTokenization")
 		}
 		filterableTask := NewRuntimeFilterableRetokenizeTask(
-			p.logger, p.schemaManager,
+			p.logger,
 			propName, payload.TargetTokenization,
 			payload.Collection, payload.Collection,
 		)

@@ -18,9 +18,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // FilterableRetokenizeStrategy implements MigrationStrategy for rebuilding the
@@ -29,7 +26,6 @@ import (
 // performs the schema update in OnMigrationComplete.
 type FilterableRetokenizeStrategy struct {
 	noAnalyzerOverlay
-	schemaManager      *schema.Manager
 	propName           string
 	targetTokenization string
 	className          string
@@ -177,41 +173,17 @@ func (s *FilterableRetokenizeStrategy) PreReindexHook(_ *Shard, _ []string) {
 	// No-op: the filterable bucket already exists.
 }
 
-// OnMigrationComplete updates the schema to set Tokenization to the target
-// value. This runs after both searchable and filterable retokenization are done.
+// OnMigrationComplete is a no-op for semantic migrations. The schema
+// cutover (Tokenization flip via RAFT) now happens once cluster-wide
+// from [ReindexProvider.OnTaskCompleted] after every node's local
+// OnGroupCompleted has run the bucket pointer swap. See the Journey 3
+// canonical pattern in cluster/distributedtask/doc.go:111-137.
 //
-// Concurrency note: MergeProps in cluster/schema/meta_class.go overwrites ALL
-// FOUR property fields (IndexRangeFilters, IndexFilterable, IndexSearchable,
-// and Tokenization when non-empty) from the incoming message, not just the
-// one this strategy intends to change. If two strategies run concurrently
-// on the same property, each could read a stale view of the schema and
-// clobber the other's flag on RAFT apply. We cannot nil out the other flags
-// because setPropertyDefaults would re-fill them with type-based defaults.
-// So we re-read the class right before constructing the update message to
-// minimize the staleness window.
-//
-// TODO(fieldmask): the proper long-term fix is a fieldmask on UpdateProperty
-// so only named fields are merged.
-func (s *FilterableRetokenizeStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
-	className := shard.Index().Config.ClassName.String()
-	missing, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, []string{s.propName},
-		[]string{api.PropertyFieldTokenization},
-		func(prop *models.Property) bool {
-			if prop.Tokenization == s.targetTokenization {
-				return false // already correct
-			}
-			prop.Tokenization = s.targetTokenization
-			return true
-		})
-	if err != nil {
-		return err
-	}
-	// Single-property strategy: a missing target property is a hard error
-	// (matches the pre-helper behavior). The retokenize migration was
-	// specifically about this one property, so if it's gone we cannot
-	// claim the migration completed.
-	if len(missing) > 0 {
-		return fmt.Errorf("property %q not found in class %q", s.propName, className)
-	}
+// Per-shard schema flips would re-introduce the first-shard-flips
+// problem: the first shard on the first node to call RunSwapOnShard
+// would flip the cluster-wide schema flag while other nodes / other
+// shards still serve the old bucket — producing partial results
+// during the cross-node swap stagger window.
+func (s *FilterableRetokenizeStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
 	return nil
 }

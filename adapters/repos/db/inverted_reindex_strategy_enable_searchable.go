@@ -18,9 +18,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // EnableSearchableStrategy implements MigrationStrategy for creating a
@@ -32,9 +29,8 @@ import (
 // New searchable buckets are created directly as blockmax; no map→blockmax
 // transition is ever needed for a from-scratch enable.
 type EnableSearchableStrategy struct {
-	schemaManager *schema.Manager
-	propNames     []string
-	tokenization  string
+	propNames    []string
+	tokenization string
 }
 
 func (s *EnableSearchableStrategy) MigrationDirName() string {
@@ -173,35 +169,16 @@ func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]in
 	return out
 }
 
-// OnMigrationComplete flips IndexSearchable=true and sets Tokenization on
-// the targeted properties via per-property RAFT UpdateProperty commands.
+// OnMigrationComplete is a no-op for this semantic migration. The schema
+// cutover (IndexSearchable=true + Tokenization flip via RAFT) now happens
+// once cluster-wide from [ReindexProvider.OnTaskCompleted] after every
+// node's local OnGroupCompleted has run the bucket pointer swap. See the
+// Journey 3 canonical pattern in cluster/distributedtask/doc.go:111-137.
 //
-// Concurrency note: MergeProps in cluster/schema/meta_class.go overwrites ALL
-// FOUR property fields (IndexRangeFilters, IndexFilterable, IndexSearchable,
-// and Tokenization when non-empty) from the incoming message, not just the
-// ones this strategy intends to change. If two strategies run concurrently
-// on the same property, each could read a stale view of the schema and
-// clobber the other's flag on RAFT apply. We cannot nil out the other flags
-// because setPropertyDefaults would re-fill them with type-based defaults.
-// So we re-read the class right before each per-property update to minimize
-// the staleness window.
-//
-// TODO(fieldmask): the proper long-term fix is a fieldmask on UpdateProperty
-// so only named fields are merged.
-func (s *EnableSearchableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
-	className := shard.Index().Config.ClassName.String()
-	trueVal := true
-	// Missing properties are tolerated: a property dropped between
-	// scheduling and completion is the same outcome we'd want anyway.
-	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
-		[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization},
-		func(prop *models.Property) bool {
-			if prop.IndexSearchable != nil && *prop.IndexSearchable && prop.Tokenization == s.tokenization {
-				return false // already enabled with the target tokenization
-			}
-			prop.IndexSearchable = &trueVal
-			prop.Tokenization = s.tokenization
-			return true
-		})
-	return err
+// Per-shard schema flips would re-introduce the first-shard-flips
+// problem: the first shard on the first node to call RunSwapOnShard
+// would flip the cluster-wide flags while other nodes / other shards
+// still serve the old (searchable-disabled) state.
+func (s *EnableSearchableStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+	return nil
 }

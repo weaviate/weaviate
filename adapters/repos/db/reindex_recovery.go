@@ -244,14 +244,14 @@ func buildRecoveryTasks(
 		}
 	case ReindexTypeEnableFilterable:
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeEnableFilterableTask(logger, schemaManager, payload.Properties, payload.Collection),
+			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection),
 		}
 	case ReindexTypeEnableSearchable:
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("%s requires targetTokenization", payload.MigrationType)
 		}
 		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeEnableSearchableTask(logger, schemaManager, payload.Properties, payload.Collection, payload.TargetTokenization),
+			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization),
 		}
 	case ReindexTypeChangeTokenization:
 		if len(payload.Properties) != 1 {
@@ -270,7 +270,7 @@ func buildRecoveryTasks(
 				payload.Collection, payload.BucketStrategy, payload.Collection,
 			),
 			NewRuntimeFilterableRetokenizeTask(
-				logger, schemaManager,
+				logger,
 				propName, payload.TargetTokenization,
 				payload.Collection, payload.Collection,
 			),
@@ -285,7 +285,7 @@ func buildRecoveryTasks(
 		propName := payload.Properties[0]
 		raw = []*ShardReindexTaskGeneric{
 			NewRuntimeFilterableRetokenizeTask(
-				logger, schemaManager,
+				logger,
 				propName, payload.TargetTokenization,
 				payload.Collection, payload.Collection,
 			),

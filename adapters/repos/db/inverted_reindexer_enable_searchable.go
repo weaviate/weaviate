@@ -15,27 +15,27 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // NewRuntimeEnableSearchableTask creates a ShardReindexTaskGeneric configured
 // for runtime (live) creation of blockmax searchable indexes on text/text[]
-// properties that currently have none. Flips IndexSearchable=true and sets
-// Tokenization on completion.
+// properties that currently have none. The schema flip
+// (IndexSearchable=true + Tokenization) now happens cluster-wide in
+// [ReindexProvider.OnTaskCompleted], not from this strategy's per-shard
+// OnMigrationComplete — so the constructor no longer needs the
+// schema.Manager.
 //
 // propNames must be non-empty and tokenization must be a valid tokenization
 // for the schema's text properties.
 func NewRuntimeEnableSearchableTask(
 	logger logrus.FieldLogger,
-	schemaManager *schema.Manager,
 	propNames []string,
 	collectionName string,
 	tokenization string,
 ) *ShardReindexTaskGeneric {
 	strategy := &EnableSearchableStrategy{
-		schemaManager: schemaManager,
-		propNames:     propNames,
-		tokenization:  tokenization,
+		propNames:    propNames,
+		tokenization: tokenization,
 	}
 
 	selectedProps := make(map[string]struct{}, len(propNames))

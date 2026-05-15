@@ -15,25 +15,25 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // NewRuntimeEnableFilterableTask creates a ShardReindexTaskGeneric configured
 // for runtime (live) creation of filterable (RoaringSet) indexes on
-// properties that currently have none. Flips IndexFilterable=true per
-// property on completion.
+// properties that currently have none. The schema flip
+// (IndexFilterable=true) now happens cluster-wide in
+// [ReindexProvider.OnTaskCompleted], not from this strategy's per-shard
+// OnMigrationComplete — so the constructor no longer needs the
+// schema.Manager.
 //
 // propNames must be non-empty — this task is only meaningful on explicit
 // properties, whole-collection usage would silently widen the blast radius.
 func NewRuntimeEnableFilterableTask(
 	logger logrus.FieldLogger,
-	schemaManager *schema.Manager,
 	propNames []string,
 	collectionName string,
 ) *ShardReindexTaskGeneric {
 	strategy := &EnableFilterableStrategy{
-		schemaManager: schemaManager,
-		propNames:     propNames,
+		propNames: propNames,
 	}
 
 	selectedProps := make(map[string]struct{}, len(propNames))

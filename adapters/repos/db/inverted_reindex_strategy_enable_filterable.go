@@ -18,9 +18,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // EnableFilterableStrategy implements MigrationStrategy for creating a
@@ -34,8 +31,7 @@ import (
 // selectedPropsByCollection and drops the HasFilterableIndex guard in the
 // double-write callbacks.
 type EnableFilterableStrategy struct {
-	schemaManager *schema.Manager
-	propNames     []string
+	propNames []string
 }
 
 func (s *EnableFilterableStrategy) MigrationDirName() string {
@@ -169,35 +165,16 @@ func (s *EnableFilterableStrategy) AnalyzerOverlay(props []string) map[string]in
 	return out
 }
 
-// OnMigrationComplete flips IndexFilterable=true on the targeted properties
-// via per-property RAFT UpdateProperty commands — matching the pattern used
-// by FilterableToRangeableStrategy.
+// OnMigrationComplete is a no-op for this semantic migration. The schema
+// cutover (IndexFilterable=true flip via RAFT) now happens once
+// cluster-wide from [ReindexProvider.OnTaskCompleted] after every node's
+// local OnGroupCompleted has run the bucket pointer swap. See the
+// Journey 3 canonical pattern in cluster/distributedtask/doc.go:111-137.
 //
-// Concurrency note: MergeProps in cluster/schema/meta_class.go overwrites ALL
-// FOUR property fields (IndexRangeFilters, IndexFilterable, IndexSearchable,
-// and Tokenization when non-empty) from the incoming message, not just the
-// one this strategy intends to change. If two strategies run concurrently on
-// the same property, each could read a stale view of the schema and clobber
-// the other's flag on RAFT apply. We cannot nil out the other flags because
-// setPropertyDefaults would re-fill them with type-based defaults. So we
-// re-read the class right before each per-property update to minimize the
-// staleness window.
-//
-// TODO(fieldmask): the proper long-term fix is a fieldmask on UpdateProperty
-// so only named fields are merged.
-func (s *EnableFilterableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
-	className := shard.Index().Config.ClassName.String()
-	trueVal := true
-	// Missing properties are tolerated: a property dropped between
-	// scheduling and completion is the same outcome we'd want anyway.
-	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
-		[]string{api.PropertyFieldIndexFilterable},
-		func(prop *models.Property) bool {
-			if prop.IndexFilterable != nil && *prop.IndexFilterable {
-				return false // already enabled (possibly by a racing shard)
-			}
-			prop.IndexFilterable = &trueVal
-			return true
-		})
-	return err
+// Per-shard schema flips would re-introduce the first-shard-flips
+// problem: the first shard on the first node to call RunSwapOnShard
+// would flip the cluster-wide IndexFilterable flag while other nodes /
+// other shards still serve the old (filterable-disabled) state.
+func (s *EnableFilterableStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+	return nil
 }
