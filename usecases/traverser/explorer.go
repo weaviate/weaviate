@@ -172,8 +172,10 @@ func (e *Explorer) GetClass(ctx context.Context,
 		if overfetch < minCandidates {
 			overfetch = minCandidates
 		}
-		params.Pagination.Limit = overfetch
-		params.Pagination.Offset = 0
+		pagination := *params.Pagination
+		pagination.Limit = overfetch
+		pagination.Offset = 0
+		params.Pagination = &pagination
 	}
 
 	if params.KeywordRanking != nil {

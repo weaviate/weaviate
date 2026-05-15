@@ -43,9 +43,6 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 	if weight <= 0 {
 		return results
 	}
-	if weight > 1 {
-		weight = 1
-	}
 
 	nowTime := time.Now()
 
@@ -101,6 +98,29 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 	// Combine scores.
 	for i := range results {
 		results[i].Score = (1-weight)*primaryScores[i] + weight*boostScores[i]
+	}
+
+	// Normalize combined scores to [0,1] for user-facing display.
+	// Negative per-condition weights can produce combined scores below 0.
+	var minCombined, maxCombined float32
+	minCombined = results[0].Score
+	maxCombined = results[0].Score
+	for _, r := range results[1:] {
+		if r.Score < minCombined {
+			minCombined = r.Score
+		}
+		if r.Score > maxCombined {
+			maxCombined = r.Score
+		}
+	}
+	if rangeCombined := maxCombined - minCombined; rangeCombined > 0 {
+		for i := range results {
+			results[i].Score = (results[i].Score - minCombined) / rangeCombined
+		}
+	} else {
+		for i := range results {
+			results[i].Score = 1.0
+		}
 	}
 
 	// Re-sort by combined score descending.

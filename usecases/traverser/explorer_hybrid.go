@@ -217,17 +217,25 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
+	// Sub-search sizing should reflect the user's actual limit, not any
+	// boost-inflated overfetch. Boost overfetch only needs to affect how many
+	// fused results Hybrid returns (controlled by origParams.Pagination.Limit).
+	subSearchLimit := params.Pagination.Limit
+	if params.Boost != nil && params.Boost.OriginalLimit > 0 {
+		subSearchLimit = params.Boost.OriginalLimit
+	}
+
 	// pagination is handled after combining results
 	vectorParams := params
 	vectorParams.Pagination = &filters.Pagination{
-		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(subSearchLimit))),
 		Offset:  0,
 		Autocut: -1,
 	}
 
 	keywordParams := params
 	keywordParams.Pagination = &filters.Pagination{
-		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(params.Pagination.Limit))),
+		Limit:   int(math.Max(float64(e.config.QueryHybridMaximumResults), float64(subSearchLimit))),
 		Offset:  0,
 		Autocut: -1,
 	}

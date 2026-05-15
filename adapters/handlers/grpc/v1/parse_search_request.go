@@ -783,9 +783,14 @@ func extractTimeDecayFunction(d *pb.Boost_TimeDecayFunction, condIdx int) (*filt
 		offset = d.GetOffset()
 	}
 
+	origin := d.GetOrigin()
+	if origin == "" {
+		origin = "now"
+	}
+
 	return &filters.Decay{
 		Path:       &filters.Path{Property: schema.PropertyName(prop)},
-		Origin:     d.GetOrigin(),
+		Origin:     origin,
 		Scale:      d.GetScale(),
 		Offset:     offset,
 		Curve:      extractDecayCurve(d.GetCurve()),
