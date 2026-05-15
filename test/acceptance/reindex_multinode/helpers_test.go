@@ -571,6 +571,34 @@ func dumpContainerLogs(ctx context.Context, t *testing.T, compose *docker.Docker
 	dumpStartupLogs(ctx, t, compose)
 }
 
+// filterMigrationLogLines returns lines from a container log that mention
+// reindex / migration / swap state. Used by dumpStartupLogs to make the
+// per-failure log post-mortem tractable without dropping the relevant
+// events.
+func filterMigrationLogLines(s string) []string {
+	keywords := []string{
+		"reindex", "migration", "Reindex", "Migration",
+		"OnAfterLsmInit", "OnBeforeLsmInit",
+		"OnGroupCompleted", "OnTaskCompleted",
+		"RunSwapOnShard", "RunReindexOnlyOnShard", "RunOnShard",
+		"finalize:", "FinalizeCompletedMigrations",
+		"swapped.mig", "tidied.mig", "merged.mig", "prepended.mig",
+		"recovered untidied", "swap INCOMPLETE", "swap complete",
+		"runtime swap", "trim:",
+		"distributed task", "distributedtask",
+	}
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		for _, kw := range keywords {
+			if strings.Contains(line, kw) {
+				out = append(out, line)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // dumpStartupLogs unconditionally prints container logs for all available nodes.
 // Use this when you need logs before the test has been marked as failed (e.g. on
 // startup errors).
@@ -590,11 +618,20 @@ func dumpStartupLogs(ctx context.Context, t *testing.T, compose *docker.DockerCo
 		}
 		logs, _ := io.ReadAll(reader)
 		reader.Close()
-		// Only print last 200 lines per node.
-		lines := strings.Split(string(logs), "\n")
-		if len(lines) > 200 {
-			lines = lines[len(lines)-200:]
+		// Filter to lines that mention reindex / migration / swap-related
+		// state. The full log is too verbose to dump per-failure, but
+		// throwing away everything except the migration-relevant entries
+		// keeps the post-mortem small without losing the failure context.
+		// Falls back to the last 400 lines if no migration-related entries
+		// matched, so we still get a tail for non-reindex failures.
+		filtered := filterMigrationLogLines(string(logs))
+		if len(filtered) == 0 {
+			lines := strings.Split(string(logs), "\n")
+			if len(lines) > 400 {
+				lines = lines[len(lines)-400:]
+			}
+			filtered = lines
 		}
-		t.Logf("=== Node %d logs (last 200 lines) ===\n%s", i, strings.Join(lines, "\n"))
+		t.Logf("=== Node %d logs (%d migration/reindex lines) ===\n%s", i, len(filtered), strings.Join(filtered, "\n"))
 	}
 }
