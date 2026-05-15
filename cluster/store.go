@@ -355,6 +355,15 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
 func (st *Store) ID() string    { return st.cfg.NodeID }
 
+// SetDistributedTaskSchedulerNotifier installs the wake-up notifier on
+// the distributed task FSM Manager so it can poke the Scheduler from
+// RAFT-apply paths (see [distributedtask.SchedulerNotifier] for the
+// rationale). Called once at startup after both Store and Scheduler
+// exist, from MakeAppState's wiring.
+func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
+	st.distributedTasksManager.SetSchedulerNotifier(notifier)
+}
+
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.
 // this method work as a protection from applying anything was applied to the db

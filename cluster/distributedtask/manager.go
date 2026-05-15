@@ -40,6 +40,41 @@ type Manager struct {
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
+
+	// notifier is signalled after every state-changing apply
+	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
+	// the Scheduler runs an immediate scheduling cycle instead of waiting
+	// for its next periodic tick. nil-safe so the Manager can be used in
+	// tests and during bootstrap before the Scheduler is wired up. The
+	// notifier's Wake() must be non-blocking — it is called under the
+	// Manager's write lock to ensure every successful apply produces a
+	// wake-up that observers cannot miss.
+	notifier SchedulerNotifier
+}
+
+// SetSchedulerNotifier installs the scheduler wake-up notifier. Safe to
+// call once at startup after both the Manager and the Scheduler exist
+// (see configure_api.go wiring). Subsequent calls overwrite the previous
+// notifier.
+//
+// notifier may be nil to disable reactive firing (e.g. in unit tests
+// that exercise the periodic tick path in isolation).
+func (m *Manager) SetSchedulerNotifier(notifier SchedulerNotifier) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.notifier = notifier
+}
+
+// notifySchedulerWithLock signals the installed [SchedulerNotifier].
+// Caller must hold m.mu (write lock — every caller of this function is
+// a state-changing apply method that already holds the lock). The
+// notifier contract requires Wake() to be non-blocking, so this is
+// cheap to call from any apply path.
+func (m *Manager) notifySchedulerWithLock() {
+	if m.notifier == nil {
+		return
+	}
+	m.notifier.Wake()
 }
 
 type ManagerParameters struct {
@@ -115,6 +150,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	}
 
 	m.setTaskWithLock(newTask)
+	m.notifySchedulerWithLock()
 
 	return nil
 }
@@ -184,6 +220,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		task.Status = TaskStatusFailed
 		task.Error = fmt.Sprintf("unit %s failed: %s", r.UnitId, r.Error)
 		task.FinishedAt = finishedAt
+		m.notifySchedulerWithLock()
 		return nil
 	}
 
@@ -200,6 +237,12 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 		task.FinishedAt = finishedAt
 	}
 
+	// Notify on every unit completion — even when not the last one — so
+	// the Scheduler can react to per-group barriers opening as soon as
+	// the cluster-wide AllGroupUnitsTerminal predicate becomes true. The
+	// Scheduler decides which callbacks to actually fire; here we just
+	// ensure it gets a chance to look.
+	m.notifySchedulerWithLock()
 	return nil
 }
 
@@ -234,10 +277,20 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	u.Progress = r.Progress
 	u.UpdatedAt = time.UnixMilli(r.UpdatedAtUnixMillis)
 
-	if u.Status == UnitStatusPending {
+	wasPending := u.Status == UnitStatusPending
+	if wasPending {
 		u.Status = UnitStatusInProgress
 	}
 
+	// Wake the scheduler on first-progress (Pending → InProgress) so it
+	// can launch a freshly-claimed task without waiting for the next
+	// tick. Subsequent progress updates inside a unit do not change the
+	// Scheduler's view (the per-unit progress is consumed by REST
+	// /v1/tasks pollers, not by the scheduler loop), so skip the wake-up
+	// to avoid swamping the channel with no-op signals.
+	if wasPending {
+		m.notifySchedulerWithLock()
+	}
 	return nil
 }
 
@@ -263,6 +316,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 
 	task.Status = TaskStatusCancelled
 	task.FinishedAt = time.UnixMilli(r.CancelledAtUnixMillis)
+	m.notifySchedulerWithLock()
 	return nil
 }
 

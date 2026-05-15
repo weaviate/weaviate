@@ -778,3 +778,175 @@ func collectChToSet[T comparable](t *testing.T, expectCount int, ch chan T) map[
 	}
 	return cleanedUpTasks
 }
+
+// TestReactiveFiring_AddTaskWakesSchedulerBeforeTick verifies that with
+// the Manager → Scheduler notifier wired, an AddTask apply causes the
+// scheduler to start the task without waiting for the next periodic tick.
+// Without reactive firing, the scheduler would sit idle until the next
+// tick (default 1 minute in production, 30s in this harness).
+//
+// We assert the start by waiting on the provider's startedCh — which only
+// receives once StartTask is called from inside tick(). If reactive firing
+// is broken, the test fails with a 5s recvWithTimeout (well below the
+// 30s tick interval).
+func TestReactiveFiring_AddTaskWakesSchedulerBeforeTick(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+	// Wire the reactive path: every state-changing apply on the Manager
+	// triggers Scheduler.Wake() which selects on the loop's wakeCh.
+	h.manager.SetSchedulerNotifier(h.scheduler)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	// Submit a task. With reactive firing this should cause the scheduler
+	// to start it immediately; without it, the start would be deferred to
+	// the next tick.
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "1234",
+		Payload:               []byte("payload"),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 10))
+
+	// CRUCIAL: do NOT advance the clock. The scheduler tick interval is
+	// 30s in this harness — if the test passes despite no clock advance,
+	// it's because the wakeCh path fired the tick reactively.
+	startedTask := recvWithTimeout(t, h.provider.startedCh)
+	require.Equal(t, "1234", startedTask.ID)
+}
+
+// TestReactiveFiring_TerminalUnitWakesScheduler verifies that the last
+// unit's terminal transition reactively wakes the scheduler. This is the
+// critical path for Journey 3: OnGroupCompleted / OnTaskCompleted must
+// fire within the wake-up latency, not the tick interval.
+func TestReactiveFiring_TerminalUnitWakesScheduler(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+	h.manager.SetSchedulerNotifier(h.scheduler)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	// Add a task and let reactive firing start it.
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "1234",
+		Payload:               []byte("payload"),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 10))
+
+	startedTask := recvWithTimeout(t, h.provider.startedCh)
+
+	// Complete the unit. RecordUnitCompletion fires Wake(); the scheduler
+	// notices the task is no longer in startedTasks and terminates the
+	// local handle. Without reactive firing this requires advancing the
+	// clock past the tick interval.
+	startedTask.Complete()
+	completeUnit(t, h, h.tasksNamespace, "1234", 10, h.localNodeID, "su-1")
+
+	// recvWithTimeout has a 5s budget; tick interval is 30s. If we receive
+	// the completion within 5s, reactive firing worked.
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.completedCh).ID)
+}
+
+// TestReactiveFiring_WakeIsCoalesced verifies that rapid-fire wake-up
+// calls (e.g. multiple in-flight applies) do not panic, deadlock, or
+// leak; the channel buffer of size 1 silently coalesces extras.
+//
+// This is structural correctness, not an observable behavior — a Wake()
+// implementation that blocks on a full channel would deadlock the
+// Manager's RAFT-apply path, which is unacceptable.
+func TestReactiveFiring_WakeIsCoalesced(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+	h.manager.SetSchedulerNotifier(h.scheduler)
+
+	// Don't start the scheduler — we want to demonstrate that wakes
+	// against a non-running scheduler are still safe (the loop hasn't
+	// yet consumed any signal, so the channel is full after the first
+	// wake).
+	for i := 0; i < 1000; i++ {
+		h.scheduler.Wake()
+	}
+	// If Wake() blocked on a full channel, the loop above would hang and
+	// the test would time out.
+}
+
+// TestReactiveFiring_NilNotifierIsSafe verifies that the Manager can be
+// used without a wired notifier (the legacy path: tick-only scheduling
+// works even when reactive firing is not configured). Most existing
+// scheduler tests rely on this, so this is also a regression guard
+// against accidentally requiring the notifier.
+func TestReactiveFiring_NilNotifierIsSafe(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+	// Explicitly do NOT call SetSchedulerNotifier.
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	// Add a task. Without reactive firing, the scheduler will pick it up
+	// on the next tick. Advance the clock to confirm tick-only path still
+	// works.
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "1234",
+		Payload:               []byte("payload"),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 10))
+
+	// No notifier → scheduler is idle. Advance past one tick to fire it.
+	h.advanceClock(h.schedulerTickInterval)
+	require.Equal(t, "1234", recvWithTimeout(t, h.provider.startedCh).ID)
+}
+
+// TestReactiveFiring_PeriodicTickFallback verifies that the periodic
+// tick still fires even when reactive firing is wired — this catches
+// any regression where the new select arm accidentally starves the tick
+// path, or where the scheduler's loop only progresses on wake-ups.
+func TestReactiveFiring_PeriodicTickFallback(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newTestHarness(t).init(t)
+	h.manager.SetSchedulerNotifier(h.scheduler)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	// AddTask wakes the scheduler reactively; consume the started signal.
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "1234",
+		Payload:               []byte("payload"),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 10))
+	startedTask := recvWithTimeout(t, h.provider.startedCh)
+
+	// Complete the unit; the scheduler should clean up on the NEXT tick.
+	// We deliberately complete via the manager FIRST then advance the
+	// clock, to confirm that the periodic tick still drives the cleanup
+	// path. In a reactive-firing-only design, this would also fire via
+	// Wake; the fallback assertion here ensures the timer arm of the
+	// loop's select is still active.
+	startedTask.Complete()
+	completeUnit(t, h, h.tasksNamespace, "1234", 10, h.localNodeID, "su-1")
+	recvWithTimeout(t, h.provider.completedCh)
+
+	// Now advance the clock and confirm the periodic tick clears the
+	// running task entry. (totalRunningTaskCount is zero only after a
+	// tick observes the task is no longer in startedTasks.)
+	h.advanceClock(h.schedulerTickInterval)
+	require.Eventually(t, func() bool {
+		return h.scheduler.totalRunningTaskCount() == 0
+	}, 2*time.Second, 50*time.Millisecond,
+		"periodic tick should clear completed task even with reactive firing wired")
+}

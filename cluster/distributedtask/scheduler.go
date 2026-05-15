@@ -60,6 +60,21 @@ type Scheduler struct {
 	groupCallbackFired     map[TaskDescriptor]map[string]bool
 
 	stopCh chan struct{}
+
+	// wakeCh signals the run loop to fire a scheduling cycle immediately
+	// instead of waiting for the next periodic tick. Sized 1 so concurrent
+	// callers coalesce — a pending wake-up is equivalent to any number of
+	// queued wake-ups, because the next loop iteration reads cluster-wide
+	// task state from scratch.
+	//
+	// Why this exists: with the default 1-minute tickInterval, a barrier
+	// opening (last unit terminal) on the leader was followed by up to a
+	// minute of "the followers haven't fired their OnGroupCompleted /
+	// OnTaskCompleted yet" — the FSM apply path knows the barrier is open,
+	// but the followers' scheduler loops are still asleep on their ticker.
+	// Wake() (called from the Manager's RAFT-apply paths) lets us collapse
+	// that gap to roughly one channel-send + one loop iteration.
+	wakeCh chan struct{}
 }
 
 type SchedulerParams struct {
@@ -109,6 +124,22 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		}, []string{"namespace"}),
 
 		stopCh: make(chan struct{}),
+		wakeCh: make(chan struct{}, 1),
+	}
+}
+
+// Wake requests an immediate scheduling cycle. Non-blocking: a pending
+// wake-up coalesces additional calls (the next loop iteration sees the
+// latest cluster-wide task state regardless of how many wakes accumulated).
+// Safe to call from any goroutine, including RAFT-apply paths.
+//
+// Wake is a no-op after [Scheduler.Close] returns — the run loop has
+// already exited and won't observe the signal.
+func (s *Scheduler) Wake() {
+	select {
+	case s.wakeCh <- struct{}{}:
+	default:
+		// A wake-up is already queued; coalesce.
 	}
 }
 
@@ -223,6 +254,14 @@ func (s *Scheduler) loop() {
 	for {
 		select {
 		case <-ticker.Chan():
+			s.tick()
+		case <-s.wakeCh:
+			// Reactive wake-up from a RAFT-apply path (typically the
+			// Manager observing a unit transition that opens a group
+			// barrier). Fire a tick immediately instead of waiting for
+			// the next ticker. The periodic ticker keeps running as a
+			// fallback — late wake-ups, missed signals, and any state
+			// drift get cleaned up at the next periodic tick.
 			s.tick()
 		case <-s.stopCh:
 			return

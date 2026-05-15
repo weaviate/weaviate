@@ -21,6 +21,19 @@ type TasksLister interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*Task, error)
 }
 
+// SchedulerNotifier is implemented by the [Scheduler] and consumed by the
+// [Manager] to request an immediate scheduling cycle after a task-state
+// change applies via Raft. Without this hook the scheduler only reacts on
+// its periodic tick (default 1 minute, see
+// DefaultDistributedTasksSchedulerTickInterval), so a barrier opening from
+// the last unit's terminal transition is staggered across nodes by up to
+// one tick interval. Wake() is non-blocking and may be called from
+// performance-sensitive RAFT-apply paths; implementations must coalesce
+// rapid-fire calls and never block the caller.
+type SchedulerNotifier interface {
+	Wake()
+}
+
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error

@@ -965,6 +965,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// this can be changed to provide a value per provider.
 		CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 	})
+	// Reactive firing: the DTM FSM Manager wakes the Scheduler on every
+	// state-changing apply (AddTask, Pending→InProgress, terminal unit
+	// transitions, CancelTask). Without this hook the scheduler only reacts
+	// on its periodic tick (default 1 minute), so a barrier opening from the
+	// last unit's terminal transition would stagger across nodes by up to
+	// one tick interval. See [distributedtask.SchedulerNotifier].
+	appState.ClusterService.Raft.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
