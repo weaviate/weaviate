@@ -90,6 +90,88 @@ confirm() {
   esac
 }
 
+# git_remote_branch_exists <branch> — 0 iff heads/$branch exists on weaviate/weaviate.
+git_remote_branch_exists() {
+  git ls-remote --exit-code --heads "https://github.com/${REPO}.git" "$1" >/dev/null 2>&1
+}
+
+# git_remote_tag_exists <tag> — 0 iff tags/$tag exists on weaviate/weaviate.
+git_remote_tag_exists() {
+  git ls-remote --exit-code --tags "https://github.com/${REPO}.git" "$1" >/dev/null 2>&1
+}
+
+# git_local_ref_exists <ref> — 0 iff $ref resolves locally (e.g. refs/remotes/origin/X, refs/tags/vX).
+git_local_ref_exists() {
+  git rev-parse --verify "$1" >/dev/null 2>&1
+}
+
+# gh_pr_for_branch <branch> — echoes the single PR JSON (number,url,state,mergeCommit,baseRefName)
+# for $branch in weaviate/weaviate, or empty if no PR exists. Callers pipe through jq.
+gh_pr_for_branch() {
+  gh pr list --repo "$REPO" --head "$1" --state all --limit 1 \
+    --json number,url,state,mergeCommit,baseRefName 2>/dev/null \
+    | jq '.[0] // empty'
+}
+
+# gh_qa_issue_number <version> [state=open] — echoes the QA tracking issue number, or empty.
+# Matches the title qa_pr.sh emits ("Release: v<version>") to avoid colliding with older
+# issues that merely mention the same version string. Pass "all" to include closed issues.
+gh_qa_issue_number() {
+  local version="$1" state="${2:-open}"
+  gh issue list --repo weaviate/weaviate-qa \
+    --search "\"Release: v${version}\" in:title" --state "$state" --limit 1 \
+    --json number --jq '.[0].number // empty' 2>/dev/null || true
+}
+
+# qa_issue_url_for <number> — echoes the canonical weaviate-qa issue URL.
+qa_issue_url_for() {
+  echo "https://github.com/weaviate/weaviate-qa/issues/$1"
+}
+
+# GraphQL query for the weaviate-qa project board fields. Used by infer_state (one-shot
+# inspection) and cmd_monitor_qa (poll loop). Pass the issue number via -F n=…
+# shellcheck disable=SC2016  # $n is a GraphQL variable, intentionally not expanded by the shell.
+readonly GRAPHQL_BOARD_QUERY='
+  query($n: Int!) {
+    repository(owner: "weaviate", name: "weaviate-qa") {
+      issue(number: $n) {
+        projectItems(first: 10) {
+          nodes {
+            project { title }
+            fieldValues(first: 30) {
+              nodes {
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name field { ... on ProjectV2SingleSelectField { name } }
+                }
+                ... on ProjectV2ItemFieldTextValue {
+                  text field { ... on ProjectV2Field { name } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }'
+
+# _board_field <board_json> <single|text> <field_name>
+# Extract one field from the "Central CI View" project board response. Echoes the
+# single-select option name (single) or the text value (text), or empty if absent.
+_board_field() {
+  local board_json="$1" kind="$2" field_name="$3" jq_value
+  case "$kind" in
+    single) jq_value='.name' ;;
+    text)   jq_value='.text' ;;
+    *) echo "_board_field: unknown kind '$kind'" >&2; return 1 ;;
+  esac
+  jq -r --arg fn "$field_name" "
+    .data.repository.issue.projectItems.nodes[]
+    | select(.project.title==\"Central CI View\")
+    | .fieldValues.nodes[]
+    | select(.field != null and .field.name==\$fn)
+    | $jq_value // empty" <<<"$board_json" | head -1
+}
+
 # In-memory state snapshot built by infer_state() when there's no journal to read.
 # Schema mirrors the journal: {version, stable_branch, prep_branch, pr_number,
 # pr_url, merge_sha, release_url, _inferred:true, steps:{<name>:{at,...}}}.
@@ -334,9 +416,7 @@ resolve_pr_number() {
 #     since we can't recover when the work was originally done.
 infer_state() {
   local pr_json pr_number="" pr_url="" pr_state="" merge_sha=""
-  pr_json=$(gh pr list --repo "$REPO" --head "$PREP_BRANCH" \
-    --state all --limit 1 \
-    --json number,url,state,mergeCommit 2>/dev/null | jq '.[0] // empty')
+  pr_json=$(gh_pr_for_branch "$PREP_BRANCH")
   if [[ -n "$pr_json" ]]; then
     pr_number=$(jq -r '.number // empty' <<<"$pr_json")
     pr_url=$(jq -r '.url // empty'       <<<"$pr_json")
@@ -345,54 +425,26 @@ infer_state() {
   fi
 
   local prep_exists="false"
-  if git ls-remote --exit-code --heads "https://github.com/${REPO}.git" \
-       "$PREP_BRANCH" >/dev/null 2>&1; then prep_exists="true"; fi
+  git_remote_branch_exists "$PREP_BRANCH" && prep_exists="true"
 
-  local qa_issue_number="" qa_issue_url=""
-  qa_issue_number=$(gh issue list --repo weaviate/weaviate-qa \
-    --search "v${VERSION}" --state all --limit 1 \
-    --json number --jq '.[0].number // empty' 2>/dev/null || true)
-  [[ -n "$qa_issue_number" ]] && \
-    qa_issue_url="https://github.com/weaviate/weaviate-qa/issues/${qa_issue_number}"
+  local qa_issue_number qa_issue_url=""
+  qa_issue_number=$(gh_qa_issue_number "$VERSION" all)
+  [[ -n "$qa_issue_number" ]] && qa_issue_url=$(qa_issue_url_for "$qa_issue_number")
 
   local qa_e2e="" qa_chaos="" qa_e2e_url="" qa_chaos_url=""
   if [[ -n "$qa_issue_number" ]]; then
     local board
-    # shellcheck disable=SC2016
-    board=$(gh api graphql -F n="$qa_issue_number" -f query='
-      query($n: Int!) {
-        repository(owner: "weaviate", name: "weaviate-qa") {
-          issue(number: $n) {
-            projectItems(first: 10) {
-              nodes {
-                project { title }
-                fieldValues(first: 30) {
-                  nodes {
-                    ... on ProjectV2ItemFieldSingleSelectValue {
-                      name field { ... on ProjectV2SingleSelectField { name } }
-                    }
-                    ... on ProjectV2ItemFieldTextValue {
-                      text field { ... on ProjectV2Field { name } }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }' 2>/dev/null || true)
+    board=$(gh api graphql -F n="$qa_issue_number" -f query="$GRAPHQL_BOARD_QUERY" 2>/dev/null || true)
     if [[ -n "$board" ]] && jq -e '.data.repository.issue' <<<"$board" >/dev/null 2>&1; then
-      local _pick='.data.repository.issue.projectItems.nodes[] | select(.project.title=="Central CI View") | .fieldValues.nodes[]'
-      qa_e2e=$(jq -r "$_pick | select(.field != null and .field.name==\"E2E\")     | .name // empty" <<<"$board" | head -1)
-      qa_chaos=$(jq -r "$_pick | select(.field != null and .field.name==\"Chaos\")   | .name // empty" <<<"$board" | head -1)
-      qa_e2e_url=$(jq -r "$_pick | select(.field != null and .field.name==\"E2E Job\")   | .text // empty" <<<"$board" | head -1)
-      qa_chaos_url=$(jq -r "$_pick | select(.field != null and .field.name==\"Chaos Job\") | .text // empty" <<<"$board" | head -1)
+      qa_e2e=$(_board_field      "$board" single "E2E")
+      qa_chaos=$(_board_field    "$board" single "Chaos")
+      qa_e2e_url=$(_board_field  "$board" text   "E2E Job")
+      qa_chaos_url=$(_board_field "$board" text  "Chaos Job")
     fi
   fi
 
   local tag_exists="false"
-  git ls-remote --exit-code --tags "https://github.com/${REPO}.git" \
-    "v${VERSION}" >/dev/null 2>&1 && tag_exists="true"
+  git_remote_tag_exists "v${VERSION}" && tag_exists="true"
 
   local rel_json="" rel_draft="" rel_url=""
   rel_json=$(gh release view "v${VERSION}" --repo "$REPO" \
@@ -601,11 +653,10 @@ cmd_verify() {
   local V_STABLE="stable/v${V_MAJOR}.${V_MINOR}"
   local V_PREP="prepare-release-v${V_VERSION}"
   local V_TAG="v${V_VERSION}"
-  local V_REMOTE="https://github.com/${REPO}.git"
   local V_FAIL=0
 
   check_branch() {
-    if git ls-remote --exit-code --heads "$V_REMOTE" "$V_PREP" >/dev/null 2>&1; then
+    if git_remote_branch_exists "$V_PREP"; then
       echo "✅ prep branch $V_PREP exists on $REPO"
     else
       echo "❌ prep branch $V_PREP missing on $REPO"; V_FAIL=1
@@ -614,8 +665,7 @@ cmd_verify() {
 
   check_pr_state() {
     local want="$1" pr_json pr_num pr_state pr_base
-    pr_json=$(gh pr list --repo "$REPO" --head "$V_PREP" --state all \
-                --json number,state,baseRefName 2>/dev/null | jq '.[0] // empty')
+    pr_json=$(gh_pr_for_branch "$V_PREP")
     if [[ -z "$pr_json" ]]; then
       echo "❌ no PR found for $V_PREP in $REPO"; V_FAIL=1; return
     fi
@@ -633,7 +683,7 @@ cmd_verify() {
   }
 
   check_tag() {
-    if git ls-remote --exit-code --tags "$V_REMOTE" "$V_TAG" >/dev/null 2>&1; then
+    if git_remote_tag_exists "$V_TAG"; then
       echo "✅ tag $V_TAG exists on $REPO"
     else
       echo "❌ tag $V_TAG missing on $REPO"; V_FAIL=1
@@ -724,7 +774,7 @@ cmd_prepare() {
   local PREV_STABLE="stable/v${MAJOR}.${PREV_MINOR}"
   echo ""
   echo ">>> Merge-forward audit: ${PREV_STABLE} → ${STABLE_BRANCH}"
-  if git rev-parse --verify "refs/remotes/origin/${PREV_STABLE}" &>/dev/null; then
+  if git_local_ref_exists "refs/remotes/origin/${PREV_STABLE}"; then
     local COUNT; COUNT=$(git log --oneline "origin/${PREV_STABLE}" ^"origin/${STABLE_BRANCH}" | wc -l | tr -d ' ')
     local AUDIT_STATUS; AUDIT_STATUS=$([[ "$COUNT" -eq 0 ]] && echo "In Sync" || echo "Needs Attention")
     echo "    ${PREV_STABLE} → ${STABLE_BRANCH}: ${AUDIT_STATUS}"
@@ -738,7 +788,7 @@ cmd_prepare() {
   if state_done branch_setup; then
     echo "    Branch setup already recorded — checking out ${PREP_BRANCH}"
     git checkout "${PREP_BRANCH}"
-  elif git rev-parse --verify "refs/remotes/origin/${PREP_BRANCH}" &>/dev/null; then
+  elif git_local_ref_exists "refs/remotes/origin/${PREP_BRANCH}"; then
     echo "    Branch already on remote — checking out"
     git checkout "${PREP_BRANCH}"
     local LOCAL_SHA REMOTE_SHA
@@ -787,8 +837,7 @@ cmd_prepare() {
   state_complete branch_push
 
   # Create PR (idempotent — skip if one already exists for this branch).
-  local EXISTING_PR; EXISTING_PR=$(gh pr list --repo "$REPO" --head "${PREP_BRANCH}" \
-    --json number --jq '.[0].number // ""')
+  local EXISTING_PR; EXISTING_PR=$(gh_pr_for_branch "${PREP_BRANCH}" | jq -r '.number // ""')
   local PR_NUMBER PR_URL
   if [[ -n "$EXISTING_PR" ]]; then
     PR_NUMBER="$EXISTING_PR"
@@ -849,14 +898,9 @@ cmd_qa() {
   fi
 
   # Look up the just-created QA tracking issue so cmd_status can surface its URL.
-  # Match the exact title qa_pr.sh emits ("Release: v<version>") to avoid
-  # collisions with older issues that merely mention the same version string.
   local QA_ISSUE_NUMBER QA_ISSUE_URL=""
-  QA_ISSUE_NUMBER=$(gh issue list --repo weaviate/weaviate-qa \
-    --search "\"Release: v${VERSION}\" in:title" --state open --limit 1 \
-    --json number --jq '.[0].number // empty' 2>/dev/null || true)
-  [[ -n "$QA_ISSUE_NUMBER" ]] && \
-    QA_ISSUE_URL="https://github.com/weaviate/weaviate-qa/issues/${QA_ISSUE_NUMBER}"
+  QA_ISSUE_NUMBER=$(gh_qa_issue_number "$VERSION")
+  [[ -n "$QA_ISSUE_NUMBER" ]] && QA_ISSUE_URL=$(qa_issue_url_for "$QA_ISSUE_NUMBER")
 
   state_complete qa_dispatched \
     dispatch_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -904,7 +948,7 @@ _finalize_merge() {
 
 _finalize_tag() {
   echo ">>> Step tag: pushing v${VERSION}"
-  if git rev-parse --verify "refs/tags/v${VERSION}" &>/dev/null && \
+  if git_local_ref_exists "refs/tags/v${VERSION}" && \
      git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" &>/dev/null; then
     echo "    Tag v${VERSION} already on remote — skipping"
     state_ensure tag_push tag=preexisting
@@ -1046,15 +1090,12 @@ EOF
   fi
   [[ -f "$STATE_FILE" ]] || { echo "ERROR: no state file at ${STATE_FILE} for v${VERSION} — run 'qa ${VERSION}' first." >&2; exit 1; }
 
-  # Match the exact title qa_pr.sh emits to avoid colliding with older issues.
   local QA_ISSUE_NUMBER
-  QA_ISSUE_NUMBER=$(gh issue list --repo weaviate/weaviate-qa \
-    --search "\"Release: v${VERSION}\" in:title" --state open \
-    --json number --jq '.[0].number' 2>/dev/null || true)
+  QA_ISSUE_NUMBER=$(gh_qa_issue_number "$VERSION")
   [[ -n "$QA_ISSUE_NUMBER" ]] || {
     echo "ERROR: no open QA issue for v${VERSION} in weaviate/weaviate-qa — dispatch QA first." >&2
     exit 1; }
-  local QA_ISSUE_URL="https://github.com/weaviate/weaviate-qa/issues/${QA_ISSUE_NUMBER}"
+  local QA_ISSUE_URL; QA_ISSUE_URL=$(qa_issue_url_for "$QA_ISSUE_NUMBER")
 
   if state_done qa_done; then
     local result; result=$(state_get '.steps.qa_done.result')
@@ -1076,31 +1117,7 @@ EOF
   local deadline=$(( $(date +%s) + 7200 ))
   while (( $(date +%s) < deadline )); do
     local board_data
-    # shellcheck disable=SC2016  # GraphQL variable substitution; not a shell expansion.
-    if ! board_data=$(gh api graphql -F n="$QA_ISSUE_NUMBER" -f query='
-      query($n: Int!) {
-        repository(owner: "weaviate", name: "weaviate-qa") {
-          issue(number: $n) {
-            projectItems(first: 10) {
-              nodes {
-                project { title }
-                fieldValues(first: 30) {
-                  nodes {
-                    ... on ProjectV2ItemFieldSingleSelectValue {
-                      name
-                      field { ... on ProjectV2SingleSelectField { name } }
-                    }
-                    ... on ProjectV2ItemFieldTextValue {
-                      text
-                      field { ... on ProjectV2Field { name } }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }' 2>&1); then
+    if ! board_data=$(gh api graphql -F n="$QA_ISSUE_NUMBER" -f query="$GRAPHQL_BOARD_QUERY" 2>&1); then
       echo "    ⚠️  graphql call failed: ${board_data:0:200}" >&2
       sleep 300
       continue
@@ -1119,35 +1136,13 @@ EOF
       echo "    ⚠️  issue not yet linked to 'Central CI View' — waiting" >&2
     fi
 
-    local e2e_status chaos_status
-    e2e_status=$(echo "$board_data" | jq -r '
-      .data.repository.issue.projectItems.nodes[]
-      | select(.project.title=="Central CI View")
-      | .fieldValues.nodes[]
-      | select(.field != null and .field.name=="E2E")
-      | .name // empty' | head -1)
-    chaos_status=$(echo "$board_data" | jq -r '
-      .data.repository.issue.projectItems.nodes[]
-      | select(.project.title=="Central CI View")
-      | .fieldValues.nodes[]
-      | select(.field != null and .field.name=="Chaos")
-      | .name // empty' | head -1)
+    local e2e_status chaos_status e2e_url chaos_url
+    e2e_status=$(_board_field   "$board_data" single "E2E")
+    chaos_status=$(_board_field "$board_data" single "Chaos")
+    e2e_url=$(_board_field      "$board_data" text   "E2E Job")
+    chaos_url=$(_board_field    "$board_data" text   "Chaos Job")
     e2e_status="${e2e_status:-—}"
     chaos_status="${chaos_status:-—}"
-
-    local e2e_url chaos_url
-    e2e_url=$(echo "$board_data" | jq -r '
-      .data.repository.issue.projectItems.nodes[]
-      | select(.project.title=="Central CI View")
-      | .fieldValues.nodes[]
-      | select(.field != null and .field.name=="E2E Job")
-      | .text // empty' | head -1)
-    chaos_url=$(echo "$board_data" | jq -r '
-      .data.repository.issue.projectItems.nodes[]
-      | select(.project.title=="Central CI View")
-      | .fieldValues.nodes[]
-      | select(.field != null and .field.name=="Chaos Job")
-      | .text // empty' | head -1)
     [[ -n "$e2e_url"   ]] && E2E_RUN_URL="$e2e_url"
     [[ -n "$chaos_url" ]] && CHAOS_RUN_URL="$chaos_url"
     if (( ! urls_saved )) && [[ -n "$E2E_RUN_URL" || -n "$CHAOS_RUN_URL" ]]; then
@@ -1240,7 +1235,7 @@ cmd_auto() {
 
     echo ">>> New minor release: v${AUTO_VERSION} (branch: ${NEW_STABLE})"
 
-    if git rev-parse --verify "refs/remotes/origin/${NEW_STABLE}" &>/dev/null; then
+    if git_local_ref_exists "refs/remotes/origin/${NEW_STABLE}"; then
       echo ">>> ${NEW_STABLE} already on remote — checking out"
       git checkout "$NEW_STABLE"
       local LOCAL_SHA REMOTE_SHA
@@ -1285,7 +1280,7 @@ cmd_auto() {
         | awk '{print $2}' | sed 's|^refs/heads/prepare-release-v||' | sort -V)
       while IFS= read -r _pv; do
         [[ -z "$_pv" ]] && continue
-        if ! git ls-remote --exit-code --tags "$_remote" "v${_pv}" >/dev/null 2>&1; then
+        if ! git_remote_tag_exists "v${_pv}"; then
           IN_PROGRESS="$_pv"  # last one wins → highest version
         fi
       done <<< "$_candidates"
