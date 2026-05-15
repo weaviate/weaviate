@@ -225,7 +225,10 @@ func nestedRootProp(child *propValuePair) string {
 		return child.prop
 	}
 	switch child.operator {
-	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
+	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
+		filters.ContainsAll, filters.ContainsAny:
+		// ContainsAll / ContainsAny are AND / OR aliases on a nested path
+		// (Route 1 — operator identity preserved by extractContains).
 		if len(child.children) == 0 {
 			return ""
 		}

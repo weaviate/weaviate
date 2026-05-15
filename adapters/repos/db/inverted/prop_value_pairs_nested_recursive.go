@@ -147,7 +147,12 @@ func normalizeRecGroup(
 			continue
 		}
 		switch child.operator {
-		case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
+		case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
+			filters.ContainsAll, filters.ContainsAny:
+			// ContainsAll / ContainsAny are AND / OR aliases on nested
+			// paths (Route 1); same fetch path as OperatorAnd/Or — the
+			// planner reads them as operator subtrees and either flattens
+			// (ContainsAll → AND) or plans an OR scope (ContainsAny).
 			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
 				return nil, err
 			}
@@ -332,7 +337,9 @@ func fetchOperatorSubtreeBitmaps(
 		return nil
 	}
 	switch node.operator {
-	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
+	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
+		filters.ContainsAll, filters.ContainsAny:
+		// ContainsAll / ContainsAny treated as AND / OR aliases (Route 1).
 		for _, child := range node.children {
 			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
 				return err
@@ -461,12 +468,12 @@ func (pv *propValuePair) buildRecGroupExecutor(
 	// Dispatch on outer operator. Wrapping for all shapes is decided
 	// at extraction time by groupNestedSubtrees; here we just plant
 	// the right plan node.
-	//   AND-of-same-root → recGroupNode (same-element correlation).
-	//   OR-of-same-root → recOrNode (union at deepest common LCA).
-	//   NOT-of-same-root → recNotNode (invert at operand LCA).
+	//   AND / ContainsAll → recGroupNode (same-element correlation).
+	//   OR / ContainsAny  → recOrNode (union at deepest common LCA).
+	//   NOT               → recNotNode (invert at operand LCA).
 	var plan recPlanNode
 	switch pv.operator {
-	case filters.OperatorOr:
+	case filters.OperatorOr, filters.ContainsAny:
 		plan = builder.buildOrAtScope(pv, "")
 	case filters.OperatorNot:
 		plan = builder.buildNotAtScope(pv, "")

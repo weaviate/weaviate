@@ -384,13 +384,15 @@ func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair 
 		return pv
 	}
 	switch pv.operator {
-	case filters.OperatorAnd, filters.OperatorOr:
+	case filters.OperatorAnd, filters.OperatorOr, filters.ContainsAll, filters.ContainsAny:
+		// ContainsAll / ContainsAny are AND / OR aliases on a nested path
+		// (Route 1 — operator identity preserved by extractContains).
 		grouped := groupNestedByProp(pv.children, class, pv.operator)
 		if len(grouped) == 1 && grouped[0].nested.isWithinRootSubtree {
 			// Collapse: every child landed in one same-root wrapper.
 			// Promote pv to be that wrapper instead of holding it as a
 			// useless single-child outer node. pv keeps its operator
-			// (AND or OR), so the planner sees the right shape.
+			// (AND/OR or ContainsAll/Any), so the planner sees the right shape.
 			w := grouped[0]
 			pv.nested.isWithinRootSubtree = true
 			pv.prop = w.prop
@@ -1005,19 +1007,14 @@ func (s *Searcher) extractContains(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	// No same-root grouping here. ContainsAll desugars to an AND that
-	// the outermost extractPropValuePair wrapper normalizes via
-	// groupNestedByProp; ContainsAny / ContainsNone desugar to OR /
-	// NOT(OR) which the wrapper deliberately leaves ungrouped.
-	//
-	// Route 1 exception: ContainsNone on a nested path keeps its operator
-	// identity instead of desugaring to NOT(OR(...)). This preserves the
-	// scalar-array operand path on the pvp so the resolver / planner can
-	// use `_exists.{relPath}` as the inversion universe (rather than
-	// `_exists.{LCA}` which falls through to the root prop when the path
-	// has no DataTypeObjectArray ancestor). Without this, sibling-branch
-	// leaves and phantom leaves from empty containers leak past the AndNot
-	// — see project_containsnone_universe_leak.md.
+	// Route 1: on a nested path each Contains* operator keeps its operator
+	// identity instead of desugaring to AND / OR / NOT(OR). Downstream
+	// switches treat ContainsAll as an AND alias and ContainsAny as an OR
+	// alias; ContainsNone has dedicated dispatch (a first-class resolver
+	// that reads `_exists.{relPath}` as the inversion universe so sibling-
+	// branch leaves and phantom leaves cannot leak through the AndNot —
+	// see project_containsnone_universe_leak.md). Non-nested (flat) paths
+	// keep the old desugared shapes which the flat resolver handles.
 	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
@@ -1026,13 +1023,34 @@ func (s *Searcher) extractContains(ctx context.Context,
 	out.children = children
 	out.Class = class
 
+	nested := len(children) > 0 && children[0].nested.isNested
+
 	switch operator {
 	case filters.ContainsAll:
+		if nested {
+			// Single-value Contains is semantically the bare Equal leaf;
+			// return it directly so we don't end up with an unwrapped
+			// ContainsAll compound (which groupNestedSubtrees can't promote
+			// to isWithinRootSubtree and resolveDocIDs would route through
+			// fetchDocIDs on an empty prop).
+			if len(children) == 1 {
+				return children[0], nil
+			}
+			out.operator = filters.ContainsAll
+			return out, nil
+		}
 		out.operator = filters.OperatorAnd
 	case filters.ContainsAny:
+		if nested {
+			if len(children) == 1 {
+				return children[0], nil
+			}
+			out.operator = filters.ContainsAny
+			return out, nil
+		}
 		out.operator = filters.OperatorOr
 	case filters.ContainsNone:
-		if len(children) > 0 && children[0].nested.isNested {
+		if nested {
 			// Nested path: keep ContainsNone as a first-class operator. The
 			// pvp carries the operand relPath (from the children, which all
 			// share it by construction) and the children list as values.

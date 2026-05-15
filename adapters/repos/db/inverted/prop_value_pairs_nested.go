@@ -452,11 +452,13 @@ func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap,
 // level in filter validation. Until that lands, unconstrained items in that
 // shape are silently dropped during plan construction.
 func (pv *propValuePair) resolveNestedSubtree(ctx context.Context, s *Searcher) (*docBitmap, error) {
-	if pv.operator == filters.OperatorOr || pv.operator == filters.OperatorNot {
+	if pv.operator == filters.OperatorOr || pv.operator == filters.OperatorNot ||
+		pv.operator == filters.ContainsAny {
 		// Single-group fast path: the planner's buildOrAtScope /
 		// buildNotAtScope handle per-child arr[N] pins internally;
 		// top-level partitioning would fan out into single-child groups
-		// and lose leaf bitmap references.
+		// and lose leaf bitmap references. ContainsAny is an OR alias
+		// under Route 1 — same path as OperatorOr.
 		return pv.resolveNestedSubtreeGroup(ctx, s, pv.children)
 	}
 

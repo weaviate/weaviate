@@ -14030,6 +14030,875 @@ func TestNestedFilteringContainsNoneInsideCorrelatedAnd(t *testing.T) {
 	})
 }
 
+// TestNestedFilteringContainsAllInsideCorrelatedAnd exercises the post-
+// Route-1 correlated-AND handler for ContainsAll. Two root prop shapes; in
+// each: AND(name=<value>, ContainsAll(tags, [a, b])) — both children
+// target the same root prop so same-root grouping triggers the correlated-
+// AND path. ContainsAll is treated as an AND alias by the planner: its
+// value leaves are flattened into the outer recGroupNode (via
+// flattenAndOperators) so the executor requires the same root to have ALL
+// listed tags AND the matching name.
+//
+// Sibling `cities: text[]` is kept in the schema to confirm Route 1 does
+// not introduce a sibling-leak shape on positive operators (none expected;
+// ContainsAll doesn't read the inversion universe).
+//
+// Schema:
+//
+//	country:   DataTypeObject       { name: text/field, tags: text[]/field, cities: text[]/field }
+//	countries: DataTypeObjectArray  { name: text/field, tags: text[]/field, cities: text[]/field }
+//
+// Filter: AND(<root>.name="germany", ContainsAll(<root>.tags, ["sport", "luxury"]))
+//
+// Docs:
+//
+//	d1: name="germany", tags=[sport, luxury, electric], cities=[paris]  — matches (both present + sibling)
+//	d2: name="germany", tags=[sport],                   cities=[paris]  — drops (missing luxury)
+//	d3: name="germany", tags=[sport, luxury],           cities=[london] — matches (both present)
+//	d4: name="germany", tags=[sport, luxury]                            — matches (both present, no sibling)
+//	d5: name="france",  tags=[sport, luxury],           cities=[paris]  — drops (wrong name)
+//	d6: name="germany",                                 cities=[paris]  — drops (no tags — vacuous)
+//	d7: name="germany", tags=[luxury, electric]                         — drops (missing sport)
+func TestNestedFilteringContainsAllInsideCorrelatedAnd(t *testing.T) {
+	const nestedClass = "ContainsAllInsideAnd"
+	vTrue := true
+	field := models.NestedPropertyTokenizationField
+
+	rootInner := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "cities", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	valueFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	t.Run("country_object", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport", "luxury", "electric"), "cities": asTextArr("paris"),
+			}}, note: "germany; both required + extra + sibling"},
+			{id: d2, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport"), "cities": asTextArr("paris"),
+			}}, note: "germany; missing luxury"},
+			{id: d3, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport", "luxury"), "cities": asTextArr("london"),
+			}}, note: "germany; both required + sibling"},
+			{id: d4, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport", "luxury"),
+			}}, note: "germany; both required, no sibling"},
+			{id: d5, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport", "luxury"), "cities": asTextArr("paris"),
+			}}, note: "wrong name"},
+			{id: d6, props: map[string]any{"country": map[string]any{
+				"name": "germany", "cities": asTextArr("paris"),
+			}}, note: "germany; no tags — vacuous"},
+			{id: d7, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("luxury", "electric"),
+			}}, note: "germany; missing sport"},
+		}
+		f := andFilter(
+			valueFilter("country.name", "germany"),
+			containsFilter("country.tags", filters.ContainsAll, "sport", "luxury"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d3, d4})
+	})
+
+	t.Run("countries_array", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport", "luxury", "electric"), "cities": asTextArr("paris")},
+			}}, note: "germany; both required + extra + sibling"},
+			{id: d2, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport"), "cities": asTextArr("paris")},
+			}}, note: "germany; missing luxury"},
+			{id: d3, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport", "luxury"), "cities": asTextArr("london")},
+			}}, note: "germany; both required + sibling"},
+			{id: d4, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport", "luxury")},
+			}}, note: "germany; both required, no sibling"},
+			{id: d5, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport", "luxury"), "cities": asTextArr("paris")},
+			}}, note: "wrong name"},
+			{id: d6, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "cities": asTextArr("paris")},
+			}}, note: "germany; no tags — vacuous"},
+			{id: d7, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("luxury", "electric")},
+			}}, note: "germany; missing sport"},
+		}
+		f := andFilter(
+			valueFilter("countries.name", "germany"),
+			containsFilter("countries.tags", filters.ContainsAll, "sport", "luxury"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d3, d4})
+	})
+}
+
+// TestNestedFilteringContainsAnyInsideCorrelatedAnd exercises the post-
+// Route-1 correlated-AND handler for ContainsAny. ContainsAny is treated
+// as an OR alias by the planner: buildRecGroupExecutor / buildGroup route
+// the ContainsAny subtree through buildOrAtScope and the executor unions
+// its value leaves at the operand LCA — matching docs whose tags array
+// contains AT LEAST ONE of the listed values AND the matching name.
+//
+// Same schema + sibling cities as the ContainsAll companion test.
+//
+// Schema:
+//
+//	country:   DataTypeObject       { name: text/field, tags: text[]/field, cities: text[]/field }
+//	countries: DataTypeObjectArray  { name: text/field, tags: text[]/field, cities: text[]/field }
+//
+// Filter: AND(<root>.name="germany", ContainsAny(<root>.tags, ["sport", "luxury"]))
+//
+// Docs:
+//
+//	d1: name="germany", tags=[sport, luxury, electric], cities=[paris]  — matches (both present)
+//	d2: name="germany", tags=[sport],                   cities=[paris]  — matches (sport qualifies)
+//	d3: name="germany", tags=[luxury],                  cities=[london] — matches (luxury qualifies)
+//	d4: name="germany", tags=[electric]                                 — drops (no listed tag)
+//	d5: name="france",  tags=[sport, luxury]                            — drops (wrong name)
+//	d6: name="germany",                                 cities=[paris]  — drops (no tags)
+//	d7: name="germany", tags=[electric],                cities=[paris]  — drops (sibling alone doesn't count)
+func TestNestedFilteringContainsAnyInsideCorrelatedAnd(t *testing.T) {
+	const nestedClass = "ContainsAnyInsideAnd"
+	vTrue := true
+	field := models.NestedPropertyTokenizationField
+
+	rootInner := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "cities", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	valueFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	andFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	t.Run("country_object", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport", "luxury", "electric"), "cities": asTextArr("paris"),
+			}}, note: "germany; both qualifying + extra + sibling"},
+			{id: d2, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport"), "cities": asTextArr("paris"),
+			}}, note: "germany; sport qualifies"},
+			{id: d3, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("luxury"), "cities": asTextArr("london"),
+			}}, note: "germany; luxury qualifies"},
+			{id: d4, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("electric"),
+			}}, note: "germany; no listed tag"},
+			{id: d5, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport", "luxury"),
+			}}, note: "wrong name"},
+			{id: d6, props: map[string]any{"country": map[string]any{
+				"name": "germany", "cities": asTextArr("paris"),
+			}}, note: "germany; no tags"},
+			{id: d7, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("electric"), "cities": asTextArr("paris"),
+			}}, note: "germany; wrong tag + sibling"},
+		}
+		f := andFilter(
+			valueFilter("country.name", "germany"),
+			containsFilter("country.tags", filters.ContainsAny, "sport", "luxury"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d2, d3})
+	})
+
+	t.Run("countries_array", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport", "luxury", "electric"), "cities": asTextArr("paris")},
+			}}, note: "germany; both qualifying + extra + sibling"},
+			{id: d2, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport"), "cities": asTextArr("paris")},
+			}}, note: "germany; sport qualifies"},
+			{id: d3, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("luxury"), "cities": asTextArr("london")},
+			}}, note: "germany; luxury qualifies"},
+			{id: d4, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("electric")},
+			}}, note: "germany; no listed tag"},
+			{id: d5, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport", "luxury")},
+			}}, note: "wrong name"},
+			{id: d6, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "cities": asTextArr("paris")},
+			}}, note: "germany; no tags"},
+			{id: d7, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("electric"), "cities": asTextArr("paris")},
+			}}, note: "germany; wrong tag + sibling"},
+		}
+		f := andFilter(
+			valueFilter("countries.name", "germany"),
+			containsFilter("countries.tags", filters.ContainsAny, "sport", "luxury"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d2, d3})
+	})
+}
+
+// TestNestedFilteringContainsNoneInsideOr — companion to the inside-AND
+// test, but with OR as the outer operator. ContainsNone is not folded
+// into same-root grouping (it's absent from nestedRootProp's switch), so
+// the outer OR resolves at docID level — each child resolves to a docID
+// bitmap and they are unioned.
+//
+// Semantics: doc matches iff name="germany" OR (∃ tag-element whose value
+// is NOT in the listed set). Strict-existential ContainsNone is supplied
+// by the standalone fetchNestedContainsNone path.
+//
+// Schema:
+//
+//	country:   DataTypeObject       { name: text/field, tags: text[]/field, cities: text[]/field }
+//	countries: DataTypeObjectArray  { name: text/field, tags: text[]/field, cities: text[]/field }
+//
+// Filter: OR(<root>.name="germany", ContainsNone(<root>.tags, ["electric"]))
+//
+// Docs:
+//
+//	d1: name="germany", tags=[electric]                                — matches (name)
+//	d2: name="germany", tags=[sport, electric]                         — matches (both)
+//	d3: name="france",  tags=[sport]                                   — matches (ContainsNone — sport qualifies)
+//	d4: name="france",  tags=[electric]                                — drops (wrong name + no qualifying tag)
+//	d5: name="france"                                                  — drops (no tags — vacuous + wrong name)
+//	d6: name="germany"                                                 — matches (name; tags vacuous doesn't matter)
+//	d7: name="france",  tags=[sport, electric], cities=[paris]         — matches (ContainsNone)
+//	d8: name="france",  tags=[electric, electric], cities=[paris]      — drops (no qualifying tag, sibling alone doesn't count)
+func TestNestedFilteringContainsNoneInsideOr(t *testing.T) {
+	const nestedClass = "ContainsNoneInsideOr"
+	vTrue := true
+	field := models.NestedPropertyTokenizationField
+
+	rootInner := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "cities", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	valueFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	orFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	t.Run("country_object", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7, d8 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("electric"),
+			}}, note: "germany; only-listed (name matches)"},
+			{id: d2, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport", "electric"),
+			}}, note: "germany; mixed (both reasons)"},
+			{id: d3, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport"),
+			}}, note: "france; ContainsNone qualifies"},
+			{id: d4, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("electric"),
+			}}, note: "wrong name + only-listed"},
+			{id: d5, props: map[string]any{"country": map[string]any{
+				"name": "france",
+			}}, note: "wrong name + no tags"},
+			{id: d6, props: map[string]any{"country": map[string]any{
+				"name": "germany",
+			}}, note: "germany; no tags (name matches)"},
+			{id: d7, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport", "electric"), "cities": asTextArr("paris"),
+			}}, note: "france; mixed + sibling — ContainsNone qualifies"},
+			{id: d8, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("electric", "electric"), "cities": asTextArr("paris"),
+			}}, note: "france; only-listed + sibling — neither qualifies (the leak shape)"},
+		}
+		f := orFilter(
+			valueFilter("country.name", "germany"),
+			containsFilter("country.tags", filters.ContainsNone, "electric"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d2, d3, d6, d7})
+	})
+
+	t.Run("countries_array", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7, d8 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("electric")},
+			}}, note: "germany; only-listed (name matches)"},
+			{id: d2, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport", "electric")},
+			}}, note: "germany; mixed (both reasons)"},
+			{id: d3, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport")},
+			}}, note: "france; ContainsNone qualifies"},
+			{id: d4, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("electric")},
+			}}, note: "wrong name + only-listed"},
+			{id: d5, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france"},
+			}}, note: "wrong name + no tags"},
+			{id: d6, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany"},
+			}}, note: "germany; no tags"},
+			{id: d7, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport", "electric"), "cities": asTextArr("paris")},
+			}}, note: "france; mixed + sibling"},
+			{id: d8, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("electric", "electric"), "cities": asTextArr("paris")},
+			}}, note: "france; only-listed + sibling — neither qualifies"},
+		}
+		f := orFilter(
+			valueFilter("countries.name", "germany"),
+			containsFilter("countries.tags", filters.ContainsNone, "electric"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d2, d3, d6, d7})
+	})
+}
+
+// TestNestedFilteringContainsAllInsideOr — companion to the inside-AND
+// test, but with OR as the outer operator. ContainsAll is recognized as
+// an AND alias by nestedRootProp, so both children of the OR are folded
+// into a single same-root OR wrapper (isWithinRootSubtree=true). The
+// recursive planner plans the ContainsAll subtree via buildPlan →
+// buildGroup, where flattenAndOperators unwraps it into its value leaves
+// at the operand LCA. The recOrNode unions the two children's raw
+// bitmaps.
+//
+// Semantics: doc matches iff name="germany" OR (tags ⊇ [sport, luxury]).
+//
+// Schema:
+//
+//	country:   DataTypeObject       { name: text/field, tags: text[]/field, cities: text[]/field }
+//	countries: DataTypeObjectArray  { name: text/field, tags: text[]/field, cities: text[]/field }
+//
+// Filter: OR(<root>.name="germany", ContainsAll(<root>.tags, ["sport", "luxury"]))
+//
+// Docs:
+//
+//	d1: name="germany", tags=[sport, luxury, electric], cities=[paris] — matches (both reasons)
+//	d2: name="germany", tags=[sport]                                   — matches (name only)
+//	d3: name="france",  tags=[sport, luxury], cities=[london]          — matches (ContainsAll only)
+//	d4: name="france",  tags=[sport]                                   — drops (neither)
+//	d5: name="france",  tags=[luxury]                                  — drops (neither)
+//	d6: name="germany",                                  cities=[paris] — matches (name only)
+//	d7: name="france"                                                   — drops (wrong name + no tags)
+//	d8: name="france",  tags=[sport, luxury]                            — matches (ContainsAll only)
+func TestNestedFilteringContainsAllInsideOr(t *testing.T) {
+	const nestedClass = "ContainsAllInsideOr"
+	vTrue := true
+	field := models.NestedPropertyTokenizationField
+
+	rootInner := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "cities", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	valueFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	orFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	t.Run("country_object", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7, d8 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport", "luxury", "electric"), "cities": asTextArr("paris"),
+			}}, note: "germany; both required + extra + sibling"},
+			{id: d2, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport"),
+			}}, note: "germany; name only"},
+			{id: d3, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport", "luxury"), "cities": asTextArr("london"),
+			}}, note: "france; ContainsAll only"},
+			{id: d4, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport"),
+			}}, note: "wrong name; partial tag"},
+			{id: d5, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("luxury"),
+			}}, note: "wrong name; partial tag"},
+			{id: d6, props: map[string]any{"country": map[string]any{
+				"name": "germany", "cities": asTextArr("paris"),
+			}}, note: "germany; name only (no tags)"},
+			{id: d7, props: map[string]any{"country": map[string]any{
+				"name": "france",
+			}}, note: "wrong name; no tags"},
+			{id: d8, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport", "luxury"),
+			}}, note: "france; ContainsAll only (no sibling)"},
+		}
+		f := orFilter(
+			valueFilter("country.name", "germany"),
+			containsFilter("country.tags", filters.ContainsAll, "sport", "luxury"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d2, d3, d6, d8})
+	})
+
+	t.Run("countries_array", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7, d8 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport", "luxury", "electric"), "cities": asTextArr("paris")},
+			}}, note: "germany; both required + extra + sibling"},
+			{id: d2, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport")},
+			}}, note: "germany; name only"},
+			{id: d3, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport", "luxury"), "cities": asTextArr("london")},
+			}}, note: "france; ContainsAll only"},
+			{id: d4, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport")},
+			}}, note: "wrong name; partial tag"},
+			{id: d5, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("luxury")},
+			}}, note: "wrong name; partial tag"},
+			{id: d6, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "cities": asTextArr("paris")},
+			}}, note: "germany; name only (no tags)"},
+			{id: d7, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france"},
+			}}, note: "wrong name; no tags"},
+			{id: d8, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport", "luxury")},
+			}}, note: "france; ContainsAll only"},
+		}
+		f := orFilter(
+			valueFilter("countries.name", "germany"),
+			containsFilter("countries.tags", filters.ContainsAll, "sport", "luxury"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d2, d3, d6, d8})
+	})
+}
+
+// TestNestedFilteringContainsAnyInsideOr — companion to the inside-AND
+// test, but with OR as the outer operator. ContainsAny is recognized as
+// an OR alias by nestedRootProp; both children of the OR fold into a
+// single same-root OR wrapper. buildRecGroupExecutor plans the outer OR
+// via buildOrAtScope, which builds a recOrNode whose children are the
+// recursively-planned name leaf and the ContainsAny OR-of-values
+// subtree.
+//
+// Semantics: doc matches iff name="germany" OR (∃ tag ∈ [sport, luxury]).
+//
+// Schema:
+//
+//	country:   DataTypeObject       { name: text/field, tags: text[]/field, cities: text[]/field }
+//	countries: DataTypeObjectArray  { name: text/field, tags: text[]/field, cities: text[]/field }
+//
+// Filter: OR(<root>.name="germany", ContainsAny(<root>.tags, ["sport", "luxury"]))
+//
+// Docs:
+//
+//	d1: name="germany", tags=[sport]                                   — matches (both reasons)
+//	d2: name="germany", tags=[other]                                   — matches (name only)
+//	d3: name="france",  tags=[sport]                                   — matches (ContainsAny — sport qualifies)
+//	d4: name="france",  tags=[luxury], cities=[paris]                  — matches (ContainsAny — luxury qualifies)
+//	d5: name="france",  tags=[electric]                                — drops (no listed tag, wrong name)
+//	d6: name="germany"                                                 — matches (name; no tags doesn't matter)
+//	d7: name="france"                                                  — drops (wrong name + no tags)
+//	d8: name="france",  tags=[sport, electric], cities=[paris]         — matches (ContainsAny + sibling)
+func TestNestedFilteringContainsAnyInsideOr(t *testing.T) {
+	const nestedClass = "ContainsAnyInsideOr"
+	vTrue := true
+	field := models.NestedPropertyTokenizationField
+
+	rootInner := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+		{Name: "cities", DataType: schema.DataTypeTextArray.PropString(), Tokenization: field, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	asTextArr := func(vals ...string) []any {
+		out := make([]any, len(vals))
+		for i, v := range vals {
+			out[i] = v
+		}
+		return out
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	valueFilter := func(path, val string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: val},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	orFilter := func(a, b *filters.LocalFilter) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{*a.Root, *b.Root},
+		}}
+	}
+
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	t.Run("country_object", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7, d8 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("sport"),
+			}}, note: "germany; sport (both reasons)"},
+			{id: d2, props: map[string]any{"country": map[string]any{
+				"name": "germany", "tags": asTextArr("other"),
+			}}, note: "germany; non-listed tag (name only)"},
+			{id: d3, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport"),
+			}}, note: "france; sport qualifies"},
+			{id: d4, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("luxury"), "cities": asTextArr("paris"),
+			}}, note: "france; luxury + sibling"},
+			{id: d5, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("electric"),
+			}}, note: "wrong name + non-listed"},
+			{id: d6, props: map[string]any{"country": map[string]any{
+				"name": "germany",
+			}}, note: "germany; no tags (name only)"},
+			{id: d7, props: map[string]any{"country": map[string]any{
+				"name": "france",
+			}}, note: "wrong name + no tags"},
+			{id: d8, props: map[string]any{"country": map[string]any{
+				"name": "france", "tags": asTextArr("sport", "electric"), "cities": asTextArr("paris"),
+			}}, note: "france; sport + extra + sibling"},
+		}
+		f := orFilter(
+			valueFilter("country.name", "germany"),
+			containsFilter("country.tags", filters.ContainsAny, "sport", "luxury"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d2, d3, d4, d6, d8})
+	})
+
+	t.Run("countries_array", func(t *testing.T) {
+		d1, d2, d3, d4, d5, d6, d7, d8 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport")},
+			}}, note: "germany; sport (both reasons)"},
+			{id: d2, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("other")},
+			}}, note: "germany; non-listed tag"},
+			{id: d3, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport")},
+			}}, note: "france; sport qualifies"},
+			{id: d4, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("luxury"), "cities": asTextArr("paris")},
+			}}, note: "france; luxury + sibling"},
+			{id: d5, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("electric")},
+			}}, note: "wrong name + non-listed"},
+			{id: d6, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany"},
+			}}, note: "germany; no tags"},
+			{id: d7, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france"},
+			}}, note: "wrong name + no tags"},
+			{id: d8, props: map[string]any{"countries": []any{
+				map[string]any{"name": "france", "tags": asTextArr("sport", "electric"), "cities": asTextArr("paris")},
+			}}, note: "france; sport + extra + sibling"},
+		}
+		f := orFilter(
+			valueFilter("countries.name", "germany"),
+			containsFilter("countries.tags", filters.ContainsAny, "sport", "luxury"),
+		)
+		runScenario(t, docs, f, []strfmt.UUID{d1, d2, d3, d4, d6, d8})
+	})
+}
+
 // TestNestedFilteringAndShapeFlatVsAndOfAnd verifies that two AND shapes
 // equivalent under classical boolean associativity produce IDENTICAL
 // results in the nested-filter dispatch:
