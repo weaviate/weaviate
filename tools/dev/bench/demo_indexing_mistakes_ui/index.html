@@ -21,20 +21,9 @@
         Weaviate console, then re-run to see the difference.
       </p>
     </div>
-    <div class="conn-block">
-      <label>
-        <span>Weaviate URL</span>
-        <input id="conn-url" type="text" placeholder="http://localhost:8080" />
-      </label>
-      <label>
-        <span>API key (cloud only)</span>
-        <input id="conn-key" type="password" placeholder="optional" />
-      </label>
-      <div class="conn-status">
-        <span id="conn-light" class="conn-light"></span>
-        <span id="conn-status-text">disconnected</span>
-        <button id="conn-test" class="btn-secondary">Test</button>
-      </div>
+    <div class="conn-status-bar">
+      <span id="conn-light" class="conn-light"></span>
+      <span id="conn-status-text">connecting...</span>
     </div>
   </div>
 </header>

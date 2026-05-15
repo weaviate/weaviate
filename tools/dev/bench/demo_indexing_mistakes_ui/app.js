@@ -4,68 +4,40 @@
 // actually use in their own code; the transport here is GraphQL only because
 // the browser can hit /v1/graphql directly without a Python runtime. No
 // client-side caching - every press of "Run query" hits the server fresh.
+//
+// The target cluster is hardcoded so viewers don't have to configure anything.
+// The cluster needs anonymous read access enabled for the GraphQL endpoint
+// to be reachable without an API key.
 
-const LS_URL_KEY = "imd-url";
-const LS_KEY_KEY = "imd-apikey";
+const BASE_URL = "https://uqkg8qogqj6phkndzmyhww.c0.europe-west3.dev.gcp.weaviate.cloud";
 const COLLECTION = "IndexingMistakesDemo";
 
-const urlInput = document.getElementById("conn-url");
-const keyInput = document.getElementById("conn-key");
 const connLight = document.getElementById("conn-light");
 const connStatusText = document.getElementById("conn-status-text");
-
-// -- Persistence -------------------------------------------------------------
-
-function loadConn() {
-  urlInput.value = localStorage.getItem(LS_URL_KEY) || "http://localhost:8080";
-  keyInput.value = localStorage.getItem(LS_KEY_KEY) || "";
-}
-function saveConn() {
-  localStorage.setItem(LS_URL_KEY, urlInput.value.trim());
-  localStorage.setItem(LS_KEY_KEY, keyInput.value.trim());
-}
-urlInput.addEventListener("change", saveConn);
-keyInput.addEventListener("change", saveConn);
-loadConn();
 
 // -- Connection helpers ------------------------------------------------------
 
 function baseUrl() {
-  return (urlInput.value || "http://localhost:8080").replace(/\/+$/, "");
-}
-function isLocal(u) {
-  try {
-    const parsed = new URL(u);
-    return parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
-  } catch (_) {
-    return false;
-  }
+  return BASE_URL.replace(/\/+$/, "");
 }
 function authHeaders() {
-  const headers = { "content-type": "application/json" };
-  const key = keyInput.value.trim();
-  if (key && !isLocal(baseUrl())) {
-    headers["authorization"] = `Bearer ${key}`;
-  }
-  return headers;
+  return { "content-type": "application/json" };
 }
 
 async function pingServer() {
-  const url = baseUrl();
   try {
-    const r = await fetch(`${url}/v1/meta`, { headers: authHeaders(), cache: "no-store" });
+    const r = await fetch(`${baseUrl()}/v1/meta`, { headers: authHeaders(), cache: "no-store" });
     if (!r.ok) throw new Error(`status ${r.status}`);
     const meta = await r.json();
     connLight.className = "conn-light ok";
-    connStatusText.textContent = `connected (v${meta.version || "?"})`;
+    connStatusText.textContent = `connected to ${new URL(baseUrl()).hostname} (v${meta.version || "?"})`;
     return true;
   } catch (e) {
     connLight.className = "conn-light bad";
-    connStatusText.textContent = `unreachable (${e.message})`;
+    connStatusText.textContent = `unreachable: ${e.message}`;
     return false;
   }
 }
-document.getElementById("conn-test").addEventListener("click", () => pingServer());
 pingServer();
 
 // -- GraphQL transport -------------------------------------------------------

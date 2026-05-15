@@ -56,36 +56,7 @@ code, pre {
   color: var(--text-dim);
   max-width: 640px;
 }
-.conn-block {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 12px;
-  align-items: end;
-  min-width: 360px;
-}
-.conn-block label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-}
-.conn-block input {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 6px 8px;
-  border-radius: 6px;
-  font: inherit;
-}
-.conn-block input:focus {
-  outline: none;
-  border-color: var(--accent-2);
-}
-.conn-status {
-  grid-column: 1 / -1;
+.conn-status-bar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -300,5 +271,4 @@ code, pre {
   .card-body { grid-template-columns: 1fr; }
   .query { border-right: none; border-bottom: 1px solid var(--border); }
   .topbar-inner { flex-direction: column; }
-  .conn-block { min-width: 0; width: 100%; }
 }
