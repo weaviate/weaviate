@@ -88,9 +88,9 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	createCollection(t, restURIOf(compose, 1), className, 3, 3, []*models.Property{
 		{Name: "name", DataType: []string{"text"}},
 		{
-			Name:            "score",
-			DataType:        []string{"int"},
-			IndexFilterable: &trueVal,
+			Name:              "score",
+			DataType:          []string{"int"},
+			IndexFilterable:   &trueVal,
 			IndexRangeFilters: &falseVal,
 		},
 	})
@@ -335,4 +335,3 @@ func rangeCount(restURI, className, propName string, lo, hi int) (int, error) {
 	}
 	return rows[0].Meta.Count, nil
 }
-

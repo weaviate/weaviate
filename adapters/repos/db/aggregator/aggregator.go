@@ -42,15 +42,15 @@ type vectorIndexMulti interface {
 }
 
 type Aggregator struct {
-	logger                 logrus.FieldLogger
-	store                  *lsmkv.Store
-	params                 aggregation.Params
-	getSchema              schemaUC.SchemaGetter
-	classSearcher          inverted.ClassSearcher // to support ref-filters
-	vectorIndex            vectorIndex
-	stopwordProvider       *stopwords.Provider
-	shardVersion           uint16
-	propLenTracker         *inverted.JsonShardMetaData
+	logger                  logrus.FieldLogger
+	store                   *lsmkv.Store
+	params                  aggregation.Params
+	getSchema               schemaUC.SchemaGetter
+	classSearcher           inverted.ClassSearcher // to support ref-filters
+	vectorIndex             vectorIndex
+	stopwordProvider        *stopwords.Provider
+	shardVersion            uint16
+	propLenTracker          *inverted.JsonShardMetaData
 	isFallbackToSearchable  inverted.IsFallbackToSearchable
 	isRangeableLocallyReady inverted.IsRangeableLocallyReady
 	tenant                  string
