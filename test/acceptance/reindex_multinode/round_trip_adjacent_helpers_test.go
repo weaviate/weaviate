@@ -123,6 +123,12 @@ func importObjectsTenant(
 // importObjectsTwoProps imports the given texts so that both title and body
 // contain the same content. This lets the same testBM25Queries probe both
 // properties against the same baseline count.
+//
+// Uses consistency_level=ALL — without this, the default single-replica
+// ack lets the post-import baseline poll race the per-replica write
+// propagation, producing the R0-class baseline flake ("baseline prop=title
+// q=\"alpha\" inconsistent: n1=6 n2=5"). The single-property [importObjects]
+// helper already uses ALL for the same reason.
 func importObjectsTwoProps(t *testing.T, restURI, className string, texts []string) {
 	t.Helper()
 
@@ -139,7 +145,7 @@ func importObjectsTwoProps(t *testing.T, restURI, className string, texts []stri
 		require.NoError(t, err)
 
 		resp, err := http.Post(
-			fmt.Sprintf("http://%s/v1/objects", restURI),
+			fmt.Sprintf("http://%s/v1/objects?consistency_level=ALL", restURI),
 			"application/json",
 			bytes.NewReader(body),
 		)

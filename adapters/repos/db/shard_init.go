@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -228,11 +229,20 @@ func (s *Shard) NotifyReady() {
 // rationale. Idempotent and safe to call on shards with no rangeable
 // migrations on disk.
 //
-// Rangeable migrations under [FilterableToRangeableStrategy] use a
-// tracker dir named `filterable_to_rangeable[_<p1>_<p2>...]_<gen>`.
-// We extract the prop-name component(s) by stripping the prefix +
-// trailing `_<gen>` segment, then split on `_` to handle the
-// multi-property dir-name shape produced by [migrationDirWithProps].
+// Property names are read from the on-disk recovery payload (payload.mig
+// inside each tracker dir). Parsing them out of the dir name would be
+// fragile for props whose names themselves contain `_` (e.g.
+// `price_cents`), because [migrationDirWithProps] joins multiple props
+// with `_` — the dir-name decoder can't tell `price_cents` (one prop)
+// from `[price, cents]` (two props).
+//
+// Tracker dirs whose payload.mig is unreadable or missing are skipped
+// — they are either stale (operator surgery, partial-init crash) or
+// from an old build before payload persistence. We accept the
+// default-true policy in [Shard.IsRangeableLocallyReady] for those
+// edge cases; the bucket-existence fallback inside
+// IsRangeableLocallyReady still protects queries when the
+// PreReindexHook hasn't fired yet on this replica.
 //
 // Properties that don't have a tracker dir, or whose dir has
 // `tidied.mig` (FinalizeCompletedMigrations promoted them to canonical
@@ -255,13 +265,7 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 		if !ok {
 			continue
 		}
-		// `base` is the strategy + props portion (no _<gen>), e.g.
-		// "filterable_to_rangeable_price" or "filterable_to_rangeable_a_b".
 		if !strings.HasPrefix(base, prefix) {
-			continue
-		}
-		propsPart := strings.TrimPrefix(base, prefix)
-		if propsPart == "" {
 			continue
 		}
 		// tidied.mig present means FinalizeCompletedMigrations either
@@ -271,13 +275,37 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 		if fileExistsInDir(dirPath, "tidied.mig") {
 			continue
 		}
-		// Multi-prop migrations use `_` as the separator (see
-		// migrationDirWithProps). Single-prop is just one segment.
-		for _, propName := range strings.Split(propsPart, "_") {
-			if propName == "" {
-				continue
-			}
+		propNames, ok := readRecoveryPropertyNames(dirPath)
+		if !ok {
+			continue
+		}
+		for _, propName := range propNames {
 			s.setRangeableLocallyReady(propName, false)
 		}
 	}
+}
+
+// readRecoveryPropertyNames extracts the `Properties` slice from a
+// migration tracker dir's payload.mig sentinel file (see
+// ShardReindexTaskGeneric.SaveRecoveryPayload). Returns (nil, false)
+// when the file is missing, unreadable, or doesn't parse as a
+// ReindexTaskPayload-shaped JSON — those edge cases are tolerated by
+// the caller, which falls back to the default-true readiness policy.
+func readRecoveryPropertyNames(migDir string) ([]string, bool) {
+	data, err := os.ReadFile(filepath.Join(migDir, reindexRecoveryPayloadFile))
+	if err != nil {
+		return nil, false
+	}
+	// Anonymous shape: only the field we need. Avoids depending on
+	// ReindexTaskPayload here (no import cycle risk, but keeping shard
+	// init lean).
+	var rec struct {
+		Payload struct {
+			Properties []string `json:"properties"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return nil, false
+	}
+	return rec.Payload.Properties, true
 }
