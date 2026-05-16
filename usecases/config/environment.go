@@ -554,13 +554,21 @@ func FromEnv(config *Config) error {
 
 	defaultQuantization := ""
 	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
-		defaultQuantization = strings.ToLower(v)
+		// Trim for UX symmetry with ALLOWED_COMPRESSION_TYPES (which
+		// trims). validateRestrictions will subsequently reject if the
+		// normalized value isn't in the canonical compression set.
+		defaultQuantization = strings.ToLower(strings.TrimSpace(v))
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
 	defaultVectorIndexType := ""
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
-		defaultVectorIndexType = strings.ToLower(v)
+		// Trim + lowercase for UX consistency with the ALLOWED_* lenient
+		// parsers next door (which both trim). Without TrimSpace, an env
+		// var like `DEFAULT_VECTOR_INDEX=" hnsw "` fails boot validation
+		// against the unchanged-vs-trimmed canonical list — surprising
+		// when ALLOWED_VECTOR_INDEX_TYPES=" HNSW " is accepted.
+		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
 		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
 		if !slices.Contains(validTypes, defaultVectorIndexType) {
 			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)

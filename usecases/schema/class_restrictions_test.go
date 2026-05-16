@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -125,6 +126,109 @@ func TestValidateVectorIndexType_RuntimeOverrideNormalization(t *testing.T) {
 	// surfaces: canonical lowercase, dedup'd, with the unknown
 	// "bogus" entry filtered out.
 	assert.Equal(t, []string{"hnsw", "flat"}, v.Allowed)
+}
+
+// TestValidateVectorSettingsAgainst_GrandfatherUnchanged is the
+// regression for QA-#2: after an operator tightens the allow-list at
+// runtime, a PUT on a pre-existing class whose body is unchanged must
+// NOT be rejected with 422 — the restriction is meant to gate *new*
+// configurations, not police pre-existing ones. Inserts and add-property
+// already work on the existing data; this brings PUT-update in line.
+//
+// Validation matrix:
+//  1. Add (initial=nil) with disallowed type → REJECTED (the new
+//     restriction still applies to genuinely-new classes).
+//  2. Update (initial != nil) with unchanged disallowed type → PASS
+//     (grandfather: same value as stored, no policy violation introduced).
+//  3. Update with type *changing* to a still-disallowed value → REJECTED
+//     (the operator is actively introducing a violation, not preserving
+//     pre-existing state).
+//  4. Update with unchanged disallowed compression → PASS.
+//  5. Update changing compression to a disallowed value → REJECTED.
+func TestValidateVectorSettingsAgainst_GrandfatherUnchanged(t *testing.T) {
+	t.Run("add with disallowed type — rejected", func(t *testing.T) {
+		handler := newHandlerWithAllowList(t, []string{"hfresh", "hnsw"}, nil)
+		err := handler.validateVectorSettingsAgainst(classWithType("flat"), nil)
+		require.Error(t, err)
+		_, ok := restrictions.AsViolation(err)
+		assert.True(t, ok)
+	})
+
+	t.Run("update with unchanged disallowed type — passes (grandfathered)", func(t *testing.T) {
+		handler := newHandlerWithAllowList(t, []string{"hfresh", "hnsw"}, nil)
+		initial := classWithType("flat")
+		updated := classWithType("flat")
+		require.NoError(t, handler.validateVectorSettingsAgainst(updated, initial))
+	})
+
+	t.Run("update changing type to still-disallowed value — rejected", func(t *testing.T) {
+		handler := newHandlerWithAllowList(t, []string{"hfresh", "hnsw"}, nil)
+		initial := classWithType("flat")
+		updated := classWithType("dynamic") // still not in [hfresh, hnsw]
+		err := handler.validateVectorSettingsAgainst(updated, initial)
+		require.Error(t, err)
+		v, ok := restrictions.AsViolation(err)
+		require.True(t, ok)
+		assert.Equal(t, "dynamic", v.Value)
+	})
+
+	t.Run("update with unchanged disallowed compression — passes", func(t *testing.T) {
+		handler := newHandlerWithAllowList(t, nil, []string{"rq-8"})
+		initial := classWithHnswCompression(t, "pq")
+		updated := classWithHnswCompression(t, "pq")
+		require.NoError(t, handler.validateVectorSettingsAgainst(updated, initial))
+	})
+
+	t.Run("update changing to disallowed compression — rejected", func(t *testing.T) {
+		handler := newHandlerWithAllowList(t, nil, []string{"rq-8"})
+		initial := classWithHnswCompression(t, "rq-8")
+		updated := classWithHnswCompression(t, "pq")
+		err := handler.validateVectorSettingsAgainst(updated, initial)
+		require.Error(t, err)
+		v, ok := restrictions.AsViolation(err)
+		require.True(t, ok)
+		assert.Equal(t, "pq", v.Value)
+	})
+}
+
+// --- helpers for the grandfather tests ---
+
+func newHandlerWithAllowList(t *testing.T, vectorAllow, compressionAllow []string) *Handler {
+	t.Helper()
+	handler, _ := newTestHandler(t, &fakeDB{})
+	handler.config.HFreshEnabled = true
+	handler.asyncIndexingEnabled = true
+	if vectorAllow != nil {
+		handler.config.Restrictions.AllowedVectorIndexTypes = runtime.NewDynamicValue(vectorAllow)
+	}
+	if compressionAllow != nil {
+		handler.config.Restrictions.AllowedCompressionTypes = runtime.NewDynamicValue(compressionAllow)
+	}
+	return handler
+}
+
+func classWithType(t string) *models.Class {
+	return &models.Class{Class: "Demo", VectorIndexType: t, Vectorizer: "none"}
+}
+
+func classWithHnswCompression(t *testing.T, compression string) *models.Class {
+	t.Helper()
+	cfg := hnsw.UserConfig{}
+	switch compression {
+	case "pq":
+		cfg.PQ.Enabled = true
+	case "rq-8":
+		cfg.RQ.Enabled = true
+		cfg.RQ.Bits = 8
+	default:
+		t.Fatalf("unsupported test compression %q", compression)
+	}
+	return &models.Class{
+		Class:             "Demo",
+		VectorIndexType:   "hnsw",
+		Vectorizer:        "none",
+		VectorIndexConfig: cfg,
+	}
 }
 
 func TestValidateVectorIndexType_AllowListUsesOperatorTemplate(t *testing.T) {

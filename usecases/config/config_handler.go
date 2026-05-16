@@ -502,6 +502,85 @@ func NewRestrictionCompressionTypeListValidator() func([]string) error {
 	return makeRestrictionListValidator(validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
 }
 
+// ValidateRestrictionsRuntime re-runs the cross-field invariants
+// (hfresh-only + compression set, multi-entry allow-list without a
+// matching default) after a runtime YAML override has changed any of
+// the related DynamicValues. Per-value validation already happens at
+// SetValue time via the validators wired in environment.go; this hook
+// is purely the cross-field layer.
+//
+// Behavior on failure: log the violation and reset BOTH allow-lists to
+// empty (fail-safe to "no restriction"). We intentionally do not try to
+// revert to the previous value — that would require snapshotting state
+// outside the DynamicValue, which is more machinery than the
+// fail-safe-and-warn outcome justifies. Operators see the loud log,
+// fix their YAML, and the restriction comes back on the next reload.
+//
+// Returns nil on success so the runtime-config logger doesn't surface
+// it as a hook error; the failure logging happens inside.
+func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
+	allowVector, vErr := normalizeRestrictionList(c.Restrictions.AllowedVectorIndexTypes, validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
+	allowCompression, cErr := normalizeRestrictionList(c.Restrictions.AllowedCompressionTypes, validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+
+	var problems []string
+	if vErr != nil {
+		problems = append(problems, vErr.Error())
+	}
+	if cErr != nil {
+		problems = append(problems, cErr.Error())
+	}
+	// Per-value SetValue validators should already have caught these,
+	// but mirror the check here defensively in case the DynamicValue was
+	// written through a code path that bypassed validation.
+
+	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
+		problems = append(problems, "ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
+	}
+
+	// Multi-entry list without matching default.
+	if len(allowVector) > 1 {
+		def := ""
+		if c.DefaultVectorIndexType != nil {
+			def = strings.ToLower(strings.TrimSpace(c.DefaultVectorIndexType.Get()))
+		}
+		if def == "" {
+			problems = append(problems, "ALLOWED_VECTOR_INDEX_TYPES lists multiple values; DEFAULT_VECTOR_INDEX must also be set to one of them")
+		} else if !containsString(allowVector, def) {
+			problems = append(problems, fmt.Sprintf("DEFAULT_VECTOR_INDEX=%q is not in ALLOWED_VECTOR_INDEX_TYPES (%s)", def, strings.Join(allowVector, ", ")))
+		}
+	}
+	if len(allowCompression) > 1 {
+		def := ""
+		if c.DefaultQuantization != nil {
+			def = strings.ToLower(strings.TrimSpace(c.DefaultQuantization.Get()))
+		}
+		if def == "" {
+			problems = append(problems, "ALLOWED_COMPRESSION_TYPES lists multiple values; DEFAULT_QUANTIZATION must also be set to one of them")
+		} else if !containsString(allowCompression, def) {
+			problems = append(problems, fmt.Sprintf("DEFAULT_QUANTIZATION=%q is not in ALLOWED_COMPRESSION_TYPES (%s)", def, strings.Join(allowCompression, ", ")))
+		}
+	}
+
+	if len(problems) == 0 {
+		return nil
+	}
+
+	log.WithFields(logrus.Fields{
+		"action":   "runtime_overrides_restrictions_invalid",
+		"problems": problems,
+	}).Errorf("runtime override violates restriction invariants — resetting allow-lists to empty (no restriction) until fixed: %s", strings.Join(problems, "; "))
+
+	// Fail-safe: drop both allow-lists. Schema layer falls back to "no
+	// restriction" until the operator fixes the YAML.
+	if c.Restrictions.AllowedVectorIndexTypes != nil {
+		_ = c.Restrictions.AllowedVectorIndexTypes.SetValue(nil)
+	}
+	if c.Restrictions.AllowedCompressionTypes != nil {
+		_ = c.Restrictions.AllowedCompressionTypes.SetValue(nil)
+	}
+	return nil
+}
+
 // validateRestrictions enforces the cross-field rules between
 // ALLOWED_VECTOR_INDEX_TYPES / ALLOWED_COMPRESSION_TYPES and the
 // pre-existing DEFAULT_VECTOR_INDEX / DEFAULT_QUANTIZATION env vars.

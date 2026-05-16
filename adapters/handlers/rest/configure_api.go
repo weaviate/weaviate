@@ -2310,6 +2310,20 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
 
+		// Restriction cross-field validation hook. Per-value validation
+		// runs at SetValue time (via NewDynamicValueWithValidation), but
+		// cross-field rules (hfresh-only + compression set, multi-entry
+		// allow-list without matching default) only ever ran at boot.
+		// Re-run them here after any Allowed* / Default* change so a
+		// runtime YAML push that violates an invariant gets the same
+		// rejection treatment as it would at boot. The hook key prefix
+		// matches every related field name.
+		restrictionHook := func() error {
+			return appState.ServerConfig.Config.ValidateRestrictionsRuntime(appState.Logger)
+		}
+		hooks["Allowed"] = restrictionHook
+		hooks["Default"] = restrictionHook
+
 		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
 		cm.RegisterHooks(hooks)
 		// reload current overrides file to take into account additional settings

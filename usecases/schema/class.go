@@ -389,11 +389,15 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return fmt.Errorf("parse vector config: %w", err)
 	}
 
-	if err := h.validateVectorSettings(updated); err != nil {
+	// Read the initial class up-front so validateVectorSettings can
+	// apply the grandfather-on-tighten skip: an unchanged field on a
+	// pre-existing class should pass the allow-list check even after
+	// the operator has tightened policy at runtime. See QA-#2 thread.
+	initial := h.schemaReader.ReadOnlyClass(className)
+
+	if err := h.validateVectorSettingsAgainst(updated, initial); err != nil {
 		return err
 	}
-
-	initial := h.schemaReader.ReadOnlyClass(className)
 
 	if initial != nil {
 		_, err := validateUpdatingMT(initial, updated)
@@ -1089,33 +1093,52 @@ func validateStopwordPresetsStillReferenced(properties []*models.Property,
 }
 
 func (h *Handler) validateVectorSettings(class *models.Class) error {
+	return h.validateVectorSettingsAgainst(class, nil)
+}
+
+// validateVectorSettingsAgainst is the entry point for both AddClass
+// (initial == nil) and UpdateClass (initial == the stored class).
+//
+// When initial is non-nil, restriction allow-list checks (vector index
+// type, compression) are skipped on a per-field basis when the
+// corresponding field on the updated class is unchanged from the
+// stored class — the "grandfather on tighten" behaviour. An operator
+// who tightens the allow-list after classes already exist can still
+// PUT-update those classes (replication factor, ef, etc.) without
+// running into a 422 just because the existing vector config now sits
+// outside the policy. Basic per-type validation (async-indexing
+// required for dynamic, etc.) and vectorizer validation always run
+// regardless — the grandfather only skips the policy gate, not the
+// correctness gate.
+func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) error {
 	if modelsext.ClassHasLegacyVectorIndex(class) {
-		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
+		typeUnchanged := initial != nil && initial.VectorIndexType == class.VectorIndexType
+		if err := h.validateVectorIndexTypeBasic(class.VectorIndexType); err != nil {
 			return err
+		}
+		if !typeUnchanged {
+			if err := h.validateVectorIndexTypeAllowList(class.VectorIndexType); err != nil {
+				return err
+			}
 		}
 
 		if err := h.validateVectorizer(class.Vectorizer); err != nil {
 			return err
 		}
 
-		if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
-			parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer), h.config.DefaultQuantization)
-			if err != nil {
-				return fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
-			}
-			if parsed.IsMultiVector() {
-				return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
-			}
+		parsed, err := h.parseLegacyVectorIndexConfig(class)
+		if err != nil {
+			return err
+		}
+		if parsed != nil && parsed.IsMultiVector() {
+			return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
+		}
+		// Grandfather: skip compression allow-list check when the same
+		// set of compressions is configured on the updated class as on
+		// the stored one. This covers both "no-op PUT" (identical body
+		// from GET) and benign edits that don't touch compression.
+		if parsed != nil && !legacyCompressionUnchanged(parsed, initial, h) {
 			if err := h.validateAllowedCompression(class.VectorIndexType, parsed); err != nil {
-				return err
-			}
-		} else if typed, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
-			// UpdateClass parses before validation (see UpdateClassInternal),
-			// so the legacy config is already a typed struct at validation
-			// time. Run the compression allow-list against the typed form
-			// directly — skipping it here would let a disallowed compression
-			// slip through on update.
-			if err := h.validateAllowedCompression(class.VectorIndexType, typed); err != nil {
 				return err
 			}
 		}
@@ -1134,40 +1157,134 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 				}
 			}
 		}
-		if err := h.validateVectorIndexType(cfg.VectorIndexType); err != nil {
+		typeUnchanged := false
+		if initial != nil {
+			if initCfg, ok := initial.VectorConfig[name]; ok && initCfg.VectorIndexType == cfg.VectorIndexType {
+				typeUnchanged = true
+			}
+		}
+		if err := h.validateVectorIndexTypeBasic(cfg.VectorIndexType); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
-		// Named-vector compression check. AddClass reaches this path with
-		// raw maps (parser.ParseClass runs after validation), so parse
-		// inline here — mirroring the legacy block above. UpdateClass has
-		// already converted to typed configs by the time we get here.
-		var parsed schemaConfig.VectorIndexConfig
-		switch v := cfg.VectorIndexConfig.(type) {
-		case schemaConfig.VectorIndexConfig:
-			parsed = v
-		case map[string]interface{}:
-			isMultiVector := false
-			if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
-				for vectorizer := range vm {
-					isMultiVector = h.parser.modules.IsMultiVector(vectorizer)
-				}
-			}
-			p, err := h.parser.parseGivenVectorIndexConfig(cfg.VectorIndexType, v, isMultiVector, h.config.DefaultQuantization)
-			if err != nil {
-				// Surface the parse error against the named vector; the
-				// existing parser path will hit the same error later, so
-				// we're only changing where it surfaces, not whether.
-				return fmt.Errorf("target vector %q: parse vector index config: %w", name, err)
-			}
-			parsed = p
-		}
-		if parsed != nil {
-			if err := h.validateAllowedCompression(cfg.VectorIndexType, parsed); err != nil {
+		if !typeUnchanged {
+			if err := h.validateVectorIndexTypeAllowList(cfg.VectorIndexType); err != nil {
 				return fmt.Errorf("target vector %q: %w", name, err)
 			}
 		}
+
+		parsed, err := h.parseNamedVectorIndexConfig(name, cfg)
+		if err != nil {
+			return err
+		}
+		if parsed == nil {
+			continue
+		}
+		// Grandfather: skip compression check for unchanged named-vector
+		// entry. A "named vector is unchanged" means same VectorIndexType
+		// AND same set of compressions vs. the stored class.
+		if namedCompressionUnchanged(parsed, name, initial, h) {
+			continue
+		}
+		if err := h.validateAllowedCompression(cfg.VectorIndexType, parsed); err != nil {
+			return fmt.Errorf("target vector %q: %w", name, err)
+		}
 	}
 	return nil
+}
+
+// parseLegacyVectorIndexConfig returns the typed VectorIndexConfig for
+// the legacy single-vector class, parsing the raw map form on demand.
+// Returns nil (without error) when the class carries no legacy config.
+func (h *Handler) parseLegacyVectorIndexConfig(class *models.Class) (schemaConfig.VectorIndexConfig, error) {
+	if asMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && len(asMap) > 0 {
+		parsed, err := h.parser.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig, h.parser.modules.IsMultiVector(class.Vectorizer), h.config.DefaultQuantization)
+		if err != nil {
+			return nil, fmt.Errorf("class.VectorIndexConfig can not parse: %w", err)
+		}
+		return parsed, nil
+	}
+	if typed, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+		return typed, nil
+	}
+	return nil, nil
+}
+
+// parseNamedVectorIndexConfig returns the typed VectorIndexConfig for a
+// single named-vector entry, parsing the raw map on demand. UpdateClass
+// already parses target vectors via parser.parseVectorConfig before
+// validation, but AddClass reaches validateVectorSettings with raw maps.
+func (h *Handler) parseNamedVectorIndexConfig(name string, cfg models.VectorConfig) (schemaConfig.VectorIndexConfig, error) {
+	switch v := cfg.VectorIndexConfig.(type) {
+	case schemaConfig.VectorIndexConfig:
+		return v, nil
+	case map[string]interface{}:
+		isMultiVector := false
+		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
+			for vectorizer := range vm {
+				isMultiVector = h.parser.modules.IsMultiVector(vectorizer)
+			}
+		}
+		p, err := h.parser.parseGivenVectorIndexConfig(cfg.VectorIndexType, v, isMultiVector, h.config.DefaultQuantization)
+		if err != nil {
+			return nil, fmt.Errorf("target vector %q: parse vector index config: %w", name, err)
+		}
+		return p, nil
+	}
+	return nil, nil
+}
+
+// legacyCompressionUnchanged reports whether the compression(s) on the
+// updated class's legacy vector index match those on the stored class.
+// Returns false (forcing the allow-list check to run) when there's no
+// initial class, when the initial has no legacy index, or when the
+// compression sets differ.
+func legacyCompressionUnchanged(updated schemaConfig.VectorIndexConfig, initial *models.Class, h *Handler) bool {
+	if initial == nil {
+		return false
+	}
+	initialParsed, err := h.parseLegacyVectorIndexConfig(initial)
+	if err != nil || initialParsed == nil {
+		return false
+	}
+	return stringSlicesEqual(
+		compressionsFromIndexConfig(updated),
+		compressionsFromIndexConfig(initialParsed),
+	)
+}
+
+// namedCompressionUnchanged is the named-vector analogue: same name in
+// the initial class, same vectorIndexType, same compressions.
+func namedCompressionUnchanged(updated schemaConfig.VectorIndexConfig, name string, initial *models.Class, h *Handler) bool {
+	if initial == nil {
+		return false
+	}
+	initCfg, ok := initial.VectorConfig[name]
+	if !ok {
+		return false
+	}
+	if initCfg.VectorIndexType != updated.IndexType() {
+		return false
+	}
+	initialParsed, err := h.parseNamedVectorIndexConfig(name, initCfg)
+	if err != nil || initialParsed == nil {
+		return false
+	}
+	return stringSlicesEqual(
+		compressionsFromIndexConfig(updated),
+		compressionsFromIndexConfig(initialParsed),
+	)
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // validateAllowedCompression rejects a class whose explicit compression
@@ -1317,41 +1434,63 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 	return nil
 }
 
+// validateVectorIndexType combines the correctness check with the
+// restriction allow-list check. Kept for callers that don't need the
+// grandfather-on-tighten split (e.g. tests, future callers). Callers
+// from class-create/update should use the split pair below.
 func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
+	if err := h.validateVectorIndexTypeBasic(vectorIndexType); err != nil {
+		return err
+	}
+	return h.validateVectorIndexTypeAllowList(vectorIndexType)
+}
+
+// validateVectorIndexTypeBasic enforces the per-type correctness rules:
+// async-indexing required for dynamic, experimental flag for hfresh,
+// known type name. ALWAYS runs on create/update, regardless of whether
+// the field is unchanged from the stored class — these are correctness
+// invariants, not a configurable policy.
+func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 	switch vectorIndexType {
 	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT:
-		// continue to allow-list check below
+		return nil
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		if !h.asyncIndexingEnabled {
 			return fmt.Errorf("the dynamic index can only be created when async indexing is enabled")
 		}
+		return nil
 	case vectorindex.VectorIndexTypeHFresh:
 		if !h.config.HFreshEnabled {
 			return fmt.Errorf("the hfresh index is available only in experimental mode")
 		}
+		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
 			vectorIndexType)
 	}
+}
 
-	if allow := h.allowedVectorIndexTypes(); allow != nil {
-		found := false
-		for _, t := range allow {
-			if t == vectorIndexType {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return restrictions.NewViolationError(
-				h.restrictionsErrorMessageTemplate(),
-				restrictions.RestrictionVectorIndexType,
-				vectorIndexType,
-				allow,
-			)
+// validateVectorIndexTypeAllowList enforces the operator-configured
+// ALLOWED_VECTOR_INDEX_TYPES policy. Separate from the basic check
+// because validateVectorSettingsAgainst skips this branch when the
+// field is unchanged from the stored class (grandfather behaviour) —
+// see QA-#2 comment thread for the rationale.
+func (h *Handler) validateVectorIndexTypeAllowList(vectorIndexType string) error {
+	allow := h.allowedVectorIndexTypes()
+	if allow == nil {
+		return nil
+	}
+	for _, t := range allow {
+		if t == vectorIndexType {
+			return nil
 		}
 	}
-	return nil
+	return restrictions.NewViolationError(
+		h.restrictionsErrorMessageTemplate(),
+		restrictions.RestrictionVectorIndexType,
+		vectorIndexType,
+		allow,
+	)
 }
 
 func validateMT(class *models.Class) error {

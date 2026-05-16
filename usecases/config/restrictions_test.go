@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -278,6 +280,111 @@ func TestValidateRestrictions_WhitespaceOnly_PersistsEmpty(t *testing.T) {
 		"whitespace-only input should normalize to empty, not be passed through")
 	assert.Empty(t, c.Restrictions.AllowedCompressionTypes.Get(),
 		"whitespace-only input should normalize to empty, not be passed through")
+}
+
+// TestValidateRestrictionsRuntime covers the hook that re-runs
+// cross-field invariants after a runtime YAML override changes any of
+// the Allowed* / Default* fields. Per-value validation runs at
+// SetValue time (covered by TestRestrictionListValidator above); this
+// is the cross-field layer.
+//
+// Failure semantics: when an invariant is violated, the hook logs and
+// resets BOTH allow-lists to empty so the schema layer falls back to
+// "no restriction" rather than running with a broken config. Operators
+// see the loud log, fix their YAML, restriction comes back on the next
+// reload.
+func TestValidateRestrictionsRuntime(t *testing.T) {
+	t.Run("valid config passes silently", func(t *testing.T) {
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{
+			DefaultVectorIndexType: runtime.NewDynamicValue("hfresh"),
+			DefaultQuantization:    runtime.NewDynamicValue("rq-8"),
+			Restrictions: RestrictionsConfig{
+				AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"hfresh", "hnsw"}),
+				AllowedCompressionTypes: runtime.NewDynamicValue([]string{"rq-8"}),
+			},
+		}
+		require.NoError(t, c.ValidateRestrictionsRuntime(log))
+		for _, e := range hook.AllEntries() {
+			assert.NotEqual(t, logrus.ErrorLevel, e.Level,
+				"valid config should not emit an error: %s", e.Message)
+		}
+		// Allow-lists untouched.
+		assert.Equal(t, []string{"hfresh", "hnsw"}, c.Restrictions.AllowedVectorIndexTypes.Get())
+		assert.Equal(t, []string{"rq-8"}, c.Restrictions.AllowedCompressionTypes.Get())
+	})
+
+	t.Run("hfresh-only + compression set resets to empty", func(t *testing.T) {
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{
+			DefaultVectorIndexType: runtime.NewDynamicValue("hfresh"),
+			DefaultQuantization:    runtime.NewDynamicValue(""),
+			Restrictions: RestrictionsConfig{
+				AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"hfresh"}),
+				AllowedCompressionTypes: runtime.NewDynamicValue([]string{"rq-8"}),
+			},
+		}
+		require.NoError(t, c.ValidateRestrictionsRuntime(log))
+		// Both lists reset to empty (no restriction).
+		assert.Empty(t, c.Restrictions.AllowedVectorIndexTypes.Get())
+		assert.Empty(t, c.Restrictions.AllowedCompressionTypes.Get())
+		// An error log was emitted naming the violated invariant.
+		require.NotEmpty(t, hook.AllEntries())
+		found := false
+		for _, e := range hook.AllEntries() {
+			if e.Level == logrus.ErrorLevel && strings.Contains(e.Message, "hfresh") {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected an error log mentioning hfresh")
+	})
+
+	t.Run("multi-entry without matching default resets to empty", func(t *testing.T) {
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{
+			DefaultVectorIndexType: runtime.NewDynamicValue(""),
+			DefaultQuantization:    runtime.NewDynamicValue(""),
+			Restrictions: RestrictionsConfig{
+				AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"hfresh", "hnsw"}),
+				AllowedCompressionTypes: runtime.NewDynamicValue[[]string](nil),
+			},
+		}
+		require.NoError(t, c.ValidateRestrictionsRuntime(log))
+		assert.Empty(t, c.Restrictions.AllowedVectorIndexTypes.Get())
+		require.NotEmpty(t, hook.AllEntries())
+	})
+
+	t.Run("default not in allow-list resets to empty", func(t *testing.T) {
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{
+			DefaultVectorIndexType: runtime.NewDynamicValue("flat"),
+			DefaultQuantization:    runtime.NewDynamicValue(""),
+			Restrictions: RestrictionsConfig{
+				AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"hfresh", "hnsw"}),
+				AllowedCompressionTypes: runtime.NewDynamicValue[[]string](nil),
+			},
+		}
+		require.NoError(t, c.ValidateRestrictionsRuntime(log))
+		assert.Empty(t, c.Restrictions.AllowedVectorIndexTypes.Get())
+		require.NotEmpty(t, hook.AllEntries())
+	})
+
+	t.Run("invalid enum entry resets to empty (defensive)", func(t *testing.T) {
+		// Per-value validators should catch this at SetValue time, but
+		// the hook is the second line of defense.
+		log, _ := logrustest.NewNullLogger()
+		c := &Config{
+			DefaultVectorIndexType: runtime.NewDynamicValue(""),
+			DefaultQuantization:    runtime.NewDynamicValue(""),
+			Restrictions: RestrictionsConfig{
+				AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"bogus"}),
+				AllowedCompressionTypes: runtime.NewDynamicValue[[]string](nil),
+			},
+		}
+		require.NoError(t, c.ValidateRestrictionsRuntime(log))
+		assert.Empty(t, c.Restrictions.AllowedVectorIndexTypes.Get())
+	})
 }
 
 func TestValidateRestrictions_DedupsAndNormalizesPersistedList(t *testing.T) {
