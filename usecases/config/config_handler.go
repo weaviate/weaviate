@@ -115,6 +115,35 @@ type SchemaHandlerConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
+// RestrictionsConfig holds the env-var and runtime-overrideable
+// configuration restrictions that constrain *what kind* of class
+// tenants are allowed to create — distinct from UsageLimitsConfig
+// which caps *how much* state they can produce. Both allow-lists are
+// comma-separated env vars surfaced as *runtime.DynamicValue[[]string]
+// so operators can revise the policy without a restart.
+//
+// A nil DynamicValue means "no restriction"; an empty list means "no
+// restriction" (treated identically). When non-empty, the matching
+// `DEFAULT_*` env var must also resolve to a value in the list — see
+// Config.validateRestrictions() for the full cross-field rules.
+type RestrictionsConfig struct {
+	// AllowedVectorIndexTypes constrains the value of class
+	// vectorIndexType / vectorConfig[*].vectorIndexType on class
+	// create/update. Valid entries: "hnsw", "flat", "dynamic", "hfresh".
+	AllowedVectorIndexTypes *runtime.DynamicValue[[]string] `json:"allowed_vector_index_types" yaml:"allowed_vector_index_types"`
+	// AllowedCompressionTypes constrains the compression chosen on a
+	// class's vector index config. Valid entries: "none", "pq", "sq",
+	// "rq-1", "rq-8", "bq" (matching the values accepted by
+	// DEFAULT_QUANTIZATION). hfresh classes are exempt — hfresh has no
+	// compression knobs and the check is skipped for hfresh entries.
+	AllowedCompressionTypes *runtime.DynamicValue[[]string] `json:"allowed_compression_types" yaml:"allowed_compression_types"`
+	// ErrorMessage is the operator-overridable template used to render
+	// the `message` field of the structured CONFIG_NOT_ALLOWED response.
+	// Recognized placeholders: {restriction}, {value}, {allowed}.
+	// See usecases/restrictions/template.go for the default template.
+	ErrorMessage *runtime.DynamicValue[string] `json:"error_message" yaml:"error_message"`
+}
+
 // UsageLimitsConfig holds the env-var and runtime-overrideable usage-limit
 // knobs introduced by the Free-Tier guardrails RFC. The collection-count
 // limit lives separately on SchemaHandlerConfig for backward compatibility
@@ -211,6 +240,7 @@ type Config struct {
 	MetadataServer                      MetadataServer         `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig    `json:"schema" yaml:"schema"`
 	UsageLimits                         UsageLimitsConfig      `json:"usage_limits" yaml:"usage_limits"`
+	Restrictions                        RestrictionsConfig     `json:"restrictions" yaml:"restrictions"`
 	DistributedTasks                    DistributedTasksConfig `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                    `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                    `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
@@ -367,6 +397,10 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateRestrictions(); err != nil {
+		return configErr(err)
+	}
+
 	return nil
 }
 
@@ -393,6 +427,179 @@ func (c *Config) validateUsageLimitsReplicationLinkage() error {
 // DynamicValue or a negative value means "unset / unlimited".
 func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
 	return dv != nil && dv.Get() >= 0
+}
+
+// validRestrictionVectorIndexTypes is the canonical allow-list for
+// ALLOWED_VECTOR_INDEX_TYPES entries. Mirrors entities/vectorindex/config.go;
+// duplicated here as plain strings so this package doesn't grow an import
+// dependency on entities/vectorindex (which already imports usecases/config
+// indirectly via schema). VectorIndexTypeNone is intentionally excluded —
+// it is an internal sentinel never accepted as user input.
+var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfresh"}
+
+// validRestrictionCompressionTypes is the canonical allow-list for
+// ALLOWED_COMPRESSION_TYPES entries. Matches the values accepted by
+// DEFAULT_QUANTIZATION (entities/vectorindex/hnsw/config.go's
+// ParseDefaultQuantization switch) so operators can copy values across
+// the two env vars verbatim. "none" is a real, accepted value here
+// (meaning "uncompressed"); when "none" is omitted from the allow-list,
+// the schema layer enforces that every non-hfresh class must have a
+// compression configured.
+var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-8", "bq"}
+
+// validateRestrictions enforces the cross-field rules between
+// ALLOWED_VECTOR_INDEX_TYPES / ALLOWED_COMPRESSION_TYPES and the
+// pre-existing DEFAULT_VECTOR_INDEX / DEFAULT_QUANTIZATION env vars.
+// On success, it may also seed the default DynamicValues when only one
+// allow-list entry exists and the matching default is unset — so the
+// rest of the codebase can keep reading the default fields without
+// caring whether the operator set them explicitly.
+//
+// Rules (mirror the RFC):
+//   - Each entry must be one of the canonical valid values.
+//   - If the allow-list contains exactly one entry: the matching default
+//     must either be unset (and we set it) or match that entry.
+//   - If the allow-list contains multiple entries: the matching default
+//     must be explicitly set and present in the list.
+//   - If `ALLOWED_VECTOR_INDEX_TYPES=hfresh` is the *only* entry AND
+//     `ALLOWED_COMPRESSION_TYPES` is non-empty: invalid (hfresh has no
+//     compression knobs; setting one is operator confusion). Compression
+//     is otherwise allowed alongside hfresh in mixed-allow-list shapes
+//     because non-hfresh members still need a compression policy.
+func (c *Config) validateRestrictions() error {
+	allowVector, err := normalizeRestrictionList(c.Restrictions.AllowedVectorIndexTypes, validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
+	if err != nil {
+		return err
+	}
+	allowCompression, err := normalizeRestrictionList(c.Restrictions.AllowedCompressionTypes, validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+	if err != nil {
+		return err
+	}
+
+	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
+		return fmt.Errorf("ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
+	}
+
+	if err := reconcileAllowListWithDefault(
+		allowVector, c.DefaultVectorIndexType,
+		"ALLOWED_VECTOR_INDEX_TYPES", "DEFAULT_VECTOR_INDEX",
+	); err != nil {
+		return err
+	}
+	if err := reconcileAllowListWithDefault(
+		allowCompression, c.DefaultQuantization,
+		"ALLOWED_COMPRESSION_TYPES", "DEFAULT_QUANTIZATION",
+	); err != nil {
+		return err
+	}
+
+	// Persist the normalized list back so downstream readers see the
+	// canonical lowercase / deduplicated form rather than whatever the
+	// operator typed. Skip when the allow-list is empty (unrestricted).
+	if c.Restrictions.AllowedVectorIndexTypes != nil && len(allowVector) > 0 {
+		_ = c.Restrictions.AllowedVectorIndexTypes.SetValue(allowVector)
+	}
+	if c.Restrictions.AllowedCompressionTypes != nil && len(allowCompression) > 0 {
+		_ = c.Restrictions.AllowedCompressionTypes.SetValue(allowCompression)
+	}
+
+	return nil
+}
+
+// normalizeRestrictionList reads dv, trims/lowercases each entry,
+// rejects unknown values, and returns the canonical list. Returns
+// nil if dv is nil or empty (the "no restriction" case).
+func normalizeRestrictionList(dv *runtime.DynamicValue[[]string], valid []string, envName string) ([]string, error) {
+	if dv == nil {
+		return nil, nil
+	}
+	raw := dv.Get()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, v := range raw {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		validEntry := false
+		for _, w := range valid {
+			if v == w {
+				validEntry = true
+				break
+			}
+		}
+		if !validEntry {
+			return nil, fmt.Errorf("%s contains invalid entry %q; valid values are: %s",
+				envName, v, strings.Join(valid, ", "))
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// reconcileAllowListWithDefault implements the "must match" / "seeds the
+// default" rules between an allow-list and its matching default. When
+// the allow-list is empty (no restriction), nothing is enforced and the
+// default is left alone. Mutates `defaultDV` only in the single-entry,
+// unset-default case (seeding behavior).
+func reconcileAllowListWithDefault(allowList []string, defaultDV *runtime.DynamicValue[string], allowEnv, defaultEnv string) error {
+	if len(allowList) == 0 {
+		return nil
+	}
+	currentDefault := ""
+	if defaultDV != nil {
+		currentDefault = strings.ToLower(strings.TrimSpace(defaultDV.Get()))
+	}
+	if len(allowList) > 1 {
+		if currentDefault == "" {
+			return fmt.Errorf("%s lists multiple values (%s); %s must also be set to one of them",
+				allowEnv, strings.Join(allowList, ", "), defaultEnv)
+		}
+		if !containsString(allowList, currentDefault) {
+			return fmt.Errorf("%s=%q is not in %s (%s)",
+				defaultEnv, currentDefault, allowEnv, strings.Join(allowList, ", "))
+		}
+		// Persist normalized lowercase form.
+		if defaultDV != nil && defaultDV.Get() != currentDefault {
+			_ = defaultDV.SetValue(currentDefault)
+		}
+		return nil
+	}
+	// Single-entry allow-list.
+	only := allowList[0]
+	if currentDefault == "" {
+		// Seed the default so downstream readers don't need to special-case.
+		if defaultDV != nil {
+			_ = defaultDV.SetValue(only)
+		}
+		return nil
+	}
+	if currentDefault != only {
+		return fmt.Errorf("%s=%q does not match the only entry in %s (%q)",
+			defaultEnv, currentDefault, allowEnv, only)
+	}
+	// Persist the normalized (lowercase) form so downstream readers see
+	// the canonical value regardless of how the operator typed it.
+	if defaultDV != nil && defaultDV.Get() != currentDefault {
+		_ = defaultDV.SetValue(currentDefault)
+	}
+	return nil
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, h := range haystack {
+		if h == needle {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own

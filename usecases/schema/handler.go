@@ -167,6 +167,39 @@ func (h *Handler) errorMessageTemplate() string {
 	return ""
 }
 
+// restrictionsErrorMessageTemplate returns the operator-overridable
+// RESTRICTIONS_ERROR_MESSAGE template, or "" when unset (the
+// restrictions package falls back to its built-in default).
+func (h *Handler) restrictionsErrorMessageTemplate() string {
+	if dv := h.config.Restrictions.ErrorMessage; dv != nil {
+		return dv.Get()
+	}
+	return ""
+}
+
+// allowedVectorIndexTypes returns the operator-configured allow-list
+// for class vectorIndexType, or nil if unrestricted. Callers must not
+// mutate the returned slice.
+func (h *Handler) allowedVectorIndexTypes() []string {
+	if dv := h.config.Restrictions.AllowedVectorIndexTypes; dv != nil {
+		if v := dv.Get(); len(v) > 0 {
+			return v
+		}
+	}
+	return nil
+}
+
+// allowedCompressionTypes returns the operator-configured allow-list
+// for compression types, or nil if unrestricted.
+func (h *Handler) allowedCompressionTypes() []string {
+	if dv := h.config.Restrictions.AllowedCompressionTypes; dv != nil {
+		if v := dv.Get(); len(v) > 0 {
+			return v
+		}
+	}
+	return nil
+}
+
 // NewHandler creates a new handler
 func NewHandler(
 	schemaReader SchemaReader,

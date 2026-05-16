@@ -44,6 +44,7 @@ import (
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/restrictions"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -1105,6 +1106,18 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 			if parsed.IsMultiVector() {
 				return errors.New("class.VectorIndexConfig multi vector type index type is only configurable using named vectors")
 			}
+			if err := h.validateAllowedCompression(class.VectorIndexType, parsed); err != nil {
+				return err
+			}
+		} else if typed, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+			// UpdateClass parses before validation (see UpdateClassInternal),
+			// so the legacy config is already a typed struct at validation
+			// time. Run the compression allow-list against the typed form
+			// directly — skipping it here would let a disallowed compression
+			// slip through on update.
+			if err := h.validateAllowedCompression(class.VectorIndexType, typed); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1124,8 +1137,161 @@ func (h *Handler) validateVectorSettings(class *models.Class) error {
 		if err := h.validateVectorIndexType(cfg.VectorIndexType); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
+		// Named-vector compression check. AddClass reaches this path with
+		// raw maps (parser.ParseClass runs after validation), so parse
+		// inline here — mirroring the legacy block above. UpdateClass has
+		// already converted to typed configs by the time we get here.
+		var parsed schemaConfig.VectorIndexConfig
+		switch v := cfg.VectorIndexConfig.(type) {
+		case schemaConfig.VectorIndexConfig:
+			parsed = v
+		case map[string]interface{}:
+			isMultiVector := false
+			if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
+				for vectorizer := range vm {
+					isMultiVector = h.parser.modules.IsMultiVector(vectorizer)
+				}
+			}
+			p, err := h.parser.parseGivenVectorIndexConfig(cfg.VectorIndexType, v, isMultiVector, h.config.DefaultQuantization)
+			if err != nil {
+				// Surface the parse error against the named vector; the
+				// existing parser path will hit the same error later, so
+				// we're only changing where it surfaces, not whether.
+				return fmt.Errorf("target vector %q: parse vector index config: %w", name, err)
+			}
+			parsed = p
+		}
+		if parsed != nil {
+			if err := h.validateAllowedCompression(cfg.VectorIndexType, parsed); err != nil {
+				return fmt.Errorf("target vector %q: %w", name, err)
+			}
+		}
 	}
 	return nil
+}
+
+// validateAllowedCompression rejects a class whose explicit compression
+// configuration is outside the operator's ALLOWED_COMPRESSION_TYPES
+// allow-list. Returns a typed *restrictions.ViolationError on rejection
+// (mapped to HTTP 422 / gRPC FailedPrecondition by the handlers).
+//
+// hfresh classes are skipped entirely per the RFC: hfresh has no
+// compression knobs that operators can policy on, so the allow-list is
+// not applicable. Startup validation already ensures that the operator
+// hasn't paired `ALLOWED_VECTOR_INDEX_TYPES=hfresh` (only) with a
+// non-empty compression allow-list.
+//
+// Detection only inspects user-supplied / already-typed config. The
+// `enableQuantization` path that applies the operator-configured
+// DEFAULT_QUANTIZATION runs later in AddClass; startup validation
+// guarantees that default is itself in the allow-list, so a class that
+// reaches this validator with no compression set will end up with a
+// compatible compression after defaults are applied.
+func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaConfig.VectorIndexConfig) error {
+	allow := h.allowedCompressionTypes()
+	if allow == nil {
+		return nil
+	}
+	if vectorIndexType == vectorindex.VectorIndexTypeHFresh {
+		return nil
+	}
+	compression := compressionFromIndexConfig(cfg)
+	// compression == "" means "no explicit user choice" — defer to the
+	// default that startup validation has already vetted against the
+	// allow-list. Don't reject here.
+	if compression == "" {
+		return nil
+	}
+	for _, c := range allow {
+		if c == compression {
+			return nil
+		}
+	}
+	return restrictions.NewViolationError(
+		h.restrictionsErrorMessageTemplate(),
+		restrictions.RestrictionCompression,
+		compression,
+		allow,
+	)
+}
+
+// compressionFromIndexConfig inspects a parsed vector index config and
+// returns the user-selected compression name ("pq" / "sq" / "rq-1" /
+// "rq-8" / "bq"), the literal "none" when the user explicitly opted out
+// (cfg shape recognised but no compression flag enabled in a quantizable
+// index type), or "" when nothing distinguishable was set — in which
+// case the operator's DEFAULT_QUANTIZATION will fill in the value later.
+//
+// "" vs "none" matters: returning "" here lets the legacy default flow
+// take over, returning "none" forces the allow-list to contain "none"
+// for the class to succeed.
+func compressionFromIndexConfig(cfg schemaConfig.VectorIndexConfig) string {
+	switch c := cfg.(type) {
+	case hnsw.UserConfig:
+		return compressionFromHnsw(c)
+	case flat.UserConfig:
+		return compressionFromFlat(c)
+	case dynamic.UserConfig:
+		if v := compressionFromHnsw(c.HnswUC); v != "" && v != "none" {
+			return v
+		}
+		if v := compressionFromFlat(c.FlatUC); v != "" && v != "none" {
+			return v
+		}
+		// Neither sub-config had compression enabled; fall through to
+		// "none" only if either was non-trivially configured by the
+		// caller, otherwise "" so the default kicks in.
+		if c.HnswUC.SkipDefaultQuantization || c.FlatUC.SkipDefaultQuantization {
+			return "none"
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+func compressionFromHnsw(c hnsw.UserConfig) string {
+	if c.PQ.Enabled {
+		return "pq"
+	}
+	if c.SQ.Enabled {
+		return "sq"
+	}
+	if c.RQ.Enabled {
+		if c.RQ.Bits == 1 {
+			return "rq-1"
+		}
+		return "rq-8"
+	}
+	if c.BQ.Enabled {
+		return "bq"
+	}
+	if c.SkipDefaultQuantization {
+		return "none"
+	}
+	return ""
+}
+
+func compressionFromFlat(c flat.UserConfig) string {
+	if c.PQ.Enabled {
+		return "pq"
+	}
+	if c.SQ.Enabled {
+		return "sq"
+	}
+	if c.RQ.Enabled {
+		if c.RQ.Bits == 1 {
+			return "rq-1"
+		}
+		return "rq-8"
+	}
+	if c.BQ.Enabled {
+		return "bq"
+	}
+	if c.SkipDefaultQuantization {
+		return "none"
+	}
+	return ""
 }
 
 func (h *Handler) validateVectorizer(vectorizer string) error {
@@ -1143,21 +1309,38 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	switch vectorIndexType {
 	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT:
-		return nil
+		// continue to allow-list check below
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		if !h.asyncIndexingEnabled {
 			return fmt.Errorf("the dynamic index can only be created when async indexing is enabled")
 		}
-		return nil
 	case vectorindex.VectorIndexTypeHFresh:
 		if !h.config.HFreshEnabled {
 			return fmt.Errorf("the hfresh index is available only in experimental mode")
 		}
-		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
 			vectorIndexType)
 	}
+
+	if allow := h.allowedVectorIndexTypes(); allow != nil {
+		found := false
+		for _, t := range allow {
+			if t == vectorIndexType {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return restrictions.NewViolationError(
+				h.restrictionsErrorMessageTemplate(),
+				restrictions.RestrictionVectorIndexType,
+				vectorIndexType,
+				allow,
+			)
+		}
+	}
+	return nil
 }
 
 func validateMT(class *models.Class) error {

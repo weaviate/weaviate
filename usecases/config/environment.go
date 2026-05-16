@@ -1229,6 +1229,30 @@ func FromEnv(config *Config) error {
 		config.UsageLimits.ErrorMessage = configRuntime.NewDynamicValue(val)
 	}, DefaultUsageLimitsErrorMessage)
 
+	// Configuration-restriction env vars (allow-lists; see
+	// docs/usage_limits.md). Comma-separated lists with whitespace
+	// trimmed and entries lowercased at parse time. An unset / empty
+	// env var means "no restriction". Cross-field validation (default
+	// must match the allow-list, hfresh-only + compression set is
+	// invalid, etc.) runs later in Config.Validate via
+	// validateRestrictions().
+	// Always initialize the DynamicValue (even with a nil slice) so the
+	// runtime-overrides reflection merger has a non-nil source pointer to
+	// mutate when an operator activates the restriction at runtime.
+	var allowVector []string
+	if v := os.Getenv("ALLOWED_VECTOR_INDEX_TYPES"); v != "" {
+		allowVector = strings.Split(v, ",")
+	}
+	config.Restrictions.AllowedVectorIndexTypes = configRuntime.NewDynamicValue(allowVector)
+	var allowCompression []string
+	if v := os.Getenv("ALLOWED_COMPRESSION_TYPES"); v != "" {
+		allowCompression = strings.Split(v, ",")
+	}
+	config.Restrictions.AllowedCompressionTypes = configRuntime.NewDynamicValue(allowCompression)
+	parseString("RESTRICTIONS_ERROR_MESSAGE", func(val string) {
+		config.Restrictions.ErrorMessage = configRuntime.NewDynamicValue(val)
+	}, DefaultRestrictionsErrorMessage)
+
 	// explicitly reset sentry config
 	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()
@@ -1792,6 +1816,7 @@ const (
 	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
 	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
+	DefaultRestrictionsErrorMessage                = "" // empty → restrictions.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"
