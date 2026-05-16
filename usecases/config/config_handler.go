@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -452,13 +453,13 @@ var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-
 // Exported so test helpers and runtime-override consumers can share the
 // same definition; the env-var validator uses it too.
 func IsValidRestrictionVectorIndexType(v string) bool {
-	return containsString(validRestrictionVectorIndexTypes, strings.ToLower(strings.TrimSpace(v)))
+	return slices.Contains(validRestrictionVectorIndexTypes, strings.ToLower(strings.TrimSpace(v)))
 }
 
 // IsValidRestrictionCompressionType is the compression analogue of
 // IsValidRestrictionVectorIndexType.
 func IsValidRestrictionCompressionType(v string) bool {
-	return containsString(validRestrictionCompressionTypes, strings.ToLower(strings.TrimSpace(v)))
+	return slices.Contains(validRestrictionCompressionTypes, strings.ToLower(strings.TrimSpace(v)))
 }
 
 // makeRestrictionListValidator returns a DynamicValue validator that
@@ -481,7 +482,7 @@ func makeRestrictionListValidator(valid []string, envName string) func([]string)
 			if entry == "" {
 				continue
 			}
-			if !containsString(valid, entry) {
+			if !slices.Contains(valid, entry) {
 				return fmt.Errorf("%s contains invalid entry %q; valid values are: %s",
 					envName, entry, strings.Join(valid, ", "))
 			}
@@ -545,7 +546,7 @@ func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 		}
 		if def == "" {
 			problems = append(problems, "ALLOWED_VECTOR_INDEX_TYPES lists multiple values; DEFAULT_VECTOR_INDEX must also be set to one of them")
-		} else if !containsString(allowVector, def) {
+		} else if !slices.Contains(allowVector, def) {
 			problems = append(problems, fmt.Sprintf("DEFAULT_VECTOR_INDEX=%q is not in ALLOWED_VECTOR_INDEX_TYPES (%s)", def, strings.Join(allowVector, ", ")))
 		}
 	}
@@ -556,7 +557,7 @@ func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 		}
 		if def == "" {
 			problems = append(problems, "ALLOWED_COMPRESSION_TYPES lists multiple values; DEFAULT_QUANTIZATION must also be set to one of them")
-		} else if !containsString(allowCompression, def) {
+		} else if !slices.Contains(allowCompression, def) {
 			problems = append(problems, fmt.Sprintf("DEFAULT_QUANTIZATION=%q is not in ALLOWED_COMPRESSION_TYPES (%s)", def, strings.Join(allowCompression, ", ")))
 		}
 	}
@@ -701,7 +702,7 @@ func reconcileAllowListWithDefault(allowList []string, defaultDV *runtime.Dynami
 			return fmt.Errorf("%s lists multiple values (%s); %s must also be set to one of them",
 				allowEnv, strings.Join(allowList, ", "), defaultEnv)
 		}
-		if !containsString(allowList, currentDefault) {
+		if !slices.Contains(allowList, currentDefault) {
 			return fmt.Errorf("%s=%q is not in %s (%s)",
 				defaultEnv, currentDefault, allowEnv, strings.Join(allowList, ", "))
 		}
@@ -730,15 +731,6 @@ func reconcileAllowListWithDefault(allowList []string, defaultDV *runtime.Dynami
 		_ = defaultDV.SetValue(currentDefault)
 	}
 	return nil
-}
-
-func containsString(haystack []string, needle string) bool {
-	for _, h := range haystack {
-		if h == needle {
-			return true
-		}
-	}
-	return false
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own

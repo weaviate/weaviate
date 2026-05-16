@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -1318,7 +1319,7 @@ func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaC
 	// both must be checked — collapsing to a single value would let a
 	// disallowed compression on the non-returned branch slip through.
 	for _, compression := range compressionsFromIndexConfig(cfg) {
-		if !containsString(allow, compression) {
+		if !slices.Contains(allow, compression) {
 			return restrictions.NewViolationError(
 				h.restrictionsErrorMessageTemplate(),
 				restrictions.RestrictionCompression,
@@ -1328,15 +1329,6 @@ func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaC
 		}
 	}
 	return nil
-}
-
-func containsString(haystack []string, needle string) bool {
-	for _, h := range haystack {
-		if h == needle {
-			return true
-		}
-	}
-	return false
 }
 
 // compressionsFromIndexConfig returns every user-selected compression in
