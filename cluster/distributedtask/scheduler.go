@@ -499,15 +499,31 @@ func (s *Scheduler) tick() {
 				}
 
 				// Phase 2: global task completion. Fires on FINALIZING (success
-				// path — every unit COMPLETED, no failures) or FAILED. The
-				// FINALIZING→FINISHED transition is issued in the
-				// finalize-issuance block below (after OnTaskCompleted has
-				// run). FAILED tasks stay FAILED — no finalize RAFT command
-				// is issued for them because FAILED is itself terminal and
-				// the schema flip is deliberately skipped on the failure
-				// path.
+				// path — every unit COMPLETED, no failures), FAILED, or
+				// FINISHED. FINISHED is included so a node that observes
+				// the task only after MarkDistributedTaskFinalized has
+				// already flipped it past FINALIZING still gets to fire
+				// OnTaskCompleted exactly once: the first node to see
+				// FINALIZING will issue MarkFinalized inside the same
+				// tick, so other nodes' next tick sees FINISHED, not
+				// FINALIZING. Without FINISHED here, those other nodes
+				// silently skip the callback, breaking idempotent
+				// per-node post-completion work (reindex provider clears
+				// caches and emits its completion marker from here).
+				// The pre-mark in [Scheduler.bootstrapProviders] still
+				// suppresses replay for tasks that were already FINISHED
+				// at bootstrap; only "FINISHED first observed by this
+				// scheduler instance" fires the callback.
+				//
+				// The MarkDistributedTaskFinalized RAFT command is issued
+				// in the finalize-issuance block below only for FINALIZING
+				// tasks — FINISHED is already terminal, so re-issuing the
+				// finalize would be a wasted no-op RAFT round-trip.
+				// CANCELLED tasks are skipped at the top of the outer
+				// loop (line above) so they never reach here.
 				readyForFinalize := task.Status == TaskStatusFinalizing ||
-					task.Status == TaskStatusFailed
+					task.Status == TaskStatusFailed ||
+					task.Status == TaskStatusFinished
 				if readyForFinalize && !s.completedCallbackFired[desc] {
 					s.completedCallbackFired[desc] = true
 					suProvider.OnTaskCompleted(task)

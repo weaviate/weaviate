@@ -1144,6 +1144,81 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 	require.Empty(t, taskCalls, "no callbacks may fire on later ticks for the same already-terminal task")
 }
 
+// TestFinalizingRace_OnTaskCompletedFiresOnFinishedNotJustFinalizing
+// pins the cross-node finalize race: when a peer node's scheduler has
+// already issued MarkDistributedTaskFinalized and committed
+// FINALIZING→FINISHED before this node's scheduler tick observes the
+// task, OnTaskCompleted MUST still fire here. Without this, only the
+// first node to see FINALIZING gets to run its post-completion work
+// (cleanup, completion markers, schema-flip — anything inside
+// OnTaskCompleted). The acceptance tests in test/acceptance/distributed_tasks
+// caught this regression by waiting for 3 completion markers and only
+// seeing 1.
+//
+// The bootstrap pre-mark is the load-bearing guard against re-firing
+// callbacks for tasks that were FINISHED before this scheduler instance
+// started; this test exercises the in-flight path where the scheduler
+// is already running and the FINISHED transition happens after the
+// pre-mark, so the fired-once flag (not the pre-mark) is what
+// guarantees exactly-once.
+func TestFinalizingRace_OnTaskCompletedFiresOnFinishedNotJustFinalizing(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	prov := newUnitAwareTestProvider(t)
+	h := newTestHarness(t)
+	h.registeredProviders = map[string]Provider{h.tasksNamespace: prov}
+	h.provider = prov.testTaskProvider
+	h = h.init(t)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "task-cross-node-finalize-race",
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"u-1"},
+	}), 1))
+
+	// Move the FSM straight through FINALIZING → FINISHED WITHOUT
+	// running a scheduler tick in between. This simulates a peer node
+	// (in production: another scheduler in the same cluster) issuing
+	// MarkDistributedTaskFinalized so fast that this node's first
+	// observation of the task is already FINISHED.
+	completeUnit(t, h, h.tasksNamespace, "task-cross-node-finalize-race", 1, h.localNodeID, "u-1")
+	require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "task-cross-node-finalize-race",
+		Version:               1,
+		FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	// Sanity: task is already FINISHED before the scheduler ticks.
+	tasks := h.listManagerTasks(t)[h.tasksNamespace]
+	require.Len(t, tasks, 1)
+	require.Equal(t, TaskStatusFinished, tasks[0].Status)
+
+	// Advance the clock so the scheduler tick runs and observes a task
+	// already at FINISHED. With the fix, OnTaskCompleted fires here;
+	// without it, the tick's "fire on FINALIZING/FAILED only" guard
+	// silently skips this node.
+	h.advanceClock(h.schedulerTickInterval)
+
+	require.Eventually(t, func() bool {
+		_, taskCalls := prov.snapshotCalls()
+		return len(taskCalls) >= 1
+	}, 2*time.Second, 25*time.Millisecond,
+		"OnTaskCompleted must fire even when this node first observes the task at FINISHED (peer already finalized)")
+
+	// Idempotency: extra ticks must not re-fire on this node — the
+	// fired-once flag carries the exactly-once guarantee.
+	h.advanceClock(h.schedulerTickInterval)
+	h.advanceClock(h.schedulerTickInterval)
+	_, taskCalls := prov.snapshotCalls()
+	require.Len(t, taskCalls, 1,
+		"OnTaskCompleted must fire exactly once per node, even with multiple post-FINISHED ticks")
+}
+
 // TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked unit-tests the
 // pre-mark helper directly. The intent: only Finished/Failed/Cancelled
 // tasks are marked as having their callbacks fired, never Started ones.
