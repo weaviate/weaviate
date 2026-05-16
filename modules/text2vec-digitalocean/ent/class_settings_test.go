@@ -139,7 +139,7 @@ func Test_classSettings_Overrides(t *testing.T) {
 	}})
 	assert.Equal(t, "https://example.com", cs.BaseURL())
 	assert.Equal(t, "qwen3-embedding-0.6b", cs.Model())
-	if assert.NotNil(t, cs.Dimensions()) {
-		assert.Equal(t, int64(1024), *cs.Dimensions())
-	}
+	// DigitalOcean's /v1/embeddings does not support the "dimensions" field,
+	// so Dimensions() is hardwired to nil even when the user sets it.
+	assert.Nil(t, cs.Dimensions())
 }

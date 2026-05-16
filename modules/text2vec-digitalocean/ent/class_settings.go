@@ -62,8 +62,16 @@ func (cs *classSettings) BaseURL() string {
 	return cs.GetPropertyAsString("baseURL", DefaultBaseURL)
 }
 
+// Dimensions is currently disabled: DigitalOcean's Serverless Inference
+// /v1/embeddings endpoint does not accept a "dimensions" request field
+// (https://docs.digitalocean.com/reference/api/reference/serverless-inference/),
+// even for MRL-capable models like qwen3-embedding-0.6b that could otherwise
+// be truncated from their native 1024-d output. Sending the parameter is
+// silently ignored upstream, so we drop it here to avoid misleading users
+// who set it in the class config. Re-enable by returning
+// cs.GetPropertyAsInt64("dimensions", nil) once DigitalOcean adds support.
 func (cs *classSettings) Dimensions() *int64 {
-	return cs.GetPropertyAsInt64("dimensions", nil)
+	return nil
 }
 
 // apiKey resolves the DigitalOcean API key from the DIGITALOCEAN_APIKEY
