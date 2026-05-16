@@ -44,7 +44,15 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 	}
 
 	for _, task := range existingTasks {
-		if task.Status != distributedtask.TaskStatusStarted {
+		// FINALIZING counts as in-flight: every unit has reached terminal
+		// state, but the post-completion callbacks (per-node swap,
+		// cluster-wide schema flip) have not yet committed. Submitting a
+		// new migration on the same property during the FINALIZING window
+		// could land before MarkDistributedTaskFinalized commits the
+		// schema flip, leaving the new task and the unfinished swap of
+		// the prior one racing on the same bucket pointers.
+		if task.Status != distributedtask.TaskStatusStarted &&
+			task.Status != distributedtask.TaskStatusFinalizing {
 			continue
 		}
 

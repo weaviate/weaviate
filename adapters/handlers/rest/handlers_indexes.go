@@ -1010,6 +1010,17 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Status = "pending"
 		}
 		surfaceSyntheticFields = true
+	case distributedtask.TaskStatusFinalizing:
+		// Units are all terminal but the post-completion callbacks (swap +
+		// schema flip) have not yet committed cluster-wide. From the user's
+		// perspective this is "indexing at 100%": the work is done, we're
+		// waiting on the FINISHED transition. Once
+		// [distributedtask.Manager.MarkTaskFinalized] commits, the task
+		// moves to FINISHED and the FINISHED branch below (or the "ready"
+		// override after flagOn flips) takes over.
+		idx.Status = "indexing"
+		idx.Progress = 1.0
+		surfaceSyntheticFields = true
 	case distributedtask.TaskStatusFinished:
 		// The DTM declares a task FINISHED once every unit is terminal, but
 		// for semantic migrations (enable-*, change-tokenization) the actual
@@ -1087,7 +1098,12 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 // propagates — see the FINISHED case there).
 func taskStatusPriority(task *distributedtask.Task) int {
 	switch task.Status {
-	case distributedtask.TaskStatusStarted:
+	case distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusFinalizing:
+		// FINALIZING ranks alongside STARTED: from the user's perspective
+		// the task is still running (the schema flip has not yet
+		// committed). Surface its synthetic "indexing@100%" entry instead
+		// of an older FAILED attempt's terminal entry.
 		return 2
 	case distributedtask.TaskStatusFailed,
 		distributedtask.TaskStatusCancelled,
@@ -1178,14 +1194,22 @@ func errorResponse(msg string) *models.ErrorResponse {
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
 
-// countStartedTasksForCollection counts STARTED reindex tasks whose
+// countStartedTasksForCollection counts in-flight reindex tasks whose
 // payload targets the given collection. Unparseable payloads are
 // skipped (checkReindexConflict refuses the new submit when those
 // exist, so we don't need to double-count them here).
+//
+// FINALIZING counts as in-flight: callers use this to throttle parallel
+// submits, and a task whose units are all done but whose post-completion
+// callbacks (per-node swap, cluster-wide schema flip) have not yet
+// committed still holds the .migrations/ tracker dirs and the reindex
+// bucket lifecycle. Treating it as "free" would let a new submit race
+// the FINALIZING-to-FINISHED window.
 func countStartedTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {
-		if task.Status != distributedtask.TaskStatusStarted {
+		if task.Status != distributedtask.TaskStatusStarted &&
+			task.Status != distributedtask.TaskStatusFinalizing {
 			continue
 		}
 		var payload db.ReindexTaskPayload
@@ -1228,7 +1252,13 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	newProps []string, tasks []*distributedtask.Task,
 ) (string, error) {
 	for _, task := range tasks {
-		if task.Status != distributedtask.TaskStatusStarted {
+		// FINALIZING counts as in-flight here for the same reason as
+		// [ReindexProvider.CheckConflict]: the per-node swap and
+		// cluster-wide schema flip have not yet committed, so a new
+		// migration on overlapping properties could race the pending
+		// flip and corrupt bucket pointers.
+		if task.Status != distributedtask.TaskStatusStarted &&
+			task.Status != distributedtask.TaskStatusFinalizing {
 			continue
 		}
 

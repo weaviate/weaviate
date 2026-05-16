@@ -450,6 +450,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.UpdateUnitProgress(&cmd)
 		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.MarkTaskFinalized(&cmd)
+		}
 
 	default:
 		// This could occur when a new command has been introduced in a later app version

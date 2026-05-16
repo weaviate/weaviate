@@ -504,8 +504,14 @@ func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Ta
 					ID:      "task2",
 					Version: 13,
 				},
-				Payload:    []byte("test2"),
-				Status:     TaskStatusFinished,
+				Payload: []byte("test2"),
+				// Manager.RecordUnitCompletion alone takes a successful
+				// task to FINALIZING; the FINISHED transition is committed
+				// by [Manager.MarkTaskFinalized] which the [Scheduler]
+				// issues after every node's [Provider.OnTaskCompleted]
+				// returns. This helper exercises RecordUnitCompletion in
+				// isolation, so FINALIZING is the expected end state.
+				Status:     TaskStatusFinalizing,
 				StartedAt:  now,
 				FinishedAt: now.Add(time.Minute),
 				Units: map[string]*Unit{
@@ -673,12 +679,15 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 	assert.Equal(t, float32(1.0), task.Units["su-1"].Progress)
 	assert.Equal(t, UnitStatusPending, task.Units["su-2"].Status)
 
-	// Complete second unit → task should finish
+	// Complete second unit → task should transition to FINALIZING.
+	// FINISHED only after [Manager.MarkTaskFinalized], which the
+	// scheduler issues post-OnTaskCompleted; this test exercises the
+	// manager FSM in isolation so it stops at FINALIZING.
 	completeUnit(t, h, "ns", "task1", version, "node-2", "su-2")
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task = tasks["ns"][0]
-	assert.Equal(t, TaskStatusFinished, task.Status)
+	assert.Equal(t, TaskStatusFinalizing, task.Status)
 }
 
 func TestManager_RecordUnitCompletion_WithError(t *testing.T) {

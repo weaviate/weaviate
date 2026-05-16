@@ -45,6 +45,7 @@ type Scheduler struct {
 	completionRecorder TaskCompletionRecorder
 	tasksLister        TasksLister
 	taskCleaner        TaskCleaner
+	taskFinalizer      TaskFinalizer
 	clock              clockwork.Clock
 
 	localNode        string
@@ -97,6 +98,7 @@ type SchedulerParams struct {
 	CompletionRecorder TaskCompletionRecorder
 	TasksLister        TasksLister
 	TaskCleaner        TaskCleaner
+	TaskFinalizer      TaskFinalizer
 	Providers          map[string]Provider
 	Clock              clockwork.Clock
 	Logger             logrus.FieldLogger
@@ -125,6 +127,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		groupCallbackFired:     map[TaskDescriptor]map[string]bool{},
 		tasksLister:            params.TasksLister,
 		taskCleaner:            params.TaskCleaner,
+		taskFinalizer:          params.TaskFinalizer,
 		clock:                  params.Clock,
 
 		localNode:        params.LocalNode,
@@ -454,7 +457,16 @@ func (s *Scheduler) tick() {
 		// Fire group-level and task-level callbacks for unit-aware providers.
 		// OnGroupCompleted fires per-group as each group's units all reach terminal
 		// state (can fire mid-flight while task is still STARTED).
-		// OnTaskCompleted fires once when the task reaches terminal state.
+		// OnTaskCompleted fires once when the task reaches the FINALIZING
+		// (success path) or FAILED state. FINISHED tasks have already had
+		// their callbacks fire — the FINISHED transition is committed by
+		// [TaskFinalizer.MarkDistributedTaskFinalized] below only AFTER
+		// OnTaskCompleted returns successfully, so a task in the FINISHED
+		// state is by construction past this point. The callback-fired
+		// maps' pre-mark from [Scheduler.bootstrapProviders] (and the
+		// deferred-bootstrap path in this tick) also marks FINISHED tasks
+		// as already-fired so a node restart can't replay them.
+		_, providerIsUnitAware := provider.(UnitAwareProvider)
 		if suProvider, ok := provider.(UnitAwareProvider); ok {
 			for desc, task := range tasks {
 				if task.Status == TaskStatusCancelled {
@@ -464,13 +476,16 @@ func (s *Scheduler) tick() {
 				// Phase 1: per-group finalization (fires mid-flight as groups complete).
 				// A group is ready to finalize when either:
 				//   - All units in the group are terminal (normal completion), OR
-				//   - The task itself is terminal (fail-fast: remaining units won't complete)
-				taskTerminal := task.Status == TaskStatusFinished || task.Status == TaskStatusFailed
+				//   - The task itself is past STARTED (fail-fast or all units
+				//     terminal: remaining units won't complete)
+				postStarted := task.Status == TaskStatusFinalizing ||
+					task.Status == TaskStatusFailed ||
+					task.Status == TaskStatusFinished
 				for _, groupID := range task.Groups() {
 					if s.groupCallbackFired[desc] != nil && s.groupCallbackFired[desc][groupID] {
 						continue
 					}
-					if !taskTerminal && !task.AllGroupUnitsTerminal(groupID) {
+					if !postStarted && !task.AllGroupUnitsTerminal(groupID) {
 						continue
 					}
 					localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
@@ -483,17 +498,73 @@ func (s *Scheduler) tick() {
 					}
 				}
 
-				// Phase 2: global task completion (fires once when task is terminal)
-				if taskTerminal && !s.completedCallbackFired[desc] {
+				// Phase 2: global task completion. Fires on FINALIZING (success
+				// path — every unit COMPLETED, no failures) or FAILED. The
+				// FINALIZING→FINISHED transition is issued in the
+				// finalize-issuance block below (after OnTaskCompleted has
+				// run). FAILED tasks stay FAILED — no finalize RAFT command
+				// is issued for them because FAILED is itself terminal and
+				// the schema flip is deliberately skipped on the failure
+				// path.
+				readyForFinalize := task.Status == TaskStatusFinalizing ||
+					task.Status == TaskStatusFailed
+				if readyForFinalize && !s.completedCallbackFired[desc] {
 					s.completedCallbackFired[desc] = true
 					suProvider.OnTaskCompleted(task)
 				}
 			}
 		}
 
+		// Issue MarkDistributedTaskFinalized for FINALIZING tasks. For
+		// unit-aware providers we wait until OnTaskCompleted has fired
+		// (s.completedCallbackFired[desc] == true) so the FINISHED
+		// transition lines up with "every post-completion callback
+		// committed cluster-wide." For non-unit-aware providers there is
+		// no OnTaskCompleted to gate on — the task transitions straight
+		// from FINALIZING to FINISHED as soon as the scheduler sees the
+		// FINALIZING status.
+		if s.taskFinalizer != nil {
+			for desc, task := range tasks {
+				if task.Status != TaskStatusFinalizing {
+					continue
+				}
+				if providerIsUnitAware && !s.completedCallbackFired[desc] {
+					// OnTaskCompleted hasn't fired yet (e.g. provider's
+					// callback returned an error so the fired flag was
+					// reset, or the task only just transitioned to
+					// FINALIZING). Wait until the next tick.
+					continue
+				}
+				if err := s.taskFinalizer.MarkDistributedTaskFinalized(
+					context.Background(), namespace, task.ID, task.Version,
+				); err != nil {
+					s.loggerWithTask(namespace, desc).WithError(err).
+						Warn("failed to mark distributed task finalized; will retry on next tick or wake")
+					// For unit-aware providers, reset the fired flag so a
+					// subsequent tick or wake retries OnTaskCompleted +
+					// finalize. OnTaskCompleted is idempotent at the
+					// provider layer (the reindex schema flip is
+					// RAFT-applied with apply=false on no-op), so
+					// re-firing is safe.
+					if providerIsUnitAware {
+						s.completedCallbackFired[desc] = false
+					}
+				}
+			}
+		}
+
 		// Check that all tasks that are already finished and if their TTL has passed, so we can clean them up.
+		// FINALIZING is excluded explicitly: its FinishedAt is zero-time
+		// (set by [Manager.MarkTaskFinalized] only on the FINISHED
+		// transition), and `clock.Since(zero)` is enormous — without the
+		// exclusion the predicate would mis-classify every FINALIZING task
+		// as TTL-expired and request its cleanup before its post-completion
+		// callbacks finish.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
-			return task.Status != TaskStatusStarted && s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
+			if task.Status == TaskStatusStarted || task.Status == TaskStatusFinalizing {
+				return false
+			}
+			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
 		})
 		for _, task := range cleanableTasks {
 			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)

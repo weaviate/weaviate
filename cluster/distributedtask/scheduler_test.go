@@ -126,6 +126,11 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	// remote node completes its unit
 	completeUnit(t, h, h.tasksNamespace, taskID, version, "remote-node", "su-remote")
 
+	// All units terminal → task is FINALIZING until the scheduler tick
+	// issues MarkDistributedTaskFinalized. Advance the clock so the
+	// tick fires and the FINISHED transition commits.
+	h.advanceClock(h.schedulerTickInterval)
+
 	tasks = h.listManagerTasks(t)[h.tasksNamespace]
 	require.Len(t, tasks, 1)
 	require.Equal(t, TaskStatusFinished, tasks[0].Status)
@@ -603,6 +608,7 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		CompletionRecorder: h.completionRecorder,
 		TasksLister:        h.manager,
 		TaskCleaner:        h.cleaner,
+		TaskFinalizer:      newDirectFinalizer(t, h.manager),
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
 		Logger:             h.logger,
@@ -612,6 +618,29 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		TickInterval:       h.schedulerTickInterval,
 	})
 	return h
+}
+
+// directFinalizer is a unit-test TaskFinalizer that calls
+// [Manager.MarkTaskFinalized] directly, bypassing the gRPC ApplyRequest
+// envelope used by [Raft.MarkDistributedTaskFinalized] in production.
+// Production scheduler runs route through RAFT for cluster consistency;
+// tests use a single in-memory manager and don't need (or have) RAFT.
+type directFinalizer struct {
+	t       *testing.T
+	manager *Manager
+}
+
+func newDirectFinalizer(t *testing.T, manager *Manager) *directFinalizer {
+	return &directFinalizer{t: t, manager: manager}
+}
+
+func (d *directFinalizer) MarkDistributedTaskFinalized(_ context.Context, namespace, taskID string, taskVersion uint64) error {
+	return d.manager.MarkTaskFinalized(toCmd(d.t, &cmd.MarkTaskFinalizedRequest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		Version:               taskVersion,
+		FinalizedAtUnixMillis: d.manager.clock.Now().UnixMilli(),
+	}))
 }
 
 func (h *testHarness) advanceClock(duration time.Duration) {
@@ -1034,7 +1063,9 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 
 	// Pre-populate a FINISHED task BEFORE creating the scheduler under test.
 	// This simulates the previous incarnation's scheduler having completed
-	// the task pre-restart.
+	// the task pre-restart — both the unit-completion record AND the
+	// MarkDistributedTaskFinalized commit that the previous scheduler's
+	// OnTaskCompleted would have issued.
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
 		Id:                    "pre-restart-finished",
@@ -1042,6 +1073,12 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 		UnitIds:               []string{"u-1"},
 	}), 1))
 	completeUnit(t, h, h.tasksNamespace, "pre-restart-finished", 1, h.localNodeID, "u-1")
+	require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+		Namespace:             h.tasksNamespace,
+		Id:                    "pre-restart-finished",
+		Version:               1,
+		FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
 
 	// Sanity: the task is FINISHED in the manager's state.
 	tasks := h.listManagerTasks(t)[h.tasksNamespace]

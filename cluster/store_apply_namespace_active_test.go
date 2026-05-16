@@ -97,6 +97,7 @@ var nonNamespaceTouchingApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP:                                  {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED:                     {},
 	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS:                      {},
+	api.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED:                            {},
 }
 
 // TestApplyTypeNamespaceGateClassification fails when a new

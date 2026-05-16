@@ -78,6 +78,13 @@ var (
 
 	// ErrUnitWrongNode matches "unit ... belongs to node X, not Y".
 	ErrUnitWrongNode = errors.New("unit belongs to a different node")
+
+	// ErrTaskNotInFinalizingState matches "task ... cannot be finalized
+	// from status ...". Returned by [Manager.MarkTaskFinalized] when a
+	// stale RAFT command for a task that has already been cancelled or
+	// failed arrives — refusing here avoids overwriting a terminal
+	// status the operator (or fail-fast path) committed in the meantime.
+	ErrTaskNotInFinalizingState = errors.New("task is not in finalizing state")
 )
 
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
@@ -102,6 +109,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrTaskDoesNotExist, "task-not-exist"},
 	{ErrUnitAlreadyTerminal, "unit-terminal"},
 	{ErrUnitWrongNode, "unit-wrong-node"},
+	{ErrTaskNotInFinalizingState, "task-not-finalizing"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

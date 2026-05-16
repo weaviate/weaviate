@@ -955,6 +955,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		CompletionRecorder: appState.ClusterService.Raft,
 		TasksLister:        appState.ClusterService.Raft,
 		TaskCleaner:        appState.ClusterService.Raft,
+		TaskFinalizer:      appState.ClusterService.Raft,
 		Providers:          providers,
 		Logger:             appState.Logger,
 		MetricsRegisterer:  metricsRegisterer,

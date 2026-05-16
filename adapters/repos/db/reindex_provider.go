@@ -1042,10 +1042,20 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	logger := p.logger.WithField("taskID", task.ID).WithField("status", task.Status)
 	logger.Info("reindex provider: OnTaskCompleted")
 
-	if task.Status != distributedtask.TaskStatusFinished {
-		// Failed / cancelled / still-running: do not flip the schema.
-		// (still-running shouldn't happen for OnTaskCompleted but we guard
-		// defensively rather than racing the FSM.)
+	if task.Status != distributedtask.TaskStatusFinalizing {
+		// FAILED / CANCELLED / STARTED / FINISHED: do not flip the schema.
+		//  - FAILED: migration did not succeed cluster-wide; the schema
+		//    should reflect the pre-migration state. Per-shard cleanup of
+		//    partial bucket state is handled by CleanStalePartialReindexState
+		//    on next restart or next reindex submission.
+		//  - CANCELLED: scheduler already short-circuits before calling here
+		//    (see [Scheduler.tick]), but guard defensively.
+		//  - STARTED: shouldn't happen for OnTaskCompleted but we guard
+		//    defensively rather than racing the FSM.
+		//  - FINISHED: a previous OnTaskCompleted already ran and the
+		//    scheduler issued MarkDistributedTaskFinalized. Re-firing on
+		//    FINISHED would only happen if the [Scheduler.bootstrapProviders]
+		//    pre-mark missed this task — never in normal flow.
 		return
 	}
 	if payloadErr != nil {
@@ -1229,30 +1239,20 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		if payload.TargetTokenization == "" {
 			return fmt.Errorf("change-tokenization without targetTokenization in payload")
 		}
+		// No stale-replay guard needed: with the FINALIZING status (see
+		// [distributedtask.TaskStatusFinalizing]), OnTaskCompleted only
+		// fires while the task is FINALIZING — never on an already-FINISHED
+		// task. The cluster-wide conflict check
+		// ([db.checkConcurrentReindex]) treats FINALIZING as in-flight,
+		// so a newer change-tokenization for the same property cannot be
+		// submitted until this one transitions FINALIZING→FINISHED via
+		// MarkDistributedTaskFinalized. The "older task replays past a
+		// newer one" shape that motivated the OriginalTokenization guard
+		// can no longer occur.
 		missing, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldTokenization},
 			func(prop *models.Property) bool {
 				if prop.Tokenization == payload.TargetTokenization {
-					return false
-				}
-				// Stale-replay guard: only flip if the schema is still
-				// at the pre-migration state this task expected. After a
-				// node restart, the DTM scheduler re-fires
-				// OnTaskCompleted for already-FINISHED tasks; if T_1
-				// (word→field) replays after T_2 (field→word) already
-				// committed, prop.Tokenization is currently "word",
-				// T_1.OriginalTokenization is also "word" — but T_1's
-				// flip to "field" would silently revert T_2's correct
-				// state. Refuse to flip when the schema isn't where
-				// this task started. Empty OriginalTokenization (older
-				// payloads without the field, or non-change-tok
-				// migration types) falls through to the legacy behavior.
-				if payload.OriginalTokenization != "" && prop.Tokenization != payload.OriginalTokenization {
-					logger.WithFields(logrus.Fields{
-						"current":  prop.Tokenization,
-						"expected": payload.OriginalTokenization,
-						"target":   payload.TargetTokenization,
-					}).Info("reindex provider: schema is not at this task's pre-migration tokenization — a newer task moved past us, skipping replayed flip")
 					return false
 				}
 				prop.Tokenization = payload.TargetTokenization
@@ -1345,11 +1345,13 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 // before the enable-* family was introduced. Promoting it would change
 // behavior for existing operators and is tracked separately.
 //
-// NOTE: the FINISHED transition in the DTM fires when all units are
-// terminal, which is BEFORE OnGroupCompleted runs the swap on each
-// node. So a poller waiting for FINISHED may see "done" before the
-// schema flag has flipped on this node; callers must Eventually-poll
-// the schema for the actual post-swap state.
+// NOTE: with the FINALIZING state (see
+// [distributedtask.TaskStatusFinalizing]), the FSM stays at FINALIZING
+// while OnGroupCompleted (per-node swap) + OnTaskCompleted
+// (cluster-wide schema flip) run; only after the scheduler's
+// MarkDistributedTaskFinalized RAFT command commits does the status
+// flip to FINISHED. Callers polling for FINISHED can therefore trust
+// that the schema flag has flipped cluster-wide.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||

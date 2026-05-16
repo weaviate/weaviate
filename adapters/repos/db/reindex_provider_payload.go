@@ -57,21 +57,22 @@ type ReindexTaskPayload struct {
 	Collection         string               `json:"collection"`
 	Properties         []string             `json:"properties,omitempty"`
 	TargetTokenization string               `json:"targetTokenization,omitempty"`
-	// OriginalTokenization is the schema's `tokenization` value at task
-	// submit time. Used by OnTaskCompleted to ensure the schema-flip
-	// only runs when the schema is still at the pre-migration state.
+	// OriginalTokenization records the schema's `tokenization` value at
+	// task submit time. Historically used as a stale-replay guard in
+	// OnTaskCompleted: refuse to flip the schema when the schema is no
+	// longer at this task's pre-migration tokenization (indicating a
+	// newer task already moved past us).
 	//
-	// Without this guard, a node restart that replays the DTM scheduler's
-	// callbacks for already-FINISHED tasks would fire OnTaskCompleted on
-	// an older task whose payload says "target=field", overriding a
-	// newer task's already-applied "target=word" schema. The replay does
-	// not damage on-disk bucket data (the canonical bucket was promoted
-	// at startup by FinalizeCompletedMigrations), but it leaves the
-	// property's `tokenization` field at the stale older target,
-	// breaking query tokenization on every subsequent BM25 search.
-	//
-	// Empty for non-change-tokenization migration types — they have no
-	// pre-migration tokenization to guard against.
+	// As of the FINALIZING-state work (see
+	// [distributedtask.TaskStatusFinalizing]), that guard is structurally
+	// unreachable: the cluster-wide conflict check treats FINALIZING as
+	// in-flight, so a newer change-tokenization on the same property
+	// cannot be submitted until the current one transitions to FINISHED;
+	// and [Scheduler.bootstrapProviders] pre-marks FINISHED tasks so
+	// OnTaskCompleted never re-fires for them on restart. The field is
+	// retained for forensic continuity on RAFT logs and for any future
+	// guard that wants to assert against the recorded pre-migration
+	// state, but it no longer participates in correctness.
 	OriginalTokenization string `json:"originalTokenization,omitempty"`
 	BucketStrategy       string `json:"bucketStrategy,omitempty"`
 

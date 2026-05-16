@@ -39,6 +39,19 @@ type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
+// TaskFinalizer is an interface for issuing a request to transition a task
+// from [TaskStatusFinalizing] to [TaskStatusFinished]. The [Scheduler] calls
+// this from its tick after [Provider.OnTaskCompleted] returns successfully so
+// the FSM-level FINISHED state lines up with "every post-completion callback
+// committed cluster-wide" (not just "every unit terminal"). Idempotent at the
+// FSM layer — every node's scheduler issues this independently after its
+// local OnTaskCompleted returns; only the first commit actually flips the
+// status. See the FINALIZING godoc on [TaskStatusFinalizing] for the
+// underlying race this discipline fixes.
+type TaskFinalizer interface {
+	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+}
+
 // TaskCompletionRecorder is an interface for recording the completion of a distributed task.
 type TaskCompletionRecorder interface {
 	RecordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string) error
@@ -209,7 +222,20 @@ type TaskStatus string
 const (
 	// TaskStatusStarted means that the task is still running on some of the nodes.
 	TaskStatusStarted TaskStatus = "STARTED"
-	// TaskStatusFinished means that the task was successfully executed by all nodes.
+	// TaskStatusFinalizing means every unit has reached a terminal state and
+	// the scheduler is running the task's post-completion callbacks
+	// (per-node OnGroupCompleted swap + cluster-wide OnTaskCompleted
+	// schema flip for semantic migrations). The task is NOT yet safe to
+	// act upon from the API surface: callers polling for "fully done"
+	// must wait for [TaskStatusFinished]. Format-only journeys (no
+	// post-completion callback work) pass through this state in
+	// essentially zero time. See GH 0-weaviate-issues#212 Issues F+G for
+	// the underlying race this state fixes.
+	TaskStatusFinalizing TaskStatus = "FINALIZING"
+	// TaskStatusFinished means that the task was successfully executed by
+	// all nodes AND every post-completion callback (per-node swap +
+	// cluster-wide schema flip) has run. Callers polling for "fully done"
+	// should wait for this status — never for [TaskStatusFinalizing].
 	TaskStatusFinished TaskStatus = "FINISHED"
 	// TaskStatusCancelled means that the task was cancelled by user.
 	TaskStatusCancelled TaskStatus = "CANCELLED"

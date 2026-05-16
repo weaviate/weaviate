@@ -271,10 +271,29 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 
 	if task.AllUnitsTerminal() {
 		if task.AnyUnitFailed() {
+			// Failures are terminal immediately — there are no
+			// post-task callbacks to wait for on the failure path
+			// (the schema flip is intentionally skipped when any
+			// unit failed; see OnTaskCompleted's early-return for
+			// FAILED tasks).
 			task.Status = TaskStatusFailed
 		} else {
-			task.Status = TaskStatusFinished
+			// All units COMPLETED with no failures — hand off to the
+			// scheduler for post-completion callbacks (per-node swap
+			// via OnGroupCompleted, cluster-wide schema flip via
+			// OnTaskCompleted). The scheduler will RAFT
+			// [MarkTaskFinalized] once every callback succeeds; that
+			// is what flips Status to FINISHED. Until then the task
+			// is FINALIZING and callers polling for "fully done" must
+			// keep waiting.
+			task.Status = TaskStatusFinalizing
 		}
+		// FinishedAt records when units completed, regardless of which
+		// status path we took. For the FINALIZING path this is intentional:
+		// completed-task TTL counts from "all units done," not from when
+		// the callbacks finished committing. The cleanup predicate in
+		// [Scheduler.tick] excludes FINALIZING explicitly so a task whose
+		// FinishedAt is already past TTL won't be cleaned mid-finalize.
 		task.FinishedAt = finishedAt
 	}
 
@@ -283,6 +302,56 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	// the cluster-wide AllGroupUnitsTerminal predicate becomes true. The
 	// Scheduler decides which callbacks to actually fire; here we just
 	// ensure it gets a chance to look.
+	m.notifySchedulerWithLock()
+	return nil
+}
+
+// MarkTaskFinalized transitions a task from FINALIZING to FINISHED. It
+// is issued by the scheduler once OnGroupCompleted (per-node swap) and
+// OnTaskCompleted (cluster-wide schema flip for semantic migrations)
+// have both succeeded — see GH 0-weaviate-issues#212 Issues F+G.
+//
+// Idempotent at the FSM layer: every node's scheduler fires this command
+// after its local callbacks succeed. The first commit flips the status;
+// subsequent commits hit the "already FINISHED" short-circuit and return
+// without error.
+func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
+	var r api.MarkTaskFinalizedRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal mark task finalized request: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	if err != nil {
+		return err
+	}
+
+	switch task.Status {
+	case TaskStatusFinished:
+		// Idempotent: another node's MarkTaskFinalized already
+		// committed. Nothing more to do.
+		return nil
+	case TaskStatusFinalizing:
+		// Normal transition.
+	default:
+		// FAILED / CANCELLED / STARTED — refusing here protects against
+		// a stale RAFT command arriving after a cancel/fail moved the
+		// task to a terminal state we shouldn't overwrite.
+		return wrapPermanent(ErrTaskNotInFinalizingState,
+			fmt.Sprintf("task %s/%s/%d cannot be finalized from status %s",
+				r.Namespace, r.Id, task.Version, task.Status))
+	}
+
+	// FinishedAt is intentionally NOT overwritten here. It was already set
+	// in [Manager.RecordUnitCompletion] when all units reached terminal
+	// state — that is the user-meaningful "when did the work finish"
+	// timestamp, and the completed-task TTL counts from there. The
+	// FinalizedAtUnixMillis on the request is left in place for forensic
+	// purposes (visible in RAFT logs) but not stored on the Task.
+	task.Status = TaskStatusFinished
 	m.notifySchedulerWithLock()
 	return nil
 }
@@ -430,8 +499,12 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 // SliceStable documents the intent.
 func sortTasksForDisplay(tasks []*Task) {
 	sort.SliceStable(tasks, func(i, j int) bool {
-		iStarted := tasks[i].Status == TaskStatusStarted
-		jStarted := tasks[j].Status == TaskStatusStarted
+		// "In flight" = STARTED or FINALIZING: units still running, OR
+		// units done but post-completion callbacks not yet committed.
+		// Both display ahead of terminal tasks so the freshest
+		// user-relevant task surfaces first.
+		iStarted := tasks[i].Status == TaskStatusStarted || tasks[i].Status == TaskStatusFinalizing
+		jStarted := tasks[j].Status == TaskStatusStarted || tasks[j].Status == TaskStatusFinalizing
 		if iStarted != jStarted {
 			return iStarted
 		}

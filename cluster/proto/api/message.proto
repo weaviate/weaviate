@@ -107,6 +107,7 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_CLEAN_UP = 303;
     TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED = 304;
     TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS = 305;
+    TYPE_DISTRIBUTED_TASK_MARK_FINALIZED = 306;
   }
   Type type = 1;
   string class = 2;
@@ -284,4 +285,19 @@ message UpdateDistributedTaskUnitProgressRequest {
   string unit_id = 5;
   float progress = 6;
   int64 updated_at_unix_millis = 7;
+}
+
+// MarkTaskFinalizedRequest transitions a task from FINALIZING to
+// FINISHED. The scheduler issues this from OnTaskCompleted once
+// every post-task callback (per-node swap, cluster-wide schema flip)
+// has succeeded, so callers polling for FINISHED can trust the
+// terminal status to mean "all side-effects committed." Idempotent at
+// the FSM layer — every node's scheduler fires the same command after
+// its local OnTaskCompleted returns; only the first commit actually
+// flips the status.
+message MarkTaskFinalizedRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  int64 finalized_at_unix_millis = 4;
 }

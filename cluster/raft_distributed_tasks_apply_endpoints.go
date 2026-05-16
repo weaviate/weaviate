@@ -123,3 +123,12 @@ func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID str
 		Version:   taskVersion,
 	})
 }
+
+func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED, &cmd.MarkTaskFinalizedRequest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		Version:               taskVersion,
+		FinalizedAtUnixMillis: time.Now().UnixMilli(),
+	})
+}
