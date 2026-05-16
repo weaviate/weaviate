@@ -833,15 +833,13 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	breakCh <- false
 	finished := false
 
-	// Flush the objects bucket so the bulk of recently-written objects are
-	// in segments rather than the active memtable. This is a perf hint
-	// (segment iteration is cheaper than memtable iteration), not a
-	// correctness requirement: the cursor type used by
-	// uuidObjectsIteratorAsync (Cursor(), not CursorOnDisk()) sees the
-	// flushing/active memtables under flushLock, so a concurrent
-	// migration's in-flight flush can't hide pre-reindex data from this
-	// iterator. See the cursor comment in uuidObjectsIteratorAsync and
-	// GH 0-weaviate-issues#212 Issues C+D.
+	// Flush the objects bucket so all data prior to this point is in
+	// segments before the CursorOnDisk scan in [uuidObjectsIteratorAsync].
+	// [Bucket.FlushAndSwitch] is serialized via [Bucket.flushAndSwitchMu]
+	// so concurrent reindex tasks on the same shard wait for one another's
+	// flush to land; on return, `sg.segments` is guaranteed to include
+	// every pre-call write and the segment cursor will see it. See GH
+	// 0-weaviate-issues#212 Issues C+D for the underlying race.
 	objectsBucket := store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket != nil {
 		if err = objectsBucket.FlushAndSwitch(); err != nil {
@@ -1910,36 +1908,16 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 	mdCh := make(chan *migrationData)
 
 	enterrors.GoWrapper(func() {
-		// Use Cursor() rather than CursorOnDisk(): with multiple
-		// concurrent migrations on the same shard, the first migration's
-		// FlushAndSwitch moves the active memtable to b.flushing and
-		// flushes it asynchronously to disk. The second/third
-		// migrations' FlushAndSwitch see b.active.Size()==0 and return
-		// immediately without waiting for the in-flight flush to add the
-		// new segment via atomicallyAddDiskSegmentAndRemoveFlushing. If
-		// the second migration's iterator then calls CursorOnDisk() in
-		// that window, the cursor reads sg.segments — which does NOT
-		// yet contain the still-flushing memtable's data — and sees an
-		// empty result. The iterator reports processed_count=0,
-		// markReindexed+runtimeSwap proceed against an empty reindex
-		// bucket, and the swap promotes empty into main → data loss
-		// across all concurrent migrations on this shard.
-		//
-		// Cursor() pins a snapshot of disk segments + flushing memtable
-		// + active memtable under flushLock.RLock(), so it sees every
-		// object that existed at cursor-creation time regardless of
-		// in-flight flush progress. Post-reindex writes that land in
-		// active after cursor creation aren't in this snapshot, but
-		// AddCallback already double-writes them into the ingest bucket
-		// — and the `LastUpdateTimeUnix < reindexStarted` check below
-		// independently skips those even if a future cursor type were
-		// to surface them, so the iterator's behaviour is unchanged for
-		// pre-/post-reindex objects in the active memtable.
-		//
-		// See GH 0-weaviate-issues#212 Issues C+D + concurrent
-		// migrations regression test
-		// (TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle).
-		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).Cursor()
+		// CursorOnDisk is safe here because [Bucket.FlushAndSwitch] is
+		// serialized via [Bucket.flushAndSwitchMu] — every caller
+		// (including the preceding FlushAndSwitch on this iterator's
+		// path) waits for any concurrent flush to complete before
+		// returning. So `sg.segments` is guaranteed to include all
+		// data written before this call, with no transient window
+		// where data is parked in `b.flushing` invisible to the
+		// segment cursor. See GH 0-weaviate-issues#212 Issues C+D
+		// for the underlying race that was fixed by the lock.
+		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
 		defer cursor.Close()
 
 		startedCh <- time.Now() // after cursor created (necessary locks acquired)
