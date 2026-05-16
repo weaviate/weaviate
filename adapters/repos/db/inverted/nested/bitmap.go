@@ -133,7 +133,8 @@ func MaskRootLeaf(bm *sroar.Bitmap) *sroar.Bitmap {
 }
 
 // AndAll returns the intersection of all bitmaps on raw positions. Inputs are
-// not modified. Returns an empty bitmap if bitmaps is empty.
+// not modified. Returns an empty bitmap if bitmaps is empty or if the running
+// intersection becomes empty mid-loop (further ANDs cannot change the result).
 func AndAll(bitmaps []*sroar.Bitmap) *sroar.Bitmap {
 	if len(bitmaps) == 0 {
 		return sroar.NewBitmap()
@@ -141,6 +142,9 @@ func AndAll(bitmaps []*sroar.Bitmap) *sroar.Bitmap {
 	result := bitmaps[0].Clone()
 	for _, bm := range bitmaps[1:] {
 		result.And(bm)
+		if result.IsEmpty() {
+			return result
+		}
 	}
 	return result
 }
@@ -148,7 +152,8 @@ func AndAll(bitmaps []*sroar.Bitmap) *sroar.Bitmap {
 // AndAllMaskLeaf zeroes the leaf bits of each bitmap and ANDs them all,
 // returning root+docID values present across every input. Use this to find
 // which document-element pairs satisfy all conditions simultaneously.
-// Returns an empty bitmap if bitmaps is empty.
+// Returns an empty bitmap if bitmaps is empty or if the running intersection
+// becomes empty mid-loop (further ANDs cannot change the result).
 func AndAllMaskLeaf(bitmaps []*sroar.Bitmap) *sroar.Bitmap {
 	if len(bitmaps) == 0 {
 		return sroar.NewBitmap()
@@ -156,6 +161,9 @@ func AndAllMaskLeaf(bitmaps []*sroar.Bitmap) *sroar.Bitmap {
 	result := MaskLeaf(bitmaps[0])
 	for _, bm := range bitmaps[1:] {
 		result.AndMasked(bm, zeroLeafBits)
+		if result.IsEmpty() {
+			return result
+		}
 	}
 	return result
 }
