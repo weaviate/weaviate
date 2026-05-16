@@ -84,9 +84,24 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 
 	// Strip any [N] index from the first path segment so that "nested[0].city"
 	// correctly resolves to the "nested" property in the schema.
-	prop, err := schema.GetPropertyByName(class, nested.RootPropName(propName.String()))
+	rootName := nested.RootPropName(propName.String())
+	prop, err := schema.GetPropertyByName(class, rootName)
 	if err != nil {
 		return err
+	}
+
+	// [N] indexing is only meaningful for nested object[] properties. If the
+	// user wrote it on a flat property the positional intent would otherwise
+	// be silently dropped (e.g. "tagsArray[0]" would degrade to "tagsArray"),
+	// so reject it at validation time. Inspect the first path segment
+	// directly so this branch only triggers when the user actually wrote [N];
+	// any other malformed dotted input falls through to a more appropriate
+	// error path below.
+	if nested.SplitPath(propName.String())[0].HasIndex {
+		if _, ok := schema.AsNested(prop.DataType); !ok {
+			return fmt.Errorf("property %q: [N] indexing is only supported on nested object[] properties",
+				propName)
+		}
 	}
 
 	if _, ok := schema.AsNested(prop.DataType); ok {

@@ -43,6 +43,7 @@ func nestedClass() *models.Class {
 		Class: "Article",
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "tagsArray", DataType: schema.DataTypeTextArray.PropString()},
 			{
 				Name:     "nested",
 				DataType: schema.DataTypeObject.PropString(),
@@ -255,6 +256,36 @@ func TestValidateNestedPathClause(t *testing.T) {
 			valueType: schema.DataTypeText,
 			value:     "Alice",
 			wantErr:   `sub-property "owner" is of type "object" — [N] indexing requires an array type`,
+		},
+		// --- [N] on flat (non-nested) properties is rejected, so positional
+		// intent is never silently dropped ---
+		{
+			name:      "[N] rejected on flat array property",
+			propName:  "tagsArray[0]",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   `[N] indexing is only supported on nested object[] properties`,
+		},
+		{
+			name:      "[N] rejected on flat scalar property",
+			propName:  "title[0]",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   `[N] indexing is only supported on nested object[] properties`,
+		},
+		{
+			// A dotted path on a flat property must not be misreported as a
+			// "[N] indexing" error — the path contains no [N], so the
+			// [N]-rejection branch must not fire. The current code falls
+			// through and allows the filter (treating "title.foo" as a filter
+			// on the flat "title" prop); whether that's correct is a separate
+			// concern. This test asserts only that the [N] branch is gated
+			// by an actual [N], not by a stripped dot.
+			name:      "dotted path on flat property does not produce [N] error",
+			propName:  "title.foo",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   "",
 		},
 	}
 
