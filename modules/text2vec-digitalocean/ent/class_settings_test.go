@@ -45,7 +45,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "model is set and is in the list",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"model": "qwen3-embedding-0.6b",
 				},
 			},
@@ -55,7 +55,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "model is missing",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{},
+				classConfig: map[string]any{},
 			},
 			lister:     &fakeModelLister{models: []string{"qwen3-embedding-0.6b"}},
 			apiKeyEnv:  "dop_v1_test",
@@ -64,7 +64,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "model is not in the available list",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"model": "made-up-model",
 				},
 			},
@@ -80,7 +80,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			// via the X-Digitalocean-Api-Key header).
 			name: "api key missing - validation skipped",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"model": "any-model-we-cannot-verify",
 				},
 			},
@@ -91,7 +91,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "lister returns error",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
+				classConfig: map[string]any{
 					"model": "qwen3-embedding-0.6b",
 				},
 			},
@@ -125,14 +125,14 @@ func Test_classSettings_Validate(t *testing.T) {
 }
 
 func Test_classSettings_Defaults(t *testing.T) {
-	cs := NewClassSettings(fakeClassConfig{classConfig: map[string]interface{}{}})
+	cs := NewClassSettings(fakeClassConfig{classConfig: map[string]any{}})
 	assert.Equal(t, DefaultBaseURL, cs.BaseURL())
 	assert.Equal(t, "", cs.Model())
 	assert.Nil(t, cs.Dimensions())
 }
 
 func Test_classSettings_Overrides(t *testing.T) {
-	cs := NewClassSettings(fakeClassConfig{classConfig: map[string]interface{}{
+	cs := NewClassSettings(fakeClassConfig{classConfig: map[string]any{
 		"baseURL":    "https://example.com",
 		"model":      "qwen3-embedding-0.6b",
 		"dimensions": 1024,
