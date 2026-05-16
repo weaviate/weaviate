@@ -1905,7 +1905,36 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 	mdCh := make(chan *migrationData)
 
 	enterrors.GoWrapper(func() {
-		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
+		// Use Cursor() rather than CursorOnDisk(): with multiple
+		// concurrent migrations on the same shard, the first migration's
+		// FlushAndSwitch moves the active memtable to b.flushing and
+		// flushes it asynchronously to disk. The second/third
+		// migrations' FlushAndSwitch see b.active.Size()==0 and return
+		// immediately without waiting for the in-flight flush to add the
+		// new segment via atomicallyAddDiskSegmentAndRemoveFlushing. If
+		// the second migration's iterator then calls CursorOnDisk() in
+		// that window, the cursor reads sg.segments — which does NOT
+		// yet contain the still-flushing memtable's data — and sees an
+		// empty result. The iterator reports processed_count=0,
+		// markReindexed+runtimeSwap proceed against an empty reindex
+		// bucket, and the swap promotes empty into main → data loss
+		// across all concurrent migrations on this shard.
+		//
+		// Cursor() pins a snapshot of disk segments + flushing memtable
+		// + active memtable under flushLock.RLock(), so it sees every
+		// object that existed at cursor-creation time regardless of
+		// in-flight flush progress. Post-reindex writes that land in
+		// active after cursor creation aren't in this snapshot, but
+		// AddCallback already double-writes them into the ingest bucket
+		// — and the `LastUpdateTimeUnix < reindexStarted` check below
+		// independently skips those even if a future cursor type were
+		// to surface them, so the iterator's behaviour is unchanged for
+		// pre-/post-reindex objects in the active memtable.
+		//
+		// See GH 0-weaviate-issues#212 Issues C+D + concurrent
+		// migrations regression test
+		// (TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle).
+		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).Cursor()
 		defer cursor.Close()
 
 		startedCh <- time.Now() // after cursor created (necessary locks acquired)
