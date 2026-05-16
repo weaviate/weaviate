@@ -53,14 +53,19 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "PostRestartPlateau"
-	restURI := compose.GetWeaviateNode(1).URI()
 
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
+	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
-	defer deleteCollection(t, restURI, className)
+	// Re-resolve at defer time: rollingRestart replaces each container,
+	// which testcontainers reallocates ports for. Capturing a URL at
+	// defer-registration time would bake in a pre-restart port and the
+	// cleanup DELETE would race a "connection refused".
+	defer func() {
+		deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+	}()
 
-	importObjects(t, restURI, className, testDocuments)
+	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 
 	// Phase 1: a successful migration BEFORE the restart, so the
 	// shards have a non-empty .migrations/ history. Without this,
@@ -80,6 +85,11 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 	// will plateau at (N-1)/N for the whole window and this Eventually
 	// will time out cleanly with a useful error including the last
 	// observed progress.
+	//
+	// Re-resolve the node-1 URI from the compose handle on every API
+	// call: testcontainers reallocates ports across the
+	// stop+start in restartCluster, so pre-restart URIs are stale.
+	restURI := compose.GetWeaviateNode(1).URI()
 	taskID := submitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"word"}}`)
 	t.Logf("submitted post-restart task: %s", taskID)
