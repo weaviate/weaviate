@@ -291,3 +291,95 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 
 	require.NoError(t, shard2.Shutdown(ctx))
 }
+
+// TestRunSwapOnShard_SentinelAwareDispatch pins the recovery branches in
+// [ShardReindexTaskGeneric.RunSwapOnShard] that took over after
+// 0-weaviate-issues#214 Phase 7c.
+//
+// Before the dispatch fix, RunSwapOnShard unconditionally called
+// runtimeSwap which required the reindex bucket to be in the in-memory
+// store. After a rolling restart that landed inside the FINALIZING
+// window past markPrepended(), the reindex bucket dirs were removed
+// from disk in [runtimeSwap]'s Step 2.5 (removeReindexBucketsDirs) and
+// the recovery rehydrate path would fail with "reindex bucket %q not
+// found", emit a failure ack, and flip the cluster-wide task to FAILED
+// while the OTHER replicas had already swapped their buckets — the
+// schema↔bucket inversion bug.
+//
+// Each subtest sets up a tracker at a specific on-disk sentinel state
+// (no in-process migration), then calls RunSwapOnShard and asserts the
+// strategy's OnMigrationComplete fired (proves the dispatch reached
+// finalizeMigrationAfterRecovery — the right tail of every recovery
+// branch).
+//
+// Note: this test only exercises the SENTINEL FILE state, not the full
+// on-disk bucket layout — the recovery functions tolerate missing
+// bucket dirs when the sentinel says they were already moved. For the
+// IsMerged/IsPrepended branches we still write a dummy ingest dir so
+// recoverRuntimeSwapBuckets's "main exists / backup exists" guard
+// can find something to rename. The acceptance tests in
+// test/acceptance/reindex_multinode/issue_214_finalize_crash_test.go
+// cover the end-to-end multi-node convergence assertion.
+func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
+	tests := []struct {
+		name     string
+		setupRT  func(rt reindexTracker)
+		wantPath string
+	}{
+		{
+			name: "IsTidied/idempotent",
+			setupRT: func(rt reindexTracker) {
+				require.NoError(t, rt.markStarted(time.Now()))
+				require.NoError(t, rt.markReindexed())
+				require.NoError(t, rt.markPrepended())
+				require.NoError(t, rt.markMerged())
+				require.NoError(t, rt.markSwapped())
+				require.NoError(t, rt.markTidied())
+			},
+			wantPath: "tidied",
+		},
+		{
+			name: "IsSwapped/!IsTidied/tidy_only",
+			setupRT: func(rt reindexTracker) {
+				require.NoError(t, rt.markStarted(time.Now()))
+				require.NoError(t, rt.markReindexed())
+				require.NoError(t, rt.markPrepended())
+				require.NoError(t, rt.markMerged())
+				require.NoError(t, rt.markSwapped())
+			},
+			wantPath: "swapped",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "TestSentinelDispatch_" + tc.name
+			class := newTestClass(className)
+
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+			task := newTestTask(idx.logger, strategy)
+
+			// Set up the on-disk tracker at the target sentinel state.
+			rt, err := task.newReindexTracker(shard.pathLSM())
+			require.NoError(t, err)
+			require.NoError(t, rt.saveProps([]string{"title"}))
+			tc.setupRT(rt)
+
+			// Call RunSwapOnShard — the new dispatch must route through
+			// the recovery branch matching the sentinel state and
+			// invoke OnMigrationComplete.
+			err = task.RunSwapOnShard(ctx, shard)
+			require.NoError(t, err,
+				"RunSwapOnShard should succeed via the %s recovery branch", tc.wantPath)
+
+			require.True(t, strategy.migrationCompleted,
+				"OnMigrationComplete should have fired (finalizeMigrationAfterRecovery tail of every recovery branch)")
+		})
+	}
+}

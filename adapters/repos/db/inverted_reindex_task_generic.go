@@ -216,9 +216,49 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 //
 // Preconditions:
 //   - MUST have completed RunReindexOnlyOnShard (IsReindexed() == true).
-//   - MUST use the same task instance that ran RunReindexOnlyOnShard
+//   - SHOULD use the same task instance that ran RunReindexOnlyOnShard
 //     (preserves double-write callbacks registered during reindex).
-//   - MUST NOT call on an already-swapped shard.
+//     The rehydrate path after a node restart violates this — see below.
+//
+// Recovery semantics (post-restart rehydrate path):
+//
+// This function is the cluster's authoritative completion path for
+// semantic migrations, invoked by [ReindexProvider.OnGroupCompleted]
+// once all units in the group are terminal. On a node that restarted
+// inside the FINALIZING window (graceful rolling restart, OOM kill,
+// k8s pod hardware failure, etc.), the previous in-process runtimeSwap
+// may have crashed AFTER advancing one of the on-disk sentinels but
+// BEFORE writing the next one:
+//
+//   - mid-Step-1 (ShutdownBucket failed under ctx.Canceled):
+//     reindexed.mig set, no later sentinel. Reindex bucket dir still
+//     on disk. On restart, OnAfterLsmInit re-loads the reindex bucket
+//     and the original runtimeSwap path is valid.
+//   - between markPrepended() and markMerged():
+//     reindex bucket dirs partially or fully removed; segments are in
+//     ingest_<gen>. runtimeSwap's "reindex bucket not found" error
+//     fires here and the recovery path in this function takes over.
+//   - between markMerged() and per-prop markSwappedProp():
+//     reindex dirs gone; segments fully in ingest_<gen>. Dispatch to
+//     [recoverRuntimeSwapBuckets] (dir-rename-based swap).
+//   - between markSwapped() and markTidied():
+//     in-memory swap done; backup_<gen> dirs still on disk. Dispatch
+//     to [tidyBackupBuckets].
+//   - IsTidied:
+//     fully done. The previous run already wrote tidied.mig and
+//     [FinalizeCompletedMigrations] at startup may have already
+//     promoted the canonical dir and removed the tracker — but if it
+//     didn't (race with task lifecycle), the per-shard
+//     [strategy.OnMigrationComplete] still needs to run so the
+//     in-process state aligns with the on-disk completion. Idempotent.
+//
+// Without this dispatch, a node killed past markPrepended() would
+// re-fire OnGroupCompleted's rehydrate branch on restart, runtimeSwap
+// would fail with "reindex bucket not found", the ack barrier would
+// emit success=false, and the task would flip to FAILED cluster-wide
+// while the OTHER replicas (whose acks already landed) have already
+// swapped their buckets — producing the cluster-wide schema↔bucket
+// inversion described in 0-weaviate-issues#214 Phase 7c.
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -236,8 +276,53 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return fmt.Errorf("creating reindex tracker: %w", err)
 	}
 
+	// State-on-disk vs state-in-RAFT race: a rolling restart that
+	// landed inside the FINALIZING window can leave a node with the
+	// unit's terminal state replicated in RAFT (the unit-completion
+	// record landed before the crash) but the on-disk markReindexed
+	// sentinel lost (file write didn't persist before SIGTERM, or the
+	// race went the other way and the iteration was still running when
+	// RAFT replicated some OTHER node's vote that flipped the group to
+	// FINALIZING). The recovered task's [OnAfterLsmInit] (fired at
+	// shard init by [shardReindexerV3RecoveryOnly]) only loads buckets
+	// — it does NOT run the iteration. The iteration lives in
+	// [OnAfterLsmInitAsync], which the recovery-only reindexer
+	// intentionally no-ops.
+	//
+	// If we land here with state "started but not reindexed", we need
+	// to resume the iteration before swapping. Calling
+	// [RunReindexOnlyOnShard] is the right entry point: it runs
+	// OnAfterLsmInit (idempotent for already-loaded buckets) and then
+	// loops OnAfterLsmInitAsync until the iteration terminates and
+	// markReindexed fires. After the call returns, we re-read the
+	// tracker and continue with the sentinel-aware swap dispatch.
+	//
+	// See 0-weaviate-issues#214 Gap A / Phase 7c — this is the local
+	// repro path where iteration didn't reach markReindexed but the
+	// scheduler still scheduled the swap.
 	if !rt.IsReindexed() {
-		return fmt.Errorf("shard %q is not in reindexed state", concreteShard.Name())
+		if !rt.IsStarted() {
+			// Migration never started on this shard. This shouldn't
+			// happen via OnGroupCompleted (the scheduler only invokes
+			// this for units that were assigned to this node), but
+			// surface it cleanly rather than silently completing.
+			return fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
+		}
+		logger.Info("RunSwapOnShard: state not yet reindexed on disk; resuming iteration before swap")
+		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
+			return fmt.Errorf("resume iteration before swap: %w", err)
+		}
+		// Re-read tracker. The iteration should have set IsReindexed
+		// (and possibly more — runtimeSwap MAY have run inline if
+		// skipSwapOnFinish was somehow not honored, though it's set in
+		// runShardLifecycle).
+		rt, err = t.newReindexTracker(concreteShard.pathLSM())
+		if err != nil {
+			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
+		}
+		if !rt.IsReindexed() {
+			return fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
+		}
 	}
 
 	props, err := t.readPropsToReindex(rt)
@@ -248,12 +333,172 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return fmt.Errorf("no props found for swap on shard %q", concreteShard.Name())
 	}
 
+	// Sentinel-aware dispatch. The original runtimeSwap path is only
+	// valid in the pre-prepend window — past markPrepended() the
+	// reindex bucket dirs are gone and runtimeSwap's first lookup
+	// fails with "reindex bucket not found". Each branch below picks
+	// the appropriate recovery path so the rehydrate flow converges
+	// to a fully tidied + migration-complete state regardless of which
+	// sentinel the previous attempt last persisted.
+	//
+	// See 0-weaviate-issues#214 Phase 7c.
+	switch {
+	case rt.IsTidied():
+		// Fully done on disk. The in-process strategy state may still
+		// need OnMigrationComplete (e.g. analyzer overlay clears) —
+		// OnMigrationComplete is idempotent for the strategies we
+		// support. Trim is best-effort and also idempotent.
+		logger.WithField("props", props).Info("RunSwapOnShard: already tidied on disk; running OnMigrationComplete only")
+		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
+
+	case rt.IsSwapped():
+		// In-memory swap completed (per-prop dirs renamed); just tidy
+		// backups and finalize.
+		logger.WithField("props", props).Info("RunSwapOnShard: resuming from swapped state, tidying backups")
+		if err := t.tidyBackupBuckets(ctx, logger, shard, rt, props); err != nil {
+			return fmt.Errorf("recovery tidy: %w", err)
+		}
+		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
+
+	case rt.IsMerged():
+		// Segments are in ingest_<gen> dir, swap not yet done. Use the
+		// dir-rename-based recovery — the in-memory PrependSegments-
+		// based swap is impossible here because the reindex bucket was
+		// drained at markPrepended.
+		logger.WithField("props", props).Info("RunSwapOnShard: resuming from merged state, recovering swap via dir renames")
+		if err := t.recoverRuntimeSwapBuckets(ctx, logger, shard, rt, props); err != nil {
+			return fmt.Errorf("recovery swap: %w", err)
+		}
+		if err := t.tidyBackupBuckets(ctx, logger, shard, rt, props); err != nil {
+			return fmt.Errorf("recovery tidy after swap: %w", err)
+		}
+		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
+
+	case rt.IsPrepended():
+		// Mid-prepend crash: segments are in ingest_<gen> (the
+		// PrependSegmentsFromBucket loop completed because markPrepended
+		// is set), but reindex dirs may still be partially on disk and
+		// markMerged() did not run. Finish the removal, advance the
+		// sentinel, then dispatch to the dir-rename-based recovery.
+		logger.WithField("props", props).Info("RunSwapOnShard: resuming from prepended state, completing merge then recovering swap")
+		if err := t.removeReindexBucketsDirs(ctx, logger, shard, props); err != nil {
+			return fmt.Errorf("recovery remove reindex dirs: %w", err)
+		}
+		if err := rt.markMerged(); err != nil {
+			return fmt.Errorf("recovery markMerged: %w", err)
+		}
+		if err := t.recoverRuntimeSwapBuckets(ctx, logger, shard, rt, props); err != nil {
+			return fmt.Errorf("recovery swap from prepended: %w", err)
+		}
+		if err := t.tidyBackupBuckets(ctx, logger, shard, rt, props); err != nil {
+			return fmt.Errorf("recovery tidy from prepended: %w", err)
+		}
+		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
+	}
+
+	// Default: pre-prepend state (only reindexed.mig set). The reindex
+	// bucket should still be on disk and loaded into the store from
+	// OnAfterLsmInit's `loadReindexBuckets` call. Defensively re-load
+	// if it isn't — see [ensureReindexBucketsLoadedForSwap] for the
+	// rehydrate-path race scenarios.
 	logger.WithField("props", props).Info("starting swap phase")
+
+	if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
+		return fmt.Errorf("ensure buckets loaded: %w", err)
+	}
 
 	if err := t.runtimeSwap(ctx, logger, shard, rt, props); err != nil {
 		return fmt.Errorf("runtime swap: %w", err)
 	}
 
+	return nil
+}
+
+// ensureReindexBucketsLoadedForSwap defensively loads any reindex or
+// ingest buckets that are missing from the in-memory store but whose
+// directories still exist on disk. This protects the pre-prepend
+// runtimeSwap path on the rehydrate flow from a class of state-divergence
+// races that surfaced in 0-weaviate-issues#214 Phase 7c:
+//
+//   - A previous in-process runtimeSwap was interrupted mid-flight
+//     by ctx.Canceled (graceful shutdown) at Step 1 or Step 2. The
+//     interrupted ShutdownBucket may have removed the reindex bucket
+//     from the store's bucket map without persisting a sentinel
+//     advance, and the cancellation can leave compaction callbacks
+//     unregistered partway through the unhook sequence.
+//   - On restart, the recovery-only shard reindexer's RunBeforeLsmInit
+//     is intentionally a no-op (see [shardReindexerV3RecoveryOnly])
+//     and the shard-registered recovery task's OnAfterLsmInit is the
+//     only re-load hook. If for any reason the bucket name lookup in
+//     [runtimeSwap]'s first iteration misses (lsm store re-init,
+//     concurrent bucket shutdown, cached-task vs fresh-task pointer
+//     differences after the rehydrate path's [createReindexTasks]),
+//     runtimeSwap fails with "reindex bucket not found" before any
+//     side effect, and the post-completion ack records success=false
+//     for the whole task — flipping the cluster to FAILED while
+//     other replicas have already completed the swap.
+//
+// CreateOrLoadBucket is idempotent, so calling it when the bucket is
+// already loaded is harmless. We narrow the call to props whose dirs
+// exist on disk to avoid creating empty buckets in a degenerate state
+// where the dir is genuinely gone (which would mask a real bug).
+func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
+	ctx context.Context, logger logrus.FieldLogger, shard *Shard, props []string,
+) error {
+	store := shard.Store()
+	lsmPath := shard.pathLSM()
+
+	var missingReindex, missingIngest []string
+	for _, propName := range props {
+		reindexName := t.reindexBucketName(propName)
+		if store.Bucket(reindexName) == nil &&
+			dirExists(filepath.Join(lsmPath, reindexName)) {
+			missingReindex = append(missingReindex, propName)
+		}
+		ingestName := t.ingestBucketName(propName)
+		if store.Bucket(ingestName) == nil &&
+			dirExists(filepath.Join(lsmPath, ingestName)) {
+			missingIngest = append(missingIngest, propName)
+		}
+	}
+
+	if len(missingReindex) > 0 {
+		logger.WithField("props", missingReindex).
+			Warn("reindex buckets not in store but dirs exist; defensively loading before runtime swap")
+		if err := t.loadReindexBuckets(ctx, logger, shard, missingReindex); err != nil {
+			return fmt.Errorf("load reindex buckets: %w", err)
+		}
+	}
+	if len(missingIngest) > 0 {
+		logger.WithField("props", missingIngest).
+			Warn("ingest buckets not in store but dirs exist; defensively loading before runtime swap")
+		// keepLevelCompaction=false, keepTombstones=false: at this
+		// point (pre-prepend, mid-runtimeSwap) the standard
+		// post-merge ingest options apply.
+		if err := t.loadIngestBuckets(ctx, logger, shard, missingIngest, false, false); err != nil {
+			return fmt.Errorf("load ingest buckets: %w", err)
+		}
+	}
+	return nil
+}
+
+// finalizeMigrationAfterRecovery runs the strategy's OnMigrationComplete
+// hook and trims older on-disk generations. This is the rehydrate-path
+// equivalent of runtimeSwap's final two steps (lines 1103/1124),
+// invoked by the recovery branches in [RunSwapOnShard] which don't go
+// through runtimeSwap.
+//
+// Best-effort on trim — failures are logged, not returned, matching
+// the trim policy at the end of runtimeSwap.
+func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
+	ctx context.Context, logger logrus.FieldLogger, shard ShardLike,
+	rt reindexTracker, props []string,
+) error {
+	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
+		return fmt.Errorf("on migration complete: %w", err)
+	}
+	t.trimOlderGenerationsLocked(logger, shard, rt, props)
+	logger.Info("RunSwapOnShard: recovery path complete")
 	return nil
 }
 
@@ -918,6 +1163,43 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		lastStoredKey = lastProcessedKey.Clone()
 	}
 	if finished {
+		// Durability barrier: flush every per-property reindex bucket's
+		// memtable to a segment BEFORE writing markReindexed. Without
+		// this, a SIGKILL / pod hardware failure / OOM kill between
+		// markReindexed and the eventual [runtimeSwap] Step 1
+		// (FlushAndSwitch) loses any in-memtable writes — the
+		// markReindexed sentinel falsely claims iteration is complete
+		// while the underlying re-tokenized rows are still in volatile
+		// memory. On restart, the recovery path sees IsReindexed=true,
+		// skips re-iterating, and runtimeSwap prepends a truncated
+		// reindex bucket into ingest. The cluster schema then flips to
+		// the new tokenization, the canonical bucket on this replica
+		// is missing the lost rows, and queries return per-replica
+		// divergent counts.
+		//
+		// FlushAndSwitch's contract is durability: every write that
+		// returned before the call is in a segment file (fsynced) by
+		// the time FlushAndSwitch returns. Doing it here closes the
+		// "markReindexed happens-before durability" gap unique to the
+		// FINALIZING-barrier path, where the inline runtimeSwap is
+		// deferred and a crash window opens between markReindexed and
+		// the eventual flush. The inline path (skipSwapOnFinish=false)
+		// also benefits — markReindexed now strictly happens-after
+		// durable persistence regardless of which path runs next.
+		//
+		// See 0-weaviate-issues#214 Gap A SIGKILL data-loss path
+		// (per-replica `path = 9985/10000` divergence on the kill'd
+		// node when 15 of ~18.3k iterated rows were stuck in the
+		// memtable at SIGKILL).
+		for propName, bucket := range bucketsByPropName {
+			if bucket == nil {
+				continue
+			}
+			if err = bucket.FlushAndSwitch(); err != nil {
+				err = fmt.Errorf("flushing reindex bucket for prop %q before markReindexed: %w", propName, err)
+				return zerotime, false, err
+			}
+		}
 		if err = rt.markReindexed(); err != nil {
 			err = fmt.Errorf("marking reindexed: %w", err)
 			return zerotime, false, err
