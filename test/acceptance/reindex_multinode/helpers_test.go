@@ -153,6 +153,59 @@ func submitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody str
 	return result["taskId"]
 }
 
+// awaitReindexReachedFinalizing polls /v1/tasks until the reindex task
+// transitions into FINALIZING — i.e. every unit has completed its
+// reindex iteration on every node and the cluster is about to fire the
+// post-completion swap + schema flip. Used by tests that need to
+// trigger destructive events (rolling restart, SIGKILL) inside the
+// brief FINALIZING window to exercise 0-weaviate-issues#214 Gap A.
+//
+// FINALIZING is short for format-only migrations (essentially zero
+// wall-clock time) and seconds for change-tokenization at moderate
+// scale. We poll at 200ms which is fast enough to land inside even the
+// tightest window. Returns the snapshot of the task at the moment we
+// first observed FINALIZING (for forensic logging by the caller).
+func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string {
+	t.Helper()
+	var observed string
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false
+		}
+		var tasks models.DistributedTasks
+		if err := json.Unmarshal(body, &tasks); err != nil {
+			return false
+		}
+		for _, task := range tasks["reindex"] {
+			if task.ID != taskID {
+				continue
+			}
+			if task.Status == "FAILED" {
+				t.Fatalf("reindex task failed before reaching FINALIZING: %s", task.Error)
+			}
+			if task.Status == "FINALIZING" || task.Status == "FINISHED" {
+				// FINISHED here means the FINALIZING window was so
+				// short we missed it — the rolling restart will
+				// already be too late. Return the observed status so
+				// the test caller can re-tune dataset size / poll
+				// cadence rather than silently passing on a stale
+				// repro.
+				observed = task.Status
+				return true
+			}
+		}
+		return false
+	}, 240*time.Second, 200*time.Millisecond,
+		"reindex task %s should reach FINALIZING (or FINISHED) within 240s", taskID)
+	return observed
+}
+
 // awaitReindexFinished polls GET /v1/tasks until the reindex task reaches FINISHED status.
 func awaitReindexFinished(t *testing.T, restURI, taskID string) {
 	t.Helper()

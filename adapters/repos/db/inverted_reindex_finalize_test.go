@@ -737,10 +737,10 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 //     no-op path). Must remain unchanged.
 func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing.T) {
 	type shardSetup struct {
-		name           string
-		stage          string // "tidied", "merged", "no_migrations"
+		name            string
+		stage           string // "tidied", "merged", "no_migrations"
 		expectCanonical bool
-		expectedData   string
+		expectedData    string
 	}
 
 	shards := []shardSetup{
