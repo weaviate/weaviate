@@ -45,6 +45,7 @@ function main() {
   run_acceptance_recovery=false
   run_acceptance_reindex_multinode=false
   run_acceptance_reindex_multinode_aj=false
+  run_acceptance_reindex_multinode_rm=false
   run_acceptance_reindex_singlenode=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -89,6 +90,7 @@ function main() {
           --acceptance-recovery|-ar) run_all_tests=false; run_acceptance_recovery=true;;
           --acceptance-reindex-multinode|-arm) run_all_tests=false; run_acceptance_reindex_multinode=true;;
           --acceptance-reindex-multinode-aj|-armaj) run_all_tests=false; run_acceptance_reindex_multinode_aj=true;;
+          --acceptance-reindex-multinode-rm|-armrm) run_all_tests=false; run_acceptance_reindex_multinode_rm=true;;
           --acceptance-reindex-singlenode|-ars) run_all_tests=false; run_acceptance_reindex_singlenode=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -122,6 +124,8 @@ function main() {
               "--acceptance-compaction | -ac"\
               "--acceptance-recovery | -ar"\
               "--acceptance-reindex-multinode | -arm"\
+              "--acceptance-reindex-multinode-aj | -armaj"\
+              "--acceptance-reindex-multinode-rm | -armrm"\
               "--acceptance-reindex-singlenode | -ars"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
@@ -247,13 +251,18 @@ function main() {
   fi
 
   if $run_acceptance_reindex_multinode; then
-    echo "running reindex multinode acceptance tests (everything except AdjacentJourneys)"
+    echo "running reindex multinode acceptance tests (everything except AdjacentJourneys + RestartMatrix)"
     run_acceptance_reindex_multinode
   fi
 
   if $run_acceptance_reindex_multinode_aj; then
     echo "running reindex multinode adjacent-journeys acceptance tests"
     run_acceptance_reindex_multinode_aj
+  fi
+
+  if $run_acceptance_reindex_multinode_rm; then
+    echo "running reindex multinode RestartMatrix acceptance tests"
+    run_acceptance_reindex_multinode_rm
   fi
 
   if $run_acceptance_reindex_singlenode; then
@@ -607,11 +616,17 @@ function run_acceptance_reindex_multinode() {
     --build-arg EXTRA_BUILD_ARGS="-race" \
     weaviate
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
-  echo_green "acceptance — reindex-multinode (excluding AdjacentJourneys; see -aj shard)"
+  echo_green "acceptance — reindex-multinode (excluding AdjacentJourneys + RestartMatrix; see -aj, -rm shards)"
   # Skip the AdjacentJourneys top-level tests — they spin up their own
   # 3-node cluster per subtest and collectively exceed the 20-min go-test
   # deadline. They run in the separate `-aj` shard, in parallel in CI.
-  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_' \
+  #
+  # Also skip TestMultiNode_RestartMatrix — at ~5.5 min the single test
+  # is the longest in this package and combined with the rest of the
+  # suite pushes the total over the 20-min go-test deadline. It runs in
+  # the `-rm` shard, in parallel in CI. See 0-weaviate-issues#214
+  # post-fix run on PR #10694.
+  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix' \
     run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
 }
 
@@ -632,6 +647,28 @@ function run_acceptance_reindex_multinode_aj() {
   # an independent CI shard gives the suite its own 20-min budget.
   AOF_GROUP_RUN='TestMultiNode_ChangeTokenization_AJ_' \
     run_aof_group "reindex-multinode-aj" test/acceptance/reindex_multinode
+}
+
+function run_acceptance_reindex_multinode_rm() {
+  echo_green "acceptance — reindex-multinode-rm (RestartMatrix only): building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  echo_green "acceptance — reindex-multinode-rm"
+  # TestMultiNode_RestartMatrix runs 7 sub-scenarios (R0..R5) each
+  # involving a full 3-node cluster restart cycle. The total at ~5.5 min
+  # is the longest single test in this package; combined with the
+  # ~15-16 min of the rest of the package it pushes total runtime over
+  # the 20-min go-test deadline. Running in its own shard parallelizes
+  # the wall-clock against the other reindex-multinode shards. See
+  # 0-weaviate-issues#214 post-fix run on PR #10694.
+  AOF_GROUP_RUN='TestMultiNode_RestartMatrix' \
+    run_aof_group "reindex-multinode-rm" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_singlenode() {
