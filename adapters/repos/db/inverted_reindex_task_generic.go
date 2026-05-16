@@ -833,10 +833,15 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	breakCh <- false
 	finished := false
 
-	// Flush the objects bucket so all objects are on disk before the
-	// CursorOnDisk scan begins. In the restart-based flow, this isn't needed
-	// because the shard shutdown flushes all memtables. In the runtime path,
-	// objects may still be in the active memtable.
+	// Flush the objects bucket so the bulk of recently-written objects are
+	// in segments rather than the active memtable. This is a perf hint
+	// (segment iteration is cheaper than memtable iteration), not a
+	// correctness requirement: the cursor type used by
+	// uuidObjectsIteratorAsync (Cursor(), not CursorOnDisk()) sees the
+	// flushing/active memtables under flushLock, so a concurrent
+	// migration's in-flight flush can't hide pre-reindex data from this
+	// iterator. See the cursor comment in uuidObjectsIteratorAsync and
+	// GH 0-weaviate-issues#212 Issues C+D.
 	objectsBucket := store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket != nil {
 		if err = objectsBucket.FlushAndSwitch(); err != nil {
