@@ -158,9 +158,18 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 
 // PreReindexHook creates empty rangeable buckets so the swap phase has a
 // "source" bucket to replace with the populated ingest bucket.
+//
+// It also pessimistically marks each migrated property as
+// "not locally ready" on this shard. The query path consults this via
+// [*Shard.IsRangeableLocallyReady] and falls back to the filterable
+// bucket walk while the rangeable bucket is empty. See
+// `Shard.rangeableLocalReady` for the full GH 0-weaviate-issues#212
+// Issue C rationale. The post-runtimeSwap finalize flips the prop back
+// to "ready" after `markTidied()`.
 func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []string) {
 	ctx := context.Background()
 	for _, propName := range props {
+		shard.setRangeableLocallyReady(propName, false)
 		bucketName := helpers.BucketRangeableFromPropNameLSM(propName)
 		if shard.store.Bucket(bucketName) != nil {
 			continue
@@ -216,6 +225,25 @@ func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[stri
 // so only named fields are merged, but that requires changes across
 // cluster/schema/manager.go and meta_class.go.
 func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
+	// Mark each prop as "locally ready" so the query path stops falling
+	// back to the filterable bucket for this shard. This MUST happen
+	// before the schema-flag flip below — once the schema flip RAFTs
+	// cluster-wide, other replicas may also be at this same point or
+	// just-about-to-swap, but the per-shard ready flag controls THIS
+	// shard's behavior in isolation. Set it before the schema update so
+	// THIS shard's queries that observe the new schema flag also see
+	// ready=true. See GH 0-weaviate-issues#212 Issue C +
+	// Shard.rangeableLocalReady.
+	//
+	// Unwrap before the assertion: a *LazyLoadShard wraps the concrete
+	// *Shard we need to flip the flag on. unwrapShard returns the
+	// concrete pointer for both *Shard and *LazyLoadShard.
+	if concrete, err := unwrapShard(ctx, shard); err == nil && concrete != nil {
+		for _, propName := range s.propNames {
+			concrete.setRangeableLocallyReady(propName, true)
+		}
+	}
+
 	className := shard.Index().Config.ClassName.String()
 	trueVal := true
 	// Missing properties are tolerated: a property dropped between

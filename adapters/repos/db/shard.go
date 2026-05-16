@@ -329,6 +329,37 @@ type Shard struct {
 	// being enabled, only searchable bucket exists
 	fallbackToSearchable bool
 
+	// rangeableLocalReadyMu guards rangeableLocalReady. Holds the per-prop
+	// "is this shard's rangeable bucket fully populated and safe to
+	// query?" answer used to fix GH 0-weaviate-issues#212 Issue C.
+	//
+	// True means the local rangeable bucket has all the data for this
+	// property — either the property was created with
+	// IndexRangeFilters=true (no migration ever ran) or an
+	// enable-rangeable / repair-rangeable migration completed locally
+	// (markTidied fired in [runtimeSwap]).
+	//
+	// False means the rangeable bucket is mid-migration on THIS replica:
+	// a PreReindexHook created an empty main bucket but the per-shard
+	// runtimeSwap that prepends ingest+reindex segments into it hasn't
+	// run yet on this node. During this window the cluster-wide schema
+	// flag may already be true (the first replica to swap fires
+	// strategy.OnMigrationComplete which RAFTs the flip cluster-wide),
+	// so the inverted query path would otherwise route range queries to
+	// the empty bucket and return partial / zero counts. The
+	// IsRangeableLocallyReady callback wired into the Searcher
+	// overrides hasRangeableIndex=false for this prop on this shard,
+	// forcing a fallback to the filterable bucket walk until our local
+	// swap catches up.
+	//
+	// Read on every range-filter query plan, so kept under a fast
+	// RWMutex rather than a sync.Map. Default value (missing key)
+	// returns true via IsRangeableLocallyReady — at shard init we
+	// pessimistically set false for any in-flight migration tracker
+	// found on disk, and the post-tidy hook flips it back to true.
+	rangeableLocalReadyMu sync.RWMutex
+	rangeableLocalReady   map[string]bool
+
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
@@ -547,6 +578,67 @@ func (s *Shard) VectorStorageSize(ctx context.Context, lsmPath string, directori
 
 func (s *Shard) isFallbackToSearchable() bool {
 	return s.fallbackToSearchable
+}
+
+// IsRangeableLocallyReady reports whether this shard's local rangeable
+// bucket for the given property is fully populated and safe to query.
+// See [rangeableLocalReady] for the full rationale (GH
+// 0-weaviate-issues#212 Issue C).
+//
+// Returns true when:
+//   - The per-shard map has an explicit `true` entry. Set by
+//     [setRangeableLocallyReady] after a local
+//     enable-rangeable / repair-rangeable migration's swap completes
+//     (markTidied + OnMigrationComplete), OR
+//   - There is no explicit entry in the map AND the rangeable bucket
+//     for this prop exists in the LSM store. This covers native
+//     rangeable props (created with IndexRangeFilters=true, bucket
+//     populated on initial import) and props whose migrations
+//     completed before this shard restarted (the per-shard map is
+//     in-memory only and starts empty).
+//
+// Returns false when:
+//   - The per-shard map has an explicit `false` entry (set by the
+//     migration's PreReindexHook), OR
+//   - There is no explicit entry AND the rangeable bucket does not
+//     exist in the LSM store yet. This catches the narrow window where
+//     another replica's runtimeSwap has already flipped the
+//     cluster-wide schema flag to `IndexRangeFilters=true` but THIS
+//     replica's PreReindexHook hasn't fired yet — without this
+//     bucket-existence default-false, the inverted query path would
+//     try to look up a bucket that isn't there and return
+//     "bucket for prop %s not found - is it indexed?" to the LB.
+func (s *Shard) IsRangeableLocallyReady(propName string) bool {
+	s.rangeableLocalReadyMu.RLock()
+	if s.rangeableLocalReady != nil {
+		if ready, set := s.rangeableLocalReady[propName]; set {
+			s.rangeableLocalReadyMu.RUnlock()
+			return ready
+		}
+	}
+	s.rangeableLocalReadyMu.RUnlock()
+
+	// Default: ready iff the rangeable bucket physically exists in the
+	// store. Cheap (a map lookup under bucketAccessLock.RLock in
+	// lsmkv.Store.Bucket). We avoid materializing the explicit entry
+	// here on purpose — the migration hooks own the lifecycle of the
+	// map, and adding a "shadow" entry from a query goroutine would
+	// race the hook's clear-then-set sequence.
+	return s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName)) != nil
+}
+
+// setRangeableLocallyReady is invoked by the rangeable migration's
+// lifecycle hooks. It is intentionally NOT exported beyond the package
+// because outside callers should observe the state via
+// [IsRangeableLocallyReady] only; mutating it from outside the
+// migration code paths would corrupt the per-replica routing invariant.
+func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
+	s.rangeableLocalReadyMu.Lock()
+	defer s.rangeableLocalReadyMu.Unlock()
+	if s.rangeableLocalReady == nil {
+		s.rangeableLocalReady = map[string]bool{}
+	}
+	s.rangeableLocalReady[propName] = ready
 }
 
 func (s *Shard) tenant() string {

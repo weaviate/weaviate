@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -154,6 +156,18 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// so that buckets are found at their canonical directory names.
 	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
 
+	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
+	// migration's target property as "not locally ready" on this shard.
+	// Without this, a post-restart shard whose recovery hasn't finished
+	// the local swap yet would serve range queries from an empty
+	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
+	// flips on another node. See [Shard.rangeableLocalReady] and GH
+	// 0-weaviate-issues#212 Issue C for the full rationale. Props not
+	// found in this scan default to "ready" (no migration ever ran, or
+	// every prior migration already tidied — FinalizeCompletedMigrations
+	// above promoted them to canonical above).
+	markInFlightRangeableMigrationsNotReady(s)
+
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
@@ -204,4 +218,66 @@ func (s *Shard) NotifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
+}
+
+// markInFlightRangeableMigrationsNotReady scans this shard's
+// .migrations/ directory for rangeable-related tracker dirs whose
+// `tidied.mig` sentinel is not present, and flips the corresponding
+// per-prop entry in Shard.rangeableLocalReady to false. See GH
+// 0-weaviate-issues#212 Issue C and [Shard.rangeableLocalReady] for
+// rationale. Idempotent and safe to call on shards with no rangeable
+// migrations on disk.
+//
+// Rangeable migrations under [FilterableToRangeableStrategy] use a
+// tracker dir named `filterable_to_rangeable[_<p1>_<p2>...]_<gen>`.
+// We extract the prop-name component(s) by stripping the prefix +
+// trailing `_<gen>` segment, then split on `_` to handle the
+// multi-property dir-name shape produced by [migrationDirWithProps].
+//
+// Properties that don't have a tracker dir, or whose dir has
+// `tidied.mig` (FinalizeCompletedMigrations promoted them to canonical
+// in this same startup), are left untouched — the default-true policy
+// in [Shard.IsRangeableLocallyReady] applies to them.
+func markInFlightRangeableMigrationsNotReady(s *Shard) {
+	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		// No .migrations dir is the common case: nothing to do.
+		return
+	}
+	const prefix = MigrationDirPrefixFilterableToRangeable + "_"
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		base, _, ok := parseMigrationDirName(name)
+		if !ok {
+			continue
+		}
+		// `base` is the strategy + props portion (no _<gen>), e.g.
+		// "filterable_to_rangeable_price" or "filterable_to_rangeable_a_b".
+		if !strings.HasPrefix(base, prefix) {
+			continue
+		}
+		propsPart := strings.TrimPrefix(base, prefix)
+		if propsPart == "" {
+			continue
+		}
+		// tidied.mig present means FinalizeCompletedMigrations either
+		// promoted the migration or will at the next call site; the
+		// query-side fallback isn't needed for these.
+		dirPath := filepath.Join(migrationsDir, name)
+		if fileExistsInDir(dirPath, "tidied.mig") {
+			continue
+		}
+		// Multi-prop migrations use `_` as the separator (see
+		// migrationDirWithProps). Single-prop is just one segment.
+		for _, propName := range strings.Split(propsPart, "_") {
+			if propName == "" {
+				continue
+			}
+			s.setRangeableLocallyReady(propName, false)
+		}
+	}
 }

@@ -51,12 +51,13 @@ type Aggregator struct {
 	stopwordProvider       *stopwords.Provider
 	shardVersion           uint16
 	propLenTracker         *inverted.JsonShardMetaData
-	isFallbackToSearchable inverted.IsFallbackToSearchable
-	tenant                 string
-	nestedCrossRefLimit    int64
-	bitmapFactory          *roaringset.BitmapFactory
-	modules                *modules.Provider
-	defaultLimit           int64
+	isFallbackToSearchable  inverted.IsFallbackToSearchable
+	isRangeableLocallyReady inverted.IsRangeableLocallyReady
+	tenant                  string
+	nestedCrossRefLimit     int64
+	bitmapFactory           *roaringset.BitmapFactory
+	modules                 *modules.Provider
+	defaultLimit            int64
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -65,26 +66,28 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
 	propLenTracker *inverted.JsonShardMetaData,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
+	isRangeableLocallyReady inverted.IsRangeableLocallyReady,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
 	modules *modules.Provider, defaultLimit int64,
 ) *Aggregator {
 	return &Aggregator{
-		logger:                 logger,
-		store:                  store,
-		params:                 params,
-		getSchema:              getSchema,
-		classSearcher:          classSearcher,
-		stopwordProvider:       stopwordProvider,
-		shardVersion:           shardVersion,
-		vectorIndex:            vectorIndex,
-		propLenTracker:         propLenTracker,
-		isFallbackToSearchable: isFallbackToSearchable,
-		tenant:                 tenant,
-		nestedCrossRefLimit:    nestedCrossRefLimit,
-		bitmapFactory:          bitmapFactory,
-		modules:                modules,
-		defaultLimit:           defaultLimit,
+		logger:                  logger,
+		store:                   store,
+		params:                  params,
+		getSchema:               getSchema,
+		classSearcher:           classSearcher,
+		stopwordProvider:        stopwordProvider,
+		shardVersion:            shardVersion,
+		vectorIndex:             vectorIndex,
+		propLenTracker:          propLenTracker,
+		isFallbackToSearchable:  isFallbackToSearchable,
+		isRangeableLocallyReady: isRangeableLocallyReady,
+		tenant:                  tenant,
+		nestedCrossRefLimit:     nestedCrossRefLimit,
+		bitmapFactory:           bitmapFactory,
+		modules:                 modules,
+		defaultLimit:            defaultLimit,
 	}
 }
 
