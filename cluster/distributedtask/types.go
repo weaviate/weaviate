@@ -352,6 +352,24 @@ func (t TaskStatus) String() string {
 	return string(t)
 }
 
+// IsTerminal reports whether this status is a terminal state. A task in
+// a terminal state is not transitioning further: it has reached
+// [TaskStatusFinished], [TaskStatusFailed], or [TaskStatusCancelled]
+// and the scheduler will not invoke any more per-unit or per-task
+// callbacks for it via the normal in-flight path. Recovery replays on
+// startup can still observe terminal tasks — providers that own
+// destructive side-effects (per-shard swaps, file moves) should
+// short-circuit on terminal status to avoid running them again. See
+// 0-weaviate-issues#217 for a concrete instance.
+func (t TaskStatus) IsTerminal() bool {
+	switch t {
+	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 // TaskDescriptor is a struct identifying a task execution under a certain task namespace.
 type TaskDescriptor struct {
 	// ID is the identifier of the task in the namespace.
