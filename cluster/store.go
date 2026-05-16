@@ -319,6 +319,21 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
+	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Clock:            clockwork.NewRealClock(),
+		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
+	})
+
+	// Cross-FSM guard for 0-weaviate-issues#218: the schema FSM's
+	// UpdateProperty apply path consults the distributed-task FSM to
+	// reject property mutations while a reindex on the same
+	// (collection, property) is STARTED or FINALIZING. The Manager
+	// implements [schema.MutationGuard] via its CheckPropertyUpdate
+	// method, which dispatches to the per-namespace
+	// [distributedtask.SchemaMutationDetector] registered by
+	// [Store.SetDistributedTaskSchemaMutationDetectors] at startup.
+	schemaManager.SetMutationGuard(distributedTasksManager)
+
 	var dynusersLister namespaces.DynusersNamespaceLister
 	if cfg.DynamicUserController != nil {
 		dynusersLister = cfg.DynamicUserController
@@ -343,12 +358,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
 		namespaceManager:   namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, cfg.Logger),
-		replicationManager: replicationManager,
-		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
-			Clock:            clockwork.NewRealClock(),
-			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
-		}),
-		metrics: newStoreMetrics(cfg.NodeID, reg),
+		replicationManager:      replicationManager,
+		distributedTasksManager: distributedTasksManager,
+		metrics:                 newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
@@ -370,6 +382,16 @@ func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.Sc
 // [distributedtask.ConflictDetector] for the contract.
 func (st *Store) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
 	st.distributedTasksManager.SetConflictDetectors(detectors)
+}
+
+// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
+// detectors consulted from the schema FSM's UpdateProperty apply path
+// via the Manager's CheckPropertyUpdate method. Called once at startup
+// from MakeAppState, after the providers exist. See
+// [distributedtask.SchemaMutationDetector] for the FSM-determinism
+// contract and motivating bug (0-weaviate-issues#218).
+func (st *Store) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
+	st.distributedTasksManager.SetSchemaMutationDetectors(detectors)
 }
 
 // lastIndex returns the last index in stable storage,

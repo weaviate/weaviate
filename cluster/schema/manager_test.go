@@ -473,3 +473,160 @@ type MockShardReader struct {
 func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	return m.lst, m.err
 }
+
+// recordingMutationGuard captures every CheckPropertyUpdate call and
+// optionally rejects with a configured error. Used to pin the
+// SchemaManager.UpdateProperty guard call site (0-weaviate-issues#218).
+type recordingMutationGuard struct {
+	called     int
+	lastClass  string
+	lastProp   string
+	rejectWith error
+}
+
+func (g *recordingMutationGuard) CheckPropertyUpdate(class, prop string) error {
+	g.called++
+	g.lastClass = class
+	g.lastProp = prop
+	return g.rejectWith
+}
+
+// TestSchemaManager_UpdateProperty_MutationGuard pins the cross-FSM
+// MutationGuard wiring on the UpdateProperty apply path
+// (0-weaviate-issues#218). The guard:
+//
+//   - MUST be consulted before the schema apply on any external
+//     UpdateProperty.
+//   - MUST be bypassed when FromInFlightMigration is true on the
+//     request (the migration-completion path uses this to flip its
+//     own scheduled schema update past the guard that would otherwise
+//     reject it during FINALIZING).
+//   - MUST short-circuit before the guard on malformed requests, so a
+//     bad payload doesn't waste a detector dispatch.
+//
+// We construct a SchemaManager only enough to exercise the guard
+// branch; the downstream apply intentionally errors because no class
+// is registered. The point of the test is to pin the guard
+// pre-condition, not the apply itself.
+func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
+	mkRequest := func(class, prop string, fromMigration bool, fields ...string) *cmd.ApplyRequest {
+		req := cmd.UpdatePropertyRequest{
+			Property:              &models.Property{Name: prop},
+			FieldsToUpdate:        fields,
+			FromInFlightMigration: fromMigration,
+		}
+		sub, err := json.Marshal(&req)
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_PROPERTY,
+			Class:      class,
+			SubCommand: sub,
+		}
+	}
+
+	newSM := func(guard MutationGuard) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		if guard != nil {
+			sm.SetMutationGuard(guard)
+		}
+		return sm
+	}
+
+	t.Run("guard rejects external UpdateProperty before apply", func(t *testing.T) {
+		guard := &recordingMutationGuard{
+			rejectWith: fmt.Errorf("reindex task X in flight on C.name"),
+		}
+		sm := newSM(guard)
+		// schemaOnly=true skips the store (db) apply step, so the test
+		// doesn't need a real Indexer. We still expect an error from
+		// the guard.
+		err := sm.UpdateProperty(mkRequest("C", "name", false), true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "reindex task X in flight",
+			"guard rejection must propagate to the caller")
+		require.Equal(t, 1, guard.called,
+			"guard MUST be consulted exactly once for an external request")
+		require.Equal(t, "C", guard.lastClass)
+		require.Equal(t, "name", guard.lastProp)
+	})
+
+	t.Run("guard bypassed when FromInFlightMigration=true", func(t *testing.T) {
+		guard := &recordingMutationGuard{
+			rejectWith: fmt.Errorf("guard rejection that MUST be bypassed"),
+		}
+		sm := newSM(guard)
+		// FromInFlightMigration=true bypasses the guard. The downstream
+		// apply still errors (no class set up), but the guard
+		// rejection text must NOT appear in the returned error and the
+		// guard call counter must stay at zero.
+		err := sm.UpdateProperty(mkRequest("C", "name", true), true, false)
+		require.Error(t, err, "downstream apply still errors on missing class, but the error must not be a guard rejection")
+		require.NotContains(t, err.Error(), "MUST be bypassed",
+			"FromInFlightMigration=true MUST bypass the guard rejection")
+		require.Equal(t, 0, guard.called,
+			"guard MUST NOT be consulted when FromInFlightMigration=true")
+	})
+
+	t.Run("no guard registered → no extra rejection", func(t *testing.T) {
+		sm := newSM(nil) // no mutationGuard set
+		err := sm.UpdateProperty(mkRequest("C", "name", false), true, false)
+		// Downstream apply still fails (no class), but the error must
+		// not be a guard rejection. We assert that no MutationGuard
+		// rejection text shape appears.
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "in flight on",
+			"with no guard registered, the in-flight error template must not appear")
+	})
+
+	t.Run("bad request body short-circuits before the guard", func(t *testing.T) {
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("should not be reached")}
+		sm := newSM(guard)
+		bad := &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_PROPERTY,
+			Class:      "C",
+			SubCommand: []byte("not-json"),
+		}
+		err := sm.UpdateProperty(bad, true, false)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrBadRequest)
+		require.Equal(t, 0, guard.called,
+			"unparseable request must not reach the guard")
+	})
+
+	t.Run("empty Property short-circuits before the guard", func(t *testing.T) {
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("should not be reached")}
+		sm := newSM(guard)
+		req := cmd.UpdatePropertyRequest{Property: nil}
+		sub, _ := json.Marshal(&req)
+		bad := &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_UPDATE_PROPERTY,
+			Class:      "C",
+			SubCommand: sub,
+		}
+		err := sm.UpdateProperty(bad, true, false)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrBadRequest)
+		require.Equal(t, 0, guard.called,
+			"empty property must not reach the guard")
+	})
+}
+
+// TestSchemaManager_SetMutationGuard pins the setter contract — nil
+// removes the guard, replacement overwrites, no panics.
+func TestSchemaManager_SetMutationGuard(t *testing.T) {
+	sm := &SchemaManager{}
+	require.Nil(t, sm.mutationGuard)
+
+	g1 := &recordingMutationGuard{}
+	sm.SetMutationGuard(g1)
+	require.Equal(t, MutationGuard(g1), sm.mutationGuard)
+
+	g2 := &recordingMutationGuard{}
+	sm.SetMutationGuard(g2)
+	require.Equal(t, MutationGuard(g2), sm.mutationGuard, "subsequent calls overwrite")
+
+	sm.SetMutationGuard(nil)
+	require.Nil(t, sm.mutationGuard, "nil clears the guard")
+}

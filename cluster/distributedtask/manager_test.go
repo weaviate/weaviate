@@ -1198,3 +1198,109 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 	require.ElementsMatch(t, []string{"node-2"}, task.MissingPostCompletionAckNodes(),
 		"post-restore the missing-acks predicate must keep gating MarkTaskFinalized")
 }
+
+// fakeSchemaMutationDetector lets the manager-side CheckPropertyUpdate
+// dispatch test pin every branch without standing up the real reindex
+// provider. Records arguments so we can assert the dispatch contract
+// (only the matching-namespace detector consulted, full FSM task list
+// passed in, etc.).
+type fakeSchemaMutationDetector struct {
+	called        int
+	lastClassName string
+	lastPropName  string
+	lastTaskCount int
+	rejectWith    error
+}
+
+func (f *fakeSchemaMutationDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {}
+func (f *fakeSchemaMutationDetector) GetLocalTasks() []TaskDescriptor                { return nil }
+func (f *fakeSchemaMutationDetector) CleanupTask(_ TaskDescriptor) error             { return nil }
+func (f *fakeSchemaMutationDetector) StartTask(_ *Task) (TaskHandle, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error {
+	f.called++
+	f.lastClassName = className
+	f.lastPropName = propertyName
+	f.lastTaskCount = len(existingTasks)
+	return f.rejectWith
+}
+
+// TestManager_CheckPropertyUpdate_DispatchToDetectors pins the cross-
+// FSM dispatch: the schema FSM's UpdateProperty apply consults this
+// method, which fans out to every registered
+// [SchemaMutationDetector] with the current FSM-stored task list for
+// each detector's namespace.
+//
+// Motivating bug: 0-weaviate-issues#218. Symmetric to the existing
+// TestManager_AddTask_ConflictDetector pattern.
+func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
+	t.Run("no detectors registered → nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+	})
+
+	t.Run("detector returns nil → CheckPropertyUpdate returns nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.Equal(t, 1, detector.called,
+			"detector MUST be consulted exactly once per CheckPropertyUpdate")
+		require.Equal(t, "C", detector.lastClassName)
+		require.Equal(t, "name", detector.lastPropName)
+	})
+
+	t.Run("detector returns error → CheckPropertyUpdate propagates", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{
+			rejectWith: fmt.Errorf("simulated conflict: reindex in flight on prop"),
+		}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+
+		err := h.manager.CheckPropertyUpdate("C", "name")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "simulated conflict")
+	})
+
+	t.Run("detector receives full namespace-scoped task list at apply time", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"test": detector,
+		})
+
+		// Seed a task into the manager.
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "T1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+		require.NoError(t, h.manager.AddTask(c, 100))
+
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.Equal(t, 1, detector.lastTaskCount,
+			"detector MUST be passed the FSM-stored task list at apply time")
+	})
+
+	t.Run("nil detector entry → skipped gracefully", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": nil,
+		})
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+	})
+
+	t.Run("nil-safe: SetSchemaMutationDetectors(nil) is a no-op", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.SetSchemaMutationDetectors(nil)
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+	})
+}

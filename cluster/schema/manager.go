@@ -42,12 +42,42 @@ type replicationFSM interface {
 	SetUnCancellable(id uint64) error
 }
 
+// MutationGuard is consulted at RAFT-apply time for cross-FSM
+// conflicts before a property mutation is merged into the schema. The
+// implementation lives in the package that owns the in-flight state
+// the schema mutation would race against (today: the distributed-task
+// FSM Manager, which knows about in-flight reindex migrations).
+//
+// Motivating bug: 0-weaviate-issues#218 (parallel change-tokenization
+// + DELETE searchable produces a torn filterable bucket). See
+// [cluster/distributedtask.SchemaMutationDetector] for the full
+// failure mechanism and the symmetric-to-ConflictDetector rationale.
+//
+// FSM-determinism contract: implementations MUST be pure functions of
+// their arguments + RAFT-replicated FSM state. They must not read
+// mutable process state — different nodes applying the same log entry
+// must reach the same accept/reject decision.
+type MutationGuard interface {
+	// CheckPropertyUpdate returns nil if the property mutation is safe
+	// to apply, or a non-nil error describing the conflict. Called
+	// under the schema manager's apply path; must not block on IO.
+	CheckPropertyUpdate(className, propertyName string) error
+}
+
 type SchemaManager struct {
 	schema         *schema
 	db             Indexer
 	parser         Parser
 	log            *logrus.Logger
 	replicationFSM replicationFSM
+	// mutationGuard is consulted by [SchemaManager.UpdateProperty]
+	// before the merge applies. nil-safe — no guard installed means
+	// no extra rejection (legacy behavior, used by tests that
+	// exercise the schema apply in isolation). Set once at startup
+	// via [SchemaManager.SetMutationGuard]; concurrent setter/reader
+	// races are not contended in practice (setter runs once during
+	// FSM bootstrap before any apply).
+	mutationGuard MutationGuard
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -57,6 +87,19 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 		parser: parser,
 		log:    log,
 	}
+}
+
+// SetMutationGuard installs the [MutationGuard] consulted by
+// [SchemaManager.UpdateProperty] before merging a property update.
+// Pass nil to remove the guard. Safe to call once at startup after
+// both this manager and the guard's backing FSM exist (today: the
+// distributed-task FSM Manager, wired in cluster/store.go's NewFSM).
+//
+// Subsequent calls overwrite the previous registration. The setter
+// itself is not synchronized — it must run during single-threaded
+// FSM bootstrap, before any apply path can read the field.
+func (s *SchemaManager) SetMutationGuard(g MutationGuard) {
+	s.mutationGuard = g
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -396,6 +439,27 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 	}
 	if req.Property == nil {
 		return fmt.Errorf("%w: empty property", ErrBadRequest)
+	}
+
+	// Cross-FSM conflict gate (0-weaviate-issues#218): reject property
+	// mutations while a distributed-task (e.g. reindex migration) on
+	// the same (collection, property) is in flight. RAFT-deterministic
+	// — every node consults the same FSM snapshot at apply time and
+	// reaches the same accept/reject decision (see [MutationGuard]
+	// godoc on the determinism contract).
+	//
+	// Bypassed when [api.UpdatePropertyRequest.FromInFlightMigration]
+	// is true, which the migration completion path
+	// ([adapters/repos/db/reindex_provider.flipSemanticMigrationSchema]
+	// → [Raft.UpdatePropertyFromMigration]) sets on its own scheduled
+	// schema flip. Without that bypass, the same guard that protects
+	// the property from external mutations during FINALIZING would
+	// also reject the migration's own scheduled flip — which fires
+	// while the task is still FINALIZING (status not yet FINISHED).
+	if s.mutationGuard != nil && !req.FromInFlightMigration {
+		if err := s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
 	}
 
 	return s.apply(

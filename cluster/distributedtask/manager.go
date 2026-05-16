@@ -47,6 +47,18 @@ type Manager struct {
 	// no concurrent read/write race.
 	conflictDetectors map[string]ConflictDetector
 
+	// schemaMutationDetectors is the per-namespace registry consulted
+	// by the schema FSM's UpdateProperty apply path (see
+	// [SchemaMutationDetector] godoc for the motivating bug,
+	// 0-weaviate-issues#218). nil-safe per the same convention as
+	// conflictDetectors.
+	//
+	// Set once at startup via
+	// [Manager.SetSchemaMutationDetectors]. The schema FSM consults
+	// these via [Manager.CheckPropertyUpdate]; reading under m.mu is
+	// safe — the setter takes m.mu.
+	schemaMutationDetectors map[string]SchemaMutationDetector
+
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
@@ -73,6 +85,56 @@ func (m *Manager) SetConflictDetectors(detectors map[string]ConflictDetector) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.conflictDetectors = detectors
+}
+
+// SetSchemaMutationDetectors installs the per-namespace registry
+// consulted by [Manager.CheckPropertyUpdate] from the schema FSM's
+// UpdateProperty apply path. Safe to call once at startup after both
+// the Manager and the providers exist (configure_api.go wiring).
+// Subsequent calls overwrite the previous registration.
+//
+// Pass nil to disable the schema-mutation guard (e.g. unit tests that
+// exercise schema applies in isolation).
+func (m *Manager) SetSchemaMutationDetectors(detectors map[string]SchemaMutationDetector) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.schemaMutationDetectors = detectors
+}
+
+// CheckPropertyUpdate consults every registered
+// [SchemaMutationDetector] against the current FSM-stored task list
+// and returns the first conflict reported. Called by the schema FSM's
+// UpdateProperty apply path BEFORE the merge is applied; returning a
+// non-nil error causes the apply to reject with that error.
+//
+// RAFT-deterministic by construction: under m.mu (write lock to match
+// the apply paths that mutate m.tasks), every node sees the same task
+// list at the same applyIndex, and each detector is contractually a
+// pure function of its arguments. So every node reaches the same
+// accept/reject decision.
+//
+// Returns nil when no detectors are registered or no task in any
+// namespace flags the update. Empty fast-path keeps the schema apply
+// path free of allocations in the common case.
+func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.schemaMutationDetectors) == 0 {
+		return nil
+	}
+	for namespace, detector := range m.schemaMutationDetectors {
+		if detector == nil {
+			continue
+		}
+		var existing []*Task
+		for _, t := range m.tasks[namespace] {
+			existing = append(existing, t)
+		}
+		if err := detector.CheckPropertyUpdate(className, propertyName, existing); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetSchedulerNotifier installs the scheduler wake-up notifier. Safe to

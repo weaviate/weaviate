@@ -61,6 +61,11 @@ func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, prop
 	return 0, args.Error(0)
 }
 
+func (f *fakeSchemaManager) UpdatePropertyFromMigration(_ context.Context, class string, property *models.Property, _ ...string) (uint64, error) {
+	args := f.Called(class, property)
+	return 0, args.Error(0)
+}
+
 func (f *fakeSchemaManager) UpdateShardStatus(c_ context.Context, class, shard, status string) (uint64, error) {
 	args := f.Called(class, shard, status)
 	return 0, args.Error(0)

@@ -82,6 +82,33 @@ type UpdatePropertyRequest struct {
 	// "replace all" semantics). See the constants doc for the compatibility
 	// contract.
 	FieldsToUpdate []string `json:"FieldsToUpdate,omitempty"`
+	// FromInFlightMigration, when true, signals that this request was
+	// emitted by the in-process distributed-task scheduler's own schema
+	// flip (see adapters/repos/db/reindex_provider.go's
+	// flipSemanticMigrationSchema). The schema FSM uses this to bypass
+	// the in-flight-reindex MutationGuard that otherwise blocks property
+	// mutations while a reindex on the same (collection, property) is
+	// STARTED or FINALIZING (0-weaviate-issues#218).
+	//
+	// Set only by the migration completion path (via
+	// [Raft.UpdatePropertyFromMigration] →
+	// [usecases/schema.UpdatePropertyInternalFromMigration]). Public REST
+	// / gRPC schema mutations leave this false; the schema FSM trusts
+	// this flag only because the public API entry points never set it
+	// and the only in-process caller that does set it is the scheduler
+	// path that has already verified the in-flight migration's payload
+	// against this property.
+	//
+	// Wire-format compatibility: old leaders/followers that don't know
+	// about this field unmarshal to false (legacy behavior — no bypass).
+	// Old leaders emit commands with this field absent → new followers
+	// see false → MutationGuard applies as if the flag were not set,
+	// which is the conservative direction (reject during rolling
+	// upgrades when in doubt). The migration completion path always
+	// goes through new code on every node (the scheduler is per-node)
+	// so a mid-rolling-upgrade migration completion would still see the
+	// bypass on whichever node issues the flip.
+	FromInFlightMigration bool `json:"FromInFlightMigration,omitempty"`
 }
 
 type DeleteClassRequest struct {

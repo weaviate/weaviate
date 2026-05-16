@@ -135,3 +135,77 @@ func reindexPropsOverlap(a, b []string) bool {
 	}
 	return false
 }
+
+// CheckPropertyUpdate implements
+// [distributedtask.SchemaMutationDetector] for the reindex namespace.
+// Called from the schema FSM's UpdateProperty apply path under
+// [Manager.mu] to reject external property mutations while a reindex
+// migration on the same (collection, property) is STARTED or
+// FINALIZING.
+//
+// Motivating bug: 0-weaviate-issues#218. A `change-tokenization`
+// migration spawns separate per-shard sub-tasks for the searchable
+// and filterable indexes. A DELETE `/index/searchable` arriving
+// mid-flight applies `cleanStaleMigrationDirs("<prop>", "searchable")`,
+// which wipes the searchable sub-task's working dir under the still-
+// running runtimeSwap → searchable sub-unit FAILs → sibling
+// filterable sub-unit commits its local swap → per-shard ack barrier
+// sees mixed acks → task FAILED → `flipSemanticMigrationSchema`
+// skipped → schema stays at OLD tokenization while the filterable
+// bucket on disk holds NEW-tokenized data. Bucket↔schema inversion
+// (Sev 1), same failure family as #214 Gap A but triggered by an
+// external schema mutation instead of a crash.
+//
+// Rule: blanket reject any property mutation overlapping an in-flight
+// reindex task's properties on the same collection. Migration-driven
+// schema flips bypass this guard via
+// [api.UpdatePropertyRequest.FromInFlightMigration] = true, set by
+// [Raft.UpdatePropertyFromMigration] from the scheduler's
+// OnTaskCompleted dispatch. So the guard rejects external mutations
+// without breaking the migration's own scheduled completion flip.
+//
+// FSM-determinism: pure function of (className, propertyName,
+// existingTasks). Unparseable in-flight payloads are treated as a
+// hard reject (same as [ConflictDetector.CheckConflict]) — the
+// alternative (silently allow) would let a real bucket-level conflict
+// slip through and re-open the race this guard exists to close.
+func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
+	for _, task := range existingTasks {
+		if task.Status != distributedtask.TaskStatusStarted &&
+			task.Status != distributedtask.TaskStatusFinalizing {
+			continue
+		}
+
+		var existP ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+			return fmt.Errorf(
+				"in-flight reindex task %q has an unparseable payload; "+
+					"cannot verify whether property update on %s.%s would "+
+					"conflict: %w",
+				task.ID, className, propertyName, err)
+		}
+		if existP.Collection == "" || existP.MigrationType == "" {
+			return fmt.Errorf(
+				"in-flight reindex task %q has empty Collection or "+
+					"MigrationType (payload may have been written by an "+
+					"older binary); cannot verify whether property update "+
+					"on %s.%s would conflict",
+				task.ID, className, propertyName)
+		}
+		if !strings.EqualFold(existP.Collection, className) {
+			continue
+		}
+		if !reindexPropsOverlap(existP.Properties, []string{propertyName}) {
+			continue
+		}
+		return fmt.Errorf(
+			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
+				"schema mutations on this property are blocked until the "+
+				"reindex completes or is cancelled — wait for the task "+
+				"to reach a terminal state, or cancel it via the reindex "+
+				"REST API before retrying",
+			task.ID, existP.MigrationType,
+			existP.Collection, propertyName, task.Status)
+	}
+	return nil
+}

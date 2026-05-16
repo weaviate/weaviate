@@ -995,6 +995,21 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 	}
 	appState.ClusterService.SetDistributedTaskConflictDetectors(conflictDetectors)
+
+	// Cross-FSM schema-mutation guard (0-weaviate-issues#218): any
+	// provider implementing [distributedtask.SchemaMutationDetector]
+	// participates in the FSM-deterministic reject path inside the
+	// schema FSM's UpdateProperty apply. Symmetric to the conflict
+	// detectors above: same registration shape, same "pure function
+	// of FSM state" contract, opposite direction (this one protects
+	// in-flight tasks from out-of-band schema mutations).
+	schemaMutationDetectors := map[string]distributedtask.SchemaMutationDetector{}
+	for ns, p := range providers {
+		if smd, ok := p.(distributedtask.SchemaMutationDetector); ok {
+			schemaMutationDetectors[ns] = smd
+		}
+	}
+	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
 	enterrors.GoWrapper(func() {
 		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
 		// and stopping tasks.
@@ -1172,7 +1187,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer, appState.Logger)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ClusterService.Raft)
 	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)

@@ -58,6 +58,22 @@ type SchemaManager interface {
 	// every field" semantics, so existing public-API callers do not need
 	// to change.
 	UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
+	// UpdatePropertyFromMigration is the internal variant of
+	// UpdateProperty used by the distributed-task scheduler's reindex
+	// completion path. It sets the
+	// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the
+	// schema FSM's cross-FSM MutationGuard (which blocks property
+	// mutations while a reindex on the same property is STARTED or
+	// FINALIZING — 0-weaviate-issues#218) bypasses the check for
+	// migration-driven schema flips.
+	//
+	// Public REST / gRPC handlers must not call this; they go through
+	// UpdateProperty above. The bypass is mechanically required
+	// because OnTaskCompleted (which calls
+	// flipSemanticMigrationSchema) fires while the task is still in
+	// FINALIZING, so without the bypass the migration's own flip
+	// would be rejected by the very guard it depends on.
+	UpdatePropertyFromMigration(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
 	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
 	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)
 	UpdateTenants(ctx context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error)

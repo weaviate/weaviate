@@ -152,6 +152,46 @@ type ConflictDetector interface {
 	CheckConflict(newPayload []byte, existingTasks []*Task) error
 }
 
+// SchemaMutationDetector is an optional interface providers implement so
+// the schema FSM's UpdateProperty apply path can reject external schema
+// mutations that would race with one of the provider's in-flight tasks.
+//
+// Motivation: 0-weaviate-issues#218. A `change-tokenization` reindex
+// spawns separate per-shard sub-tasks for the searchable and filterable
+// indexes. A DELETE `/index/searchable` arriving mid-flight applies
+// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
+// `searchable_retokenize_<prop>_<gen>/` working dir under the still-
+// running sub-task. That sub-unit FAILs; the sibling filterable sub-unit
+// keeps going and commits its local bucket swap; the per-shard ack
+// barrier sees mixed acks → task → FAILED → `flipSemanticMigrationSchema`
+// skipped → schema stays at OLD tokenization while the filterable bucket
+// on disk now holds NEW-tokenized data. Bucket↔schema inversion (Sev 1),
+// same failure family as #214 Gap A but triggered by an external schema
+// mutation instead of a crash.
+//
+// Putting the check inside the schema FSM's UpdateProperty apply makes
+// it RAFT-deterministic: every node sees the same distributed-task FSM
+// snapshot at the same applyIndex and reaches the same accept/reject
+// decision. Symmetric to [ConflictDetector] (which protects in-flight
+// tasks from new conflicting tasks); this protects them from out-of-band
+// schema mutations during their flight.
+//
+// FSM-determinism contract: CheckPropertyUpdate MUST be a pure function
+// of (className, propertyName, existingTasks). It must not read mutable
+// process state (clocks, network, schema, RNG) — different nodes
+// applying the same log entry must reach the same accept/reject
+// decision.
+type SchemaMutationDetector interface {
+	Provider
+
+	// CheckPropertyUpdate is called under [Manager.mu] from the
+	// schema FSM's UpdateProperty apply path. existingTasks is the
+	// full namespace-scoped task list at apply time. Return a
+	// non-nil error to reject the property update; the error
+	// propagates back to the UpdateProperty caller.
+	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
+}
+
 // RecoveryAwareProvider is an optional interface providers implement to
 // participate in post-restart callback retry. The Scheduler's bootstrap
 // pre-mark (which normally suppresses replay of callbacks that fired
