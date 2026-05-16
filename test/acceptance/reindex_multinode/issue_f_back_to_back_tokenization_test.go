@@ -46,12 +46,12 @@ import (
 //  1. Create class with a single text property `path`, tokenization=word.
 //  2. Import 10k objects with hyphenated multi-token values
 //     (e.g. "alpha-foo", "beta-bar", …). Pick the values so:
-//       - The word-tokenized bucket gives N_word matches for a chosen
-//         multi-token Equal query (matches every doc whose path
-//         contains both tokens).
-//       - The field-tokenized bucket gives N_field matches for the
-//         same Equal query (matches only exact-string docs).
-//       - N_word != N_field.
+//     - The word-tokenized bucket gives N_word matches for a chosen
+//     multi-token Equal query (matches every doc whose path
+//     contains both tokens).
+//     - The field-tokenized bucket gives N_field matches for the
+//     same Equal query (matches only exact-string docs).
+//     - N_word != N_field.
 //  3. Verify the baseline count under WORD tokenization on every
 //     replica equals N_word.
 //  4. Submit change-tokenization to FIELD. Await FINISHED. Sleep 3 s.
