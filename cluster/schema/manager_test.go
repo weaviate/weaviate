@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	gproto "google.golang.org/protobuf/proto"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -491,6 +492,18 @@ func (g *recordingMutationGuard) CheckPropertyUpdate(class, prop string) error {
 	return g.rejectWith
 }
 
+func (g *recordingMutationGuard) CheckClassMutation(class string) error {
+	g.called++
+	g.lastClass = class
+	return g.rejectWith
+}
+
+func (g *recordingMutationGuard) CheckTenantMutation(class string, tenants []string) error {
+	g.called++
+	g.lastClass = class
+	return g.rejectWith
+}
+
 // TestSchemaManager_UpdateProperty_MutationGuard pins the cross-FSM
 // MutationGuard wiring on the UpdateProperty apply path
 // (0-weaviate-issues#218). The guard:
@@ -611,6 +624,156 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 		require.Equal(t, 0, guard.called,
 			"empty property must not reach the guard")
 	})
+}
+
+// TestSchemaManager_DeleteClass_MutationGuard pins the class-wide
+// guard wiring on the DeleteClass apply path
+// (0-weaviate-issues#218 / #219). DeleteClass mid-reindex destroys
+// every property's bucket state at once; the guard rejection must
+// fire BEFORE any class-deletion side effect.
+func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {
+	mkRequest := func(class string) *cmd.ApplyRequest {
+		return &cmd.ApplyRequest{
+			Type:  cmd.ApplyRequest_TYPE_DELETE_CLASS,
+			Class: class,
+		}
+	}
+
+	newSM := func(guard MutationGuard) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		if guard != nil {
+			sm.SetMutationGuard(guard)
+		}
+		return sm
+	}
+
+	t.Run("guard rejects DeleteClass before apply", func(t *testing.T) {
+		guard := &recordingMutationGuard{
+			rejectWith: fmt.Errorf("reindex task on class C is in flight"),
+		}
+		sm := newSM(guard)
+		err := sm.DeleteClass(mkRequest("C"), true, false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "reindex task on class C is in flight")
+		require.Equal(t, 1, guard.called)
+		require.Equal(t, "C", guard.lastClass)
+	})
+
+	t.Run("no guard registered → DeleteClass proceeds", func(t *testing.T) {
+		sm := newSM(nil)
+		// DeleteClass with schemaOnly=true short-circuits the db side; the
+		// schema side will just delete a non-existent class, which is a no-op.
+		err := sm.DeleteClass(mkRequest("C"), true, false)
+		require.NoError(t, err,
+			"with no guard registered and schemaOnly=true, DeleteClass on a non-existent class is a no-op")
+	})
+}
+
+// TestSchemaManager_DeleteTenants_MutationGuard pins the tenant-level
+// guard wiring on the DeleteTenants apply path.
+func TestSchemaManager_DeleteTenants_MutationGuard(t *testing.T) {
+	mkRequest := func(class string, tenants []string) *cmd.ApplyRequest {
+		req := &cmd.DeleteTenantsRequest{Tenants: tenants}
+		sub, err := gproto.Marshal(req)
+		require.NoError(t, err)
+		return &cmd.ApplyRequest{
+			Type:       cmd.ApplyRequest_TYPE_DELETE_TENANT,
+			Class:      class,
+			SubCommand: sub,
+		}
+	}
+
+	newSM := func(guard MutationGuard) *SchemaManager {
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		sm := NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		if guard != nil {
+			sm.SetMutationGuard(guard)
+		}
+		return sm
+	}
+
+	t.Run("guard rejects DeleteTenants before apply", func(t *testing.T) {
+		guard := &recordingMutationGuard{
+			rejectWith: fmt.Errorf("reindex task on class C is in flight, tenants blocked"),
+		}
+		sm := newSM(guard)
+		err := sm.DeleteTenants(mkRequest("C", []string{"t1", "t2"}), true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "tenants blocked")
+		require.Equal(t, 1, guard.called)
+		require.Equal(t, "C", guard.lastClass)
+	})
+
+	t.Run("empty tenants list does not consult the guard", func(t *testing.T) {
+		guard := &recordingMutationGuard{rejectWith: fmt.Errorf("should not be reached")}
+		sm := newSM(guard)
+		// schemaOnly=true so we don't need a real schema/db.
+		err := sm.DeleteTenants(mkRequest("C", nil), true)
+		// schema may error on the empty list itself, but the guard MUST NOT
+		// have been called — there's nothing to mutate.
+		_ = err
+		require.Equal(t, 0, guard.called,
+			"empty tenants list means no mutation; guard MUST NOT be invoked")
+	})
+}
+
+// TestTenantsTransitioningAwayFromActive pins the helper that
+// narrows UpdateTenants guard invocation to tenants whose target
+// status would make their shards locally unavailable.
+func TestTenantsTransitioningAwayFromActive(t *testing.T) {
+	tests := []struct {
+		name    string
+		tenants []*cmd.Tenant
+		want    []string
+	}{
+		{
+			name:    "empty list → empty result",
+			tenants: nil,
+			want:    nil,
+		},
+		{
+			name: "all transitioning toward ACTIVE → empty result",
+			tenants: []*cmd.Tenant{
+				{Name: "t1", Status: models.TenantActivityStatusACTIVE},
+				{Name: "t2", Status: models.TenantActivityStatusHOT},
+				{Name: "t3", Status: models.TenantActivityStatusONLOADING},
+				{Name: "t4", Status: models.TenantActivityStatusUNFREEZING},
+			},
+			want: nil,
+		},
+		{
+			name: "all transitioning AWAY from ACTIVE → all returned",
+			tenants: []*cmd.Tenant{
+				{Name: "t1", Status: models.TenantActivityStatusINACTIVE},
+				{Name: "t2", Status: models.TenantActivityStatusCOLD},
+				{Name: "t3", Status: models.TenantActivityStatusOFFLOADED},
+				{Name: "t4", Status: models.TenantActivityStatusOFFLOADING},
+				{Name: "t5", Status: models.TenantActivityStatusFROZEN},
+				{Name: "t6", Status: models.TenantActivityStatusFREEZING},
+			},
+			want: []string{"t1", "t2", "t3", "t4", "t5", "t6"},
+		},
+		{
+			name: "mixed → only away-from-ACTIVE returned",
+			tenants: []*cmd.Tenant{
+				{Name: "active", Status: models.TenantActivityStatusACTIVE},
+				{Name: "frozen", Status: models.TenantActivityStatusFROZEN},
+				{Name: "hot", Status: models.TenantActivityStatusHOT},
+				{Name: "cold", Status: models.TenantActivityStatusCOLD},
+			},
+			want: []string{"frozen", "cold"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tenantsTransitioningAwayFromActive(tc.tenants)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
 
 // TestSchemaManager_SetMutationGuard pins the setter contract — nil

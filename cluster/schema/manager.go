@@ -62,6 +62,20 @@ type MutationGuard interface {
 	// to apply, or a non-nil error describing the conflict. Called
 	// under the schema manager's apply path; must not block on IO.
 	CheckPropertyUpdate(className, propertyName string) error
+
+	// CheckClassMutation returns nil if a class-wide destructive
+	// mutation (DeleteClass, etc.) is safe to apply, or a non-nil
+	// error describing the conflict. Stricter than
+	// CheckPropertyUpdate — any in-flight reindex on the class
+	// blocks the mutation, because dropping the class destroys every
+	// property's bucket state at once.
+	CheckClassMutation(className string) error
+
+	// CheckTenantMutation returns nil if a tenant-level mutation is
+	// safe to apply, or a non-nil error describing the conflict.
+	// Used at DeleteTenants and at UpdateTenants when the transition
+	// would make tenant shards locally unavailable.
+	CheckTenantMutation(className string, tenants []string) error
 }
 
 type SchemaManager struct {
@@ -100,6 +114,38 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 // FSM bootstrap, before any apply path can read the field.
 func (s *SchemaManager) SetMutationGuard(g MutationGuard) {
 	s.mutationGuard = g
+}
+
+// tenantsTransitioningAwayFromActive returns the names of tenants in
+// the UpdateTenants payload that would transition AWAY from
+// locally-available state (INACTIVE / OFFLOADED / FROZEN /
+// transitional aliases). Returns an empty slice if every tenant is
+// transitioning to a locally-available state (ACTIVE / HOT /
+// ONLOADING / UNFREEZING) — in that case no MutationGuard check
+// fires, matching the "transitions toward available are safe"
+// semantics.
+//
+// Used by [SchemaManager.UpdateTenants] to narrow the guard
+// invocation to tenants whose data would actually become locally
+// unavailable mid-reindex (the only case where the bucket↔schema
+// inversion family of bugs is reachable).
+func tenantsTransitioningAwayFromActive(tenants []*command.Tenant) []string {
+	if len(tenants) == 0 {
+		return nil
+	}
+	var affected []string
+	for _, t := range tenants {
+		switch t.GetStatus() {
+		case models.TenantActivityStatusINACTIVE,
+			models.TenantActivityStatusOFFLOADED,
+			models.TenantActivityStatusOFFLOADING,
+			models.TenantActivityStatusFROZEN,
+			models.TenantActivityStatusFREEZING,
+			models.TenantActivityStatusCOLD:
+			affected = append(affected, t.GetName())
+		}
+	}
+	return affected
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -379,6 +425,19 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
+	// Cross-FSM conflict gate (0-weaviate-issues#218 / #219): reject
+	// DeleteClass while any reindex on the class is in flight.
+	// Dropping the class destroys every property's bucket state and
+	// the working dirs the in-flight migration depends on, producing
+	// the same bucket↔schema inversion family as #218 — but at
+	// class-wide blast radius. RAFT-deterministic via the
+	// distributed-task FSM snapshot at this applyIndex.
+	if s.mutationGuard != nil {
+		if err := s.mutationGuard.CheckClassMutation(cmd.Class); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+	}
+
 	var hasFrozen bool
 	tenants, err := s.schema.getTenants(cmd.Class, nil)
 	if err != nil {
@@ -558,6 +617,26 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	// Cross-FSM conflict gate (0-weaviate-issues#218 / #219): reject
+	// UpdateTenants that would transition any tenant AWAY from
+	// locally-available (INACTIVE / OFFLOADED / FROZEN /
+	// transitional) while a reindex on that class is in flight on
+	// those tenants' shards. The tenant shards becoming unavailable
+	// mid-flight produces the same bucket↔schema inversion family as
+	// #218 but at tenant granularity. Same FSM-deterministic gate as
+	// CheckPropertyUpdate.
+	//
+	// Transitions TOWARD ACTIVE (re-activate / un-offload) are
+	// permitted — they make data MORE available, not less.
+	if s.mutationGuard != nil {
+		affectedTenants := tenantsTransitioningAwayFromActive(req.GetTenants())
+		if len(affectedTenants) > 0 {
+			if err := s.mutationGuard.CheckTenantMutation(cmd.Class, affectedTenants); err != nil {
+				return fmt.Errorf("%w: %w", ErrBadRequest, err)
+			}
+		}
+	}
+
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
@@ -576,6 +655,18 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 	req := &command.DeleteTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Cross-FSM conflict gate (0-weaviate-issues#218 / #219): reject
+	// DeleteTenants if any reindex on this class is in flight on the
+	// tenant shards being deleted. Deleting tenants destroys their
+	// shard state, which the in-flight migration's working dirs and
+	// canonical bucket pointers depend on. Same family as #218 at
+	// tenant granularity.
+	if s.mutationGuard != nil && len(req.Tenants) > 0 {
+		if err := s.mutationGuard.CheckTenantMutation(cmd.Class, req.Tenants); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
 	}
 
 	tenants, err := s.schema.getTenants(cmd.Class, req.Tenants)

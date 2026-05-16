@@ -117,6 +117,40 @@ func (m *Manager) SetSchemaMutationDetectors(detectors map[string]SchemaMutation
 // namespace flags the update. Empty fast-path keeps the schema apply
 // path free of allocations in the common case.
 func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
+	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+		return d.CheckPropertyUpdate(className, propertyName, existing)
+	})
+}
+
+// CheckClassMutation consults every registered
+// [SchemaMutationDetector] for class-wide destructive mutations
+// (e.g. DeleteClass). Stricter than CheckPropertyUpdate — any
+// in-flight reindex on the class blocks the mutation.
+//
+// Same RAFT-determinism contract as CheckPropertyUpdate.
+func (m *Manager) CheckClassMutation(className string) error {
+	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+		return d.CheckClassMutation(className, existing)
+	})
+}
+
+// CheckTenantMutation consults every registered
+// [SchemaMutationDetector] for tenant-level mutations that would
+// make the named tenants' shards locally unavailable (DeleteTenants,
+// UpdateTenants toward OFFLOADED / FROZEN / transitional).
+//
+// Same RAFT-determinism contract as CheckPropertyUpdate.
+func (m *Manager) CheckTenantMutation(className string, tenants []string) error {
+	return m.dispatchSchemaMutation(func(d SchemaMutationDetector, existing []*Task) error {
+		return d.CheckTenantMutation(className, tenants, existing)
+	})
+}
+
+// dispatchSchemaMutation is the shared body of CheckPropertyUpdate /
+// CheckClassMutation / CheckTenantMutation. Walks every registered
+// [SchemaMutationDetector], hands it the namespace-scoped task list,
+// returns the first conflict the call closure reports.
+func (m *Manager) dispatchSchemaMutation(callDetector func(SchemaMutationDetector, []*Task) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.schemaMutationDetectors) == 0 {
@@ -130,7 +164,7 @@ func (m *Manager) CheckPropertyUpdate(className, propertyName string) error {
 		for _, t := range m.tasks[namespace] {
 			existing = append(existing, t)
 		}
-		if err := detector.CheckPropertyUpdate(className, propertyName, existing); err != nil {
+		if err := callDetector(detector, existing); err != nil {
 			return err
 		}
 	}

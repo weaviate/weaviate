@@ -209,3 +209,109 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 	}
 	return nil
 }
+
+// CheckClassMutation implements
+// [distributedtask.SchemaMutationDetector] for class-wide
+// destructive mutations (DeleteClass). Stricter than
+// CheckPropertyUpdate — any reindex task on the class (regardless of
+// which property) is a conflict, because dropping the class destroys
+// every property's bucket state at once including the in-flight
+// migration's working dirs and canonical bucket pointers.
+//
+// Motivating bug: 0-weaviate-issues#219 — DeleteClass arriving mid-
+// reindex is the catastrophic extension of the #218 family.
+//
+// Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
+// in-flight payloads are treated as a hard reject (we cannot prove
+// non-conflict).
+func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
+	for _, task := range existingTasks {
+		if task.Status != distributedtask.TaskStatusStarted &&
+			task.Status != distributedtask.TaskStatusFinalizing {
+			continue
+		}
+
+		var existP ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+			return fmt.Errorf(
+				"in-flight reindex task %q has an unparseable payload; "+
+					"cannot verify whether DeleteClass on %s would "+
+					"conflict: %w",
+				task.ID, className, err)
+		}
+		if existP.Collection == "" || existP.MigrationType == "" {
+			return fmt.Errorf(
+				"in-flight reindex task %q has empty Collection or "+
+					"MigrationType (payload may have been written by an "+
+					"older binary); cannot verify whether DeleteClass on "+
+					"%s would conflict",
+				task.ID, className)
+		}
+		if !strings.EqualFold(existP.Collection, className) {
+			continue
+		}
+		return fmt.Errorf(
+			"reindex task %q (%s) is in flight on %s (status=%s); "+
+				"deleting this class would destroy the migration's "+
+				"working state and produce a bucket↔schema inversion "+
+				"on every replica — cancel the reindex via the REST "+
+				"API before deleting the class",
+			task.ID, existP.MigrationType, existP.Collection, task.Status)
+	}
+	return nil
+}
+
+// CheckTenantMutation implements
+// [distributedtask.SchemaMutationDetector] for tenant-level
+// mutations that make tenant shards locally unavailable
+// (DeleteTenants, UpdateTenants transitioning away from ACTIVE).
+//
+// Today's reindex task payload names a collection but not a specific
+// tenant — a migration submitted on a multi-tenant collection
+// applies to whatever shards exist for that collection. So the
+// conservative implementation is "block every tenant mutation on a
+// class with any in-flight reindex": if a reindex is running on the
+// class, we cannot prove the tenant being mutated is not part of
+// its working set without a more granular payload.
+//
+// Same FSM-determinism contract as CheckPropertyUpdate.
+//
+// `tenants` is informational — the rejection error names them so
+// the caller knows which tenants would be affected.
+func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
+	for _, task := range existingTasks {
+		if task.Status != distributedtask.TaskStatusStarted &&
+			task.Status != distributedtask.TaskStatusFinalizing {
+			continue
+		}
+
+		var existP ReindexTaskPayload
+		if err := json.Unmarshal(task.Payload, &existP); err != nil {
+			return fmt.Errorf(
+				"in-flight reindex task %q has an unparseable payload; "+
+					"cannot verify whether tenant mutation on %s/%v "+
+					"would conflict: %w",
+				task.ID, className, tenants, err)
+		}
+		if existP.Collection == "" || existP.MigrationType == "" {
+			return fmt.Errorf(
+				"in-flight reindex task %q has empty Collection or "+
+					"MigrationType (payload may have been written by an "+
+					"older binary); cannot verify whether tenant "+
+					"mutation on %s/%v would conflict",
+				task.ID, className, tenants)
+		}
+		if !strings.EqualFold(existP.Collection, className) {
+			continue
+		}
+		return fmt.Errorf(
+			"reindex task %q (%s) is in flight on %s (status=%s); "+
+				"mutating tenants %v would make their shards locally "+
+				"unavailable and produce a bucket↔schema inversion — "+
+				"cancel the reindex via the REST API before mutating "+
+				"these tenants",
+			task.ID, existP.MigrationType, existP.Collection,
+			task.Status, tenants)
+	}
+	return nil
+}

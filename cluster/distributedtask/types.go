@@ -190,6 +190,33 @@ type SchemaMutationDetector interface {
 	// non-nil error to reject the property update; the error
 	// propagates back to the UpdateProperty caller.
 	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
+
+	// CheckClassMutation is called under [Manager.mu] from the
+	// schema FSM's DeleteClass (and similar class-wide destructive)
+	// apply path. existingTasks is the full namespace-scoped task
+	// list at apply time. Return a non-nil error to reject the
+	// mutation; the error propagates back to the caller.
+	//
+	// Stricter than CheckPropertyUpdate: any reindex on the class
+	// (any property) in STARTED or FINALIZING is a conflict, because
+	// dropping the class destroys every property's bucket state at
+	// once, including the in-flight migration's working dirs.
+	CheckClassMutation(className string, existingTasks []*Task) error
+
+	// CheckTenantMutation is called under [Manager.mu] from the
+	// schema FSM's DeleteTenants / UpdateTenants apply paths when a
+	// transition would make one or more tenants' shards locally
+	// unavailable (DeleteTenants, or UpdateTenants toward OFFLOADED
+	// / FROZEN / OFFLOADING / FREEZING). existingTasks is the full
+	// namespace-scoped task list at apply time. Return a non-nil
+	// error to reject the mutation.
+	//
+	// Today's reindex tasks are class-scoped (their payload names a
+	// collection but not a specific tenant — they apply to whatever
+	// shards exist), so the conservative implementation is "block
+	// every tenant mutation on a class with any in-flight reindex".
+	// A future per-tenant reindex payload could narrow this.
+	CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error
 }
 
 // RecoveryAwareProvider is an optional interface providers implement to

@@ -1227,6 +1227,20 @@ func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName
 	return f.rejectWith
 }
 
+func (f *fakeSchemaMutationDetector) CheckClassMutation(className string, existingTasks []*Task) error {
+	f.called++
+	f.lastClassName = className
+	f.lastTaskCount = len(existingTasks)
+	return f.rejectWith
+}
+
+func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error {
+	f.called++
+	f.lastClassName = className
+	f.lastTaskCount = len(existingTasks)
+	return f.rejectWith
+}
+
 // TestManager_CheckPropertyUpdate_DispatchToDetectors pins the cross-
 // FSM dispatch: the schema FSM's UpdateProperty apply consults this
 // method, which fans out to every registered
@@ -1302,5 +1316,72 @@ func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		h.manager.SetSchemaMutationDetectors(nil)
 		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+	})
+}
+
+// TestManager_CheckClassMutation_DispatchToDetectors pins the dispatch
+// for the class-wide guard. Symmetric to the CheckPropertyUpdate
+// dispatch suite — same nil-safety, same propagate-rejection,
+// same full-task-list semantics.
+func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
+	t.Run("no detectors registered → nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		require.NoError(t, h.manager.CheckClassMutation("C"))
+	})
+
+	t.Run("detector returns nil → CheckClassMutation returns nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+		require.NoError(t, h.manager.CheckClassMutation("C"))
+		require.Equal(t, 1, detector.called)
+		require.Equal(t, "C", detector.lastClassName)
+	})
+
+	t.Run("detector returns error → CheckClassMutation propagates", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{
+			rejectWith: fmt.Errorf("simulated: reindex in flight on class"),
+		}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+		err := h.manager.CheckClassMutation("C")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "simulated")
+	})
+}
+
+// TestManager_CheckTenantMutation_DispatchToDetectors pins the dispatch
+// for the tenant-level guard.
+func TestManager_CheckTenantMutation_DispatchToDetectors(t *testing.T) {
+	t.Run("no detectors registered → nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		require.NoError(t, h.manager.CheckTenantMutation("C", []string{"t1"}))
+	})
+
+	t.Run("detector returns nil → CheckTenantMutation returns nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+		require.NoError(t, h.manager.CheckTenantMutation("C", []string{"t1", "t2"}))
+		require.Equal(t, 1, detector.called)
+	})
+
+	t.Run("detector returns error → CheckTenantMutation propagates", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{
+			rejectWith: fmt.Errorf("simulated: reindex in flight, tenants blocked"),
+		}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+		err := h.manager.CheckTenantMutation("C", []string{"t1"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "simulated")
 	})
 }
