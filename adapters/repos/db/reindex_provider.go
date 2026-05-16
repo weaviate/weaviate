@@ -916,8 +916,19 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// The cluster gates MarkTaskFinalized on every node's ack landing
 	// successfully; any failure transitions the task to FAILED and
 	// skips the cluster-wide schema flip. See 0-weaviate-issues#214.
+	//
+	// sawContextCanceled tracks whether at least one unit's swap failed
+	// because the server context was cancelled (graceful shutdown / rolling
+	// restart). The scheduler treats a context-canceled return as a
+	// transient "didn't finish yet" — the recovery path on the next boot
+	// re-runs OnGroupCompleted via the rehydrate branch and the swap
+	// completes cleanly without an in-flight compaction to abort
+	// (0-weaviate-issues#213 root cause). Returning context.Canceled
+	// up the stack lets [Scheduler] errors.Is the error and skip ack
+	// emission for THIS process — recovery owns the resolution.
 	ctx := p.serverCtx
 	var unitErrs []string
+	var sawContextCanceled bool
 	for _, unitID := range localGroupUnitIDs {
 		// Skip units that failed during reindex.
 		unit := task.Units[unitID]
@@ -1000,6 +1011,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 					logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 						WithError(err).Error("reindex provider: OnGroupCompleted: rehydrate failed; swap will not run for this task")
 					unitErrs = append(unitErrs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
+					if errors.Is(err, context.Canceled) {
+						sawContextCanceled = true
+					}
 					allSwapped = false
 					continue
 				}
@@ -1008,6 +1022,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 					WithError(err).Error("reindex provider: OnGroupCompleted: RunSwapOnShard failed — migration is half-applied on this shard")
 				unitErrs = append(unitErrs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
+				if errors.Is(err, context.Canceled) {
+					sawContextCanceled = true
+				}
 				allSwapped = false
 			}
 		}
@@ -1028,6 +1045,17 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	}
 	if len(unitErrs) == 0 {
 		return nil
+	}
+	// Preserve the context.Canceled chain when at least one unit failed
+	// due to shutdown so the scheduler's errors.Is check (in
+	// Phase 1.5) routes through the "transient — let recovery re-fire
+	// OnGroupCompleted" branch. Without this %w wrap, the joined string
+	// would lose the sentinel and the scheduler would emit a failure
+	// ack, flipping the task to FAILED before the post-restart recovery
+	// gets a chance. See 0-weaviate-issues#214 + #213.
+	if sawContextCanceled {
+		return fmt.Errorf("OnGroupCompleted: %d unit(s) failed: %s: %w",
+			len(unitErrs), strings.Join(unitErrs, "; "), context.Canceled)
 	}
 	return fmt.Errorf("OnGroupCompleted: %d unit(s) failed: %s",
 		len(unitErrs), strings.Join(unitErrs, "; "))

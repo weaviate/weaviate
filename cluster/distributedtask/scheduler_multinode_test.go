@@ -780,3 +780,86 @@ func TestMultiScheduler_AckBarrier_LateSuccessAckSurvivesIdempotently(t *testing
 	require.Equal(t, originalAck.Success, tasks[0].PostCompletionAcks["node-1"].Success,
 		"original ack must remain unchanged on late retry")
 }
+
+// TestMultiScheduler_AckBarrier_ContextCanceledIsTransient pins the
+// graceful-shutdown recovery semantics for 0-weaviate-issues#214 +
+// #213: when OnGroupCompleted returns a context.Canceled-rooted error
+// (the production graceful-shutdown shape produced by lsmkv's
+// non-cancellable in-flight compaction during SIGTERM), the scheduler
+// MUST NOT emit a failure ack. Instead it MUST drop the local
+// "fired" mark so the post-restart tick re-fires OnGroupCompleted via
+// the rehydrate path and emits a fresh success ack.
+//
+// Without this discipline the task would transition to FAILED on the
+// first node whose graceful shutdown raced its swap (CI surfaced this
+// exact failure in TestMultiNode_RollingRestartDuringFinalizing on
+// PR #10694), short-circuiting the post-restart recovery and turning
+// every rolling restart that lands in the FINALIZING window into a
+// permanent migration failure.
+func TestMultiScheduler_AckBarrier_ContextCanceledIsTransient(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newMultiSchedulerHarnessWithAckBarrier(t, []string{"node-1", "node-2", "node-3"})
+	defer h.close()
+
+	taskID := "ack-barrier-ctx-canceled"
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"u-node-1", "u-node-2", "u-node-3"},
+	}), 1))
+
+	for _, n := range h.nodes {
+		require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
+			context.Background(), h.namespace, taskID, 1, n.id, "u-"+n.id, 0.1,
+		))
+	}
+	h.tickAll()
+	for _, n := range h.nodes {
+		require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
+			context.Background(), h.namespace, taskID, 1, n.id, "u-"+n.id,
+		))
+	}
+
+	// node-2's OnGroupCompleted returns context.Canceled (the
+	// shutdown-during-FINALIZING shape from #213).
+	h.nodes[1].provider.SetGroupCompletedError(fmt.Errorf("simulated swap error: %w", context.Canceled))
+
+	// Tick all. node-1 + node-3 should succeed and emit success acks;
+	// node-2 should DROP its fired mark (ctx.Canceled path) and NOT
+	// emit an ack. The task must NOT transition to FAILED — it stays
+	// at FINALIZING waiting for the recovery (= clearing the simulated
+	// error and re-ticking) to emit a success ack.
+	h.tickAll()
+
+	tasks := h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFinalizing, tasks[0].Status,
+		"ctx.Canceled from OnGroupCompleted MUST NOT flip task to FAILED")
+	require.NotContains(t, tasks[0].PostCompletionAcks, "node-2",
+		"ctx.Canceled path MUST NOT emit an ack — recovery is responsible")
+
+	// node-1 and node-3 acked success (their OnGroupCompleted returned nil).
+	require.Contains(t, tasks[0].PostCompletionAcks, "node-1")
+	require.True(t, tasks[0].PostCompletionAcks["node-1"].Success)
+	require.Contains(t, tasks[0].PostCompletionAcks, "node-3")
+	require.True(t, tasks[0].PostCompletionAcks["node-3"].Success)
+
+	// Simulate the recovery: clear the injected error (as if node-2
+	// restarted and the second OnGroupCompleted call on a fresh process
+	// has no compaction to cancel).
+	h.nodes[1].provider.SetGroupCompletedError(nil)
+
+	// node-2 re-ticks. The dropped fired mark causes a fresh
+	// OnGroupCompleted call (now succeeding), then the ack-emission gate
+	// fires success ack. The schema flip + MarkTaskFinalized can finally
+	// land.
+	h.tick(1)
+	tasks = h.listManagerTasks(t)[h.namespace]
+	require.Contains(t, tasks[0].PostCompletionAcks, "node-2",
+		"after recovery re-fires OnGroupCompleted, node-2's ack must land")
+	require.True(t, tasks[0].PostCompletionAcks["node-2"].Success,
+		"recovery's re-fire should produce a success ack")
+	require.Equal(t, TaskStatusFinished, tasks[0].Status,
+		"with all three acks landed (1 via recovery), task must transition to FINISHED")
+}

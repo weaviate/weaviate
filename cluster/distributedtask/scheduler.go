@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -535,6 +536,39 @@ func (s *Scheduler) tick() {
 						}
 						s.groupCallbackFired[desc][groupID] = true
 						groupErr := suProvider.OnGroupCompleted(task, groupID, localIDs)
+						// Context-cancellation handling: a graceful
+						// process shutdown (SIGTERM during a rolling
+						// restart) propagates ctx.Canceled into the
+						// per-shard RunSwapOnShard, which fails with
+						// the lsmkv "long-running compaction in
+						// progress: context canceled" shape (see
+						// 0-weaviate-issues#213). That is NOT a
+						// permanent failure — the post-restart
+						// recovery path re-fires OnGroupCompleted via
+						// the rehydrate branch on a fresh process
+						// with no in-flight compaction to cancel, and
+						// the swap completes cleanly. Treating
+						// shutdown-cancellation as a failure ack
+						// would prematurely flip the task to FAILED
+						// and short-circuit the recovery — exactly
+						// the symptom CI surfaced on
+						// TestMultiNode_RollingRestartDuringFinalizing.
+						//
+						// Drop the in-memory "fired" mark for this
+						// group so the next scheduler tick (on the
+						// restarted process) re-fires
+						// OnGroupCompleted and the ack-emission gate
+						// below sees a fresh success/failure picture.
+						// Skip the per-group error capture and the
+						// ack emission — let the recovery path own
+						// the resolution.
+						if errors.Is(groupErr, context.Canceled) {
+							delete(s.groupCallbackFired[desc], groupID)
+							s.loggerWithTask(namespace, desc).
+								WithField("groupID", groupID).
+								Info("OnGroupCompleted aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack (0-weaviate-issues#214 + #213)")
+							continue
+						}
 						// Capture the per-group error so the
 						// per-node post-completion ack can report the
 						// aggregated picture (0-weaviate-issues#214
