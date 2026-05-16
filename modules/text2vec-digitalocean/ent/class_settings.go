@@ -46,12 +46,12 @@ type ModelLister interface {
 var DefaultModelLister ModelLister
 
 type classSettings struct {
-	basesettings.BaseClassSettings
+	*basesettings.BaseClassSettings
 	cfg moduletools.ClassConfig
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, LowerCaseInput)}
+	return &classSettings{cfg: cfg, BaseClassSettings: basesettings.NewBaseClassSettings(cfg, LowerCaseInput)}
 }
 
 func (cs *classSettings) Model() string {
