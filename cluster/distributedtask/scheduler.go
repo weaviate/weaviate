@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,6 +47,7 @@ type Scheduler struct {
 	tasksLister        TasksLister
 	taskCleaner        TaskCleaner
 	taskFinalizer      TaskFinalizer
+	ackRecorder        PostCompletionAckRecorder
 	clock              clockwork.Clock
 
 	localNode        string
@@ -59,6 +61,27 @@ type Scheduler struct {
 
 	completedCallbackFired map[TaskDescriptor]bool
 	groupCallbackFired     map[TaskDescriptor]map[string]bool
+
+	// postCompletionAckEmitted tracks per-task whether THIS node has
+	// already published its post-completion ack via the ack recorder.
+	// The ack is emitted once per (scheduler instance, task) after
+	// OnGroupCompleted has fired for every local group of the task.
+	// Survival on restart: false (the in-memory map is rebuilt on
+	// startup); the recovery path repeats OnGroupCompleted via the
+	// rehydrate branch (see ReindexProvider.OnGroupCompleted) so the
+	// ack is re-emitted post-restart and the cluster never loses the
+	// barrier.
+	postCompletionAckEmitted map[TaskDescriptor]bool
+
+	// postCompletionGroupErrors aggregates per-group OnGroupCompleted
+	// errors for THIS node across a single task. The scheduler joins
+	// the entries when emitting the per-node ack, so the cluster sees
+	// every group's failure even if they arrived across multiple ticks
+	// (e.g. tenant-grouped reindex tasks). Cleared once the ack has
+	// been emitted (postCompletionAckEmitted[desc] == true) so a later
+	// re-emit attempt (after a transient apply error) re-aggregates
+	// from the still-fired groups in the descriptor list.
+	postCompletionGroupErrors map[TaskDescriptor]map[string]error
 
 	// bootstrapped flips to true once the scheduler has snapshotted the
 	// RAFT-replicated task list and pre-marked every task that was
@@ -99,10 +122,17 @@ type SchedulerParams struct {
 	TasksLister        TasksLister
 	TaskCleaner        TaskCleaner
 	TaskFinalizer      TaskFinalizer
-	Providers          map[string]Provider
-	Clock              clockwork.Clock
-	Logger             logrus.FieldLogger
-	MetricsRegisterer  prometheus.Registerer
+	// AckRecorder is the RAFT-apply hook used to publish this node's
+	// OnGroupCompleted result for each task. May be nil in unit-test
+	// constructions; when nil, the scheduler falls back to the legacy
+	// pre-#214 behavior (no ack barrier — MarkTaskFinalized fires as
+	// soon as OnTaskCompleted returns). Production wiring in
+	// configure_api.go always sets this.
+	AckRecorder       PostCompletionAckRecorder
+	Providers         map[string]Provider
+	Clock             clockwork.Clock
+	Logger            logrus.FieldLogger
+	MetricsRegisterer prometheus.Registerer
 
 	LocalNode        string
 	CompletedTaskTTL time.Duration
@@ -121,14 +151,17 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
 
-		providers:              params.Providers,
-		completionRecorder:     params.CompletionRecorder,
-		completedCallbackFired: map[TaskDescriptor]bool{},
-		groupCallbackFired:     map[TaskDescriptor]map[string]bool{},
-		tasksLister:            params.TasksLister,
-		taskCleaner:            params.TaskCleaner,
-		taskFinalizer:          params.TaskFinalizer,
-		clock:                  params.Clock,
+		providers:                 params.Providers,
+		completionRecorder:        params.CompletionRecorder,
+		completedCallbackFired:    map[TaskDescriptor]bool{},
+		groupCallbackFired:        map[TaskDescriptor]map[string]bool{},
+		postCompletionAckEmitted:  map[TaskDescriptor]bool{},
+		postCompletionGroupErrors: map[TaskDescriptor]map[string]error{},
+		tasksLister:               params.TasksLister,
+		taskCleaner:               params.TaskCleaner,
+		taskFinalizer:             params.TaskFinalizer,
+		ackRecorder:               params.AckRecorder,
+		clock:                     params.Clock,
 
 		localNode:        params.LocalNode,
 		completedTaskTTL: params.CompletedTaskTTL,
@@ -291,6 +324,13 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 			for _, groupID := range task.Groups() {
 				s.groupCallbackFired[desc][groupID] = true
 			}
+			// Tasks that were already terminal at bootstrap have, by
+			// definition, already gone through the ack barrier (or
+			// were FAILED/CANCELLED, which bypasses it). Mark the
+			// per-node ack as emitted so the next tick does not
+			// re-emit for a task that's already past the FINALIZING
+			// gate. See 0-weaviate-issues#214 Gap A.
+			s.postCompletionAckEmitted[desc] = true
 		}
 	}
 }
@@ -494,7 +534,90 @@ func (s *Scheduler) tick() {
 							s.groupCallbackFired[desc] = map[string]bool{}
 						}
 						s.groupCallbackFired[desc][groupID] = true
-						suProvider.OnGroupCompleted(task, groupID, localIDs)
+						groupErr := suProvider.OnGroupCompleted(task, groupID, localIDs)
+						// Capture the per-group error so the
+						// per-node post-completion ack can report the
+						// aggregated picture (0-weaviate-issues#214
+						// Gap A). Even success (nil) is captured so
+						// the ack-emission predicate below can see
+						// "this group fired and succeeded" vs "this
+						// group hasn't fired yet on this node".
+						if s.postCompletionGroupErrors[desc] == nil {
+							s.postCompletionGroupErrors[desc] = map[string]error{}
+						}
+						s.postCompletionGroupErrors[desc][groupID] = groupErr
+					}
+				}
+
+				// Phase 1.5: emit the per-node post-completion ack
+				// once every group this node owns local units in has
+				// fired OnGroupCompleted (success or failure). The
+				// scheduler aggregates per-group errors into one
+				// per-(node, task) ack so the cluster has a single
+				// barrier per node.
+				//
+				// Gating conditions:
+				//   - ack recorder configured (production wiring; nil
+				//     in legacy unit-test setups, where we fall back
+				//     to the pre-#214 behavior).
+				//   - task is past STARTED (the post-completion barrier
+				//     is only meaningful from FINALIZING onward).
+				//   - ack not yet emitted this scheduler-instance.
+				//   - every group this node has local units in has had
+				//     OnGroupCompleted fire on this scheduler instance.
+				//
+				// Survives restart: postCompletionAckEmitted is empty
+				// on a fresh scheduler; LocalCallbacksDone (in the
+				// recovery-aware provider) gates whether the
+				// bootstrap pre-mark skips the task. If recovery is
+				// needed, the next tick re-fires OnGroupCompleted via
+				// the provider's rehydrate path, which re-populates
+				// postCompletionGroupErrors[desc] and we re-emit the
+				// ack here.
+				if s.ackRecorder != nil &&
+					!s.postCompletionAckEmitted[desc] &&
+					task.Status != TaskStatusStarted &&
+					s.allLocalGroupsFiredLocked(task, desc) {
+					success, joined := s.aggregateAckErrorsLocked(task, desc)
+					if err := s.ackRecorder.RecordDistributedTaskPostCompletionAck(
+						context.Background(), namespace, task.ID, task.Version,
+						s.localNode, success, joined,
+					); err != nil {
+						// Apply error (leader unreachable, RAFT not
+						// ready, etc.). Leave postCompletionAckEmitted
+						// unset so the next tick / wake retries. The
+						// Manager's RecordPostCompletionAck is
+						// idempotent at the FSM layer, so a successful
+						// retry after a partial commit is safe.
+						s.loggerWithTask(namespace, desc).WithError(err).
+							Warn("failed to record distributed task post-completion ack; will retry on next tick or wake")
+					} else {
+						s.postCompletionAckEmitted[desc] = true
+						// Reflect the just-emitted ack on the local
+						// task clone so the OnTaskCompleted gate
+						// below in this same tick sees the updated
+						// post-completion state without an extra
+						// listTasks round-trip. The clone is
+						// per-tick (from the listTasks() above) so
+						// the mutation is process-local. If the ack
+						// was a failure, also flip the local clone's
+						// status to FAILED so the same tick can fire
+						// OnTaskCompleted on FAILED (which skips the
+						// schema flip but still runs per-node
+						// cleanup); the FSM-side flip is the
+						// authoritative one and will be observed by
+						// every other node's next tick.
+						if task.PostCompletionAcks == nil {
+							task.PostCompletionAcks = map[string]PostCompletionAck{}
+						}
+						task.PostCompletionAcks[s.localNode] = PostCompletionAck{
+							Success: success,
+							Error:   joined,
+							AckedAt: s.clock.Now(),
+						}
+						if !success && task.Status == TaskStatusFinalizing {
+							task.Status = TaskStatusFailed
+						}
 					}
 				}
 
@@ -521,10 +644,34 @@ func (s *Scheduler) tick() {
 				// finalize would be a wasted no-op RAFT round-trip.
 				// CANCELLED tasks are skipped at the top of the outer
 				// loop (line above) so they never reach here.
+				//
+				// Post-completion ack gate: on the FINALIZING path,
+				// wait until every node with local units has recorded
+				// an ack. This is the cluster-wide crash-safety
+				// barrier from 0-weaviate-issues#214 Gap A — without
+				// it, OnTaskCompleted's schema flip could commit
+				// while one replica's RunSwapOnShard had silently
+				// failed, leaving that replica permanently wrong-
+				// tokenized. The FAILED / FINISHED paths bypass this
+				// gate: FAILED already short-circuits the schema flip
+				// inside OnTaskCompleted (see reindex_provider.go
+				// ~L1045), and FINISHED has already committed past
+				// the ack barrier on whichever node won the
+				// MarkDistributedTaskFinalized race.
 				readyForFinalize := task.Status == TaskStatusFinalizing ||
 					task.Status == TaskStatusFailed ||
 					task.Status == TaskStatusFinished
 				if readyForFinalize && !s.completedCallbackFired[desc] {
+					if s.ackRecorder != nil && task.Status == TaskStatusFinalizing {
+						missing := task.MissingPostCompletionAckNodes()
+						if len(missing) > 0 {
+							// Not all nodes have acked yet. Wait —
+							// schema flip + MarkFinalized must not
+							// commit until the cluster has decided
+							// the post-completion outcome.
+							continue
+						}
+					}
 					s.completedCallbackFired[desc] = true
 					suProvider.OnTaskCompleted(task)
 				}
@@ -606,6 +753,8 @@ func (s *Scheduler) tick() {
 
 			delete(s.completedCallbackFired, desc)
 			delete(s.groupCallbackFired, desc)
+			delete(s.postCompletionAckEmitted, desc)
+			delete(s.postCompletionGroupErrors, desc)
 
 			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
@@ -681,4 +830,60 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 		"taskID":      taskDesc.ID,
 		"taskVersion": taskDesc.Version,
 	})
+}
+
+// allLocalGroupsFiredLocked returns true iff every group of the task
+// for which this node has at least one local unit has had its
+// OnGroupCompleted fire on THIS scheduler instance (i.e.
+// s.groupCallbackFired[desc][groupID] == true). Caller must hold s.mu.
+//
+// Used as the gating predicate for emitting the per-node post-completion
+// ack: we only ack after every relevant local group has fired, so the
+// aggregated success/error reflects the full local picture for the task.
+//
+// Groups in which this node has zero local units are skipped — those
+// groups' OnGroupCompleted only fires on the nodes that own units in
+// them, so this node never has anything to ack for them.
+//
+// See 0-weaviate-issues#214 Gap A.
+func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) bool {
+	for _, groupID := range task.Groups() {
+		localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
+		if len(localIDs) == 0 {
+			continue
+		}
+		if s.groupCallbackFired[desc] == nil || !s.groupCallbackFired[desc][groupID] {
+			return false
+		}
+	}
+	return true
+}
+
+// aggregateAckErrorsLocked returns (success, joined-error-message) for
+// THIS node's OnGroupCompleted results captured in
+// postCompletionGroupErrors[desc]. Caller must hold s.mu.
+//
+// success is true iff every group's OnGroupCompleted returned nil.
+// joined is the semicolon-joined error messages from the failing groups,
+// empty when success==true. Order is unspecified (map iteration); the
+// FSM persists the joined string as-is on PostCompletionAck.Error for
+// forensic visibility.
+//
+// See 0-weaviate-issues#214 Gap A.
+func (s *Scheduler) aggregateAckErrorsLocked(task *Task, desc TaskDescriptor) (bool, string) {
+	errs := s.postCompletionGroupErrors[desc]
+	if len(errs) == 0 {
+		return true, ""
+	}
+	var msgs []string
+	for groupID, err := range errs {
+		if err == nil {
+			continue
+		}
+		msgs = append(msgs, fmt.Sprintf("group=%q: %v", groupID, err))
+	}
+	if len(msgs) == 0 {
+		return true, ""
+	}
+	return false, strings.Join(msgs, "; ")
 }

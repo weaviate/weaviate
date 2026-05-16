@@ -306,6 +306,107 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	return nil
 }
 
+// RecordPostCompletionAck records one node's OnGroupCompleted result on
+// the task. The [Scheduler] tick on each node fires this command after
+// its local OnGroupCompleted has returned for every local group, so the
+// cluster has durable evidence of which nodes' post-completion work
+// succeeded before the task is allowed to transition FINALIZING →
+// FINISHED. See 0-weaviate-issues#214 Gap A.
+//
+// FSM transitions on apply:
+//
+//   - Ack arrives for an idempotently-already-acked (task, node): no-op,
+//     the first ack wins.
+//   - Ack arrives for a task no longer in a state that can use it
+//     (FAILED / FINISHED / CANCELLED): no-op. A late-arriving ack from
+//     a slow follower after the leader has already failed the task is
+//     expected and not an error.
+//   - Ack with Success==false arrives while the task is FINALIZING:
+//     records the ack AND transitions the task to FAILED. The cluster-
+//     wide schema flip (in [UnitAwareProvider.OnTaskCompleted]) is
+//     skipped on FAILED, so a node whose RunSwapOnShard silently failed
+//     can no longer let the schema commit while one replica is broken.
+//   - Ack with Success==true arrives while the task is STARTED or
+//     FINALIZING: records the ack and leaves the status alone (the
+//     scheduler issues MarkTaskFinalized once every expected ack has
+//     landed).
+//
+// Idempotent: every node's scheduler may re-fire this on tick / wake
+// retries until the apply commits. The first ack per (task, node) sticks;
+// later acks for the same node are silently discarded.
+func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
+	var r api.RecordDistributedTaskPostCompletionAckRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal record post-completion ack request: %w", err)
+	}
+	if r.NodeId == "" {
+		return fmt.Errorf("post-completion ack for task %s/%s missing node_id", r.Namespace, r.Id)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	if err != nil {
+		return err
+	}
+
+	// Once the task has moved past the post-completion barrier (FAILED /
+	// FINISHED / CANCELLED), drop the ack: the cluster has already
+	// decided the task's outcome. This MUST be silent (no error) — every
+	// node's scheduler may emit this command in parallel and the
+	// stragglers must not produce noisy apply failures.
+	switch task.Status {
+	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled:
+		return nil
+	case TaskStatusStarted, TaskStatusFinalizing:
+		// Normal paths.
+	default:
+		return wrapPermanent(ErrTaskNotInFinalizingState,
+			fmt.Sprintf("task %s/%s/%d cannot record post-completion ack from status %s",
+				r.Namespace, r.Id, task.Version, task.Status))
+	}
+
+	if task.PostCompletionAcks == nil {
+		task.PostCompletionAcks = map[string]PostCompletionAck{}
+	}
+	if _, present := task.PostCompletionAcks[r.NodeId]; present {
+		// Idempotent: the first ack per (task, node) wins. A retry from
+		// the scheduler (because the apply RPC errored on the wire) lands
+		// here once the original commit propagated.
+		return nil
+	}
+
+	task.PostCompletionAcks[r.NodeId] = PostCompletionAck{
+		Success: r.Success,
+		Error:   r.Error,
+		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+	}
+
+	// Any failure → the task fails immediately. Subsequent acks for the
+	// same task are still recorded (forensic value), but the status is
+	// locked to FAILED until cleanup.
+	if !r.Success && task.Status == TaskStatusFinalizing {
+		task.Status = TaskStatusFailed
+		// Preserve the first per-unit error message if one was already
+		// set (defensive — RecordUnitCompletion would already have moved
+		// the task to FAILED in that case). Append the post-completion
+		// failure for forensic clarity.
+		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
+		if task.Error != "" {
+			task.Error = task.Error + "; " + ackErr
+		} else {
+			task.Error = ackErr
+		}
+		// FinishedAt was set when AllUnitsTerminal landed; keep that —
+		// the user-meaningful "when did the work end" timestamp is when
+		// the units finished, not when we noticed the swap failure.
+	}
+
+	m.notifySchedulerWithLock()
+	return nil
+}
+
 // MarkTaskFinalized transitions a task from FINALIZING to FINISHED. It
 // is issued by the scheduler once OnGroupCompleted (per-node swap) and
 // OnTaskCompleted (cluster-wide schema flip for semantic migrations)

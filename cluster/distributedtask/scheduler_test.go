@@ -1019,10 +1019,11 @@ func newUnitAwareTestProvider(t *testing.T) *unitAwareTestProvider {
 	}
 }
 
-func (p *unitAwareTestProvider) OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) {
+func (p *unitAwareTestProvider) OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.onGroupCompletedCalls = append(p.onGroupCompletedCalls, task.ID)
+	return nil
 }
 
 func (p *unitAwareTestProvider) OnTaskCompleted(task *Task) {

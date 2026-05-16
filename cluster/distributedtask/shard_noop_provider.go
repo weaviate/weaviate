@@ -163,7 +163,7 @@ func (p *ShardNoopProvider) recordFinalizedGroup(desc TaskDescriptor, groupID st
 	)
 }
 
-func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) {
+func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error {
 	p.recordFinalizedGroup(task.TaskDescriptor, groupID, localGroupUnitIDs)
 
 	// Write marker files for each finalized unit.
@@ -211,6 +211,7 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 	p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitIDs", localGroupUnitIDs).
 		Info("shard-noop provider: OnGroupCompleted fired")
+	return nil
 }
 
 // GetFinalizedUnits returns all finalized unit IDs across all groups for a task.

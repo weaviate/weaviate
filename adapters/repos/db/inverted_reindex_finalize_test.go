@@ -605,6 +605,206 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 	require.Empty(t, migEntries, "no trackers should remain after a successful recovery")
 }
 
+// TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge
+// pins 0-weaviate-issues#214 Test Gap unit-level item 1: a single
+// shard's .migrations/ directory carrying multiple in-flight migrations
+// on different properties simultaneously, each at a different stage of
+// half-finalization, must converge to the same final on-disk shape as
+// if each migration had finished cleanly in isolation.
+//
+// Failure shape this catches: a refactor of the per-namespace
+// promotion loop that accidentally short-circuits on the FIRST
+// namespace's recovery would leave later namespaces' merged dirs
+// orphaned. The reindex provider's rehydrate path expects either a
+// fully promoted canonical dir or an in-flight tracker; a half-orphaned
+// in-between state silently serves stale data.
+//
+// Layout exercised:
+//
+//   - alpha: change-tokenization with both searchable+filterable
+//     indexes, both at merged-but-not-tidied gen 1 (the
+//     crash-during-FINALIZING-on-step-3 shape).
+//
+//   - beta: enable-filterable on a fresh-rangeable property, also at
+//     merged-but-not-tidied gen 1 (different strategy, different
+//     namespace prefix).
+//
+//   - gamma: enable-rangeable, merged-but-not-tidied gen 1 (format-only
+//     migration; the recovery path must still write swap/tidied
+//     sentinels for it because finalize doesn't distinguish format-only
+//     vs semantic on the recovery path).
+func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *testing.T) {
+	lsmPath := t.TempDir()
+	migsDir := filepath.Join(lsmPath, ".migrations")
+	require.NoError(t, os.MkdirAll(migsDir, 0o755))
+
+	// alpha — change-tokenization, both indexes at merged-but-not-tidied gen 1.
+	alphaSearchable := filepath.Join(migsDir, "searchable_retokenize_alpha_1")
+	require.NoError(t, os.MkdirAll(alphaSearchable, 0o755))
+	touchSentinel(t, filepath.Join(alphaSearchable, "merged.mig"))
+	require.NoError(t, os.WriteFile(filepath.Join(alphaSearchable, "properties.mig"), []byte("alpha"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_alpha_searchable__retokenize_ingest_1"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsmPath, "property_alpha_searchable__retokenize_ingest_1", "seg.db"),
+		[]byte("alpha-searchable-NEW"), 0o644))
+
+	alphaFilterable := filepath.Join(migsDir, "filterable_retokenize_alpha_1")
+	require.NoError(t, os.MkdirAll(alphaFilterable, 0o755))
+	touchSentinel(t, filepath.Join(alphaFilterable, "merged.mig"))
+	require.NoError(t, os.WriteFile(filepath.Join(alphaFilterable, "properties.mig"), []byte("alpha"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_alpha__filt_retokenize_ingest_1"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsmPath, "property_alpha__filt_retokenize_ingest_1", "seg.db"),
+		[]byte("alpha-filterable-NEW"), 0o644))
+
+	// beta — enable-filterable, merged-but-not-tidied gen 1. Strategy
+	// dir suffixes: SourceBucket = "property_beta",
+	// IngestSuffix = "__enable_filterable_ingest_1".
+	betaFilt := filepath.Join(migsDir, "enable_filterable_beta_1")
+	require.NoError(t, os.MkdirAll(betaFilt, 0o755))
+	touchSentinel(t, filepath.Join(betaFilt, "merged.mig"))
+	require.NoError(t, os.WriteFile(filepath.Join(betaFilt, "properties.mig"), []byte("beta"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_beta__enable_filterable_ingest_1"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsmPath, "property_beta__enable_filterable_ingest_1", "seg.db"),
+		[]byte("beta-filt-NEW"), 0o644))
+
+	// gamma — enable-rangeable (FilterableToRangeable strategy),
+	// merged-but-not-tidied gen 1. Strategy dir suffixes:
+	// SourceBucket = "property_gamma_rangeable",
+	// IngestSuffix = "__rangeable_ingest_1".
+	gammaRange := filepath.Join(migsDir, "filterable_to_rangeable_gamma_1")
+	require.NoError(t, os.MkdirAll(gammaRange, 0o755))
+	touchSentinel(t, filepath.Join(gammaRange, "merged.mig"))
+	require.NoError(t, os.WriteFile(filepath.Join(gammaRange, "properties.mig"), []byte("gamma"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_gamma_rangeable__rangeable_ingest_1"), 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsmPath, "property_gamma_rangeable__rangeable_ingest_1", "seg.db"),
+		[]byte("gamma-range-NEW"), 0o644))
+
+	logger, _ := test.NewNullLogger()
+	FinalizeCompletedMigrations(lsmPath, logger)
+
+	// All three property migrations must promote to their canonical
+	// names with the correct data. A bug that processed only the first
+	// namespace would leave beta/gamma orphaned.
+	for _, c := range []struct {
+		canonical string
+		want      string
+	}{
+		{"property_alpha_searchable/seg.db", "alpha-searchable-NEW"},
+		{"property_alpha/seg.db", "alpha-filterable-NEW"},
+		{"property_beta/seg.db", "beta-filt-NEW"},
+		{"property_gamma_rangeable/seg.db", "gamma-range-NEW"},
+	} {
+		got, err := os.ReadFile(filepath.Join(lsmPath, c.canonical))
+		require.NoErrorf(t, err, "%s must exist after finalize", c.canonical)
+		require.Equalf(t, c.want, string(got), "%s data mismatch", c.canonical)
+	}
+
+	// All four .migrations/ tracker dirs must be removed (recovery completes
+	// the full promotion and trims their entries).
+	migEntries, err := os.ReadDir(migsDir)
+	require.NoError(t, err)
+	require.Empty(t, migEntries,
+		"every tracker must be cleared after multi-prop recovery — got %v", migEntries)
+}
+
+// TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge
+// pins 0-weaviate-issues#214 Test Gap unit-level item 2: three shards
+// of the same collection enter restart with deliberately divergent
+// half-finalized states for the SAME migration. All three must
+// converge to the same canonical-bucket shape after their per-shard
+// FinalizeCompletedMigrations runs (it's a per-shard, not a per-node,
+// path; called once per shard during shard init).
+//
+// Failure shape this catches: a refactor that introduced cross-shard
+// state leakage in finalize (e.g. an accidental shared global
+// recovered-gens cache) would let one shard's promotion influence
+// another's. The pre-fix per-replica divergence Frontend Claude
+// observed (`7×32, 3×30, 2×23, 6×5`) is structurally this class of
+// bug if it ever resurfaces at the unit-test level.
+//
+// Layout exercised:
+//
+//   - shard-0: gen 1 fully tidied (clean post-runtime-swap state). Just
+//     needs the canonical-rename pass.
+//
+//   - shard-1: gen 1 merged-but-not-tidied (crashed mid-swap). Needs
+//     the recovery path's sentinel writes plus the canonical-rename.
+//
+//   - shard-2: NO migrations dir at all (the FinalizeCompletedMigrations
+//     no-op path). Must remain unchanged.
+func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing.T) {
+	type shardSetup struct {
+		name           string
+		stage          string // "tidied", "merged", "no_migrations"
+		expectCanonical bool
+		expectedData   string
+	}
+
+	shards := []shardSetup{
+		{name: "shard-0", stage: "tidied", expectCanonical: true, expectedData: "shard0-NEW"},
+		{name: "shard-1", stage: "merged", expectCanonical: true, expectedData: "shard1-NEW"},
+		{name: "shard-2", stage: "no_migrations", expectCanonical: false, expectedData: ""},
+	}
+
+	root := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	for _, sh := range shards {
+		lsmPath := filepath.Join(root, sh.name, "lsm")
+		require.NoError(t, os.MkdirAll(lsmPath, 0o755))
+		switch sh.stage {
+		case "tidied":
+			migsDir := filepath.Join(lsmPath, ".migrations")
+			require.NoError(t, os.MkdirAll(migsDir, 0o755))
+			gen1 := filepath.Join(migsDir, "searchable_retokenize_path_1")
+			require.NoError(t, os.MkdirAll(gen1, 0o755))
+			touchSentinel(t, filepath.Join(gen1, "merged.mig"))
+			touchSentinel(t, filepath.Join(gen1, "swapped.mig"))
+			touchSentinel(t, filepath.Join(gen1, "tidied.mig"))
+			require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("path"), 0o644))
+			require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1"), 0o755))
+			require.NoError(t, os.WriteFile(
+				filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1", "seg.db"),
+				[]byte(sh.expectedData), 0o644))
+		case "merged":
+			migsDir := filepath.Join(lsmPath, ".migrations")
+			require.NoError(t, os.MkdirAll(migsDir, 0o755))
+			gen1 := filepath.Join(migsDir, "searchable_retokenize_path_1")
+			require.NoError(t, os.MkdirAll(gen1, 0o755))
+			touchSentinel(t, filepath.Join(gen1, "merged.mig"))
+			require.NoError(t, os.WriteFile(filepath.Join(gen1, "properties.mig"), []byte("path"), 0o644))
+			require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1"), 0o755))
+			require.NoError(t, os.WriteFile(
+				filepath.Join(lsmPath, "property_path_searchable__retokenize_ingest_1", "seg.db"),
+				[]byte(sh.expectedData), 0o644))
+		case "no_migrations":
+			// Intentionally empty — finalize must be a no-op here.
+		}
+		FinalizeCompletedMigrations(lsmPath, logger)
+	}
+
+	for _, sh := range shards {
+		lsmPath := filepath.Join(root, sh.name, "lsm")
+		canonical := filepath.Join(lsmPath, "property_path_searchable", "seg.db")
+		if sh.expectCanonical {
+			got, err := os.ReadFile(canonical)
+			require.NoErrorf(t, err, "%s: canonical dir must exist", sh.name)
+			require.Equalf(t, sh.expectedData, string(got), "%s: canonical data mismatch", sh.name)
+		} else {
+			_, err := os.Stat(canonical)
+			require.True(t, os.IsNotExist(err),
+				"%s: expected no canonical dir on no-migrations shard, got %v", sh.name, err)
+		}
+		// The migrations dir, if it existed, must be empty after finalize.
+		if sh.stage != "no_migrations" {
+			migEntries, _ := os.ReadDir(filepath.Join(lsmPath, ".migrations"))
+			require.Emptyf(t, migEntries, "%s: tracker dirs must be cleared after finalize", sh.name)
+		}
+	}
+}
+
 // itoa is the local stand-in for strconv.Itoa kept private to the test
 // file to avoid touching imports needlessly.
 func itoa(i int) string {

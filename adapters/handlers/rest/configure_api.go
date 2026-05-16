@@ -956,11 +956,19 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		TasksLister:        appState.ClusterService.Raft,
 		TaskCleaner:        appState.ClusterService.Raft,
 		TaskFinalizer:      appState.ClusterService.Raft,
-		Providers:          providers,
-		Logger:             appState.Logger,
-		MetricsRegisterer:  metricsRegisterer,
-		LocalNode:          appState.Cluster.LocalName(),
-		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+		// AckRecorder wires the post-completion ack barrier from
+		// 0-weaviate-issues#214 Gap A: each node, after OnGroupCompleted
+		// returns for every local group, RAFTs a per-node ack. The
+		// scheduler gates MarkDistributedTaskFinalized on having an ack
+		// from every node with local units, and the FSM transitions the
+		// task to FAILED if any ack reports failure (which makes
+		// OnTaskCompleted skip the cluster-wide schema flip).
+		AckRecorder:       appState.ClusterService.Raft,
+		Providers:         providers,
+		Logger:            appState.Logger,
+		MetricsRegisterer: metricsRegisterer,
+		LocalNode:         appState.Cluster.LocalName(),
+		TickInterval:      appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
 
 		// Using a single global value for now to keep it simple. If there is a need
 		// this can be changed to provide a value per provider.

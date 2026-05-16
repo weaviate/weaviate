@@ -873,19 +873,27 @@ func (p *ReindexProvider) persistRecoveryRecord(
 // The swap phase attempts to reuse cached task instances from processOneUnit
 // (which preserve double-write callbacks). If the cache is empty (e.g. after
 // node restart), a fresh task is created as fallback.
-func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) {
+//
+// Returns a non-nil error if ANY of this node's units in the group failed
+// to complete its swap (rehydrate failure, RunSwapOnShard failure, missing
+// shard/index, etc.). The scheduler propagates that error into the
+// post-completion ack the cluster gates MarkTaskFinalized on; a failure
+// here transitions the task to FAILED instead of FINISHED, which makes
+// OnTaskCompleted skip the cluster-wide schema flip. See
+// 0-weaviate-issues#214 Gap A.
+func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitIDs", localGroupUnitIDs)
 
 	payload, err := p.loadPayload(task)
 	if err != nil {
 		logger.WithError(err).Error("reindex provider: OnGroupCompleted: failed to load payload")
-		return
+		return fmt.Errorf("load payload: %w", err)
 	}
 
 	if !IsSemanticMigration(payload.MigrationType) {
 		logger.Info("reindex provider: OnGroupCompleted (format-only, no-op)")
-		return
+		return nil
 	}
 
 	logger.Info("reindex provider: OnGroupCompleted — starting swap phase for semantic migration")
@@ -894,13 +902,22 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	idx := p.db.GetIndex(className)
 	if idx == nil {
 		logger.Error("reindex provider: OnGroupCompleted: collection not found")
-		return
+		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
 	// Run the swap phase on each local shard. Use the provider's server ctx
 	// so a graceful shutdown aborts in-flight swaps rather than blocking
 	// forever in the FlushAndSwitch / rename loop.
+	//
+	// unitErrs aggregates per-unit swap errors so we can return the full
+	// failure picture to the scheduler. The scheduler aggregates this
+	// across all of this node's groups for the task and publishes ONE
+	// post-completion ack (success=false with the joined error message).
+	// The cluster gates MarkTaskFinalized on every node's ack landing
+	// successfully; any failure transitions the task to FAILED and
+	// skips the cluster-wide schema flip. See 0-weaviate-issues#214.
 	ctx := p.serverCtx
+	var unitErrs []string
 	for _, unitID := range localGroupUnitIDs {
 		// Skip units that failed during reindex.
 		unit := task.Units[unitID]
@@ -914,6 +931,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		if err != nil {
 			logger.WithField("unit", unitID).WithField("shard", shardName).WithError(err).
 				Error("reindex provider: OnGroupCompleted: shard lookup failed")
+			unitErrs = append(unitErrs, fmt.Sprintf("unit %s shard %s lookup: %v", unitID, shardName, err))
 			continue
 		}
 
@@ -945,6 +963,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			if unwrapErr != nil {
 				logger.WithField("unit", unitID).WithError(unwrapErr).
 					Error("reindex provider: OnGroupCompleted: unwrap shard for rehydrate")
+				unitErrs = append(unitErrs, fmt.Sprintf("unit %s unwrap shard: %v", unitID, unwrapErr))
 				continue
 			}
 			var err error
@@ -952,6 +971,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			if err != nil {
 				logger.WithField("unit", unitID).WithError(err).
 					Error("reindex provider: OnGroupCompleted: creating reindex tasks")
+				unitErrs = append(unitErrs, fmt.Sprintf("unit %s create tasks: %v", unitID, err))
 				continue
 			}
 			if len(unitTasks) == 0 {
@@ -979,6 +999,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 				if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
 					logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 						WithError(err).Error("reindex provider: OnGroupCompleted: rehydrate failed; swap will not run for this task")
+					unitErrs = append(unitErrs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
 					allSwapped = false
 					continue
 				}
@@ -986,6 +1007,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 					WithError(err).Error("reindex provider: OnGroupCompleted: RunSwapOnShard failed — migration is half-applied on this shard")
+				unitErrs = append(unitErrs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 				allSwapped = false
 			}
 		}
@@ -994,16 +1016,21 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 				Info("reindex provider: swap complete")
 		} else {
 			// Loud, structured log so operators and log queries can find
-			// half-applied migrations. The DTM cannot be told via this
-			// hook (the unit is already terminal by definition — that's
-			// what triggered this callback), so we surface it the only
-			// way we can: an unambiguous error-level log line at the end
-			// of OnGroupCompleted. A proper fix would need a RAFT-stored
-			// per-node post-swap acknowledgement.
+			// half-applied migrations. The aggregated error returned at
+			// the bottom of this function feeds the cluster-wide
+			// post-completion ack barrier (0-weaviate-issues#214 Gap A):
+			// any per-shard swap failure here causes the task's FSM to
+			// transition to FAILED before the schema flip can commit, so
+			// no replica is left at the new schema with old data.
 			logger.WithField("unit", unitID).WithField("shard", shardName).
-				Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; downstream schema state may be inconsistent")
+				Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; the cluster-wide post-completion ack will report this as a failure")
 		}
 	}
+	if len(unitErrs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("OnGroupCompleted: %d unit(s) failed: %s",
+		len(unitErrs), strings.Join(unitErrs, "; "))
 }
 
 // OnTaskCompleted fires after all units across all nodes are terminal.

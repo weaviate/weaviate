@@ -132,3 +132,31 @@ func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, task
 		FinalizedAtUnixMillis: time.Now().UnixMilli(),
 	})
 }
+
+// RecordDistributedTaskPostCompletionAck commits one node's
+// OnGroupCompleted result to the FSM. The scheduler tick on each node
+// fires this after its local OnGroupCompleted has returned so the
+// cluster has durable evidence of which nodes' post-completion work
+// succeeded before MarkDistributedTaskFinalized is allowed to land.
+//
+// See [distributedtask.PostCompletionAckRecorder] and
+// 0-weaviate-issues#214 Gap A.
+func (s *Raft) RecordDistributedTaskPostCompletionAck(
+	ctx context.Context,
+	namespace, taskID string,
+	taskVersion uint64,
+	nodeID string,
+	success bool,
+	errMsg string,
+) error {
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK,
+		&cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace:         namespace,
+			Id:                taskID,
+			Version:           taskVersion,
+			NodeId:            nodeID,
+			Success:           success,
+			Error:             errMsg,
+			AckedAtUnixMillis: time.Now().UnixMilli(),
+		})
+}

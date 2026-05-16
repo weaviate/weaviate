@@ -32,6 +32,7 @@ package distributedtask
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -61,6 +62,7 @@ type multiSchedulerHarness struct {
 	completionRec *fanoutRecorder
 	cleaner       *directCleaner
 	finalizer     *directFinalizer
+	ackRecorder   *fanoutAckRecorder
 	notifier      *fanoutNotifier
 	nodes         []*schedulerNode
 }
@@ -80,10 +82,11 @@ type schedulerNode struct {
 type recordingUnitAwareProvider struct {
 	*testTaskProvider
 
-	mu          sync.Mutex
-	groupCalls  []string // taskID per OnGroupCompleted fire
-	taskCalls   []string // taskID per OnTaskCompleted fire
-	taskCallsBy map[string]int
+	mu                sync.Mutex
+	groupCalls        []string // taskID per OnGroupCompleted fire
+	taskCalls         []string // taskID per OnTaskCompleted fire
+	taskCallsBy       map[string]int
+	groupCompletedErr error // when non-nil, OnGroupCompleted returns this to drive Gap A ack-failure paths in tests
 }
 
 func newRecordingUnitAwareProvider(t *testing.T) *recordingUnitAwareProvider {
@@ -93,10 +96,23 @@ func newRecordingUnitAwareProvider(t *testing.T) *recordingUnitAwareProvider {
 	}
 }
 
-func (p *recordingUnitAwareProvider) OnGroupCompleted(task *Task, _ string, _ []string) {
+func (p *recordingUnitAwareProvider) OnGroupCompleted(task *Task, _ string, _ []string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.groupCalls = append(p.groupCalls, task.ID)
+	if p.groupCompletedErr != nil {
+		return p.groupCompletedErr
+	}
+	return nil
+}
+
+// SetGroupCompletedError makes subsequent OnGroupCompleted calls on
+// this provider return the given error. Used to drive the
+// 0-weaviate-issues#214 Gap A ack-failure path in tests.
+func (p *recordingUnitAwareProvider) SetGroupCompletedError(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.groupCompletedErr = err
 }
 
 func (p *recordingUnitAwareProvider) OnTaskCompleted(task *Task) {
@@ -187,6 +203,37 @@ func (r *fanoutRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, ns
 	}))
 }
 
+// fanoutAckRecorder routes RecordDistributedTaskPostCompletionAck calls
+// directly into the shared Manager so every scheduler observes the
+// ack on its next tick. The production wiring uses RAFT-applied
+// commits; in-process we just call into the FSM directly because the
+// schedulers all poll the same Manager.
+//
+// See 0-weaviate-issues#214 Gap A.
+type fanoutAckRecorder struct {
+	t       *testing.T
+	manager *Manager
+}
+
+func (r *fanoutAckRecorder) RecordDistributedTaskPostCompletionAck(
+	_ context.Context,
+	ns, id string,
+	version uint64,
+	nodeID string,
+	success bool,
+	errMsg string,
+) error {
+	return r.manager.RecordPostCompletionAck(toCmd(r.t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         ns,
+		Id:                id,
+		Version:           version,
+		NodeId:            nodeID,
+		Success:           success,
+		Error:             errMsg,
+		AckedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
+	}))
+}
+
 // directCleaner routes CleanUp calls into the shared Manager so cleanup
 // of completed tasks happens in-process.
 type directCleaner struct {
@@ -201,6 +248,20 @@ func (c *directCleaner) CleanUpDistributedTask(_ context.Context, ns, id string,
 }
 
 func newMultiSchedulerHarness(t *testing.T, nodeIDs []string) *multiSchedulerHarness {
+	return newMultiSchedulerHarnessWithOptions(t, nodeIDs, false)
+}
+
+// newMultiSchedulerHarnessWithAckBarrier wires the post-completion ack
+// recorder on every scheduler so tests can drive the
+// 0-weaviate-issues#214 Gap A barrier. Without an ack recorder the
+// scheduler falls back to the legacy pre-#214 behavior (no barrier;
+// schema flip fires as soon as OnTaskCompleted returns), which is the
+// default for tests that don't care about the barrier.
+func newMultiSchedulerHarnessWithAckBarrier(t *testing.T, nodeIDs []string) *multiSchedulerHarness {
+	return newMultiSchedulerHarnessWithOptions(t, nodeIDs, true)
+}
+
+func newMultiSchedulerHarnessWithOptions(t *testing.T, nodeIDs []string, withAckBarrier bool) *multiSchedulerHarness {
 	logger, _ := logrustest.NewNullLogger()
 	clock := clockwork.NewFakeClock()
 	mgr := NewManager(ManagerParameters{Clock: clock, CompletedTaskTTL: 24 * time.Hour})
@@ -218,10 +279,13 @@ func newMultiSchedulerHarness(t *testing.T, nodeIDs []string) *multiSchedulerHar
 		finalizer:     newDirectFinalizer(t, mgr),
 		notifier:      &fanoutNotifier{},
 	}
+	if withAckBarrier {
+		h.ackRecorder = &fanoutAckRecorder{t: t, manager: mgr}
+	}
 
 	for _, id := range nodeIDs {
 		prov := newRecordingUnitAwareProvider(t)
-		sched := NewScheduler(SchedulerParams{
+		params := SchedulerParams{
 			CompletionRecorder: h.completionRec,
 			TasksLister:        mgr,
 			TaskCleaner:        h.cleaner,
@@ -233,7 +297,11 @@ func newMultiSchedulerHarness(t *testing.T, nodeIDs []string) *multiSchedulerHar
 			LocalNode:          id,
 			CompletedTaskTTL:   h.taskTTL,
 			TickInterval:       h.tickInterval,
-		})
+		}
+		if h.ackRecorder != nil {
+			params.AckRecorder = h.ackRecorder
+		}
+		sched := NewScheduler(params)
 		h.notifier.add(sched)
 		h.nodes = append(h.nodes, &schedulerNode{id: id, scheduler: sched, provider: prov})
 	}
@@ -479,4 +547,236 @@ func TestMultiScheduler_OnGroupCompletedFiresPerNodeOnlyForLocalUnits(t *testing
 		require.Equal(t, 1, n.provider.groupCompletedCount(),
 			"node %s: OnGroupCompleted must fire once for its local group", n.id)
 	}
+}
+
+// TestMultiScheduler_AckBarrier_BlocksFinalizeUntilEveryNodeAcks pins
+// 0-weaviate-issues#214 Gap A: with the post-completion ack recorder
+// wired, MarkDistributedTaskFinalized (and therefore OnTaskCompleted's
+// cluster-wide schema flip) must NOT commit until every node with local
+// units has recorded a success ack. A node that crashed between local
+// swap completion and ack emission — or whose silent swap failure means
+// it never emits a success ack — keeps the task at FINALIZING forever
+// until the truth is recorded.
+//
+// Why this matters: before the fix, the FINALIZING → FINISHED
+// transition fired as soon as ONE node's tick observed FINALIZING. The
+// scheduler had no per-node barrier, so a node whose RunSwapOnShard
+// silently failed would let the schema flip commit cluster-wide while
+// that replica's bucket pointed at old data — the production failure
+// shape on a rolling restart during FINALIZING.
+func TestMultiScheduler_AckBarrier_BlocksFinalizeUntilEveryNodeAcks(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newMultiSchedulerHarnessWithAckBarrier(t, []string{"node-1", "node-2", "node-3"})
+	defer h.close()
+
+	taskID := "ack-barrier-success"
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"u-node-1", "u-node-2", "u-node-3"},
+	}), 1))
+
+	// Claim units + complete every unit so the FSM transitions to FINALIZING.
+	for _, n := range h.nodes {
+		require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
+			context.Background(), h.namespace, taskID, 1, n.id, "u-"+n.id, 0.1,
+		))
+	}
+	h.tickAll()
+	for _, n := range h.nodes {
+		require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
+			context.Background(), h.namespace, taskID, 1, n.id, "u-"+n.id,
+		))
+	}
+	tasks := h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFinalizing, tasks[0].Status)
+
+	// Tick only node-1. Inside this tick:
+	//   - OnGroupCompleted fires on node-1.
+	//   - node-1 records its ack via the fanout recorder.
+	//   - The OnTaskCompleted gate sees MissingPostCompletionAckNodes
+	//     still contains node-2 + node-3 → DOES NOT fire OnTaskCompleted.
+	//   - MarkDistributedTaskFinalized is therefore NOT issued.
+	h.tick(0)
+	require.Equal(t, 1, h.nodes[0].provider.groupCompletedCount(),
+		"node-1: OnGroupCompleted must have fired")
+	require.Equal(t, 0, h.nodes[0].provider.taskCompletedCount(taskID),
+		"node-1: OnTaskCompleted must NOT fire while node-2/node-3 acks are missing")
+
+	tasks = h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFinalizing, tasks[0].Status,
+		"task must remain FINALIZING until every node has acked")
+	require.Len(t, tasks[0].PostCompletionAcks, 1,
+		"only node-1's ack must be recorded so far")
+	require.Contains(t, tasks[0].PostCompletionAcks, "node-1")
+	require.True(t, tasks[0].PostCompletionAcks["node-1"].Success)
+
+	// Tick node-2. node-2 records its ack; still 1 missing.
+	h.tick(1)
+	require.Equal(t, 0, h.nodes[1].provider.taskCompletedCount(taskID),
+		"node-2: OnTaskCompleted must NOT fire while node-3's ack is missing")
+	tasks = h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFinalizing, tasks[0].Status)
+	require.Len(t, tasks[0].PostCompletionAcks, 2)
+
+	// Tick node-3. Records its ack — all three acks now present.
+	// OnTaskCompleted fires on node-3 in the same tick.
+	// MarkDistributedTaskFinalized is issued; FSM goes to FINISHED.
+	h.tick(2)
+	require.Equal(t, 1, h.nodes[2].provider.taskCompletedCount(taskID),
+		"node-3: OnTaskCompleted must fire once all acks are present")
+	tasks = h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFinished, tasks[0].Status,
+		"task must transition to FINISHED once every node has acked")
+
+	// Re-tick node-1 and node-2: they now observe FINISHED and fire
+	// their OnTaskCompleted once (idempotently).
+	h.tick(0)
+	h.tick(1)
+	require.Equal(t, 1, h.nodes[0].provider.taskCompletedCount(taskID))
+	require.Equal(t, 1, h.nodes[1].provider.taskCompletedCount(taskID))
+
+	// Idempotency on extra ticks.
+	h.tickAll()
+	for _, n := range h.nodes {
+		require.Equal(t, 1, n.provider.taskCompletedCount(taskID),
+			"node %s: OnTaskCompleted must fire exactly once across all ticks", n.id)
+	}
+}
+
+// TestMultiScheduler_AckBarrier_FailureAckTransitionsToFailed pins the
+// failure-path branch of 0-weaviate-issues#214 Gap A: when one node's
+// OnGroupCompleted returns an error, the per-node ack records
+// success=false, which transitions the FSM straight to FAILED. The
+// cluster-wide schema flip (in the reindex provider's OnTaskCompleted)
+// skips its work on FAILED status, so the replica that had the silent
+// swap failure does not get left behind serving wrong-tokenization data
+// under a new schema.
+func TestMultiScheduler_AckBarrier_FailureAckTransitionsToFailed(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newMultiSchedulerHarnessWithAckBarrier(t, []string{"node-1", "node-2", "node-3"})
+	defer h.close()
+
+	taskID := "ack-barrier-failure"
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"u-node-1", "u-node-2", "u-node-3"},
+	}), 1))
+
+	for _, n := range h.nodes {
+		require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
+			context.Background(), h.namespace, taskID, 1, n.id, "u-"+n.id, 0.1,
+		))
+	}
+	h.tickAll()
+	for _, n := range h.nodes {
+		require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
+			context.Background(), h.namespace, taskID, 1, n.id, "u-"+n.id,
+		))
+	}
+	tasks := h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFinalizing, tasks[0].Status)
+
+	// Inject a failure in node-2's OnGroupCompleted. The production
+	// equivalent is the reindex provider's RunSwapOnShard returning an
+	// error (compaction-interrupted shutdown, ENOSPC mid-rename, etc.).
+	h.nodes[1].provider.SetGroupCompletedError(fmt.Errorf("synthetic swap failure on node-2"))
+
+	// Tick node-1 first. node-1's OnGroupCompleted succeeds; ack
+	// success=true recorded. Schema flip gate sees missing acks; no
+	// OnTaskCompleted.
+	h.tick(0)
+	tasks = h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFinalizing, tasks[0].Status)
+	require.Equal(t, 0, h.nodes[0].provider.taskCompletedCount(taskID),
+		"node-1: OnTaskCompleted must not fire until ack barrier opens")
+
+	// Tick node-2. Its OnGroupCompleted returns the injected error,
+	// the scheduler emits the ack with success=false, and the FSM
+	// transitions the task to FAILED on the apply path.
+	h.tick(1)
+	tasks = h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFailed, tasks[0].Status,
+		"task must transition to FAILED on any node's failure ack")
+	require.NotEmpty(t, tasks[0].Error,
+		"FAILED task must carry the ack-failure message for forensics")
+	require.Contains(t, tasks[0].PostCompletionAcks, "node-2")
+	require.False(t, tasks[0].PostCompletionAcks["node-2"].Success)
+
+	// node-2's tick observed FAILED inside the same tick, so
+	// OnTaskCompleted fires there for per-node cleanup. Per-node
+	// cleanup MUST fire on FAILED (not just FINISHED) so the reindex
+	// provider clears its caches everywhere; the FAILED gate makes
+	// OnTaskCompleted skip the schema flip but does NOT skip the
+	// callback itself.
+	require.GreaterOrEqual(t, h.nodes[1].provider.taskCompletedCount(taskID), 1,
+		"node-2: OnTaskCompleted must fire on FAILED status for per-node cleanup")
+
+	// node-1 + node-3: their next tick observes FAILED. OnTaskCompleted
+	// fires for cleanup; FINALIZING is not visible anymore. The ack
+	// recorder is still safe to call on FAILED — the Manager silently
+	// discards stale acks (idempotent for late arrivals).
+	h.tick(0)
+	h.tick(2)
+	for _, n := range h.nodes {
+		require.Equal(t, 1, n.provider.taskCompletedCount(taskID),
+			"node %s: OnTaskCompleted must fire exactly once on FAILED across ticks", n.id)
+	}
+
+	// MarkDistributedTaskFinalized must NOT have fired: FAILED is
+	// terminal at the FSM layer; the FINALIZING → FINISHED transition
+	// is precisely what the ack barrier blocked.
+	tasks = h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFailed, tasks[0].Status,
+		"task must remain FAILED — Mark*Finalized must not promote it past FAILED")
+}
+
+// TestMultiScheduler_AckBarrier_LateSuccessAckSurvivesIdempotently pins
+// the ack-replay behavior: a node whose ack apply errored on the wire
+// retries on its next tick. The Manager keeps the first ack per (task,
+// node) and silently drops duplicates; this test verifies the retry
+// doesn't double-count or flip a recorded failure to success (or vice
+// versa).
+func TestMultiScheduler_AckBarrier_LateSuccessAckSurvivesIdempotently(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newMultiSchedulerHarnessWithAckBarrier(t, []string{"node-1"})
+	defer h.close()
+
+	taskID := "ack-barrier-idempotent"
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"u-node-1"},
+	}), 1))
+	require.NoError(t, h.completionRec.UpdateDistributedTaskUnitProgress(
+		context.Background(), h.namespace, taskID, 1, "node-1", "u-node-1", 0.1))
+	h.tick(0)
+	require.NoError(t, h.completionRec.RecordDistributedTaskUnitCompletion(
+		context.Background(), h.namespace, taskID, 1, "node-1", "u-node-1"))
+
+	h.tick(0)
+	tasks := h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFinished, tasks[0].Status,
+		"single-node task transitions to FINISHED in one tick (its own ack is the only one expected)")
+	originalAck := tasks[0].PostCompletionAcks["node-1"]
+	require.True(t, originalAck.Success)
+
+	// Inject a manual stale ack — the kind that would arrive from a
+	// retry that landed after the task transitioned past FINALIZING.
+	// The Manager must silently drop it.
+	require.NoError(t, h.ackRecorder.RecordDistributedTaskPostCompletionAck(
+		context.Background(), h.namespace, taskID, 1, "node-1", false, "duplicate stale ack",
+	))
+	tasks = h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusFinished, tasks[0].Status,
+		"FINISHED task must reject (silently) any late post-completion ack")
+	require.Equal(t, originalAck.Success, tasks[0].PostCompletionAcks["node-1"].Success,
+		"original ack must remain unchanged on late retry")
 }

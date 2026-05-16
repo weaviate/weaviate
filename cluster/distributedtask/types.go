@@ -52,6 +52,34 @@ type TaskFinalizer interface {
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
 
+// PostCompletionAckRecorder is the RAFT-apply hook the [Scheduler] uses
+// to publish one node's OnGroupCompleted result (success or failure)
+// after its callbacks have returned for every local group in a task.
+// The scheduler gates [TaskFinalizer.MarkDistributedTaskFinalized] on
+// having an ack from every node that has local units in the task, and
+// transitions the task to FAILED if any ack reports failure — which
+// makes [UnitAwareProvider.OnTaskCompleted] skip the cluster-wide
+// schema flip on that path.
+//
+// The recorded state is stored on the [Task] (see [Task.PostCompletionAcks])
+// and survives RAFT snapshot/restore so a node restart during the
+// FINALIZING window does not lose the cluster's collected acks.
+//
+// See 0-weaviate-issues#214 Gap A for the crash-safety bug this hook
+// closes: without it, a node whose RunSwapOnShard silently failed could
+// still let the cluster-wide schema flip commit, leaving that replica
+// serving wrong-tokenization data with no operator signal.
+type PostCompletionAckRecorder interface {
+	RecordDistributedTaskPostCompletionAck(
+		ctx context.Context,
+		namespace, taskID string,
+		taskVersion uint64,
+		nodeID string,
+		success bool,
+		errMsg string,
+	) error
+}
+
 // TaskCompletionRecorder is an interface for recording the completion of a distributed task.
 type TaskCompletionRecorder interface {
 	RecordDistributedTaskUnitCompletion(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string) error
@@ -177,7 +205,16 @@ type UnitAwareProvider interface {
 	// localGroupUnitIDs contains ONLY units assigned to THIS node, not all units
 	// in the group. If a node has no units in the group, this callback does not
 	// fire on that node.
-	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string)
+	//
+	// Returns a non-nil error iff at least one local unit's
+	// post-completion work (e.g. the reindex provider's RunSwapOnShard)
+	// failed. The [Scheduler] aggregates errors across this task's
+	// groups for THIS NODE and publishes them via
+	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck];
+	// any reported failure transitions the task to FAILED in the FSM,
+	// which makes OnTaskCompleted skip the cluster-wide schema flip.
+	// See 0-weaviate-issues#214 Gap A.
+	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
 	OnTaskCompleted(task *Task)
 }
 
@@ -289,6 +326,45 @@ type Task struct {
 
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
+
+	// PostCompletionAcks records per-node confirmations that the node's
+	// OnGroupCompleted callbacks completed (success or failure) for
+	// every local unit it owned. Keys are node IDs. The map is populated
+	// only after the task transitions to FINALIZING and only by the
+	// [Scheduler] tick on each node firing
+	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck]
+	// once OnGroupCompleted has returned. The scheduler gates
+	// [TaskFinalizer.MarkDistributedTaskFinalized] on having an ack
+	// from every node with local units (see
+	// [Task.MissingPostCompletionAckNodes]); if any ack is
+	// [PostCompletionAck.Success]==false the FSM transitions the task
+	// to FAILED instead.
+	//
+	// Nil for tasks created before this branch (backward-compat with
+	// older RAFT snapshots) and for tasks whose provider does not
+	// implement [UnitAwareProvider] (no OnGroupCompleted to ack).
+	//
+	// See 0-weaviate-issues#214 Gap A.
+	PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
+}
+
+// PostCompletionAck records one node's OnGroupCompleted result for a
+// task. Persisted on the [Task] under the per-node-ID key of
+// [Task.PostCompletionAcks] and survives RAFT snapshot/restore so the
+// cluster-wide ack barrier is durable across restarts.
+type PostCompletionAck struct {
+	// Success is true iff the node's OnGroupCompleted (i.e. the per-shard
+	// runtime swap / finalize) returned no error for every local unit.
+	Success bool `json:"success"`
+	// Error captures the aggregated error message when Success==false.
+	// Empty when Success==true.
+	Error string `json:"error,omitempty"`
+	// AckedAt is the wall-clock time the ack was applied on the FSM
+	// (set on the apply path, not from the scheduler). Useful for
+	// forensics — the gap between AllUnitsTerminal's FinishedAt and the
+	// last AckedAt is the FINALIZING window's wall-clock duration on
+	// this cluster.
+	AckedAt time.Time `json:"ackedAt"`
 }
 
 func (t *Task) Clone() *Task {
@@ -298,6 +374,12 @@ func (t *Task) Clone() *Task {
 		for k, v := range t.Units {
 			uCopy := *v
 			clone.Units[k] = &uCopy
+		}
+	}
+	if t.PostCompletionAcks != nil {
+		clone.PostCompletionAcks = make(map[string]PostCompletionAck, len(t.PostCompletionAcks))
+		for k, v := range t.PostCompletionAcks {
+			clone.PostCompletionAcks[k] = v
 		}
 	}
 	return &clone
@@ -379,6 +461,65 @@ func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
 			continue
 		}
 		if u.NodeID == "" || u.NodeID == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
+// NodesWithLocalUnits returns the set of node IDs that own at least one
+// unit assigned to them in this task. Used by the [Scheduler] tick to
+// compute the ack-barrier predicate: every such node must record a
+// post-completion ack before the task can transition FINALIZING →
+// FINISHED. Units with empty NodeID (still PENDING / never claimed) are
+// skipped — they cannot have a node-side OnGroupCompleted result yet.
+//
+// Returned slice is unsorted; callers that need determinism must sort
+// it themselves.
+func (t *Task) NodesWithLocalUnits() []string {
+	seen := map[string]struct{}{}
+	for _, u := range t.Units {
+		if u.NodeID == "" {
+			continue
+		}
+		seen[u.NodeID] = struct{}{}
+	}
+	nodes := make([]string, 0, len(seen))
+	for n := range seen {
+		nodes = append(nodes, n)
+	}
+	return nodes
+}
+
+// MissingPostCompletionAckNodes returns the node IDs that have local
+// units in this task but have NOT yet recorded a post-completion ack.
+// The scheduler uses this as the gating predicate for
+// [TaskFinalizer.MarkDistributedTaskFinalized] — the FINALIZING →
+// FINISHED transition must wait until this returns empty, so a node
+// whose RunSwapOnShard silently failed cannot let the cluster-wide
+// schema flip commit before its ack is recorded as a failure (which
+// transitions the task to FAILED and skips the flip).
+//
+// Returns nil when all expected nodes have acked. Returned slice is
+// unsorted.
+func (t *Task) MissingPostCompletionAckNodes() []string {
+	var missing []string
+	for _, node := range t.NodesWithLocalUnits() {
+		if _, ok := t.PostCompletionAcks[node]; !ok {
+			missing = append(missing, node)
+		}
+	}
+	return missing
+}
+
+// AnyPostCompletionAckFailed returns true iff any node has recorded a
+// post-completion ack with [PostCompletionAck.Success]==false. The
+// FSM uses this on the apply path to flip the task to FAILED — once
+// any node reports failure, the schema flip must be skipped and the
+// task must not progress to FINISHED.
+func (t *Task) AnyPostCompletionAckFailed() bool {
+	for _, ack := range t.PostCompletionAcks {
+		if !ack.Success {
 			return true
 		}
 	}

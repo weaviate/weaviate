@@ -108,6 +108,7 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED = 304;
     TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS = 305;
     TYPE_DISTRIBUTED_TASK_MARK_FINALIZED = 306;
+    TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK = 307;
   }
   Type type = 1;
   string class = 2;
@@ -300,4 +301,31 @@ message MarkTaskFinalizedRequest {
   string id = 2;
   uint64 version = 3;
   int64 finalized_at_unix_millis = 4;
+}
+
+// RecordDistributedTaskPostCompletionAckRequest captures one node's
+// post-completion result for a task: i.e. did its OnGroupCompleted run
+// every local unit's swap/finalize phase to success? Emitted by every
+// node that has local units, after its OnGroupCompleted callbacks have
+// returned, before the cluster-wide MarkTaskFinalized commit lands.
+//
+// The scheduler gates MarkTaskFinalized on having an ack from every
+// node with local units in the task. If any ack reports success=false,
+// the FSM transitions the task to FAILED instead of FINISHED, which
+// makes OnTaskCompleted skip the cluster-wide schema flip — so a
+// node that silently failed its local swap can no longer let the
+// cluster-wide schema commit while one replica is broken.
+//
+// Idempotent: the FSM keeps the first ack per (task, node) — duplicate
+// acks (from retries on the scheduler's wake/tick loop) are no-ops.
+//
+// See 0-weaviate-issues#214 Gap A for the underlying crash-safety bug.
+message RecordDistributedTaskPostCompletionAckRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string node_id = 4;
+  bool success = 5;
+  string error = 6;
+  int64 acked_at_unix_millis = 7;
 }

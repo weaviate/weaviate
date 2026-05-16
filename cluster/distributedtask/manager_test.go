@@ -929,3 +929,272 @@ func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
 	assert.Equal(t, "g1", task.Units["su-1"].GroupID)
 	assert.Equal(t, "g2", task.Units["su-2"].GroupID)
 }
+
+// TestManager_RecordPostCompletionAck_Success pins the happy path of
+// the per-node ack barrier introduced in 0-weaviate-issues#214 Gap A:
+// every node's success ack is recorded, the task stays FINALIZING (no
+// status change from a success ack), and the AckedAt timestamp lands
+// on the persisted record.
+func TestManager_RecordPostCompletionAck_Success(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u-node-1", "u-node-2", "u-node-3"})
+
+	// Claim units and complete every unit so the FSM transitions to
+	// FINALIZING (the only state in which acks are meaningful).
+	for _, n := range []string{"node-1", "node-2", "node-3"} {
+		updateProgress(t, h, "ns", "task1", version, n, "u-"+n, 0.1)
+	}
+	for _, n := range []string{"node-1", "node-2", "node-3"} {
+		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               n,
+			UnitId:               "u-" + n,
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	}
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status)
+
+	for _, n := range []string{"node-1", "node-2", "node-3"} {
+		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace:         "ns",
+			Id:                "task1",
+			Version:           version,
+			NodeId:            n,
+			Success:           true,
+			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	}
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	require.Equal(t, TaskStatusFinalizing, task.Status,
+		"success acks must NOT transition status — the scheduler issues MarkTaskFinalized once acks are present")
+	require.Len(t, task.PostCompletionAcks, 3)
+	for _, n := range []string{"node-1", "node-2", "node-3"} {
+		ack, ok := task.PostCompletionAcks[n]
+		require.True(t, ok, "ack for %s must be recorded", n)
+		require.True(t, ack.Success)
+		require.Empty(t, ack.Error)
+		require.False(t, ack.AckedAt.IsZero(), "AckedAt must be set on apply")
+	}
+	require.Empty(t, task.MissingPostCompletionAckNodes())
+	require.False(t, task.AnyPostCompletionAckFailed())
+}
+
+// TestManager_RecordPostCompletionAck_FailureTransitionsToFailed
+// pins the failure-path of 0-weaviate-issues#214 Gap A: when a node
+// reports a failure ack, the FSM transitions the task to FAILED
+// immediately AND records the error on Task.Error for forensics. The
+// cluster-wide schema flip will see FAILED and skip the flip.
+func TestManager_RecordPostCompletionAck_FailureTransitionsToFailed(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u-node-1", "u-node-2"})
+
+	for _, n := range []string{"node-1", "node-2"} {
+		updateProgress(t, h, "ns", "task1", version, n, "u-"+n, 0.1)
+		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               n,
+			UnitId:               "u-" + n,
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	}
+
+	// node-1 acks success.
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           true,
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status)
+
+	// node-2 acks failure — the apply path must immediately transition
+	// the task to FAILED, with the error message captured on Task.Error.
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-2",
+		Success:           false,
+		Error:             "synthetic swap failure",
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	require.Equal(t, TaskStatusFailed, task.Status,
+		"any failure ack must transition the task to FAILED")
+	require.Contains(t, task.Error, "post-completion swap failed on node node-2")
+	require.Contains(t, task.Error, "synthetic swap failure")
+	require.True(t, task.AnyPostCompletionAckFailed())
+}
+
+// TestManager_RecordPostCompletionAck_Idempotent pins the duplicate-ack
+// behavior: the first ack per (task, node) wins. Subsequent acks for
+// the same node are silently discarded — even when the duplicate would
+// flip a recorded success to failure (or vice versa). Without this,
+// retries on the scheduler's wake/tick loop would oscillate task
+// status under apply-RPC flakes.
+func TestManager_RecordPostCompletionAck_Idempotent(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+	updateProgress(t, h, "ns", "task1", version, "node-1", "u", 0.1)
+	require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace:            "ns",
+		Id:                   "task1",
+		Version:              version,
+		NodeId:               "node-1",
+		UnitId:               "u",
+		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	// First ack: success.
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           true,
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success)
+	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status)
+
+	// Duplicate ack from same node with FAILURE — must be ignored, the
+	// status MUST stay FINALIZING (not flip to FAILED).
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           false,
+		Error:             "stale retry that must NOT flip success",
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success,
+		"first ack wins — duplicate must not flip success to failure")
+	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status,
+		"duplicate failure ack on idempotent path must not transition to FAILED")
+}
+
+// TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus pins
+// the late-ack drop behavior: an ack arriving for a FAILED / FINISHED /
+// CANCELLED task is silently ignored. This is required because every
+// node's scheduler may re-emit acks on retry; once the cluster has
+// decided the task's outcome, late acks are noise.
+func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+	updateProgress(t, h, "ns", "task1", version, "node-1", "u", 0.1)
+	require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace:            "ns",
+		Id:                   "task1",
+		Version:              version,
+		NodeId:               "node-1",
+		UnitId:               "u",
+		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	// Drive the task to FINISHED via MarkTaskFinalized.
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           true,
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+	require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		Version:               version,
+		FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	require.Equal(t, TaskStatusFinished, tasks["ns"][0].Status)
+	preAckCount := len(tasks["ns"][0].PostCompletionAcks)
+
+	// A stale retry from "node-2" arrives — there's no node-2 unit in
+	// this task, but real cluster retries can hit FINISHED tasks. The
+	// apply must silently no-op (no error returned, no map mutation).
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-2",
+		Success:           false,
+		Error:             "stale ack after FINISHED",
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	require.Equal(t, TaskStatusFinished, tasks["ns"][0].Status,
+		"late ack must not perturb FINISHED status")
+	require.Equal(t, preAckCount, len(tasks["ns"][0].PostCompletionAcks),
+		"late ack must not be recorded on a terminal task")
+}
+
+// TestManager_SnapshotRestore_WithPostCompletionAcks pins the
+// crash-safety property the 0-weaviate-issues#214 Gap A fix relies on:
+// the per-node acks survive RAFT snapshot/restore. Without this, a
+// follower installing a snapshot mid-FINALIZING would lose the ack
+// barrier state and the scheduler couldn't gate MarkTaskFinalized
+// correctly post-restore.
+func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u-node-1", "u-node-2"})
+	for _, n := range []string{"node-1", "node-2"} {
+		updateProgress(t, h, "ns", "task1", version, n, "u-"+n, 0.1)
+		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               n,
+			UnitId:               "u-" + n,
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	}
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           true,
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	h2 := newTestHarness(t).init(t)
+	require.NoError(t, h2.manager.Restore(snap))
+
+	tasks, _ := h2.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	require.Equal(t, TaskStatusFinalizing, task.Status,
+		"task status must survive snapshot/restore")
+	require.Len(t, task.PostCompletionAcks, 1,
+		"the partial ack set must survive snapshot/restore")
+	require.True(t, task.PostCompletionAcks["node-1"].Success)
+	require.ElementsMatch(t, []string{"node-2"}, task.MissingPostCompletionAckNodes(),
+		"post-restore the missing-acks predicate must keep gating MarkTaskFinalized")
+}
