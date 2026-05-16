@@ -447,6 +447,61 @@ var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfre
 // compression configured.
 var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-8", "bq"}
 
+// IsValidRestrictionVectorIndexType reports whether v (case-insensitive,
+// whitespace-trimmed) is in the canonical vector-index-type allow-list.
+// Exported so test helpers and runtime-override consumers can share the
+// same definition; the env-var validator uses it too.
+func IsValidRestrictionVectorIndexType(v string) bool {
+	return containsString(validRestrictionVectorIndexTypes, strings.ToLower(strings.TrimSpace(v)))
+}
+
+// IsValidRestrictionCompressionType is the compression analogue of
+// IsValidRestrictionVectorIndexType.
+func IsValidRestrictionCompressionType(v string) bool {
+	return containsString(validRestrictionCompressionTypes, strings.ToLower(strings.TrimSpace(v)))
+}
+
+// makeRestrictionListValidator returns a DynamicValue validator that
+// rejects a runtime YAML update whose list contains any entry outside
+// the canonical set. Empty entries are tolerated (normalized away by
+// normalizeRestrictionList downstream); unknown values are not.
+//
+// The validator is attached at env-var init time so a runtime YAML
+// override pushing `[hnsw, FOO]` is rejected at SetValue time before it
+// can corrupt the live config. The merger logs the rejection but keeps
+// the previous (valid) value in place. Cross-field invariants (e.g.
+// multi-entry requires a default) are NOT enforced here because
+// SetValue sees only one field at a time; they remain a startup-only
+// check, which is acceptable because they're operator-friendliness
+// rules, not safety rules.
+func makeRestrictionListValidator(valid []string, envName string) func([]string) error {
+	return func(val []string) error {
+		for _, entry := range val {
+			entry = strings.ToLower(strings.TrimSpace(entry))
+			if entry == "" {
+				continue
+			}
+			if !containsString(valid, entry) {
+				return fmt.Errorf("%s contains invalid entry %q; valid values are: %s",
+					envName, entry, strings.Join(valid, ", "))
+			}
+		}
+		return nil
+	}
+}
+
+// NewRestrictionVectorIndexTypeListValidator and its compression sibling
+// are exported so the env-var setup in environment.go can wire identical
+// validators onto its DynamicValues without re-declaring the canonical
+// list there.
+func NewRestrictionVectorIndexTypeListValidator() func([]string) error {
+	return makeRestrictionListValidator(validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
+}
+
+func NewRestrictionCompressionTypeListValidator() func([]string) error {
+	return makeRestrictionListValidator(validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+}
+
 // validateRestrictions enforces the cross-field rules between
 // ALLOWED_VECTOR_INDEX_TYPES / ALLOWED_COMPRESSION_TYPES and the
 // pre-existing DEFAULT_VECTOR_INDEX / DEFAULT_QUANTIZATION env vars.
@@ -495,11 +550,16 @@ func (c *Config) validateRestrictions() error {
 
 	// Persist the normalized list back so downstream readers see the
 	// canonical lowercase / deduplicated form rather than whatever the
-	// operator typed. Skip when the allow-list is empty (unrestricted).
-	if c.Restrictions.AllowedVectorIndexTypes != nil && len(allowVector) > 0 {
+	// operator typed. Always overwrite when the DynamicValue is non-nil:
+	// even if normalization collapsed the input to an empty list (e.g.
+	// `ALLOWED_VECTOR_INDEX_TYPES=,` — only whitespace), the original
+	// non-empty slice must NOT be left in place; otherwise
+	// allowedVectorIndexTypes() would later see `len(v) > 0` and enforce
+	// an allow-list of blank strings, rejecting every real class.
+	if c.Restrictions.AllowedVectorIndexTypes != nil {
 		_ = c.Restrictions.AllowedVectorIndexTypes.SetValue(allowVector)
 	}
-	if c.Restrictions.AllowedCompressionTypes != nil && len(allowCompression) > 0 {
+	if c.Restrictions.AllowedCompressionTypes != nil {
 		_ = c.Restrictions.AllowedCompressionTypes.SetValue(allowCompression)
 	}
 

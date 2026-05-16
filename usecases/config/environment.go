@@ -1238,17 +1238,29 @@ func FromEnv(config *Config) error {
 	// validateRestrictions().
 	// Always initialize the DynamicValue (even with a nil slice) so the
 	// runtime-overrides reflection merger has a non-nil source pointer to
-	// mutate when an operator activates the restriction at runtime.
+	// mutate when an operator activates the restriction at runtime. The
+	// validators attached here also fire on every runtime YAML override:
+	// an entry outside the canonical set is rejected at SetValue time,
+	// keeping the previous valid value in place rather than letting bad
+	// input through to the schema layer.
 	var allowVector []string
 	if v := os.Getenv("ALLOWED_VECTOR_INDEX_TYPES"); v != "" {
 		allowVector = strings.Split(v, ",")
 	}
-	config.Restrictions.AllowedVectorIndexTypes = configRuntime.NewDynamicValue(allowVector)
+	allowVectorDV, err := configRuntime.NewDynamicValueWithValidation(allowVector, NewRestrictionVectorIndexTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_VECTOR_INDEX_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedVectorIndexTypes = allowVectorDV
 	var allowCompression []string
 	if v := os.Getenv("ALLOWED_COMPRESSION_TYPES"); v != "" {
 		allowCompression = strings.Split(v, ",")
 	}
-	config.Restrictions.AllowedCompressionTypes = configRuntime.NewDynamicValue(allowCompression)
+	allowCompressionDV, err := configRuntime.NewDynamicValueWithValidation(allowCompression, NewRestrictionCompressionTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_COMPRESSION_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedCompressionTypes = allowCompressionDV
 	parseString("RESTRICTIONS_ERROR_MESSAGE", func(val string) {
 		config.Restrictions.ErrorMessage = configRuntime.NewDynamicValue(val)
 	}, DefaultRestrictionsErrorMessage)

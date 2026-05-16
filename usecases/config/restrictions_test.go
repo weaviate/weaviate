@@ -217,6 +217,69 @@ func TestValidateRestrictions_EmptyAllowList_NoRestriction(t *testing.T) {
 	assert.Equal(t, "", c.DefaultQuantization.Get())
 }
 
+// TestRestrictionListValidator covers the per-DynamicValue validator
+// wired in environment.go: a YAML runtime override pushing an entry
+// outside the canonical set must be rejected at SetValue time so it
+// never lands in the live config. Cross-field rules (multi-entry needs
+// default, hfresh+compression) intentionally remain a startup-only
+// check; the read-side accessors normalize defensively for those.
+func TestRestrictionListValidator(t *testing.T) {
+	vectorValidator := NewRestrictionVectorIndexTypeListValidator()
+	compressionValidator := NewRestrictionCompressionTypeListValidator()
+
+	t.Run("vector valid passes", func(t *testing.T) {
+		require.NoError(t, vectorValidator([]string{"hnsw", "flat"}))
+	})
+	t.Run("vector mixed case passes (normalized before check)", func(t *testing.T) {
+		require.NoError(t, vectorValidator([]string{" HNSW ", "Flat"}))
+	})
+	t.Run("vector empty entries tolerated", func(t *testing.T) {
+		require.NoError(t, vectorValidator([]string{"", " ", "hnsw"}))
+	})
+	t.Run("vector unknown rejected", func(t *testing.T) {
+		err := vectorValidator([]string{"hnsw", "bogus"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bogus")
+	})
+	t.Run("compression valid passes", func(t *testing.T) {
+		require.NoError(t, compressionValidator([]string{"rq-8", "bq", "none"}))
+	})
+	t.Run("compression unknown rejected", func(t *testing.T) {
+		err := compressionValidator([]string{"rq-8", "rq8"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "rq8")
+	})
+	t.Run("nil tolerated", func(t *testing.T) {
+		require.NoError(t, vectorValidator(nil))
+		require.NoError(t, compressionValidator(nil))
+	})
+}
+
+func TestValidateRestrictions_WhitespaceOnly_PersistsEmpty(t *testing.T) {
+	// Regression: when the env var contains only blank/whitespace entries
+	// (e.g. `ALLOWED_VECTOR_INDEX_TYPES=,` or `, , `), normalization
+	// collapses to an empty slice. The validator must persist that empty
+	// slice back so downstream readers don't see the original non-empty
+	// raw input. Without this, allowedVectorIndexTypes() would treat the
+	// raw `["", ""]` as a real allow-list and reject every class.
+	c := &Config{
+		DefaultVectorIndexType: runtime.NewDynamicValue(""),
+		DefaultQuantization:    runtime.NewDynamicValue(""),
+		Restrictions: RestrictionsConfig{
+			// Mirrors what `strings.Split(",", ",")` produces for env
+			// vars like `ALLOWED_VECTOR_INDEX_TYPES=,` — a slice of
+			// blank strings that should normalize to empty.
+			AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"", " ", "\t"}),
+			AllowedCompressionTypes: runtime.NewDynamicValue([]string{"", " "}),
+		},
+	}
+	require.NoError(t, c.validateRestrictions())
+	assert.Empty(t, c.Restrictions.AllowedVectorIndexTypes.Get(),
+		"whitespace-only input should normalize to empty, not be passed through")
+	assert.Empty(t, c.Restrictions.AllowedCompressionTypes.Get(),
+		"whitespace-only input should normalize to empty, not be passed through")
+}
+
 func TestValidateRestrictions_DedupsAndNormalizesPersistedList(t *testing.T) {
 	c := &Config{
 		DefaultVectorIndexType: runtime.NewDynamicValue("hnsw"),

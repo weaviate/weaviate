@@ -97,6 +97,36 @@ func TestValidateVectorIndexType_AllowList(t *testing.T) {
 	}
 }
 
+// TestValidateVectorIndexType_RuntimeOverrideNormalization is the
+// regression for the Copilot review on runtime overrides: a YAML push
+// can bypass startup validation, so the accessor must normalize at
+// read time. Mixed-case entries that the validator at SetValue time
+// somehow let through (test injection here) must still match the
+// canonical lowercase form the schema layer compares against.
+func TestValidateVectorIndexType_RuntimeOverrideNormalization(t *testing.T) {
+	handler, _ := newTestHandler(t, &fakeDB{})
+	handler.config.HFreshEnabled = true
+	// Bypass the env-var validator by writing directly to the
+	// DynamicValue — simulating a runtime push that contains
+	// mixed-case + an unknown entry.
+	dv := runtime.NewDynamicValue([]string{"HNSW", " FLAT ", "Bogus", "hnsw"})
+	handler.config.Restrictions.AllowedVectorIndexTypes = dv
+
+	// "hnsw" must be accepted: the accessor lowercases the entries.
+	require.NoError(t, handler.validateVectorIndexType(vectorindex.VectorIndexTypeHNSW))
+	require.NoError(t, handler.validateVectorIndexType(vectorindex.VectorIndexTypeFLAT))
+
+	// "hfresh" not in the (normalized) list — rejected.
+	err := handler.validateVectorIndexType(vectorindex.VectorIndexTypeHFresh)
+	require.Error(t, err)
+	v, ok := restrictions.AsViolation(err)
+	require.True(t, ok)
+	// The Allowed slice in the violation reflects what the accessor
+	// surfaces: canonical lowercase, dedup'd, with the unknown
+	// "bogus" entry filtered out.
+	assert.Equal(t, []string{"hnsw", "flat"}, v.Allowed)
+}
+
 func TestValidateVectorIndexType_AllowListUsesOperatorTemplate(t *testing.T) {
 	handler, _ := newTestHandler(t, &fakeDB{})
 	handler.config.HFreshEnabled = true
@@ -113,88 +143,104 @@ func TestValidateVectorIndexType_AllowListUsesOperatorTemplate(t *testing.T) {
 	assert.Contains(t, v.RenderedMessage, "allowed: hfresh")
 }
 
-// --- compressionFromIndexConfig ---
+// --- compressionsFromIndexConfig ---
 
-func TestCompressionFromIndexConfig(t *testing.T) {
+func TestCompressionsFromIndexConfig(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  schemaConfig.VectorIndexConfig
-		want string
+		want []string
 	}{
 		{
 			name: "hnsw no compression",
 			cfg:  hnsw.UserConfig{},
-			want: "",
+			want: nil,
 		},
 		{
 			name: "hnsw pq enabled",
 			cfg:  hnsw.UserConfig{PQ: hnsw.PQConfig{Enabled: true}},
-			want: "pq",
+			want: []string{"pq"},
 		},
 		{
 			name: "hnsw sq enabled",
 			cfg:  hnsw.UserConfig{SQ: hnsw.SQConfig{Enabled: true}},
-			want: "sq",
+			want: []string{"sq"},
 		},
 		{
 			name: "hnsw rq-8 enabled",
 			cfg:  hnsw.UserConfig{RQ: hnsw.RQConfig{Enabled: true, Bits: 8}},
-			want: "rq-8",
+			want: []string{"rq-8"},
 		},
 		{
 			name: "hnsw rq-1 enabled",
 			cfg:  hnsw.UserConfig{RQ: hnsw.RQConfig{Enabled: true, Bits: 1}},
-			want: "rq-1",
+			want: []string{"rq-1"},
 		},
 		{
 			name: "hnsw bq enabled",
 			cfg:  hnsw.UserConfig{BQ: hnsw.BQConfig{Enabled: true}},
-			want: "bq",
+			want: []string{"bq"},
 		},
 		{
 			name: "hnsw skipDefaultQuantization — none",
 			cfg:  hnsw.UserConfig{SkipDefaultQuantization: true},
-			want: "none",
+			want: []string{"none"},
 		},
 		{
 			name: "flat no compression",
 			cfg:  flat.UserConfig{},
-			want: "",
+			want: nil,
 		},
 		{
 			name: "flat rq-8",
 			cfg:  flat.UserConfig{RQ: flat.RQUserConfig{Enabled: true, Bits: 8}},
-			want: "rq-8",
+			want: []string{"rq-8"},
 		},
 		{
 			name: "flat bq",
 			cfg:  flat.UserConfig{BQ: flat.CompressionUserConfig{Enabled: true}},
-			want: "bq",
+			want: []string{"bq"},
 		},
 		{
-			name: "dynamic delegates to hnsw sub-config",
+			name: "dynamic with hnsw branch set",
 			cfg: dynamic.UserConfig{
 				HnswUC: hnsw.UserConfig{PQ: hnsw.PQConfig{Enabled: true}},
 			},
-			want: "pq",
+			want: []string{"pq"},
 		},
 		{
-			name: "dynamic delegates to flat when hnsw has nothing",
+			name: "dynamic with flat branch set",
 			cfg: dynamic.UserConfig{
 				FlatUC: flat.UserConfig{BQ: flat.CompressionUserConfig{Enabled: true}},
 			},
-			want: "bq",
+			want: []string{"bq"},
+		},
+		{
+			name: "dynamic with BOTH branches set — both surfaced",
+			cfg: dynamic.UserConfig{
+				HnswUC: hnsw.UserConfig{PQ: hnsw.PQConfig{Enabled: true}},
+				FlatUC: flat.UserConfig{BQ: flat.CompressionUserConfig{Enabled: true}},
+			},
+			want: []string{"pq", "bq"},
+		},
+		{
+			name: "dynamic with hnsw skipDefault + flat compression — both surfaced",
+			cfg: dynamic.UserConfig{
+				HnswUC: hnsw.UserConfig{SkipDefaultQuantization: true},
+				FlatUC: flat.UserConfig{RQ: flat.RQUserConfig{Enabled: true, Bits: 8}},
+			},
+			want: []string{"none", "rq-8"},
 		},
 		{
 			name: "dynamic with nothing — empty",
 			cfg:  dynamic.UserConfig{},
-			want: "",
+			want: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := compressionFromIndexConfig(tt.cfg)
+			got := compressionsFromIndexConfig(tt.cfg)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -254,6 +300,42 @@ func TestValidateAllowedCompression(t *testing.T) {
 			allow:     []string{"rq-8", "none"},
 			indexType: vectorindex.VectorIndexTypeHNSW,
 			cfg:       hnsw.UserConfig{SkipDefaultQuantization: true},
+		},
+		{
+			// Regression test for the Copilot review on the original
+			// "first hit wins" implementation: with a dynamic config
+			// that has an *allowed* compression on one branch and a
+			// *disallowed* compression on the other branch, the
+			// disallowed one must still cause rejection.
+			name:      "dynamic with one allowed + one disallowed branch — rejected on disallowed",
+			allow:     []string{"pq"},
+			indexType: vectorindex.VectorIndexTypeDYNAMIC,
+			cfg: dynamic.UserConfig{
+				HnswUC: hnsw.UserConfig{PQ: hnsw.PQConfig{Enabled: true}},
+				FlatUC: flat.UserConfig{BQ: flat.CompressionUserConfig{Enabled: true}},
+			},
+			wantErr:   true,
+			wantValue: "bq",
+		},
+		{
+			name:      "dynamic with both branches allowed — OK",
+			allow:     []string{"pq", "bq"},
+			indexType: vectorindex.VectorIndexTypeDYNAMIC,
+			cfg: dynamic.UserConfig{
+				HnswUC: hnsw.UserConfig{PQ: hnsw.PQConfig{Enabled: true}},
+				FlatUC: flat.UserConfig{BQ: flat.CompressionUserConfig{Enabled: true}},
+			},
+		},
+		{
+			name:      "dynamic with skipDefault on one branch — checks 'none'",
+			allow:     []string{"rq-8"},
+			indexType: vectorindex.VectorIndexTypeDYNAMIC,
+			cfg: dynamic.UserConfig{
+				HnswUC: hnsw.UserConfig{SkipDefaultQuantization: true},
+				FlatUC: flat.UserConfig{RQ: flat.RQUserConfig{Enabled: true, Bits: 8}},
+			},
+			wantErr:   true,
+			wantValue: "none",
 		},
 	}
 

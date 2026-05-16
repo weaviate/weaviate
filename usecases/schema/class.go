@@ -1195,58 +1195,69 @@ func (h *Handler) validateAllowedCompression(vectorIndexType string, cfg schemaC
 	if vectorIndexType == vectorindex.VectorIndexTypeHFresh {
 		return nil
 	}
-	compression := compressionFromIndexConfig(cfg)
-	// compression == "" means "no explicit user choice" — defer to the
-	// default that startup validation has already vetted against the
-	// allow-list. Don't reject here.
-	if compression == "" {
-		return nil
-	}
-	for _, c := range allow {
-		if c == compression {
-			return nil
+	// compressionsFromIndexConfig returns every user-selected compression
+	// in the parsed config. For HNSW/Flat there's at most one entry; for
+	// Dynamic the user can configure HnswUC AND FlatUC independently and
+	// both must be checked — collapsing to a single value would let a
+	// disallowed compression on the non-returned branch slip through.
+	for _, compression := range compressionsFromIndexConfig(cfg) {
+		if !containsString(allow, compression) {
+			return restrictions.NewViolationError(
+				h.restrictionsErrorMessageTemplate(),
+				restrictions.RestrictionCompression,
+				compression,
+				allow,
+			)
 		}
 	}
-	return restrictions.NewViolationError(
-		h.restrictionsErrorMessageTemplate(),
-		restrictions.RestrictionCompression,
-		compression,
-		allow,
-	)
+	return nil
 }
 
-// compressionFromIndexConfig inspects a parsed vector index config and
-// returns the user-selected compression name ("pq" / "sq" / "rq-1" /
-// "rq-8" / "bq"), the literal "none" when the user explicitly opted out
-// (cfg shape recognised but no compression flag enabled in a quantizable
-// index type), or "" when nothing distinguishable was set — in which
-// case the operator's DEFAULT_QUANTIZATION will fill in the value later.
+func containsString(haystack []string, needle string) bool {
+	for _, h := range haystack {
+		if h == needle {
+			return true
+		}
+	}
+	return false
+}
+
+// compressionsFromIndexConfig returns every user-selected compression in
+// the parsed vector index config. For HNSW / Flat the slice has 0 or 1
+// entry; for Dynamic the slice may contain up to two entries (one each
+// for HnswUC and FlatUC) so the caller can validate both halves.
 //
-// "" vs "none" matters: returning "" here lets the legacy default flow
-// take over, returning "none" forces the allow-list to contain "none"
-// for the class to succeed.
-func compressionFromIndexConfig(cfg schemaConfig.VectorIndexConfig) string {
+// An empty slice means "user did not pick any compression explicitly";
+// the operator's DEFAULT_QUANTIZATION will fill it in later, and startup
+// validation guarantees that default is in the allow-list.
+//
+// `"none"` appears in the slice only when `SkipDefaultQuantization` is
+// set on a branch — that is the explicit "opt out of all compression"
+// signal, distinct from "I didn't pick one". `"none"` not being in the
+// allow-list correctly rejects that branch.
+func compressionsFromIndexConfig(cfg schemaConfig.VectorIndexConfig) []string {
 	switch c := cfg.(type) {
 	case hnsw.UserConfig:
-		return compressionFromHnsw(c)
+		if v := compressionFromHnsw(c); v != "" {
+			return []string{v}
+		}
+		return nil
 	case flat.UserConfig:
-		return compressionFromFlat(c)
+		if v := compressionFromFlat(c); v != "" {
+			return []string{v}
+		}
+		return nil
 	case dynamic.UserConfig:
-		if v := compressionFromHnsw(c.HnswUC); v != "" && v != "none" {
-			return v
+		var out []string
+		if v := compressionFromHnsw(c.HnswUC); v != "" {
+			out = append(out, v)
 		}
-		if v := compressionFromFlat(c.FlatUC); v != "" && v != "none" {
-			return v
+		if v := compressionFromFlat(c.FlatUC); v != "" {
+			out = append(out, v)
 		}
-		// Neither sub-config had compression enabled; fall through to
-		// "none" only if either was non-trivially configured by the
-		// caller, otherwise "" so the default kicks in.
-		if c.HnswUC.SkipDefaultQuantization || c.FlatUC.SkipDefaultQuantization {
-			return "none"
-		}
-		return ""
+		return out
 	default:
-		return ""
+		return nil
 	}
 }
 

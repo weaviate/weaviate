@@ -180,10 +180,17 @@ func (h *Handler) restrictionsErrorMessageTemplate() string {
 // allowedVectorIndexTypes returns the operator-configured allow-list
 // for class vectorIndexType, or nil if unrestricted. Callers must not
 // mutate the returned slice.
+//
+// Defensive read-time normalization: entries are lowercased + trimmed
+// and filtered to canonical types. This is belt-and-braces alongside
+// the DynamicValue validator wired in environment.go — without it, a
+// runtime YAML override pushing mixed-case entries (e.g. `[HNSW]`)
+// would never match the lowercase canonical comparisons the schema
+// layer does, rejecting every class that should pass.
 func (h *Handler) allowedVectorIndexTypes() []string {
 	if dv := h.config.Restrictions.AllowedVectorIndexTypes; dv != nil {
 		if v := dv.Get(); len(v) > 0 {
-			return v
+			return normalizeAllowList(v, config.IsValidRestrictionVectorIndexType)
 		}
 	}
 	return nil
@@ -194,10 +201,34 @@ func (h *Handler) allowedVectorIndexTypes() []string {
 func (h *Handler) allowedCompressionTypes() []string {
 	if dv := h.config.Restrictions.AllowedCompressionTypes; dv != nil {
 		if v := dv.Get(); len(v) > 0 {
-			return v
+			return normalizeAllowList(v, config.IsValidRestrictionCompressionType)
 		}
 	}
 	return nil
+}
+
+// normalizeAllowList lowercases + trims each entry and drops anything
+// the canonical predicate rejects. Returning nil for an all-invalid
+// input means "no restriction" — fail-safe behavior for a misconfigured
+// runtime override.
+func normalizeAllowList(in []string, isValid func(string) bool) []string {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, v := range in {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" || !isValid(v) {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // NewHandler creates a new handler
