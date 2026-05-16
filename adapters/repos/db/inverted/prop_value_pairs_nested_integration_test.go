@@ -104,7 +104,7 @@ func newNestedTestSearcher(t *testing.T, bucketNames ...string) (*Searcher, *lsm
 	class := correlationTestClass()
 	searcher := NewSearcher(logger, store, func(string) *models.Class { return class },
 		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
-		func() bool { return false }, "",
+		func() bool { return false }, nil, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	return searcher, store

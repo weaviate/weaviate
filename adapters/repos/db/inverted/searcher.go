@@ -494,6 +494,9 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 // Eligible children are direct nested leaves or tokenization compound ANDs
 // (both marked via nested.isNested or nested.isCorrelated respectively).
 func nestedPropName(child *propValuePair) string {
+	if child == nil {
+		return ""
+	}
 	if child.nested.isNested || child.nested.isCorrelated {
 		return child.prop
 	}
