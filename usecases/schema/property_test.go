@@ -1069,7 +1069,7 @@ func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testin
 	t.Parallel()
 
 	indexNames := []struct {
-		indexName  string
+		indexName   string
 		fieldOnProp func(p *models.Property) *bool
 	}{
 		{"filterable", func(p *models.Property) *bool { return p.IndexFilterable }},
