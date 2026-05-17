@@ -188,6 +188,17 @@ type ShardReindexTaskGeneric struct {
 	// concurrent reads from the iteration goroutine happen-after the set
 	// because RunOnShard is called after the setter on the same goroutine.
 	progressCallback func(float32)
+
+	// testHookPostPropSwap (test-only) fires inside runtimeSwap's Phase
+	// 2a tight loop, immediately after each per-prop SwapBucketPointer +
+	// markSwappedProp. Production leaves it nil (the nil check has
+	// negligible overhead). Regression tests set it to observe Phase 2a
+	// atomicity — e.g. assert the wall-clock delta between consecutive
+	// hook fires stays inside the microseconds/millisecond budget so
+	// that any future addition of a slow op to the loop body
+	// (Shutdown, Rename, RAFT call) fails CI immediately. See the
+	// file-level phase-contract godoc.
+	testHookPostPropSwap func(propIdx int)
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -1702,7 +1713,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// recovery does the ingest→main rename safely (no in-memory state
 	// at that point).
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
-	for _, propName := range props {
+	for propIdx, propName := range props {
 		if rt.IsSwappedProp(propName) {
 			// Recovery: partial loop crash already covered this prop's
 			// in-memory pointer flip (sentinel-confirmed). The original
@@ -1723,6 +1734,12 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 
 		if err := rt.markSwappedProp(propName); err != nil {
 			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
+		}
+
+		// Test-only observation point for the Phase 2a atomicity invariant
+		// (see field godoc on testHookPostPropSwap). nil in production.
+		if t.testHookPostPropSwap != nil {
+			t.testHookPostPropSwap(propIdx)
 		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
