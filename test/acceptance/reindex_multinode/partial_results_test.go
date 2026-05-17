@@ -138,7 +138,11 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	t.Logf("migration completed in %v, collected %d probe samples",
 		time.Since(migrationStart), len(samples))
 
-	c := classifyProbeSamples(t, samples, baselineCount, migrationStart)
+	// Forward word→field migration: under FIELD tokenization, BM25
+	// "alpha" matches none (every doc's text is one multi-word token),
+	// so the post-migration steady-state count is 0.
+	const expectedAfter = 0
+	c := classifyProbeSamples(t, samples, baselineCount, expectedAfter, migrationStart)
 
 	// Bound the partial-results window. The Journey 3 canonical design
 	// admits a brief partial window during the cross-node cutover spread
@@ -174,14 +178,14 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	}
 
 	// Post-window guarantee: after the bounded partial window closes,
-	// every sample must be a full or empty count. A late partial sample
-	// indicates the cutover is not bounded — a node lagged behind for
-	// reasons other than RAFT propagation (e.g. its reactive wake never
-	// fired). Walk forward from lastPartial + a small grace period and
-	// assert no further partials.
+	// every sample must equal baseline or expectedAfter. A late partial
+	// sample indicates the cutover is not bounded — a node lagged behind
+	// for reasons other than RAFT propagation (e.g. its reactive wake
+	// never fired). Walk forward from lastPartial + a small grace period
+	// and assert no further partials.
 	if !c.LastPartial.IsZero() {
 		gracePeriod := 100 * time.Millisecond
-		latePartial := countLatePartials(t, samples, baselineCount,
+		latePartial := countLatePartials(t, samples, baselineCount, expectedAfter,
 			c.LastPartial.Add(gracePeriod), migrationStart)
 		assert.Zero(t, latePartial,
 			"observed %d partial samples after the bounded cutover window "+

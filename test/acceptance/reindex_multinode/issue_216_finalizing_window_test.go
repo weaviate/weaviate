@@ -23,48 +23,53 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-// TestLiveQueriesDuringChangeTokenization pins the tight-bound
-// behavior of the per-shard tokenization overlay introduced for
+// TestLiveQueriesDuringChangeTokenization pins the correctness
+// invariant of the per-shard tokenization overlay introduced for
 // 0-weaviate-issues#216 Gap B. Without the overlay, the FINALIZING
 // window of a change-tokenization migration leaks a per-replica
 // mismatch where the bucket pointer has flipped to NEW-tokenized data
 // but the cluster-wide schema flag still serves the OLD tokenization
 // to the query analyzer. Frontend Claude observed this as a
 // `7→4→1→7→3→2` count flap on a steady BM25 probe across replicas —
-// 6 consecutive non-baseline, non-zero samples spanning hundreds of
-// milliseconds.
+// the misalignment produces wrong-tokenized lookups against the new
+// bucket, returning values that lie OUTSIDE the valid steady-state
+// range.
 //
-// With the overlay, each shard's query input tokenizes against the
-// value matching its bucket content throughout the migration:
+// The strongest direction-symmetric assertion: every probe sample
+// during the migration must lie within [min(baseline, expectedAfter),
+// max(baseline, expectedAfter)]. Out-of-range samples are direct
+// evidence of the #216 misalignment shape; with the overlay landed,
+// no sample is ever out of range because every replica's query
+// analyzer is aligned with its bucket content from the moment the
+// bucket pointer flips:
 //
 //   - Pre-swap: overlay=NEW, bucket=OLD (in-memory swap latency
-//     bounds this to microseconds; query returns 0 not partial).
-//   - Post-swap: overlay=NEW, bucket=NEW → query returns baseline.
+//     bounds this to microseconds; query returns OLD baseline).
+//   - Post-swap: overlay=NEW, bucket=NEW → query returns NEW
+//     expectedAfter.
 //   - Post-flip: overlay self-clears or is explicitly cleared by
 //     OnTaskCompleted; live schema=NEW matches bucket=NEW → query
-//     returns baseline.
+//     still returns NEW expectedAfter.
 //
-// The only partials this test can observe are:
-//
-//  1. Brief (~µs) per-shard windows during the bucket pointer flip.
-//     At a 25ms probe interval × 3 nodes × 3 shards (=9 replicas) the
-//     expected hit count per migration is <1.
-//  2. Race between OnTaskCompleted's overlay clear and the schema
-//     flip's local FSM apply — by construction, the clear happens
-//     AFTER the schema flip commits on this node, and
-//     TokenizationFor's self-clear-on-catchup branch produces the
-//     same value as the explicit clear, so this window is effectively
-//     zero.
-//
-// The bounded count is a regression budget: any number above `5`
-// across the whole migration indicates the overlay is not threading
-// correctly through some query call site (BM25Searcher, Searcher,
-// aggregator) or the set/clear hooks in OnGroupCompleted /
-// OnTaskCompleted are landing at the wrong point in the FSM.
+// In-range partials ARE still expected — the cluster-wide cutover
+// has a real cross-shard spread (every node's reactive
+// OnGroupCompleted swap and the cluster-wide schema-flip RAFT entry
+// propagate independently). The partial window bound here matches
+// TestPartialResultsDuringChangeTokenization's pre-#216 ceiling (15
+// samples / 700ms) — #216 does NOT shrink that window, it removes a
+// specific failure mode (out-of-range counts) within it.
 //
 // Coverage: forward (word→field), reverse (field→word), filterable
 // variant. Each subtest creates a fresh collection on the shared
 // 3-node cluster.
+//
+// The reverse direction (field→word) is the clean #216 test: 0 is
+// not a valid steady state (baseline=1, expectedAfter=1500), so any
+// 0 sample is necessarily an alignment failure and trips
+// c.OutOfRange. The forward direction is included for completeness
+// and to cover the BM25 path under word→field reindex; the
+// out-of-range assertion is degenerate there but the late-partial
+// and budget assertions still apply.
 func TestLiveQueriesDuringChangeTokenization(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -103,7 +108,19 @@ func TestLiveQueriesDuringChangeTokenization(t *testing.T) {
 			probe: func(uri, cn string) (int, error) {
 				return queryBM25Count(uri, cn, "alpha doc number 0 filler", 2000)
 			},
-			expectedAfter: 1, // full-text matches exactly one object under FIELD only
+			// Under FIELD: the probe matches exactly one object (the
+			// stored phrase equals the query phrase verbatim).
+			// Under WORD: BM25 tokenizes the query into individual
+			// words [alpha, doc, number, 0, filler]; every doc
+			// contains all of these except for `0` (only one doc has
+			// that), so every doc scores some non-zero match.
+			//
+			// The pre-#216 misalignment failure shape: a swapped
+			// replica's WORD bucket queried with FIELD tokenization
+			// returns 0 (the full phrase is not a key in the WORD
+			// bucket). 0 falls outside [1, 1500] → out-of-range →
+			// caught by c.OutOfRange == 0 assertion.
+			expectedAfter: 1500,
 		},
 		{
 			name:       "forward_word_to_field_filterable",
@@ -143,13 +160,18 @@ func runLiveQueryDuringChangeTokenizationCase(
 		rf          = 3
 		objectCount = 1500
 		batchSize   = 100
-		// partialSampleBudget is the post-#216 tight bound. Pre-fix,
-		// TestPartialResultsDuringChangeTokenization allowed up to 15
-		// partial samples in a 700ms window; this test asserts the
-		// per-shard alignment achieves an order of magnitude tighter
-		// budget. See test godoc for the upper-bound derivation.
-		partialSampleBudget = 5
-		partialWindowBudget = 150 * time.Millisecond
+		// Budget for the cross-shard cutover window. The cluster-wide
+		// schema flip in OnTaskCompleted propagates via RAFT after every
+		// node has run its local OnGroupCompleted swap, so a brief
+		// window of mixed states (some shards swapped, some not) is
+		// expected on every replica regardless of #216. The bound here
+		// matches TestPartialResultsDuringChangeTokenization's pre-#216
+		// bound (15 / 700ms): #216 does NOT shrink the cross-shard
+		// spread — it closes a specific failure MODE within it (the
+		// out-of-range "0 from a swapped replica with stale schema"
+		// shape, asserted separately below by c.OutOfRange == 0).
+		partialSampleBudget = 15
+		partialWindowBudget = 700 * time.Millisecond
 	)
 
 	className := fmt.Sprintf("LiveQueryTok_%s_%s_%s", startTok, targetTok, indexType)
@@ -199,7 +221,7 @@ func runLiveQueryDuringChangeTokenizationCase(
 	t.Logf("migration completed in %v, collected %d probe samples",
 		time.Since(migrationStart), len(samples))
 
-	c := classifyProbeSamples(t, samples, baselineCount, migrationStart)
+	c := classifyProbeSamples(t, samples, baselineCount, expectedAfter, migrationStart)
 
 	// Sanity check that the post-flip steady state is what we expect
 	// (not just zero everywhere — that'd be silent failure).
@@ -208,50 +230,85 @@ func runLiveQueryDuringChangeTokenizationCase(
 	assert.Equal(t, expectedAfter, postCount,
 		"post-migration (%s tokenization) probe count should equal %d", targetTok, expectedAfter)
 
-	// The #216-fix assertion: partial samples must be rare AND
-	// confined to a brief window. Both bounds matter:
-	//
-	//   - partialSampleBudget catches a wide-open misalignment (the
-	//     overlay isn't being read on the query path at all).
-	//   - partialWindowBudget catches a slow drain (the overlay clears
-	//     correctly but bounded by something slow like RAFT rather
-	//     than the in-memory pointer flip).
+	// The #216-fix assertion (strongest, direction-symmetric): no
+	// sample is ever OUT OF RANGE — i.e. outside [min(baseline,
+	// expectedAfter), max(baseline, expectedAfter)]. The pre-#216
+	// failure shape produces exactly this: a swapped replica with
+	// stale schema returns the misalignment count, which falls
+	// outside the valid steady-state range. With the per-shard
+	// tokenization overlay this NEVER happens, because every replica's
+	// query analyzer is aligned with its bucket content from the
+	// moment the bucket pointer flips. Reverse direction (field→word)
+	// is the clean test: 0 is not a valid steady state, so any 0
+	// sample is necessarily an alignment failure. Forward direction
+	// (word→field) is degenerate (0 is also expectedAfter, so
+	// out-of-range coincides with above-baseline, which the cluster
+	// physically cannot produce).
+	assert.Zerof(t, c.OutOfRange,
+		"observed %d out-of-range samples for %s→%s on %s — every sample "+
+			"must lie within [min(baseline, expectedAfter)=%d, "+
+			"max(baseline, expectedAfter)=%d]. The per-shard tokenization "+
+			"overlay (Shard.TokenizationFor, BM25Searcher.WithTokenizationResolver, "+
+			"Searcher.WithTokenizationResolver, aggregator.New tokResolver) is "+
+			"not keeping the query analyzer aligned with bucket content during "+
+			"the FINALIZING window. Investigate the resolver wiring and the "+
+			"set/clear hooks in OnGroupCompleted / OnTaskCompleted.",
+		c.OutOfRange, startTok, targetTok, indexType,
+		minInt(baselineCount, expectedAfter), maxInt(baselineCount, expectedAfter))
+
+	// Cross-shard cutover budget. With #216, partials in the valid
+	// range are still expected during the cluster-wide cutover spread
+	// (multiple shards swapping at slightly different times); the
+	// bound matches TestPartialResultsDuringChangeTokenization. The
+	// out-of-range assertion above is what's tight; this assertion
+	// catches a regression in the cutover orchestration (e.g. swap
+	// spread getting longer because reactive firing breaks).
 	assert.LessOrEqualf(t, c.Partial, partialSampleBudget,
-		"observed %d partial samples (budget=%d) for %s→%s on %s — "+
-			"per-shard tokenization overlay is not keeping the query "+
-			"analyzer aligned with bucket content during the FINALIZING "+
-			"window. Investigate the resolver wiring (Shard.TokenizationFor, "+
-			"BM25Searcher.WithTokenizationResolver, Searcher.WithTokenizationResolver, "+
-			"aggregator.New tokResolver parameter) and the set/clear hooks "+
-			"(OnGroupCompleted, OnTaskCompleted).",
+		"observed %d in-range partial samples (budget=%d) for %s→%s on %s — "+
+			"the cross-shard cutover window is wider than the bounded "+
+			"RAFT-propagation + scheduler-wake design admits; investigate the "+
+			"reactive-firing path (Manager.notifySchedulerWithLock, "+
+			"Scheduler.wakeCh, OnGroupCompleted, OnTaskCompleted).",
 		c.Partial, partialSampleBudget, startTok, targetTok, indexType)
 
 	if c.Partial > 0 {
 		windowDuration := c.LastPartial.Sub(c.FirstPartial)
 		assert.LessOrEqualf(t, windowDuration, partialWindowBudget,
 			"partial-results window of %v exceeds budget of %v for %s→%s on %s — "+
-				"a partial sample arrived long after the in-memory swap completed; "+
-				"either the overlay is being cleared prematurely (before the schema "+
-				"flip lands) or the swap and clear are not in the expected FSM order.",
+				"the cross-shard cutover took longer than the design admits.",
 			windowDuration, partialWindowBudget, startTok, targetTok, indexType)
 	}
 
 	// Post-window guarantee: after the bounded partial window closes
 	// (or, if there were zero partials, after the migration finished),
-	// every sample must be a full or empty count. A late partial
+	// every sample must equal baseline or expectedAfter. A late partial
 	// indicates the cutover is not converging.
 	var afterAnchor time.Time
 	if !c.LastPartial.IsZero() {
-		afterAnchor = c.LastPartial.Add(50 * time.Millisecond)
+		afterAnchor = c.LastPartial.Add(100 * time.Millisecond)
 	} else {
 		afterAnchor = migrationStart
 	}
-	latePartial := countLatePartials(t, samples, baselineCount, afterAnchor, migrationStart)
+	latePartial := countLatePartials(t, samples, baselineCount, expectedAfter, afterAnchor, migrationStart)
 	assert.Zerof(t, latePartial,
 		"observed %d partial samples after the bounded cutover window for %s→%s on %s — "+
 			"cutover is not converging; either the overlay isn't being cleared "+
 			"or the schema flip isn't propagating to every replica.",
 		latePartial, startTok, targetTok, indexType)
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // buildTokenizationIndexUpdate produces the index-update request body

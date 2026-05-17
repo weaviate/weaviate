@@ -770,40 +770,65 @@ func runMigrationWithProbes(
 	return samples, migrationStart
 }
 
-// probeClassification summarizes a probe sample set against a known
-// baseline (the count expected before the migration starts).
+// probeClassification summarizes a probe sample set against the two
+// known steady-state counts: `baseline` (what the probe should return
+// before the migration starts) and `expectedAfter` (what it should
+// return after the migration commits).
+//
+// Pre/Post counts represent steady-state observations on either side
+// of the cutover. Partial counts are samples that lie inside the
+// open range (min(baseline, expectedAfter), max(baseline, expectedAfter))
+// — the cross-shard cutover spread admits a brief partial window
+// during the per-replica swap + cluster-wide schema flip. OutOfRange
+// counts are samples OUTSIDE that range; with the #216 per-shard
+// tokenization overlay landed, no sample should be out-of-range
+// because every replica's bucket content is always tokenization-
+// aligned with the value the analyzer uses. Out-of-range samples
+// indicate either the overlay isn't wired into a query path or the
+// set/clear hooks fire at the wrong FSM transition.
 type probeClassification struct {
-	Full, Empty, Partial, Errors int
-	FirstPartial, LastPartial    time.Time
+	Pre, Post, Partial, OutOfRange, Errors int
+	FirstPartial, LastPartial              time.Time
 }
 
-// classifyProbeSamples buckets each non-error sample as Full (==
-// baseline), Empty (== 0), or Partial (anything else). Logs every
-// partial sample for forensic visibility.
-func classifyProbeSamples(t *testing.T, samples []probeSample, baseline int, migrationStart time.Time) probeClassification {
+// classifyProbeSamples buckets each non-error sample as Pre (==
+// baseline), Post (== expectedAfter), Partial (inside the open range
+// between them), or OutOfRange (outside that range — the #216
+// misalignment shape). Logs every partial and out-of-range sample
+// for forensic visibility.
+func classifyProbeSamples(t *testing.T, samples []probeSample, baseline, expectedAfter int, migrationStart time.Time) probeClassification {
 	t.Helper()
+	lo, hi := baseline, expectedAfter
+	if lo > hi {
+		lo, hi = hi, lo
+	}
 	var c probeClassification
 	for _, s := range samples {
 		switch {
 		case s.err != nil:
 			c.Errors++
 		case s.count == baseline:
-			c.Full++
-		case s.count == 0:
-			c.Empty++
+			c.Pre++
+		case s.count == expectedAfter:
+			c.Post++
+		case s.count < lo || s.count > hi:
+			c.OutOfRange++
+			t.Logf("OUT-OF-RANGE @ +%v node=%d count=%d (valid range [%d, %d])",
+				s.t.Sub(migrationStart).Round(time.Millisecond),
+				s.nodeID, s.count, lo, hi)
 		default:
 			c.Partial++
 			if c.FirstPartial.IsZero() {
 				c.FirstPartial = s.t
 			}
 			c.LastPartial = s.t
-			t.Logf("partial @ +%v node=%d count=%d (baseline=%d)",
+			t.Logf("partial @ +%v node=%d count=%d (baseline=%d, post=%d)",
 				s.t.Sub(migrationStart).Round(time.Millisecond),
-				s.nodeID, s.count, baseline)
+				s.nodeID, s.count, baseline, expectedAfter)
 		}
 	}
-	t.Logf("probe classification: full=%d empty=%d partial=%d err=%d",
-		c.Full, c.Empty, c.Partial, c.Errors)
+	t.Logf("probe classification: pre=%d post=%d partial=%d out_of_range=%d err=%d",
+		c.Pre, c.Post, c.Partial, c.OutOfRange, c.Errors)
 	if c.Partial > 0 {
 		t.Logf("partial-results window spanned %v (first @ +%v, last @ +%v)",
 			c.LastPartial.Sub(c.FirstPartial).Round(time.Millisecond),
@@ -814,18 +839,18 @@ func classifyProbeSamples(t *testing.T, samples []probeSample, baseline int, mig
 }
 
 // countLatePartials returns the number of non-error samples whose
-// timestamp is after `anchor` and whose count is neither 0 nor
-// baseline. Used by both tests as the post-window convergence
+// timestamp is after `anchor` and whose count is neither baseline nor
+// expectedAfter. Used by both tests as the post-window convergence
 // guarantee — late partials indicate the cutover has not stabilized
 // after the bounded window closed.
-func countLatePartials(t *testing.T, samples []probeSample, baseline int, anchor, migrationStart time.Time) int {
+func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAfter int, anchor, migrationStart time.Time) int {
 	t.Helper()
 	var late int
 	for _, s := range samples {
 		if s.err != nil {
 			continue
 		}
-		if s.t.After(anchor) && s.count != 0 && s.count != baseline {
+		if s.t.After(anchor) && s.count != baseline && s.count != expectedAfter {
 			late++
 			t.Logf("late partial @ +%v node=%d count=%d (after anchor)",
 				s.t.Sub(migrationStart).Round(time.Millisecond),
