@@ -885,6 +885,28 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitIDs", localGroupUnitIDs)
 
+	// Recovery-replay short-circuit. The scheduler can invoke
+	// OnGroupCompleted for a task whose terminal state was reached in a
+	// prior process lifetime — FINISHED, FAILED, or CANCELLED tasks
+	// rehydrated during startup recovery, or replayed when a node rejoins
+	// the cluster with a stale RAFT log. For semantic migrations the swap
+	// dirs are long gone by then (markTidied + the per-shard
+	// trimOlderGenerations call removed them), so any attempt to re-run
+	// runtimeSwap would error with "reindex bucket %q not found" — noise
+	// only since the ack barrier in [Manager.RecordPostCompletionAck]
+	// drops acks on terminal tasks (correctness unaffected), but every
+	// operator restart spams an ERROR log entry per local unit that
+	// looks like a real problem.
+	//
+	// Returning nil here mirrors the format-only-migration short-circuit
+	// below: no-op for a request the system is not in a position to act
+	// on. See 0-weaviate-issues#217 (spillover from #214 A5).
+	if task.Status.IsTerminal() {
+		logger.WithField("status", task.Status).
+			Debug("reindex provider: OnGroupCompleted: skipping replay on past-terminal task")
+		return nil
+	}
+
 	payload, err := p.loadPayload(task)
 	if err != nil {
 		logger.WithError(err).Error("reindex provider: OnGroupCompleted: failed to load payload")
