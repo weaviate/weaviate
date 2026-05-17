@@ -274,8 +274,12 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return ""
 	}
 	for _, task := range tasksByNamespace[db.ReindexNamespace] {
-		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusSwapping {
+		// PREPARING and SWAPPING count as in-flight (via
+		// [distributedtask.TaskStatus.IsActive]) — see the godoc on
+		// [checkReindexConflict] for the full reasoning. Mutating the
+		// property during either phase would race the in-flight per-
+		// shard bucket-pointer flip.
+		if !task.Status.IsActive() {
 			continue
 		}
 		var payload db.ReindexTaskPayload

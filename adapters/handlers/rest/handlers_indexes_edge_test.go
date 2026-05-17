@@ -706,3 +706,86 @@ func TestMergeReindexStatus_NonSearchableTypes_DoNotSetTargetAlgorithm(t *testin
 		})
 	}
 }
+
+// PREPARING and SWAPPING both surface as "indexing@100%" in the user-
+// visible status while the cluster-wide PrepCompleteAck barrier (PREPARING)
+// or the per-node atomic swap + schema flip (SWAPPING) is still in
+// flight. Both paint the synthetic side-effect fields the same way
+// STARTED does so the UI keeps rendering the in-flight pill with the
+// target tokenization preview.
+//
+// This guards two regressions:
+//   - Forgetting PREPARING in [mergeReindexStatus]'s status switch
+//     (would leave PREPARING tasks with the base "ready" status and no
+//     synthetic targetTokenization, blanking the UI mid-barrier).
+//   - Forgetting PREPARING in [taskStatusPriority] (would let an older
+//     terminal task outrank a fresh PREPARING task, surfacing the wrong
+//     attempt's signal).
+func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status distributedtask.TaskStatus
+	}{
+		{"PREPARING", distributedtask.TaskStatusPreparing},
+		{"SWAPPING", distributedtask.TaskStatusSwapping},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			task := buildTask(t, "C:change-tokenization:foo:"+tt.name,
+				tt.status,
+				db.ReindexTaskPayload{
+					MigrationType:      db.ReindexTypeChangeTokenization,
+					Collection:         "C",
+					Properties:         []string{"foo"},
+					TargetTokenization: "lowercase",
+				},
+				map[string]*distributedtask.Unit{
+					// Units all terminal — PREP/SWAP barrier work happens
+					// in scheduler callbacks, not via per-unit progress.
+					"u1": {ID: "u1", Status: distributedtask.UnitStatusCompleted, Progress: 1.0},
+				},
+			)
+
+			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+			mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+
+			require.Equal(t, "indexing", idx.Status,
+				"%s must surface as 'indexing' — the cluster-wide post-completion barrier is still gating the schema flip", tt.name)
+			require.InDelta(t, 1.0, idx.Progress, 0.0001,
+				"%s implies units all done; progress must read 100%%", tt.name)
+			require.Equal(t, "lowercase", idx.TargetTokenization,
+				"%s must paint the targetTokenization synthetic side-effect — UI needs it to render the in-flight tokenization preview", tt.name)
+		})
+	}
+}
+
+// Status-priority ranking: PREPARING and SWAPPING both rank alongside
+// STARTED (priority=2), so a fresh in-flight task surfaces ahead of an
+// older FAILED attempt's terminal entry. Without PREPARING in the
+// switch, the priority would fall through to the default (priority=0)
+// and an older FAILED attempt with priority=1 would win the tiebreak —
+// the user would see the stale failure instead of the live PREP barrier.
+func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
+	mkTask := func(status distributedtask.TaskStatus) *distributedtask.Task {
+		return &distributedtask.Task{
+			TaskDescriptor: distributedtask.TaskDescriptor{ID: "t", Version: 1},
+			Status:         status,
+		}
+	}
+	for _, tt := range []struct {
+		name   string
+		status distributedtask.TaskStatus
+		want   int
+	}{
+		{"STARTED", distributedtask.TaskStatusStarted, 2},
+		{"PREPARING", distributedtask.TaskStatusPreparing, 2},
+		{"SWAPPING", distributedtask.TaskStatusSwapping, 2},
+		{"FAILED", distributedtask.TaskStatusFailed, 1},
+		{"CANCELLED", distributedtask.TaskStatusCancelled, 1},
+		{"FINISHED", distributedtask.TaskStatusFinished, 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, taskStatusPriority(mkTask(tt.status)),
+				"status %s must rank at priority %d", tt.status, tt.want)
+		})
+	}
+}

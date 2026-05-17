@@ -881,14 +881,15 @@ func (s *Scheduler) tick() {
 		}
 
 		// Check that all tasks that are already finished and if their TTL has passed, so we can clean them up.
-		// FINALIZING is excluded explicitly: its FinishedAt is zero-time
-		// (set by [Manager.MarkTaskFinalized] only on the FINISHED
-		// transition), and `clock.Since(zero)` is enormous — without the
-		// exclusion the predicate would mis-classify every FINALIZING task
-		// as TTL-expired and request its cleanup before its post-completion
-		// callbacks finish.
+		// PREPARING and SWAPPING are excluded explicitly (via
+		// [TaskStatus.IsActive]): their FinishedAt is zero-time (set by
+		// [Manager.MarkTaskFinalized] only on the FINISHED transition),
+		// and `clock.Since(zero)` is enormous — without the exclusion
+		// the predicate would mis-classify every PREPARING / SWAPPING
+		// task as TTL-expired and request its cleanup before the
+		// post-completion barrier and per-node swap callbacks finish.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
-			if task.Status == TaskStatusStarted || task.Status == TaskStatusSwapping {
+			if task.Status.IsActive() {
 				return false
 			}
 			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
