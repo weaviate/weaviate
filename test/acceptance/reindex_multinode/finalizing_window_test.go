@@ -12,11 +12,16 @@
 package reindex_multinode
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -25,23 +30,29 @@ import (
 
 // TestLiveQueriesDuringChangeTokenization pins the correctness
 // invariant of the per-shard tokenization overlay introduced for
-// 0-weaviate-issues#216 Gap B. Without the overlay, the FINALIZING
-// window of a change-tokenization migration leaks a per-replica
-// mismatch where the bucket pointer has flipped to NEW-tokenized data
-// but the cluster-wide schema flag still serves the OLD tokenization
-// to the query analyzer. Frontend Claude observed this as a
-// `7→4→1→7→3→2` count flap on a steady BM25 probe across replicas —
-// the misalignment produces wrong-tokenized lookups against the new
-// bucket, returning values that lie OUTSIDE the valid steady-state
-// range.
+// the per-shard tokenization overlay. Without the overlay, the
+// FINALIZING window of a change-tokenization migration leaks a
+// per-replica mismatch where the bucket pointer has flipped to
+// NEW-tokenized data but the cluster-wide schema flag still serves
+// the OLD tokenization to the query analyzer. The production
+// reproduction observed this as a `7→4→1→7→3→2` count flap on a
+// steady BM25 probe across replicas — the misalignment produces
+// wrong-tokenized lookups against the new bucket, returning values
+// that lie OUTSIDE the valid steady-state range.
+//
+// History: surfaced as
+// https://github.com/weaviate/0-weaviate-issues/issues/216 (Gap B),
+// fixed in https://github.com/weaviate/weaviate/pull/11322 via the
+// per-shard TokenizationFor overlay + the prep/atomic/defer phase
+// split.
 //
 // The strongest direction-symmetric assertion: every probe sample
 // during the migration must lie within [min(baseline, expectedAfter),
 // max(baseline, expectedAfter)]. Out-of-range samples are direct
-// evidence of the #216 misalignment shape; with the overlay landed,
-// no sample is ever out of range because every replica's query
-// analyzer is aligned with its bucket content from the moment the
-// bucket pointer flips:
+// evidence of the misalignment shape; with the overlay in place, no
+// sample is ever out of range because every replica's query analyzer
+// is aligned with its bucket content from the moment the bucket
+// pointer flips:
 //
 //   - Pre-swap: overlay=NEW, bucket=OLD (in-memory swap latency
 //     bounds this to microseconds; query returns OLD baseline).
@@ -55,17 +66,18 @@ import (
 // has a real cross-shard spread (every node's reactive
 // OnGroupCompleted swap and the cluster-wide schema-flip RAFT entry
 // propagate independently). The partial window bound here matches
-// TestPartialResultsDuringChangeTokenization's pre-#216 ceiling (15
-// samples / 700ms) — #216 does NOT shrink that window, it removes a
-// specific failure mode (out-of-range counts) within it.
+// the looser cluster-wide ceiling pinned by
+// TestPartialResultsDuringChangeTokenization (15 samples / 700ms) —
+// the overlay does NOT shrink that window, it removes a specific
+// failure mode (out-of-range counts) within it.
 //
 // Coverage: forward (word→field), reverse (field→word), filterable
 // variant. Each subtest creates a fresh collection on the shared
 // 3-node cluster.
 //
-// The reverse direction (field→word) is the clean #216 test: 0 is
-// not a valid steady state (baseline=1, expectedAfter=1500), so any
-// 0 sample is necessarily an alignment failure and trips
+// The reverse direction (field→word) is the cleanest assertion: 0
+// is not a valid steady state (baseline=1, expectedAfter=1500), so
+// any 0 sample is necessarily an alignment failure and trips
 // c.OutOfRange. The forward direction is included for completeness
 // and to cover the BM25 path under word→field reindex; the
 // out-of-range assertion is degenerate there but the late-partial
@@ -115,11 +127,11 @@ func TestLiveQueriesDuringChangeTokenization(t *testing.T) {
 			// contains all of these except for `0` (only one doc has
 			// that), so every doc scores some non-zero match.
 			//
-			// The pre-#216 misalignment failure shape: a swapped
-			// replica's WORD bucket queried with FIELD tokenization
-			// returns 0 (the full phrase is not a key in the WORD
-			// bucket). 0 falls outside [1, 1500] → out-of-range →
-			// caught by c.OutOfRange == 0 assertion.
+			// The misalignment failure shape the overlay closes: a
+			// swapped replica's WORD bucket queried with FIELD
+			// tokenization returns 0 (the full phrase is not a key
+			// in the WORD bucket). 0 falls outside [1, 1500] →
+			// out-of-range → caught by c.OutOfRange == 0 assertion.
 			expectedAfter: 1500,
 		},
 		{
@@ -164,12 +176,13 @@ func runLiveQueryDuringChangeTokenizationCase(
 		// schema flip in OnTaskCompleted propagates via RAFT after every
 		// node has run its local OnGroupCompleted swap, so a brief
 		// window of mixed states (some shards swapped, some not) is
-		// expected on every replica regardless of #216. The bound here
-		// matches TestPartialResultsDuringChangeTokenization's pre-#216
-		// bound (15 / 700ms): #216 does NOT shrink the cross-shard
-		// spread — it closes a specific failure MODE within it (the
-		// out-of-range "0 from a swapped replica with stale schema"
-		// shape, asserted separately below by c.OutOfRange == 0).
+		// expected on every replica regardless of the overlay. The
+		// bound here matches the cluster-wide ceiling pinned by
+		// TestPartialResultsDuringChangeTokenization (15 / 700ms): the
+		// overlay does NOT shrink the cross-shard spread — it closes a
+		// specific failure MODE within it (the out-of-range "0 from a
+		// swapped replica with stale schema" shape, asserted
+		// separately below by c.OutOfRange == 0).
 		partialSampleBudget = 15
 		partialWindowBudget = 700 * time.Millisecond
 	)
@@ -243,15 +256,15 @@ func runLiveQueryDuringChangeTokenizationCase(
 	assert.Equal(t, expectedAfter, postCount,
 		"post-migration (%s tokenization) probe count should equal %d", targetTok, expectedAfter)
 
-	// The #216-fix assertion (strongest, direction-symmetric): no
-	// sample is ever OUT OF RANGE — i.e. outside [min(baseline,
-	// expectedAfter), max(baseline, expectedAfter)]. The pre-#216
-	// failure shape produces exactly this: a swapped replica with
-	// stale schema returns the misalignment count, which falls
-	// outside the valid steady-state range. With the per-shard
-	// tokenization overlay this NEVER happens, because every replica's
-	// query analyzer is aligned with its bucket content from the
-	// moment the bucket pointer flips. Reverse direction (field→word)
+	// The overlay-correctness assertion (strongest,
+	// direction-symmetric): no sample is ever OUT OF RANGE — i.e.
+	// outside [min(baseline, expectedAfter), max(baseline,
+	// expectedAfter)]. Without the per-shard tokenization overlay, a
+	// swapped replica with stale schema returns the misalignment
+	// count, which falls outside the valid steady-state range. With
+	// the overlay this NEVER happens, because every replica's query
+	// analyzer is aligned with its bucket content from the moment the
+	// bucket pointer flips. Reverse direction (field→word)
 	// is the clean test: 0 is not a valid steady state, so any 0
 	// sample is necessarily an alignment failure. Forward direction
 	// (word→field) is degenerate (0 is also expectedAfter, so
@@ -338,4 +351,279 @@ func buildTokenizationIndexUpdate(t *testing.T, indexType, targetTok string) str
 		t.Fatalf("unsupported indexType %q", indexType)
 		return ""
 	}
+}
+
+// TestPartialResultsDuringChangeTokenization pins the cluster-wide
+// partial-results window during a change-tokenization reindex across
+// multiple shards / nodes.
+//
+// Cutover sequence (Journey 3 canonical, reactive firing):
+//
+//  1. All shards finish the reindex phase. DTM's AllGroupUnitsTerminal
+//     becomes true; the FSM apply path notifies each node's local
+//     scheduler via SchedulerNotifier.Wake() instead of waiting for the
+//     next periodic tick.
+//  2. On every node, the scheduler reactively fires OnGroupCompleted →
+//     RunSwapOnShard for each local shard. The strategy's
+//     OnMigrationComplete is a no-op for semantic migrations; the
+//     bucket pointer flip happens in-memory only.
+//  3. Then OnTaskCompleted (also reactive) issues one RAFT-idempotent
+//     UpdatePropertyInternal that flips the schema flag (Tokenization).
+//     Multiple nodes' calls dedupe to a single committed entry.
+//  4. The schema flip RAFT entry propagates to every node's local FSM,
+//     which applies it and updates the in-memory schema.
+//
+// The partial-results window is bounded by the cross-node spread
+// between "this node's OnGroupCompleted swap done" and "this node's
+// FSM has applied the schema flip RAFT entry". With reactive firing
+// the spread is dominated by RAFT replication latency (low tens of
+// ms on a healthy cluster). Pre-reactive-firing this was bounded by
+// the scheduler tick interval (default 1 minute, overridden to 1s in
+// the test harness).
+//
+// The window is small enough that production queries during a
+// change-tokenization migration may observe partial results, but the
+// observation is bounded; the test pins that bound.
+//
+// We probe this by:
+//
+//   - Importing 1500 objects across 3 shards / 3 nodes (RF=3).
+//   - Issuing a BM25 query for "alpha" against every node, every 25ms,
+//     throughout the migration.
+//   - Asserting the partial-results window is bounded:
+//     1. duration <= partialWindowBudget (700ms — generous to absorb
+//     CI noise; locally observed ~80ms)
+//     2. partial-count samples <= partialSampleBudget (15 — generous
+//     for the 25ms probe interval times 3 nodes times the bounded
+//     window)
+//     3. AFTER the bounded window, every sample is either the full
+//     baseline count or zero (no late partial samples).
+//
+// A more aggressive design (schema-version-aware bucket lookup via the
+// BucketGeneration counter wired into the query path) would collapse
+// this window to sub-ms per node. That's tracked as a follow-up; the
+// current bound is the Journey 3 canonical design's best achievable.
+func TestPartialResultsDuringChangeTokenization(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	const (
+		className   = "PartialResultsTokenize"
+		shardCount  = 3
+		rf          = 3
+		objectCount = 1500
+		batchSize   = 100
+		alphaQuery  = "alpha"
+		queryLimit  = 2000 // Must exceed objectCount so all matches are returned.
+	)
+
+	createCollection(t, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
+		[]*models.Property{
+			{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+		})
+	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
+
+	// Every object contains the single-word token "alpha" so a BM25 query
+	// against "alpha" returns ALL of them under WORD tokenization. After
+	// the FIELD migration, "alpha" alone matches NONE — each object's text
+	// becomes a single multi-word token.
+	texts := make([]string, 0, objectCount)
+	for i := 0; i < objectCount; i++ {
+		texts = append(texts, fmt.Sprintf("alpha doc number %d filler", i))
+	}
+
+	// Import in batches via /v1/batch/objects for speed.
+	batchImport(t, compose.GetWeaviateNode(1).URI(), className, texts, batchSize)
+
+	// Baseline: WORD tokenization, "alpha" should return all docs.
+	baselineCount := mustQueryBM25Count(t,
+		compose.GetWeaviateNode(1).URI(), className, alphaQuery, queryLimit)
+	require.Equal(t, objectCount, baselineCount,
+		"baseline BM25 'alpha' under WORD tokenization should match all %d docs", objectCount)
+	t.Logf("baseline 'alpha' result count: %d", baselineCount)
+
+	probe := func(uri, cn string) (int, error) {
+		return queryBM25Count(uri, cn, alphaQuery, queryLimit)
+	}
+
+	var taskID string
+	samples, migrationStart := runMigrationWithProbes(t, compose, className,
+		25*time.Millisecond, 2*time.Second, probe, func() {
+			taskID = submitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
+				className, "text", `{"searchable":{"tokenization":"field"}}`)
+			t.Logf("submitted change-tokenization task: %s", taskID)
+			awaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID)
+			require.Eventually(t, func() bool {
+				return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
+					className, "text") == "field"
+			}, 60*time.Second, 200*time.Millisecond,
+				"tokenization should change to field after swap phase")
+		})
+	t.Logf("migration completed in %v, collected %d probe samples",
+		time.Since(migrationStart), len(samples))
+
+	// Forward word→field migration: under FIELD tokenization, BM25
+	// "alpha" matches none (every doc's text is one multi-word token),
+	// so the post-migration steady-state count is 0.
+	const expectedAfter = 0
+	c := classifyProbeSamples(t, samples, baselineCount, expectedAfter, migrationStart)
+
+	// Bound the partial-results window. The Journey 3 canonical design
+	// admits a brief partial window during the cross-node cutover spread
+	// (each node's reactive OnGroupCompleted swap + the cluster-wide
+	// schema flip RAFT entry propagate independently). The window is
+	// bounded by RAFT replication latency.
+	//
+	// Locally without the overlay we observe ~80ms / ~7 samples; with
+	// the per-shard tokenization overlay this collapses well below the
+	// budget. The test continues to enforce the looser ceiling as a
+	// no-regression guard against either the cluster-wide cutover
+	// spread or the per-shard alignment regressing.
+	const (
+		partialWindowBudget = 700 * time.Millisecond
+		partialSampleBudget = 15
+	)
+
+	if c.Partial > 0 {
+		windowDuration := c.LastPartial.Sub(c.FirstPartial)
+		assert.LessOrEqual(t, windowDuration, partialWindowBudget,
+			"partial-results window of %v exceeds the budget of %v — "+
+				"the cluster-wide cutover is taking longer than the bounded "+
+				"RAFT-propagation + scheduler-wake design admits; investigate "+
+				"the reactive-firing path (Manager.notifySchedulerWithLock, "+
+				"Scheduler.wakeCh, OnGroupCompleted, OnTaskCompleted)",
+			windowDuration, partialWindowBudget)
+
+		assert.LessOrEqual(t, c.Partial, partialSampleBudget,
+			"observed %d partial samples (budget=%d) within an otherwise "+
+				"bounded window — either the probe rate has changed, or the "+
+				"cutover sequence is producing more transient mismatches than "+
+				"the design admits",
+			c.Partial, partialSampleBudget)
+	}
+
+	// Post-window guarantee: after the bounded partial window closes,
+	// every sample must equal baseline or expectedAfter. A late partial
+	// sample indicates the cutover is not bounded — a node lagged behind
+	// for reasons other than RAFT propagation (e.g. its reactive wake
+	// never fired). Walk forward from lastPartial + a small grace period
+	// and assert no further partials.
+	if !c.LastPartial.IsZero() {
+		gracePeriod := 100 * time.Millisecond
+		latePartial := countLatePartials(t, samples, baselineCount, expectedAfter,
+			c.LastPartial.Add(gracePeriod), migrationStart)
+		assert.Zero(t, latePartial,
+			"observed %d partial samples after the bounded cutover window "+
+				"(lastPartial + %v) — cutover is not converging",
+			latePartial, gracePeriod)
+	}
+}
+
+// batchImport posts objects in batches of `batchSize` using /v1/batch/objects.
+func batchImport(t *testing.T, restURI, className string, texts []string, batchSize int) {
+	t.Helper()
+
+	for start := 0; start < len(texts); start += batchSize {
+		end := start + batchSize
+		if end > len(texts) {
+			end = len(texts)
+		}
+		objects := make([]map[string]interface{}, 0, end-start)
+		for _, text := range texts[start:end] {
+			objects = append(objects, map[string]interface{}{
+				"class": className,
+				"id":    uuid.New().String(),
+				"properties": map[string]interface{}{
+					"text": text,
+				},
+			})
+		}
+		body, err := json.Marshal(map[string]interface{}{"objects": objects})
+		require.NoError(t, err)
+
+		resp, err := http.Post(
+			fmt.Sprintf("http://%s/v1/batch/objects", restURI),
+			"application/json",
+			bytes.NewReader(body),
+		)
+		require.NoError(t, err)
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode,
+			"batch %d-%d failed: %s", start, end, string(respBody))
+
+		// Verify no per-object errors.
+		var batchResp []struct {
+			Result struct {
+				Errors *struct {
+					Error []struct {
+						Message string `json:"message"`
+					} `json:"error"`
+				} `json:"errors,omitempty"`
+				Status string `json:"status"`
+			} `json:"result"`
+		}
+		require.NoError(t, json.Unmarshal(respBody, &batchResp))
+		for i, br := range batchResp {
+			if br.Result.Errors != nil && len(br.Result.Errors.Error) > 0 {
+				t.Fatalf("batch %d-%d object %d errored: %s",
+					start, end, i, br.Result.Errors.Error[0].Message)
+			}
+		}
+	}
+}
+
+// queryBM25Count executes a BM25 query with an explicit limit and returns
+// the count of matched objects. Returns the count + any error encountered.
+func queryBM25Count(restURI, className, query string, limit int) (int, error) {
+	gqlQuery := fmt.Sprintf(`{
+		Get {
+			%s(bm25: {query: %q, properties: ["text"]}, limit: %d) {
+				_additional { id }
+			}
+		}
+	}`, className, query, limit)
+
+	reqBody := map[string]interface{}{"query": gqlQuery}
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := http.Post(
+		fmt.Sprintf("http://%s/v1/graphql", restURI),
+		"application/json",
+		bytes.NewReader(jsonBody),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("graphql request: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("reading response: %w", err)
+	}
+	var gqlResp struct {
+		Data struct {
+			Get map[string][]map[string]interface{} `json:"Get"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &gqlResp); err != nil {
+		return 0, fmt.Errorf("unmarshal response: %w", err)
+	}
+	if len(gqlResp.Errors) > 0 {
+		return 0, fmt.Errorf("graphql errors: %s", gqlResp.Errors[0].Message)
+	}
+	return len(gqlResp.Data.Get[className]), nil
+}
+
+func mustQueryBM25Count(t *testing.T, restURI, className, query string, limit int) int {
+	t.Helper()
+	count, err := queryBM25Count(restURI, className, query, limit)
+	require.NoError(t, err)
+	return count
 }
