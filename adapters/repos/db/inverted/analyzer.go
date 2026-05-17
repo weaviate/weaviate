@@ -33,6 +33,7 @@ type Countable struct {
 type Property struct {
 	Name               string
 	Items              []Countable
+	RawValues          []string // Original text values before tokenization (text/text[] only)
 	Length             int
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
@@ -94,6 +95,30 @@ func DedupItems(props []Property) []Property {
 	return props
 }
 
+// PropertyOverlay describes inverted-index flags and (optionally) a
+// tokenization to apply to a single property *for the duration of a single
+// analyzer call*. It is used by runtime reindex migrations that build a new
+// inverted bucket before the corresponding schema flag has been flipped via
+// RAFT (see EnableFilterableStrategy / EnableSearchableStrategy).
+//
+// The overlay is read by Analyzer.analyzeProps which, when an entry exists
+// for the property name, treats the property as if its IndexFilterable /
+// IndexSearchable / IndexRangeFilters flags were already true (and uses
+// Tokenization in place of the stored value, when non-empty). The live
+// schema is never mutated.
+//
+// Pointers are owned by the caller and MUST NOT be modified after handing
+// them to the analyzer.
+type PropertyOverlay struct {
+	ForceFilterable bool
+	ForceSearchable bool
+	ForceRangeable  bool
+	// Tokenization, when non-empty, overrides prop.Tokenization for the
+	// duration of analysis. Used by EnableSearchableStrategy to tokenize
+	// with the target tokenization before the RAFT update applies it.
+	Tokenization string
+}
+
 type analyzerCacheEntry struct {
 	fold     bool     // whether ASCIIFold was enabled
 	ignore   []string // the ASCIIFoldIgnore list used to build prepared
@@ -103,6 +128,10 @@ type analyzerCacheEntry struct {
 type Analyzer struct {
 	isFallbackToSearchable IsFallbackToSearchable
 	className              string
+	captureRawValues       bool
+	// schemaOverlay maps property name → forced-flag overrides for runtime
+	// reindex migrations. nil/empty means "use the live schema as-is".
+	schemaOverlay map[string]PropertyOverlay
 
 	// cache maps property name → cached PreparedAnalyzer.
 	// Invalidated when the property's fold setting or ASCIIFoldIgnore list changes.
@@ -313,4 +342,28 @@ func NewAnalyzer(isFallbackToSearchable IsFallbackToSearchable, className string
 		isFallbackToSearchable = func() bool { return false }
 	}
 	return &Analyzer{isFallbackToSearchable: isFallbackToSearchable, className: className}
+}
+
+// NewAnalyzerWithRawValues creates an analyzer that captures raw (pre-tokenization)
+// text values in Property.RawValues. This is only needed during migration reads
+// where retokenize strategies require the original text. Normal ingestion should
+// use NewAnalyzer to avoid the extra allocation on the hot path.
+func NewAnalyzerWithRawValues(isFallbackToSearchable IsFallbackToSearchable, className string) *Analyzer {
+	if isFallbackToSearchable == nil {
+		isFallbackToSearchable = func() bool { return false }
+	}
+	return &Analyzer{isFallbackToSearchable: isFallbackToSearchable, className: className, captureRawValues: true}
+}
+
+// WithSchemaOverlay attaches an in-memory schema overlay used only during
+// analysis. See PropertyOverlay for semantics. Returns the same analyzer to
+// allow fluent chaining at the call-site. Pass nil/empty to clear.
+//
+// This is intended for runtime reindex backfill: the analyzer must treat
+// the target property as if its inverted-index flag were already on, even
+// though the RAFT-stored schema still has it off. Production ingest paths
+// MUST NOT call this — they should always see the live schema unmodified.
+func (a *Analyzer) WithSchemaOverlay(overlay map[string]PropertyOverlay) *Analyzer {
+	a.schemaOverlay = overlay
+	return a
 }

@@ -71,7 +71,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/usage"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -373,6 +372,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig, appState.ServerConfig.Config.MinimumInternalTimeout)
 	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
 	appState.ObjectTTLLocalStatus = objectttl.NewLocalStatus()
+	// ReindexSubmitLocks is shared between the reindex-submit REST
+	// handler and the DELETE property-index REST handler so they
+	// serialize on the same per-(collection, property) mutex. See
+	// the field godoc on state.State for the race this closes.
+	appState.ReindexSubmitLocks = state.NewReindexSubmitLocks()
 
 	var vectorRepo vectorRepo
 	// var vectorMigrator schema.Migrator
@@ -776,7 +780,25 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(serverShutdownCtx)
-	reindexer := configureReindexer(appState, reindexCtx)
+	// Discover in-flight runtime reindex tasks from disk so the static
+	// ShardReindexerV3 can re-register their double-write callbacks via
+	// OnAfterLsmInit during shard load — BEFORE any post-restart write
+	// reaches the shard. Without this, writes between shard init and the
+	// deferred swap go only to the old main bucket and are silently lost.
+	// Reads: <data>/<index>/<shard>/lsm/.migrations/<dir>/payload.mig
+	// (written by ReindexProvider.persistRecoveryRecord before reindex
+	// starts), plus the existing started.mig / tidied.mig sentinels to
+	// decide which migrations are still in flight.
+	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
+		appState.ServerConfig.Config.Persistence.DataPath,
+		appState.Logger,
+		appState.SchemaManager,
+	)
+	if recoveryErr != nil {
+		appState.Logger.WithError(recoveryErr).
+			Warn("reindex recovery: disk scan failed; writes during the swap-recovery window may be lost")
+	}
+	reindexer := configureReindexer(recoveredReindexes, appState.Logger)
 	repo.SetReindexer(reindexer)
 
 	metaStoreReady := newMetaStoreReady()
@@ -906,44 +928,108 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		migrator.RecountProperties(ctx)
 	}
 
-	if appState.ServerConfig.Config.DistributedTasks.Enabled {
-		providers := map[string]distributedtask.Provider{}
+	providers := map[string]distributedtask.Provider{}
 
-		if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
-			shardNoopProvider := distributedtask.NewShardNoopProvider(
-				appState.Cluster.LocalName(), appState.Logger, repo,
-				appState.ServerConfig.Config.Persistence.DataPath,
-			)
-			providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
-			setupShardNoopDebugHandler(appState, shardNoopProvider)
-		}
-
-		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
-			CompletionRecorder: appState.ClusterService.Raft,
-			TasksLister:        appState.ClusterService.Raft,
-			Providers:          providers,
-			Logger:             appState.Logger,
-			MetricsRegisterer:  metricsRegisterer,
-			LocalNode:          appState.Cluster.LocalName(),
-			TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
-
-			// Using a single global value for now to keep it simple. If there is a need
-			// this can be changed to provide a value per provider.
-			CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
-		})
-		enterrors.GoWrapper(func() {
-			// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
-			// and stopping tasks.
-			// Additionally, not-ready RAFT state could lead to lose of local task metadata.
-			if metaStoreReady.waitForMetaStore() != nil {
-				return
-			}
-			if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
-				appState.Logger.WithError(err).WithField("action", "startup").
-					Error("failed to start distributed task scheduler")
-			}
-		}, appState.Logger)
+	if entconfig.Enabled(os.Getenv("SHARD_NOOP_PROVIDER_ENABLED")) {
+		shardNoopProvider := distributedtask.NewShardNoopProvider(
+			appState.Cluster.LocalName(), appState.Logger, repo,
+			appState.ServerConfig.Config.Persistence.DataPath,
+		)
+		providers[distributedtask.ShardNoopProviderNamespace] = shardNoopProvider
+		setupShardNoopDebugHandler(appState, shardNoopProvider)
 	}
+
+	reindexProvider := db.NewReindexProvider(
+		repo, appState.SchemaManager, appState.Logger,
+		appState.Cluster.LocalName(),
+		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
+		serverShutdownCtx,
+	)
+	// Seed the provider's per-(descriptor, unit) cache with the
+	// SAME task instances we just registered with the static
+	// ShardReindexerV3. This ensures OnGroupCompleted's swap phase
+	// reuses these instances (whose double-write callbacks were
+	// re-registered during shard init) instead of taking the
+	// rehydrate path, which would attempt to load already-loaded
+	// ingest buckets and fail.
+	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
+	providers[db.ReindexNamespace] = reindexProvider
+	// Expose the provider on AppState so the REST cancel handler can
+	// synchronise on the local goroutine before cleaning partial
+	// reindex state on disk.
+	appState.ReindexProvider = reindexProvider
+
+	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
+		CompletionRecorder: appState.ClusterService.Raft,
+		TasksLister:        appState.ClusterService.Raft,
+		TaskCleaner:        appState.ClusterService.Raft,
+		TaskFinalizer:      appState.ClusterService.Raft,
+		// AckRecorder wires the post-completion ack barrier: each node,
+		// after OnGroupCompleted returns for every local group, RAFTs a
+		// per-node ack. The scheduler gates MarkDistributedTaskFinalized
+		// on having an ack from every node with local units, and the FSM
+		// transitions the task to FAILED if any ack reports failure
+		// (which makes OnTaskCompleted skip the cluster-wide schema
+		// flip).
+		AckRecorder:       appState.ClusterService.Raft,
+		Providers:         providers,
+		Logger:            appState.Logger,
+		MetricsRegisterer: metricsRegisterer,
+		LocalNode:         appState.Cluster.LocalName(),
+		TickInterval:      appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+
+		// Using a single global value for now to keep it simple. If there is a need
+		// this can be changed to provide a value per provider.
+		CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+	})
+	// Reactive firing: the DTM FSM Manager wakes the Scheduler on every
+	// state-changing apply (AddTask, Pending→InProgress, terminal unit
+	// transitions, CancelTask). Without this hook the scheduler only reacts
+	// on its periodic tick (default 1 minute), so a barrier opening from the
+	// last unit's terminal transition would stagger across nodes by up to
+	// one tick interval. See [distributedtask.SchedulerNotifier].
+	appState.ClusterService.SetDistributedTaskSchedulerNotifier(appState.DistributedTaskScheduler)
+	// Cluster-wide conflict check: any provider implementing
+	// [distributedtask.ConflictDetector] participates in the
+	// FSM-deterministic reject-on-conflict path inside
+	// [Manager.AddTask]. This closes the multi-node parallel-submit
+	// race the REST handler's per-node submit lock cannot cover (see
+	// [distributedtask.ConflictDetector] godoc for the parallel-
+	// migration bug https://github.com/weaviate/0-weaviate-issues/issues/54 / https://github.com/weaviate/weaviate/issues/10675 family).
+	conflictDetectors := map[string]distributedtask.ConflictDetector{}
+	for ns, p := range providers {
+		if cd, ok := p.(distributedtask.ConflictDetector); ok {
+			conflictDetectors[ns] = cd
+		}
+	}
+	appState.ClusterService.SetDistributedTaskConflictDetectors(conflictDetectors)
+
+	// Cross-FSM schema-mutation guard: any provider implementing
+	// [distributedtask.SchemaMutationDetector] participates in the
+	// FSM-deterministic reject path inside the schema FSM's
+	// UpdateProperty apply. Symmetric to the conflict detectors above:
+	// same registration shape, same "pure function of FSM state"
+	// contract, opposite direction (this one protects in-flight tasks
+	// from out-of-band schema mutations).
+	schemaMutationDetectors := map[string]distributedtask.SchemaMutationDetector{}
+	for ns, p := range providers {
+		if smd, ok := p.(distributedtask.SchemaMutationDetector); ok {
+			schemaMutationDetectors[ns] = smd
+		}
+	}
+	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
+	enterrors.GoWrapper(func() {
+		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
+		// and stopping tasks.
+		// Additionally, not-ready RAFT state could lead to lose of local task metadata.
+		if metaStoreReady.waitForMetaStore() != nil {
+			return
+		}
+		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
+			appState.Logger.WithError(err).WithField("action", "startup").
+				Error("failed to start distributed task scheduler")
+		}
+	}, appState.Logger)
 
 	return appState
 }
@@ -954,38 +1040,20 @@ func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPoo
 		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
 }
 
-func configureReindexer(appState *state.State, reindexCtx context.Context) db.ShardReindexerV3 {
-	tasks := []db.ShardReindexTaskV3{}
-	logger := appState.Logger.WithField("action", "reindexV3")
-	cfg := appState.ServerConfig.Config
-	concurrency := concurrency.TimesFloatGOMAXPROCS(cfg.ReindexerGoroutinesFactor)
-
-	if cfg.ReindexMapToBlockmaxAtStartup {
-		tasks = append(tasks, db.NewShardInvertedReindexTaskMapToBlockmax(
-			logger,
-			cfg.ReindexMapToBlockmaxConfig.SwapBuckets,
-			cfg.ReindexMapToBlockmaxConfig.UnswapBuckets,
-			cfg.ReindexMapToBlockmaxConfig.TidyBuckets,
-			cfg.ReindexMapToBlockmaxConfig.ReloadShards,
-			cfg.ReindexMapToBlockmaxConfig.Rollback,
-			cfg.ReindexMapToBlockmaxConfig.ConditionalStart,
-			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
-			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
-			time.Millisecond*time.Duration(cfg.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds),
-			concurrency, cfg.ReindexMapToBlockmaxConfig.Selected, appState.SchemaManager,
-		))
-	}
-
-	if len(tasks) == 0 {
+func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {
+	// All reindex operations are now triggered via the REST API
+	// (DTM-based). The V3 startup reindexer is no longer used for
+	// kicking off new reindexes — but we still need it for restart
+	// recovery: in-flight runtime reindex tasks discovered on disk
+	// register here so that OnAfterLsmInit fires during shard load and
+	// re-installs the double-write callbacks before any post-restart
+	// write reaches the shard.
+	if len(recovered) == 0 {
 		return db.NewShardReindexerV3Noop()
 	}
-
-	reindexer := db.NewShardReindexerV3(reindexCtx, logger, appState.DB.GetIndex, concurrency)
-	for i := range tasks {
-		reindexer.RegisterTask(tasks[i])
-	}
-	reindexer.Init()
-	return reindexer
+	logger.WithField("count", len(recovered)).
+		Info("reindex recovery: registering in-flight tasks discovered on disk")
+	return db.NewShardReindexerV3FromRecovered(recovered, logger)
 }
 
 // enforceNamespaceStartupInvariants decides whether the current cluster state
@@ -1129,7 +1197,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer, appState.Logger)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks)
+	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -1148,9 +1217,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
-	if appState.ServerConfig.Config.DistributedTasks.Enabled {
-		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
-	}
+	setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
 
 	telemeter := telemetry.New(
 		appState.DB,

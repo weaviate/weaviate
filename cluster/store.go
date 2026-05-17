@@ -319,6 +319,20 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
+	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Clock:            clockwork.NewRealClock(),
+		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
+	})
+
+	// Cross-FSM guard: the schema FSM's UpdateProperty apply path
+	// consults the distributed-task FSM to reject property mutations
+	// while a reindex on the same (collection, property) is STARTED or
+	// FINALIZING. The Manager implements [schema.MutationGuard] via its
+	// CheckPropertyUpdate method, which dispatches to the per-namespace
+	// [distributedtask.SchemaMutationDetector] registered by
+	// [Store.SetDistributedTaskSchemaMutationDetectors] at startup.
+	schemaManager.SetMutationGuard(distributedTasksManager)
+
 	var dynusersLister namespaces.DynusersNamespaceLister
 	if cfg.DynamicUserController != nil {
 		dynusersLister = cfg.DynamicUserController
@@ -337,23 +351,47 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			LocalName:          cfg.NodeID,
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
-		schemaManager:      schemaManager,
-		snapshotter:        snapshotter,
-		authZController:    authZController,
-		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
-		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
-		namespaceManager:   namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, cfg.Logger),
-		replicationManager: replicationManager,
-		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
-			Clock:            clockwork.NewRealClock(),
-			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
-		}),
-		metrics: newStoreMetrics(cfg.NodeID, reg),
+		schemaManager:           schemaManager,
+		snapshotter:             snapshotter,
+		authZController:         authZController,
+		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
+		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, cfg.Logger),
+		replicationManager:      replicationManager,
+		distributedTasksManager: distributedTasksManager,
+		metrics:                 newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
 func (st *Store) ID() string    { return st.cfg.NodeID }
+
+// SetDistributedTaskSchedulerNotifier installs the wake-up notifier on
+// the distributed task FSM Manager so it can poke the Scheduler from
+// RAFT-apply paths (see [distributedtask.SchedulerNotifier] for the
+// rationale). Called once at startup after both Store and Scheduler
+// exist, from MakeAppState's wiring.
+func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
+	st.distributedTasksManager.SetSchedulerNotifier(notifier)
+}
+
+// SetDistributedTaskConflictDetectors installs the per-namespace
+// conflict-detection hooks on the distributed task FSM Manager. Called
+// once at startup from MakeAppState. See
+// [distributedtask.ConflictDetector] for the contract.
+func (st *Store) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
+	st.distributedTasksManager.SetConflictDetectors(detectors)
+}
+
+// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
+// detectors consulted from the schema FSM's UpdateProperty apply path
+// via the Manager's CheckPropertyUpdate method. Called once at startup
+// from MakeAppState, after the providers exist. See
+// [distributedtask.SchemaMutationDetector] for the FSM-determinism
+// contract and motivating failure mode.
+func (st *Store) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
+	st.distributedTasksManager.SetSchemaMutationDetectors(detectors)
+}
 
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.

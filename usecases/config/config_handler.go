@@ -559,9 +559,9 @@ type Profiling struct {
 }
 
 type DistributedTasksConfig struct {
-	Enabled               bool          `json:"enabled" yaml:"enabled"`
-	CompletedTaskTTL      time.Duration `json:"completedTaskTTL" yaml:"completedTaskTTL"`
-	SchedulerTickInterval time.Duration `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
+	CompletedTaskTTL      time.Duration              `json:"completedTaskTTL" yaml:"completedTaskTTL"`
+	SchedulerTickInterval time.Duration              `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
+	ReindexConcurrency    *runtime.DynamicValue[int] `json:"reindexConcurrency" yaml:"reindexConcurrency"`
 }
 
 type Persistence struct {
@@ -619,10 +619,6 @@ const (
 
 const (
 	DefaultReindexerGoroutinesFactor = 0.5
-
-	DefaultMapToBlockmaxProcessingDurationSeconds  = 3 * 60
-	DefaultMapToBlockmaxPauseDurationSeconds       = 60
-	DefaultMapToBlockmaxPerObjectDelayMilliseconds = 0
 )
 
 // MetadataServer is experimental.

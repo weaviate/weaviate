@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"testing"
 	"time"
@@ -22,6 +23,112 @@ import (
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
+
+// fakeConflictDetector lets the manager-side conflict-hook test pin
+// every branch of [Manager.AddTask]'s ConflictDetector invocation
+// without standing up the real reindex provider.
+type fakeConflictDetector struct {
+	called     int
+	rejectWith error
+}
+
+func (f *fakeConflictDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {
+}
+func (f *fakeConflictDetector) GetLocalTasks() []TaskDescriptor    { return nil }
+func (f *fakeConflictDetector) CleanupTask(_ TaskDescriptor) error { return nil }
+func (f *fakeConflictDetector) StartTask(_ *Task) (TaskHandle, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f *fakeConflictDetector) CheckConflict(_ []byte, _ []*Task) error {
+	f.called++
+	return f.rejectWith
+}
+
+// TestManager_AddTask_ConflictDetector pins the cluster-wide
+// conflict-rejection hook integrated into [Manager.AddTask]. Closes
+// the multi-node parallel-submit race the REST handler's per-node
+// submit lock cannot cover (parallel-migration bug #54).
+func TestManager_AddTask_ConflictDetector(t *testing.T) {
+	t.Run("hook NOT called when no detector registered for the namespace", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeConflictDetector{rejectWith: fmt.Errorf("would reject")}
+		// Register the detector under a DIFFERENT namespace.
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+			"other-namespace": detector,
+		})
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+
+		require.NoError(t, h.manager.AddTask(c, 100))
+		require.Zero(t, detector.called,
+			"detector for a different namespace MUST NOT be consulted")
+	})
+
+	t.Run("hook called and accepts on no-conflict", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeConflictDetector{rejectWith: nil}
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+			"test": detector,
+		})
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+
+		require.NoError(t, h.manager.AddTask(c, 100))
+		require.Equal(t, 1, detector.called,
+			"detector MUST be consulted exactly once per AddTask")
+	})
+
+	t.Run("hook rejects → AddTask returns error and task is NOT added", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeConflictDetector{
+			rejectWith: fmt.Errorf("simulated conflict: parallel migration on same prop"),
+		}
+		h.manager.SetConflictDetectors(map[string]ConflictDetector{
+			"test": detector,
+		})
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+
+		err := h.manager.AddTask(c, 100)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "simulated conflict")
+
+		// Confirm the task was NOT registered.
+		tasks, err2 := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err2)
+		require.Empty(t, tasks["test"],
+			"rejected task MUST NOT appear in the FSM-stored task list")
+	})
+
+	t.Run("hook nil-safe: SetConflictDetectors(nil) is a no-op", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.SetConflictDetectors(nil)
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+		require.NoError(t, h.manager.AddTask(c, 100))
+	})
+}
 
 func TestManager_AddTask_Failures(t *testing.T) {
 	t.Run("add duplicate task", func(t *testing.T) {
@@ -397,8 +504,14 @@ func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Ta
 					ID:      "task2",
 					Version: 13,
 				},
-				Payload:    []byte("test2"),
-				Status:     TaskStatusFinished,
+				Payload: []byte("test2"),
+				// Manager.RecordUnitCompletion alone takes a successful
+				// task to FINALIZING; the FINISHED transition is committed
+				// by [Manager.MarkTaskFinalized] which the [Scheduler]
+				// issues after every node's [Provider.OnTaskCompleted]
+				// returns. This helper exercises RecordUnitCompletion in
+				// isolation, so FINALIZING is the expected end state.
+				Status:     TaskStatusFinalizing,
 				StartedAt:  now,
 				FinishedAt: now.Add(time.Minute),
 				Units: map[string]*Unit{
@@ -566,12 +679,15 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 	assert.Equal(t, float32(1.0), task.Units["su-1"].Progress)
 	assert.Equal(t, UnitStatusPending, task.Units["su-2"].Status)
 
-	// Complete second unit → task should finish
+	// Complete second unit → task should transition to FINALIZING.
+	// FINISHED only after [Manager.MarkTaskFinalized], which the
+	// scheduler issues post-OnTaskCompleted; this test exercises the
+	// manager FSM in isolation so it stops at FINALIZING.
 	completeUnit(t, h, "ns", "task1", version, "node-2", "su-2")
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task = tasks["ns"][0]
-	assert.Equal(t, TaskStatusFinished, task.Status)
+	assert.Equal(t, TaskStatusFinalizing, task.Status)
 }
 
 func TestManager_RecordUnitCompletion_WithError(t *testing.T) {
@@ -812,4 +928,460 @@ func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
 	require.NotNil(t, task.Units)
 	assert.Equal(t, "g1", task.Units["su-1"].GroupID)
 	assert.Equal(t, "g2", task.Units["su-2"].GroupID)
+}
+
+// TestManager_RecordPostCompletionAck_Success pins the happy path of
+// the per-node ack barrier introduced in https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A:
+// every node's success ack is recorded, the task stays FINALIZING (no
+// status change from a success ack), and the AckedAt timestamp lands
+// on the persisted record.
+func TestManager_RecordPostCompletionAck_Success(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u-node-1", "u-node-2", "u-node-3"})
+
+	// Claim units and complete every unit so the FSM transitions to
+	// FINALIZING (the only state in which acks are meaningful).
+	for _, n := range []string{"node-1", "node-2", "node-3"} {
+		updateProgress(t, h, "ns", "task1", version, n, "u-"+n, 0.1)
+	}
+	for _, n := range []string{"node-1", "node-2", "node-3"} {
+		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               n,
+			UnitId:               "u-" + n,
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	}
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status)
+
+	for _, n := range []string{"node-1", "node-2", "node-3"} {
+		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace:         "ns",
+			Id:                "task1",
+			Version:           version,
+			NodeId:            n,
+			Success:           true,
+			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	}
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	require.Equal(t, TaskStatusFinalizing, task.Status,
+		"success acks must NOT transition status — the scheduler issues MarkTaskFinalized once acks are present")
+	require.Len(t, task.PostCompletionAcks, 3)
+	for _, n := range []string{"node-1", "node-2", "node-3"} {
+		ack, ok := task.PostCompletionAcks[n]
+		require.True(t, ok, "ack for %s must be recorded", n)
+		require.True(t, ack.Success)
+		require.Empty(t, ack.Error)
+		require.False(t, ack.AckedAt.IsZero(), "AckedAt must be set on apply")
+	}
+	require.Empty(t, task.MissingPostCompletionAckNodes())
+	require.False(t, task.AnyPostCompletionAckFailed())
+}
+
+// TestManager_RecordPostCompletionAck_FailureTransitionsToFailed
+// pins the failure-path of https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A: when a node
+// reports a failure ack, the FSM transitions the task to FAILED
+// immediately AND records the error on Task.Error for forensics. The
+// cluster-wide schema flip will see FAILED and skip the flip.
+func TestManager_RecordPostCompletionAck_FailureTransitionsToFailed(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u-node-1", "u-node-2"})
+
+	for _, n := range []string{"node-1", "node-2"} {
+		updateProgress(t, h, "ns", "task1", version, n, "u-"+n, 0.1)
+		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               n,
+			UnitId:               "u-" + n,
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	}
+
+	// node-1 acks success.
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           true,
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status)
+
+	// node-2 acks failure — the apply path must immediately transition
+	// the task to FAILED, with the error message captured on Task.Error.
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-2",
+		Success:           false,
+		Error:             "synthetic swap failure",
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	require.Equal(t, TaskStatusFailed, task.Status,
+		"any failure ack must transition the task to FAILED")
+	require.Contains(t, task.Error, "post-completion swap failed on node node-2")
+	require.Contains(t, task.Error, "synthetic swap failure")
+	require.True(t, task.AnyPostCompletionAckFailed())
+}
+
+// TestManager_RecordPostCompletionAck_Idempotent pins the duplicate-ack
+// behavior: the first ack per (task, node) wins. Subsequent acks for
+// the same node are silently discarded — even when the duplicate would
+// flip a recorded success to failure (or vice versa). Without this,
+// retries on the scheduler's wake/tick loop would oscillate task
+// status under apply-RPC flakes.
+func TestManager_RecordPostCompletionAck_Idempotent(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+	updateProgress(t, h, "ns", "task1", version, "node-1", "u", 0.1)
+	require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace:            "ns",
+		Id:                   "task1",
+		Version:              version,
+		NodeId:               "node-1",
+		UnitId:               "u",
+		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	// First ack: success.
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           true,
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success)
+	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status)
+
+	// Duplicate ack from same node with FAILURE — must be ignored, the
+	// status MUST stay FINALIZING (not flip to FAILED).
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           false,
+		Error:             "stale retry that must NOT flip success",
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success,
+		"first ack wins — duplicate must not flip success to failure")
+	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status,
+		"duplicate failure ack on idempotent path must not transition to FAILED")
+}
+
+// TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus pins
+// the late-ack drop behavior: an ack arriving for a FAILED / FINISHED /
+// CANCELLED task is silently ignored. This is required because every
+// node's scheduler may re-emit acks on retry; once the cluster has
+// decided the task's outcome, late acks are noise.
+func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u"})
+	updateProgress(t, h, "ns", "task1", version, "node-1", "u", 0.1)
+	require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace:            "ns",
+		Id:                   "task1",
+		Version:              version,
+		NodeId:               "node-1",
+		UnitId:               "u",
+		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	// Drive the task to FINISHED via MarkTaskFinalized.
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           true,
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+	require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
+		Namespace:             "ns",
+		Id:                    "task1",
+		Version:               version,
+		FinalizedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	require.Equal(t, TaskStatusFinished, tasks["ns"][0].Status)
+	preAckCount := len(tasks["ns"][0].PostCompletionAcks)
+
+	// A stale retry from "node-2" arrives — there's no node-2 unit in
+	// this task, but real cluster retries can hit FINISHED tasks. The
+	// apply must silently no-op (no error returned, no map mutation).
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-2",
+		Success:           false,
+		Error:             "stale ack after FINISHED",
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	require.Equal(t, TaskStatusFinished, tasks["ns"][0].Status,
+		"late ack must not perturb FINISHED status")
+	require.Equal(t, preAckCount, len(tasks["ns"][0].PostCompletionAcks),
+		"late ack must not be recorded on a terminal task")
+}
+
+// TestManager_SnapshotRestore_WithPostCompletionAcks pins the
+// crash-safety property the https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A fix relies on:
+// the per-node acks survive RAFT snapshot/restore. Without this, a
+// follower installing a snapshot mid-FINALIZING would lose the ack
+// barrier state and the scheduler couldn't gate MarkTaskFinalized
+// correctly post-restore.
+func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"u-node-1", "u-node-2"})
+	for _, n := range []string{"node-1", "node-2"} {
+		updateProgress(t, h, "ns", "task1", version, n, "u-"+n, 0.1)
+		require.NoError(t, h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+			Namespace:            "ns",
+			Id:                   "task1",
+			Version:              version,
+			NodeId:               n,
+			UnitId:               "u-" + n,
+			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+		})))
+	}
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         "ns",
+		Id:                "task1",
+		Version:           version,
+		NodeId:            "node-1",
+		Success:           true,
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	h2 := newTestHarness(t).init(t)
+	require.NoError(t, h2.manager.Restore(snap))
+
+	tasks, _ := h2.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	require.Equal(t, TaskStatusFinalizing, task.Status,
+		"task status must survive snapshot/restore")
+	require.Len(t, task.PostCompletionAcks, 1,
+		"the partial ack set must survive snapshot/restore")
+	require.True(t, task.PostCompletionAcks["node-1"].Success)
+	require.ElementsMatch(t, []string{"node-2"}, task.MissingPostCompletionAckNodes(),
+		"post-restore the missing-acks predicate must keep gating MarkTaskFinalized")
+}
+
+// fakeSchemaMutationDetector lets the manager-side CheckPropertyUpdate
+// dispatch test pin every branch without standing up the real reindex
+// provider. Records arguments so we can assert the dispatch contract
+// (only the matching-namespace detector consulted, full FSM task list
+// passed in, etc.).
+type fakeSchemaMutationDetector struct {
+	called        int
+	lastClassName string
+	lastPropName  string
+	lastTaskCount int
+	rejectWith    error
+}
+
+func (f *fakeSchemaMutationDetector) SetCompletionRecorder(_ TaskCompletionRecorder) {}
+func (f *fakeSchemaMutationDetector) GetLocalTasks() []TaskDescriptor                { return nil }
+func (f *fakeSchemaMutationDetector) CleanupTask(_ TaskDescriptor) error             { return nil }
+func (f *fakeSchemaMutationDetector) StartTask(_ *Task) (TaskHandle, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (f *fakeSchemaMutationDetector) CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error {
+	f.called++
+	f.lastClassName = className
+	f.lastPropName = propertyName
+	f.lastTaskCount = len(existingTasks)
+	return f.rejectWith
+}
+
+func (f *fakeSchemaMutationDetector) CheckClassMutation(className string, existingTasks []*Task) error {
+	f.called++
+	f.lastClassName = className
+	f.lastTaskCount = len(existingTasks)
+	return f.rejectWith
+}
+
+func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error {
+	f.called++
+	f.lastClassName = className
+	f.lastTaskCount = len(existingTasks)
+	return f.rejectWith
+}
+
+// TestManager_CheckPropertyUpdate_DispatchToDetectors pins the cross-
+// FSM dispatch: the schema FSM's UpdateProperty apply consults this
+// method, which fans out to every registered
+// [SchemaMutationDetector] with the current FSM-stored task list for
+// each detector's namespace.
+//
+// Motivating bug: https://github.com/weaviate/0-weaviate-issues/issues/218. Symmetric to the existing
+// TestManager_AddTask_ConflictDetector pattern.
+func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
+	t.Run("no detectors registered → nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+	})
+
+	t.Run("detector returns nil → CheckPropertyUpdate returns nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.Equal(t, 1, detector.called,
+			"detector MUST be consulted exactly once per CheckPropertyUpdate")
+		require.Equal(t, "C", detector.lastClassName)
+		require.Equal(t, "name", detector.lastPropName)
+	})
+
+	t.Run("detector returns error → CheckPropertyUpdate propagates", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{
+			rejectWith: fmt.Errorf("simulated conflict: reindex in flight on prop"),
+		}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+
+		err := h.manager.CheckPropertyUpdate("C", "name")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "simulated conflict")
+	})
+
+	t.Run("detector receives full namespace-scoped task list at apply time", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"test": detector,
+		})
+
+		// Seed a task into the manager.
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "T1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+		require.NoError(t, h.manager.AddTask(c, 100))
+
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+		require.Equal(t, 1, detector.lastTaskCount,
+			"detector MUST be passed the FSM-stored task list at apply time")
+	})
+
+	t.Run("nil detector entry → skipped gracefully", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": nil,
+		})
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+	})
+
+	t.Run("nil-safe: SetSchemaMutationDetectors(nil) is a no-op", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.SetSchemaMutationDetectors(nil)
+		require.NoError(t, h.manager.CheckPropertyUpdate("C", "name"))
+	})
+}
+
+// TestManager_CheckClassMutation_DispatchToDetectors pins the dispatch
+// for the class-wide guard. Symmetric to the CheckPropertyUpdate
+// dispatch suite — same nil-safety, same propagate-rejection,
+// same full-task-list semantics.
+func TestManager_CheckClassMutation_DispatchToDetectors(t *testing.T) {
+	t.Run("no detectors registered → nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		require.NoError(t, h.manager.CheckClassMutation("C"))
+	})
+
+	t.Run("detector returns nil → CheckClassMutation returns nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+		require.NoError(t, h.manager.CheckClassMutation("C"))
+		require.Equal(t, 1, detector.called)
+		require.Equal(t, "C", detector.lastClassName)
+	})
+
+	t.Run("detector returns error → CheckClassMutation propagates", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{
+			rejectWith: fmt.Errorf("simulated: reindex in flight on class"),
+		}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+		err := h.manager.CheckClassMutation("C")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "simulated")
+	})
+}
+
+// TestManager_CheckTenantMutation_DispatchToDetectors pins the dispatch
+// for the tenant-level guard.
+func TestManager_CheckTenantMutation_DispatchToDetectors(t *testing.T) {
+	t.Run("no detectors registered → nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		require.NoError(t, h.manager.CheckTenantMutation("C", []string{"t1"}))
+	})
+
+	t.Run("detector returns nil → CheckTenantMutation returns nil", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{rejectWith: nil}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+		require.NoError(t, h.manager.CheckTenantMutation("C", []string{"t1", "t2"}))
+		require.Equal(t, 1, detector.called)
+	})
+
+	t.Run("detector returns error → CheckTenantMutation propagates", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		detector := &fakeSchemaMutationDetector{
+			rejectWith: fmt.Errorf("simulated: reindex in flight, tenants blocked"),
+		}
+		h.manager.SetSchemaMutationDetectors(map[string]SchemaMutationDetector{
+			"reindex": detector,
+		})
+		err := h.manager.CheckTenantMutation("C", []string{"t1"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "simulated")
+	})
 }

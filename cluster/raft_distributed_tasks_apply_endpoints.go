@@ -27,6 +27,12 @@ func (s *Raft) applyDistributedTaskCommand(ctx context.Context, cmdType cmd.Appl
 		return fmt.Errorf("marshal request: %w", err)
 	}
 	if _, err = s.Execute(ctx, &cmd.ApplyRequest{Type: cmdType, SubCommand: subCommand}); err != nil {
+		// If the leader returned a permanent FSM rejection, the gRPC
+		// transport stripped the Go error type. Re-hydrate the sentinel
+		// here so callers (e.g. ReindexProvider.failUnit) can rely on
+		// errors.Is for classification rather than substring matching
+		// against an upstream-defined message.
+		err = distributedtask.RehydratePermanentRejection(err)
 		return fmt.Errorf("executing command: %w", err)
 	}
 	return nil
@@ -116,4 +122,40 @@ func (s *Raft) CleanUpDistributedTask(ctx context.Context, namespace, taskID str
 		Id:        taskID,
 		Version:   taskVersion,
 	})
+}
+
+func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error {
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_MARK_FINALIZED, &cmd.MarkTaskFinalizedRequest{
+		Namespace:             namespace,
+		Id:                    taskID,
+		Version:               taskVersion,
+		FinalizedAtUnixMillis: time.Now().UnixMilli(),
+	})
+}
+
+// RecordDistributedTaskPostCompletionAck commits one node's
+// OnGroupCompleted result to the FSM. The scheduler tick on each node
+// fires this after its local OnGroupCompleted has returned so the
+// cluster has durable evidence of which nodes' post-completion work
+// succeeded before MarkDistributedTaskFinalized is allowed to land.
+//
+// See [distributedtask.PostCompletionAckRecorder].
+func (s *Raft) RecordDistributedTaskPostCompletionAck(
+	ctx context.Context,
+	namespace, taskID string,
+	taskVersion uint64,
+	nodeID string,
+	success bool,
+	errMsg string,
+) error {
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK,
+		&cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace:         namespace,
+			Id:                taskID,
+			Version:           taskVersion,
+			NodeId:            nodeID,
+			Success:           success,
+			Error:             errMsg,
+			AckedAtUnixMillis: time.Now().UnixMilli(),
+		})
 }
