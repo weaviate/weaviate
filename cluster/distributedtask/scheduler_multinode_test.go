@@ -400,7 +400,7 @@ func TestMultiScheduler_OnTaskCompletedFiresOnEveryNode(t *testing.T) {
 	}
 	tasks := h.listManagerTasks(t)[h.namespace]
 	require.Len(t, tasks, 1)
-	require.Equal(t, TaskStatusFinalizing, tasks[0].Status,
+	require.Equal(t, TaskStatusSwapping, tasks[0].Status,
 		"FSM must be FINALIZING after the last unit completes")
 
 	// node-1 ticks first. Inside this tick it observes FINALIZING,
@@ -591,7 +591,7 @@ func TestMultiScheduler_AckBarrier_BlocksFinalizeUntilEveryNodeAcks(t *testing.T
 		))
 	}
 	tasks := h.listManagerTasks(t)[h.namespace]
-	require.Equal(t, TaskStatusFinalizing, tasks[0].Status)
+	require.Equal(t, TaskStatusSwapping, tasks[0].Status)
 
 	// Tick only node-1. Inside this tick:
 	//   - OnGroupCompleted fires on node-1.
@@ -606,7 +606,7 @@ func TestMultiScheduler_AckBarrier_BlocksFinalizeUntilEveryNodeAcks(t *testing.T
 		"node-1: OnTaskCompleted must NOT fire while node-2/node-3 acks are missing")
 
 	tasks = h.listManagerTasks(t)[h.namespace]
-	require.Equal(t, TaskStatusFinalizing, tasks[0].Status,
+	require.Equal(t, TaskStatusSwapping, tasks[0].Status,
 		"task must remain FINALIZING until every node has acked")
 	require.Len(t, tasks[0].PostCompletionAcks, 1,
 		"only node-1's ack must be recorded so far")
@@ -618,7 +618,7 @@ func TestMultiScheduler_AckBarrier_BlocksFinalizeUntilEveryNodeAcks(t *testing.T
 	require.Equal(t, 0, h.nodes[1].provider.taskCompletedCount(taskID),
 		"node-2: OnTaskCompleted must NOT fire while node-3's ack is missing")
 	tasks = h.listManagerTasks(t)[h.namespace]
-	require.Equal(t, TaskStatusFinalizing, tasks[0].Status)
+	require.Equal(t, TaskStatusSwapping, tasks[0].Status)
 	require.Len(t, tasks[0].PostCompletionAcks, 2)
 
 	// Tick node-3. Records its ack — all three acks now present.
@@ -680,7 +680,7 @@ func TestMultiScheduler_AckBarrier_FailureAckTransitionsToFailed(t *testing.T) {
 		))
 	}
 	tasks := h.listManagerTasks(t)[h.namespace]
-	require.Equal(t, TaskStatusFinalizing, tasks[0].Status)
+	require.Equal(t, TaskStatusSwapping, tasks[0].Status)
 
 	// Inject a failure in node-2's OnGroupCompleted. The production
 	// equivalent is the reindex provider's RunSwapOnShard returning an
@@ -692,7 +692,7 @@ func TestMultiScheduler_AckBarrier_FailureAckTransitionsToFailed(t *testing.T) {
 	// OnTaskCompleted.
 	h.tick(0)
 	tasks = h.listManagerTasks(t)[h.namespace]
-	require.Equal(t, TaskStatusFinalizing, tasks[0].Status)
+	require.Equal(t, TaskStatusSwapping, tasks[0].Status)
 	require.Equal(t, 0, h.nodes[0].provider.taskCompletedCount(taskID),
 		"node-1: OnTaskCompleted must not fire until ack barrier opens")
 
@@ -834,7 +834,7 @@ func TestMultiScheduler_AckBarrier_ContextCanceledIsTransient(t *testing.T) {
 	h.tickAll()
 
 	tasks := h.listManagerTasks(t)[h.namespace]
-	require.Equal(t, TaskStatusFinalizing, tasks[0].Status,
+	require.Equal(t, TaskStatusSwapping, tasks[0].Status,
 		"ctx.Canceled from OnGroupCompleted MUST NOT flip task to FAILED")
 	require.NotContains(t, tasks[0].PostCompletionAcks, "node-2",
 		"ctx.Canceled path MUST NOT emit an ack — recovery is responsible")

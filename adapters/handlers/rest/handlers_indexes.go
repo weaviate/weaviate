@@ -1021,7 +1021,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Status = "pending"
 		}
 		surfaceSyntheticFields = true
-	case distributedtask.TaskStatusFinalizing:
+	case distributedtask.TaskStatusSwapping:
 		// Units are all terminal but the post-completion callbacks (swap +
 		// schema flip) have not yet committed cluster-wide. From the user's
 		// perspective this is "indexing at 100%": the work is done, we're
@@ -1110,7 +1110,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 func taskStatusPriority(task *distributedtask.Task) int {
 	switch task.Status {
 	case distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusFinalizing:
+		distributedtask.TaskStatusSwapping:
 		// FINALIZING ranks alongside STARTED: from the user's perspective
 		// the task is still running (the schema flip has not yet
 		// committed). Surface its synthetic "indexing@100%" entry instead
@@ -1220,7 +1220,7 @@ func countStartedTasksForCollection(collection string, tasks []*distributedtask.
 	n := 0
 	for _, task := range tasks {
 		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+			task.Status != distributedtask.TaskStatusSwapping {
 			continue
 		}
 		var payload db.ReindexTaskPayload
@@ -1269,7 +1269,7 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 		// migration on overlapping properties could race the pending
 		// flip and corrupt bucket pointers.
 		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+			task.Status != distributedtask.TaskStatusSwapping {
 			continue
 		}
 

@@ -366,7 +366,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 
 	for _, status := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusFinalizing,
+		distributedtask.TaskStatusSwapping,
 	} {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{
@@ -557,7 +557,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 
 	for _, status := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusFinalizing,
+		distributedtask.TaskStatusSwapping,
 	} {
 		t.Run(string(status), func(t *testing.T) {
 			tasks := []*distributedtask.Task{{

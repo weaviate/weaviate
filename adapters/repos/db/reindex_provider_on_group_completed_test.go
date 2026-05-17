@@ -42,7 +42,7 @@ func TestOnGroupCompleted_TerminalStatusShortCircuit(t *testing.T) {
 		shortCircuit bool
 	}{
 		{distributedtask.TaskStatusStarted, false},
-		{distributedtask.TaskStatusFinalizing, false},
+		{distributedtask.TaskStatusSwapping, false},
 		{distributedtask.TaskStatusFinished, true},
 		{distributedtask.TaskStatusFailed, true},
 		{distributedtask.TaskStatusCancelled, true},

@@ -1243,7 +1243,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	logger := p.logger.WithField("taskID", task.ID).WithField("status", task.Status)
 	logger.Info("reindex provider: OnTaskCompleted")
 
-	if task.Status != distributedtask.TaskStatusFinalizing {
+	if task.Status != distributedtask.TaskStatusSwapping {
 		// FAILED / CANCELLED / STARTED / FINISHED: do not flip the schema.
 		//  - FAILED: migration did not succeed cluster-wide; the schema
 		//    should reflect the pre-migration state. Per-shard cleanup of
@@ -1593,7 +1593,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			return fmt.Errorf("change-tokenization without targetTokenization in payload")
 		}
 		// No stale-replay guard needed: with the FINALIZING status (see
-		// [distributedtask.TaskStatusFinalizing]), OnTaskCompleted only
+		// [distributedtask.TaskStatusSwapping]), OnTaskCompleted only
 		// fires while the task is FINALIZING — never on an already-FINISHED
 		// task. The cluster-wide conflict check
 		// ([db.checkConcurrentReindex]) treats FINALIZING as in-flight,
@@ -1699,7 +1699,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 // behavior for existing operators and is tracked separately.
 //
 // NOTE: with the FINALIZING state (see
-// [distributedtask.TaskStatusFinalizing]), the FSM stays at FINALIZING
+// [distributedtask.TaskStatusSwapping]), the FSM stays at FINALIZING
 // while OnGroupCompleted (per-node swap) + OnTaskCompleted
 // (cluster-wide schema flip) run; only after the scheduler's
 // MarkDistributedTaskFinalized RAFT command commits does the status

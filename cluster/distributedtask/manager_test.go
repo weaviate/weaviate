@@ -511,7 +511,7 @@ func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Ta
 				// issues after every node's [Provider.OnTaskCompleted]
 				// returns. This helper exercises RecordUnitCompletion in
 				// isolation, so FINALIZING is the expected end state.
-				Status:     TaskStatusFinalizing,
+				Status:     TaskStatusSwapping,
 				StartedAt:  now,
 				FinishedAt: now.Add(time.Minute),
 				Units: map[string]*Unit{
@@ -687,7 +687,7 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task = tasks["ns"][0]
-	assert.Equal(t, TaskStatusFinalizing, task.Status)
+	assert.Equal(t, TaskStatusSwapping, task.Status)
 }
 
 func TestManager_RecordUnitCompletion_WithError(t *testing.T) {
@@ -957,7 +957,7 @@ func TestManager_RecordPostCompletionAck_Success(t *testing.T) {
 	}
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
-	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status)
+	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
 
 	for _, n := range []string{"node-1", "node-2", "node-3"} {
 		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
@@ -972,7 +972,7 @@ func TestManager_RecordPostCompletionAck_Success(t *testing.T) {
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]
-	require.Equal(t, TaskStatusFinalizing, task.Status,
+	require.Equal(t, TaskStatusSwapping, task.Status,
 		"success acks must NOT transition status — the scheduler issues MarkTaskFinalized once acks are present")
 	require.Len(t, task.PostCompletionAcks, 3)
 	for _, n := range []string{"node-1", "node-2", "node-3"} {
@@ -1019,7 +1019,7 @@ func TestManager_RecordPostCompletionAck_FailureTransitionsToFailed(t *testing.T
 	})))
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
-	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status)
+	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
 
 	// node-2 acks failure — the apply path must immediately transition
 	// the task to FAILED, with the error message captured on Task.Error.
@@ -1073,7 +1073,7 @@ func TestManager_RecordPostCompletionAck_Idempotent(t *testing.T) {
 	})))
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success)
-	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status)
+	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
 
 	// Duplicate ack from same node with FAILURE — must be ignored, the
 	// status MUST stay FINALIZING (not flip to FAILED).
@@ -1089,7 +1089,7 @@ func TestManager_RecordPostCompletionAck_Idempotent(t *testing.T) {
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success,
 		"first ack wins — duplicate must not flip success to failure")
-	require.Equal(t, TaskStatusFinalizing, tasks["ns"][0].Status,
+	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status,
 		"duplicate failure ack on idempotent path must not transition to FAILED")
 }
 
@@ -1190,7 +1190,7 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 
 	tasks, _ := h2.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]
-	require.Equal(t, TaskStatusFinalizing, task.Status,
+	require.Equal(t, TaskStatusSwapping, task.Status,
 		"task status must survive snapshot/restore")
 	require.Len(t, task.PostCompletionAcks, 1,
 		"the partial ack set must survive snapshot/restore")

@@ -325,29 +325,53 @@ type UnitSpec struct {
 type TaskStatus string
 
 const (
-	// TaskStatusStarted means that the task is still running on some of the nodes.
+	// TaskStatusStarted means that the task is still running on some of
+	// the nodes — at least one unit has not yet reached a terminal status
+	// ([UnitStatusCompleted] or [UnitStatusFailed]).
 	TaskStatusStarted TaskStatus = "STARTED"
-	// TaskStatusFinalizing means every unit has reached a terminal state and
-	// the scheduler is running the task's post-completion callbacks
-	// (per-node OnGroupCompleted swap + cluster-wide OnTaskCompleted
-	// schema flip for semantic migrations). The task is NOT yet safe to
-	// act upon from the API surface: callers polling for "fully done"
-	// must wait for [TaskStatusFinished]. Format-only journeys (no
-	// post-completion callback work) pass through this state in
-	// essentially zero time. The state was introduced to fix the
-	// schema-flip-lag race where a task could be FINISHED at the FSM
-	// layer before every node's post-completion callback had committed
-	// its bucket-pointer flip.
-	TaskStatusFinalizing TaskStatus = "FINALIZING"
-	// TaskStatusFinished means that the task was successfully executed by
-	// all nodes AND every post-completion callback (per-node swap +
-	// cluster-wide schema flip) has run. Callers polling for "fully done"
-	// should wait for this status — never for [TaskStatusFinalizing].
+
+	// TaskStatusPreparing means every unit has reached a terminal status
+	// AND the task uses the PREP barrier (semantic migrations such as
+	// change-tokenization, enable-filterable, enable-searchable). Each
+	// node is running the heavy-disk-I/O "prep" portion of its
+	// post-completion callback (FlushAndSwitch + PrependSegmentsFromBucket
+	// + ShutdownBucket per per-property migration task). The task
+	// transitions to [TaskStatusSwapping] only after every node's
+	// [PostCompletionAckRecorder.RecordDistributedTaskPrepCompleteAck]
+	// has landed with Success=true. Any node reporting Success=false
+	// flips the task to [TaskStatusFailed] immediately so no node
+	// proceeds to the atomic swap (the load-bearing barrier invariant).
+	//
+	// Tasks that do NOT use the PREP barrier (format-only migrations,
+	// shard repair, etc.) skip this status and transition directly
+	// STARTED → SWAPPING.
+	TaskStatusPreparing TaskStatus = "PREPARING"
+
+	// TaskStatusSwapping means every node has finished its prep (or the
+	// task is a format-only one that skipped PREP barrier) and the
+	// scheduler is firing each node's per-shard atomic swap
+	// ([SwapBucketPointer] in lsmkv + per-strategy OnMigrationComplete).
+	// The cross-replica stagger window in this phase is bounded by
+	// RAFT-propagation latency from the PREPARING→SWAPPING transition
+	// commit to each node's next scheduler tick — typically sub-second.
+	// The task transitions to [TaskStatusFinished] only after every
+	// node's [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck]
+	// has landed with Success=true (the existing post-completion ack,
+	// now meaning specifically "swap complete"). Callers polling for
+	// "fully done" must wait for [TaskStatusFinished] — not SWAPPING.
+	TaskStatusSwapping TaskStatus = "SWAPPING"
+
+	// TaskStatusFinished means that the task was successfully executed
+	// by all nodes AND every per-node post-completion callback
+	// (per-node swap + cluster-wide schema flip) has run. Callers
+	// polling for "fully done" should wait for this status.
 	TaskStatusFinished TaskStatus = "FINISHED"
+
 	// TaskStatusCancelled means that the task was cancelled by user.
 	TaskStatusCancelled TaskStatus = "CANCELLED"
-	// TaskStatusFailed means that one of the nodes got a non-retryable error and all other nodes
-	// terminated the execution.
+
+	// TaskStatusFailed means that one of the nodes got a non-retryable
+	// error and all other nodes terminated the execution.
 	TaskStatusFailed TaskStatus = "FAILED"
 )
 
@@ -366,6 +390,35 @@ func (t TaskStatus) String() string {
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsActive reports whether this status is a non-terminal in-flight
+// state — STARTED, PREPARING, or SWAPPING. Useful for "is this task
+// still being worked on?" checks (e.g. conflict detection, schema
+// MutationGuard) that previously hard-coded
+// `status == STARTED || status == FINALIZING` and now need to also
+// admit PREPARING.
+func (t TaskStatus) IsActive() bool {
+	switch t {
+	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsCoordinationPhase reports whether this status is one of the two
+// post-units, pre-finished phases (PREPARING or SWAPPING) — the
+// scheduler-coordinated post-completion callback states. Used in
+// callback-firing predicates that need to know "this task is past
+// STARTED but not yet terminal".
+func (t TaskStatus) IsCoordinationPhase() bool {
+	switch t {
+	case TaskStatusPreparing, TaskStatusSwapping:
 		return true
 	default:
 		return false

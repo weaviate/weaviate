@@ -29,7 +29,7 @@ func TestTaskStatus_IsTerminal(t *testing.T) {
 		terminal bool
 	}{
 		{TaskStatusStarted, false},
-		{TaskStatusFinalizing, false},
+		{TaskStatusSwapping, false},
 		{TaskStatusFinished, true},
 		{TaskStatusFailed, true},
 		{TaskStatusCancelled, true},

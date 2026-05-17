@@ -519,7 +519,7 @@ func (s *Scheduler) tick() {
 				//   - All units in the group are terminal (normal completion), OR
 				//   - The task itself is past STARTED (fail-fast or all units
 				//     terminal: remaining units won't complete)
-				postStarted := task.Status == TaskStatusFinalizing ||
+				postStarted := task.Status == TaskStatusSwapping ||
 					task.Status == TaskStatusFailed ||
 					task.Status == TaskStatusFinished
 				for _, groupID := range task.Groups() {
@@ -648,7 +648,7 @@ func (s *Scheduler) tick() {
 							Error:   joined,
 							AckedAt: s.clock.Now(),
 						}
-						if !success && task.Status == TaskStatusFinalizing {
+						if !success && task.Status == TaskStatusSwapping {
 							task.Status = TaskStatusFailed
 						}
 					}
@@ -690,11 +690,11 @@ func (s *Scheduler) tick() {
 				// ~L1045), and FINISHED has already committed past the
 				// ack barrier on whichever node won the
 				// MarkDistributedTaskFinalized race.
-				readyForFinalize := task.Status == TaskStatusFinalizing ||
+				readyForFinalize := task.Status == TaskStatusSwapping ||
 					task.Status == TaskStatusFailed ||
 					task.Status == TaskStatusFinished
 				if readyForFinalize && !s.completedCallbackFired[desc] {
-					if s.ackRecorder != nil && task.Status == TaskStatusFinalizing {
+					if s.ackRecorder != nil && task.Status == TaskStatusSwapping {
 						missing := task.MissingPostCompletionAckNodes()
 						if len(missing) > 0 {
 							// Not all nodes have acked yet. Wait —
@@ -720,7 +720,7 @@ func (s *Scheduler) tick() {
 		// FINALIZING status.
 		if s.taskFinalizer != nil {
 			for desc, task := range tasks {
-				if task.Status != TaskStatusFinalizing {
+				if task.Status != TaskStatusSwapping {
 					continue
 				}
 				if providerIsUnitAware && !s.completedCallbackFired[desc] {
@@ -756,7 +756,7 @@ func (s *Scheduler) tick() {
 		// as TTL-expired and request its cleanup before its post-completion
 		// callbacks finish.
 		cleanableTasks := filterTasks(tasks, func(task *Task) bool {
-			if task.Status == TaskStatusStarted || task.Status == TaskStatusFinalizing {
+			if task.Status == TaskStatusStarted || task.Status == TaskStatusSwapping {
 				return false
 			}
 			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)

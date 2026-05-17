@@ -381,7 +381,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// is what flips Status to FINISHED. Until then the task
 			// is FINALIZING and callers polling for "fully done" must
 			// keep waiting.
-			task.Status = TaskStatusFinalizing
+			task.Status = TaskStatusSwapping
 		}
 		// FinishedAt records when units completed, regardless of which
 		// status path we took. For the FINALIZING path this is intentional:
@@ -456,7 +456,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	switch task.Status {
 	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled:
 		return nil
-	case TaskStatusStarted, TaskStatusFinalizing:
+	case TaskStatusStarted, TaskStatusSwapping:
 		// Normal paths.
 	default:
 		return wrapPermanent(ErrTaskNotInFinalizingState,
@@ -483,7 +483,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	// Any failure → the task fails immediately. Subsequent acks for the
 	// same task are still recorded (forensic value), but the status is
 	// locked to FAILED until cleanup.
-	if !r.Success && task.Status == TaskStatusFinalizing {
+	if !r.Success && task.Status == TaskStatusSwapping {
 		task.Status = TaskStatusFailed
 		// Preserve the first per-unit error message if one was already
 		// set (defensive — RecordUnitCompletion would already have moved
@@ -532,7 +532,7 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 		// Idempotent: another node's MarkTaskFinalized already
 		// committed. Nothing more to do.
 		return nil
-	case TaskStatusFinalizing:
+	case TaskStatusSwapping:
 		// Normal transition.
 	default:
 		// FAILED / CANCELLED / STARTED — refusing here protects against
@@ -701,8 +701,8 @@ func sortTasksForDisplay(tasks []*Task) {
 		// units done but post-completion callbacks not yet committed.
 		// Both display ahead of terminal tasks so the freshest
 		// user-relevant task surfaces first.
-		iStarted := tasks[i].Status == TaskStatusStarted || tasks[i].Status == TaskStatusFinalizing
-		jStarted := tasks[j].Status == TaskStatusStarted || tasks[j].Status == TaskStatusFinalizing
+		iStarted := tasks[i].Status == TaskStatusStarted || tasks[i].Status == TaskStatusSwapping
+		jStarted := tasks[j].Status == TaskStatusStarted || tasks[j].Status == TaskStatusSwapping
 		if iStarted != jStarted {
 			return iStarted
 		}

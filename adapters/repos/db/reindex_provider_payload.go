@@ -75,7 +75,7 @@ type ReindexTaskPayload struct {
 	// newer task already moved past us).
 	//
 	// As of the FINALIZING-state work (see
-	// [distributedtask.TaskStatusFinalizing]), that guard is structurally
+	// [distributedtask.TaskStatusSwapping]), that guard is structurally
 	// unreachable: the cluster-wide conflict check treats FINALIZING as
 	// in-flight, so a newer change-tokenization on the same property
 	// cannot be submitted until the current one transitions to FINISHED;

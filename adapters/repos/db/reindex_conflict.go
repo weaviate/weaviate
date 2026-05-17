@@ -52,7 +52,7 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 		// schema flip, leaving the new task and the unfinished swap of
 		// the prior one racing on the same bucket pointers.
 		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+			task.Status != distributedtask.TaskStatusSwapping {
 			continue
 		}
 
@@ -242,7 +242,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+			task.Status != distributedtask.TaskStatusSwapping {
 			continue
 		}
 
@@ -298,7 +298,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+			task.Status != distributedtask.TaskStatusSwapping {
 			continue
 		}
 
@@ -352,7 +352,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
 		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+			task.Status != distributedtask.TaskStatusSwapping {
 			continue
 		}
 

@@ -275,7 +275,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 	}
 	for _, task := range tasksByNamespace[db.ReindexNamespace] {
 		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+			task.Status != distributedtask.TaskStatusSwapping {
 			continue
 		}
 		var payload db.ReindexTaskPayload
