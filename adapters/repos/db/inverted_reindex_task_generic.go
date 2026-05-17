@@ -15,9 +15,11 @@
 // The runtime swap path (semantic migrations through OnGroupCompleted,
 // and non-semantic migrations through OnAfterLsmInitAsync) is partitioned
 // into THREE phases. Maintainers MUST preserve the boundary between them
-// — drift was the root cause of weaviate/0-weaviate-issues#216 (the per-
-// shard "FINALIZING window" misalignment between bucket content and the
-// query analyzer at production scale).
+// — drift between phases causes the per-shard "FINALIZING window"
+// misalignment between bucket content and the query analyzer at
+// production scale, surfaced as
+// https://github.com/weaviate/0-weaviate-issues/issues/216 and fixed by
+// the prep/atomic/defer split this file implements.
 //
 // Phase 1 — PREP (background, NOT inside the overlay window)
 // ----------------------------------------------------------
@@ -58,10 +60,9 @@
 // the path entry process-wide, which makes any subsequent in-process
 // shard init at the same canonical name fail with
 // ErrBucketAlreadyRegistered. The oldMain → backup rename is also
-// fine inline because the bucket has just been shut down — per
-// Etienne's design contract: "you can of course rename the old,
-// already shutdown bucket, but never the live one that's serving
-// queries to the user."
+// fine inline because the bucket has just been shut down — the
+// load-bearing rule is: rename only buckets that have been shut down;
+// never rename a live bucket that is serving queries.
 //
 // 2c — post-atomic inline finalize: OnMigrationComplete +
 // trimOlderGenerationsLocked. These run OUTSIDE the mixed-state
@@ -116,9 +117,9 @@
 // Atomic-phase regression guard: a unit test must fail if
 // SwapBucketPointer is preceded by any disk-I/O or compaction-wait
 // op inside Phase 2 — the "atomic" subwindow has to stay
-// microseconds for queries at production scale. See
-// 0-weaviate-issues#216 follow-up comment 4469995685 for the
-// observed-at-scale violation that motivated this contract.
+// microseconds for queries at production scale, since any inline
+// disk work bloats the window where a query can read post-swap
+// bucket content with the pre-swap analyzer.
 
 package db
 
@@ -368,7 +369,6 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 // before prep completes would expose the very gap the overlay was
 // supposed to close — query input would tokenize as NEW against the
 // still-OLD bucket while prep is doing seconds of disk I/O.
-// See 0-weaviate-issues#216 follow-up comment 4469995685.
 //
 // Double-write callbacks registered during reindex MUST remain
 // active across this call (they fire on writes to MAIN to mirror
@@ -483,7 +483,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 // emit success=false, and the task would flip to FAILED cluster-wide
 // while the OTHER replicas (whose acks already landed) have already
 // swapped their buckets — producing the cluster-wide schema↔bucket
-// inversion described in 0-weaviate-issues#214 Phase 7c.
+// inversion this dispatch is here to prevent.
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -522,9 +522,9 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	// markReindexed fires. After the call returns, we re-read the
 	// tracker and continue with the sentinel-aware swap dispatch.
 	//
-	// See 0-weaviate-issues#214 Gap A / Phase 7c — this is the local
-	// repro path where iteration didn't reach markReindexed but the
-	// scheduler still scheduled the swap.
+	// This is the local repro path where the iteration didn't reach
+	// markReindexed but the scheduler still scheduled the swap (e.g.
+	// rolling restart caught the unit mid-iteration).
 	if !rt.IsReindexed() {
 		if !rt.IsStarted() {
 			// Migration never started on this shard. This shouldn't
@@ -565,8 +565,6 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	// the appropriate recovery path so the rehydrate flow converges
 	// to a fully tidied + migration-complete state regardless of which
 	// sentinel the previous attempt last persisted.
-	//
-	// See 0-weaviate-issues#214 Phase 7c.
 	switch {
 	case rt.IsTidied():
 		// Fully done on disk. The in-process strategy state may still
@@ -587,8 +585,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 
 	case rt.IsMerged():
 		// Two sub-cases distinguish in-process happy path from post-
-		// restart recovery (after the #216 atomic-phase refactor —
-		// follow-up comment 4469995685):
+		// restart recovery under the prep/atomic/defer phase model:
 		//
 		//  - **In-process happy path** (OnGroupCompleted called
 		//    RunPrepareOnShard first): ingest buckets are loaded in
@@ -638,16 +635,16 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
 	}
 
-	// Default: pre-prepend state (only reindexed.mig set). Post-#216
-	// atomic-phase refactor (follow-up comment 4469995685), the
-	// happy-path caller is [reindex_provider.OnGroupCompleted], which
-	// invokes RunPrepareOnShard BEFORE RunSwapOnShard so the prep work
-	// runs OUTSIDE the per-shard tokenization-overlay window. Reaching
-	// this branch via OnGroupCompleted's flow means rehydrate happened
-	// but RunPrepareOnShard hasn't — call it defensively, but note
-	// that the atomic-window contract is no longer met (prep runs
-	// inside the overlay window). Acceptable for tests and edge cases
-	// where FINALIZING-window query correctness isn't being asserted.
+	// Default: pre-prepend state (only reindexed.mig set). Under the
+	// prep/atomic/defer phase model, the happy-path caller is
+	// [reindex_provider.OnGroupCompleted], which invokes
+	// RunPrepareOnShard BEFORE RunSwapOnShard so the prep work runs
+	// OUTSIDE the per-shard tokenization-overlay window. Reaching this
+	// branch via OnGroupCompleted's flow means rehydrate happened but
+	// RunPrepareOnShard hasn't — call it defensively, but note that
+	// the atomic-window contract is no longer met (prep runs inside
+	// the overlay window). Acceptable for tests and edge cases where
+	// FINALIZING-window query correctness isn't being asserted.
 	logger.WithField("props", props).Info("starting prep+swap phase (caller did not invoke RunPrepareOnShard separately)")
 
 	if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
@@ -668,10 +665,9 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 // ingestBucketsLoaded reports whether the ingest buckets for every
 // prop are currently loaded in the shard's LSM store. Used by the
 // IsMerged dispatch in [RunSwapOnShard] to distinguish the in-process
-// happy path (post-#216 atomic-phase refactor: RunPrepareOnShard just
-// ran, ingest buckets are warm, do in-memory SwapBucketPointer) from
-// the recovery fallback (ingest buckets aren't loaded, dir-rename
-// swap via recoverRuntimeSwapBuckets).
+// happy path (RunPrepareOnShard just ran, ingest buckets are warm,
+// do in-memory SwapBucketPointer) from the recovery fallback (ingest
+// buckets aren't loaded, dir-rename swap via recoverRuntimeSwapBuckets).
 func (t *ShardReindexTaskGeneric) ingestBucketsLoaded(shard ShardLike, props []string) bool {
 	store := shard.Store()
 	for _, propName := range props {
@@ -686,7 +682,7 @@ func (t *ShardReindexTaskGeneric) ingestBucketsLoaded(shard ShardLike, props []s
 // ingest buckets that are missing from the in-memory store but whose
 // directories still exist on disk. This protects the pre-prepend
 // runtimeSwap path on the rehydrate flow from a class of state-divergence
-// races that surfaced in 0-weaviate-issues#214 Phase 7c:
+// races between in-memory bucket state and on-disk reindex state:
 //
 //   - A previous in-process runtimeSwap was interrupted mid-flight
 //     by ctx.Canceled (graceful shutdown) at Step 1 or Step 2. The
@@ -1351,8 +1347,12 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	// [Bucket.FlushAndSwitch] is serialized via [Bucket.flushAndSwitchMu]
 	// so concurrent reindex tasks on the same shard wait for one another's
 	// flush to land; on return, `sg.segments` is guaranteed to include
-	// every pre-call write and the segment cursor will see it. See GH
-	// 0-weaviate-issues#212 Issues C+D for the underlying race.
+	// every pre-call write and the segment cursor will see it. Without
+	// the FlushAndSwitch, ingest writes that committed to the in-memory
+	// objects memtable just before this call would not be visible to
+	// the segment-only Cursor() the iteration uses, producing a
+	// per-replica `path = N/M` divergence on rows that were in flight
+	// at iteration start.
 	objectsBucket := store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket != nil {
 		if err = objectsBucket.FlushAndSwitch(); err != nil {
@@ -1455,10 +1455,11 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		// also benefits — markReindexed now strictly happens-after
 		// durable persistence regardless of which path runs next.
 		//
-		// See 0-weaviate-issues#214 Gap A SIGKILL data-loss path
-		// (per-replica `path = 9985/10000` divergence on the kill'd
-		// node when 15 of ~18.3k iterated rows were stuck in the
-		// memtable at SIGKILL).
+		// Failure mode the durability barrier prevents: a SIGKILL
+		// between markReindexed and the eventual flush leaves rows
+		// that iterated successfully but never made it to segments,
+		// surfacing as per-replica `path = N/M` divergence on the
+		// killed node.
 		for propName, bucket := range bucketsByPropName {
 			if bucket == nil {
 				continue
@@ -1480,13 +1481,13 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			return zerotime, false, nil
 		}
 		// Inline runtime swap path (non-semantic migrations: MapToBlockmax,
-		// RoaringSetRefresh, EnableRangeable / Repair-*). Semantic migrations
-		// have skipSwapOnFinish=true and go through OnGroupCompleted's
-		// three-phase flow (prep → overlay → atomic swap) per
-		// weaviate/0-weaviate-issues#216. Here we run both phases inline:
-		// prep (merge segments into ingest) followed by the atomic
-		// SwapBucketPointer. No overlay needed — these migration types
-		// don't change the analyzer's tokenization view of the bucket.
+		// RoaringSetRefresh, EnableRangeable / Repair-*). Semantic
+		// migrations have skipSwapOnFinish=true and go through
+		// OnGroupCompleted's three-phase flow (prep → overlay → atomic
+		// swap). Here we run prep + atomic-swap inline: no overlay
+		// needed — these migration types don't change the analyzer's
+		// tokenization view of the bucket, so there is no FINALIZING
+		// window where the analyzer and bucket content can disagree.
 		if err = t.runtimePrepare(ctx, logger, shard, rt, props); err != nil {
 			err = fmt.Errorf("runtime prepare: %w", err)
 			return zerotime, false, err
@@ -1519,8 +1520,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 // Forbidden in 2a: anything that can block (disk I/O, lock
 // contention, RAFT calls, compaction waits). A guard test must
 // catch regressions where someone adds a yield point between two
-// SwapBucketPointer calls. See 0-weaviate-issues#216 follow-up
-// QA-Claude comment 4470016252.
+// SwapBucketPointer calls.
 //
 // Phase 2b — post-atomic inline tidy. Slow but correctness-safe:
 // every prop is already in-memory-swapped, so the mixed-state
@@ -1529,10 +1529,9 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 //
 //   - oldMainBucket.Shutdown(ctx) per prop (REQUIRED INLINE — see
 //     below)
-//   - os.Rename(oldMainDir, backupDir) per prop (safe inline per
-//     Etienne's contract: "you can of course rename the old, already
-//     shutdown bucket, but never the live one that's serving queries
-//     to the user")
+//   - os.Rename(oldMainDir, backupDir) per prop (safe inline — the
+//     load-bearing rule is: only rename a shut-down bucket, never
+//     rename a live bucket that is serving queries)
 //   - rt.markSwapped
 //   - rt.markTidied
 //
@@ -1704,14 +1703,13 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// (single-digit ms). The per-prop loop completes in a few ms total
 	// even for 4-property migrations.
 	//
-	// Per 0-weaviate-issues#216 follow-up comment 4469995685: the slow
-	// disk work (old-bucket Shutdown, oldMainDir→backupDir rename) is
-	// pulled OUT of this loop so it can't extend the mixed-state window.
-	// It runs in Phase 2b below (after all in-memory swaps are done) and
-	// only touches the OLD (already shut-down) bucket — never the LIVE
-	// ingest bucket whose dir stays at ingest_<gen> until next-restart
-	// recovery does the ingest→main rename safely (no in-memory state
-	// at that point).
+	// The slow disk work (old-bucket Shutdown, oldMainDir→backupDir
+	// rename) is pulled OUT of this loop so it can't extend the
+	// mixed-state window. It runs in Phase 2b below (after all
+	// in-memory swaps are done) and only touches the OLD (already
+	// shut-down) bucket — never the LIVE ingest bucket whose dir stays
+	// at ingest_<gen> until next-restart recovery does the ingest→main
+	// rename safely (no in-memory state at that point).
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
 	for propIdx, propName := range props {
 		if rt.IsSwappedProp(propName) {
@@ -1745,15 +1743,14 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger.Debug("runtime swap: all props in-memory swapped")
 
 	// Phase 2b (post-atomic, slow but inline): shutdown + rename of the
-	// OLD (now-dead) main buckets. Per Etienne's #216 follow-up: "you
-	// can of course rename the old, already shutdown bucket, but never
-	// the live one that's serving queries to the user." The OLD bucket
-	// is no longer in the store's bucketsByName map (SwapBucketPointer
-	// deleted it), so it's not serving queries; Shutdown drains any
-	// in-flight compaction and closes mmaps cleanly. The rename moves
-	// its dir off the canonical name so the LIVE bucket (still at
-	// ingest_<gen> on disk) is the only candidate for the canonical
-	// name on next restart.
+	// OLD (now-dead) main buckets. The load-bearing rule is: rename
+	// only shut-down buckets; never rename a live bucket that is
+	// serving queries. The OLD bucket is no longer in the store's
+	// bucketsByName map (SwapBucketPointer deleted it), so it's not
+	// serving queries; Shutdown drains any in-flight compaction and
+	// closes mmaps cleanly. The rename moves its dir off the canonical
+	// name so the LIVE bucket (still at ingest_<gen> on disk) is the
+	// only candidate for the canonical name on next restart.
 	//
 	// This work is OUTSIDE the mixed-state window — every prop has
 	// already had its in-memory pointer swapped. Queries during this
@@ -1786,8 +1783,8 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// pre-swap name — that rename to the canonical name is deferred to
 	// next-restart recovery (OnBeforeLsmInit → recoverRuntimeSwapBuckets)
 	// because renaming a dir whose buckets are mmap'd by the in-memory
-	// store is unsafe per Etienne's #216 follow-up. At restart time,
-	// nothing has loaded that dir yet, so the rename is safe.
+	// store would corrupt the segment registry. At restart time, nothing
+	// has loaded that dir yet, so the rename is safe.
 	if err := rt.markTidied(); err != nil {
 		return fmt.Errorf("marking tidied: %w", err)
 	}
@@ -2091,14 +2088,12 @@ func (t *ShardReindexTaskGeneric) getSegmentPathsToMove(bucketPathSrc, bucketPat
 // recoverRuntimeSwapBuckets handles the disk-rename half of a runtime
 // swap. It serves two callers with identical on-disk semantics:
 //
-//  1. **Crash recovery** for a runtime swap that was interrupted mid-
-//     way (pre-#216-atomic-refactor: a crash between SwapBucketPointer
-//     and the inline os.Rename pair; post-refactor: same window, but
-//     also the deferred-disk-rename path for the normal happy-path
-//     where the rename was intentionally not done at runtime).
+//  1. **Crash recovery** for a runtime swap that was interrupted
+//     between SwapBucketPointer and the post-atomic Phase 2b
+//     rename pair.
 //
 //  2. **Deferred disk rename** on next startup after a successful
-//     runtime swap. In the post-#216-atomic-refactor design (see
+//     runtime swap. Under the prep/atomic/defer phase model (see
 //     [runtimeSwap] godoc), runtimeSwap performs ONLY the in-memory
 //     bucket-pointer flip and leaves the disk dirs (main_<gen> and
 //     ingest_<gen>) untouched. OnBeforeLsmInit's IsMerged && !IsSwapped
@@ -2630,8 +2625,8 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 		// returning. So `sg.segments` is guaranteed to include all
 		// data written before this call, with no transient window
 		// where data is parked in `b.flushing` invisible to the
-		// segment cursor. See GH 0-weaviate-issues#212 Issues C+D
-		// for the underlying race that was fixed by the lock.
+		// segment cursor — the original race that the
+		// flushAndSwitchMu lock was added to close.
 		cursor := shard.Store().Bucket(helpers.ObjectsBucketLSM).CursorOnDisk()
 		defer cursor.Close()
 
