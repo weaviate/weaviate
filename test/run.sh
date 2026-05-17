@@ -620,7 +620,14 @@ function build_weaviate_test_image() {
     return  # already built or provided externally
   fi
   echo_green "Building weaviate/test-server image..."
-  build_weaviate_test_image
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
 }
 
 function run_acceptance_compaction_recovery() {
