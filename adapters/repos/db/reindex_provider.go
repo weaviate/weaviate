@@ -1707,6 +1707,25 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 //   - Local payload load / index lookup / shard lookup fails (caller
 //     cannot meaningfully retry; defaulting to "done" avoids an
 //     infinite re-fire loop on a permanently broken task).
+//
+// Two-phase RAFT swap barrier (NeedsPrepBarrier=true): the predicate
+// is invoked by the scheduler bootstrap pre-mark ONLY for FINISHED
+// tasks (see [Scheduler.preMarkTerminalCallbacksLocked]). PREPARING
+// and SWAPPING tasks are non-terminal and the bootstrap pre-mark
+// doesn't touch them — the next scheduler tick re-fires the
+// appropriate phase callback (OnGroupCompleted for PREPARING,
+// OnSwapRequested for SWAPPING) without consulting this predicate.
+// The predicate's existing semantics ("merged.mig counts as done") is
+// therefore still correct under the barrier:
+//
+//   - merged.mig present, FINISHED: the cluster-wide barrier passed,
+//     so every node's SWAP completed at least as far as
+//     [recoverRuntimeSwapBuckets] handles via dir-rename. Treating
+//     merged-only as "done" is safe.
+//   - merged.mig present, PREPARING/SWAPPING: not relevant — the
+//     bootstrap doesn't pre-mark non-terminal tasks; the next tick
+//     re-fires the appropriate phase callback and idempotency
+//     (sentinel-aware RunPrepareOnShard / RunSwapOnShard) takes over.
 func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNode string) bool {
 	var payload ReindexTaskPayload
 	if err := json.Unmarshal(task.Payload, &payload); err != nil {

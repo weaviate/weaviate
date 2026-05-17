@@ -1447,3 +1447,116 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 	require.True(t, s.completedCallbackFired[finishedDesc])
 	require.True(t, s.groupCallbackFired[finishedDesc]["g1"])
 }
+
+// TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked pins the
+// load-bearing invariant for the two-phase RAFT swap barrier recovery
+// flow (NeedsPrepBarrier=true, see docs/proposals/prep_swap_barrier.md):
+//
+// PREPARING and SWAPPING tasks are non-terminal — they MUST NOT be
+// pre-marked at bootstrap. If they were, the scheduler tick would skip
+// re-firing the appropriate phase callback (OnGroupCompleted for
+// PREPARING, OnSwapRequested for SWAPPING) after a node restart, and:
+//
+//   - A PREPARING task crashed before its local PrepCompleteAck landed
+//     would silently never re-fire PHASE A on this node → cluster waits
+//     forever for the missing ack.
+//   - A SWAPPING task crashed before its local SWAP completed would
+//     silently never re-fire PHASE B on this node → cluster transitions
+//     to FAILED while this node's bucket state never moved to NEW.
+//
+// Both failure modes are silent-data-corruption / stuck-task class. The
+// pre-mark filter (status == FINISHED || FAILED || CANCELLED) is what
+// keeps them out of the pre-mark; this test pins that filter.
+//
+// prepCallbackFired and prepAckEmitted maps must also stay empty for
+// non-terminal barrier tasks so the next tick can populate them in
+// PHASE A / PHASE A.5.
+func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) {
+	preparingDesc := TaskDescriptor{ID: "preparing-task", Version: 1}
+	swappingDesc := TaskDescriptor{ID: "swapping-task", Version: 2}
+	finishedDesc := TaskDescriptor{ID: "finished-barrier", Version: 3}
+
+	provider := &recoveryAwareTestProvider{
+		// FINISHED gets pre-marked normally (default true for descs
+		// not in the map). PREPARING / SWAPPING aren't even consulted
+		// (the pre-mark filter rejects non-terminal status BEFORE the
+		// recovery hook runs).
+		doneByDesc: map[TaskDescriptor]bool{},
+	}
+
+	s := NewScheduler(SchedulerParams{
+		Logger:             func() logrus.FieldLogger { l, _ := logrustest.NewNullLogger(); return l }(),
+		Providers:          map[string]Provider{"ns": provider},
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          "node-a",
+		CompletedTaskTTL:   24 * time.Hour,
+		TickInterval:       30 * time.Second,
+		CompletionRecorder: nil,
+		TasksLister:        nil,
+		TaskCleaner:        nil,
+	})
+
+	mkBarrierTask := func(d TaskDescriptor, status TaskStatus, groups ...string) *Task {
+		task := &Task{
+			TaskDescriptor:   d,
+			Status:           status,
+			NeedsPrepBarrier: true,
+			Units:            map[string]*Unit{},
+		}
+		for i, g := range groups {
+			id := fmt.Sprintf("u-%d", i)
+			task.Units[id] = &Unit{ID: id, GroupID: g, NodeID: "node-a"}
+		}
+		return task
+	}
+
+	snapshot := map[string]map[TaskDescriptor]*Task{
+		"ns": {
+			preparingDesc: mkBarrierTask(preparingDesc, TaskStatusPreparing, "g1", "g2"),
+			swappingDesc:  mkBarrierTask(swappingDesc, TaskStatusSwapping, "g1"),
+			finishedDesc:  mkBarrierTask(finishedDesc, TaskStatusFinished, "g1"),
+		},
+	}
+
+	s.mu.Lock()
+	s.preMarkTerminalCallbacksLocked(snapshot)
+	s.mu.Unlock()
+
+	// PREPARING: non-terminal. Nothing pre-marked.
+	require.False(t, s.completedCallbackFired[preparingDesc],
+		"PREPARING task MUST NOT be pre-marked — bootstrap pre-mark only applies to terminal tasks")
+	require.False(t, s.groupCallbackFired[preparingDesc]["g1"],
+		"PREPARING task's PHASE B (SWAP) callback must NOT be pre-marked — next tick must re-fire OnGroupCompleted (PHASE A)")
+	require.False(t, s.prepCallbackFired[preparingDesc]["g1"],
+		"PREPARING task's PHASE A (PREP) callback must NOT be pre-marked — next tick must re-fire OnGroupCompleted (PHASE A)")
+	require.False(t, s.prepAckEmitted[preparingDesc],
+		"PREPARING task's PrepCompleteAck must NOT be pre-marked as emitted — the ack will fire from the next tick after PREP completes")
+	require.False(t, s.postCompletionAckEmitted[preparingDesc],
+		"PREPARING task's PostCompletionAck must NOT be pre-marked as emitted — that ack only fires after PHASE B")
+
+	// SWAPPING: non-terminal. Nothing pre-marked.
+	require.False(t, s.completedCallbackFired[swappingDesc],
+		"SWAPPING task MUST NOT be pre-marked — bootstrap pre-mark only applies to terminal tasks")
+	require.False(t, s.groupCallbackFired[swappingDesc]["g1"],
+		"SWAPPING task's PHASE B (SWAP) callback must NOT be pre-marked — next tick must re-fire OnSwapRequested")
+	require.False(t, s.prepCallbackFired[swappingDesc]["g1"],
+		"SWAPPING task's PHASE A flag must NOT be pre-marked — PHASE A already ran in PREPARING phase pre-restart")
+	require.False(t, s.prepAckEmitted[swappingDesc],
+		"SWAPPING task's PrepCompleteAck must NOT be pre-marked as emitted on this fresh scheduler")
+	require.False(t, s.postCompletionAckEmitted[swappingDesc],
+		"SWAPPING task's PostCompletionAck must NOT be pre-marked as emitted — that ack fires after PHASE B")
+
+	// FINISHED: terminal. Pre-marked as fully done (no recovery
+	// override registered for this desc in the test provider, so the
+	// default-true LocalCallbacksDone path applies).
+	require.True(t, s.completedCallbackFired[finishedDesc],
+		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
+	require.True(t, s.groupCallbackFired[finishedDesc]["g1"],
+		"FINISHED barrier task's group must be pre-marked")
+	require.True(t, s.prepCallbackFired[finishedDesc]["g1"],
+		"FINISHED barrier task's PHASE A flag must be pre-marked — both phases already cleared the ack barrier pre-restart")
+	require.True(t, s.prepAckEmitted[finishedDesc],
+		"FINISHED barrier task's PrepCompleteAck must be pre-marked as emitted")
+	require.True(t, s.postCompletionAckEmitted[finishedDesc],
+		"FINISHED barrier task's PostCompletionAck must be pre-marked as emitted")
+}

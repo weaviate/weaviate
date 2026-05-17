@@ -59,8 +59,8 @@ type RecoveredReindex struct {
 // DiscoverInFlightReindexTasks walks every shard's
 // <root>/<index>/<shard>/lsm/.migrations/<migrationDir>/ directory at
 // startup and reconstructs [ShardReindexTaskGeneric] instances for the
-// narrow recovery window where the reindex iteration is terminal but
-// the swap has not yet completed.
+// recovery window where the reindex iteration is terminal but the swap
+// has not yet completed.
 //
 //   - The persisted recovery record (payload.mig) is written by
 //     [ReindexProvider.persistRecoveryRecord] before the first reindex
@@ -76,9 +76,49 @@ type RecoveredReindex struct {
 //     scheduler will call StartTask post-restart and
 //     re-register callbacks itself, so recovery must
 //     NOT register a second instance.
+//     merged.mig     — set at end of PREP (RunPrepareOnShard's
+//     PrependSegmentsFromBucket loop). Recovery target.
+//     swapped.mig    — set at end of in-memory atomic swap
+//     (runtimeSwap's SwapBucketPointer loop). Recovery
+//     target — runtimeSwap dispatches to tidy backups.
 //     tidied.mig     — set after the runtime swap; the migration is
 //     fully done and only directory renames remain
 //     (handled by [FinalizeCompletedMigrations]).
+//
+// Recovery surface under the two-phase RAFT swap barrier
+// (NeedsPrepBarrier=true, see docs/proposals/prep_swap_barrier.md):
+// the on-disk sentinel sequence is identical to the legacy single-
+// callback flow (started -> reindexed -> merged -> swapped -> tidied),
+// so the discovery layer needs no per-status branching. The crash
+// windows enumerated below all converge through the same
+// reindexed.mig && !tidied.mig recovery window:
+//
+//   - **STARTED crash window**: reindexed.mig absent. NOT a recovery
+//     target here — the DTM scheduler will call StartTask on the next
+//     tick and re-register callbacks via processOneUnit. Discovery
+//     correctly skips.
+//   - **PREPARING crash window (PREP in flight)**: reindexed.mig
+//     present, merged.mig absent. Discovery picks it up; scheduler
+//     re-fires OnGroupCompleted (PHASE A under barrier) on the next
+//     tick; RunPrepareOnShard short-circuits on already-merged tasks
+//     and completes the rest.
+//   - **PREP-DONE-BARRIER-WAITING crash window (between local PREP
+//     and PrepCompleteAck landing OR between PrepCompleteAck and
+//     SWAPPING transition cluster-wide)**: reindexed.mig + merged.mig
+//     present, swapped.mig absent. Discovery picks it up; cluster FSM
+//     is at PREPARING or SWAPPING; scheduler re-fires the appropriate
+//     PHASE A or PHASE B callback; both are idempotent against
+//     merged.mig.
+//   - **SWAPPING crash window (between SWAPPING-transition and local
+//     SWAP completing)**: reindexed.mig + merged.mig present, swapped
+//     present-or-absent, tidied.mig absent. Discovery picks it up;
+//     scheduler re-fires OnSwapRequested; RunSwapOnShard's sentinel-
+//     aware dispatch picks the right resume branch (recoverRuntime
+//     SwapBuckets / runtimeSwap / tidyBackupBuckets).
+//   - **TIDY-PENDING crash window (between markSwapped and
+//     markTidied)**: swapped.mig present, tidied.mig absent.
+//     Discovery picks it up; OnSwapRequested -> RunSwapOnShard's
+//     IsSwapped branch fires tidyBackupBuckets + finalize.
 //
 //   - Per-shard task instances use selectedShardsByCollection scoped to
 //     exactly the shard whose directory the record was found in. That
