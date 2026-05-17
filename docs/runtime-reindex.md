@@ -231,6 +231,106 @@ Format-only migrations (`enable-rangeable`, `repair-*`,
 runs the full lifecycle inside its own `RunOnShard` and there is no
 cluster-wide schema flip. The flow is otherwise identical.
 
+### What goes through RAFT vs. what is local-only
+
+The diagram is easy to misread as "FINALIZING is a cluster-wide
+synchronization moment; every node then atomically swaps in lock-step".
+That's wrong, and worth calling out explicitly because the actual
+coordination model is different from intuition.
+
+What goes through RAFT (cluster-wide commits):
+
+- `AddTask` — task created at STARTED.
+- `RecordUnitProgress` / `RecordUnitCompletion` — per unit, on the
+  node that owns the unit.
+- The transition `STARTED → FINALIZING` — happens once the
+  cluster-wide `AllUnitsTerminal` predicate becomes true on the
+  Manager's FSM state.
+- `RecordPostCompletionAck` — one per node, with `Success=bool`.
+- The transition `FINALIZING → FINISHED` — committed by
+  `MarkTaskFinalized` once every expected ack has landed successfully.
+- `UpdateProperty` from `OnTaskCompleted` — the cluster-wide schema
+  flip (semantic migrations only).
+
+What does NOT go through RAFT (local-only):
+
+- **PREP** (FlushAndSwitch, Prepend, Shutdown the reindex bucket).
+- **OVERLAY SET** (install per-shard tokenization resolver).
+- **ATOMIC SWAP** (`SwapBucketPointer` per prop, in microseconds).
+- **Post-atomic inline tidy** (Shutdown old main, rename old → backup).
+- **`OnMigrationComplete`** per-strategy hook (in-memory shard-local
+  state mutations).
+
+All five of those are pure in-process operations on each node's local
+LSM store. There is no single instant where every node atomically
+swaps. Different nodes fire `OnGroupCompleted` at slightly different
+times (scheduler-tick jitter, typically sub-second to a few seconds).
+Each node runs its own three-phase dance on its own local timeline.
+
+### What "atomic" actually means
+
+Two different scopes of atomicity carry weight here:
+
+- **Per-node atomic** — inside `RunSwapOnShard`'s Phase 2a, the per-
+  prop `SwapBucketPointer` tight loop holds the mixed-state subwindow
+  ("some props swapped, others not") to microseconds. A query landing
+  on this node during this subwindow that hits a not-yet-swapped prop
+  would tokenize input with the new value against an old-tokenized
+  bucket; the loop staying microseconds ensures the probability is
+  negligible. This is the meaning of "ATOMIC SWAP" in the diagram.
+- **Cluster-wide convergence (NOT instantaneous synchronization)** —
+  the system guarantees that either every node converges to the new
+  bucket+schema state, or the migration fails cleanly and every node
+  stays at the old state. It does NOT guarantee that nodes flip at
+  the same wall-clock instant.
+
+The cluster-wide convergence guarantee is enforced by two independent
+mechanisms:
+
+1. **Per-shard tokenization overlay (the per-node bridge).** Between
+   the local `SwapBucketPointer` (bucket is now NEW) and the eventual
+   cluster-wide schema flip (schema flag is now NEW), this node's
+   queries need to tokenize input matching the new bucket content.
+   The overlay installs the new tokenization at the per-shard query
+   path so the per-node window between "swap committed locally" and
+   "schema flip committed cluster-wide" is correct on this node's
+   reads. The overlay is cleared from `OnTaskCompleted` after the
+   schema flip lands. See §10.
+2. **Ack barrier (the cross-node handshake).** Each node's scheduler
+   submits `RecordPostCompletionAck(Success=bool)` after its local
+   `OnGroupCompleted` returns. `MarkTaskFinalized` (the transition
+   from `FINALIZING` to `FINISHED`) cannot commit until every
+   expected ack has landed. Any node reporting `Success=false` flips
+   the task to `FAILED`, which makes `OnTaskCompleted` skip the
+   cluster-wide schema flip. So the schema never moves to NEW unless
+   every node has successfully swapped. See §6.3.
+
+### Why PREP runs inside FINALIZING (not earlier)
+
+Two reasons it can't move earlier into the STARTED phase:
+
+- **PREP requires the reindex bucket to exist on disk with complete
+  segments.** `PrependSegmentsFromBucket(reindex → ingest)` needs the
+  reindex bucket fully populated. The reindex bucket is filled by
+  `RunReindexOnlyOnShard` — which is the work that drives
+  `UnitStatus → COMPLETED`. So PREP can't start before the unit hits
+  COMPLETED on this node.
+- **Running PREP at per-unit completion time (still during STARTED on
+  the cluster level) would mean each node starts heavy disk I/O the
+  moment its OWN units finish, while other nodes are still
+  reindexing.** That doubles the cluster's I/O profile during the
+  long phase. Concentrating PREP inside the per-node
+  `OnGroupCompleted` keeps the resource curve well-defined: STARTED
+  = "everyone reindexing", FINALIZING = "everyone swapping locally
+  then acking".
+
+The role `FINALIZING` plays is *signaling* that every unit is
+terminal — i.e., that every node now has the right on-disk state to
+start its local swap. The signal lets each node know it's safe to
+begin; it does not synchronize the swap itself. The
+synchronize-or-fail-cleanly invariant lives in the ack barrier that
+follows.
+
 ## 4. Architecture by layer
 
 ### 4.1 REST layer — `adapters/handlers/rest/handlers_indexes.go` + `handlers_reindex.go`
