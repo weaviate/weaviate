@@ -212,6 +212,105 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 	}
 }
 
+// RunPrepareOnShard runs the disk-I/O-heavy prep phase between
+// RunReindexOnlyOnShard and RunSwapOnShard.
+//
+// Preconditions:
+//   - MUST have completed RunReindexOnlyOnShard (IsReindexed() == true)
+//     OR be re-entering a recovery state (IsPrepended() set but
+//     IsMerged() not, or IsMerged() already set in which case this is
+//     an idempotent no-op).
+//
+// Performs, per property:
+//   - reindexBucket.FlushAndSwitch()  // memtable → immutable segments
+//   - store.ShutdownBucket(reindexName)  // waits for compaction to
+//     drain — this is the load-bearing slow step that #216 (the
+//     "atomic phase actually atomic" design contract) requires
+//     to live outside the per-shard atomic window
+//   - ingestBucket.PrependSegmentsFromBucket(...)  // segment copy
+//
+// Then advances sentinels: markPrepended + removeReindexBucketsDirs
+// + markMerged.
+//
+// Idempotent / sentinel-aware: if rt.IsMerged() already, returns nil.
+// If rt.IsPrepended() && !rt.IsMerged() (mid-prep crash recovery),
+// finishes the cleanup and returns. Safe to call repeatedly from
+// rehydrate flows.
+//
+// MUST be called BEFORE the per-shard tokenization overlay is set
+// by [reindex_provider.OnGroupCompleted]. Setting the overlay
+// before prep completes would expose the very gap the overlay was
+// supposed to close — query input would tokenize as NEW against the
+// still-OLD bucket while prep is doing seconds of disk I/O.
+// See 0-weaviate-issues#216 follow-up comment 4469995685.
+//
+// Double-write callbacks registered during reindex MUST remain
+// active across this call (they fire on writes to MAIN to mirror
+// into INGEST; MAIN is still serving queries with OLD data while
+// prep runs, and the mirror keeps the new ingest segments
+// consistent with ongoing writes). Callbacks are disabled only at
+// the end of [runtimeSwap] after the atomic pointer flip.
+func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard ShardLike) error {
+	concreteShard, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("unwrapping shard %q: %w", shard.Name(), err)
+	}
+
+	logger := t.logger.WithFields(map[string]any{
+		"collection": concreteShard.Index().Config.ClassName.String(),
+		"shard":      concreteShard.Name(),
+		"method":     "RunPrepareOnShard",
+	})
+
+	rt, err := t.newReindexTracker(concreteShard.pathLSM())
+	if err != nil {
+		return fmt.Errorf("creating reindex tracker: %w", err)
+	}
+
+	// Idempotent fast-path: already merged means prep was already
+	// completed (either by an earlier call in this process or by a
+	// previous boot's runtimePrepare → markMerged).
+	if rt.IsMerged() {
+		logger.Debug("RunPrepareOnShard: already merged on disk; no-op")
+		return nil
+	}
+
+	// Re-entry path: state-on-disk vs state-in-RAFT race (mirrors the
+	// same check in RunSwapOnShard). If we land here with state
+	// "started but not reindexed", resume the iteration before
+	// preparing.
+	if !rt.IsReindexed() {
+		if !rt.IsStarted() {
+			return fmt.Errorf("shard %q is not in reindexed state and has no started sentinel — no in-flight migration on disk", concreteShard.Name())
+		}
+		logger.Info("RunPrepareOnShard: state not yet reindexed on disk; resuming iteration before prep")
+		if err := t.RunReindexOnlyOnShard(ctx, shard); err != nil {
+			return fmt.Errorf("resume iteration before prep: %w", err)
+		}
+		rt, err = t.newReindexTracker(concreteShard.pathLSM())
+		if err != nil {
+			return fmt.Errorf("creating reindex tracker after iteration resume: %w", err)
+		}
+		if !rt.IsReindexed() {
+			return fmt.Errorf("shard %q: iteration resume returned but IsReindexed still false", concreteShard.Name())
+		}
+	}
+
+	props, err := t.readPropsToReindex(rt)
+	if err != nil {
+		return fmt.Errorf("reading props: %w", err)
+	}
+	if len(props) == 0 {
+		return fmt.Errorf("no props found for prep on shard %q", concreteShard.Name())
+	}
+
+	if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
+		return fmt.Errorf("ensure buckets loaded: %w", err)
+	}
+
+	return t.runtimePrepare(ctx, logger, shard, rt, props)
+}
+
 // RunSwapOnShard runs the swap+tidy+OnMigrationComplete phase.
 //
 // Preconditions:
@@ -361,11 +460,28 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
 
 	case rt.IsMerged():
-		// Segments are in ingest_<gen> dir, swap not yet done. Use the
-		// dir-rename-based recovery — the in-memory PrependSegments-
-		// based swap is impossible here because the reindex bucket was
-		// drained at markPrepended.
-		logger.WithField("props", props).Info("RunSwapOnShard: resuming from merged state, recovering swap via dir renames")
+		// Two sub-cases distinguish in-process happy path from post-
+		// restart recovery (after the #216 atomic-phase refactor —
+		// follow-up comment 4469995685):
+		//
+		//  - **In-process happy path** (OnGroupCompleted called
+		//    RunPrepareOnShard first): ingest buckets are loaded in
+		//    the LSM store. Do the in-memory atomic SwapBucketPointer
+		//    via [runtimeSwap]. Disk rename is deferred to next
+		//    startup via OnBeforeLsmInit's recoverRuntimeSwapBuckets.
+		//  - **Recovery fallback**: ingest buckets are NOT loaded.
+		//    In practice this is rare — post-restart, OnBeforeLsmInit's
+		//    IsMerged && !IsSwapped branch typically does the disk
+		//    rename before LSM init touches the main bucket name,
+		//    advancing the state to IsSwapped. We only land here in
+		//    the merged state with ingest buckets unloaded if that
+		//    branch was skipped (e.g. swapBuckets config disabled).
+		//    Use the dir-rename swap to converge.
+		if t.ingestBucketsLoaded(shard, props) {
+			logger.WithField("props", props).Info("RunSwapOnShard: resuming from merged state, in-memory atomic swap")
+			return t.runtimeSwap(ctx, logger, shard, rt, props)
+		}
+		logger.WithField("props", props).Info("RunSwapOnShard: resuming from merged state without loaded ingest buckets, recovering swap via dir renames")
 		if err := t.recoverRuntimeSwapBuckets(ctx, logger, shard, rt, props); err != nil {
 			return fmt.Errorf("recovery swap: %w", err)
 		}
@@ -396,15 +512,24 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
 	}
 
-	// Default: pre-prepend state (only reindexed.mig set). The reindex
-	// bucket should still be on disk and loaded into the store from
-	// OnAfterLsmInit's `loadReindexBuckets` call. Defensively re-load
-	// if it isn't — see [ensureReindexBucketsLoadedForSwap] for the
-	// rehydrate-path race scenarios.
-	logger.WithField("props", props).Info("starting swap phase")
+	// Default: pre-prepend state (only reindexed.mig set). Post-#216
+	// atomic-phase refactor (follow-up comment 4469995685), the
+	// happy-path caller is [reindex_provider.OnGroupCompleted], which
+	// invokes RunPrepareOnShard BEFORE RunSwapOnShard so the prep work
+	// runs OUTSIDE the per-shard tokenization-overlay window. Reaching
+	// this branch via OnGroupCompleted's flow means rehydrate happened
+	// but RunPrepareOnShard hasn't — call it defensively, but note
+	// that the atomic-window contract is no longer met (prep runs
+	// inside the overlay window). Acceptable for tests and edge cases
+	// where FINALIZING-window query correctness isn't being asserted.
+	logger.WithField("props", props).Info("starting prep+swap phase (caller did not invoke RunPrepareOnShard separately)")
 
 	if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
 		return fmt.Errorf("ensure buckets loaded: %w", err)
+	}
+
+	if err := t.runtimePrepare(ctx, logger, shard, rt, props); err != nil {
+		return fmt.Errorf("runtime prepare: %w", err)
 	}
 
 	if err := t.runtimeSwap(ctx, logger, shard, rt, props); err != nil {
@@ -412,6 +537,23 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	}
 
 	return nil
+}
+
+// ingestBucketsLoaded reports whether the ingest buckets for every
+// prop are currently loaded in the shard's LSM store. Used by the
+// IsMerged dispatch in [RunSwapOnShard] to distinguish the in-process
+// happy path (post-#216 atomic-phase refactor: RunPrepareOnShard just
+// ran, ingest buckets are warm, do in-memory SwapBucketPointer) from
+// the recovery fallback (ingest buckets aren't loaded, dir-rename
+// swap via recoverRuntimeSwapBuckets).
+func (t *ShardReindexTaskGeneric) ingestBucketsLoaded(shard ShardLike, props []string) bool {
+	store := shard.Store()
+	for _, propName := range props {
+		if store.Bucket(t.ingestBucketName(propName)) == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // ensureReindexBucketsLoadedForSwap defensively loads any reindex or
@@ -1238,91 +1380,91 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 //
 // On crash at any step, OnBeforeLsmInit on next restart will pick up from the
 // last completed sentinel state (reindexed/merged/swapped) and finish.
-func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
+// runtimePrepare runs the Phase 1 (background-safe) preparation work
+// that used to be inlined into runtimeSwap.
+//
+// Performs, per property:
+//   - reindexBucket.FlushAndSwitch()            // memtable → segments
+//   - store.ShutdownBucket(reindexName)         // drains compaction
+//   - ingestBucket.PrependSegmentsFromBucket(...) // segment copy
+//
+// Then advances sentinels: markPrepended + removeReindexBucketsDirs
+// + markMerged.
+//
+// Bucket=OLD and schema=OLD throughout — queries on the live main
+// bucket continue correctly. The per-shard tokenization overlay
+// MUST NOT yet be set: setting it before this call would expose the
+// very gap the overlay was supposed to close (query input
+// tokenized as NEW against the still-OLD bucket while prep does
+// disk I/O for seconds).
+//
+// Sentinel-aware: if rt.IsPrepended() is true (crash mid-prep) we
+// skip the per-prop loop and finish the merge-cleanup steps only.
+// The caller checks rt.IsMerged() before calling.
+//
+// Crash safety: markPrepended is set after the per-prop loop but
+// BEFORE removeReindexBucketsDirs. A crash in that window leaves
+// IsPrepended=true with reindex dirs partially removed; on restart,
+// either the recovery path here or OnBeforeLsmInit's prepended-but-
+// not-merged branch finishes the cleanup.
+func (t *ShardReindexTaskGeneric) runtimePrepare(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
 ) error {
-	// Always disable the double-write callbacks registered by this task
-	// instance, regardless of whether the swap completes successfully.
-	//
-	// On the happy path this runs after markTidied + OnMigrationComplete:
-	// the main bucket pointer has already been swapped, so any callback
-	// invocations between markSwapped and this defer would have been
-	// harmless redundant writes (the ingest bucket is reachable under both
-	// the main and ingest names).
-	//
-	// On an error path this is the load-bearing case: without it, callbacks
-	// would keep firing against buckets that may be mid-rename, shut down,
-	// or otherwise in an inconsistent state. We want subsequent writes to
-	// stop touching the ingest/backup buckets entirely; they should land
-	// only in whatever the main pointer resolves to.
-	//
-	// Recovery after a mid-swap failure happens on the next node restart:
-	// OnBeforeLsmInit reads the sentinel files and rebuilds disk layout,
-	// then OnAfterLsmInit re-registers fresh callbacks based on the new
-	// on-disk state. Same-process retry of runtimeSwap is not supported
-	// (the in-memory bucket state is partially mutated), so the cleared
-	// callback slice is correct.
-	//
-	// disableCallbacks is idempotent (nils the slice after firing), so the
-	// defer is safe even on the success path where the slice is already
-	// empty by the time the defer runs (currently the explicit call at the
-	// end has been folded into this defer).
-	defer t.disableCallbacks()
-
 	store := shard.Store()
-	lsmPath := shard.pathLSM()
 
-	for _, propName := range props {
-		reindexName := t.reindexBucketName(propName)
-		ingestName := t.ingestBucketName(propName)
+	if rt.IsPrepended() {
+		logger.Debug("runtime prepare: already prepended on disk; finishing merge cleanup only")
+	} else {
+		for _, propName := range props {
+			reindexName := t.reindexBucketName(propName)
+			ingestName := t.ingestBucketName(propName)
 
-		reindexBucket := store.Bucket(reindexName)
-		if reindexBucket == nil {
-			return fmt.Errorf("reindex bucket %q not found", reindexName)
-		}
-		ingestBucket := store.Bucket(ingestName)
-		if ingestBucket == nil {
-			return fmt.Errorf("ingest bucket %q not found", ingestName)
+			reindexBucket := store.Bucket(reindexName)
+			if reindexBucket == nil {
+				return fmt.Errorf("reindex bucket %q not found", reindexName)
+			}
+			ingestBucket := store.Bucket(ingestName)
+			if ingestBucket == nil {
+				return fmt.Errorf("ingest bucket %q not found", ingestName)
+			}
+
+			// FlushAndSwitch makes the reindex memtable immutable so its
+			// segments are safe to copy.
+			if err := reindexBucket.FlushAndSwitch(); err != nil {
+				return fmt.Errorf("flushing reindex bucket %q: %w", reindexName, err)
+			}
+			reindexDir := reindexBucket.GetDir()
+			// FOLLOW-UP: store.ShutdownBucket / bucket.Shutdown does not abort
+			// an in-flight long-running compaction when ctx is cancelled —
+			// it waits for the compaction to finish naturally and only then
+			// observes the cancellation, returning "long-running compaction
+			// in progress: context canceled". During a graceful shutdown
+			// (rolling restart) this means the prep can be interrupted mid-
+			// flight even though there's a clean exit path that doesn't
+			// touch the compaction's output. Tracked separately.
+			if err := store.ShutdownBucket(ctx, reindexName); err != nil {
+				return fmt.Errorf("shutting down reindex bucket %q: %w", reindexName, err)
+			}
+
+			// Prepend reindex segments into the ingest bucket. After this,
+			// ingest contains all reindexed + double-written data.
+			if err := ingestBucket.PrependSegmentsFromBucket(ctx, reindexDir); err != nil {
+				return fmt.Errorf("prepending segments from %q to %q: %w", reindexName, ingestName, err)
+			}
 		}
 
-		// Step 1: Flush and shut down the reindex bucket so its segments are
-		// immutable and safe to copy.
-		if err := reindexBucket.FlushAndSwitch(); err != nil {
-			return fmt.Errorf("flushing reindex bucket %q: %w", reindexName, err)
-		}
-		reindexDir := reindexBucket.GetDir()
-		// FOLLOW-UP: store.ShutdownBucket / bucket.Shutdown does not abort
-		// an in-flight long-running compaction when ctx is cancelled —
-		// it waits for the compaction to finish naturally and only then
-		// observes the cancellation, returning "long-running compaction
-		// in progress: context canceled". During a graceful shutdown
-		// (rolling restart) this means the swap can be interrupted mid-
-		// flight even though there's a clean exit path that doesn't
-		// touch the compaction's output. The recovery hook below
-		// (RecoveryAwareProvider.LocalCallbacksDone) catches the resulting
-		// half-applied state on the next boot, but the *underlying* LSM
-		// shutdown should also be made compaction-aware so the swap
-		// completes cleanly on the original node. Tracked separately.
-		if err := store.ShutdownBucket(ctx, reindexName); err != nil {
-			return fmt.Errorf("shutting down reindex bucket %q: %w", reindexName, err)
-		}
-
-		// Step 2: Prepend reindex segments into the ingest bucket. After this,
-		// ingest contains all reindexed + double-written data.
-		if err := ingestBucket.PrependSegmentsFromBucket(ctx, reindexDir); err != nil {
-			return fmt.Errorf("prepending segments from %q to %q: %w", reindexName, ingestName, err)
+		// Mark prepended before removing the reindex dirs. On crash
+		// recovery, OnBeforeLsmInit sees IsPrepended() and skips the
+		// file-move merge path.
+		if err := rt.markPrepended(); err != nil {
+			return fmt.Errorf("marking prepended: %w", err)
 		}
 	}
 
-	// Mark prepended before removing the reindex dirs. On crash recovery,
-	// OnBeforeLsmInit sees IsPrepended() and skips the file-move merge
-	// (segments are already in ingest via prepend).
-	if err := rt.markPrepended(); err != nil {
-		return fmt.Errorf("marking prepended: %w", err)
-	}
-
-	// Remove reindex bucket directories — their segments have been copied
-	// into ingest, so the originals are no longer needed.
+	// Remove reindex bucket directories — their segments have been
+	// copied into ingest, so the originals are no longer needed.
+	// Idempotent: removeReindexBucketsDirs is safe to call when the
+	// dirs are already gone (the post-IsPrepended recovery case).
 	if err := t.removeReindexBucketsDirs(ctx, logger, shard, props); err != nil {
 		return fmt.Errorf("removing reindex bucket dirs: %w", err)
 	}
@@ -1330,82 +1472,118 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err := rt.markMerged(); err != nil {
 		return fmt.Errorf("marking merged: %w", err)
 	}
-	logger.Debug("runtime swap: all props merged")
+	logger.Debug("runtime prepare: all props merged")
+	return nil
+}
 
-	// Step 3: Swap each ingest bucket into the main bucket slot.
-	// The old main dir is renamed to the backup suffix (same naming as the
-	// restart-based swap) so that crash recovery in OnBeforeLsmInit can pick
-	// up from any partially-swapped state using the same tidy logic.
+func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
+	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
+) error {
+	// Always disable the double-write callbacks registered by this task
+	// instance, regardless of whether the swap completes successfully.
+	//
+	// On the happy path this runs after the in-memory pointer flip:
+	// the main bucket pointer has already been swapped, so any callback
+	// invocations between markSwappedProp and this defer would have been
+	// harmless redundant writes (the ingest bucket is reachable under
+	// both the main and ingest names).
+	//
+	// On an error path this is the load-bearing case: without it,
+	// callbacks would keep firing against buckets that may be mid-swap,
+	// shut down, or otherwise in an inconsistent state. We want
+	// subsequent writes to stop touching the ingest/backup buckets
+	// entirely; they should land only in whatever the main pointer
+	// resolves to.
+	//
+	// Recovery after a mid-swap failure happens on the next node
+	// restart: OnBeforeLsmInit reads the sentinel files and rebuilds
+	// disk layout (via recoverRuntimeSwapBuckets), then OnAfterLsmInit
+	// re-registers fresh callbacks based on the new on-disk state.
+	// Same-process retry of runtimeSwap is not supported (the in-memory
+	// bucket state is partially mutated).
+	defer t.disableCallbacks()
+
+	store := shard.Store()
+
+	// Phase 2 (atomic): in-memory pointer swap per property. This is
+	// the ONLY work that runs inside the per-shard tokenization overlay
+	// window. The disk-side cleanup (old bucket shutdown + dir rename
+	// from main_<gen> → backup_<gen> and ingest_<gen> → main_<gen>) is
+	// deferred to next process restart via OnBeforeLsmInit's
+	// recoverRuntimeSwapBuckets path. See 0-weaviate-issues#216
+	// follow-up comment 4469995685 for the design contract.
+	//
+	// SwapBucketPointer is a single map-write under store.bucketsLock
+	// (microseconds). markSwappedProp is one sentinel fsync (single-
+	// digit ms on a healthy disk). The per-prop loop completes in a
+	// few ms total for typical migrations with 1–4 props.
 	for _, propName := range props {
+		if rt.IsSwappedProp(propName) {
+			// Recovery: partial loop crash already covered this prop's
+			// in-memory pointer flip (sentinel-confirmed). Skip the
+			// SwapBucketPointer call (would error on a missing source
+			// or mis-mapped destination) and rely on the next-restart
+			// disk-rename path for completeness.
+			continue
+		}
 		ingestName := t.ingestBucketName(propName)
 		mainName := t.strategy.SourceBucketName(propName)
-		backupName := t.backupBucketName(propName)
-		backupDir := filepath.Join(lsmPath, backupName)
 
-		oldMainBucket, err := store.SwapBucketPointer(ctx, mainName, ingestName)
+		_, err := store.SwapBucketPointer(ctx, mainName, ingestName)
 		if err != nil {
 			return fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
-		}
-
-		// Shut down the old main bucket and rename its directory to the backup
-		// location. This must happen before markSwappedProp so that on crash
-		// recovery the restart path sees the same on-disk layout it expects.
-		if err := oldMainBucket.Shutdown(ctx); err != nil {
-			return fmt.Errorf("shutting down old main bucket %q: %w", mainName, err)
-		}
-		oldMainDir := oldMainBucket.GetDir()
-		if err := os.Rename(oldMainDir, backupDir); err != nil {
-			return fmt.Errorf("renaming old main dir %q -> %q: %w", oldMainDir, backupDir, err)
 		}
 
 		if err := rt.markSwappedProp(propName); err != nil {
 			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
 		}
 	}
+	logger.Debug("runtime swap: all props in-memory swapped")
 
-	if err := rt.markSwapped(); err != nil {
-		return fmt.Errorf("marking swapped: %w", err)
-	}
-	logger.Debug("runtime swap: all props swapped")
+	// NOTE: rt.markSwapped(), oldMainBucket.Shutdown(), and
+	// os.Rename(oldMainDir, backupDir) are intentionally OMITTED here.
+	//
+	// They violated the #216 atomic-phase contract: Shutdown waits for
+	// compaction to drain (seconds at scale), and renaming a directory
+	// whose bucket is still loaded by the in-memory store is unsafe
+	// per Etienne's explicit guidance — "never rename the live one
+	// that's serving queries to the user; you can rename the old,
+	// already shutdown bucket, but only via the next-startup path."
+	//
+	// State at this point:
+	//   - in-memory: main pointer → ingest_<gen> bucket (the NEW data)
+	//   - on disk: main_<gen> dir unchanged (still holds OLD data),
+	//     ingest_<gen> dir unchanged (still holds NEW data), no backup
+	//     dir yet.
+	//   - sentinels: rt.IsMerged()=true, rt.IsSwappedProp(p)=true for
+	//     every p; rt.IsSwapped()=false, rt.IsTidied()=false.
+	//
+	// On next process restart, FinalizeCompletedMigrations →
+	// OnBeforeLsmInit reads the sentinels and sees IsMerged &&
+	// !IsSwapped && IsPrepended → dispatches to
+	// recoverRuntimeSwapBuckets (the dir-rename swap path) BEFORE
+	// LSM init touches the main bucket name. recoverRuntimeSwapBuckets
+	// observes mainDir+ingestDir present, backupDir missing → does the
+	// full rename sequence (main → backup, ingest → main) per prop and
+	// advances markSwapped + markTidied. LSM init then loads the
+	// renamed dirs correctly.
 
-	// Step 5: Mark tidied. The in-memory swap is complete — the ingest bucket
-	// is now serving queries under the main bucket name. The directory on disk
-	// still has the ingest name, and the old main dir is renamed to _bak.
-	// These filesystem renames (ingest→main, remove _bak) happen on next
-	// startup in OnBeforeLsmInit, which reads the sentinel files and performs
-	// the renames BEFORE bucket loading. This keeps the runtime swap
-	// side-effect-free on the filesystem, avoiding issues with renaming
-	// directories of live/initialized buckets.
-	if err := rt.markTidied(); err != nil {
-		return fmt.Errorf("marking tidied: %w", err)
-	}
-	logger.Debug("runtime swap: tidy complete (fs cleanup deferred to next restart)")
-
-	// Step 6: Signal migration complete (e.g. update schema).
+	// OnMigrationComplete: no-op for semantic migrations (the cluster-
+	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).
+	// Per-shard schema-flag flip for blockmax / repair-* strategies.
+	// Either way, runs OUTSIDE the per-shard atomic window because it
+	// doesn't touch bucket pointers.
 	if err := t.strategy.OnMigrationComplete(ctx, shard); err != nil {
 		return fmt.Errorf("on migration complete: %w", err)
 	}
 
-	// Step 7: Trim older generations on disk.
-	//
-	// Each migration on a (prop, indexType) tuple lives in its own
-	// gen-suffixed sidecar dirs and `.migrations/<prefix>_<prop>_<N>`
-	// tracker dir. After this swap successfully tidied at gen N, every
-	// older gen on disk is by definition obsolete: their reindex dirs
-	// were already removed during their own runtimeSwap step 2; their
-	// backup dirs are the pre-T_N data we no longer need; their tracker
-	// dirs would otherwise survive until next-restart finalize. Clean
-	// them up now so the on-disk depth never exceeds 2 generations
-	// (this gen + maybe one in-flight successor) regardless of how many
-	// in-process migrations have run on this prop since the last
-	// restart.
-	//
-	// Best-effort: log errors, don't fail the migration. The next-restart
-	// FinalizeCompletedMigrations is idempotent across multiple
-	// generations and will sweep up anything we missed.
+	// Trim older generations on disk (best-effort cleanup of sidecar
+	// dirs from completed-and-tidied prior migrations on this prop).
+	// Independent of the atomic window — operates on _bak / .migrations
+	// dirs whose owning gen is strictly older than this gen.
 	t.trimOlderGenerationsLocked(logger, shard, rt, props)
 
-	logger.Info("runtime swap: migration complete")
+	logger.Info("runtime swap: in-memory swap complete; disk rename deferred to next restart")
 
 	return nil
 }
@@ -1685,26 +1863,46 @@ func (t *ShardReindexTaskGeneric) getSegmentPathsToMove(bucketPathSrc, bucketPat
 	return segmentPaths, false, nil
 }
 
-// recoverRuntimeSwapBuckets handles crash recovery for a runtime swap that
-// was interrupted. For each property, the on-disk state may be:
+// recoverRuntimeSwapBuckets handles the disk-rename half of a runtime
+// swap. It serves two callers with identical on-disk semantics:
 //
-//   - main exists, ingest exists, no backup → swap not started → do full swap
-//   - main gone, ingest exists, backup exists → halfway: main renamed to backup
-//     but ingest not yet renamed → rename ingest to main
-//   - main exists (from ingest→main rename), backup exists → swap done, just
-//     needs markSwappedProp
+//  1. **Crash recovery** for a runtime swap that was interrupted mid-
+//     way (pre-#216-atomic-refactor: a crash between SwapBucketPointer
+//     and the inline os.Rename pair; post-refactor: same window, but
+//     also the deferred-disk-rename path for the normal happy-path
+//     where the rename was intentionally not done at runtime).
 //
-// Props already marked via markSwappedProp are skipped.
+//  2. **Deferred disk rename** on next startup after a successful
+//     runtime swap. In the post-#216-atomic-refactor design (see
+//     [runtimeSwap] godoc), runtimeSwap performs ONLY the in-memory
+//     bucket-pointer flip and leaves the disk dirs (main_<gen> and
+//     ingest_<gen>) untouched. OnBeforeLsmInit's IsMerged && !IsSwapped
+//     branch picks this up at next startup, BEFORE LSM init loads any
+//     bucket from main_<gen>, and routes through this function.
+//
+// For each property the disk state is one of:
+//
+//   - mainExists && ingestExists && !backupExists → atomic swap was
+//     in-memory only (post-refactor happy path) or never started →
+//     do the full rename pair (main → backup, ingest → main).
+//   - !mainExists && backupExists → halfway through the pair: main
+//     was renamed but ingest wasn't yet → rename ingest → main.
+//   - mainExists && backupExists → ingest was already renamed to
+//     main on a prior recovery attempt; nothing to do this round.
+//
+// The IsSwappedProp sentinel is intentionally NOT used to skip props
+// here. Pre-refactor it was set together with the disk rename, so
+// IsSwappedProp=true implied the dirs were already swapped on disk.
+// Post-refactor, runtimeSwap sets IsSwappedProp after the in-memory
+// pointer flip — the disk dirs may still need renaming. Trusting the
+// on-disk state instead of the sentinel makes this function correct
+// for both paths.
 func (t *ShardReindexTaskGeneric) recoverRuntimeSwapBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, rt reindexTracker, props []string,
 ) error {
 	lsmPath := shard.pathLSM()
 
 	for _, propName := range props {
-		if rt.IsSwappedProp(propName) {
-			continue
-		}
-
 		mainName := t.strategy.SourceBucketName(propName)
 		mainDir := filepath.Join(lsmPath, mainName)
 		ingestDir := filepath.Join(lsmPath, t.ingestBucketName(propName))
@@ -1712,10 +1910,15 @@ func (t *ShardReindexTaskGeneric) recoverRuntimeSwapBuckets(ctx context.Context,
 
 		mainExists := dirExists(mainDir)
 		backupExists := dirExists(backupDir)
+		ingestExists := dirExists(ingestDir)
 
 		switch {
 		case mainExists && !backupExists:
-			// Swap not started for this prop. Do the full rename sequence.
+			// Pre-rename state (either swap not started, or post-refactor
+			// happy-path deferred-rename). Do the full rename pair.
+			if !ingestExists {
+				return fmt.Errorf("recovery rename for %q: main exists, no backup, but ingest dir missing — unrecoverable", propName)
+			}
 			if err := os.Rename(mainDir, backupDir); err != nil {
 				return fmt.Errorf("recovery rename main->backup for %q: %w", propName, err)
 			}
@@ -1723,14 +1926,19 @@ func (t *ShardReindexTaskGeneric) recoverRuntimeSwapBuckets(ctx context.Context,
 				return fmt.Errorf("recovery rename ingest->main for %q: %w", propName, err)
 			}
 		case !mainExists && backupExists:
-			// Main was renamed to backup, but ingest not yet renamed to main.
+			// Halfway: main was renamed to backup but ingest not yet to main.
+			if !ingestExists {
+				return fmt.Errorf("recovery rename for %q: main missing, backup exists, but ingest dir missing — unrecoverable", propName)
+			}
 			if err := os.Rename(ingestDir, mainDir); err != nil {
 				return fmt.Errorf("recovery rename ingest->main for %q: %w", propName, err)
 			}
 		case mainExists && backupExists:
-			// Both exist — ingest was already renamed to main. Nothing to do.
+			// Both exist — ingest was already renamed to main on a prior
+			// recovery pass. Idempotent no-op.
 		default:
-			return fmt.Errorf("unexpected state for prop %q: main=%v backup=%v", propName, mainExists, backupExists)
+			return fmt.Errorf("unexpected disk state for prop %q: main=%v backup=%v ingest=%v",
+				propName, mainExists, backupExists, ingestExists)
 		}
 
 		if err := rt.markSwappedProp(propName); err != nil {

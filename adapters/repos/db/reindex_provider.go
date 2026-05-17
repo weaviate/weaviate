@@ -1026,39 +1026,95 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 				Info("reindex provider: OnGroupCompleted: rebuilding tasks from disk (node likely restarted); will rehydrate before swap")
 		}
 
-		// 0-weaviate-issues#216 Gap B: for tokenization-changing migrations
-		// we set the per-shard tokenization overlay BEFORE RunSwapOnShard
-		// flips the canonical bucket pointer. The ordering matters: any
-		// query that arrives while the swap is in flight (between
-		// RunSwapOnShard kickoff and OnTaskCompleted's cluster-wide
-		// schema flip via flipSemanticMigrationSchema) reads the live
-		// schema's OLD tokenization unless the overlay is already
-		// populated. Setting it pre-swap means:
+		// 0-weaviate-issues#216 atomic-phase contract: the per-shard swap
+		// is now split into three phases, executed in order:
 		//
-		//   - Pre-swap window (overlay=NEW, bucket=OLD): query input
-		//     tokenizes as NEW but hits OLD bucket — bounded by the
-		//     in-memory swap latency (microseconds), strictly less
-		//     harmful than the pre-#216 failure shape.
-		//   - Post-swap window (overlay=NEW, bucket=NEW): aligned;
-		//     query returns full results until the schema flip lands
-		//     and the overlay is cleared by OnTaskCompleted (or by
-		//     Shard.TokenizationFor's defensive self-clear).
+		//   1. PREP (RunPrepareOnShard, per task) — disk-I/O-heavy work:
+		//      FlushAndSwitch reindex bucket, ShutdownBucket (drains
+		//      compaction), PrependSegmentsFromBucket. Bucket=OLD and
+		//      schema=OLD throughout — safe to run with live queries.
+		//      No overlay set yet; the overlay would expose a (NEW
+		//      input, OLD bucket) mismatch during this phase.
+		//   2. OVERLAY SET — maybeSetTokenizationOverlayPreSwap. After
+		//      every task on this shard has its prep merged.
+		//   3. ATOMIC SWAP (RunSwapOnShard, per task) — in-memory
+		//      bucket-pointer flip + per-prop sentinel fsync only.
+		//      Microseconds + a few ms per prop. The disk dirs aren't
+		//      renamed here; that's deferred to next startup via
+		//      OnBeforeLsmInit's recoverRuntimeSwapBuckets path.
 		//
-		// Failure-mode invariant: if every per-task swap fails before
-		// flipping its bucket pointer (e.g. ctx.Canceled during graceful
-		// shutdown, or rehydrate failures across the board), the
-		// overlay-vs-bucket alignment INVERTS — overlay=NEW but every
-		// bucket is still OLD. The post-loop
-		// maybeClearTokenizationOverlayOnAllFailed call handles this
-		// (clears iff wasSet && !anySwapped). Partial-success
-		// (≥ 1 sub-task swap succeeded → ≥ 1 bucket flipped) keeps the
-		// overlay set — the swapped index type's bucket(s) are aligned,
-		// and operator repair from #221's logging path covers the
-		// half-applied case.
+		// Why three phases instead of two: the overlay-vs-bucket window
+		// is what the overlay was designed to protect. Setting the
+		// overlay before prep would expose the very gap it closes
+		// (NEW-tokenized analyzer input against OLD-tokenized bucket
+		// content for hundreds of ms). Setting the overlay between
+		// prep and atomic swap means the window is bounded by the
+		// in-memory pointer flip (microseconds), matching the design
+		// contract Etienne called out on PR #11322 follow-up comment
+		// 4469995685.
+		//
+		// Failure handling:
+		//   - PREP failure: overlay not set, swap not attempted for
+		//     ANY task on this shard. Recovery on next OnGroupCompleted
+		//     call (or post-restart rehydrate) re-runs PREP, which is
+		//     idempotent (no-op for already-merged tasks).
+		//   - SWAP failure (after overlay set): partial-success is
+		//     possible. The defensive clear below handles the
+		//     all-failed case; partial-success is the operator-repair
+		//     surface from #221's logging path.
 		//
 		// LazyLoadShard wrapping: production shards can be
 		// *LazyLoadShard rather than *Shard. unwrapShard ensures the
 		// overlay always reaches the concrete shard storage.
+
+		// Phase 1: prep every task on this shard. Each task's
+		// RunPrepareOnShard advances the sentinel through markMerged.
+		// Idempotent — calls into already-merged tasks short-circuit.
+		allSwapped := true
+		anySwapped := false
+		prepOK := true
+		for _, reindexTask := range unitTasks {
+			if rehydrate {
+				if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
+					logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
+						WithError(err).Error("reindex provider: OnGroupCompleted: rehydrate failed; prep+swap will not run for this task")
+					unitErrs = append(unitErrs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
+					if errors.Is(err, context.Canceled) {
+						sawContextCanceled = true
+					}
+					prepOK = false
+					allSwapped = false
+					continue
+				}
+			}
+			if err := reindexTask.RunPrepareOnShard(ctx, shard); err != nil {
+				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
+					WithError(err).Error("reindex provider: OnGroupCompleted: prep failed; swap will not run for this task")
+				unitErrs = append(unitErrs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
+				if errors.Is(err, context.Canceled) {
+					sawContextCanceled = true
+				}
+				prepOK = false
+				allSwapped = false
+			}
+		}
+
+		if !prepOK {
+			// At least one task failed to prep. Skip the overlay set
+			// and the atomic-swap pass entirely for this shard — the
+			// recovery path re-runs prep on the next OnGroupCompleted
+			// invocation. Logging is already loud (per-task error logs
+			// above + the swap-INCOMPLETE log below).
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Warn("reindex provider: prep phase incomplete; skipping overlay set + atomic swap for this shard")
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Error("reindex provider: swap INCOMPLETE for this shard — prep phase failed; the cluster-wide post-completion ack will report this as a failure")
+			continue
+		}
+
+		// Phase 2: now that every task on this shard is merged, set the
+		// per-shard tokenization overlay. The atomic SwapBucketPointer
+		// calls in Phase 3 run inside this overlay window.
 		setShard, setUnwrapErr := unwrapShard(ctx, shard)
 		if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
 			logger.WithField("unit", unitID).WithField("shard", shardName).
@@ -1067,21 +1123,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		}
 		overlayWasSet := maybeSetTokenizationOverlayPreSwap(setShard, payload)
 
-		allSwapped := true
-		anySwapped := false
+		// Phase 3: atomic in-memory swap per task. The disk-dir rename
+		// is deferred to next startup.
 		for _, reindexTask := range unitTasks {
-			if rehydrate {
-				if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
-					logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-						WithError(err).Error("reindex provider: OnGroupCompleted: rehydrate failed; swap will not run for this task")
-					unitErrs = append(unitErrs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
-					if errors.Is(err, context.Canceled) {
-						sawContextCanceled = true
-					}
-					allSwapped = false
-					continue
-				}
-			}
 			if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 					WithError(err).Error("reindex provider: OnGroupCompleted: RunSwapOnShard failed — migration is half-applied on this shard")
