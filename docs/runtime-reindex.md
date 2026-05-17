@@ -60,9 +60,9 @@ Specifically:
   (`updateBucketDir` rewriting `bucket.disk.dir` plus every segment's
   in-memory `.path`) form a non-atomic window. A concurrent compaction
   reading `bucket.disk.dir` sees the old path, tries to write a new
-  segment there post-rename, and fails with `ENOENT`. Frontend Claude
-  observed exactly this in production (`rename ...l0.s5.db
-  ...deleteme: no such file`).
+  segment there post-rename, and fails with `ENOENT`. We observed
+  exactly this in production (`rename ...l0.s5.db ...deleteme: no
+  such file`).
 - Even pausing compactions doesn't fix it cleanly: reads in flight also
   hold paths from the consistent-view-of-segments snapshot, and any
   defer-callback that touches `bucket.disk.dir` mid-update would crash
@@ -163,8 +163,9 @@ defensively:
   it is loaded, by any means. The mmap'd segments inside survive
   `os.RemoveAll` (POSIX unlink-while-open) and can serve reads from
   cached pages, but new segment writes will land in a missing dir and
-  silently lose data — Frontend Claude's reproduction in #10675 is
-  exactly this failure mode.
+  silently lose data — the reproduction in
+  [weaviate/weaviate#10675](https://github.com/weaviate/weaviate/issues/10675)
+  is exactly this failure mode.
 - **Do not** put the generation in the RAFT payload to "make all nodes
   agree". The whole point of the deferred-finalize design is that each
   node's on-disk state is its own — forcing cluster-wide agreement on a
