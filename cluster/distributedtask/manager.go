@@ -504,6 +504,145 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	return nil
 }
 
+// RecordPrepCompleteAck records one node's PREP-phase result on the
+// task. The [Scheduler] tick on each node fires this command after its
+// local OnGroupCompleted's PREP body has returned for every local
+// group, so the cluster has durable evidence of which nodes' prep work
+// succeeded before the cluster-wide PREPARING → SWAPPING transition is
+// committed — the load-bearing barrier invariant from
+// docs/proposals/prep_swap_barrier.md.
+//
+// FSM transitions on apply:
+//
+//   - Ack arrives for an idempotently-already-acked (task, node): no-op,
+//     the first ack wins.
+//   - Ack arrives for a task no longer in a state that can use it
+//     (FAILED / FINISHED / CANCELLED, or SWAPPING/FINISHED after the
+//     barrier has already lifted): no-op. Late-arriving acks from slow
+//     followers must not produce noisy apply failures.
+//   - Ack with Success==false arrives while the task is PREPARING:
+//     records the ack AND transitions the task to FAILED. No node
+//     proceeds to the atomic swap (the barrier holds — this is the
+//     primary safety property of the PREP barrier).
+//   - Ack with Success==true arrives while the task is STARTED or
+//     PREPARING: records the ack. If every expected node (i.e. every
+//     node that owns at least one local unit on this task) has now
+//     ack'd with Success=true, transitions the task PREPARING →
+//     SWAPPING. The scheduler tick on each node observes SWAPPING and
+//     fires the per-node atomic swap (OnSwapRequested).
+//
+// Idempotent: every node's scheduler may re-fire this on tick / wake
+// retries until the apply commits. The first ack per (task, node)
+// sticks; later acks for the same node are silently discarded.
+//
+// FSM-determinism: the PREPARING → SWAPPING transition is computed
+// purely from the task's Units → NodeID map (which is RAFT-replicated
+// and identical on every node) plus the PrepCompletionAcks state — so
+// every node's Manager arrives at the transition on the same apply.
+func (m *Manager) RecordPrepCompleteAck(c *api.ApplyRequest) error {
+	var r api.RecordDistributedTaskPrepCompleteAckRequest
+	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
+		return fmt.Errorf("unmarshal record prep-complete ack request: %w", err)
+	}
+	if r.NodeId == "" {
+		return fmt.Errorf("prep-complete ack for task %s/%s missing node_id", r.Namespace, r.Id)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	task, err := m.findVersionedTaskWithLock(r.Namespace, r.Id, r.Version)
+	if err != nil {
+		return err
+	}
+
+	// Once the task has moved past the PREP barrier (SWAPPING / FINISHED
+	// / FAILED / CANCELLED), drop the ack: the cluster has already
+	// decided the barrier outcome. SWAPPING is reachable iff the
+	// barrier lifted successfully, so a late PrepAck against SWAPPING
+	// is a slow-follower retry that the FSM has nothing to do with.
+	switch task.Status {
+	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled, TaskStatusSwapping:
+		return nil
+	case TaskStatusStarted, TaskStatusPreparing:
+		// Normal paths. (STARTED accepted defensively: an early ack
+		// race between AllUnitsTerminal's STARTED → PREPARING
+		// transition and the scheduler's PrepAck emission should not
+		// cause a noisy apply failure.)
+	default:
+		return wrapPermanent(ErrTaskNotInFinalizingState,
+			fmt.Sprintf("task %s/%s/%d cannot record prep-complete ack from status %s",
+				r.Namespace, r.Id, task.Version, task.Status))
+	}
+
+	if task.PrepCompletionAcks == nil {
+		task.PrepCompletionAcks = map[string]PostCompletionAck{}
+	}
+	if _, present := task.PrepCompletionAcks[r.NodeId]; present {
+		// Idempotent: the first ack per (task, node) wins.
+		return nil
+	}
+
+	task.PrepCompletionAcks[r.NodeId] = PostCompletionAck{
+		Success: r.Success,
+		Error:   r.Error,
+		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
+	}
+
+	// Failure path: the task fails immediately. No node proceeds to the
+	// atomic swap.
+	if !r.Success && task.Status == TaskStatusPreparing {
+		task.Status = TaskStatusFailed
+		ackErr := fmt.Sprintf("prep failed on node %s: %s", r.NodeId, r.Error)
+		if task.Error != "" {
+			task.Error = task.Error + "; " + ackErr
+		} else {
+			task.Error = ackErr
+		}
+		// FinishedAt was set when AllUnitsTerminal landed; keep it.
+		m.notifySchedulerWithLock()
+		return nil
+	}
+
+	// Success path: if every expected ack has landed successfully,
+	// transition PREPARING → SWAPPING. This is the moment the barrier
+	// lifts cluster-wide.
+	if r.Success && task.Status == TaskStatusPreparing && allExpectedPrepAcksLanded(task) {
+		task.Status = TaskStatusSwapping
+	}
+
+	m.notifySchedulerWithLock()
+	return nil
+}
+
+// allExpectedPrepAcksLanded returns true iff every node owning at
+// least one local unit on the task has recorded a PrepCompletionAck
+// with Success=true. Called under [Manager.mu]; pure transform of
+// task state.
+//
+// Note: a unit without a NodeID (PENDING + unclaimed) is NOT expected
+// to produce a PrepAck (no node is running it). PrepCompleteAck only
+// fires after the PREP work runs, which only happens on a node that
+// claimed the unit via the per-unit progress flow. By the time the
+// task transitions to PREPARING, every unit must be terminal (which
+// implies NodeID is set on every unit), so the expected-node set is
+// fully determined from task.Units.
+func allExpectedPrepAcksLanded(task *Task) bool {
+	expected := map[string]struct{}{}
+	for _, u := range task.Units {
+		if u.NodeID != "" {
+			expected[u.NodeID] = struct{}{}
+		}
+	}
+	for node := range expected {
+		ack, ok := task.PrepCompletionAcks[node]
+		if !ok || !ack.Success {
+			return false
+		}
+	}
+	return true
+}
+
 // MarkTaskFinalized transitions a task from FINALIZING to FINISHED. It
 // is issued by the scheduler once OnGroupCompleted (per-node swap) and
 // OnTaskCompleted (cluster-wide schema flip for semantic migrations)

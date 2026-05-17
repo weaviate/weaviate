@@ -109,6 +109,14 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS = 305;
     TYPE_DISTRIBUTED_TASK_MARK_FINALIZED = 306;
     TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK = 307;
+    // RecordPrepCompleteAck: emitted by each node after its
+    // OnGroupCompleted's PREP phase returns. Cluster gates the
+    // PREPARING → SWAPPING transition on all expected PrepAcks
+    // landing with success=true (the load-bearing barrier
+    // invariant — no node fires its atomic swap until every other
+    // node has completed PREP). Any success=false flips the task
+    // to FAILED. See docs/proposals/prep_swap_barrier.md.
+    TYPE_DISTRIBUTED_TASK_RECORD_PREP_COMPLETE_ACK = 308;
   }
   Type type = 1;
   string class = 2;
@@ -324,6 +332,39 @@ message MarkTaskFinalizedRequest {
 // cluster-wide schema flip commit while one replica's bucket pointer
 // never moved.
 message RecordDistributedTaskPostCompletionAckRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string node_id = 4;
+  bool success = 5;
+  string error = 6;
+  int64 acked_at_unix_millis = 7;
+}
+
+// RecordDistributedTaskPrepCompleteAckRequest captures one node's
+// PREP-phase result for a task: did its OnGroupCompleted PREP body
+// (FlushAndSwitch + PrependSegmentsFromBucket + ShutdownBucket per
+// per-property migration sub-task) complete successfully? Emitted
+// by every node that has local units, after its PREP phase has
+// returned, BEFORE the cluster-wide PREPARING → SWAPPING transition.
+//
+// The Manager FSM gates the PREPARING → SWAPPING transition on
+// every expected PrepCompleteAck landing with success=true. Any
+// node reporting success=false flips the task to FAILED
+// immediately — no node proceeds to the atomic swap (the
+// load-bearing barrier invariant from
+// docs/proposals/prep_swap_barrier.md).
+//
+// Idempotent: the FSM keeps the first ack per (task, node) —
+// duplicate acks (from retries on the scheduler's wake/tick loop)
+// are no-ops.
+//
+// Wire-shape identical to RecordDistributedTaskPostCompletionAckRequest
+// (intentionally — they serve the same per-node ack pattern, just
+// gating different transitions); kept as a separate message type
+// for FSM-dispatch clarity and so the per-phase ack tables on the
+// Task can be reasoned about independently.
+message RecordDistributedTaskPrepCompleteAckRequest {
   string namespace = 1;
   string id = 2;
   uint64 version = 3;

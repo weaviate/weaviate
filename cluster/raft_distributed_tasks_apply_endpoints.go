@@ -134,8 +134,8 @@ func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, task
 }
 
 // RecordDistributedTaskPostCompletionAck commits one node's
-// OnGroupCompleted result to the FSM. The scheduler tick on each node
-// fires this after its local OnGroupCompleted has returned so the
+// OnGroupCompleted SWAP-phase result to the FSM. The scheduler tick on
+// each node fires this after its local SWAP body has returned so the
 // cluster has durable evidence of which nodes' post-completion work
 // succeeded before MarkDistributedTaskFinalized is allowed to land.
 //
@@ -150,6 +150,35 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 ) error {
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK,
 		&cmd.RecordDistributedTaskPostCompletionAckRequest{
+			Namespace:         namespace,
+			Id:                taskID,
+			Version:           taskVersion,
+			NodeId:            nodeID,
+			Success:           success,
+			Error:             errMsg,
+			AckedAtUnixMillis: time.Now().UnixMilli(),
+		})
+}
+
+// RecordDistributedTaskPrepCompleteAck commits one node's
+// OnGroupCompleted PREP-phase result to the FSM. The scheduler tick
+// on each node fires this after its local PREP body has returned, so
+// the cluster has durable evidence of which nodes' prep work
+// succeeded before the PREPARING → SWAPPING transition is committed.
+// This is the load-bearing barrier from
+// docs/proposals/prep_swap_barrier.md.
+//
+// See [distributedtask.PostCompletionAckRecorder].
+func (s *Raft) RecordDistributedTaskPrepCompleteAck(
+	ctx context.Context,
+	namespace, taskID string,
+	taskVersion uint64,
+	nodeID string,
+	success bool,
+	errMsg string,
+) error {
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREP_COMPLETE_ACK,
+		&cmd.RecordDistributedTaskPrepCompleteAckRequest{
 			Namespace:         namespace,
 			Id:                taskID,
 			Version:           taskVersion,

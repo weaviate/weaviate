@@ -234,6 +234,25 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPostCompletionAck(
 	}))
 }
 
+func (r *fanoutAckRecorder) RecordDistributedTaskPrepCompleteAck(
+	_ context.Context,
+	ns, id string,
+	version uint64,
+	nodeID string,
+	success bool,
+	errMsg string,
+) error {
+	return r.manager.RecordPrepCompleteAck(toCmd(r.t, &cmd.RecordDistributedTaskPrepCompleteAckRequest{
+		Namespace:         ns,
+		Id:                id,
+		Version:           version,
+		NodeId:            nodeID,
+		Success:           success,
+		Error:             errMsg,
+		AckedAtUnixMillis: r.manager.clock.Now().UnixMilli(),
+	}))
+}
+
 // directCleaner routes CleanUp calls into the shared Manager so cleanup
 // of completed tasks happens in-process.
 type directCleaner struct {

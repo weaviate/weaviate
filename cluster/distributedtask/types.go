@@ -79,6 +79,26 @@ type PostCompletionAckRecorder interface {
 		success bool,
 		errMsg string,
 	) error
+
+	// RecordDistributedTaskPrepCompleteAck commits one node's PREP-phase
+	// result via RAFT. Gates the cluster-wide PREPARING → SWAPPING
+	// transition: the Manager FSM transitions only when every expected
+	// PrepCompleteAck has landed with success=true. Any success=false
+	// flips the task to FAILED immediately so no node fires its atomic
+	// swap. See docs/proposals/prep_swap_barrier.md for the load-bearing
+	// barrier invariant.
+	//
+	// Idempotent at the FSM layer (first ack per (task, node) wins);
+	// safe to retry from the scheduler's wake/tick loop on transient
+	// apply failures.
+	RecordDistributedTaskPrepCompleteAck(
+		ctx context.Context,
+		namespace, taskID string,
+		taskVersion uint64,
+		nodeID string,
+		success bool,
+		errMsg string,
+	) error
 }
 
 // TaskCompletionRecorder is an interface for recording the completion of a distributed task.
@@ -467,18 +487,45 @@ type Task struct {
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
 
+	// PrepCompletionAcks records per-node confirmations that the node's
+	// PREP phase (the first half of the split OnGroupCompleted —
+	// FlushAndSwitch + PrependSegmentsFromBucket + ShutdownBucket per
+	// per-property migration sub-task) completed successfully. Keys are
+	// node IDs. Populated only after the task transitions to PREPARING
+	// and only by the [Scheduler] tick firing
+	// [PostCompletionAckRecorder.RecordDistributedTaskPrepCompleteAck]
+	// once the local PREP has returned. The Manager FSM gates the
+	// PREPARING → SWAPPING transition on every expected PrepCompleteAck
+	// landing with Success=true (the load-bearing barrier invariant —
+	// no node fires its atomic swap until every other node has
+	// completed PREP). Any node reporting Success=false flips the task
+	// to FAILED. See docs/proposals/prep_swap_barrier.md.
+	//
+	// Nil for tasks whose provider does not opt into the PREP barrier
+	// (format-only migrations, shard repair, etc.) — those tasks
+	// transition STARTED → SWAPPING directly.
+	PrepCompletionAcks map[string]PostCompletionAck `json:"prepCompletionAcks,omitempty"`
+
 	// PostCompletionAcks records per-node confirmations that the node's
-	// OnGroupCompleted callbacks completed (success or failure) for
-	// every local unit it owned. Keys are node IDs. The map is populated
-	// only after the task transitions to FINALIZING and only by the
-	// [Scheduler] tick on each node firing
+	// SWAP phase (the second half of the split OnGroupCompleted —
+	// per-shard SwapBucketPointer tight loop + post-atomic tidy +
+	// per-strategy OnMigrationComplete) completed successfully. Keys are
+	// node IDs. Populated only after the task transitions to SWAPPING
+	// and only by the [Scheduler] tick firing
 	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck]
-	// once OnGroupCompleted has returned. The scheduler gates
-	// [TaskFinalizer.MarkDistributedTaskFinalized] on having an ack
-	// from every node with local units (see
-	// [Task.MissingPostCompletionAckNodes]); if any ack is
+	// once the local SWAP has returned. The Manager FSM gates the
+	// SWAPPING → FINISHED transition (via
+	// [TaskFinalizer.MarkDistributedTaskFinalized]) on having an ack
+	// from every node with local units; if any ack is
 	// [PostCompletionAck.Success]==false the FSM transitions the task
 	// to FAILED instead.
+	//
+	// (Historical note: pre-PREP-barrier, this was the only
+	// post-completion ack and the task transitioned STARTED → FINALIZING
+	// → FINISHED. With the PREP barrier added per
+	// docs/proposals/prep_swap_barrier.md, the FINALIZING state was
+	// renamed to SWAPPING and the new PrepCompletionAcks layer was
+	// inserted upstream of this one.)
 	//
 	// Nil for tasks created before this field was added (backward-compat
 	// with older RAFT snapshots) and for tasks whose provider does not
