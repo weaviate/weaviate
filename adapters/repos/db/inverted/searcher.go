@@ -71,6 +71,29 @@ type Searcher struct {
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
+	// tokResolver, when non-nil, overrides prop.Tokenization on query
+	// input analysis. Used by the per-shard tokenization overlay from
+	// 0-weaviate-issues#216 (Gap B) to keep query tokenization aligned
+	// with the bucket content during the FINALIZING window of a
+	// change-tokenization migration. Nil = use prop.Tokenization
+	// directly (tests, pre-#216 callers).
+	tokResolver TokenizationResolver
+}
+
+// WithTokenizationResolver attaches a [TokenizationResolver] used by query
+// input analysis to consult a per-shard tokenization overlay before
+// falling back to the schema-stored `prop.Tokenization`. Returns the
+// receiver for fluent chaining at construction sites.
+//
+// Production callers wire `Shard.TokenizationFor` here so a
+// change-tokenization migration's FINALIZING-window overlay routes
+// query input to the post-swap tokenization. See
+// 0-weaviate-issues#216 for the failure shape this closes.
+//
+// Pass nil (the default) to use the schema-stored value directly.
+func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
+	s.tokResolver = r
+	return s
 }
 
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
@@ -683,6 +706,14 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	var terms []string
 	switch propType {
 	case schema.DataTypeText:
+		// effectiveTok consults the per-shard tokenization overlay (set
+		// during the FINALIZING window of a change-tokenization
+		// migration — see 0-weaviate-issues#216 Gap B) before falling
+		// back to the schema-stored value. Both the LIKE wildcard path
+		// and the standard analyze path tokenize query input against
+		// effectiveTok so the resulting terms match the bucket content
+		// on this shard.
+		effectiveTok := ResolveTokenization(s.tokResolver, prop.Name, prop.Tokenization)
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
@@ -693,10 +724,10 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 				ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyzer.ASCIIFoldIgnore)
 				text = tokenizer.FoldASCII(text, ignore)
 			}
-			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, text, class.Class)
+			terms = tokenizer.TokenizeWithWildcardsForClass(effectiveTok, text, class.Class)
 		} else {
 			var sw tokenizer.StopwordDetector
-			if prop.Tokenization == models.PropertyTokenizationWord {
+			if effectiveTok == models.PropertyTokenizationWord {
 				d, err := s.stopwordProvider.Get(prop)
 				if err != nil {
 					return nil, err
@@ -704,7 +735,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 				sw = d
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
-			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)
+			result := tokenizer.Analyze(valueString, effectiveTok, class.Class, prepared, sw)
 			terms = result.Query
 		}
 	default:
