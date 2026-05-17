@@ -39,14 +39,31 @@ import (
 // migration work, with the DTM providing cluster coordination, progress tracking,
 // and lifecycle management.
 //
-// For format-only migrations (repair-searchable, repair-filterable), each shard
-// runs the full lifecycle independently via RunOnShard.
+// Migration family classification (see [IsSemanticMigration] for the
+// authoritative predicate):
 //
-// For semantic migrations (change-tokenization, enable-rangeable), barrier
-// semantics apply: all shards reindex first (RunReindexOnlyOnShard), then once
-// all units are terminal, OnGroupCompleted fires and runs the swap phase
-// (RunSwapOnShard) on each local shard. This ensures no shard serves new data
-// until ALL shards are ready.
+//   - "Semantic" migrations are the ones that change query
+//     semantics for the migrated property — change-tokenization,
+//     change-tokenization-filterable, enable-filterable, enable-searchable.
+//     These get the full barrier dance: every shard reindexes first
+//     (RunReindexOnlyOnShard), and only after every unit is terminal does
+//     OnGroupCompleted fire to run the swap phase (RunSwapOnShard) on each
+//     local shard, followed by OnTaskCompleted's cluster-wide schema flip.
+//     No shard serves new data until ALL shards are ready. This is where
+//     the FINALIZING-window tokenization overlay lives.
+//
+//   - "Format-only" migrations don't change query semantics — they only
+//     change the on-disk bucket format. enable-rangeable, repair-rangeable,
+//     repair-filterable, repair-searchable (Map→Blockmax), and the
+//     RoaringSetRefresh strategy fall in this bucket. Each shard runs the
+//     full lifecycle independently via RunOnShard; there is no cluster-wide
+//     schema flip to coordinate.
+//
+// Note on enable-rangeable: it is intentionally NOT classified as
+// semantic. Range queries' correctness during the migration is gated
+// by the per-shard rangeableLocalReady flag (see [Shard.rangeableLocalReady]),
+// not by the barrier dance — falling back to the filterable bucket walk
+// on shards that haven't completed locally is slow but correct.
 type ReindexProvider struct {
 	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
