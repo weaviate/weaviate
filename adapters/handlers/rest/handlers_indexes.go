@@ -539,17 +539,30 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 	// Submit the task. For MT semantic migrations, use grouped units so that
 	// OnGroupCompleted fires per-tenant (giving per-tenant barrier semantics).
+	//
+	// Semantic migrations also opt into the two-phase RAFT PREP barrier
+	// (NeedsPrepBarrier=true): PHASE A (PREP) runs on every node in
+	// parallel; PHASE B (OVERLAY+SWAP) only fires after every node has
+	// acked PrepComplete via RAFT. This closes the cross-replica stagger
+	// window that was previously bounded by per-node PREP duration —
+	// minutes at billion-scale on large clusters — and is now bounded
+	// by RAFT propagation latency (10s of ms).
+	//
+	// Format-only migrations (repair-*, enable-rangeable) keep
+	// NeedsPrepBarrier=false: they flip metadata only inside
+	// RunSwapOnShard per shard, with no cross-replica state to align.
+	// See docs/proposals/prep_swap_barrier.md.
 	if isMT && semantic {
 		unitSpecs := buildUnitSpecs(shardOwnership)
-		if err := h.appState.ClusterService.AddDistributedTaskWithGroups(
-			ctx, db.ReindexNamespace, taskID, payload, unitSpecs,
+		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
+			ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
 		); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
 				errorResponse(fmt.Sprintf("submitting task: %v", err)))
 		}
 	} else {
-		if err := h.appState.ClusterService.AddDistributedTask(
-			ctx, db.ReindexNamespace, taskID, payload, unitIDs,
+		if err := h.appState.ClusterService.AddDistributedTaskWithBarrier(
+			ctx, db.ReindexNamespace, taskID, payload, unitIDs, semantic,
 		); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
 				errorResponse(fmt.Sprintf("submitting task: %v", err)))
