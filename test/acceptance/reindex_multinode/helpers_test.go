@@ -737,7 +737,7 @@ func waitForProbeBaseline(
 ) int {
 	t.Helper()
 	deadline := time.Now().Add(perReplicaConvergenceTimeout)
-	var prevAll int = -1
+	prevAll := -1
 	for time.Now().Before(deadline) {
 		var counts [3]int
 		ok := true
