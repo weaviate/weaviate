@@ -134,6 +134,28 @@ require the stronger `UPDATE` on `Collections`.
 
 ## 3. End-to-end lifecycle
 
+The diagram below tracks state across **two independent status
+surfaces** — keep the distinction in mind reading top-to-bottom:
+
+- **`UnitStatus`** (`PENDING → IN_PROGRESS → COMPLETED`/`FAILED`) —
+  per-unit. One unit = one shard × one node. `COMPLETED` means *this
+  single replica* has finished its piece of the reindex work; the
+  per-shard swap and cluster-wide schema flip are still ahead.
+- **`TaskStatus`** (`STARTED → FINALIZING → FINISHED`, plus
+  `CANCELLED`/`FAILED`) — per-task aggregate. The task transitions to
+  `FINALIZING` only once **every unit across the cluster** is at
+  terminal status, then to `FINISHED` after the post-completion
+  callbacks (`OnGroupCompleted` / `OnTaskCompleted`) have run on every
+  node. `FINISHED` is the correct signal for "fully done".
+
+These are different Go types in the source —
+[`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go)
+defines `UnitStatus` and `TaskStatus` distinctly — so the
+COMPLETED-before-FINALIZING ordering in the diagram is not a sequence
+on the same field; it's the terminal value of the per-unit field
+preceding a transition on the per-task field. Annotations
+(`← UnitStatus` / `← TaskStatus`) mark which surface each box lives on.
+
 ```
                 ┌────────────────────────────────────────────────────────┐
                 │             PUT /v1/schema/{class}/indexes/{p}         │
@@ -149,25 +171,27 @@ require the stronger `UPDATE` on `Collections`.
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  RAFT-replicated AddTask
         ┌──────────────────────────────────▼─────────────────────────────┐
-        │  cluster/distributedtask FSM (Manager)                        │
+        │  cluster/distributedtask FSM (Manager)              ← TaskSt. │
         │   • ConflictDetector.CheckConflict (FSM-deterministic)        │
         │   • Append task to FSM state at STARTED                       │
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  Scheduler tick on each node
         ┌──────────────────────────────────▼─────────────────────────────┐
-        │  ReindexProvider.StartTask (per node, per task)               │
+        │  ReindexProvider.StartTask (per node, per task)     ← UnitSt. │
         │   • processOneUnit per local unit, in a bounded worker pool   │
+        │     (per unit: PENDING → IN_PROGRESS → COMPLETED on success)  │
         │   • Build ShardReindexTaskGeneric per (strategy, unit)        │
         │   • persistRecoveryRecord (payload.mig)                       │
         │   • RunReindexOnlyOnShard — iterate objects, write to         │
         │     __reindex_<N>/ bucket; install double-write callbacks     │
-        │   • markReindexed → UnitStatus = COMPLETED                    │
+        │   • markReindexed → UnitStatus = COMPLETED  ← per-Unit status │
         └──────────────────────────────────┬─────────────────────────────┘
                               All units terminal across the cluster
                                            │
                                   ┌────────▼────────┐
                                   │ FINALIZING      │ ← TaskStatus
-                                  └────────┬────────┘
+                                  └────────┬────────┘    (NOT a UnitStatus
+                                           │             — task-aggregate)
                                            │  scheduler fires per-node
         ┌──────────────────────────────────▼─────────────────────────────┐
         │  Provider.OnGroupCompleted (per-node, semantic only)          │
@@ -189,8 +213,9 @@ require the stronger `UPDATE` on `Collections`.
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  scheduler marks finalized
                                   ┌────────▼────────┐
-                                  │ FINISHED        │
-                                  └─────────────────┘
+                                  │ FINISHED        │ ← TaskStatus
+                                  └─────────────────┘   (operator-visible
+                                           │            "fully done" signal)
                                            │  next process startup
         ┌──────────────────────────────────▼─────────────────────────────┐
         │  FinalizeCompletedMigrations (pre-LSM init)                   │
