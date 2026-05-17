@@ -750,7 +750,7 @@ func waitForProbeBaseline(
 			}
 			counts[n] = c
 		}
-		if ok && counts[0] == counts[1] && counts[1] == counts[2] && counts[0] > 0 {
+		if ok && allEqualPositive(counts) {
 			if prevAll == counts[0] {
 				t.Logf("waitForProbeBaseline: converged at count=%d across all 3 replicas",
 					counts[0])
@@ -767,6 +767,15 @@ func waitForProbeBaseline(
 	t.Fatalf("waitForProbeBaseline: per-replica counts did not converge within %s",
 		perReplicaConvergenceTimeout)
 	return 0
+}
+
+// allEqualPositive reports whether every per-replica count in counts
+// is the same strictly-positive integer. Used as the convergence gate
+// in waitForProbeBaseline: a steady-state read must agree across all
+// three replicas AND be > 0 (zero would indicate an empty bucket that
+// hasn't yet been populated, not a converged baseline).
+func allEqualPositive(counts [3]int) bool {
+	return counts[0] > 0 && counts[0] == counts[1] && counts[1] == counts[2]
 }
 
 // runMigrationWithProbes spins up one probe goroutine per node, each
