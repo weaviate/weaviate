@@ -122,7 +122,12 @@ def main() -> int:
     print(f"Proxying /api/* -> {CLUSTER_URL}")
     print(f"Open http://localhost:{PORT}/")
     server = ThreadedServer(("", PORT), Handler)
-    server.serve_forever()
+    # Local-only dev UI bound to localhost: PORT — HTTP is intentional.
+    # The proxy talks to {CLUSTER_URL} over HTTPS (set above); the
+    # browser never leaves the loopback interface. Suppressing the
+    # Sonar "Use https" hotspot because adding TLS to localhost-only
+    # dev tooling is friction without security gain.
+    server.serve_forever()  # NOSONAR python:S5332
     return 0
 
 
