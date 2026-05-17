@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -82,11 +83,11 @@ func testCancelReindex(t *testing.T, restURI string) {
 	t.Run("CancelInFlightTask", func(t *testing.T) {
 		// Submit enable-filterable on score and wait until /indexes shows
 		// it pending/indexing, then cancel.
-		taskID := submitIndexUpdate(t, restURI, className, "score", `{"filterable":{"enabled":true}}`)
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score", `{"filterable":{"enabled":true}}`)
 		t.Logf("submitted task %s", taskID)
 
 		require.Eventually(t, func() bool {
-			resp := getIndexes(t, restURI, className)
+			resp := reindexhelpers.GetIndexes(t, restURI, className)
 			for _, prop := range resp.Properties {
 				if prop.Name != "score" {
 					continue

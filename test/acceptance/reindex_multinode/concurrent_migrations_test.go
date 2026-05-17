@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 )
 
 // TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle pins
@@ -164,17 +165,17 @@ func TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle(t *testin
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		priceTaskID = submitIndexUpdate(t, uri1, className, "price",
+		priceTaskID = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
 			`{"rangeable":{"enabled":true}}`)
 	}()
 	go func() {
 		defer wg.Done()
-		catTaskID = submitIndexUpdate(t, uri1, className, "category",
+		catTaskID = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
 			`{"filterable":{"enabled":true}}`)
 	}()
 	go func() {
 		defer wg.Done()
-		pathTaskID = submitIndexUpdate(t, uri1, className, "path",
+		pathTaskID = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
 			`{"searchable":{"tokenization":"word"}}`)
 	}()
 	wg.Wait()
@@ -184,9 +185,9 @@ func TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle(t *testin
 	// Block until all three reach FINISHED. The default 180s budget per
 	// task is fine — on 10k records the migrations run in seconds, but
 	// they can pile up serially through the scheduler.
-	awaitReindexFinished(t, uri1, priceTaskID)
-	awaitReindexFinished(t, uri1, catTaskID)
-	awaitReindexFinished(t, uri1, pathTaskID)
+	reindexhelpers.AwaitReindexFinished(t, uri1, priceTaskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, uri1, catTaskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, uri1, pathTaskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Brief settle so schema flips propagate to every node.
 	time.Sleep(3 * time.Second)

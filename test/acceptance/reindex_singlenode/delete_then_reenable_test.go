@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -74,9 +75,9 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 
 	// Step 1: first enable via the reindex API — lays down the
 	// .migrations/enable_searchable_body/ tidied sentinel on disk.
-	taskID := submitIndexUpdate(t, restURI, class, "body",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
 		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "body")
 	require.GreaterOrEqual(t, bm25Hits(t, class, "fox"), 3,
 		"after first enable-searchable, bm25 must find all three docs")
@@ -88,9 +89,9 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 	// sentinel from step 1 survived the DELETE, OnAfterLsmInitAsync
 	// will short-circuit on rt.IsTidied()=true and re-flip the schema
 	// flag while the freshly-removed bucket stays empty.
-	taskID = submitIndexUpdate(t, restURI, class, "body",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
 		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "body")
 
 	hits := bm25Hits(t, class, "fox")
@@ -116,18 +117,18 @@ func testDeleteThenReEnableFilterable(t *testing.T, restURI string) {
 		}))
 	}
 
-	taskID := submitIndexUpdate(t, restURI, class, "name",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 		`{"filterable":{"enabled":true}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireFilterableEnabled(t, class, "name")
 	require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha"),
 		"after first enable-filterable, Equal('alpha') must match 1 object")
 
 	deleteIndex(t, restURI, class, "name", "filterable")
 
-	taskID = submitIndexUpdate(t, restURI, class, "name",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 		`{"filterable":{"enabled":true}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireFilterableEnabled(t, class, "name")
 
 	hits := equalFilterHits(t, class, "name", "alpha")
@@ -153,18 +154,18 @@ func testDeleteThenReEnableRangeable(t *testing.T, restURI string) {
 		}))
 	}
 
-	taskID := submitIndexUpdate(t, restURI, class, "score",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
 		`{"rangeable":{"enabled":true}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireRangeableEnabled(t, class, "score")
 	require.Equal(t, 2, rangeFilterHits(t, class, "score", 30),
 		"after first enable-rangeable, LessThan(30) must match 2 (10, 20)")
 
 	deleteIndex(t, restURI, class, "score", "rangeFilters")
 
-	taskID = submitIndexUpdate(t, restURI, class, "score",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
 		`{"rangeable":{"enabled":true}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireRangeableEnabled(t, class, "score")
 
 	hits := rangeFilterHits(t, class, "score", 30)

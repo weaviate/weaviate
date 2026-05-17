@@ -16,21 +16,17 @@
 package reindex_singlenode
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -321,150 +317,12 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 // =============================================================================
 // Shared helpers
 // =============================================================================
-
-func submitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody string) string {
-	t.Helper()
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err, "index update request failed")
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(respBody))
-	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"index update endpoint returned non-202: %s", string(respBody))
-
-	var result map[string]string
-	require.NoError(t, json.Unmarshal(respBody, &result))
-	return result["taskId"]
-}
-
-// indexUpdateErrorResponse captures the status + body of an
-// expected-to-fail index update request, so tests can assert both the
-// status code AND that the error message names the right next step.
-type indexUpdateErrorResponse struct {
-	StatusCode int
-	Body       string
-}
-
-// submitIndexUpdateExpectingError submits a PUT /indexes request that the
-// test expects to fail at validation. Returns the response status code +
-// body for assertion; does NOT itself require 4xx (so the test can pin
-// the exact code).
-func submitIndexUpdateExpectingError(t *testing.T, restURI, collection, property, jsonBody string) indexUpdateErrorResponse {
-	t.Helper()
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(body))
-	return indexUpdateErrorResponse{StatusCode: resp.StatusCode, Body: string(body)}
-}
-
-type indexesResponse struct {
-	Collection string `json:"collection"`
-	Properties []struct {
-		Name    string `json:"name"`
-		Indexes []struct {
-			Type               string  `json:"type"`
-			Status             string  `json:"status"`
-			Progress           float32 `json:"progress"`
-			Tokenization       string  `json:"tokenization,omitempty"`
-			TargetTokenization string  `json:"targetTokenization,omitempty"`
-			Algorithm          string  `json:"algorithm,omitempty"`
-			TargetAlgorithm    string  `json:"targetAlgorithm,omitempty"`
-		} `json:"indexes"`
-	} `json:"properties"`
-}
-
-func getIndexes(t *testing.T, restURI, collection string) *indexesResponse {
-	t.Helper()
-	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode, "get indexes failed: %s", string(body))
-	var result indexesResponse
-	require.NoError(t, json.Unmarshal(body, &result))
-	return &result
-}
-
-func awaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string) {
-	t.Helper()
-	var lastProgress float32
-	var sawIndexing bool
-
-	require.Eventually(t, func() bool {
-		resp := getIndexes(t, restURI, collection)
-		for _, prop := range resp.Properties {
-			if prop.Name == property {
-				for _, idx := range prop.Indexes {
-					if idx.Type == indexType {
-						switch idx.Status {
-						case "indexing":
-							sawIndexing = true
-							lastProgress = idx.Progress
-							return false
-						case "ready":
-							return true
-						case "pending":
-							return false
-						}
-					}
-				}
-			}
-		}
-		return false
-	}, 120*time.Second, 1*time.Second, "expected property %s index %s to reach ready status", property, indexType)
-
-	if sawIndexing {
-		t.Logf("index monitoring: saw indexing->ready for %s/%s (final progress: %f)", property, indexType, lastProgress)
-	} else {
-		t.Logf("index monitoring: task completed too fast for %s/%s", property, indexType)
-	}
-}
-
-func awaitReindexFinished(t *testing.T, restURI, taskID string) {
-	t.Helper()
-	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
-		}
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			return false
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID == taskID {
-				t.Logf("task %s status: %s", taskID, task.Status)
-				if task.Status == "FAILED" {
-					t.Fatalf("reindex task failed: %s", task.Error)
-				}
-				return task.Status == "FINISHED"
-			}
-		}
-		return false
-	}, 120*time.Second, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
-}
+//
+// HTTP-level reindex helpers (SubmitIndexUpdate, AwaitReindexFinished, etc.)
+// live in test/acceptance/helpers/reindex and are used as
+// `reindexhelpers.XYZ`. The helpers below are package-local because they
+// reach into single-node–specific surfaces (LSM directory listing on a
+// known shard, single-node GraphQL paths).
 
 func getFirstShardName(t *testing.T, restURI, collection string) string {
 	t.Helper()
@@ -555,22 +413,4 @@ func assertBucketExists(t *testing.T, dirs []string, bucketName string) {
 		}
 	}
 	assert.True(t, found, "expected bucket directory %q not found in %v", bucketName, dirs)
-}
-
-func idsMatchUnordered(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	aSorted := make([]string, len(a))
-	bSorted := make([]string, len(b))
-	copy(aSorted, a)
-	copy(bSorted, b)
-	sort.Strings(aSorted)
-	sort.Strings(bSorted)
-	for i := range aSorted {
-		if aSorted[i] != bSorted[i] {
-			return false
-		}
-	}
-	return true
 }

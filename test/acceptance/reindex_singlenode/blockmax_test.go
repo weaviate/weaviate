@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -122,7 +123,7 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 				queryRuns.Add(1)
 				if err != nil {
 					queryFailures.Add(1)
-				} else if !idsMatchUnordered(bl.ids, ids) {
+				} else if !reindexhelpers.IdsMatchUnordered(bl.ids, ids) {
 					queryFailures.Add(1)
 				}
 			}
@@ -130,7 +131,7 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 		}
 	}()
 
-	taskID := submitIndexUpdate(t, restURI, blockmaxClassName, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, blockmaxClassName, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// While the rebuild is in flight, GET /indexes must surface
@@ -144,8 +145,8 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 		t.Log("rebuild completed before targetAlgorithm could be observed (fast path)")
 	}
 
-	awaitReindexViaIndexes(t, restURI, blockmaxClassName, "text", "searchable")
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, blockmaxClassName, "text", "searchable")
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// Post-rebuild: GET /indexes must surface algorithm=blockmax and must
 	// no longer carry targetAlgorithm (the rebuild has completed and the
@@ -183,7 +184,7 @@ func testBlockmaxPostRestart(t *testing.T) {
 // (WAND vs Block Max WAND) that frontend-claude flagged as missing.
 func assertSearchableAlgorithm(t *testing.T, restURI, collection, property, wantAlgorithm, wantTargetAlgorithm string) {
 	t.Helper()
-	resp := getIndexes(t, restURI, collection)
+	resp := reindexhelpers.GetIndexes(t, restURI, collection)
 	for _, prop := range resp.Properties {
 		if prop.Name != property {
 			continue
@@ -211,7 +212,7 @@ func pollForTargetAlgorithm(t *testing.T, restURI, collection, property, want st
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		resp := getIndexes(t, restURI, collection)
+		resp := reindexhelpers.GetIndexes(t, restURI, collection)
 		for _, prop := range resp.Properties {
 			if prop.Name != property {
 				continue

@@ -14,9 +14,7 @@
 package reindex_mt
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
@@ -137,9 +136,9 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 	}
 
 	// Submit repair-searchable (no tenants param → all tenants).
-	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`, nil)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("repair all tenants task: %s", taskID)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// Verify data still intact.
 	for _, tn := range tenantNames {
@@ -174,10 +173,10 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 
 	// Repair only t1 and t2.
 	targetTenants := []string{"t1", "t2"}
-	taskID := submitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"rebuild":true}}`, targetTenants)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
+		`{"searchable":{"rebuild":true}}`, reindexhelpers.WithTenants(targetTenants))
 	t.Logf("repair specific tenants task: %s", taskID)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// All tenants should still have data.
 	for _, tn := range tenantNames {
@@ -237,10 +236,10 @@ func testChangeTokenizationMT(t *testing.T, restURI string) {
 	}
 
 	// Change tokenization to field (must target all tenants).
-	taskID := submitIndexUpdate(t, restURI, className, "filepath",
-		`{"searchable":{"tokenization":"field"}}`, nil)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "filepath",
+		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("change tokenization MT task: %s", taskID)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// Wait for schema update.
 	require.Eventually(t, func() bool {
@@ -338,10 +337,10 @@ func testEnableRangeableMT(t *testing.T, restURI string) {
 	}
 
 	// Enable rangeable.
-	taskID := submitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`, nil)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
+		`{"rangeable":{"enabled":true}}`)
 	t.Logf("enable rangeable MT task: %s", taskID)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// Schema should show indexRangeFilters=true.
 	require.Eventually(t, func() bool {
@@ -404,8 +403,10 @@ func testValidation(t *testing.T, restURI string) {
 	}
 
 	t.Run("NonMT_with_tenants", func(t *testing.T) {
-		submitIndexUpdateExpect400(t, restURI, nonMTClass, "text",
-			`{"searchable":{"rebuild":true}}`, []string{"t1"})
+		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, nonMTClass, "text",
+			`{"searchable":{"rebuild":true}}`, reindexhelpers.WithTenants([]string{"t1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"non-MT class with tenants should reject as 400: %s", got.Body)
 	})
 
 	// MT class for remaining validations.
@@ -424,13 +425,17 @@ func testValidation(t *testing.T, restURI string) {
 	}
 
 	t.Run("ChangeTokenization_with_tenants", func(t *testing.T) {
-		submitIndexUpdateExpect400(t, restURI, mtClass, "text",
-			`{"searchable":{"tokenization":"field"}}`, []string{"active1"})
+		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
+			`{"searchable":{"tokenization":"field"}}`, reindexhelpers.WithTenants([]string{"active1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"MT class with tenants on change-tokenization should reject as 400: %s", got.Body)
 	})
 
 	t.Run("Nonexistent_tenant", func(t *testing.T) {
-		submitIndexUpdateExpect400(t, restURI, mtClass, "text",
-			`{"searchable":{"rebuild":true}}`, []string{"does_not_exist"})
+		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
+			`{"searchable":{"rebuild":true}}`, reindexhelpers.WithTenants([]string{"does_not_exist"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"non-existent tenant should reject as 400: %s", got.Body)
 	})
 }
 
@@ -471,78 +476,6 @@ func addTenants(t *testing.T, className string, tenantNames []string) {
 		}
 	}
 	helper.CreateTenants(t, className, tenants)
-}
-
-func submitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody string, tenants []string) string {
-	t.Helper()
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
-	if len(tenants) > 0 {
-		url += "?tenants=" + strings.Join(tenants, ",")
-	}
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err, "index update request failed")
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	t.Logf("index update response (status=%d): %s", resp.StatusCode, string(respBody))
-	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"index update endpoint returned non-202: %s", string(respBody))
-
-	var result map[string]string
-	require.NoError(t, json.Unmarshal(respBody, &result))
-	return result["taskId"]
-}
-
-func submitIndexUpdateExpect400(t *testing.T, restURI, collection, property, jsonBody string, tenants []string) {
-	t.Helper()
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
-	if len(tenants) > 0 {
-		url += "?tenants=" + strings.Join(tenants, ",")
-	}
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	t.Logf("expected 400 response (status=%d): %s", resp.StatusCode, string(respBody))
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "expected 400, got %d: %s", resp.StatusCode, string(respBody))
-}
-
-func awaitReindexFinished(t *testing.T, restURI, taskID string) {
-	t.Helper()
-	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
-		}
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			return false
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID == taskID {
-				t.Logf("task %s status: %s", taskID, task.Status)
-				if task.Status == "FAILED" {
-					t.Fatalf("reindex task failed: %s", task.Error)
-				}
-				return task.Status == "FINISHED"
-			}
-		}
-		return false
-	}, 120*time.Second, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
 }
 
 func bm25QueryTenant(t *testing.T, className, property, query, tenant string) []string {

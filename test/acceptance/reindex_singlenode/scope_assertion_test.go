@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -288,7 +289,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 						return
 					case <-ticker.C:
 					}
-					resp := getIndexes(t, restURI, tc.className)
+					resp := reindexhelpers.GetIndexes(t, restURI, tc.className)
 					samples.Add(1)
 					for _, prop := range resp.Properties {
 						allowed, ok := shouldStayReady[prop.Name]
@@ -316,7 +317,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			}()
 
 			// Submit the reindex and wait for it to finish.
-			taskID := submitIndexUpdate(t, restURI, tc.className, tc.target, tc.body)
+			taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, tc.className, tc.target, tc.body)
 			t.Logf("submitted reindex task: %s", taskID)
 
 			// Assertion 3: the task ID must encode the targeted property.
@@ -329,7 +330,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			// after FINISHED the task may be pruned, so capture early.
 			assertPayloadProperties(t, restURI, taskID, tc.target)
 
-			awaitReindexFinished(t, restURI, taskID)
+			reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 			stopPoller()
 

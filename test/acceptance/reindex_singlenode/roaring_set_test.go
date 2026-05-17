@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -109,7 +110,7 @@ func testRoaringSetRefresh(t *testing.T, restURI string) {
 				queryRuns.Add(1)
 				if err != nil {
 					queryFailures.Add(1)
-				} else if !idsMatchUnordered(bl.ids, ids) {
+				} else if !reindexhelpers.IdsMatchUnordered(bl.ids, ids) {
 					queryFailures.Add(1)
 				}
 			}
@@ -117,11 +118,11 @@ func testRoaringSetRefresh(t *testing.T, restURI string) {
 		}
 	}()
 
-	taskID := submitIndexUpdate(t, restURI, roaringSetClassName, "category", `{"filterable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, roaringSetClassName, "category", `{"filterable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
-	awaitReindexViaIndexes(t, restURI, roaringSetClassName, "category", "filterable")
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, roaringSetClassName, "category", "filterable")
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	close(stopCh)
 	wg.Wait()

@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -235,9 +236,9 @@ func runLiveQueryDuringChangeTokenizationCase(
 	var taskID string
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = submitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text", indexUpdateJSON)
+			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text", indexUpdateJSON)
 			t.Logf("submitted change-tokenization-%s task: %s", indexType, taskID)
-			awaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID)
+			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 			require.Eventually(t, func() bool {
 				return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
 					className, "text") == targetTok
@@ -451,10 +452,10 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	var taskID string
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = submitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
+			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
 				className, "text", `{"searchable":{"tokenization":"field"}}`)
 			t.Logf("submitted change-tokenization task: %s", taskID)
-			awaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID)
+			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 			require.Eventually(t, func() bool {
 				return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
 					className, "text") == "field"

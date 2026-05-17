@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 )
 
 // TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency
@@ -105,7 +106,7 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	// the FINALIZING window is correspondingly the widest among the
 	// migration types.
 	uri := restURIOf(compose, 1)
-	taskID := submitIndexUpdate(t, uri, className, "path",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted change-tokenization task %s", taskID)
 
@@ -138,7 +139,7 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	// the rehydrate path) — wait for FINISHED with the same 180s budget
 	// the rest of the suite uses. A failure here means the recovery
 	// path failed to re-emit acks on at least one node.
-	awaitReindexFinished(t, restURIOf(compose, 1), taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
 	t.Log("task FINISHED post-rolling-restart")
 
 	// Settle: testcontainers reallocates ports on stop+start, so
@@ -258,7 +259,7 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	}
 
 	uri := restURIOf(compose, 1)
-	taskID := submitIndexUpdate(t, uri, className, "path",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted change-tokenization task %s", taskID)
 
@@ -286,7 +287,7 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	// could already have committed before the kill, leaving node 3
 	// with divergent on-disk state on restart — the per-replica
 	// histogram below would catch that.
-	awaitReindexFinished(t, restURIOf(compose, 1), taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
 	t.Log("task FINISHED post-kill-and-restart")
 
 	// Settle for shard init + FinalizeCompletedMigrations on the

@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -126,7 +127,7 @@ func testEnableSearchable(t *testing.T, restURI string) {
 			queryRuns.Add(1)
 			if err != nil {
 				queryFailures.Add(1)
-			} else if !idsMatchUnordered(nameBaseline, ids) {
+			} else if !reindexhelpers.IdsMatchUnordered(nameBaseline, ids) {
 				queryFailures.Add(1)
 			}
 			time.Sleep(200 * time.Millisecond)
@@ -135,10 +136,10 @@ func testEnableSearchable(t *testing.T, restURI string) {
 
 	// Submit enable-searchable with tokenization=word so the BM25 queries
 	// below split on whitespace.
-	taskID := submitIndexUpdate(t, restURI, enableSearchableClassName, "description",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, enableSearchableClassName, "description",
 		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
 	t.Logf("submitted enable-searchable task for description: %s", taskID)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	close(stopCh)
 	wg.Wait()

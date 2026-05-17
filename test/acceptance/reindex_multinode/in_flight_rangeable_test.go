@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -159,14 +160,14 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 
 	// Submit enable-rangeable. We do this via the same handler the demo
 	// hits, so the on-the-wire shape matches the production failure.
-	taskID := submitIndexUpdate(t, restURIOf(compose, 1), className, "score",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURIOf(compose, 1), className, "score",
 		`{"rangeable":{"enabled":true}}`)
 	t.Logf("submitted enable-rangeable task: %s", taskID)
 
 	// Block until the migration has fully reached FINISHED. We then keep
 	// polling for a settle window — the schema flip RAFT can land on
 	// other nodes a moment after FINISHED.
-	awaitReindexFinished(t, restURIOf(compose, 1), taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Settle window: keep polling for 3 s after FINISHED. This catches
 	// the late-window race where one node's schema flip arrived but

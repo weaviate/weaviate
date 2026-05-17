@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -71,9 +72,9 @@ func testDeleteThenReEnableSearchableMultiCycle(t *testing.T, restURI string, cy
 	}
 
 	for cycle := 1; cycle <= cycles; cycle++ {
-		taskID := submitIndexUpdate(t, restURI, class, "body",
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
 			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		awaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		requireSearchableEnabled(t, class, "body")
 		require.GreaterOrEqual(t, bm25Hits(t, class, "fox"), 3,
 			"cycle %d/%d: post-enable bm25('fox') must return all 3 docs", cycle, cycles)
@@ -107,9 +108,9 @@ func testDeleteThenReEnableFilterableMultiCycle(t *testing.T, restURI string, cy
 	}
 
 	for cycle := 1; cycle <= cycles; cycle++ {
-		taskID := submitIndexUpdate(t, restURI, class, "name",
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 			`{"filterable":{"enabled":true}}`)
-		awaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		requireFilterableEnabled(t, class, "name")
 		require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha"),
 			"cycle %d/%d: post-enable Equal('alpha') must return 1", cycle, cycles)
@@ -142,9 +143,9 @@ func testDeleteThenReEnableRangeableMultiCycle(t *testing.T, restURI string, cyc
 	}
 
 	for cycle := 1; cycle <= cycles; cycle++ {
-		taskID := submitIndexUpdate(t, restURI, class, "score",
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
 			`{"rangeable":{"enabled":true}}`)
-		awaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		requireRangeableEnabled(t, class, "score")
 		require.Equal(t, 2, rangeFilterHits(t, class, "score", 30),
 			"cycle %d/%d: post-enable LessThan(30) must return 2", cycle, cycles)

@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -157,7 +158,7 @@ func TestRestartDuringSwap(t *testing.T) {
 	}
 
 	// Step 3: submit the change-tokenization reindex.
-	taskID := submitIndexUpdate(t, restURI, className, "description",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "description",
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 

@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -95,9 +96,9 @@ func testRepairRangeable(t *testing.T, restURI string) {
 	})
 
 	t.Run("RebuildSucceedsOnEnabledNumeric", func(t *testing.T) {
-		taskID := submitIndexUpdate(t, restURI, className, "score", `{"rangeable":{"rebuild":true}}`)
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score", `{"rangeable":{"rebuild":true}}`)
 		t.Logf("submitted repair-rangeable task: %s", taskID)
-		awaitReindexViaIndexes(t, restURI, className, "score", "rangeable")
-		awaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "score", "rangeable")
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	})
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -103,7 +104,7 @@ func TestConcurrentReindex(t *testing.T) {
 	// Submit change-tokenization on each text property.
 	for i := range numTextProps {
 		propName := fmt.Sprintf("text_%d", i)
-		taskID := submitIndexUpdate(t, restURI, collection, propName,
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, collection, propName,
 			`{"searchable":{"tokenization":"field"}}`)
 		tasks = append(tasks, taskInfo{taskID, propName, "change-tokenization"})
 		t.Logf("submitted change-tokenization for %s: %s", propName, taskID)
@@ -112,7 +113,7 @@ func TestConcurrentReindex(t *testing.T) {
 	// Submit enable-rangeable on each int property.
 	for i := range numIntProps {
 		propName := fmt.Sprintf("int_%d", i)
-		taskID := submitIndexUpdate(t, restURI, collection, propName,
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, collection, propName,
 			`{"rangeable":{"enabled":true}}`)
 		tasks = append(tasks, taskInfo{taskID, propName, "enable-rangeable"})
 		t.Logf("submitted enable-rangeable for %s: %s", propName, taskID)
@@ -175,7 +176,7 @@ func TestConcurrentReindex(t *testing.T) {
 	t.Run("ConflictRejection", func(t *testing.T) {
 		// Submit a change-tokenization for text_0 again (same property).
 		// Should succeed since the previous one finished.
-		taskID := submitIndexUpdate(t, restURI, collection, "text_0",
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, collection, "text_0",
 			`{"searchable":{"tokenization":"word"}}`)
 		t.Logf("submitted retokenize for text_0: %s", taskID)
 
@@ -234,16 +235,16 @@ func createCollectionWithManyProps(t *testing.T, restURI, collection string) {
 			Name:            fmt.Sprintf("text_%d", i),
 			DataType:        []string{"text"},
 			Tokenization:    "word",
-			IndexFilterable: boolPtr(true),
-			IndexSearchable: boolPtr(true),
+			IndexFilterable: reindexhelpers.BoolPtr(true),
+			IndexSearchable: reindexhelpers.BoolPtr(true),
 		})
 	}
 	for i := range numIntProps {
 		props = append(props, &models.Property{
 			Name:              fmt.Sprintf("int_%d", i),
 			DataType:          []string{"int"},
-			IndexFilterable:   boolPtr(true),
-			IndexRangeFilters: boolPtr(false),
+			IndexFilterable:   reindexhelpers.BoolPtr(true),
+			IndexRangeFilters: reindexhelpers.BoolPtr(false),
 		})
 	}
 
@@ -276,27 +277,6 @@ func importData(t *testing.T, restURI, collection string) {
 	}
 	helper.CreateObjectsBatch(t, objects)
 	t.Logf("imported %d objects", numObjectsSmall)
-}
-
-func submitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody string) string {
-	t.Helper()
-	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, property)
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader([]byte(jsonBody)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err, "index update request failed")
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusAccepted, resp.StatusCode,
-		"index update endpoint returned non-202: %s", string(respBody))
-
-	var result map[string]string
-	require.NoError(t, json.Unmarshal(respBody, &result))
-	return result["taskId"]
 }
 
 func awaitTask(t *testing.T, restURI, taskID string, timeout time.Duration) error {
@@ -365,8 +345,4 @@ func countWithEqualFilter(t *testing.T, restURI, collection, propName string, va
 	}
 	meta := items[0].(map[string]interface{})["meta"].(map[string]interface{})
 	return int(meta["count"].(float64))
-}
-
-func boolPtr(b bool) *bool {
-	return &b
 }

@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -40,8 +41,8 @@ func runChangeTokMigration(t *testing.T, compose *docker.DockerCompose, classNam
 	t.Helper()
 	restURI := compose.GetWeaviateNode(1).URI()
 	body := fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok)
-	taskID := submitIndexUpdate(t, restURI, className, propName, body)
-	awaitReindexFinished(t, restURI, taskID)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, propName, body)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, propName, targetTok)
 }
 
@@ -358,7 +359,7 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 	_ = recordBaselineCounts(t, compose, className, testBM25Queries) // pre-flight sanity
 
 	// Start the migration.
-	taskID := submitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text",
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted migration: %s", taskID)
 
@@ -369,7 +370,7 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 
 	// Wait for the migration to reach FINISHED on whichever node is
 	// reachable; awaitReindexFinished polls /v1/tasks.
-	awaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID)
+	reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// Per-replica consistency check: every node must return the same

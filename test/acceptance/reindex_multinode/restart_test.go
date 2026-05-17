@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 )
 
 func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
@@ -46,7 +47,7 @@ func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
 	}
 
 	// Submit reindex.
-	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Wait briefly then gracefully stop node 3.
@@ -59,7 +60,7 @@ func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
 	require.NoError(t, compose.StartAt(ctx, 2))
 
 	// Await FINISHED — scheduler will re-launch units on restarted node.
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify queries correct on all nodes.
 	for _, q := range testBM25Queries {
@@ -102,7 +103,7 @@ func TestMultiNode_CrashDuringReindex(t *testing.T) {
 	}
 
 	// Submit reindex.
-	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Wait briefly then crash node 3 ungracefully.
@@ -116,7 +117,7 @@ func TestMultiNode_CrashDuringReindex(t *testing.T) {
 	require.NoError(t, compose.StartAt(ctx, 2))
 
 	// Await FINISHED — scheduler will re-launch units on restarted node.
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify queries correct on all nodes.
 	for _, q := range testBM25Queries {
@@ -157,7 +158,7 @@ func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
 		baselines[q] = results
 	}
 
-	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Wait then crash majority (nodes 3 then 2).
@@ -176,7 +177,7 @@ func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
 	require.NoError(t, compose.StartAt(ctx, 2))
 
 	// Await FINISHED with longer timeout.
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify queries on all nodes.
 	for _, q := range testBM25Queries {
@@ -221,8 +222,8 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 	}
 
 	// Complete a reindex.
-	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Rolling restart all 3 nodes one at a time.
 	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {

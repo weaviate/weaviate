@@ -87,6 +87,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -144,8 +145,6 @@ type matrixPreState struct {
 	tokenization    string // empty = leave at server default
 }
 
-func boolPtr(b bool) *bool { return &b }
-
 // matrixPreStatesForText enumerates the meaningful pre-states for text:
 //
 //   - the 9 combinations of filterable {nil,false,true} × searchable
@@ -160,7 +159,7 @@ func matrixPreStatesForText() []matrixPreState {
 		name string
 		v    *bool
 	}{
-		{"nil", nil}, {"true", boolPtr(true)}, {"false", boolPtr(false)},
+		{"nil", nil}, {"true", reindexhelpers.BoolPtr(true)}, {"false", reindexhelpers.BoolPtr(false)},
 	}
 	for _, ff := range flagVals {
 		for _, sf := range flagVals {
@@ -175,9 +174,9 @@ func matrixPreStatesForText() []matrixPreState {
 		filt, srch *bool
 		fn, sn     string
 	}{
-		{boolPtr(true), boolPtr(false), "true", "false"},
-		{boolPtr(false), boolPtr(true), "false", "true"},
-		{boolPtr(true), boolPtr(true), "true", "true"},
+		{reindexhelpers.BoolPtr(true), reindexhelpers.BoolPtr(false), "true", "false"},
+		{reindexhelpers.BoolPtr(false), reindexhelpers.BoolPtr(true), "false", "true"},
+		{reindexhelpers.BoolPtr(true), reindexhelpers.BoolPtr(true), "true", "true"},
 	} {
 		for _, tok := range []string{
 			models.PropertyTokenizationLowercase,
@@ -202,7 +201,7 @@ func matrixPreStatesForNumeric() []matrixPreState {
 		name string
 		v    *bool
 	}{
-		{"nil", nil}, {"true", boolPtr(true)}, {"false", boolPtr(false)},
+		{"nil", nil}, {"true", reindexhelpers.BoolPtr(true)}, {"false", reindexhelpers.BoolPtr(false)},
 	}
 	for _, ff := range flagVals {
 		for _, rf := range flagVals {
@@ -221,8 +220,8 @@ func matrixPreStatesForNumeric() []matrixPreState {
 func matrixPreStatesForBoolUUID() []matrixPreState {
 	return []matrixPreState{
 		{name: "filt=nil", indexFilterable: nil},
-		{name: "filt=true", indexFilterable: boolPtr(true)},
-		{name: "filt=false", indexFilterable: boolPtr(false)},
+		{name: "filt=true", indexFilterable: reindexhelpers.BoolPtr(true)},
+		{name: "filt=false", indexFilterable: reindexhelpers.BoolPtr(false)},
 	}
 }
 
@@ -234,7 +233,7 @@ func matrixPreStatesForBoolUUID() []matrixPreState {
 func matrixPreStatesForSpecial() []matrixPreState {
 	return []matrixPreState{
 		{name: "filt=nil", indexFilterable: nil},
-		{name: "filt=false", indexFilterable: boolPtr(false)},
+		{name: "filt=false", indexFilterable: reindexhelpers.BoolPtr(false)},
 	}
 }
 

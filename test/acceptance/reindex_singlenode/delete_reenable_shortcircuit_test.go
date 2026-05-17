@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -82,9 +83,9 @@ func testDeleteThenReEnableShortCircuit(t *testing.T, restURI string) {
 
 	for cycle := 0; cycle < 3; cycle++ {
 		start := time.Now()
-		taskID := submitIndexUpdate(t, restURI, class, "body",
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
 			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		awaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		results[cycle].taskID = taskID
 		results[cycle].finishedT = time.Now()
 		results[cycle].duration = time.Since(start)

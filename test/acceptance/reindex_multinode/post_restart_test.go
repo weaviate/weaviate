@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 )
 
 // TestMultiNode_PostRestartMigration_NoStallPlateau asserts that a
@@ -96,7 +97,7 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 	// call: testcontainers reallocates ports across the
 	// stop+start in restartCluster, so pre-restart URIs are stale.
 	restURI := compose.GetWeaviateNode(1).URI()
-	taskID := submitIndexUpdate(t, restURI, className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"word"}}`)
 	t.Logf("submitted post-restart task: %s", taskID)
 
@@ -366,23 +367,23 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = submitIndexUpdate(t, uri1, className, "price",
+			tp = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
 				`{"rangeable":{"enabled":true}}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tc = submitIndexUpdate(t, uri1, className, "category",
+			tc = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
 				`{"filterable":{"enabled":true}}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tk = submitIndexUpdate(t, uri1, className, "path",
+			tk = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
 				`{"searchable":{"tokenization":"field"}}`)
 		}()
 		wg.Wait()
-		awaitReindexFinished(t, uri1, tp)
-		awaitReindexFinished(t, uri1, tc)
-		awaitReindexFinished(t, uri1, tk)
+		reindexhelpers.AwaitReindexFinished(t, uri1, tp, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tc, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second))
 	}
 	time.Sleep(3 * time.Second)
 
@@ -444,12 +445,12 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = submitIndexUpdate(t, uri1, className, "price",
+			tp = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
 				`{"rangeable":{"rebuild":true}}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tc = submitIndexUpdate(t, uri1, className, "category",
+			tc = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
 				`{"filterable":{"rebuild":true}}`)
 		}()
 		go func() {
@@ -457,15 +458,15 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 			// Flip tokenization back to word (the pre-Phase-2 value).
 			// This matches the migration shape from the original
 			// production-scale repro.
-			tk = submitIndexUpdate(t, uri1, className, "path",
+			tk = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
 				`{"searchable":{"tokenization":"word"}}`)
 		}()
 		wg.Wait()
 		t.Logf("submitted post-restart re-apply migrations: price=%s category=%s path=%s",
 			tp, tc, tk)
-		awaitReindexFinished(t, uri1, tp)
-		awaitReindexFinished(t, uri1, tc)
-		awaitReindexFinished(t, uri1, tk)
+		reindexhelpers.AwaitReindexFinished(t, uri1, tp, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tc, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second))
 	}
 	time.Sleep(3 * time.Second)
 

@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -107,7 +108,7 @@ func TestSingleNode_FinishedStatusRaceWithSchemaFlag(t *testing.T) {
 		require.NoError(t, helper.CreateObject(t, obj))
 	}
 
-	taskID := submitIndexUpdate(t, restURI, className, "filepath",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "filepath",
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 

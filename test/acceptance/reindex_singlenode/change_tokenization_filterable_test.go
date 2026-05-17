@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -88,9 +89,9 @@ func testFilterableTokenizationFilterableOnly(t *testing.T, restURI, dataType st
 		"pre-migration: Equal('alpha') with field tokenization must match exactly one object")
 
 	// Submit {"filterable":{"tokenization":"word"}} — the new body shape.
-	taskID := submitIndexUpdate(t, restURI, className, "name",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "name",
 		`{"filterable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// Schema flag: Tokenization must now be "word".
 	require.Eventually(t, func() bool {
@@ -136,7 +137,7 @@ func testSearchableTokenizationOnFilterableOnlyRejected(t *testing.T, restURI st
 	})
 	defer helper.DeleteClass(t, className)
 
-	resp := submitIndexUpdateExpectingError(t, restURI, className, "name",
+	resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, className, "name",
 		`{"searchable":{"tokenization":"word"}}`)
 	require.Equal(t, 400, resp.StatusCode,
 		"PUT {searchable:{tokenization:X}} on filterable-only must 400, not 5xx or 202")
@@ -163,7 +164,7 @@ func testFilterableTokenizationOnSearchableOnlyRejected(t *testing.T, restURI st
 	})
 	defer helper.DeleteClass(t, className)
 
-	resp := submitIndexUpdateExpectingError(t, restURI, className, "body",
+	resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, className, "body",
 		`{"filterable":{"tokenization":"field"}}`)
 	require.Equal(t, 400, resp.StatusCode,
 		"PUT {filterable:{tokenization:X}} on searchable-only must 400")
@@ -193,9 +194,9 @@ func testFilterableTokenizationOnBothIndexes(t *testing.T, restURI string) {
 		Class: className, Properties: map[string]interface{}{"name": "gamma"},
 	}))
 
-	taskID := submitIndexUpdate(t, restURI, className, "name",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "name",
 		`{"filterable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	require.Eventually(t, func() bool {
 		c := helper.GetClass(t, className)
@@ -227,7 +228,7 @@ func testFilterableTokenizationOnNonText(t *testing.T, restURI string) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	resp := submitIndexUpdateExpectingError(t, restURI, className, "score",
+	resp := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, className, "score",
 		`{"filterable":{"tokenization":"word"}}`)
 	require.Equal(t, 400, resp.StatusCode,
 		"PUT {filterable:{tokenization:X}} on a non-text property must 400")

@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -107,7 +108,7 @@ func testChangeTokenization(t *testing.T, restURI string) {
 					queryFailures.Add(1)
 					continue
 				}
-				if bq.property == "description" && !idsMatchUnordered(bl.ids, ids) {
+				if bq.property == "description" && !reindexhelpers.IdsMatchUnordered(bl.ids, ids) {
 					queryFailures.Add(1)
 				}
 			}
@@ -115,18 +116,18 @@ func testChangeTokenization(t *testing.T, restURI string) {
 			queryRuns.Add(1)
 			if err != nil {
 				queryFailures.Add(1)
-			} else if !idsMatchUnordered(filterEqualDescBaseline, ids) {
+			} else if !reindexhelpers.IdsMatchUnordered(filterEqualDescBaseline, ids) {
 				queryFailures.Add(1)
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 
-	taskID := submitIndexUpdate(t, restURI, retokenizeClassName, "filepath", `{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, retokenizeClassName, "filepath", `{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
-	awaitReindexViaIndexes(t, restURI, retokenizeClassName, "filepath", "searchable")
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, retokenizeClassName, "filepath", "searchable")
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	require.Eventually(t, func() bool {
 		cls := helper.GetClass(t, retokenizeClassName)

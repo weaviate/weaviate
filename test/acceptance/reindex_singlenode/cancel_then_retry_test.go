@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -104,8 +105,8 @@ func testCancelThenRetrySearchable(t *testing.T, restURI string) {
 	// Step 2: re-submit. Crux of the test — without cleanup of started.mig,
 	// the partial reindex/ingest sidecars, and the progress tracker, this
 	// either fails loudly or worse, "succeeds" with an empty bucket.
-	taskID := submitIndexUpdate(t, restURI, class, "body", requestBody)
-	awaitReindexFinished(t, restURI, taskID)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body", requestBody)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireSearchableEnabled(t, class, "body")
 
 	hits := bm25Hits(t, class, "retryfox")
@@ -141,8 +142,8 @@ func testCancelThenRetryFilterable(t *testing.T, restURI string) {
 
 	cancelInFlightOrSkip(t, restURI, class, "name", "filterable", requestBody)
 
-	taskID := submitIndexUpdate(t, restURI, class, "name", requestBody)
-	awaitReindexFinished(t, restURI, taskID)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name", requestBody)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireFilterableEnabled(t, class, "name")
 
 	hits := equalFilterHits(t, class, "name", "shared_name")
@@ -181,8 +182,8 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 
 	cancelInFlightOrSkip(t, restURI, class, "score", "rangeable", requestBody)
 
-	taskID := submitIndexUpdate(t, restURI, class, "score", requestBody)
-	awaitReindexFinished(t, restURI, taskID)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score", requestBody)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 	requireRangeableEnabled(t, class, "score")
 
 	expected := cancelObjectCount / 2
@@ -205,14 +206,14 @@ func testCancelThenRetryRangeable(t *testing.T, restURI string) {
 func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, requestBody string) bool {
 	t.Helper()
 
-	taskID := submitIndexUpdate(t, restURI, class, prop, requestBody)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, prop, requestBody)
 	t.Logf("submitted first task %s for cancel", taskID)
 
 	// Wait until the task is observable as pending/indexing on /indexes.
 	// 30s is generous: with cancelObjectCount=5000 the task does start
 	// within a few seconds on any sane hardware.
 	require.Eventually(t, func() bool {
-		resp := getIndexes(t, restURI, class)
+		resp := reindexhelpers.GetIndexes(t, restURI, class)
 		for _, p := range resp.Properties {
 			if p.Name != prop {
 				continue

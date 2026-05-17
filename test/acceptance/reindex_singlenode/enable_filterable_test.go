@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -133,7 +134,7 @@ func testEnableFilterable(t *testing.T, restURI string) {
 			queryRuns.Add(1)
 			if err != nil {
 				queryFailures.Add(1)
-			} else if !idsMatchUnordered(categoryBaseline, ids) {
+			} else if !reindexhelpers.IdsMatchUnordered(categoryBaseline, ids) {
 				queryFailures.Add(1)
 			}
 			time.Sleep(200 * time.Millisecond)
@@ -141,14 +142,14 @@ func testEnableFilterable(t *testing.T, restURI string) {
 	}()
 
 	// 1) Enable filterable on the int property.
-	taskID1 := submitIndexUpdate(t, restURI, enableFilterableClassName, "score", `{"filterable":{"enabled":true}}`)
+	taskID1 := reindexhelpers.SubmitIndexUpdate(t, restURI, enableFilterableClassName, "score", `{"filterable":{"enabled":true}}`)
 	t.Logf("submitted enable-filterable task for score: %s", taskID1)
-	awaitReindexFinished(t, restURI, taskID1)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1)
 
 	// 2) Enable filterable on the boolean property.
-	taskID2 := submitIndexUpdate(t, restURI, enableFilterableClassName, "available", `{"filterable":{"enabled":true}}`)
+	taskID2 := reindexhelpers.SubmitIndexUpdate(t, restURI, enableFilterableClassName, "available", `{"filterable":{"enabled":true}}`)
 	t.Logf("submitted enable-filterable task for available: %s", taskID2)
-	awaitReindexFinished(t, restURI, taskID2)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2)
 
 	close(stopCh)
 	wg.Wait()

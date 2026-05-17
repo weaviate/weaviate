@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -134,7 +134,7 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 					if err != nil {
 						queryFailures.Add(1)
 						t.Logf("node %d query %q error: %v", idx+1, q, err)
-					} else if !idsMatchUnordered(baselines[q][0], ids) {
+					} else if !reindexhelpers.IdsMatchUnordered(baselines[q][0], ids) {
 						queryFailures.Add(1)
 						t.Logf("node %d query %q mismatch", idx+1, q)
 					}
@@ -145,14 +145,14 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	}
 
 	// Submit reindex.
-	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Poll until reindex is done via /indexes endpoint.
-	awaitReindexViaIndexes(t, restURI, className, "text", "searchable")
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "text", "searchable", reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify task reached FINISHED state.
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Stop background queries.
 	close(stopCh)
@@ -196,18 +196,18 @@ func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 		baselines[q] = results
 	}
 
-	taskID := submitIndexUpdate(t, restURI, className, "text", `{"filterable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"filterable":{"rebuild":true}}`)
 
 	// Poll until reindex is done via /indexes endpoint.
-	awaitReindexViaIndexes(t, restURI, className, "text", "filterable")
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "text", "filterable", reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify task reached FINISHED state.
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify filterable index is healthy on all nodes via /indexes endpoint.
 	for i := 1; i <= 3; i++ {
 		nodeURI := compose.GetWeaviateNode(i).URI()
-		indexes := getIndexes(t, nodeURI, className)
+		indexes := reindexhelpers.GetIndexes(t, nodeURI, className)
 		for _, prop := range indexes.Properties {
 			if prop.Name == "text" {
 				for _, idx := range prop.Indexes {
@@ -244,13 +244,13 @@ func testEnableRangeable(t *testing.T, compose *docker.DockerCompose) {
 		importObjectWithScore(t, restURI, className, text, i+1)
 	}
 
-	taskID := submitIndexUpdate(t, restURI, className, "score", `{"rangeable":{"enabled":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score", `{"rangeable":{"enabled":true}}`)
 
 	// Poll until reindex is done via /indexes endpoint.
-	awaitReindexViaIndexes(t, restURI, className, "score", "rangeable")
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "score", "rangeable", reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify task reached FINISHED state.
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify schema on all nodes.
 	for i := 1; i <= 3; i++ {
@@ -298,13 +298,13 @@ func testChangeTokenization(t *testing.T, compose *docker.DockerCompose) {
 			"node %d: 'alpha' with WORD should match multiple docs", i)
 	}
 
-	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"tokenization":"field"}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"tokenization":"field"}}`)
 
 	// Poll until reindex is done via /indexes endpoint.
-	awaitReindexViaIndexes(t, restURI, className, "text", "searchable")
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "text", "searchable", reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify task reached FINISHED state.
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// For semantic migrations (change-tokenization), the swap phase runs
 	// asynchronously via OnGroupCompleted on the next scheduler tick AFTER
@@ -387,7 +387,7 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 					if err != nil {
 						queryFailures.Add(1)
 						t.Logf("node %d query %q error: %v", idx+1, q, err)
-					} else if !idsMatchUnordered(baselines[q][0], ids) {
+					} else if !reindexhelpers.IdsMatchUnordered(baselines[q][0], ids) {
 						queryFailures.Add(1)
 						t.Logf("node %d query %q mismatch: expected %d got %d",
 							idx+1, q, len(baselines[q][0]), len(ids))
@@ -399,10 +399,10 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 	}
 
 	// Submit reindex (repair-searchable — the most common type).
-	taskID := submitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Continue queries for several consecutive successful rounds after
 	// completion to catch post-swap transients.
@@ -414,7 +414,7 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 			for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
 				nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
 				ids, err := runBM25QueryOnNode(t, nodeURI, className, q)
-				if err != nil || !idsMatchUnordered(baselines[q][0], ids) {
+				if err != nil || !reindexhelpers.IdsMatchUnordered(baselines[q][0], ids) {
 					allOK = false
 					break
 				}
@@ -483,23 +483,4 @@ func importObjectWithScore(t *testing.T, restURI, className, text string, score 
 	respBody, _ := io.ReadAll(resp.Body)
 	require.Equal(t, http.StatusOK, resp.StatusCode,
 		"import object failed: %s", string(respBody))
-}
-
-// idsMatchUnordered compares two slices of IDs without regard to order.
-func idsMatchUnordered(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	aSorted := make([]string, len(a))
-	bSorted := make([]string, len(b))
-	copy(aSorted, a)
-	copy(bSorted, b)
-	sort.Strings(aSorted)
-	sort.Strings(bSorted)
-	for i := range aSorted {
-		if aSorted[i] != bSorted[i] {
-			return false
-		}
-	}
-	return true
 }

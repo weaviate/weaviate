@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -103,7 +104,7 @@ func testEnableRangeable(t *testing.T, restURI string) {
 				queryRuns.Add(1)
 				if err != nil {
 					queryFailures.Add(1)
-				} else if !idsMatchUnordered(bl.ids, ids) {
+				} else if !reindexhelpers.IdsMatchUnordered(bl.ids, ids) {
 					queryFailures.Add(1)
 				}
 			}
@@ -111,15 +112,15 @@ func testEnableRangeable(t *testing.T, restURI string) {
 		}
 	}()
 
-	taskID1 := submitIndexUpdate(t, restURI, rangeableClassName, "score", `{"rangeable":{"enabled":true}}`)
+	taskID1 := reindexhelpers.SubmitIndexUpdate(t, restURI, rangeableClassName, "score", `{"rangeable":{"enabled":true}}`)
 	t.Logf("submitted reindex task for score: %s", taskID1)
-	awaitReindexViaIndexes(t, restURI, rangeableClassName, "score", "rangeable")
-	awaitReindexFinished(t, restURI, taskID1)
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, rangeableClassName, "score", "rangeable")
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1)
 
-	taskID2 := submitIndexUpdate(t, restURI, rangeableClassName, "price", `{"rangeable":{"enabled":true}}`)
+	taskID2 := reindexhelpers.SubmitIndexUpdate(t, restURI, rangeableClassName, "price", `{"rangeable":{"enabled":true}}`)
 	t.Logf("submitted reindex task for price: %s", taskID2)
-	awaitReindexViaIndexes(t, restURI, rangeableClassName, "price", "rangeable")
-	awaitReindexFinished(t, restURI, taskID2)
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, rangeableClassName, "price", "rangeable")
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2)
 
 	close(stopCh)
 	wg.Wait()

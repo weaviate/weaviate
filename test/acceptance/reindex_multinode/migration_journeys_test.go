@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 )
 
 // TestMultiNode_BackToBackChangeTokenization_RoundTripCounts asserts
@@ -133,10 +134,10 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 
 	// === Step 4: change-tokenization to FIELD.
 	uri1 := restURIOf(compose, 1)
-	task1 := submitIndexUpdate(t, uri1, className, "path",
+	task1 := reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("change-tokenization → field: task=%s", task1)
-	awaitReindexFinished(t, uri1, task1)
+	reindexhelpers.AwaitReindexFinished(t, uri1, task1, reindexhelpers.WithTimeout(180*time.Second))
 	time.Sleep(3 * time.Second)
 
 	// === Step 5: every replica must serve the FIELD count.
@@ -150,10 +151,10 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 	}
 
 	// === Step 6: change-tokenization back to WORD.
-	task2 := submitIndexUpdate(t, uri1, className, "path",
+	task2 := reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
 		`{"searchable":{"tokenization":"word"}}`)
 	t.Logf("change-tokenization → word (round-trip): task=%s", task2)
-	awaitReindexFinished(t, uri1, task2)
+	reindexhelpers.AwaitReindexFinished(t, uri1, task2, reindexhelpers.WithTimeout(180*time.Second))
 	time.Sleep(3 * time.Second)
 
 	// === Step 7: every replica must serve the WORD baseline again.
@@ -303,23 +304,23 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = submitIndexUpdate(t, uri, className, "price",
+			tp = reindexhelpers.SubmitIndexUpdate(t, uri, className, "price",
 				`{"rangeable":{"enabled":true}}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tc = submitIndexUpdate(t, uri, className, "category",
+			tc = reindexhelpers.SubmitIndexUpdate(t, uri, className, "category",
 				`{"filterable":{"enabled":true}}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tk = submitIndexUpdate(t, uri, className, "path",
+			tk = reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
 				`{"searchable":{"tokenization":"field"}}`)
 		}()
 		wg.Wait()
-		awaitReindexFinished(t, uri, tp)
-		awaitReindexFinished(t, uri, tc)
-		awaitReindexFinished(t, uri, tk)
+		reindexhelpers.AwaitReindexFinished(t, uri, tp, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri, tc, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri, tk, reindexhelpers.WithTimeout(180*time.Second))
 	}
 	time.Sleep(2 * time.Second)
 
@@ -342,23 +343,23 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = submitIndexUpdate(t, uri, className, "price",
+			tp = reindexhelpers.SubmitIndexUpdate(t, uri, className, "price",
 				`{"rangeable":{"rebuild":true}}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tc = submitIndexUpdate(t, uri, className, "category",
+			tc = reindexhelpers.SubmitIndexUpdate(t, uri, className, "category",
 				`{"filterable":{"rebuild":true}}`)
 		}()
 		go func() {
 			defer wg.Done()
-			tk = submitIndexUpdate(t, uri, className, "path",
+			tk = reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
 				fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, nextTok))
 		}()
 		wg.Wait()
-		awaitReindexFinished(t, uri, tp)
-		awaitReindexFinished(t, uri, tc)
-		awaitReindexFinished(t, uri, tk)
+		reindexhelpers.AwaitReindexFinished(t, uri, tp, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri, tc, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri, tk, reindexhelpers.WithTimeout(180*time.Second))
 		time.Sleep(2 * time.Second)
 	}
 

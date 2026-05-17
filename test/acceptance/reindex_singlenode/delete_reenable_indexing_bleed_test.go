@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -60,9 +61,9 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 		}
 
 		// Cycle 1: enable → wait FINISHED → DELETE.
-		taskID := submitIndexUpdate(t, restURI, class, "body",
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
 			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		awaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		requireSearchableEnabled(t, class, "body")
 		deleteIndex(t, restURI, class, "body", "searchable")
 
@@ -76,7 +77,7 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 		// to propagate. Use a tight window (5s) — the bug surfaces
 		// immediately, the fix lets the poll converge inside the window.
 		require.Eventually(t, func() bool {
-			resp := getIndexes(t, restURI, class)
+			resp := reindexhelpers.GetIndexes(t, restURI, class)
 			for _, prop := range resp.Properties {
 				if prop.Name != "body" {
 					continue
@@ -99,16 +100,16 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 
 		// Cycle 2: enable again. After this cycle's FINISHED+DELETE, the
 		// bleed reproduces with two stale FINISHED tasks competing.
-		taskID = submitIndexUpdate(t, restURI, class, "body",
+		taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
 			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		awaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		requireSearchableEnabled(t, class, "body")
 		deleteIndex(t, restURI, class, "body", "searchable")
 
 		// Same assertion after cycle 2's DELETE — the bleed must NOT appear
 		// even with multiple FINISHED tasks in DTM history.
 		require.Eventually(t, func() bool {
-			resp := getIndexes(t, restURI, class)
+			resp := reindexhelpers.GetIndexes(t, restURI, class)
 			for _, prop := range resp.Properties {
 				if prop.Name != "body" {
 					continue
@@ -127,14 +128,14 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 
 		// Cycle 3: enable again. After this cycle's FINISHED+DELETE, three
 		// stale FINISHED tasks accumulate.
-		taskID = submitIndexUpdate(t, restURI, class, "body",
+		taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
 			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		awaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 		requireSearchableEnabled(t, class, "body")
 		deleteIndex(t, restURI, class, "body", "searchable")
 
 		require.Eventually(t, func() bool {
-			resp := getIndexes(t, restURI, class)
+			resp := reindexhelpers.GetIndexes(t, restURI, class)
 			for _, prop := range resp.Properties {
 				if prop.Name != "body" {
 					continue
@@ -172,14 +173,14 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 
 		// Two enable→DELETE cycles, then assert no bleed.
 		for cycle := 1; cycle <= 2; cycle++ {
-			taskID := submitIndexUpdate(t, restURI, class, "name",
+			taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 				`{"filterable":{"enabled":true}}`)
-			awaitReindexFinished(t, restURI, taskID)
+			reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 			requireFilterableEnabled(t, class, "name")
 			deleteIndex(t, restURI, class, "name", "filterable")
 
 			require.Eventually(t, func() bool {
-				resp := getIndexes(t, restURI, class)
+				resp := reindexhelpers.GetIndexes(t, restURI, class)
 				for _, prop := range resp.Properties {
 					if prop.Name != "name" {
 						continue
@@ -222,14 +223,14 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 		// post-DELETE invariant is the same: no synthetic entry must
 		// surface for the deleted index.
 		for cycle := 1; cycle <= 2; cycle++ {
-			taskID := submitIndexUpdate(t, restURI, class, "score",
+			taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
 				`{"rangeable":{"enabled":true}}`)
-			awaitReindexFinished(t, restURI, taskID)
+			reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 			requireRangeableEnabled(t, class, "score")
 			deleteIndex(t, restURI, class, "score", "rangeFilters")
 
 			require.Eventually(t, func() bool {
-				resp := getIndexes(t, restURI, class)
+				resp := reindexhelpers.GetIndexes(t, restURI, class)
 				for _, prop := range resp.Properties {
 					if prop.Name != "score" {
 						continue

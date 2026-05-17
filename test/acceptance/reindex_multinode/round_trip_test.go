@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -79,15 +80,15 @@ func TestMultiNode_ChangeTokenization_RoundTrip(t *testing.T) {
 	}
 
 	// word → field.
-	taskID := submitIndexUpdate(t, restURI, className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"field"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// field → word.
-	taskID = submitIndexUpdate(t, restURI, className, "text",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	// Per-node assertion: every replica must return the baseline count for

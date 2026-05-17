@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -256,9 +257,9 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// T1: word → field.
-	taskID := submitIndexUpdate(t, restURI, className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"field"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// Restart every node, one at a time, so FinalizeCompletedMigrations
@@ -285,9 +286,9 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	restURI = compose.GetWeaviateNode(1).URI()
 
 	// T2: field → word.
-	taskID = submitIndexUpdate(t, restURI, className, "text",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	assertPerReplicaConsistent(t, compose, className, testBM25Queries, baselines,
@@ -329,15 +330,15 @@ func TestMultiNode_ChangeTokenization_MTRoundTrip(t *testing.T) {
 	}
 
 	// word → field.
-	taskID := submitIndexUpdate(t, restURI, className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"field"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// field → word.
-	taskID = submitIndexUpdate(t, restURI, className, "text",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	var failures []string
@@ -394,18 +395,18 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		titleTaskID = submitIndexUpdate(t, restURI, className, "title",
+		titleTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
 			`{"searchable":{"tokenization":"field"}}`)
 	}()
 	go func() {
 		defer wg.Done()
-		bodyTaskID = submitIndexUpdate(t, restURI, className, "body",
+		bodyTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
 			`{"searchable":{"tokenization":"field"}}`)
 	}()
 	wg.Wait()
 
-	awaitReindexFinished(t, restURI, titleTaskID)
-	awaitReindexFinished(t, restURI, bodyTaskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, titleTaskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, bodyTaskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "field")
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "field")
 
@@ -413,18 +414,18 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		titleTaskID = submitIndexUpdate(t, restURI, className, "title",
+		titleTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
 			`{"searchable":{"tokenization":"word"}}`)
 	}()
 	go func() {
 		defer wg.Done()
-		bodyTaskID = submitIndexUpdate(t, restURI, className, "body",
+		bodyTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
 			`{"searchable":{"tokenization":"word"}}`)
 	}()
 	wg.Wait()
 
-	awaitReindexFinished(t, restURI, titleTaskID)
-	awaitReindexFinished(t, restURI, bodyTaskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, titleTaskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, bodyTaskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "word")
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "word")
 
@@ -507,9 +508,9 @@ func testRoundTripNRounds(
 	currentTok := startTok
 	for roundIdx, targetTok := range sequence {
 		t.Logf("round %d/%d: %s → %s", roundIdx+1, len(sequence), currentTok, targetTok)
-		taskID := submitIndexUpdate(t, restURI, className, "text",
+		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 			fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok))
-		awaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 		awaitTokenizationOnAllNodes(t, compose, className, "text", targetTok)
 		currentTok = targetTok
 
@@ -548,23 +549,23 @@ func testMultiPropertyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	baselinesBody := captureBaselineCounts(t, compose, className, "body", testBM25Queries)
 
 	// Sequential round-trip on title.
-	taskID := submitIndexUpdate(t, restURI, className, "title",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
 		`{"searchable":{"tokenization":"field"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "field")
-	taskID = submitIndexUpdate(t, restURI, className, "title",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
 		`{"searchable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "word")
 
 	// Then on body.
-	taskID = submitIndexUpdate(t, restURI, className, "body",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
 		`{"searchable":{"tokenization":"field"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "field")
-	taskID = submitIndexUpdate(t, restURI, className, "body",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
 		`{"searchable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "word")
 
 	// Poll both properties' per-replica counts until they match the
@@ -633,15 +634,15 @@ func testFilterableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	}
 
 	// word → field via change-tokenization-filterable body shape.
-	taskID := submitIndexUpdate(t, restURI, className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"filterable":{"tokenization":"field"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// field → word.
-	taskID = submitIndexUpdate(t, restURI, className, "text",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"filterable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	// Poll Equal-filter per-replica counts until they match baseline.
@@ -691,14 +692,14 @@ func testSearchableOnlyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 
 	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
-	taskID := submitIndexUpdate(t, restURI, className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"field"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
-	taskID = submitIndexUpdate(t, restURI, className, "text",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	assertPerReplicaConsistent(t, compose, className, testBM25Queries, baselines,
@@ -726,9 +727,9 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	baselines := waitForPerReplicaBaseline(t, compose, className, testBM25Queries)
 
 	// Step 1: enable filterable. This writes a tidied.mig per-prop.
-	taskID := submitIndexUpdate(t, restURI, className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"filterable":{"enabled":true}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	require.Eventually(t, func() bool {
 		cls := getClassFromNode(t, restURI, className)
 		for _, p := range cls.Properties {
@@ -744,15 +745,15 @@ func testEnableFilterableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	// Hypothesis: enable-filterable's tidied.mig poisons the new
 	// change-tok migration dir state, leaving N-1 replicas with empty
 	// post-swap buckets.
-	taskID = submitIndexUpdate(t, restURI, className, "text",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"field"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// Step 3: round-trip back to word.
-	taskID = submitIndexUpdate(t, restURI, className, "text",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	assertPerReplicaConsistent(t, compose, className, testBM25Queries, baselines,
@@ -790,9 +791,9 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	// is also tokenized and must agree (see
 	// validateEnableSearchableProperty in handlers_reindex.go). We pick
 	// `word` to match the seed schema.
-	taskID := submitIndexUpdate(t, restURI, className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	require.Eventually(t, func() bool {
 		cls := getClassFromNode(t, restURI, className)
 		for _, p := range cls.Properties {
@@ -819,15 +820,15 @@ func testEnableSearchableThenChangeTok(t *testing.T, compose *docker.DockerCompo
 	// state. A second `{"searchable":{"tokenization":"field"}}` would be
 	// rejected by validateTokenizationChange ("already uses tokenization
 	// X") because the schema flip from step 2 already landed.
-	taskID = submitIndexUpdate(t, restURI, className, "text",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"filterable":{"tokenization":"field"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// Step 3: back to word via filterable. Same single-request shape.
-	taskID = submitIndexUpdate(t, restURI, className, "text",
+	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
 		`{"filterable":{"tokenization":"word"}}`)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	// Poll until both filterable (Equal) and searchable (BM25) per-replica

@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/weaviate/weaviate/entities/models"
+	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -141,10 +142,10 @@ func testTornResumeEnableRangeable(t *testing.T, restURI string, container testc
 	migDir := "filterable_to_rangeable_score"
 	plantTornSentinels(t, container, class, migDir, []string{"score"})
 
-	taskID := submitIndexUpdate(t, restURI, class, "score",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
 		`{"rangeable":{"enabled":true}}`)
 	t.Logf("torn-resume rangeable: submitted task %s with planted torn sentinels", taskID)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// Functional check: half the objects have score<50, half score>50.
 	expected := tornResumeObjectCount / 2
@@ -196,10 +197,10 @@ func testTornResumeRepairFilterable(t *testing.T, restURI string, container test
 	migDir := "filterable_roaringset_refresh"
 	plantTornSentinels(t, container, class, migDir, []string{"name"})
 
-	taskID := submitIndexUpdate(t, restURI, class, "name",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 		`{"filterable":{"rebuild":true}}`)
 	t.Logf("torn-resume repair-filterable: submitted task %s with planted torn sentinels", taskID)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	hits := equalFilterHits(t, class, "name", "shared_repair_name")
 	require.Equal(t, tornResumeObjectCount, hits,
@@ -234,10 +235,10 @@ func testTornResumeEnableFilterable(t *testing.T, restURI string, container test
 	migDir := "enable_filterable_name"
 	plantTornSentinels(t, container, class, migDir, []string{"name"})
 
-	taskID := submitIndexUpdate(t, restURI, class, "name",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 		`{"filterable":{"enabled":true}}`)
 	t.Logf("torn-resume enable-filterable: submitted task %s with planted torn sentinels", taskID)
-	awaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// Verify schema flag flipped.
 	requireFilterableEnabled(t, class, "name")
