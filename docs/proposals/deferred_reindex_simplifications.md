@@ -77,6 +77,9 @@ move discovery out of `getPropsToReindex` entirely (let the
 
 ---
 
-_Captured 2026-05-12 during the simplification pass that followed the
-runtime-reindex investigation. See branch `runtime-reindex-wip` for the
-12 simplifications that were applied._
+_Each of the three deferrals above was re-evaluated for the v1.38
+Preview merge of runtime reindex and kept deferred. Items 1 and 2
+remain risk-gated on the same crash-recovery / hot-path concerns the
+original deferral documented; item 3 stays as-is per its own
+recommendation. Future re-evaluations should append a dated note rather
+than rewriting this footer — the deferral history is the value._
