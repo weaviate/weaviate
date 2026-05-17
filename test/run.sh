@@ -50,6 +50,8 @@ function main() {
   run_acceptance_reindex_multinode_scale=false
   run_acceptance_reindex_multinode_changetok=false
   run_acceptance_reindex_singlenode=false
+  run_acceptance_reindex_concurrent=false
+  run_acceptance_reindex_mt=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -98,6 +100,8 @@ function main() {
           --acceptance-reindex-multinode-scale|-arms) run_all_tests=false; run_acceptance_reindex_multinode_scale=true;;
           --acceptance-reindex-multinode-changetok|-armct) run_all_tests=false; run_acceptance_reindex_multinode_changetok=true;;
           --acceptance-reindex-singlenode|-ars) run_all_tests=false; run_acceptance_reindex_singlenode=true;;
+          --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
+          --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -136,6 +140,8 @@ function main() {
               "--acceptance-reindex-multinode-scale | -arms"\
               "--acceptance-reindex-multinode-changetok | -armct"\
               "--acceptance-reindex-singlenode | -ars"\
+              "--acceptance-reindex-concurrent | -arc"\
+              "--acceptance-reindex-mt | -armt"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -292,6 +298,16 @@ function main() {
   if $run_acceptance_reindex_singlenode; then
     echo "running reindex singlenode acceptance tests"
     run_acceptance_reindex_singlenode
+  fi
+
+  if $run_acceptance_reindex_concurrent; then
+    echo "running reindex concurrent acceptance tests"
+    run_acceptance_reindex_concurrent
+  fi
+
+  if $run_acceptance_reindex_mt; then
+    echo "running reindex multi-tenant acceptance tests"
+    run_acceptance_reindex_mt
   fi
   echo "Done!"
 }
@@ -783,11 +799,54 @@ function run_acceptance_reindex_singlenode() {
     weaviate
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   echo_green "acceptance — reindex-singlenode"
+  # Previously this bundled reindex_concurrent + reindex_mt +
+  # distributed_tasks, pushing wall-clock to 19+ min and DUPLICATING
+  # distributed_tasks (which has its own --acceptance-distributed-tasks
+  # shard at line ~384). Per 0-weaviate-issues#223 the bundle is split:
+  # reindex_concurrent → -arc shard, reindex_mt → -armt shard,
+  # distributed_tasks → removed (already covered by -adt). This shard
+  # now runs ONLY the reindex_singlenode package.
   run_aof_group "reindex-singlenode" \
-    test/acceptance/reindex_singlenode \
-    test/acceptance/reindex_concurrent \
-    test/acceptance/reindex_mt \
-    test/acceptance/distributed_tasks
+    test/acceptance/reindex_singlenode
+}
+
+function run_acceptance_reindex_concurrent() {
+  echo_green "acceptance — reindex-concurrent: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  echo_green "acceptance — reindex-concurrent"
+  # Concurrency tests (TestConcurrentReindex, TestParallelConflictMatrix,
+  # TestParallelEnableFilterableAndRangeable). TestParallelConflictMatrix
+  # historically runs the longest of the three — see task #27 history on
+  # the post-#11320 CI red investigation. Split out of the singlenode
+  # bundle for fast feedback (0-weaviate-issues#223).
+  run_aof_group "reindex-concurrent" \
+    test/acceptance/reindex_concurrent
+}
+
+function run_acceptance_reindex_mt() {
+  echo_green "acceptance — reindex-mt: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  echo_green "acceptance — reindex-mt"
+  # Multi-tenant reindex suite (single top-level test
+  # TestMultiTenant_ReindexSuite with many subtests).  Split out of the
+  # singlenode bundle so reindex_singlenode's wall-clock is no longer
+  # gated on this suite's duration (0-weaviate-issues#223).
+  run_aof_group "reindex-mt" \
+    test/acceptance/reindex_mt
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
