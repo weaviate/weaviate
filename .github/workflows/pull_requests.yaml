@@ -736,8 +736,22 @@ jobs:
             test: "--acceptance-reindex-multinode-aj"
           - name: "reindex-multinode-rm"
             test: "--acceptance-reindex-multinode-rm"
-          - name: "reindex-singlenode"
-            test: "--acceptance-reindex-singlenode"
+          - name: "reindex-multinode-restart-a"
+            test: "--acceptance-reindex-multinode-restart-a"
+          - name: "reindex-multinode-restart-b"
+            test: "--acceptance-reindex-multinode-restart-b"
+          - name: "reindex-multinode-scale"
+            test: "--acceptance-reindex-multinode-scale"
+          - name: "reindex-multinode-changetok"
+            test: "--acceptance-reindex-multinode-changetok"
+          - name: "reindex-singlenode-a"
+            test: "--acceptance-reindex-singlenode-a"
+          - name: "reindex-singlenode-b"
+            test: "--acceptance-reindex-singlenode-b"
+          - name: "reindex-concurrent"
+            test: "--acceptance-reindex-concurrent"
+          - name: "reindex-mt"
+            test: "--acceptance-reindex-mt"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
@@ -764,7 +778,7 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" || "$MATRIX_TEST" == "reindex-multinode" || "$MATRIX_TEST" == "reindex-multinode-aj" || "$MATRIX_TEST" == "reindex-multinode-rm" || "$MATRIX_TEST" == "reindex-singlenode" ]]; then
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" || "$MATRIX_TEST" == "reindex-multinode" || "$MATRIX_TEST" == "reindex-multinode-aj" || "$MATRIX_TEST" == "reindex-multinode-rm" || "$MATRIX_TEST" == "reindex-multinode-restart-a" || "$MATRIX_TEST" == "reindex-multinode-restart-b" || "$MATRIX_TEST" == "reindex-multinode-scale" || "$MATRIX_TEST" == "reindex-multinode-changetok" || "$MATRIX_TEST" == "reindex-singlenode-a" || "$MATRIX_TEST" == "reindex-singlenode-b" || "$MATRIX_TEST" == "reindex-concurrent" || "$MATRIX_TEST" == "reindex-mt" ]]; then
             echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
