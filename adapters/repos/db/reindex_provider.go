@@ -1048,32 +1048,24 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		// flipping its bucket pointer (e.g. ctx.Canceled during graceful
 		// shutdown, or rehydrate failures across the board), the
 		// overlay-vs-bucket alignment INVERTS — overlay=NEW but every
-		// bucket is still OLD. In that case we must clear the overlay
-		// after the swap loop, otherwise the migration's FAILED
-		// transition leaves the overlay permanently stuck (no schema
-		// flip fires → no OnTaskCompleted clear → live-schema-catchup
-		// self-clear never triggers because schema stays OLD). The
-		// post-loop `!anySwapped` branch below handles this. Partial-
-		// success (≥ 1 sub-task swap succeeded → ≥ 1 bucket flipped)
-		// keeps the overlay set — the property's bucket(s) are at the
-		// new tokenization for the swapped index types, and operator
-		// repair from #221's logging path covers the half-applied case.
+		// bucket is still OLD. The post-loop
+		// maybeClearTokenizationOverlayOnAllFailed call handles this
+		// (clears iff wasSet && !anySwapped). Partial-success
+		// (≥ 1 sub-task swap succeeded → ≥ 1 bucket flipped) keeps the
+		// overlay set — the swapped index type's bucket(s) are aligned,
+		// and operator repair from #221's logging path covers the
+		// half-applied case.
 		//
 		// LazyLoadShard wrapping: production shards can be
-		// *LazyLoadShard rather than *Shard. Use unwrapShard so the
+		// *LazyLoadShard rather than *Shard. unwrapShard ensures the
 		// overlay always reaches the concrete shard storage.
 		setShard, setUnwrapErr := unwrapShard(ctx, shard)
-		setOverlay := IsTokenizationChangingMigration(payload.MigrationType) &&
-			payload.TargetTokenization != "" && setUnwrapErr == nil
-		if setOverlay {
-			for _, propName := range payload.Properties {
-				setShard.SetTokenizationOverlay(propName, payload.TargetTokenization)
-			}
-		} else if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
+		if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
 			logger.WithField("unit", unitID).WithField("shard", shardName).
 				WithError(setUnwrapErr).
 				Warn("reindex provider: cannot set tokenization overlay — shard unwrap failed; queries during FINALIZING window may observe pre-#216 misalignment")
 		}
+		overlayWasSet := maybeSetTokenizationOverlayPreSwap(setShard, payload)
 
 		allSwapped := true
 		anySwapped := false
@@ -1104,18 +1096,11 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		}
 
 		// 0-weaviate-issues#216 Gap B: defensive clear when NO swap
-		// succeeded on this shard. Without this, an all-failed swap
-		// path leaves the overlay set against unchanged buckets —
-		// permanent misalignment until manual repair, because the
-		// migration's FAILED transition skips the cluster-wide schema
-		// flip and the explicit OnTaskCompleted clear hook never runs.
-		// Partial success is left intact: at least one sub-task's
-		// bucket pointer flipped, so the overlay still aligns with
-		// that index type's content.
-		if setOverlay && !anySwapped {
-			for _, propName := range payload.Properties {
-				setShard.ClearTokenizationOverlay(propName)
-			}
+		// succeeded on this shard. See
+		// [maybeClearTokenizationOverlayOnAllFailed] godoc for the full
+		// rationale; this call is the matching post-loop counterpart
+		// to maybeSetTokenizationOverlayPreSwap above.
+		if maybeClearTokenizationOverlayOnAllFailed(setShard, payload, overlayWasSet, anySwapped) {
 			logger.WithField("unit", unitID).WithField("shard", shardName).
 				Debug("reindex provider: cleared tokenization overlay — every swap sub-task failed; no bucket pointer was flipped on this shard")
 		}
@@ -1678,6 +1663,76 @@ func IsSemanticMigration(mt ReindexMigrationType) bool {
 func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable
+}
+
+// maybeSetTokenizationOverlayPreSwap is the #216 Gap B SET hook —
+// called by [OnGroupCompleted] just BEFORE the per-task swap loop
+// kicks off on a shard. It records the per-shard query-time
+// tokenization override for every property in the payload iff this
+// is a tokenization-changing migration with a non-empty target
+// tokenization. Returns true iff the overlay was written, so the
+// caller can match the [maybeClearTokenizationOverlayOnAllFailed]
+// decision after the swap loop.
+//
+// Extracted from OnGroupCompleted's per-shard branch to keep the
+// Gap B set/clear lifecycle unit-testable without standing up a
+// full provider + DB + index. See
+// [maybeClearTokenizationOverlayOnAllFailed] for the post-loop
+// counterpart and the all-failed defensive-clear rationale.
+func maybeSetTokenizationOverlayPreSwap(shard *Shard, payload *ReindexTaskPayload) bool {
+	if shard == nil || payload == nil {
+		return false
+	}
+	if !IsTokenizationChangingMigration(payload.MigrationType) {
+		return false
+	}
+	if payload.TargetTokenization == "" {
+		return false
+	}
+	for _, propName := range payload.Properties {
+		shard.SetTokenizationOverlay(propName, payload.TargetTokenization)
+	}
+	return true
+}
+
+// maybeClearTokenizationOverlayOnAllFailed is the #216 Gap B
+// defensive CLEAR hook — called by [OnGroupCompleted] AFTER the
+// per-task swap loop on a shard. It clears the per-shard tokenization
+// overlay iff (a) the overlay was set pre-swap by
+// [maybeSetTokenizationOverlayPreSwap] (the `wasSet` argument) AND
+// (b) every per-task swap failed before flipping its bucket pointer
+// (the `anySwapped` argument is false).
+//
+// Without this clear, an all-failed swap path leaves the overlay
+// set against unchanged OLD buckets — the migration's FAILED
+// transition then skips the cluster-wide schema flip, so neither
+// [OnTaskCompleted]'s explicit clear nor [Shard.TokenizationFor]'s
+// self-clear-on-catchup will ever fire (the live schema stays OLD
+// and never matches the overlay's NEW value). Permanent
+// misalignment until operator repair.
+//
+// Partial success (≥ 1 per-task swap returned nil → ≥ 1 bucket
+// pointer flipped) is intentionally left intact: the overlay
+// aligns with the swapped index type's content, which is strictly
+// better than letting partially-flipped buckets misroute against
+// the OLD schema tokenization. The partial-success case surfaces
+// through #221's FAILED-task repair_command log line.
+//
+// Returns true iff the clear was actually applied (for tests +
+// observability).
+func maybeClearTokenizationOverlayOnAllFailed(
+	shard *Shard, payload *ReindexTaskPayload, wasSet, anySwapped bool,
+) bool {
+	if shard == nil || payload == nil {
+		return false
+	}
+	if !wasSet || anySwapped {
+		return false
+	}
+	for _, propName := range payload.Properties {
+		shard.ClearTokenizationOverlay(propName)
+	}
+	return true
 }
 
 // WaitForLocalTaskDrain blocks until the local goroutine processing the
