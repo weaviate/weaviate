@@ -374,26 +374,35 @@ type Shard struct {
 	// Query input gets tokenized against OLD; lookup hits NEW bucket; counts
 	// don't match. Frontend Claude's `7→4→1→7→3→2` flap on the live demo.
 	//
-	// The overlay bridges that window per-shard: when runtimeSwap completes
-	// it records {propName → targetTokenization} here. Every query-time
-	// analyzer construction on this shard pulls a snapshot via
-	// SnapshotTokenizationOverlay and applies it through the existing
-	// inverted.PropertyOverlay.Tokenization channel; the analyzer's
-	// effectiveProperty machinery handles the substitution.
-	//
-	// The entry self-clears once the live schema catches up to the overlay
-	// value (defensive — avoids depending on schema-update callback
-	// ordering). The schema-update callback path also clears explicitly so
-	// the steady-state map is empty.
-	//
-	// Per-shard, in-memory only — the cluster-wide schema flip is the
-	// authoritative cross-replica signal; this overlay just bridges the
-	// local seconds-long gap between bucket-swap-here and schema-flip-
-	// observed-here.
+	// Lifecycle (see reindex_provider.go's OnGroupCompleted +
+	// OnTaskCompleted):
+	//   1. SET: pre-swap, just BEFORE the per-task RunSwapOnShard loop
+	//      kicks off on this shard. Setting pre-swap means the brief
+	//      in-flight window between bucket-pointer flip and overlay
+	//      visibility is bounded by the in-memory swap latency
+	//      (microseconds) rather than the cluster-wide cutover spread.
+	//   2. CLEAR (defensive, all-failed path): if every per-task swap on
+	//      this shard fails before flipping its bucket pointer (e.g.
+	//      ctx.Canceled during graceful shutdown), the post-loop branch
+	//      clears the overlay. Without this, an all-failed swap path
+	//      would leave overlay=NEW against unchanged OLD buckets —
+	//      permanent misalignment because the FAILED transition skips
+	//      the cluster-wide schema flip and the explicit clear hook
+	//      never runs.
+	//   3. CLEAR (success path): once flipSemanticMigrationSchema
+	//      commits the cluster-wide schema flip, OnTaskCompleted clears
+	//      the overlay per-shard so the steady-state map is empty.
+	//   4. CLEAR (self-clear backstop): TokenizationFor below clears
+	//      the entry on the next read where the live schema has caught
+	//      up to the overlay value — defensive against any callback-
+	//      ordering edge case.
 	//
 	// Read on every query that touches the affected property, so kept
 	// under a fast RWMutex rather than a sync.Map (consistent with
-	// rangeableLocalReady above).
+	// rangeableLocalReady above). Per-shard, in-memory only — the
+	// cluster-wide schema flip is the authoritative cross-replica
+	// signal; this overlay just bridges the local seconds-long gap
+	// between bucket-swap-here and schema-flip-observed-here.
 	tokenizationOverlayMu sync.RWMutex
 	tokenizationOverlay   map[string]string
 
@@ -681,11 +690,17 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 // SetTokenizationOverlay records that propName's query-time tokenization on
 // this shard should be `target` instead of the schema-stored value until
 // the live schema catches up. Set by the change-tokenization migration's
-// per-shard runtimeSwap (in OnGroupCompleted.RunSwapOnShard) AFTER the
-// canonical bucket pointer has flipped to NEW-tokenized data. Cleared by
-// the schema-update callback (or defensively by [TokenizationFor] on next
-// access) once the cluster-wide schema flip is observed locally. See the
-// [tokenizationOverlay] field godoc for the full rationale.
+// reindex hook (reindex_provider.OnGroupCompleted) just BEFORE the
+// per-task RunSwapOnShard loop kicks off — setting pre-swap means the
+// brief window between bucket-pointer flip and overlay visibility is
+// bounded by the in-memory swap latency (microseconds), not by the
+// cluster-wide cutover spread. The same caller clears the overlay if
+// every per-task swap failed (defensive: no bucket flipped → overlay
+// must not stay set against unchanged buckets). On success, the overlay
+// is cleared explicitly by OnTaskCompleted after the cluster-wide
+// schema flip commits, with [TokenizationFor]'s self-clear-on-catchup
+// branch as a backstop. See the [tokenizationOverlay] field godoc for
+// the full rationale and lifecycle.
 //
 // Empty target is a no-op — used by the migration cleanup path to avoid
 // having every caller guard the call.
