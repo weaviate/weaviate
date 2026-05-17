@@ -1111,6 +1111,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		//    scheduler issued MarkDistributedTaskFinalized. Re-firing on
 		//    FINISHED would only happen if the [Scheduler.bootstrapProviders]
 		//    pre-mark missed this task — never in normal flow.
+		if task.Status == distributedtask.TaskStatusFailed && payloadErr == nil {
+			logOperatorRepairGuidanceOnFailedSemanticMigration(logger, payload)
+		}
 		return
 	}
 	if payloadErr != nil {
@@ -1134,6 +1137,110 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.WithError(err).Error("reindex provider: OnTaskCompleted: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state)")
+	}
+}
+
+// logOperatorRepairGuidanceOnFailedSemanticMigration is part of the
+// 0-weaviate-issues#221 fix (the operator-actionable half — the full
+// auto-submit is tracked separately).
+//
+// Background: a FAILED semantic-migration task (change-tokenization /
+// change-tokenization-filterable / enable-*) is only ever reached
+// when at least one sub-shard/sub-task hit a permanent failure. With
+// the per-shard post-completion ack barrier from #214 in place, every
+// sub-task that succeeded BEFORE the failed sibling already committed
+// its local bucket-pointer flip — so the canonical bucket on those
+// shards now holds NEW-tokenized data while the cluster-wide schema
+// flip was correctly skipped (the task is FAILED). Bucket↔schema
+// inversion on the migrated property is the user-visible outcome:
+// every query against the inverted index returns 0, because the
+// query-side tokenizer (driven by the OLD schema) produces tokens
+// that don't match the NEW-tokenized bucket content.
+//
+// Re-enabling a deleted index (e.g. re-enable-searchable after the
+// #218 race) rebuilds THAT index from scratch, but DOES NOT touch
+// the sibling index's torn pointer. So a naive operator response
+// to a FAILED change-tokenization leaves the cluster in a state
+// where the migrated property still returns 0 on every query.
+//
+// This function emits an ERROR-level log entry with the exact REST
+// command an operator should issue to repair both inverted indexes
+// on the property. Per-property `{"<index>":{"rebuild":true}}`
+// rebuilds the index from raw objects against the current schema,
+// which restores bucket↔schema consistency regardless of which
+// direction the tokenizer mismatch landed in.
+//
+// Not a no-op for non-semantic FAILED tasks: format-only migrations
+// (repair-*, enable-rangeable) don't produce the inversion, so this
+// function early-returns on those.
+//
+// Forward-compatible with the full #221 auto-submit: the auto-submit
+// can later wrap this same logging on its own success/failure path
+// so operators still see the guidance even if auto-repair couldn't
+// be queued (e.g. lowest-node-ID is unavailable).
+func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogger, payload *ReindexTaskPayload) {
+	if !IsSemanticMigration(payload.MigrationType) {
+		return
+	}
+	if len(payload.Properties) == 0 {
+		// Reserved for a future whole-collection rebuild. No targeted
+		// guidance possible; the generic operator runbook applies.
+		logger.Error(
+			fmt.Errorf(
+				"reindex provider: %s on %s FAILED with empty Properties; manual repair guidance not available — inspect /v1/tasks and consider rebuild on every affected inverted index",
+				payload.MigrationType, payload.Collection))
+		return
+	}
+	for _, propName := range payload.Properties {
+		// The exact PUT body depends on which sibling indexes might
+		// have torn. For change-tokenization on a property with both
+		// IndexFilterable and IndexSearchable, both can tear; we
+		// can't tell from here which sub-task succeeded vs failed
+		// (the per-shard ack records have the answer but we don't
+		// thread them in for the logging-only path), so we direct
+		// the operator to rebuild both. Idempotent at the rebuild
+		// strategy level — a healthy index rebuilds to the same
+		// content.
+		var repairBody string
+		switch payload.MigrationType {
+		case ReindexTypeChangeTokenization,
+			ReindexTypeEnableSearchable,
+			ReindexTypeRepairSearchable:
+			// Touches BOTH inverted buckets (searchable + filterable
+			// for change-tokenization on a property with both
+			// indexes; searchable-only strategies still benefit from
+			// the joint rebuild in case the sibling filterable side
+			// was racing the failure trigger).
+			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`
+		case ReindexTypeChangeTokenizationFilterable,
+			ReindexTypeEnableFilterable,
+			ReindexTypeRepairFilterable:
+			repairBody = `{"filterable":{"rebuild":true}}`
+		case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+			repairBody = `{"rangeable":{"rebuild":true}}`
+		default:
+			// Exhaustiveness: any newly-added ReindexMigrationType
+			// must land in one of the cases above. Fall back to the
+			// rebuild-everything body so a missing case still
+			// produces actionable guidance (just slightly broader
+			// than necessary).
+			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true},"rangeable":{"rebuild":true}}`
+		}
+		logger.WithFields(map[string]any{
+			"property":       propName,
+			"migration_type": payload.MigrationType,
+			"repair_command": fmt.Sprintf(
+				"PUT /v1/schema/%s/indexes/%s %s",
+				payload.Collection, propName, repairBody),
+		}).Error(fmt.Errorf(
+			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
+				"that committed their swap BEFORE the failure left the "+
+				"canonical inverted bucket holding new-tokenization "+
+				"data while the schema reverted to pre-migration state "+
+				"(0-weaviate-issues#218 / #221) — issue the repair_command "+
+				"above to rebuild the affected inverted index(es) from "+
+				"raw objects against the current schema",
+			payload.MigrationType, payload.Collection, propName))
 	}
 }
 

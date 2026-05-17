@@ -1045,6 +1045,84 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 	}
 }
 
+// TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError pins
+// the regression fixed in PR #11320 after Copilot's review on
+// `cluster/schema/manager.go:520`:
+//
+// SchemaReader.ReadOnlyClass returns a SHALLOW clone of the live FSM
+// class — class.Properties is a slice of pointers to the FSM's actual
+// *models.Property structs. If DeleteClassPropertyIndex mutated those
+// pointers' fields BEFORE calling UpdateProperty, an apply-time
+// rejection (the in-flight-reindex MutationGuard from #218, but also
+// any pre-existing rejection like a RAFT timeout or downstream
+// validation) would leave the local node's in-memory schema diverged
+// from the cluster-wide RAFT state.
+//
+// The fix: deep-copy the located property struct before mutating its
+// IndexFilterable / IndexSearchable / IndexRangeFilters pointers.
+//
+// This test exercises every index name (filterable / searchable /
+// rangeFilters) for both directions of the mutation, and asserts the
+// FSM's Property pointer's fields are STILL the original values after
+// an UpdateProperty failure.
+func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testing.T) {
+	t.Parallel()
+
+	indexNames := []struct {
+		indexName  string
+		fieldOnProp func(p *models.Property) *bool
+	}{
+		{"filterable", func(p *models.Property) *bool { return p.IndexFilterable }},
+		{"searchable", func(p *models.Property) *bool { return p.IndexSearchable }},
+		{"rangeFilters", func(p *models.Property) *bool { return p.IndexRangeFilters }},
+	}
+
+	for _, idx := range indexNames {
+		t.Run(idx.indexName, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, false)
+
+			trueVal := true
+			// Construct the FSM-stored property. All three flags are
+			// true so DeleteClassPropertyIndex reaches the mutation
+			// branch regardless of which indexName we exercise.
+			fsmProp := &models.Property{
+				Name:              "title",
+				DataType:          schema.DataTypeText.PropString(),
+				IndexFilterable:   &trueVal,
+				IndexSearchable:   &trueVal,
+				IndexRangeFilters: &trueVal,
+				Tokenization:      "word",
+			}
+			fsmClass := &models.Class{
+				Class:      "Movies",
+				Vectorizer: "none",
+				Properties: []*models.Property{fsmProp},
+			}
+			sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
+			// Simulate an apply-time rejection — the
+			// MutationGuard's in-flight-reindex error shape.
+			sm.On("UpdateProperty", "Movies", mock.Anything).Return(
+				fmt.Errorf("reindex task is in flight on this property"))
+
+			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+				"Movies", "title", idx.indexName)
+			require.Error(t, err, "UpdateProperty was mocked to fail")
+
+			// The CRITICAL assertion: after the failed apply, the FSM's
+			// Property struct's pointer field for this index name must
+			// STILL point at the original true value. Without the
+			// defensive copy in DeleteClassPropertyIndex, this would
+			// be a pointer to `false` because the mutation would have
+			// leaked.
+			fsmField := idx.fieldOnProp(fsmProp)
+			require.NotNil(t, fsmField, "FSM Property's index pointer must not be nil after rejection")
+			require.True(t, *fsmField,
+				"FSM Property.%s was mutated to false despite UpdateProperty failing — local FSM diverged from RAFT", idx.indexName)
+		})
+	}
+}
+
 func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	cases := []struct {
