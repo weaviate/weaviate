@@ -46,6 +46,9 @@ function main() {
   run_acceptance_reindex_multinode=false
   run_acceptance_reindex_multinode_aj=false
   run_acceptance_reindex_multinode_rm=false
+  run_acceptance_reindex_multinode_restart=false
+  run_acceptance_reindex_multinode_scale=false
+  run_acceptance_reindex_multinode_changetok=false
   run_acceptance_reindex_singlenode=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -91,6 +94,9 @@ function main() {
           --acceptance-reindex-multinode|-arm) run_all_tests=false; run_acceptance_reindex_multinode=true;;
           --acceptance-reindex-multinode-aj|-armaj) run_all_tests=false; run_acceptance_reindex_multinode_aj=true;;
           --acceptance-reindex-multinode-rm|-armrm) run_all_tests=false; run_acceptance_reindex_multinode_rm=true;;
+          --acceptance-reindex-multinode-restart|-armr) run_all_tests=false; run_acceptance_reindex_multinode_restart=true;;
+          --acceptance-reindex-multinode-scale|-arms) run_all_tests=false; run_acceptance_reindex_multinode_scale=true;;
+          --acceptance-reindex-multinode-changetok|-armct) run_all_tests=false; run_acceptance_reindex_multinode_changetok=true;;
           --acceptance-reindex-singlenode|-ars) run_all_tests=false; run_acceptance_reindex_singlenode=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -126,6 +132,9 @@ function main() {
               "--acceptance-reindex-multinode | -arm"\
               "--acceptance-reindex-multinode-aj | -armaj"\
               "--acceptance-reindex-multinode-rm | -armrm"\
+              "--acceptance-reindex-multinode-restart | -armr"\
+              "--acceptance-reindex-multinode-scale | -arms"\
+              "--acceptance-reindex-multinode-changetok | -armct"\
               "--acceptance-reindex-singlenode | -ars"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
@@ -263,6 +272,21 @@ function main() {
   if $run_acceptance_reindex_multinode_rm; then
     echo "running reindex multinode RestartMatrix acceptance tests"
     run_acceptance_reindex_multinode_rm
+  fi
+
+  if $run_acceptance_reindex_multinode_restart; then
+    echo "running reindex multinode restart-themed acceptance tests"
+    run_acceptance_reindex_multinode_restart
+  fi
+
+  if $run_acceptance_reindex_multinode_scale; then
+    echo "running reindex multinode scale/orchestration acceptance tests"
+    run_acceptance_reindex_multinode_scale
+  fi
+
+  if $run_acceptance_reindex_multinode_changetok; then
+    echo "running reindex multinode change-tokenization acceptance tests"
+    run_acceptance_reindex_multinode_changetok
   fi
 
   if $run_acceptance_reindex_singlenode; then
@@ -616,18 +640,95 @@ function run_acceptance_reindex_multinode() {
     --build-arg EXTRA_BUILD_ARGS="-race" \
     weaviate
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
-  echo_green "acceptance — reindex-multinode (excluding AdjacentJourneys + RestartMatrix; see -aj, -rm shards)"
-  # Skip the AdjacentJourneys top-level tests — they spin up their own
-  # 3-node cluster per subtest and collectively exceed the 20-min go-test
-  # deadline. They run in the separate `-aj` shard, in parallel in CI.
+  echo_green "acceptance — reindex-multinode (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
+  # The reindex_multinode package is partitioned across 6 CI shards to
+  # keep each shard's wall-clock under ~10 min for fast PR feedback (see
+  # 0-weaviate-issues#223). This "catch-all" shard runs only tests NOT
+  # claimed by a more-specific sub-shard, so newly added tests get
+  # automatic CI coverage here until the test author or a periodic
+  # cleanup sorts them into the right sub-shard.
   #
-  # Also skip TestMultiNode_RestartMatrix — at ~5.5 min the single test
-  # is the longest in this package and combined with the rest of the
-  # suite pushes the total over the 20-min go-test deadline. It runs in
-  # the `-rm` shard, in parallel in CI. See 0-weaviate-issues#214
-  # post-fix run on PR #10694.
-  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix' \
+  # Current sub-shards (see test/run.sh: run_acceptance_reindex_multinode_aj,
+  # _rm, _restart, _scale, _changetok):
+  #   -aj         : TestMultiNode_ChangeTokenization_AJ_*  (adjacent journeys)
+  #   -rm         : TestMultiNode_RestartMatrix             (parametrised restart)
+  #   -restart    : TestMultiNode_*Restart* / *Crash* (excl. AJ + Matrix)
+  #   -scale      : TestMultiNode_HappyPath, _ConcurrentDifferent*,
+  #                 _EnableRangeable_NoPartialCountsInFlight,
+  #                 _RepeatedParallelMigrationJourney_*,
+  #                 _PostRestartReapplyMigrations_*
+  #   -changetok  : TestMultiNode_ChangeTokenization_* (non-AJ) +
+  #                 TestMultiNode_BackToBackChangeTokenization_* +
+  #                 TestLiveQueriesDuringChangeTokenization +
+  #                 TestPartialResultsDuringChangeTokenization
+  #
+  # IMPORTANT: when adding a new sub-shard, also add its top-level test
+  # prefixes to the SKIP regex below to prevent the catch-all from
+  # double-running the same tests.
+  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
     run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
+}
+
+function run_acceptance_reindex_multinode_restart() {
+  echo_green "acceptance — reindex-multinode-restart: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  echo_green "acceptance — reindex-multinode-restart"
+  # Restart-themed multinode tests. Locally measured wall-clock ≈ 331s
+  # across 9 tests; +CI overhead → ~9-10 min total per shard.
+  # Excludes TestMultiNode_RestartMatrix (its own -rm shard) and
+  # TestMultiNode_PostRestartReapplyMigrations_* /
+  # TestMultiNode_PostRestartMigration_NoStallPlateau which are about
+  # post-restart correctness rather than the restart-itself, and live
+  # in -scale resp. here (see "PostRestartMigration_NoStallPlateau" in
+  # the regex below — it's restart-during-migration which fits this
+  # shard).
+  AOF_GROUP_RUN='TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)' \
+    run_aof_group "reindex-multinode-restart" test/acceptance/reindex_multinode
+}
+
+function run_acceptance_reindex_multinode_scale() {
+  echo_green "acceptance — reindex-multinode-scale: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  echo_green "acceptance — reindex-multinode-scale"
+  # Scale / orchestration tests. Locally measured wall-clock ≈ 283s
+  # across 5 tests; +CI overhead → ~8-9 min total. The single longest
+  # test in the whole package (PostRestartReapplyMigrations_ExactCounts
+  # AcrossReplicas, 135s) lives here so it's amortised against the
+  # smaller orchestration tests.
+  AOF_GROUP_RUN='TestMultiNode_(HappyPath|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
+    run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode
+}
+
+function run_acceptance_reindex_multinode_changetok() {
+  echo_green "acceptance — reindex-multinode-changetok: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  echo_green "acceptance — reindex-multinode-changetok"
+  # Change-tokenization tests (non-AJ; AJ has its own -aj shard) plus
+  # the FINALIZING-window probe tests. Locally measured wall-clock
+  # ≈ 171s across 7 tests; +CI overhead → ~7-8 min total.
+  AOF_GROUP_RUN='TestMultiNode_ChangeTokenization_(RestartThenRoundTrip|MTRoundTrip|ConcurrentDifferentProps|RoundTrip)|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
+    run_aof_group "reindex-multinode-changetok" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_multinode_aj() {
