@@ -757,6 +757,12 @@ func (p *ReindexProvider) failUnit(
 // operators can confirm in prod whether the sentinel path has fully
 // rolled out.
 //
+// TODO(v1.40): remove the substring fallback below. The sentinel
+// path ships in v1.38; once the supported rolling-upgrade window
+// can no longer include a pre-sentinel binary (i.e. the v1.40
+// cycle), the legacy markers and the operator-Warn become dead
+// code. The errors.Is check above is the steady-state.
+//
 // The unmarshal-error path in Manager.RecordUnitCompletion (a malformed
 // SubCommand) is technically permanent too but is deliberately NOT
 // matched: applyDistributedTaskCommand marshals the request itself, so
