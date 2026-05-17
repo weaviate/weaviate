@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
@@ -157,11 +158,37 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		return fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
 	}
 
+	// We track the *single* field being mutated so we can pass a
+	// field mask to UpdateProperty below. Without the mask, the RAFT
+	// FSM falls back to "replace every field" semantics
+	// (MergePropsMasked with no mask), which means a read-modify-write
+	// off a follower whose local FSM lags one RAFT entry behind the
+	// leader will clobber the leader's value of OTHER index flags on
+	// commit.
+	//
+	// Concrete failure shape (reproduces in
+	// test/acceptance/alter_schema/delete_property_index_empty_test.go
+	// on a 3-node cluster):
+	//
+	//   t=0  delete title.filterable on node A
+	//        → RAFT replicates, all FSMs converge IndexFilterable=false
+	//   t=1  delete title.searchable hits node B before B applies t=0
+	//        → propCopy reads IndexFilterable=true off B's stale FSM
+	//        → propCopy.IndexSearchable=false (local mutation)
+	//        → UpdateProperty(prop) with NO mask
+	//        → RAFT commits a property-replace command that carries
+	//          IndexFilterable=true forward, undoing t=0 on every node
+	//
+	// The mask scopes the RAFT merge to only the flag this REST call
+	// touched, so the leader's current value of unmasked flags is
+	// preserved. See cluster/proto/api.PropertyField* constants.
+	var updateFields []string
 	switch indexName {
 	case "filterable":
 		if prop.IndexFilterable != nil && *prop.IndexFilterable {
 			notExists := false
 			prop.IndexFilterable = &notExists
+			updateFields = []string{command.PropertyFieldIndexFilterable}
 		} else {
 			// nothing to do
 			return nil
@@ -170,6 +197,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		if prop.IndexSearchable != nil && *prop.IndexSearchable {
 			notExists := false
 			prop.IndexSearchable = &notExists
+			updateFields = []string{command.PropertyFieldIndexSearchable}
 		} else {
 			// nothing to do
 			return nil
@@ -178,6 +206,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
 			notExists := false
 			prop.IndexRangeFilters = &notExists
+			updateFields = []string{command.PropertyFieldIndexRangeFilters}
 		} else {
 			// nothing to do
 			return nil
@@ -189,7 +218,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 	if err := h.validatePropertyIndexing(prop); err != nil {
 		return err
 	}
-	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop); err != nil {
+	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop, updateFields...); err != nil {
 		return err
 	}
 	return nil
