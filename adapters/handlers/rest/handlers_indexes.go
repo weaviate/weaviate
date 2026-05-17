@@ -376,8 +376,16 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 
 	default:
+		// The verb list must enumerate EVERY dispatch case above. A missing
+		// verb here ships as a confusing 400 ("you sent a valid body shape
+		// but the error says it's invalid") and was the symptom flagged on
+		// weaviate/0-weaviate-issues#227 (Gap 7). Order: per index-group,
+		// then alphabetical within group.
 		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
-			"no actionable change detected; set one of: searchable.tokenization, searchable.rebuild, searchable.enabled, filterable.rebuild, filterable.enabled, rangeable.enabled"))
+			"no actionable change detected; set one of: " +
+				"searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
+				"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, " +
+				"rangeable.cancel, rangeable.enabled, rangeable.rebuild"))
 	}
 
 	// --- Multi-tenancy handling ---

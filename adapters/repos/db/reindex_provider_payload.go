@@ -27,9 +27,20 @@ const (
 	// ReindexTypeEnableRangeable adds RoaringSetRange indexes for numeric properties.
 	ReindexTypeEnableRangeable ReindexMigrationType = "enable-rangeable"
 
-	// ReindexTypeRepairRangeable rebuilds an existing RoaringSetRange index from
-	// the current filterable bucket (same source-of-truth as enable-rangeable).
+	// ReindexTypeRepairRangeable rebuilds an existing RoaringSetRange index by
+	// re-scanning the objects bucket (same source-of-truth as enable-rangeable).
 	// Use when a rangeable bucket is suspected corrupted or out of sync.
+	//
+	// Source-of-truth note: this rebuilds from OBJECTS, not from the filterable
+	// bucket. The strategy that implements it
+	// ([FilterableToRangeableStrategy]) is misleadingly named for historical
+	// reasons; see the strategy's file-level godoc — it explicitly does not
+	// read from the filterable bucket because filterable may not even exist
+	// on a numeric property created with IndexFilterable=false. Tracked at
+	// weaviate/0-weaviate-issues#227 (Gap 3 doc-bug) as a load-bearing
+	// correctness assertion: callers relying on this comment to design their
+	// recovery flow would otherwise assume the filterable bucket is the
+	// authoritative source.
 	ReindexTypeRepairRangeable ReindexMigrationType = "repair-rangeable"
 
 	// ReindexTypeEnableFilterable creates a RoaringSet filterable index on a

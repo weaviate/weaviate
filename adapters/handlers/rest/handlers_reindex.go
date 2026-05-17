@@ -389,7 +389,15 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		return fmt.Errorf("multiple index groups set in one request (%v) — issue separate requests, one per group", groupsSet)
 	}
 	if len(groupsSet) == 0 {
-		return fmt.Errorf("no actionable change detected; set one of: searchable.tokenization, searchable.rebuild, searchable.enabled, searchable.cancel, filterable.rebuild, filterable.enabled, filterable.cancel, rangeable.enabled, rangeable.rebuild, rangeable.cancel")
+		// Must enumerate EVERY supported verb across all dispatch cases in
+		// handlers_indexes.go::updateIndex — same shape as the matching
+		// default-case 400. A missing verb here lands as a confusing 400
+		// (valid body shape, "invalid" error). See
+		// weaviate/0-weaviate-issues#227 (Gap 7).
+		return fmt.Errorf("no actionable change detected; set one of: " +
+			"searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
+			"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, " +
+			"rangeable.cancel, rangeable.enabled, rangeable.rebuild")
 	}
 	return nil
 }
