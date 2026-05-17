@@ -22,19 +22,19 @@ import (
 )
 
 // TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency
-// is the acceptance-level repro of 0-weaviate-issues#214 Gap A,
-// "Repro 2: rolling-restart during FINALIZING."
+// asserts that a rolling restart landing inside the FINALIZING window
+// of a change-tokenization migration does not produce per-replica
+// divergent on-disk bucket state.
 //
-// Before the post-completion ack barrier was wired (the fix in this
-// PR), the cluster could commit the FINALIZING → FINISHED transition
-// (and therefore the cluster-wide schema flip) on whichever node won
-// the scheduler race, regardless of whether the per-node
-// RunSwapOnShard had completed on the other nodes. A rolling restart
-// landing inside that brief window would catch one or more nodes
-// mid-swap, the post-restart recovery on those nodes would not realign
-// fast enough, and the cluster would converge to per-replica divergent
-// on-disk bucket state. Frontend Claude's `path = 7×32, 3×30, 2×23,
-// 6×5` histogram on production was this exact bug shape.
+// History: surfaced as
+// https://github.com/weaviate/0-weaviate-issues/issues/214 (Gap A,
+// "Repro 2: rolling-restart during FINALIZING"). The production
+// reproduction was a per-replica `path = 7×32, 3×30, 2×23, 6×5`
+// histogram on a steady probe after the cluster had reported the task
+// FINISHED. Fixed by the per-shard post-completion ack barrier in
+// https://github.com/weaviate/weaviate/pull/11318 (the ack-barrier
+// commits), which gates MarkTaskFinalized on every node's
+// OnGroupCompleted having returned and acked.
 //
 // With the ack barrier in place, no node can let the schema flip
 // commit before its OnGroupCompleted has returned and its ack has
@@ -52,12 +52,12 @@ import (
 //   - The task transitions to FINISHED only after every replica's
 //     bucket-pointer state matches the new tokenization.
 //   - Per-replica histogram across 30 polls per replica is all the
-//     expected count for the migrated property (no flap, no divergence).
+//     expected count for the migrated property (no flap, no
+//     divergence).
 //
-// Dataset size: 50k objects. Issue #214 explicitly calls out "≥ 50k
-// records minimum" because smaller datasets keep most data in the
+// Dataset size: 50k objects. Smaller datasets keep most data in the
 // memtable and hide the LSM-segment-layout race regime where the bug
-// manifested in production.
+// originally manifested in production.
 func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -168,8 +168,7 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	}
 
 	// Render histogram on failure so the per-replica flap shape is
-	// visible in CI logs — this is the smoking-gun shape pinned by
-	// 0-weaviate-issues#214.
+	// visible in CI logs.
 	allCorrect := true
 	for _, perNode := range histogram {
 		for value, n := range perNode {
@@ -179,8 +178,9 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 		}
 	}
 	if !allCorrect {
-		msg := fmt.Sprintf("GH 0-weaviate-issues#214 Gap A per-replica divergence "+
-			"on %q (expected %d, %d polls/replica):", "path", expectedPathCount, pollsPerReplica)
+		msg := fmt.Sprintf("per-replica divergence on %q after rolling restart "+
+			"during FINALIZING (expected %d, %d polls/replica):",
+			"path", expectedPathCount, pollsPerReplica)
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 			nodeKey := fmt.Sprintf("node-%d", nodeIdx)
 			msg += fmt.Sprintf("\n  %s: %v", nodeKey, histogram[nodeKey])
@@ -190,17 +190,22 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 }
 
 // TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency
-// is the acceptance-level repro of 0-weaviate-issues#214 Gap A,
-// "Repro 1: SIGKILL during FINALIZING."
+// asserts that a SIGKILL on a single node during the FINALIZING
+// window does not produce per-replica divergent on-disk bucket state.
+//
+// History: surfaced as
+// https://github.com/weaviate/0-weaviate-issues/issues/214 (Gap A,
+// "Repro 1: SIGKILL during FINALIZING"), fixed by the same
+// post-completion ack barrier as the rolling-restart variant above.
 //
 // Where the rolling-restart test (above) catches the cluster mid-swap
-// with a graceful shutdown sequence (testcontainers' Stop sends SIGTERM
-// first), this variant uses an ungraceful 0-second-timeout Stop on a
-// SINGLE node. That bypasses the on-shutdown flush path and lets the
-// post-restart RecoveryAwareProvider + FinalizeCompletedMigrations
-// have to handle a node whose .migrations/ directory is at the
-// half-merged stage (no tidied.mig, no swapped.mig) with the local
-// process state lost.
+// with a graceful shutdown sequence (testcontainers' Stop sends
+// SIGTERM first), this variant uses an ungraceful 0-second-timeout
+// Stop on a SINGLE node. That bypasses the on-shutdown flush path and
+// lets the post-restart RecoveryAwareProvider +
+// FinalizeCompletedMigrations have to handle a node whose
+// .migrations/ directory is at the half-merged stage (no tidied.mig,
+// no swapped.mig) with the local process state lost.
 //
 // The expected behavior with the ack barrier:
 //  1. SIGKILL on the targeted node either lands before its ack was
@@ -313,8 +318,9 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 		}
 	}
 	if !allCorrect {
-		msg := fmt.Sprintf("GH 0-weaviate-issues#214 Gap A SIGKILL per-replica divergence "+
-			"on %q (expected %d, %d polls/replica):", "path", expectedPathCount, pollsPerReplica)
+		msg := fmt.Sprintf("per-replica divergence on %q after SIGKILL "+
+			"during FINALIZING (expected %d, %d polls/replica):",
+			"path", expectedPathCount, pollsPerReplica)
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 			nodeKey := fmt.Sprintf("node-%d", nodeIdx)
 			msg += fmt.Sprintf("\n  %s: %v", nodeKey, histogram[nodeKey])
