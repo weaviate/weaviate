@@ -46,7 +46,8 @@ function main() {
   run_acceptance_reindex_multinode=false
   run_acceptance_reindex_multinode_aj=false
   run_acceptance_reindex_multinode_rm=false
-  run_acceptance_reindex_multinode_restart=false
+  run_acceptance_reindex_multinode_restart_a=false
+  run_acceptance_reindex_multinode_restart_b=false
   run_acceptance_reindex_multinode_scale=false
   run_acceptance_reindex_multinode_changetok=false
   run_acceptance_reindex_singlenode=false
@@ -96,7 +97,8 @@ function main() {
           --acceptance-reindex-multinode|-arm) run_all_tests=false; run_acceptance_reindex_multinode=true;;
           --acceptance-reindex-multinode-aj|-armaj) run_all_tests=false; run_acceptance_reindex_multinode_aj=true;;
           --acceptance-reindex-multinode-rm|-armrm) run_all_tests=false; run_acceptance_reindex_multinode_rm=true;;
-          --acceptance-reindex-multinode-restart|-armr) run_all_tests=false; run_acceptance_reindex_multinode_restart=true;;
+          --acceptance-reindex-multinode-restart-a|-armra) run_all_tests=false; run_acceptance_reindex_multinode_restart_a=true;;
+          --acceptance-reindex-multinode-restart-b|-armrb) run_all_tests=false; run_acceptance_reindex_multinode_restart_b=true;;
           --acceptance-reindex-multinode-scale|-arms) run_all_tests=false; run_acceptance_reindex_multinode_scale=true;;
           --acceptance-reindex-multinode-changetok|-armct) run_all_tests=false; run_acceptance_reindex_multinode_changetok=true;;
           --acceptance-reindex-singlenode|-ars) run_all_tests=false; run_acceptance_reindex_singlenode=true;;
@@ -137,7 +139,8 @@ function main() {
               "--acceptance-reindex-multinode | -arm"\
               "--acceptance-reindex-multinode-aj | -armaj"\
               "--acceptance-reindex-multinode-rm | -armrm"\
-              "--acceptance-reindex-multinode-restart | -armr"\
+              "--acceptance-reindex-multinode-restart-a | -armra"\
+              "--acceptance-reindex-multinode-restart-b | -armrb"\
               "--acceptance-reindex-multinode-scale | -arms"\
               "--acceptance-reindex-multinode-changetok | -armct"\
               "--acceptance-reindex-singlenode | -ars"\
@@ -281,9 +284,14 @@ function main() {
     run_acceptance_reindex_multinode_rm
   fi
 
-  if $run_acceptance_reindex_multinode_restart; then
-    echo "running reindex multinode restart-themed acceptance tests"
-    run_acceptance_reindex_multinode_restart
+  if $run_acceptance_reindex_multinode_restart_a; then
+    echo "running reindex multinode restart-themed acceptance tests (mid-reindex restarts + post-complete)"
+    run_acceptance_reindex_multinode_restart_a
+  fi
+
+  if $run_acceptance_reindex_multinode_restart_b; then
+    echo "running reindex multinode restart-themed acceptance tests (finalizing-window restarts + post-restart migration)"
+    run_acceptance_reindex_multinode_restart_b
   fi
 
   if $run_acceptance_reindex_multinode_scale; then
@@ -678,20 +686,39 @@ function run_acceptance_reindex_multinode() {
     run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
 }
 
-function run_acceptance_reindex_multinode_restart() {
+function run_acceptance_reindex_multinode_restart_a() {
   build_weaviate_test_image
-  echo_green "acceptance — reindex-multinode-restart"
-  # Restart-themed multinode tests. Locally measured wall-clock ≈ 331s
-  # across 9 tests; +CI overhead → ~9-10 min total per shard.
-  # Excludes TestMultiNode_RestartMatrix (its own -rm shard) and
-  # TestMultiNode_PostRestartReapplyMigrations_* /
-  # TestMultiNode_PostRestartMigration_NoStallPlateau which are about
-  # post-restart correctness rather than the restart-itself, and live
-  # in -scale resp. here (see "PostRestartMigration_NoStallPlateau" in
-  # the regex below — it's restart-during-migration which fits this
-  # shard).
-  AOF_GROUP_RUN='TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)' \
-    run_aof_group "reindex-multinode-restart" test/acceptance/reindex_multinode
+  echo_green "acceptance — reindex-multinode-restart-a (mid-reindex restarts + post-complete rolling)"
+  # 4 tests:
+  #   TestMultiNode_GracefulRestartDuringReindex
+  #   TestMultiNode_CrashDuringReindex
+  #   TestMultiNode_MajorityCrashDuringReindex
+  #   TestMultiNode_RollingRestartAfterComplete
+  #
+  # The "restart-during-active-reindex" + "post-complete rolling"
+  # bucket. Each test owns its own cluster lifecycle (restart timing
+  # IS the journey), so these cannot be folded onto a shared cluster
+  # the way the AJ suite can. The split below balances the wall-clock
+  # against -restart-b instead.
+  AOF_GROUP_RUN='TestMultiNode_(GracefulRestartDuringReindex|CrashDuringReindex|MajorityCrashDuringReindex|RollingRestartAfterComplete)' \
+    run_aof_group "reindex-multinode-restart-a" test/acceptance/reindex_multinode
+}
+
+function run_acceptance_reindex_multinode_restart_b() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-multinode-restart-b (finalizing-window restarts + post-restart migration)"
+  # 3 tests:
+  #   TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency
+  #   TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency
+  #   TestMultiNode_PostRestartMigration_NoStallPlateau
+  #
+  # The "narrow timing window" bucket — every test here is about a
+  # specific moment in the migration state machine (FINALIZING window
+  # races) or about the post-restart migration replay path. Same
+  # rationale as -restart-a: per-test cluster lifecycle is structural,
+  # not optional.
+  AOF_GROUP_RUN='TestMultiNode_(RollingRestartDuringFinalizing|UngracefulStopDuringFinalizing|PostRestartMigration)' \
+    run_aof_group "reindex-multinode-restart-b" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_multinode_scale() {
