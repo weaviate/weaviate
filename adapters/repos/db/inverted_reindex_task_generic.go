@@ -1353,7 +1353,18 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			}).Info("reindex complete (swap deferred for barrier)")
 			return zerotime, false, nil
 		}
-		// Runtime swap: merge, swap, tidy all inline — no shard restart needed.
+		// Inline runtime swap path (non-semantic migrations: MapToBlockmax,
+		// RoaringSetRefresh, EnableRangeable / Repair-*). Semantic migrations
+		// have skipSwapOnFinish=true and go through OnGroupCompleted's
+		// three-phase flow (prep → overlay → atomic swap) per
+		// weaviate/0-weaviate-issues#216. Here we run both phases inline:
+		// prep (merge segments into ingest) followed by the atomic
+		// SwapBucketPointer. No overlay needed — these migration types
+		// don't change the analyzer's tokenization view of the bucket.
+		if err = t.runtimePrepare(ctx, logger, shard, rt, props); err != nil {
+			err = fmt.Errorf("runtime prepare: %w", err)
+			return zerotime, false, err
+		}
 		if err = t.runtimeSwap(ctx, logger, shard, rt, props); err != nil {
 			err = fmt.Errorf("runtime swap: %w", err)
 			return zerotime, false, err
