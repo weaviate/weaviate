@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
@@ -50,10 +51,24 @@ type reindexInFlightChecker interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
 }
 
+// reindexSubmitLockProvider returns the per-(collection, property)
+// mutex shared with the reindex-submit REST handler. This is the
+// SAME lock acquired by indexesHandlers.submitLock — the sharing is
+// load-bearing; see state.ReindexSubmitLocks godoc for the race the
+// lock closes (0-weaviate-issues#218 parallel matrix).
+//
+// We accept the interface form (rather than the concrete
+// *state.ReindexSubmitLocks) so the schema handlers stay testable
+// without dragging in the full appState graph.
+type reindexSubmitLockProvider interface {
+	SubmitLockFor(collection, property string) *sync.Mutex
+}
+
 type schemaHandlers struct {
 	manager             *schemaUC.Manager
 	metricRequestsTotal restApiRequestsTotal
 	reindexTasksLister  reindexInFlightChecker
+	reindexSubmitLocks  reindexSubmitLockProvider
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -179,6 +194,28 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	// Serialize with the reindex-submit REST handler on the same
+	// (collection, property) tuple. Without this lock, a parallel
+	// PUT /v1/schema/{class}/indexes/{prop} (which submits a reindex
+	// task) and this DELETE (which drops the canonical bucket) race
+	// at the RAFT serializer: if DELETE's UpdateProperty commits
+	// before the reindex's DistributedTaskAdd, the apply-time
+	// MutationGuard cannot reject DELETE because no task is in-flight
+	// yet, the bucket is dropped, and the reindex worker then fails
+	// trying to swap into a missing canonical bucket — leaving a
+	// torn filterable bucket on the shard. The
+	// TestParallelConflictMatrix/change_tokenization_both__delete_searchable_parallel
+	// matrix sub-test exercises exactly this race. See
+	// state.ReindexSubmitLocks godoc for the cross-handler contract.
+	//
+	// nil-safe: reindexSubmitLocks is wired in production but may be
+	// nil in unit tests that construct schemaHandlers directly.
+	if s.reindexSubmitLocks != nil {
+		lock := s.reindexSubmitLocks.SubmitLockFor(params.ClassName, params.PropertyName)
+		lock.Lock()
+		defer lock.Unlock()
+	}
 
 	// T3 pre-flight (0-weaviate-issues#218): fail fast at the REST
 	// boundary if a reindex on this (class, property) is in flight,
@@ -521,11 +558,12 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTasksLister reindexInFlightChecker) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTasksLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider) {
 	h := &schemaHandlers{
 		manager:             manager,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
 		reindexTasksLister:  reindexTasksLister,
+		reindexSubmitLocks:  reindexSubmitLocks,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.

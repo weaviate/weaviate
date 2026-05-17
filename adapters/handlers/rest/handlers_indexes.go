@@ -43,44 +43,24 @@ func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
 
 type indexesHandlers struct {
 	appState *state.State
-
-	// submitLocks serializes the checkReindexConflict + AddDistributedTask
-	// critical section per (collection, property) on this node. Without
-	// it, two HTTP handlers serving parallel PUT /indexes/{prop} requests
-	// can both pass the conflict check (neither sees the other yet) and
-	// both successfully submit a RAFT task — at which point the two
-	// migrations race on shared on-disk state for the property and one
-	// of them ends up FAILED. The lock makes the submit-side
-	// "check then add" pair atomic for the common single-node case;
-	// multi-node concurrent submits to the same property are still
-	// possible in theory but no realistic UI/CLI workflow produces them.
-	//
-	// We use a property-scoped key rather than collection-scoped so an
-	// idle property does not block a submit on a different property of
-	// the same collection. The per-collection cap
-	// maxConcurrentReindexPerCollection still gates burst submissions.
-	submitLocksMu sync.Mutex
-	submitLocks   map[string]*sync.Mutex
 }
 
 // submitLock returns the per-(collection, property) mutex for the
-// check-and-submit critical section, allocating one on first use. The
-// map is keyed by collection-lowercased + property so that case-folded
-// collection lookups (matching the rest of the conflict logic) hit the
-// same lock entry.
+// check-and-submit critical section, allocating one on first use.
+//
+// The actual lock manager lives on appState (ReindexSubmitLocks) so
+// it is SHARED with the DELETE-property-index REST handler. Without
+// the sharing, a parallel PUT /indexes/{prop} (which submits a
+// reindex task) and DELETE /properties/{prop}/index/{indexName}
+// (which drops the canonical bucket) race at the RAFT serializer and
+// produce a torn bucket — see state.ReindexSubmitLocks godoc for the
+// full failure shape (0-weaviate-issues#218 / #11320).
+//
+// The map is keyed by collection-lowercased + property so case-folded
+// collection lookups (matching the rest of the conflict logic) hit
+// the same lock entry.
 func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mutex {
-	key := strings.ToLower(collection) + "/" + propertyName
-	h.submitLocksMu.Lock()
-	defer h.submitLocksMu.Unlock()
-	if h.submitLocks == nil {
-		h.submitLocks = make(map[string]*sync.Mutex)
-	}
-	m, ok := h.submitLocks[key]
-	if !ok {
-		m = &sync.Mutex{}
-		h.submitLocks[key] = m
-	}
-	return m
+	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
