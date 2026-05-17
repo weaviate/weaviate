@@ -9,6 +9,117 @@
 //  CONTACT: hello@weaviate.io
 //
 
+// Runtime reindex — phase contract
+// ================================
+//
+// The runtime swap path (semantic migrations through OnGroupCompleted,
+// and non-semantic migrations through OnAfterLsmInitAsync) is partitioned
+// into THREE phases. Maintainers MUST preserve the boundary between them
+// — drift was the root cause of weaviate/0-weaviate-issues#216 (the per-
+// shard "FINALIZING window" misalignment between bucket content and the
+// query analyzer at production scale).
+//
+// Phase 1 — PREP (background, NOT inside the overlay window)
+// ----------------------------------------------------------
+// Implemented by [ShardReindexTaskGeneric.runtimePrepare].
+//
+// Allowed work: heavy disk I/O. FlushAndSwitch on every per-property
+// reindex bucket, ShutdownBucket(reindex) to make its segments
+// immutable, PrependSegmentsFromBucket(reindex → ingest) per property,
+// removeReindexBucketsDirs, sentinel writes (markPrepended,
+// markMerged).
+//
+// Constraints: this phase runs BEFORE the per-shard tokenization
+// overlay is set. Queries during this phase see the pre-migration
+// bucket content with the pre-migration analyzer — correct.
+//
+// Phase 2 — ATOMIC SWAP (inside the overlay window; per-shard
+// "mixed-state" subwindow MUST stay microseconds)
+// ------------------------------------------------------------
+// Implemented by [ShardReindexTaskGeneric.runtimeSwap].
+//
+// 2a — tight loop, microseconds: per property, call
+// store.SwapBucketPointer(mainName, ingestName) followed by
+// rt.markSwappedProp(propName). The tight loop bounds the per-shard
+// "mixed-state" subwindow (some props swapped, others not) to a few
+// microseconds total. Queries during this subwindow that hit
+// not-yet-swapped props would tokenize input with the new value
+// against an old-tokenized bucket — wrong — so the subwindow MUST
+// stay microseconds.
+//
+// 2b — post-atomic inline tidy (slow but correctness-safe):
+// oldMainBucket.Shutdown(ctx) + os.Rename(oldMainDir, backupDir) per
+// property, then rt.markSwapped + rt.markTidied. This runs AFTER
+// every prop has flipped in 2a, so the mixed-state subwindow is
+// closed. Queries during 2b see all-new buckets with the overlay
+// active — correct. The oldMain.Shutdown is REQUIRED inline (not
+// deferred) because Bucket.Shutdown is the only call that removes
+// the bucket's path from GlobalBucketRegistry; deferring it leaks
+// the path entry process-wide, which makes any subsequent in-process
+// shard init at the same canonical name fail with
+// ErrBucketAlreadyRegistered. The oldMain → backup rename is also
+// fine inline because the bucket has just been shut down — per
+// Etienne's design contract: "you can of course rename the old,
+// already shutdown bucket, but never the live one that's serving
+// queries to the user."
+//
+// 2c — post-atomic inline finalize: OnMigrationComplete +
+// trimOlderGenerationsLocked. These run OUTSIDE the mixed-state
+// subwindow.
+//
+//   - OnMigrationComplete is a per-strategy hook with significant
+//     drift between implementations. Some are no-ops (semantic
+//     change-tokenization, enable-filterable, enable-searchable —
+//     their cluster-wide schema flip is in OnTaskCompleted).
+//     Others mutate in-memory local state that the query path
+//     consults (e.g. FilterableToRangeableStrategy.OnMigrationComplete
+//     calls Shard.setRangeableLocallyReady so this shard's queries
+//     match the new schema before the RAFT flip propagates).
+//     Others issue RAFT calls inline
+//     (FilterableToRangeableStrategy.applyPerPropertySchemaUpdate,
+//     MapToBlockmaxStrategy.updateToBlockMaxInvertedIndexConfig).
+//     RAFT calls in this position are slow (100s of ms) but
+//     correctness-safe — the overlay covers the entire RunSwapOnShard
+//     for change-tokenization, and BlockMax has no analyzer overlay
+//     because the format change is internal. See the godoc on
+//     [MigrationStrategy.OnMigrationComplete] for the per-strategy
+//     contract.
+//
+// Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup, BEFORE
+// LSM init reloads any buckets)
+// ---------------------------------------------------------------------
+// Implemented by [FinalizeCompletedMigrations] (which scans
+// .migrations/ for tracker dirs with merged.mig — recovery promotes
+// merged-but-not-tidied gens — and tidied.mig, then renames each
+// gen's __ingest_<N>/ dir to its canonical name).
+//
+// Why deferred: the ingest bucket is the LIVE post-swap main bucket.
+// Its mmaps are open, its segment registry holds the ingest_<N> path
+// as its dir. Renaming that dir while the bucket is in-memory would
+// corrupt the segment registry and any subsequent write that
+// resolves paths from the bucket's stored dir. At next startup,
+// before LSM init touches the canonical name, no bucket is mmapping
+// anything — the rename is safe.
+//
+// Crash safety: every phase transition is preceded by a tracker
+// sentinel fsync (markPrepended, markMerged, markSwappedProp,
+// markSwapped, markTidied). The dispatch in
+// [ShardReindexTaskGeneric.RunSwapOnShard] inspects sentinels to
+// pick the right resume path on rehydrate. A crash within Phase 2b
+// (after markSwappedProp on some props but before markSwapped on
+// the aggregate) lands in the IsMerged dispatch branch on the
+// next-process restart: if ingest buckets are loaded (rare),
+// runtimeSwap is re-invoked; if not (normal startup), the
+// recoverRuntimeSwapBuckets path does the disk-rename equivalent
+// of 2b before LSM init loads any bucket.
+//
+// Atomic-phase regression guard: a unit test must fail if
+// SwapBucketPointer is preceded by any disk-I/O or compaction-wait
+// op inside Phase 2 — the "atomic" subwindow has to stay
+// microseconds for queries at production scale. See
+// 0-weaviate-issues#216 follow-up comment 4469995685 for the
+// observed-at-scale violation that motivated this contract.
+
 package db
 
 import (
@@ -40,6 +151,10 @@ import (
 // ShardReindexTaskV3. All lifecycle logic (state machine, merge/swap/tidy,
 // object iteration, progress tracking) lives here, with strategy-specific
 // behavior delegated to a MigrationStrategy.
+//
+// See the file-level phase-contract godoc above for the prep / atomic
+// swap / deferred-rename invariants that every code path in this file
+// must preserve.
 type ShardReindexTaskGeneric struct {
 	name                 string
 	logger               logrus.FieldLogger
@@ -1374,23 +1489,76 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	return time.Now().Add(t.config.pauseDuration), false, nil
 }
 
-// runtimeSwap performs the merge→swap→tidy lifecycle inline after the reindex
-// iteration completes, without requiring a shard restart.
+// runtimeSwap implements Phase 2 of the runtime swap path. See the
+// file-level phase-contract godoc for the full prep/atomic/defer
+// design. The implementation is partitioned into 2a / 2b / 2c
+// sub-phases with HARD boundaries — do not move work between them
+// without re-reading the contract.
 //
-// Steps:
-//  1. Shut down the reindex bucket (makes its segments immutable for prepend).
-//  2. Prepend reindex segments into the ingest bucket.
-//  3. Atomically swap the ingest bucket pointer into the main bucket slot.
-//  4. Shut down the old main bucket, rename its dir to _bak for crash safety.
-//  5. Mark tidied.
-//  6. Call OnMigrationComplete (schema flag flips).
+// Phase 2a — atomic per-prop SwapBucketPointer loop. MUST stay
+// microseconds total. This bounds the per-shard "mixed-state"
+// subwindow (some props swapped, others not) during which queries
+// to not-yet-swapped props would tokenize input with the new value
+// against an old-tokenized bucket. Only allowed work: in-memory
+// pointer flip + single-fsync sentinel mark.
 //
-// Disable double-write callbacks is handled by a deferred call at the
-// top of the function so it fires on every error path as well as the
-// happy path.
+//   - store.SwapBucketPointer(mainName, ingestName) per prop
+//   - rt.markSwappedProp(propName) per prop
 //
-// On crash at any step, OnBeforeLsmInit on next restart will pick up from the
-// last completed sentinel state (reindexed/merged/swapped) and finish.
+// Forbidden in 2a: anything that can block (disk I/O, lock
+// contention, RAFT calls, compaction waits). A guard test must
+// catch regressions where someone adds a yield point between two
+// SwapBucketPointer calls. See 0-weaviate-issues#216 follow-up
+// QA-Claude comment 4470016252.
+//
+// Phase 2b — post-atomic inline tidy. Slow but correctness-safe:
+// every prop is already in-memory-swapped, so the mixed-state
+// subwindow is closed and queries see all-new buckets with the
+// overlay still active.
+//
+//   - oldMainBucket.Shutdown(ctx) per prop (REQUIRED INLINE — see
+//     below)
+//   - os.Rename(oldMainDir, backupDir) per prop (safe inline per
+//     Etienne's contract: "you can of course rename the old, already
+//     shutdown bucket, but never the live one that's serving queries
+//     to the user")
+//   - rt.markSwapped
+//   - rt.markTidied
+//
+// Why oldMain.Shutdown MUST be inline (not deferred to next-startup
+// like the live-ingest rename): Bucket.Shutdown is the only call
+// that removes the bucket's path from GlobalBucketRegistry (see
+// lsmkv/bucket.go Shutdown defer of Remove(b.GetDir())). After
+// SwapBucketPointer the old bucket is no longer in the store's
+// bucketsByName map, so Store.Shutdown's iteration will not call
+// its Shutdown. Without an inline Shutdown the old bucket's path
+// remains in the process-wide registry indefinitely, and any
+// subsequent in-process shard init that tries to register a bucket
+// at the same canonical name (shard reload, lazy-load unwrap,
+// second migration on the same shard) fails with
+// ErrBucketAlreadyRegistered. The unit test
+// TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart reproduces
+// this if the inline Shutdown is removed.
+//
+// Phase 2c — post-atomic inline finalize.
+//
+//   - OnMigrationComplete (per-strategy hook; see
+//     [MigrationStrategy.OnMigrationComplete] godoc for the
+//     per-strategy contract)
+//   - trimOlderGenerationsLocked (removes the current gen's backup
+//     dir + every older gen's sidecars)
+//
+// Live-bucket rename (Phase 3): the ingest bucket whose pointer was
+// flipped into the canonical slot is STILL at __ingest_<gen>/ on
+// disk. That rename to the canonical name is deferred to next
+// startup via [FinalizeCompletedMigrations], because renaming a
+// dir whose mmaps are open would corrupt the segment registry.
+//
+// Disable double-write callbacks via a defer at the top of the
+// function so callbacks stop on every exit path. Same-process
+// retry of runtimeSwap is not supported (the in-memory bucket
+// state is partially mutated); recovery after a mid-swap crash
+// happens on the next node restart via OnBeforeLsmInit.
 // runtimePrepare runs the Phase 1 (background-safe) preparation work
 // that used to be inlined into runtimeSwap.
 //
