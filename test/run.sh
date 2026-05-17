@@ -50,7 +50,8 @@ function main() {
   run_acceptance_reindex_multinode_restart_b=false
   run_acceptance_reindex_multinode_scale=false
   run_acceptance_reindex_multinode_changetok=false
-  run_acceptance_reindex_singlenode=false
+  run_acceptance_reindex_singlenode_a=false
+  run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
 
@@ -101,7 +102,8 @@ function main() {
           --acceptance-reindex-multinode-restart-b|-armrb) run_all_tests=false; run_acceptance_reindex_multinode_restart_b=true;;
           --acceptance-reindex-multinode-scale|-arms) run_all_tests=false; run_acceptance_reindex_multinode_scale=true;;
           --acceptance-reindex-multinode-changetok|-armct) run_all_tests=false; run_acceptance_reindex_multinode_changetok=true;;
-          --acceptance-reindex-singlenode|-ars) run_all_tests=false; run_acceptance_reindex_singlenode=true;;
+          --acceptance-reindex-singlenode-a|-arsa) run_all_tests=false; run_acceptance_reindex_singlenode_a=true;;
+          --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
@@ -143,7 +145,8 @@ function main() {
               "--acceptance-reindex-multinode-restart-b | -armrb"\
               "--acceptance-reindex-multinode-scale | -arms"\
               "--acceptance-reindex-multinode-changetok | -armct"\
-              "--acceptance-reindex-singlenode | -ars"\
+              "--acceptance-reindex-singlenode-a | -arsa"\
+              "--acceptance-reindex-singlenode-b | -arsb"\
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
               "--only-acceptance-{packageName}"
@@ -304,9 +307,14 @@ function main() {
     run_acceptance_reindex_multinode_changetok
   fi
 
-  if $run_acceptance_reindex_singlenode; then
-    echo "running reindex singlenode acceptance tests"
-    run_acceptance_reindex_singlenode
+  if $run_acceptance_reindex_singlenode_a; then
+    echo "running reindex singlenode acceptance tests — sub-shard A (everything except PropertyStateMigrationMatrix)"
+    run_acceptance_reindex_singlenode_a
+  fi
+
+  if $run_acceptance_reindex_singlenode_b; then
+    echo "running reindex singlenode acceptance tests — sub-shard B (PropertyStateMigrationMatrix + PostRestartFinalize)"
+    run_acceptance_reindex_singlenode_b
   fi
 
   if $run_acceptance_reindex_concurrent; then
@@ -768,18 +776,35 @@ function run_acceptance_reindex_multinode_rm() {
     run_aof_group "reindex-multinode-rm" test/acceptance/reindex_multinode
 }
 
-function run_acceptance_reindex_singlenode() {
+function run_acceptance_reindex_singlenode_a() {
   build_weaviate_test_image
-  echo_green "acceptance — reindex-singlenode"
-  # Previously this bundled reindex_concurrent + reindex_mt +
-  # distributed_tasks, pushing wall-clock to 19+ min and DUPLICATING
-  # distributed_tasks (which has its own --acceptance-distributed-tasks
-  # shard at line ~384). Per 0-weaviate-issues#223 the bundle is split:
-  # reindex_concurrent → -arc shard, reindex_mt → -armt shard,
-  # distributed_tasks → removed (already covered by -adt). This shard
-  # now runs ONLY the reindex_singlenode package.
-  run_aof_group "reindex-singlenode" \
-    test/acceptance/reindex_singlenode
+  echo_green "acceptance — reindex-singlenode-a (everything except PropertyStateMigrationMatrix)"
+  # Profiled locally on M4 (race detector on): TestSingleNode_ReindexSuite
+  # totals 265s, dominated by /PropertyStateMigrationMatrix at 128s
+  # (~half the suite). Isolating PSMM to -singlenode-b gives this
+  # sub-shard ~137s of suite work + the 4 standalone Test* funcs
+  # (TestCancelThenRetry, TestRestartDuringSwap,
+  # TestSingleNode_FinishedStatusRaceWithSchemaFlag,
+  # TestTornResume_StandaloneSmoke), totalling ~3 min local → ~7-8 min CI.
+  #
+  # The -skip filter operates at the level of the subtest path: only
+  # TestSingleNode_ReindexSuite/PropertyStateMigrationMatrix is skipped;
+  # PostRestartFinalize still runs at the end of the suite here and
+  # asserts against shardInfos populated by every non-PSMM subtest.
+  AOF_GROUP_SKIP='^TestSingleNode_ReindexSuite$/^PropertyStateMigrationMatrix$' \
+    run_aof_group "reindex-singlenode-a" test/acceptance/reindex_singlenode
+}
+
+function run_acceptance_reindex_singlenode_b() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-singlenode-b (PropertyStateMigrationMatrix + PostRestartFinalize)"
+  # The PSMM subtest alone takes 128s locally (~5 min CI). Co-runs the
+  # PostRestartFinalize subtest so the suite still validates that any
+  # state PSMM left on disk survives a container restart (PSMM doesn't
+  # currently add to shardInfos, but the assertion shape is preserved
+  # for future expansion).
+  AOF_GROUP_RUN='^TestSingleNode_ReindexSuite$/^(PropertyStateMigrationMatrix|PostRestartFinalize)$' \
+    run_aof_group "reindex-singlenode-b" test/acceptance/reindex_singlenode
 }
 
 function run_acceptance_reindex_concurrent() {
