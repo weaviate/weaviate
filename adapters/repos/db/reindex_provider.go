@@ -885,8 +885,9 @@ func (p *ReindexProvider) persistRecoveryRecord(
 // shard/index, etc.). The scheduler propagates that error into the
 // post-completion ack the cluster gates MarkTaskFinalized on; a failure
 // here transitions the task to FAILED instead of FINISHED, which makes
-// OnTaskCompleted skip the cluster-wide schema flip. See
-// 0-weaviate-issues#214 Gap A.
+// OnTaskCompleted skip the cluster-wide schema flip — the load-bearing
+// invariant that prevents a per-node swap failure from leaving the
+// cluster-wide schema pointing at not-yet-swapped buckets.
 func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
 	logger := p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitIDs", localGroupUnitIDs)
@@ -906,7 +907,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	//
 	// Returning nil here mirrors the format-only-migration short-circuit
 	// below: no-op for a request the system is not in a position to act
-	// on. See 0-weaviate-issues#217 (spillover from #214 A5).
+	// on.
 	if task.Status.IsTerminal() {
 		logger.WithField("status", task.Status).
 			Debug("reindex provider: OnGroupCompleted: skipping replay on past-terminal task")
@@ -943,17 +944,17 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// post-completion ack (success=false with the joined error message).
 	// The cluster gates MarkTaskFinalized on every node's ack landing
 	// successfully; any failure transitions the task to FAILED and
-	// skips the cluster-wide schema flip. See 0-weaviate-issues#214.
+	// skips the cluster-wide schema flip.
 	//
 	// sawContextCanceled tracks whether at least one unit's swap failed
-	// because the server context was cancelled (graceful shutdown / rolling
-	// restart). The scheduler treats a context-canceled return as a
-	// transient "didn't finish yet" — the recovery path on the next boot
-	// re-runs OnGroupCompleted via the rehydrate branch and the swap
-	// completes cleanly without an in-flight compaction to abort
-	// (0-weaviate-issues#213 root cause). Returning context.Canceled
-	// up the stack lets [Scheduler] errors.Is the error and skip ack
-	// emission for THIS process — recovery owns the resolution.
+	// because the server context was cancelled (graceful shutdown /
+	// rolling restart). The scheduler treats a context-canceled return
+	// as a transient "didn't finish yet" — the recovery path on the
+	// next boot re-runs OnGroupCompleted via the rehydrate branch and
+	// the swap completes cleanly without an in-flight compaction to
+	// abort. Returning context.Canceled up the stack lets [Scheduler]
+	// errors.Is the error and skip ack emission for THIS process —
+	// recovery owns the resolution.
 	ctx := p.serverCtx
 	var unitErrs []string
 	var sawContextCanceled bool
@@ -1032,8 +1033,8 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 				Info("reindex provider: OnGroupCompleted: rebuilding tasks from disk (node likely restarted); will rehydrate before swap")
 		}
 
-		// 0-weaviate-issues#216 atomic-phase contract: the per-shard swap
-		// is now split into three phases, executed in order:
+		// Atomic-phase contract: the per-shard swap is split into three
+		// phases, executed in order:
 		//
 		//   1. PREP (RunPrepareOnShard, per task) — disk-I/O-heavy work:
 		//      FlushAndSwitch reindex bucket, ShutdownBucket (drains
@@ -1055,9 +1056,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		// (NEW-tokenized analyzer input against OLD-tokenized bucket
 		// content for hundreds of ms). Setting the overlay between
 		// prep and atomic swap means the window is bounded by the
-		// in-memory pointer flip (microseconds), matching the design
-		// contract Etienne called out on PR #11322 follow-up comment
-		// 4469995685.
+		// in-memory pointer flip (microseconds). See the file-level
+		// godoc on inverted_reindex_task_generic.go for the full
+		// phase contract.
 		//
 		// Failure handling:
 		//   - PREP failure: overlay not set, swap not attempted for
@@ -1067,7 +1068,8 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		//   - SWAP failure (after overlay set): partial-success is
 		//     possible. The defensive clear below handles the
 		//     all-failed case; partial-success is the operator-repair
-		//     surface from #221's logging path.
+		//     surface (see the FAILED-task repair_command logging
+		//     below).
 		//
 		// LazyLoadShard wrapping: production shards can be
 		// *LazyLoadShard rather than *Shard. unwrapShard ensures the
@@ -1125,7 +1127,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
 			logger.WithField("unit", unitID).WithField("shard", shardName).
 				WithError(setUnwrapErr).
-				Warn("reindex provider: cannot set tokenization overlay — shard unwrap failed; queries during FINALIZING window may observe pre-#216 misalignment")
+				Warn("reindex provider: cannot set tokenization overlay — shard unwrap failed; queries during FINALIZING window may observe stale-tokenization results")
 		}
 		overlayWasSet := maybeSetTokenizationOverlayPreSwap(setShard, payload)
 
@@ -1145,8 +1147,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			}
 		}
 
-		// 0-weaviate-issues#216 Gap B: defensive clear when NO swap
-		// succeeded on this shard. See
+		// Defensive overlay clear: when EVERY swap sub-task failed on
+		// this shard, the overlay must come back down so the analyzer
+		// stops claiming to be tokenizing with the new value. See
 		// [maybeClearTokenizationOverlayOnAllFailed] godoc for the full
 		// rationale; this call is the matching post-loop counterpart
 		// to maybeSetTokenizationOverlayPreSwap above.
@@ -1162,10 +1165,10 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 			// Loud, structured log so operators and log queries can find
 			// half-applied migrations. The aggregated error returned at
 			// the bottom of this function feeds the cluster-wide
-			// post-completion ack barrier (0-weaviate-issues#214 Gap A):
-			// any per-shard swap failure here causes the task's FSM to
-			// transition to FAILED before the schema flip can commit, so
-			// no replica is left at the new schema with old data.
+			// post-completion ack barrier: any per-shard swap failure
+			// here causes the task's FSM to transition to FAILED before
+			// the schema flip can commit, so no replica is left at the
+			// new schema with old data.
 			logger.WithField("unit", unitID).WithField("shard", shardName).
 				Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; the cluster-wide post-completion ack will report this as a failure")
 		}
@@ -1174,12 +1177,11 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return nil
 	}
 	// Preserve the context.Canceled chain when at least one unit failed
-	// due to shutdown so the scheduler's errors.Is check (in
-	// Phase 1.5) routes through the "transient — let recovery re-fire
-	// OnGroupCompleted" branch. Without this %w wrap, the joined string
-	// would lose the sentinel and the scheduler would emit a failure
-	// ack, flipping the task to FAILED before the post-restart recovery
-	// gets a chance. See 0-weaviate-issues#214 + #213.
+	// due to shutdown so the scheduler's errors.Is check routes through
+	// the "transient — let recovery re-fire OnGroupCompleted" branch.
+	// Without this %w wrap, the joined string would lose the sentinel
+	// and the scheduler would emit a failure ack, flipping the task to
+	// FAILED before the post-restart recovery gets a chance.
 	if sawContextCanceled {
 		return fmt.Errorf("OnGroupCompleted: %d unit(s) failed: %s: %w",
 			len(unitErrs), strings.Join(unitErrs, "; "), context.Canceled)
@@ -1275,11 +1277,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 
-	// 0-weaviate-issues#216 Gap B: clear the per-shard tokenization
-	// overlay now that the cluster-wide schema flip has committed and
-	// the live schema's `prop.Tokenization` matches what the overlay
-	// has been serving. The defensive self-clear in
-	// Shard.TokenizationFor would also handle this lazily, but
+	// Clear the per-shard tokenization overlay now that the cluster-wide
+	// schema flip has committed and the live schema's `prop.Tokenization`
+	// matches what the overlay has been serving. The defensive self-clear
+	// in Shard.TokenizationFor would also handle this lazily, but
 	// clearing explicitly here keeps the steady-state overlay map empty
 	// (no entries lingering until the next query touches each prop).
 	//
@@ -1313,28 +1314,28 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	}
 }
 
-// logOperatorRepairGuidanceOnFailedSemanticMigration is part of the
-// 0-weaviate-issues#221 fix (the operator-actionable half — the full
-// auto-submit is tracked separately).
+// logOperatorRepairGuidanceOnFailedSemanticMigration emits an
+// operator-actionable repair command for a FAILED semantic migration.
 //
 // Background: a FAILED semantic-migration task (change-tokenization /
 // change-tokenization-filterable / enable-*) is only ever reached
 // when at least one sub-shard/sub-task hit a permanent failure. With
-// the per-shard post-completion ack barrier from #214 in place, every
-// sub-task that succeeded BEFORE the failed sibling already committed
-// its local bucket-pointer flip — so the canonical bucket on those
-// shards now holds NEW-tokenized data while the cluster-wide schema
-// flip was correctly skipped (the task is FAILED). Bucket↔schema
-// inversion on the migrated property is the user-visible outcome:
-// every query against the inverted index returns 0, because the
-// query-side tokenizer (driven by the OLD schema) produces tokens
-// that don't match the NEW-tokenized bucket content.
+// the per-shard post-completion ack barrier in place, every sub-task
+// that succeeded BEFORE the failed sibling already committed its
+// local bucket-pointer flip — so the canonical bucket on those shards
+// now holds NEW-tokenized data while the cluster-wide schema flip was
+// correctly skipped (the task is FAILED). Bucket↔schema inversion on
+// the migrated property is the user-visible outcome: every query
+// against the inverted index returns 0, because the query-side
+// tokenizer (driven by the OLD schema) produces tokens that don't
+// match the NEW-tokenized bucket content.
 //
-// Re-enabling a deleted index (e.g. re-enable-searchable after the
-// #218 race) rebuilds THAT index from scratch, but DOES NOT touch
-// the sibling index's torn pointer. So a naive operator response
-// to a FAILED change-tokenization leaves the cluster in a state
-// where the migrated property still returns 0 on every query.
+// Re-enabling a deleted index (e.g. re-enable-searchable after a
+// MutationGuard-blocked DELETE landed mid-migration) rebuilds THAT
+// index from scratch, but DOES NOT touch the sibling index's torn
+// pointer. So a naive operator response to a FAILED
+// change-tokenization leaves the cluster in a state where the
+// migrated property still returns 0 on every query.
 //
 // This function emits an ERROR-level log entry with the exact REST
 // command an operator should issue to repair both inverted indexes
@@ -1347,7 +1348,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 // (repair-*, enable-rangeable) don't produce the inversion, so this
 // function early-returns on those.
 //
-// Forward-compatible with the full #221 auto-submit: the auto-submit
+// Forward-compatible with an eventual auto-submit path: the auto-submit
 // can later wrap this same logging on its own success/failure path
 // so operators still see the guidance even if auto-repair couldn't
 // be queued (e.g. lowest-node-ID is unavailable).
@@ -1410,9 +1411,9 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 				"that committed their swap BEFORE the failure left the "+
 				"canonical inverted bucket holding new-tokenization "+
 				"data while the schema reverted to pre-migration state "+
-				"(0-weaviate-issues#218 / #221) — issue the repair_command "+
-				"above to rebuild the affected inverted index(es) from "+
-				"raw objects against the current schema",
+				"— issue the repair_command above to rebuild the "+
+				"affected inverted index(es) from raw objects against "+
+				"the current schema",
 			payload.MigrationType, payload.Collection, propName))
 	}
 }
@@ -1694,38 +1695,39 @@ func IsSemanticMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeEnableSearchable
 }
 
-// IsTokenizationChangingMigration reports whether the migration type flips
-// the property's stored `Tokenization` field as part of its schema commit
-// in [flipSemanticMigrationSchema]. These are the migrations that open
-// the Gap B window from 0-weaviate-issues#216: between the per-shard
-// bucket-pointer flip in OnGroupCompleted.RunSwapOnShard and the cluster-
-// wide schema flip in OnTaskCompleted, queries on the migrated property
-// would tokenize against the OLD schema value while hitting the NEW
-// bucket content.
+// IsTokenizationChangingMigration reports whether the migration type
+// flips the property's stored `Tokenization` field as part of its
+// schema commit in [flipSemanticMigrationSchema]. These are the
+// migrations that open the FINALIZING-window misalignment between the
+// per-shard bucket-pointer flip in OnGroupCompleted.RunSwapOnShard and
+// the cluster-wide schema flip in OnTaskCompleted: queries on the
+// migrated property would tokenize against the OLD schema value while
+// hitting the NEW bucket content, and the per-shard tokenization
+// overlay is what closes that window.
 //
 // Both change-tokenization and change-tokenization-filterable end up
 // calling applyPerPropertySchemaUpdate with TargetTokenization (see the
 // switch arm in flipSemanticMigrationSchema), so both qualify here.
 // enable-searchable also writes Tokenization, but its window is closed
 // by EnableSearchableStrategy.AnalyzerOverlay during backfill — the
-// query-side gap from #216 specifically affects properties whose
-// tokenization is being CHANGED.
+// query-side gap that motivates the overlay specifically affects
+// properties whose tokenization is being CHANGED.
 func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
-// maybeSetTokenizationOverlayPreSwap is the #216 Gap B SET hook —
-// called by [OnGroupCompleted] just BEFORE the per-task swap loop
-// kicks off on a shard. It records the per-shard query-time
-// tokenization override for every property in the payload iff this
-// is a tokenization-changing migration with a non-empty target
-// tokenization. Returns true iff the overlay was written, so the
-// caller can match the [maybeClearTokenizationOverlayOnAllFailed]
+// maybeSetTokenizationOverlayPreSwap is the per-shard tokenization
+// overlay SET hook — called by [OnGroupCompleted] just BEFORE the
+// per-task swap loop kicks off on a shard. It records the per-shard
+// query-time tokenization override for every property in the payload
+// iff this is a tokenization-changing migration with a non-empty
+// target tokenization. Returns true iff the overlay was written, so
+// the caller can match the [maybeClearTokenizationOverlayOnAllFailed]
 // decision after the swap loop.
 //
 // Extracted from OnGroupCompleted's per-shard branch to keep the
-// Gap B set/clear lifecycle unit-testable without standing up a
+// overlay set/clear lifecycle unit-testable without standing up a
 // full provider + DB + index. See
 // [maybeClearTokenizationOverlayOnAllFailed] for the post-loop
 // counterpart and the all-failed defensive-clear rationale.
@@ -1745,28 +1747,29 @@ func maybeSetTokenizationOverlayPreSwap(shard *Shard, payload *ReindexTaskPayloa
 	return true
 }
 
-// maybeClearTokenizationOverlayOnAllFailed is the #216 Gap B
-// defensive CLEAR hook — called by [OnGroupCompleted] AFTER the
-// per-task swap loop on a shard. It clears the per-shard tokenization
-// overlay iff (a) the overlay was set pre-swap by
+// maybeClearTokenizationOverlayOnAllFailed is the defensive CLEAR
+// hook — called by [OnGroupCompleted] AFTER the per-task swap loop
+// on a shard. It clears the per-shard tokenization overlay iff (a)
+// the overlay was set pre-swap by
 // [maybeSetTokenizationOverlayPreSwap] (the `wasSet` argument) AND
 // (b) every per-task swap failed before flipping its bucket pointer
 // (the `anySwapped` argument is false).
 //
-// Without this clear, an all-failed swap path leaves the overlay
-// set against unchanged OLD buckets — the migration's FAILED
-// transition then skips the cluster-wide schema flip, so neither
+// Without this clear, an all-failed swap path leaves the overlay set
+// against unchanged OLD buckets — the migration's FAILED transition
+// then skips the cluster-wide schema flip, so neither
 // [OnTaskCompleted]'s explicit clear nor [Shard.TokenizationFor]'s
 // self-clear-on-catchup will ever fire (the live schema stays OLD
-// and never matches the overlay's NEW value). Permanent
-// misalignment until operator repair.
+// and never matches the overlay's NEW value). Permanent misalignment
+// until operator repair.
 //
 // Partial success (≥ 1 per-task swap returned nil → ≥ 1 bucket
-// pointer flipped) is intentionally left intact: the overlay
-// aligns with the swapped index type's content, which is strictly
-// better than letting partially-flipped buckets misroute against
-// the OLD schema tokenization. The partial-success case surfaces
-// through #221's FAILED-task repair_command log line.
+// pointer flipped) is intentionally left intact: the overlay aligns
+// with the swapped index type's content, which is strictly better
+// than letting partially-flipped buckets misroute against the OLD
+// schema tokenization. The partial-success case surfaces through the
+// FAILED-task repair_command log line in
+// [logOperatorRepairGuidanceOnFailedSemanticMigration].
 //
 // Returns true iff the clear was actually applied (for tests +
 // observability).
