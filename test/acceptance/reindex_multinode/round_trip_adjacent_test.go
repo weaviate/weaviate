@@ -63,30 +63,18 @@ import (
 //
 // Cluster sharing: every AJ top-level Test* spins up a single 3-node
 // cluster and runs all of its subtests against it (each subtest
-// `defer deleteCollection(...)`s its own class before exit). This is a
-// deliberate inversion of the earlier per-subtest-fresh-cluster
-// pattern. The principle: every subtest creates its own uniquely-named
-// collection, so the only mutable surface they could share is
-// cluster-internal (RAFT logs, replica-local migration dirs, LSM
-// segments). Those surfaces are PER-COLLECTION by design. If they leak
-// across collections, that is itself a bug worth surfacing — the
+// `defer deleteCollection(...)`s its own class before exit). The
+// principle: every subtest creates its own uniquely-named collection,
+// so the only mutable surface they could share is cluster-internal
+// (RAFT logs, replica-local migration dirs, LSM segments). Those
+// surfaces are PER-COLLECTION by design. If they leak across
+// collections, that is itself a bug worth surfacing — the
 // shared-cluster pattern is the test for it, not a thing to hide
-// behind a fresh-cluster wrapper. A prior author observed
-// "persistently divergent per-replica data" across collections on the
-// same long-lived cluster; several of the runtime-reindex root causes
-// suspected at the time have since been fixed (#214 finalize-crash,
-// #216 finalizing-window overlay + runtimeSwap split, #218 torn
-// filterable on parallel mutation, #220 atomic-rename defense in
-// depth). If the same divergence reproduces on this shared-cluster
-// pattern post-fixes, it's a Sev candidate; if it doesn't, the prior
-// concern was a now-fixed bug.
+// behind a fresh-cluster wrapper.
 //
-// The buckets group functionally-related journeys so a CI shard hitting
-// one bucket doesn't take a wildly different amount of wall-time than
-// the next.
-//
-// Cluster spin-ups dropped from 10 (one per subtest) to 5 (one per
-// top-level Test*), saving ~3.5 min on the `-aj` shard.
+// The buckets group functionally-related journeys so a CI shard
+// hitting one bucket doesn't take a wildly different amount of
+// wall-time than the next.
 
 // TestMultiNode_ChangeTokenization_AJ_MultiRoundRobin pins the original
 // #10675-shape round-trips: alternating word↔field across 3 and 4 rounds.

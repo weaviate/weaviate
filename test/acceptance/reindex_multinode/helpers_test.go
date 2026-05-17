@@ -159,7 +159,7 @@ func submitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody str
 // reindex iteration on every node and the cluster is about to fire the
 // post-completion swap + schema flip. Used by tests that need to
 // trigger destructive events (rolling restart, SIGKILL) inside the
-// brief FINALIZING window to exercise 0-weaviate-issues#214 Gap A.
+// brief FINALIZING window to exercise the post-completion ack barrier.
 //
 // FINALIZING is short for format-only migrations (essentially zero
 // wall-clock time) and seconds for change-tokenization at moderate
@@ -784,11 +784,12 @@ func allEqualPositive(counts [3]int) bool {
 // post-cutover steady state, then stop. Returns the collected samples
 // and the wall-clock time `migrate` started at.
 //
-// Shared between TestPartialResultsDuringChangeTokenization (which pins
-// the pre-#216 cluster-wide cutover bound) and
-// TestLiveQueriesDuringChangeTokenization (which pins the post-#216
-// per-shard alignment bound) so both tests use identical sampling
-// machinery — only their assertions differ.
+// Shared between TestPartialResultsDuringChangeTokenization (which
+// pins the looser cluster-wide cutover bound) and
+// TestLiveQueriesDuringChangeTokenization (which pins the tighter
+// per-shard alignment bound under the tokenization overlay) so both
+// tests use identical sampling machinery — only their assertions
+// differ.
 func runMigrationWithProbes(
 	t *testing.T,
 	compose *docker.DockerCompose,
@@ -851,8 +852,8 @@ func runMigrationWithProbes(
 // open range (min(baseline, expectedAfter), max(baseline, expectedAfter))
 // — the cross-shard cutover spread admits a brief partial window
 // during the per-replica swap + cluster-wide schema flip. OutOfRange
-// counts are samples OUTSIDE that range; with the #216 per-shard
-// tokenization overlay landed, no sample should be out-of-range
+// counts are samples OUTSIDE that range; with the per-shard
+// tokenization overlay in place, no sample should be out-of-range
 // because every replica's bucket content is always tokenization-
 // aligned with the value the analyzer uses. Out-of-range samples
 // indicate either the overlay isn't wired into a query path or the

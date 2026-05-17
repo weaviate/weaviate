@@ -667,11 +667,11 @@ function run_acceptance_reindex_multinode() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
   # The reindex_multinode package is partitioned across 6 CI shards to
-  # keep each shard's wall-clock under ~10 min for fast PR feedback (see
-  # 0-weaviate-issues#223). This "catch-all" shard runs only tests NOT
-  # claimed by a more-specific sub-shard, so newly added tests get
-  # automatic CI coverage here until the test author or a periodic
-  # cleanup sorts them into the right sub-shard.
+  # keep each shard's wall-clock under ~10 min for fast PR feedback.
+  # This "catch-all" shard runs only tests NOT claimed by a
+  # more-specific sub-shard, so newly added tests get automatic CI
+  # coverage here until the test author or a periodic cleanup sorts
+  # them into the right sub-shard.
   #
   # Current sub-shards (see test/run.sh: run_acceptance_reindex_multinode_aj,
   # _rm, _restart, _scale, _changetok):
@@ -819,9 +819,8 @@ function run_acceptance_reindex_concurrent() {
   echo_green "acceptance — reindex-concurrent"
   # Concurrency tests (TestConcurrentReindex, TestParallelConflictMatrix,
   # TestParallelEnableFilterableAndRangeable). TestParallelConflictMatrix
-  # historically runs the longest of the three — see task #27 history on
-  # the post-#11320 CI red investigation. Split out of the singlenode
-  # bundle for fast feedback (0-weaviate-issues#223).
+  # historically runs the longest of the three. Split out of the
+  # singlenode bundle for fast feedback.
   run_aof_group "reindex-concurrent" \
     test/acceptance/reindex_concurrent
 }
@@ -832,7 +831,7 @@ function run_acceptance_reindex_mt() {
   # Multi-tenant reindex suite (single top-level test
   # TestMultiTenant_ReindexSuite with many subtests).  Split out of the
   # singlenode bundle so reindex_singlenode's wall-clock is no longer
-  # gated on this suite's duration (0-weaviate-issues#223).
+  # gated on this suite's duration.
   run_aof_group "reindex-mt" \
     test/acceptance/reindex_mt
 }
