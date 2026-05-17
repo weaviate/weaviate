@@ -209,6 +209,35 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
 
+	// Acquire the per-(collection, property) submit lock EARLY — before
+	// reading the class or running any validation — so a parallel DELETE
+	// on /properties/{prop}/index/{name} cannot mutate the schema (drop
+	// the canonical bucket) between this handler's class read and its
+	// task-add RAFT call.
+	//
+	// The previous lock position (just before AddDistributedTask, after
+	// validation) was insufficient: a parallel DELETE could win the lock,
+	// flip IndexSearchable=false + drop the searchable bucket, release;
+	// meanwhile PUT was already past its `class := ReadOnlyClass(...)` +
+	// `validateTokenizationChange(targetProp)` snapshot which still
+	// observed IndexSearchable=true, so validation passed and PUT
+	// proceeded to submit a change-tok task against a no-longer-existing
+	// bucket — FilterableRetokenize/SearchableRetokenize then fails at
+	// the swap step (0-weaviate-issues#218
+	// TestParallelConflictMatrix/change_tokenization_both__delete_searchable_parallel
+	// returned RED on PR #11319 CI run 25977837049 after the lock
+	// manager was made shared but acquisition stayed late).
+	//
+	// Now: PUT holds the lock across class read + validation + RAFT
+	// task-add. A concurrent DELETE waits; when it acquires, the task
+	// is in-flight in RAFT and the apply-time MutationGuard (T1)
+	// rejects the DELETE deterministically. If DELETE wins instead,
+	// PUT's class read sees IndexSearchable=false and
+	// validateTokenizationChange rejects with 400.
+	propLock := h.submitLock(collection, propertyName)
+	propLock.Lock()
+	defer propLock.Unlock()
+
 	class := h.appState.SchemaManager.ReadOnlyClass(collection)
 	if class == nil {
 		return schema.NewSchemaObjectsIndexesUpdateNotFound()
@@ -427,17 +456,14 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		taskID = fmt.Sprintf("%s:%s:%s:%s", collection, migrationType, properties[0], suffix)
 	}
 
-	// Serialize the conflict-check + submit critical section per
-	// (collection, property) on this node. Without the lock, two
-	// parallel HTTP requests on the same property can both pass
-	// checkReindexConflict (each runs before the other has called
-	// AddDistributedTask and registered itself in the task list) and
-	// both successfully submit — which is exactly the race the
-	// frontend hit on weaviate/weaviate#10675. See the
-	// state.ReindexSubmitLocks field godoc for the multi-node caveat.
-	propLock := h.submitLock(collection, propertyName)
-	propLock.Lock()
-	defer propLock.Unlock()
+	// Note: propLock for (collection, propertyName) was acquired at
+	// the top of this handler — before the class read and validation —
+	// so the conflict-check + AddDistributedTask + DELETE-property-
+	// index races (frontend-observed on weaviate/weaviate#10675 and
+	// the parallel-conflict-matrix Sev 1 on 0-weaviate-issues#218) are
+	// all serialized through the same lock entry. See the early-
+	// acquisition comment up top + state.ReindexSubmitLocks godoc for
+	// the multi-node caveat.
 
 	// Check for conflicting active tasks. Any two reindex migrations on
 	// the same (collection, property) tuple conflict; see typesConflict's
