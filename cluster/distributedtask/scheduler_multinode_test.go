@@ -106,6 +106,13 @@ func (p *recordingUnitAwareProvider) OnGroupCompleted(task *Task, _ string, _ []
 	return nil
 }
 
+func (p *recordingUnitAwareProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
+	// Recording provider exercises the NeedsPrepBarrier=false path;
+	// scheduler never fires this for these tasks. Stub for interface
+	// compliance.
+	return nil
+}
+
 // SetGroupCompletedError makes subsequent OnGroupCompleted calls on
 // this provider return the given error. Used to drive the
 // https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A ack-failure path in tests.

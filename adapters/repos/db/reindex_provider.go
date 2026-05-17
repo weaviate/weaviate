@@ -1207,6 +1207,25 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		len(unitErrs), strings.Join(unitErrs, "; "))
 }
 
+// OnSwapRequested is the swap-phase counterpart to OnGroupCompleted
+// for tasks with NeedsPrepBarrier=true. It will carry the OVERLAY SET
+// + ATOMIC SWAP + post-atomic tidy currently bundled into
+// OnGroupCompleted's monolithic implementation. The scheduler only
+// fires this after the FSM transitions PREPARING → SWAPPING (i.e.
+// after every node's PREP ack has landed successfully).
+//
+// Stub for now (step 3 of docs/proposals/prep_swap_barrier.md
+// implementation order). Will be filled in by step 5 when the
+// ReindexProvider's task-creation path starts setting
+// NeedsPrepBarrier=true on semantic migrations and OnGroupCompleted
+// is split to PREP-only. Until then, no task can be SWAPPING via the
+// new path (the existing AddDistributedTask sites all pass
+// NeedsPrepBarrier=false implicitly via the no-barrier overload), so
+// this stub is unreachable in the current commit.
+func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID string, localGroupUnitIDs []string) error {
+	return nil
+}
+
 // OnTaskCompleted fires after all units across all nodes are terminal.
 // For semantic migrations (change-tokenization, enable-filterable,
 // enable-searchable), this is the cluster-wide cutover point: every

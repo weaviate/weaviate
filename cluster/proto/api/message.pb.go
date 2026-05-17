@@ -1352,8 +1352,23 @@ type AddDistributedTaskRequest struct {
 	SubmittedAtUnixMillis int64                  `protobuf:"varint,5,opt,name=submitted_at_unix_millis,json=submittedAtUnixMillis,proto3" json:"submitted_at_unix_millis,omitempty"`
 	UnitIds               []string               `protobuf:"bytes,6,rep,name=unit_ids,json=unitIds,proto3" json:"unit_ids,omitempty"`
 	UnitSpecs             []*UnitSpec            `protobuf:"bytes,7,rep,name=unit_specs,json=unitSpecs,proto3" json:"unit_specs,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// When true, the task uses the PREP barrier: AllUnitsTerminal
+	// transitions the task STARTED → PREPARING (NOT directly to SWAPPING).
+	// Each node's scheduler fires the PREP body, then emits a
+	// RecordPrepCompleteAck; the FSM gates the PREPARING → SWAPPING
+	// transition on all expected acks landing successfully.
+	//
+	// Set by the provider's task-creation path (e.g. for the reindex
+	// provider, true for semantic migrations like change-tokenization /
+	// enable-filterable / enable-searchable; false for format-only
+	// migrations like repair-* and enable-rangeable). See
+	// docs/proposals/prep_swap_barrier.md.
+	//
+	// Default false preserves the pre-barrier behavior (STARTED →
+	// SWAPPING directly) for all existing callers.
+	NeedsPrepBarrier bool `protobuf:"varint,8,opt,name=needs_prep_barrier,json=needsPrepBarrier,proto3" json:"needs_prep_barrier,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *AddDistributedTaskRequest) Reset() {
@@ -1426,6 +1441,13 @@ func (x *AddDistributedTaskRequest) GetUnitSpecs() []*UnitSpec {
 		return x.UnitSpecs
 	}
 	return nil
+}
+
+func (x *AddDistributedTaskRequest) GetNeedsPrepBarrier() bool {
+	if x != nil {
+		return x.NeedsPrepBarrier
+	}
+	return false
 }
 
 // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
@@ -2491,7 +2513,7 @@ const file_api_message_proto_rawDesc = "" +
 	"\x06status\x18\x02 \x01(\tR\x06status\"5\n" +
 	"\bUnitSpec\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
-	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"\xfb\x01\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"\xa9\x02\n" +
 	"\x19AddDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
@@ -2499,7 +2521,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\x18submitted_at_unix_millis\x18\x05 \x01(\x03R\x15submittedAtUnixMillis\x12\x19\n" +
 	"\bunit_ids\x18\x06 \x03(\tR\aunitIds\x12B\n" +
 	"\n" +
-	"unit_specs\x18\a \x03(\v2#.weaviate.internal.cluster.UnitSpecR\tunitSpecs\"\xe9\x01\n" +
+	"unit_specs\x18\a \x03(\v2#.weaviate.internal.cluster.UnitSpecR\tunitSpecs\x12,\n" +
+	"\x12needs_prep_barrier\x18\b \x01(\bR\x10needsPrepBarrier\"\xe9\x01\n" +
 	"*RecordDistributedTaskNodeCompletionRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +

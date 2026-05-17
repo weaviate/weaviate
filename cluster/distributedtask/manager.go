@@ -257,11 +257,12 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	}
 
 	newTask := &Task{
-		Namespace:      r.Namespace,
-		TaskDescriptor: TaskDescriptor{ID: r.Id, Version: seqNum},
-		Payload:        r.Payload,
-		Status:         TaskStatusStarted,
-		StartedAt:      time.UnixMilli(r.SubmittedAtUnixMillis),
+		Namespace:        r.Namespace,
+		TaskDescriptor:   TaskDescriptor{ID: r.Id, Version: seqNum},
+		Payload:          r.Payload,
+		NeedsPrepBarrier: r.NeedsPrepBarrier,
+		Status:           TaskStatusStarted,
+		StartedAt:        time.UnixMilli(r.SubmittedAtUnixMillis),
 	}
 
 	if len(r.UnitSpecs) > 0 {
@@ -374,14 +375,25 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			task.Status = TaskStatusFailed
 		} else {
 			// All units COMPLETED with no failures — hand off to the
-			// scheduler for post-completion callbacks (per-node swap
-			// via OnGroupCompleted, cluster-wide schema flip via
-			// OnTaskCompleted). The scheduler will RAFT
-			// [MarkTaskFinalized] once every callback succeeds; that
-			// is what flips Status to FINISHED. Until then the task
-			// is FINALIZING and callers polling for "fully done" must
-			// keep waiting.
-			task.Status = TaskStatusSwapping
+			// scheduler for post-completion callbacks.
+			//
+			// Routing decision (per docs/proposals/prep_swap_barrier.md):
+			//   - NeedsPrepBarrier=true (semantic migrations) → PREPARING.
+			//     Each node's scheduler fires its PREP body and emits a
+			//     RecordPrepCompleteAck. The FSM (in RecordPrepCompleteAck)
+			//     atomically transitions PREPARING → SWAPPING only when
+			//     every expected ack lands with Success=true.
+			//   - NeedsPrepBarrier=false (format-only / debug / etc.) →
+			//     SWAPPING directly, preserving the pre-barrier behavior.
+			//     The scheduler fires the per-node swap immediately and
+			//     emits a RecordPostCompletionAck; the FSM gates the
+			//     SWAPPING → FINISHED transition (via MarkTaskFinalized)
+			//     on those acks. Same wire shape as today.
+			if task.NeedsPrepBarrier {
+				task.Status = TaskStatusPreparing
+			} else {
+				task.Status = TaskStatusSwapping
+			}
 		}
 		// FinishedAt records when units completed, regardless of which
 		// status path we took. For the FINALIZING path this is intentional:

@@ -286,8 +286,15 @@ type RecoveryAwareProvider interface {
 //     even while the task is still STARTED
 //
 // Callback phases:
-//  1. OnGroupCompleted — per group, fires as each group's units all reach terminal
-//  2. OnTaskCompleted — fires once on every node after ALL units terminal
+//  1. OnGroupCompleted — per group, fires as each group's units all reach terminal.
+//     For PREP-barrier tasks (NeedsPrepBarrier=true), this hook runs ONLY
+//     the PREP body (FlushAndSwitch / Prepend / Shutdown of reindex
+//     buckets); the atomic swap is deferred to OnSwapRequested after the
+//     cluster-wide barrier lifts.
+//  2. OnSwapRequested — per group, fires after the FSM transitions
+//     PREPARING → SWAPPING (i.e. after every node's PREP ack has landed
+//     successfully). PREP-barrier tasks only.
+//  3. OnTaskCompleted — fires once on every node after ALL units terminal.
 type UnitAwareProvider interface {
 	Provider
 	// OnGroupCompleted fires when all units in a group reach terminal state.
@@ -295,14 +302,34 @@ type UnitAwareProvider interface {
 	// in the group. If a node has no units in the group, this callback does not
 	// fire on that node.
 	//
-	// Returns a non-nil error iff at least one local unit's
-	// post-completion work (e.g. the reindex provider's RunSwapOnShard)
-	// failed. The [Scheduler] aggregates errors across this task's
-	// groups for THIS NODE and publishes them via
-	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck];
-	// any reported failure transitions the task to FAILED in the FSM,
-	// which makes OnTaskCompleted skip the cluster-wide schema flip.
+	// Behavior depends on Task.NeedsPrepBarrier:
+	//   - NeedsPrepBarrier=false (format-only / debug / etc.): runs the
+	//     full PREP + OVERLAY + SWAP cycle (legacy behavior preserved).
+	//   - NeedsPrepBarrier=true (semantic migrations): runs PREP only.
+	//     The swap is deferred to OnSwapRequested after the cluster-wide
+	//     barrier lifts. See docs/proposals/prep_swap_barrier.md.
+	//
+	// Returns a non-nil error iff at least one local unit's body failed.
+	// For barrier tasks the error feeds RecordPrepCompleteAck (failure
+	// → FAILED, barrier holds, no swap); for non-barrier tasks it feeds
+	// RecordPostCompletionAck (failure → FAILED, schema flip skipped).
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
+
+	// OnSwapRequested fires after the cluster-wide PREP barrier lifts
+	// (FSM transitioned PREPARING → SWAPPING). Runs the atomic swap +
+	// per-strategy OnMigrationComplete per local shard. Only invoked
+	// for tasks with NeedsPrepBarrier=true.
+	//
+	// localGroupUnitIDs has the same semantics as OnGroupCompleted's.
+	// Returns a non-nil error iff at least one local unit's swap
+	// failed; the error feeds RecordPostCompletionAck (failure →
+	// FAILED, cluster-wide schema flip skipped).
+	//
+	// Implementations that don't use the PREP barrier may panic or
+	// return an error if this method is called — the [Scheduler]
+	// guarantees it only fires for barrier tasks.
+	OnSwapRequested(task *Task, groupID string, localGroupUnitIDs []string) error
+
 	OnTaskCompleted(task *Task)
 }
 
@@ -470,6 +497,26 @@ type Task struct {
 
 	// Payload is arbitrary data that is needed to execute a task of Namespace.
 	Payload []byte `json:"payload"`
+
+	// NeedsPrepBarrier indicates that this task uses the two-phase
+	// RAFT-coordinated swap barrier (per
+	// docs/proposals/prep_swap_barrier.md):
+	//
+	//   - true → AllUnitsTerminal transitions STARTED → PREPARING.
+	//     Each node's scheduler fires its PREP body and emits a
+	//     RecordPrepCompleteAck. The Manager FSM transitions
+	//     PREPARING → SWAPPING only when every expected ack lands
+	//     with Success=true (the load-bearing barrier invariant —
+	//     no node fires its atomic swap until every other node has
+	//     completed PREP).
+	//   - false → AllUnitsTerminal transitions STARTED → SWAPPING
+	//     directly (pre-barrier behavior, preserved for format-only
+	//     migrations and any non-reindex provider that does not need
+	//     cluster-wide swap coordination).
+	//
+	// Set at AddTask time from the provider's task-creation path. The
+	// FSM treats this as immutable for the task's lifetime.
+	NeedsPrepBarrier bool `json:"needsPrepBarrier,omitempty"`
 
 	// Status is the current status of the task.
 	Status TaskStatus `json:"status"`

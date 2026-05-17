@@ -1026,6 +1026,12 @@ func (p *unitAwareTestProvider) OnGroupCompleted(task *Task, groupID string, loc
 	return nil
 }
 
+func (p *unitAwareTestProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
+	// Test provider is the NeedsPrepBarrier=false path; scheduler never
+	// fires this for these tasks. Stub for interface compliance.
+	return nil
+}
+
 func (p *unitAwareTestProvider) OnTaskCompleted(task *Task) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
