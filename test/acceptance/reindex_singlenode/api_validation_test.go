@@ -70,7 +70,29 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		Vectorizer:         "none",
 	})
-	defer helper.DeleteClass(t, mtClass)
+	// The "tenants subset accepted on MT collection" sub-test submits a
+	// repair-filterable task on mtClass.text_word and does NOT await
+	// terminal state. After PR #11320 / 0-weaviate-issues#218 / #219,
+	// DeleteClass is rejected by the schema FSM's MutationGuard while
+	// any reindex task is in flight on the collection (the guard is
+	// what protects against the bucket↔schema-inversion family of
+	// Sev 1 bugs). The deferred cleanup must therefore cancel the
+	// in-flight task BEFORE asking the schema FSM to delete the class.
+	defer func() {
+		// Best-effort cancel of any reindex still STARTED on
+		// mtClass.text_word. The PUT body shape mirrors what the
+		// test's positive-path sub-test submitted; the cancel verb
+		// here is what makes DTM transition the task out of STARTED
+		// so the MutationGuard will allow the DeleteClass below.
+		cancelURL := fmt.Sprintf("http://%s/v1/schema/%s/indexes/text_word", restURI, mtClass)
+		cancelReq, _ := http.NewRequest(http.MethodPut, cancelURL,
+			bytes.NewReader([]byte(`{"filterable":{"cancel":true}}`)))
+		cancelReq.Header.Set("Content-Type", "application/json")
+		if cancelResp, err := http.DefaultClient.Do(cancelReq); err == nil {
+			cancelResp.Body.Close()
+		}
+		helper.DeleteClass(t, mtClass)
+	}()
 	helper.CreateTenants(t, mtClass, []*models.Tenant{
 		{Name: "tenant-a"}, {Name: "tenant-b"},
 	})

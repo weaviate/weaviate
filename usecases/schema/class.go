@@ -510,6 +510,30 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 	return err
 }
 
+// UpdatePropertyInternalFromMigration is the migration-completion
+// variant of [UpdatePropertyInternal]. It routes the RAFT command
+// through [SchemaManager.UpdatePropertyFromMigration], which sets the
+// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
+// FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
+// for this single update.
+//
+// Used by the reindex provider's
+// [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
+// OnTaskCompleted dispatch. Public-API callers (REST / gRPC handlers)
+// must continue to call [UpdatePropertyInternal] (or
+// h.schemaManager.UpdateProperty directly) so the MutationGuard
+// applies to external mutations.
+//
+// Same replication contract as [UpdatePropertyInternal]: synchronously
+// awaits RAFT commit + local FSM apply before returning a nil error.
+func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
+	fields ...string,
+) error {
+	setPropertyDefaults(prop)
+	_, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, prop, fields...)
+	return err
+}
+
 func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	if class.ShardingConfig != nil && schema.MultiTenancyEnabled(class) {
 		return fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")

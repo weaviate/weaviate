@@ -181,7 +181,13 @@ func applyPerPropertySchemaUpdate(
 		if !mutate(&updated) {
 			continue
 		}
-		if err := schema.UpdatePropertyInternal(&mgr.Handler, ctx, className, &updated, fields...); err != nil {
+		// Route through the migration-aware path so the
+		// FromInFlightMigration flag is set on the resulting RAFT
+		// command. Without this flag the schema FSM's MutationGuard
+		// (0-weaviate-issues#218) would reject this update because
+		// the in-flight reindex task is in STARTED/FINALIZING — the
+		// very guard the migration completion depends on bypassing.
+		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, &updated, fields...); err != nil {
 			return missing, fmt.Errorf("updating property %q: %w", propName, err)
 		}
 	}

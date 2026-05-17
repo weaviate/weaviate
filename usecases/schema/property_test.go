@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
@@ -1030,7 +1031,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 				sm.On("ReadOnlyClass", lookup).Return((*models.Class)(nil))
 			}
 			if tt.wantErrIs == nil {
-				sm.On("UpdateProperty", tt.wantAuthName, mock.Anything).Return(nil)
+				sm.On("UpdateProperty", tt.wantAuthName, mock.Anything, mock.Anything).Return(nil)
 			}
 
 			err = handler.DeleteClassPropertyIndex(context.Background(), tt.principal,
@@ -1044,6 +1045,176 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError pins
+// the regression fixed in PR #11320 after Copilot's review on
+// `cluster/schema/manager.go:520`:
+//
+// SchemaReader.ReadOnlyClass returns a SHALLOW clone of the live FSM
+// class — class.Properties is a slice of pointers to the FSM's actual
+// *models.Property structs. If DeleteClassPropertyIndex mutated those
+// pointers' fields BEFORE calling UpdateProperty, an apply-time
+// rejection (the in-flight-reindex MutationGuard from #218, but also
+// any pre-existing rejection like a RAFT timeout or downstream
+// validation) would leave the local node's in-memory schema diverged
+// from the cluster-wide RAFT state.
+//
+// The fix: deep-copy the located property struct before mutating its
+// IndexFilterable / IndexSearchable / IndexRangeFilters pointers.
+//
+// This test exercises every index name (filterable / searchable /
+// rangeFilters) for both directions of the mutation, and asserts the
+// FSM's Property pointer's fields are STILL the original values after
+// an UpdateProperty failure.
+func TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError(t *testing.T) {
+	t.Parallel()
+
+	indexNames := []struct {
+		indexName   string
+		fieldOnProp func(p *models.Property) *bool
+	}{
+		{"filterable", func(p *models.Property) *bool { return p.IndexFilterable }},
+		{"searchable", func(p *models.Property) *bool { return p.IndexSearchable }},
+		{"rangeFilters", func(p *models.Property) *bool { return p.IndexRangeFilters }},
+	}
+
+	for _, idx := range indexNames {
+		t.Run(idx.indexName, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, false)
+
+			trueVal := true
+			// Construct the FSM-stored property. All three flags are
+			// true so DeleteClassPropertyIndex reaches the mutation
+			// branch regardless of which indexName we exercise.
+			fsmProp := &models.Property{
+				Name:              "title",
+				DataType:          schema.DataTypeText.PropString(),
+				IndexFilterable:   &trueVal,
+				IndexSearchable:   &trueVal,
+				IndexRangeFilters: &trueVal,
+				Tokenization:      "word",
+			}
+			fsmClass := &models.Class{
+				Class:      "Movies",
+				Vectorizer: "none",
+				Properties: []*models.Property{fsmProp},
+			}
+			sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
+			// Simulate an apply-time rejection — the
+			// MutationGuard's in-flight-reindex error shape.
+			sm.On("UpdateProperty", "Movies", mock.Anything, mock.Anything).Return(
+				fmt.Errorf("reindex task is in flight on this property"))
+
+			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+				"Movies", "title", idx.indexName)
+			require.Error(t, err, "UpdateProperty was mocked to fail")
+
+			// The CRITICAL assertion: after the failed apply, the FSM's
+			// Property struct's pointer field for this index name must
+			// STILL point at the original true value. Without the
+			// defensive copy in DeleteClassPropertyIndex, this would
+			// be a pointer to `false` because the mutation would have
+			// leaked.
+			fsmField := idx.fieldOnProp(fsmProp)
+			require.NotNil(t, fsmField, "FSM Property's index pointer must not be nil after rejection")
+			require.True(t, *fsmField,
+				"FSM Property.%s was mutated to false despite UpdateProperty failing — local FSM diverged from RAFT", idx.indexName)
+		})
+	}
+}
+
+// TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag pins the
+// regression caught by
+// test/acceptance/alter_schema/delete_property_index_empty_test.go on
+// a 3-node cluster after the Copilot defensive-copy fix:
+//
+// Without a field mask, the RAFT FSM falls back to "replace every
+// field" semantics on UpdateProperty. A REST request handled by a
+// follower whose local FSM lags one RAFT entry behind the leader will
+// read stale `IndexFilterable=true` into its read-modify-write
+// payload, then commit a property-replace command that clobbers the
+// leader's IndexFilterable=false back to true.
+//
+// The fix is the field mask — only the flag the REST request touched
+// gets merged; the leader's current value of unmasked flags is
+// preserved. This test asserts the correct PropertyField* constant is
+// forwarded for each of the three index names.
+func TestDeleteClassPropertyIndex_FieldMaskScopedToTouchedFlag(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		indexName string
+		wantField string
+		// fsmProp is built per-case because rangeFilters validation
+		// requires a numeric data type and forbids the searchable flag,
+		// while the text-typed property forbids rangeFilters.
+		fsmProp *models.Property
+	}{
+		{
+			indexName: "filterable",
+			wantField: command.PropertyFieldIndexFilterable,
+			fsmProp: &models.Property{
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				IndexFilterable: boolPtr(true),
+				IndexSearchable: boolPtr(true),
+				Tokenization:    "word",
+			},
+		},
+		{
+			indexName: "searchable",
+			wantField: command.PropertyFieldIndexSearchable,
+			fsmProp: &models.Property{
+				Name:            "title",
+				DataType:        schema.DataTypeText.PropString(),
+				IndexFilterable: boolPtr(true),
+				IndexSearchable: boolPtr(true),
+				Tokenization:    "word",
+			},
+		},
+		{
+			indexName: "rangeFilters",
+			wantField: command.PropertyFieldIndexRangeFilters,
+			fsmProp: &models.Property{
+				Name:              "size",
+				DataType:          schema.DataTypeNumber.PropString(),
+				IndexFilterable:   boolPtr(true),
+				IndexRangeFilters: boolPtr(true),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.indexName, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, false)
+
+			fsmClass := &models.Class{
+				Class:      "Movies",
+				Vectorizer: "none",
+				Properties: []*models.Property{tc.fsmProp},
+			}
+			sm.On("ReadOnlyClass", "Movies").Return(fsmClass)
+			sm.On("UpdateProperty", "Movies", mock.Anything,
+				mock.MatchedBy(func(fields []string) bool {
+					// Exactly one field tag, exactly the one the
+					// REST request touched. Anything else (empty
+					// mask → replace-all; multiple fields → could
+					// clobber unrelated state) is the regression.
+					return len(fields) == 1 && fields[0] == tc.wantField
+				}),
+			).Return(nil)
+
+			err := handler.DeleteClassPropertyIndex(context.Background(), nil,
+				"Movies", tc.fsmProp.Name, tc.indexName)
+			require.NoError(t, err)
+			sm.AssertExpectations(t)
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")

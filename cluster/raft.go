@@ -77,6 +77,16 @@ func (s *Raft) SetDistributedTaskConflictDetectors(detectors map[string]distribu
 	s.store.SetDistributedTaskConflictDetectors(detectors)
 }
 
+// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
+// schema-mutation detectors consulted from the schema FSM's
+// UpdateProperty apply path. Called once at startup from MakeAppState,
+// after the providers are registered. See
+// [distributedtask.SchemaMutationDetector] for the contract and
+// motivating bug (0-weaviate-issues#218).
+func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
+	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
+}
+
 func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }

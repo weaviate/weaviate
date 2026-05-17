@@ -108,6 +108,37 @@ type State struct {
 	// [db.ReindexProvider.WaitForLocalTaskDrain].
 	ReindexProvider *db.ReindexProvider
 
+	// ReindexSubmitLocks serializes mutating REST operations on the same
+	// (collection, property) tuple across BOTH the reindex-submit
+	// handler (PUT /v1/schema/{class}/indexes/{prop}) and the
+	// destructive property-index handler (DELETE
+	// /v1/schema/{class}/properties/{prop}/index/{indexName}).
+	//
+	// Motivating bug: 0-weaviate-issues#218
+	// (change_tokenization_both__delete_searchable_parallel matrix
+	// sub-test). Two parallel REST requests on the same property race
+	// at the RAFT serializer: if DELETE searchable's UPDATE_PROPERTY
+	// command commits BEFORE change-tokenization's DISTRIBUTED_TASK_ADD,
+	// the apply-time MutationGuard (T1) cannot reject DELETE because
+	// no task is in-flight yet; the bucket is dropped; the change-tok
+	// task is then admitted, runs against a missing canonical bucket,
+	// and FAILS — leaving a torn filterable bucket on the shard.
+	//
+	// The shared lock closes the race at the REST layer: change-tok
+	// holds the lock across the AddDistributedTask RAFT commit, so a
+	// concurrent DELETE on the same property waits, and then T1 sees
+	// the task in-flight and rejects it deterministically. Conversely,
+	// if DELETE wins the lock, change-tok's downstream validation
+	// (e.g., validateTokenizationChange) sees IndexSearchable=false
+	// and rejects with 400.
+	//
+	// Multi-node caveat: this lock is local. Two simultaneous submits
+	// from two different REST nodes against the same property are
+	// still possible. The RAFT apply-time MutationGuard remains the
+	// authoritative defense; this lock just collapses the local
+	// single-node race window that any realistic UI/CLI flow can hit.
+	ReindexSubmitLocks *ReindexSubmitLocks
+
 	// UsageLimits gates the object-count cap only. Collections/tenants/
 	// shards caps are read directly at the schema-handler use sites.
 	UsageLimits *usagelimits.Manager
