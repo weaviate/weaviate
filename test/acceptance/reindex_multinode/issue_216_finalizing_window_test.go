@@ -197,12 +197,25 @@ func runLiveQueryDuringChangeTokenizationCase(
 	// the FINALIZING-window partial samples are visible against a
 	// stable baseline. If the probe matches zero at startTok we'd
 	// classify steady-state samples as partial, blowing the budget.
-	baselineCount, err := probe(compose.GetWeaviateNode(1).URI(), className)
-	require.NoError(t, err)
+	//
+	// Wait for per-replica convergence first. batchImport uses default
+	// write consistency; the synchronous POST returning does NOT
+	// guarantee that every replica has finished its replication leg —
+	// there can be a brief lag (typically <500ms) before all 3 nodes
+	// return identical probe counts. Without this wait the baseline
+	// captured here can be 5-10 below steady-state, and the
+	// classifyProbeSamples helper will subsequently treat *every*
+	// steady-state sample as out-of-range (count > captured baseline).
+	// That misclassification produced 13 spurious failures on PR
+	// #11323 CI run b19dd49366 / job 76404184658:
+	//   baseline captured: 1495 (lagged replica)
+	//   steady-state actual: 1500 (all replicas converged)
+	//   13 samples observed count=1500, classified out-of-range.
+	baselineCount := waitForProbeBaseline(t, compose, className, probe)
 	require.Greater(t, baselineCount, 0,
 		"baseline (%s tokenization) must return a stable count > 0 against probe %q "+
 			"so partial samples during the migration are detectable", startTok, probeQuery)
-	t.Logf("baseline (start=%s) count: %d", startTok, baselineCount)
+	t.Logf("baseline (start=%s, converged across 3 replicas) count: %d", startTok, baselineCount)
 
 	indexUpdateJSON := buildTokenizationIndexUpdate(t, indexType, targetTok)
 

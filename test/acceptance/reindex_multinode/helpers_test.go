@@ -707,6 +707,68 @@ type probeSample struct {
 // probeFn is the shape of a per-node query probe. Returns (count, err).
 type probeFn func(restURI, className string) (int, error)
 
+// waitForProbeBaseline polls the given probe across all three replicas
+// until counts agree AND repeat once. Returns the converged count.
+//
+// Why this is needed: batchImport / importObjects use the default write
+// consistency, which returns to the caller after a quorum of replicas
+// has acknowledged the write — but the third replica's apply leg can
+// still be in flight for hundreds of ms after the POST returns. A
+// baseline captured during that lag window will be smaller than the
+// steady-state count by the lag amount. Subsequent FINALIZING-window
+// probe samples then read the converged (larger) count and get
+// classified as "out-of-range" by classifyProbeSamples, producing
+// spurious failures even though the per-shard tokenization overlay is
+// working correctly.
+//
+// Observed on PR #11323 CI run b19dd49366 / job 76404184658:
+//
+//	baseline captured: 1495 (lagged replica)
+//	steady-state count: 1500 (all replicas converged)
+//	13 OUT-OF-RANGE samples logged, all count=1500 vs valid range [0, 1495]
+//
+// The shape is the same one `waitForPerReplicaBaseline` (in
+// round_trip_adjacent_test.go) was added for; this is the
+// probeFn-generic version of the same pattern for tests that don't use
+// a fixed list of BM25 query strings.
+func waitForProbeBaseline(
+	t *testing.T, compose *docker.DockerCompose, className string,
+	probe probeFn,
+) int {
+	t.Helper()
+	deadline := time.Now().Add(perReplicaConvergenceTimeout)
+	var prevAll int = -1
+	for time.Now().Before(deadline) {
+		var counts [3]int
+		ok := true
+		for n := 0; n < 3; n++ {
+			c, err := probe(compose.GetWeaviateNode(n+1).URI(), className)
+			if err != nil {
+				t.Logf("waitForProbeBaseline: probe error on node %d: %v", n+1, err)
+				ok = false
+				break
+			}
+			counts[n] = c
+		}
+		if ok && counts[0] == counts[1] && counts[1] == counts[2] && counts[0] > 0 {
+			if prevAll == counts[0] {
+				t.Logf("waitForProbeBaseline: converged at count=%d across all 3 replicas",
+					counts[0])
+				return counts[0]
+			}
+			prevAll = counts[0]
+		} else {
+			// Divergence resets the "stable" requirement so a flapping
+			// count gets fully re-validated.
+			prevAll = -1
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Fatalf("waitForProbeBaseline: per-replica counts did not converge within %s",
+		perReplicaConvergenceTimeout)
+	return 0
+}
+
 // runMigrationWithProbes spins up one probe goroutine per node, each
 // invoking `probe` every `probeInterval`, while `migrate` runs. After
 // `migrate` returns, probes continue for `tailDuration` to capture the
