@@ -14,6 +14,8 @@ package db
 import (
 	"context"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,6 +82,23 @@ func createTestObjectWithText(className, text string) *storobj.Object {
 }
 
 func newTestClass(className string) *models.Class {
+	return newTestClassWithProps(className, []string{"title"})
+}
+
+// newTestClassWithProps builds a test class with N searchable text
+// properties. Used by regression tests that exercise the per-prop
+// loop inside runtimeSwap (the atomic-phase contract per
+// 0-weaviate-issues#216 — see file-level godoc in
+// inverted_reindex_task_generic.go).
+func newTestClassWithProps(className string, propNames []string) *models.Class {
+	props := make([]*models.Property, len(propNames))
+	for i, name := range propNames {
+		props[i] = &models.Property{
+			Name:         name,
+			DataType:     schema.DataTypeText.PropString(),
+			Tokenization: models.PropertyTokenizationWord,
+		}
+	}
 	return &models.Class{
 		Class:             className,
 		VectorIndexConfig: enthnsw.NewDefaultUserConfig(),
@@ -90,13 +109,7 @@ func newTestClass(className string) *models.Class {
 			IndexPropertyLength:    true,
 			UsingBlockMaxWAND:      false, // Force MapCollection strategy
 		},
-		Properties: []*models.Property{
-			{
-				Name:         "title",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWord,
-			},
-		},
+		Properties: props,
 	}
 }
 
@@ -382,4 +395,150 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 				"OnMigrationComplete should have fired (finalizeMigrationAfterRecovery tail of every recovery branch)")
 		})
 	}
+}
+
+// TestRuntimeSwap_Phase2a_AtomicTightLoop pins the architectural
+// contract from 0-weaviate-issues#216 (per QA-Claude design
+// consideration in PR #11322 comment 4470016252): between consecutive
+// per-prop SwapBucketPointer calls inside runtimeSwap's Phase 2a, only
+// the cheap sentinel fsync (markSwappedProp) is allowed — no Shutdown,
+// no Rename, no RAFT, no compaction wait. The total Phase 2a wall-clock
+// for an N-prop migration MUST stay inside the microseconds-to-low-ms
+// budget at any scale; the per-shard tokenization overlay's
+// "mixed-state" subwindow (some props swapped, others not — queries to
+// not-yet-swapped props during the window would tokenize input with the
+// new value against an old-tokenized bucket and return wrong results)
+// is exactly this wall-clock.
+//
+// Regression scenarios this guards against:
+//
+//   - Bucket.Shutdown back inside the per-prop loop (pre-refactor
+//     behavior; ~100s of ms at production scale because Shutdown waits
+//     for in-flight compaction to drain).
+//   - RAFT call inside the loop (cluster apply latency, ~100s of ms).
+//   - os.Rename inside the loop (filesystem dependent, ms-to-tens-of-ms
+//     per call).
+//   - Any artificial slowdown (e.g. a sleep/Gosched accidentally added
+//     during refactor).
+//
+// Threshold of 100ms across 4 props is generous enough that single-
+// digit-ms per-prop markSwappedProp fsync on healthy CI disks comfortably
+// fits, but tight enough that any of the regression scenarios above
+// blow it. If a real reason emerges to relax the bound (e.g. CI disk
+// performance regression), surface that as a separate signal — DO NOT
+// just raise the threshold, that would silently swallow the architectural
+// regression the test is meant to catch.
+//
+// Uses the test-only ShardReindexTaskGeneric.testHookPostPropSwap
+// observation point so this test is deterministic (no race with a
+// concurrent observer) and does not depend on probing the bucket map
+// from another goroutine.
+func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
+	ctx := testCtx()
+	className := "TestPhase2aAtomic"
+	propNames := []string{"title", "description", "summary", "keywords"}
+	class := newTestClassWithProps(className, propNames)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+
+	// Sanity: every prop's searchable bucket should start at
+	// StrategyMapCollection so the MapToBlockmax migration picks them
+	// all up.
+	for _, p := range propNames {
+		require.Equal(t, lsmkv.StrategyMapCollection,
+			shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(p)).Strategy(),
+			"prop %q must start at MapCollection for the migration to target it", p)
+	}
+
+	// Insert some objects so the reindex pipeline has data to iterate.
+	objects := make([]*storobj.Object, 5)
+	for i := range objects {
+		objects[i] = &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:    strfmt.UUID(uuid.NewString()),
+				Class: className,
+				Properties: map[string]interface{}{
+					"title":       "doc " + strconv.Itoa(i),
+					"description": "long description " + strconv.Itoa(i),
+					"summary":     "short summary " + strconv.Itoa(i),
+					"keywords":    "kw " + strconv.Itoa(i),
+				},
+			},
+		}
+		require.NoError(t, shard.PutObject(ctx, objects[i]))
+	}
+
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	task := newTestTask(idx.logger, strategy)
+
+	// Wire the Phase 2a observation hook. Production leaves this nil;
+	// the test reads back the per-prop timestamps to assert the
+	// atomic-phase budget.
+	var (
+		hookMu        sync.Mutex
+		hookCallTimes []time.Time
+		hookCallIdxs  []int
+	)
+	task.testHookPostPropSwap = func(propIdx int) {
+		hookMu.Lock()
+		hookCallTimes = append(hookCallTimes, time.Now())
+		hookCallIdxs = append(hookCallIdxs, propIdx)
+		hookMu.Unlock()
+	}
+
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+
+	// Run the iteration → swap path inline. The hook will fire once per
+	// prop inside runtimeSwap's Phase 2a tight loop.
+	for {
+		rerunAt, reloadShard, err := task.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		require.False(t, reloadShard, "runtime swap should not request reload")
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+
+	hookMu.Lock()
+	defer hookMu.Unlock()
+
+	require.Len(t, hookCallTimes, len(propNames),
+		"testHookPostPropSwap should fire exactly once per prop (%d), got %d",
+		len(propNames), len(hookCallTimes))
+
+	// The per-prop loop iterates props in their (stored) order; the hook
+	// receives the loop's 0-based index. The order is determined by
+	// getPropsToReindex which sorts deterministically — so the hook
+	// indices should be a strict increasing sequence starting at 0.
+	for i, idx := range hookCallIdxs {
+		require.Equal(t, i, idx,
+			"hook fired at unexpected loop index — Phase 2a loop is out of order or has a yield point that re-orders props")
+	}
+
+	// Phase 2a wall-clock invariant. See test godoc for threshold
+	// rationale.
+	const atomicPhaseBudget = 100 * time.Millisecond
+	totalDelta := hookCallTimes[len(hookCallTimes)-1].Sub(hookCallTimes[0])
+	require.Lessf(t, totalDelta, atomicPhaseBudget,
+		"Phase 2a wall-clock across %d props was %v — exceeded atomic-phase budget of %v. "+
+			"Likely cause: a slow op (Shutdown, Rename, RAFT, sleep) was added to the per-prop "+
+			"loop inside runtimeSwap. See phase-contract godoc at the top of "+
+			"inverted_reindex_task_generic.go for the design invariant.",
+		len(propNames), totalDelta, atomicPhaseBudget)
+
+	// Sanity: assert markers landed as the contract specifies post-Phase
+	// 2c (since this is the inline path, runtimeSwap also runs 2b + 2c
+	// for the dead-bucket tidy and OnMigrationComplete + trim).
+	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+	for _, p := range propNames {
+		assert.True(t, rt.IsSwappedProp(p),
+			"prop %q should be IsSwappedProp post-runtimeSwap", p)
+	}
+	assert.True(t, rt.IsSwapped(), "aggregate swapped sentinel should be set post-runtimeSwap")
+	assert.True(t, rt.IsTidied(), "aggregate tidied sentinel should be set post-runtimeSwap (inline path)")
+
+	require.NoError(t, shard.Shutdown(ctx))
 }

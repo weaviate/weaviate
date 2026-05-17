@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"testing"
 	"time"
 
@@ -85,14 +84,13 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const (
-		className     = "PartialResultsTokenize"
-		shardCount    = 3
-		rf            = 3
-		objectCount   = 1500
-		batchSize     = 100
-		alphaQuery    = "alpha"
-		queryLimit    = 2000 // Must exceed objectCount so all matches are returned.
-		probeInterval = 25 * time.Millisecond
+		className   = "PartialResultsTokenize"
+		shardCount  = 3
+		rf          = 3
+		objectCount = 1500
+		batchSize   = 100
+		alphaQuery  = "alpha"
+		queryLimit  = 2000 // Must exceed objectCount so all matches are returned.
 	)
 
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, shardCount, rf,
@@ -120,97 +118,31 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 		"baseline BM25 'alpha' under WORD tokenization should match all %d docs", objectCount)
 	t.Logf("baseline 'alpha' result count: %d", baselineCount)
 
-	// Capture timestamped probe samples concurrently against all 3 nodes,
-	// covering the entire migration window.
-	type sample struct {
-		t      time.Time
-		nodeID int
-		count  int
-		err    error
-	}
-	samplesMu := sync.Mutex{}
-	samples := make([]sample, 0, 1024)
-	record := func(s sample) {
-		samplesMu.Lock()
-		samples = append(samples, s)
-		samplesMu.Unlock()
+	probe := func(uri, cn string) (int, error) {
+		return queryBM25Count(uri, cn, alphaQuery, queryLimit)
 	}
 
-	stopCh := make(chan struct{})
-	var wg sync.WaitGroup
-	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
-		wg.Add(1)
-		nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
-		idx := nodeIdx + 1
-		go func() {
-			defer wg.Done()
-			for {
-				select {
-				case <-stopCh:
-					return
-				default:
-				}
-				start := time.Now()
-				count, err := queryBM25Count(nodeURI, className, alphaQuery, queryLimit)
-				record(sample{t: start, nodeID: idx, count: count, err: err})
-				time.Sleep(probeInterval)
-			}
-		}()
-	}
-
-	// Submit the migration.
-	migrationStart := time.Now()
-	taskID := submitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
-		className, "text", `{"searchable":{"tokenization":"field"}}`)
-	t.Logf("submitted change-tokenization task: %s", taskID)
-
-	// Wait for the task to FINISH and for the schema to reflect the swap.
-	awaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID)
-	require.Eventually(t, func() bool {
-		return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
-			className, "text") == "field"
-	}, 60*time.Second, 200*time.Millisecond,
-		"tokenization should change to field after swap phase")
-
-	// Let the probes run a little longer to make sure the cutover window
-	// is fully captured.
-	time.Sleep(2 * time.Second)
-	close(stopCh)
-	wg.Wait()
-
+	var taskID string
+	samples, migrationStart := runMigrationWithProbes(t, compose, className,
+		25*time.Millisecond, 2*time.Second, probe, func() {
+			taskID = submitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
+				className, "text", `{"searchable":{"tokenization":"field"}}`)
+			t.Logf("submitted change-tokenization task: %s", taskID)
+			awaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID)
+			require.Eventually(t, func() bool {
+				return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
+					className, "text") == "field"
+			}, 60*time.Second, 200*time.Millisecond,
+				"tokenization should change to field after swap phase")
+		})
 	t.Logf("migration completed in %v, collected %d probe samples",
 		time.Since(migrationStart), len(samples))
 
-	// Classify samples: full (baselineCount), empty (0), or partial.
-	var fullN, emptyN, partialN, errN int
-	var firstPartial, lastPartial time.Time
-	for _, s := range samples {
-		switch {
-		case s.err != nil:
-			errN++
-		case s.count == baselineCount:
-			fullN++
-		case s.count == 0:
-			emptyN++
-		default:
-			partialN++
-			if firstPartial.IsZero() {
-				firstPartial = s.t
-			}
-			lastPartial = s.t
-			t.Logf("partial sample @ +%v node=%d count=%d",
-				s.t.Sub(migrationStart).Round(time.Millisecond), s.nodeID, s.count)
-		}
-	}
-
-	t.Logf("probe classification: full=%d empty=%d partial=%d err=%d",
-		fullN, emptyN, partialN, errN)
-	if partialN > 0 {
-		t.Logf("partial-results window spanned %v (first @ +%v, last @ +%v)",
-			lastPartial.Sub(firstPartial).Round(time.Millisecond),
-			firstPartial.Sub(migrationStart).Round(time.Millisecond),
-			lastPartial.Sub(migrationStart).Round(time.Millisecond))
-	}
+	// Forward word→field migration: under FIELD tokenization, BM25
+	// "alpha" matches none (every doc's text is one multi-word token),
+	// so the post-migration steady-state count is 0.
+	const expectedAfter = 0
+	c := classifyProbeSamples(t, samples, baselineCount, expectedAfter, migrationStart)
 
 	// Bound the partial-results window. The Journey 3 canonical design
 	// admits a brief partial window during the cross-node cutover spread
@@ -218,16 +150,17 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	// schema flip RAFT entry propagate independently). The window is
 	// bounded by RAFT replication latency.
 	//
-	// Locally we observe ~80ms / ~7 samples. The budget below is
-	// deliberately generous to absorb noisy CI runners (slow disk,
-	// loaded host) without making the test flaky.
+	// Locally we observe ~80ms / ~7 samples pre-#216. With the #216
+	// per-shard tokenization overlay landed, this collapses well below
+	// the budget; the test continues to enforce the pre-#216 ceiling as
+	// a no-regression guard.
 	const (
 		partialWindowBudget = 700 * time.Millisecond
 		partialSampleBudget = 15
 	)
 
-	if partialN > 0 {
-		windowDuration := lastPartial.Sub(firstPartial)
+	if c.Partial > 0 {
+		windowDuration := c.LastPartial.Sub(c.FirstPartial)
 		assert.LessOrEqual(t, windowDuration, partialWindowBudget,
 			"partial-results window of %v exceeds the budget of %v — "+
 				"the cluster-wide cutover is taking longer than the bounded "+
@@ -236,35 +169,24 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 				"Scheduler.wakeCh, OnGroupCompleted, OnTaskCompleted)",
 			windowDuration, partialWindowBudget)
 
-		assert.LessOrEqual(t, partialN, partialSampleBudget,
+		assert.LessOrEqual(t, c.Partial, partialSampleBudget,
 			"observed %d partial samples (budget=%d) within an otherwise "+
 				"bounded window — either the probe rate has changed, or the "+
 				"cutover sequence is producing more transient mismatches than "+
 				"the design admits",
-			partialN, partialSampleBudget)
+			c.Partial, partialSampleBudget)
 	}
 
 	// Post-window guarantee: after the bounded partial window closes,
-	// every sample must be a full or empty count. A late partial sample
-	// indicates the cutover is not bounded — a node lagged behind for
-	// reasons other than RAFT propagation (e.g. its reactive wake never
-	// fired). Walk forward from lastPartial + a small grace period and
-	// assert no further partials.
-	if !lastPartial.IsZero() {
+	// every sample must equal baseline or expectedAfter. A late partial
+	// sample indicates the cutover is not bounded — a node lagged behind
+	// for reasons other than RAFT propagation (e.g. its reactive wake
+	// never fired). Walk forward from lastPartial + a small grace period
+	// and assert no further partials.
+	if !c.LastPartial.IsZero() {
 		gracePeriod := 100 * time.Millisecond
-		var latePartial int
-		for _, s := range samples {
-			if s.err != nil {
-				continue
-			}
-			if s.t.After(lastPartial.Add(gracePeriod)) &&
-				s.count != 0 && s.count != baselineCount {
-				latePartial++
-				t.Logf("late partial @ +%v node=%d count=%d (after last-partial+grace)",
-					s.t.Sub(migrationStart).Round(time.Millisecond),
-					s.nodeID, s.count)
-			}
-		}
+		latePartial := countLatePartials(t, samples, baselineCount, expectedAfter,
+			c.LastPartial.Add(gracePeriod), migrationStart)
 		assert.Zero(t, latePartial,
 			"observed %d partial samples after the bounded cutover window "+
 				"(lastPartial + %v) — cutover is not converging",

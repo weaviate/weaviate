@@ -105,6 +105,57 @@ type MigrationStrategy interface {
 	// UsingBlockMaxWAND class flag) is safe — important for per-property
 	// migrations, where the flag must only flip once every searchable property
 	// has been migrated.
+	//
+	// Phase contract (see inverted_reindex_task_generic.go file-level
+	// godoc): OnMigrationComplete fires in Phase 2c — AFTER the per-prop
+	// SwapBucketPointer tight loop (Phase 2a) and AFTER the inline
+	// oldMain.Shutdown + oldMain→backup rename loop (Phase 2b), but still
+	// INSIDE the per-shard tokenization-overlay window for migrations
+	// that use one (change-tokenization-{searchable,filterable},
+	// enable-filterable, enable-searchable). The overlay is cleared
+	// later by the cluster-wide schema flip in
+	// [ReindexProvider.OnTaskCompleted].
+	//
+	// Allowed work in this position:
+	//
+	//   - In-memory mutation of shard-local query-path state that MUST
+	//     match the cluster-wide schema flip before that flip
+	//     propagates. The canonical example is
+	//     [Shard.setRangeableLocallyReady] in
+	//     [FilterableToRangeableStrategy.OnMigrationComplete] — it
+	//     ensures THIS shard's queries observe ready=true at the same
+	//     moment they could observe the new schema flag. The overlay
+	//     is the equivalent mechanism for tokenization changes; this
+	//     hook is the equivalent for per-shard ready flags.
+	//
+	//   - RAFT calls (per-property schema updates) for non-semantic
+	//     strategies whose schema flip is NOT batched in
+	//     OnTaskCompleted: e.g. [MapToBlockmaxStrategy]'s
+	//     updateToBlockMaxInvertedIndexConfig (class-level
+	//     UsingBlockMaxWAND), [FilterableToRangeableStrategy]'s
+	//     applyPerPropertySchemaUpdate (per-property IndexRangeFilters).
+	//     These are slow (hundreds of ms) — correctness is preserved by
+	//     the overlay covering the per-shard window — but they widen
+	//     the FINALIZING duration beyond what the per-shard atomic
+	//     contract intends. See 0-weaviate-issues#216 follow-up
+	//     QA-Claude comment 4470016252; the long-term fix is to split
+	//     this hook into "local-in-memory (atomic-safe)" and
+	//     "cluster-wide-RAFT (outside-atomic)" callbacks.
+	//
+	// Forbidden work in this position:
+	//
+	//   - Heavy disk I/O on the new main bucket (the LIVE post-swap
+	//     bucket). The bucket is being queried — any operation that
+	//     stalls its compaction or flush pipeline propagates as query
+	//     latency. Disk I/O on the OLD bucket is fine (it's been
+	//     shut down in Phase 2b) but conventionally also moved to
+	//     Phase 2b.
+	//
+	//   - Anything that requires the cluster-wide schema flip to have
+	//     already happened. For semantic migrations the flip lives in
+	//     OnTaskCompleted (after every shard's OnMigrationComplete);
+	//     for non-semantic, this hook may itself drive the flip but
+	//     must not assume it has already propagated to other replicas.
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 

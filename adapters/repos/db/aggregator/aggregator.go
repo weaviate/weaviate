@@ -58,6 +58,13 @@ type Aggregator struct {
 	bitmapFactory           *roaringset.BitmapFactory
 	modules                 *modules.Provider
 	defaultLimit            int64
+	// tokResolver, when non-nil, is propagated to inverted.Searcher /
+	// inverted.BM25Searcher built by this aggregator so query input
+	// gets analyzed under the per-shard tokenization overlay during
+	// the FINALIZING window of a change-tokenization migration. See
+	// 0-weaviate-issues#216 Gap B. Nil = use prop.Tokenization
+	// directly (tests, pre-#216 callers).
+	tokResolver inverted.TokenizationResolver
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -70,6 +77,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
 	modules *modules.Provider, defaultLimit int64,
+	tokResolver inverted.TokenizationResolver,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                  logger,
@@ -88,6 +96,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		bitmapFactory:           bitmapFactory,
 		modules:                 modules,
 		defaultLimit:            defaultLimit,
+		tokResolver:             tokResolver,
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -693,4 +694,168 @@ func dumpStartupLogs(ctx context.Context, t *testing.T, compose *docker.DockerCo
 		}
 		t.Logf("=== Node %d logs (%d migration/reindex lines) ===\n%s", i, len(filtered), strings.Join(filtered, "\n"))
 	}
+}
+
+// probeSample is one observation of a probe function against a node.
+type probeSample struct {
+	t      time.Time
+	nodeID int
+	count  int
+	err    error
+}
+
+// probeFn is the shape of a per-node query probe. Returns (count, err).
+type probeFn func(restURI, className string) (int, error)
+
+// runMigrationWithProbes spins up one probe goroutine per node, each
+// invoking `probe` every `probeInterval`, while `migrate` runs. After
+// `migrate` returns, probes continue for `tailDuration` to capture the
+// post-cutover steady state, then stop. Returns the collected samples
+// and the wall-clock time `migrate` started at.
+//
+// Shared between TestPartialResultsDuringChangeTokenization (which pins
+// the pre-#216 cluster-wide cutover bound) and
+// TestLiveQueriesDuringChangeTokenization (which pins the post-#216
+// per-shard alignment bound) so both tests use identical sampling
+// machinery — only their assertions differ.
+func runMigrationWithProbes(
+	t *testing.T,
+	compose *docker.DockerCompose,
+	className string,
+	probeInterval, tailDuration time.Duration,
+	probe probeFn,
+	migrate func(),
+) ([]probeSample, time.Time) {
+	t.Helper()
+
+	samplesMu := sync.Mutex{}
+	samples := make([]probeSample, 0, 1024)
+	record := func(s probeSample) {
+		samplesMu.Lock()
+		samples = append(samples, s)
+		samplesMu.Unlock()
+	}
+
+	stopCh := make(chan struct{})
+	var wg sync.WaitGroup
+	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
+		wg.Add(1)
+		nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
+		idx := nodeIdx + 1
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stopCh:
+					return
+				default:
+				}
+				start := time.Now()
+				count, err := probe(nodeURI, className)
+				record(probeSample{t: start, nodeID: idx, count: count, err: err})
+				time.Sleep(probeInterval)
+			}
+		}()
+	}
+
+	migrationStart := time.Now()
+	migrate()
+
+	// Let probes continue past the migration completion to capture late
+	// samples and the post-cutover steady state.
+	time.Sleep(tailDuration)
+	close(stopCh)
+	wg.Wait()
+
+	return samples, migrationStart
+}
+
+// probeClassification summarizes a probe sample set against the two
+// known steady-state counts: `baseline` (what the probe should return
+// before the migration starts) and `expectedAfter` (what it should
+// return after the migration commits).
+//
+// Pre/Post counts represent steady-state observations on either side
+// of the cutover. Partial counts are samples that lie inside the
+// open range (min(baseline, expectedAfter), max(baseline, expectedAfter))
+// — the cross-shard cutover spread admits a brief partial window
+// during the per-replica swap + cluster-wide schema flip. OutOfRange
+// counts are samples OUTSIDE that range; with the #216 per-shard
+// tokenization overlay landed, no sample should be out-of-range
+// because every replica's bucket content is always tokenization-
+// aligned with the value the analyzer uses. Out-of-range samples
+// indicate either the overlay isn't wired into a query path or the
+// set/clear hooks fire at the wrong FSM transition.
+type probeClassification struct {
+	Pre, Post, Partial, OutOfRange, Errors int
+	FirstPartial, LastPartial              time.Time
+}
+
+// classifyProbeSamples buckets each non-error sample as Pre (==
+// baseline), Post (== expectedAfter), Partial (inside the open range
+// between them), or OutOfRange (outside that range — the #216
+// misalignment shape). Logs every partial and out-of-range sample
+// for forensic visibility.
+func classifyProbeSamples(t *testing.T, samples []probeSample, baseline, expectedAfter int, migrationStart time.Time) probeClassification {
+	t.Helper()
+	lo, hi := baseline, expectedAfter
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	var c probeClassification
+	for _, s := range samples {
+		switch {
+		case s.err != nil:
+			c.Errors++
+		case s.count == baseline:
+			c.Pre++
+		case s.count == expectedAfter:
+			c.Post++
+		case s.count < lo || s.count > hi:
+			c.OutOfRange++
+			t.Logf("OUT-OF-RANGE @ +%v node=%d count=%d (valid range [%d, %d])",
+				s.t.Sub(migrationStart).Round(time.Millisecond),
+				s.nodeID, s.count, lo, hi)
+		default:
+			c.Partial++
+			if c.FirstPartial.IsZero() {
+				c.FirstPartial = s.t
+			}
+			c.LastPartial = s.t
+			t.Logf("partial @ +%v node=%d count=%d (baseline=%d, post=%d)",
+				s.t.Sub(migrationStart).Round(time.Millisecond),
+				s.nodeID, s.count, baseline, expectedAfter)
+		}
+	}
+	t.Logf("probe classification: pre=%d post=%d partial=%d out_of_range=%d err=%d",
+		c.Pre, c.Post, c.Partial, c.OutOfRange, c.Errors)
+	if c.Partial > 0 {
+		t.Logf("partial-results window spanned %v (first @ +%v, last @ +%v)",
+			c.LastPartial.Sub(c.FirstPartial).Round(time.Millisecond),
+			c.FirstPartial.Sub(migrationStart).Round(time.Millisecond),
+			c.LastPartial.Sub(migrationStart).Round(time.Millisecond))
+	}
+	return c
+}
+
+// countLatePartials returns the number of non-error samples whose
+// timestamp is after `anchor` and whose count is neither baseline nor
+// expectedAfter. Used by both tests as the post-window convergence
+// guarantee — late partials indicate the cutover has not stabilized
+// after the bounded window closed.
+func countLatePartials(t *testing.T, samples []probeSample, baseline, expectedAfter int, anchor, migrationStart time.Time) int {
+	t.Helper()
+	var late int
+	for _, s := range samples {
+		if s.err != nil {
+			continue
+		}
+		if s.t.After(anchor) && s.count != baseline && s.count != expectedAfter {
+			late++
+			t.Logf("late partial @ +%v node=%d count=%d (after anchor)",
+				s.t.Sub(migrationStart).Round(time.Millisecond),
+				s.nodeID, s.count)
+		}
+	}
+	return late
 }
