@@ -39,7 +39,7 @@ func TestReindexPropsOverlap(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, reindexPropsOverlap(tc.a, tc.b))
+			require.Equal(t, tc.want, ReindexPropsOverlap(tc.a, tc.b))
 		})
 	}
 }
@@ -475,7 +475,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 // TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard pins that
 // an in-flight task with empty Properties (the reserved "all
 // properties" / whole-collection rebuild) blocks every property in
-// that collection. Mirrors the wildcard semantics in reindexPropsOverlap.
+// that collection. Mirrors the wildcard semantics in ReindexPropsOverlap.
 func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
 	provider := &ReindexProvider{}
 

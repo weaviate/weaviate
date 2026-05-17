@@ -108,7 +108,18 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 func typesConflictReason(newType ReindexMigrationType, newProps []string,
 	existType ReindexMigrationType, existProps []string,
 ) string {
-	if !reindexPropsOverlap(newProps, existProps) {
+	// Sanity-check the migration types via the exhaustive bucket-touch
+	// predicates so an unknown ReindexMigrationType still panics
+	// loudly at the conflict-check boundary rather than slipping
+	// through as "no conflict". Result values are intentionally
+	// discarded — the conflict rule below does not depend on which
+	// buckets are touched, only that both types are known.
+	_ = TouchesSearchable(newType)
+	_ = TouchesFilterable(newType)
+	_ = TouchesSearchable(existType)
+	_ = TouchesFilterable(existType)
+
+	if !ReindexPropsOverlap(newProps, existProps) {
 		return ""
 	}
 	if newType == existType {
@@ -120,9 +131,22 @@ func typesConflictReason(newType ReindexMigrationType, newProps []string,
 		"submitting another", existType, newType)
 }
 
-// reindexPropsOverlap returns true if two property sets overlap. An
+// TypesConflictReason is the package-public alias for typesConflictReason,
+// used by the REST handlers' pre-flight conflict check. Inline so
+// internal callers (CheckConflict, CheckPropertyUpdate) continue to use
+// the lowercase symbol without indirection.
+func TypesConflictReason(newType ReindexMigrationType, newProps []string,
+	existType ReindexMigrationType, existProps []string,
+) string {
+	return typesConflictReason(newType, newProps, existType, existProps)
+}
+
+// ReindexPropsOverlap returns true if two property sets overlap. An
 // empty set means "all properties", which overlaps with everything.
-func reindexPropsOverlap(a, b []string) bool {
+//
+// Public so REST handlers can use the same predicate as the
+// FSM-deterministic conflict check.
+func ReindexPropsOverlap(a, b []string) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return true
 	}
@@ -134,6 +158,52 @@ func reindexPropsOverlap(a, b []string) bool {
 		}
 	}
 	return false
+}
+
+// TouchesSearchable reports whether migration type t writes to the
+// searchable bucket. Implemented as an exhaustive switch so that a
+// newly-added [ReindexMigrationType] cannot silently be treated as
+// "doesn't touch searchable" — the default case panics with a clear
+// message, surfacing the gap on the first request that exercises the
+// new type. This matters because [typesConflictReason] relies on
+// these answers (via the sanity-check at its entry) to gate
+// concurrent reindex submissions: a positive-list miss would allow
+// conflicting writes to the same bucket through.
+func TouchesSearchable(t ReindexMigrationType) bool {
+	switch t {
+	case ReindexTypeRepairSearchable,
+		ReindexTypeChangeTokenization,
+		ReindexTypeEnableSearchable:
+		return true
+	case ReindexTypeRepairFilterable,
+		ReindexTypeChangeTokenizationFilterable,
+		ReindexTypeEnableFilterable,
+		ReindexTypeEnableRangeable,
+		ReindexTypeRepairRangeable:
+		return false
+	default:
+		panic(fmt.Sprintf("TouchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
+	}
+}
+
+// TouchesFilterable reports whether migration type t writes to the
+// filterable bucket. Same exhaustive-switch contract as
+// [TouchesSearchable].
+func TouchesFilterable(t ReindexMigrationType) bool {
+	switch t {
+	case ReindexTypeRepairFilterable,
+		ReindexTypeChangeTokenization,
+		ReindexTypeChangeTokenizationFilterable,
+		ReindexTypeEnableFilterable:
+		return true
+	case ReindexTypeRepairSearchable,
+		ReindexTypeEnableSearchable,
+		ReindexTypeEnableRangeable,
+		ReindexTypeRepairRangeable:
+		return false
+	default:
+		panic(fmt.Sprintf("TouchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))
+	}
 }
 
 // CheckPropertyUpdate implements
@@ -195,7 +265,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 		if !strings.EqualFold(existP.Collection, className) {
 			continue
 		}
-		if !reindexPropsOverlap(existP.Properties, []string{propertyName}) {
+		if !ReindexPropsOverlap(existP.Properties, []string{propertyName}) {
 			continue
 		}
 		return fmt.Errorf(

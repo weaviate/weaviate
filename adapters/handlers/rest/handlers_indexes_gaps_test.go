@@ -46,25 +46,25 @@ func TestPropsOverlap_PrefixSimilarNamesDoNotCollide(t *testing.T) {
 	// Regression: properties whose names share a prefix must not be reported
 	// as overlapping. "title" should never conflict with "titleAlt" or
 	// "title_v2".
-	require.False(t, propsOverlap([]string{"title"}, []string{"titleAlt"}),
+	require.False(t, db.ReindexPropsOverlap([]string{"title"}, []string{"titleAlt"}),
 		`"title" must not overlap "titleAlt"`)
-	require.False(t, propsOverlap([]string{"title"}, []string{"title_v2"}),
+	require.False(t, db.ReindexPropsOverlap([]string{"title"}, []string{"title_v2"}),
 		`"title" must not overlap "title_v2"`)
-	require.False(t, propsOverlap([]string{"foo"}, []string{"foobar", "barfoo"}),
+	require.False(t, db.ReindexPropsOverlap([]string{"foo"}, []string{"foobar", "barfoo"}),
 		`"foo" must not match "foobar" or "barfoo" by prefix`)
 }
 
 func TestPropsOverlap_ExactNameMatches(t *testing.T) {
-	require.True(t, propsOverlap([]string{"a", "b"}, []string{"b", "c"}))
+	require.True(t, db.ReindexPropsOverlap([]string{"a", "b"}, []string{"b", "c"}))
 }
 
 func TestPropsOverlap_EmptyMeansAllProperties(t *testing.T) {
 	// Documented semantic: an empty Properties list means "all properties".
 	// That branch is reserved for future whole-collection migrations; the
 	// REST handler today always submits a single-property task.
-	require.True(t, propsOverlap(nil, []string{"x"}))
-	require.True(t, propsOverlap([]string{"x"}, nil))
-	require.True(t, propsOverlap(nil, nil))
+	require.True(t, db.ReindexPropsOverlap(nil, []string{"x"}))
+	require.True(t, db.ReindexPropsOverlap([]string{"x"}, nil))
+	require.True(t, db.ReindexPropsOverlap(nil, nil))
 }
 
 // -----------------------------------------------------------------------------
@@ -119,7 +119,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			reason := typesConflict(tc.a, tc.props, tc.b, tc.props)
+			reason := db.TypesConflictReason(tc.a, tc.props, tc.b, tc.props)
 			if tc.wantConfl {
 				require.NotEmpty(t, reason, "expected conflict but got none")
 				assert.Contains(t, reason, tc.wantReason)
@@ -142,7 +142,7 @@ func TestTypesConflict_DifferentPropertiesNeverConflict(t *testing.T) {
 		db.ReindexTypeChangeTokenization,
 	} {
 		t.Run(string(mt), func(t *testing.T) {
-			reason := typesConflict(mt, []string{"propA"}, mt, []string{"propB"})
+			reason := db.TypesConflictReason(mt, []string{"propA"}, mt, []string{"propB"})
 			require.Empty(t, reason,
 				"%s on different properties must not conflict", mt)
 		})
@@ -834,7 +834,7 @@ func TestTouchesSearchable(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, touchesSearchable(tc.t))
+			require.Equal(t, tc.want, db.TouchesSearchable(tc.t))
 		})
 	}
 }
@@ -853,23 +853,23 @@ func TestTouchesFilterable(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, touchesFilterable(tc.t))
+			require.Equal(t, tc.want, db.TouchesFilterable(tc.t))
 		})
 	}
 }
 
 func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
 	require.PanicsWithValue(t,
-		`touchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { touchesSearchable(db.ReindexMigrationType("phantom")) },
+		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		func() { db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
 		"unknown migration type must panic so the gap is caught loudly",
 	)
 }
 
 func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
 	require.PanicsWithValue(t,
-		`touchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { touchesFilterable(db.ReindexMigrationType("phantom")) },
+		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
+		func() { db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
 		"unknown migration type must panic so the gap is caught loudly",
 	)
 }

@@ -1287,123 +1287,16 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 			continue
 		}
 
-		if conflict := typesConflict(newType, newProps, payload.MigrationType, payload.Properties); conflict != "" {
+		if conflict := db.TypesConflictReason(newType, newProps, payload.MigrationType, payload.Properties); conflict != "" {
 			return fmt.Sprintf("reindex task %q conflicts: %s", task.ID, conflict), nil
 		}
 	}
 	return "", nil
 }
 
-// typesConflict returns a non-empty reason string if two reindex migrations
-// on the same collection target overlapping properties. Any two migrations
-// on the same (collection, property) tuple conflict, regardless of which
-// bucket type they primarily write to.
-//
-// Earlier versions of this function allowed parallel migrations as long as
-// they wrote to different bucket types (e.g. enable-filterable +
-// enable-rangeable on the same property). That was wrong: when one of those
-// migrations completed, its OnMigrationComplete fired an UpdateProperty RAFT
-// command. MergeProps in cluster/schema/meta_class.go preserves the still-
-// false sibling flag (the other migration hasn't flipped its flag yet), so
-// the RAFT-applied schema carries the in-progress migration's flag as
-// false. On apply, Migrator.UpdateProperty → Shard.updatePropertyBuckets
-// runs cleanStaleMigrationDirs for every index whose flag is now false,
-// which removes the in-flight migration's <lsm>/.migrations/<dir>/ working
-// directory — including the per-property filterable_to_rangeable sentinel
-// shared between filterable and rangeable cleanup sets. The next
-// markProgress in the still-running migration then fails with
-// "progress.mig.000000001: no such file or directory" and the task ends up
-// FAILED. The frontend repro on weaviate/weaviate#10675 hit this with
-// parallel enable-filterable + enable-rangeable on a numeric property.
-//
-// Closing that window is best done at submit time: reject any new task
-// whose property set overlaps an in-flight task's property set, so the
-// caller gets a clean 409 and can serialize the operations themselves.
-// Empty props means "all properties" for that type (reserved for a future
-// whole-collection rebuild) and overlaps with everything.
-func typesConflict(newType db.ReindexMigrationType, newProps []string,
-	existType db.ReindexMigrationType, existProps []string,
-) string {
-	// Sanity-check the migration types via the exhaustive bucket-touch
-	// predicates so an unknown ReindexMigrationType still panics loudly
-	// at the conflict-check boundary rather than slipping through as
-	// "no conflict". Result values are intentionally discarded — the
-	// conflict rule below does not depend on which buckets are touched.
-	_ = touchesSearchable(newType)
-	_ = touchesFilterable(newType)
-	_ = touchesSearchable(existType)
-	_ = touchesFilterable(existType)
-
-	if !propsOverlap(newProps, existProps) {
-		return ""
-	}
-	if newType == existType {
-		return fmt.Sprintf("already running %s for overlapping properties", newType)
-	}
-	return fmt.Sprintf("already running %s for overlapping properties; "+
-		"concurrent %s on the same property would race on shared on-disk "+
-		"migration state — wait for the in-flight task to finish before "+
-		"submitting another", existType, newType)
-}
-
-// touchesSearchable reports whether migration type t writes to the searchable
-// bucket. Implemented as an exhaustive switch so that a newly-added
-// ReindexMigrationType cannot silently be treated as "doesn't touch
-// searchable" — the default case panics with a clear message, surfacing the
-// gap on the first request that exercises the new type. This matters
-// because typesConflict relies on these answers to gate concurrent reindex
-// submissions: a positive-list miss would allow conflicting writes to the
-// same bucket through.
-func touchesSearchable(t db.ReindexMigrationType) bool {
-	switch t {
-	case db.ReindexTypeRepairSearchable,
-		db.ReindexTypeChangeTokenization,
-		db.ReindexTypeEnableSearchable:
-		return true
-	case db.ReindexTypeRepairFilterable,
-		db.ReindexTypeChangeTokenizationFilterable,
-		db.ReindexTypeEnableFilterable,
-		db.ReindexTypeEnableRangeable,
-		db.ReindexTypeRepairRangeable:
-		return false
-	default:
-		panic(fmt.Sprintf("touchesSearchable: unknown ReindexMigrationType %q — add it to this switch", t))
-	}
-}
-
-// touchesFilterable reports whether migration type t writes to the filterable
-// bucket. Same exhaustive-switch contract as touchesSearchable: a new
-// ReindexMigrationType must be added here so the conflict checker can reason
-// about it; otherwise we panic loudly rather than allow a silent conflict.
-func touchesFilterable(t db.ReindexMigrationType) bool {
-	switch t {
-	case db.ReindexTypeRepairFilterable,
-		db.ReindexTypeChangeTokenization,
-		db.ReindexTypeChangeTokenizationFilterable,
-		db.ReindexTypeEnableFilterable:
-		return true
-	case db.ReindexTypeRepairSearchable,
-		db.ReindexTypeEnableSearchable,
-		db.ReindexTypeEnableRangeable,
-		db.ReindexTypeRepairRangeable:
-		return false
-	default:
-		panic(fmt.Sprintf("touchesFilterable: unknown ReindexMigrationType %q — add it to this switch", t))
-	}
-}
-
-// propsOverlap returns true if two property sets overlap. An empty set means
-// "all properties", which overlaps with everything.
-func propsOverlap(a, b []string) bool {
-	if len(a) == 0 || len(b) == 0 {
-		return true // one of them targets all properties
-	}
-	for _, ap := range a {
-		for _, bp := range b {
-			if ap == bp {
-				return true
-			}
-		}
-	}
-	return false
-}
+// The conflict predicate + bucket-touch helpers + property-overlap
+// helper used by the pre-flight check above all live in the db
+// package now ([db.TypesConflictReason], [db.TouchesSearchable],
+// [db.TouchesFilterable], [db.ReindexPropsOverlap]) — they're shared
+// with the FSM-deterministic conflict check at apply time so the two
+// paths can't drift on what counts as a conflict.
