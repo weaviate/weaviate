@@ -61,28 +61,55 @@ type Scheduler struct {
 	tasksRunning *prometheus.GaugeVec
 
 	completedCallbackFired map[TaskDescriptor]bool
-	groupCallbackFired     map[TaskDescriptor]map[string]bool
+
+	// groupCallbackFired tracks per-(task, group) whether the SWAP-phase
+	// callback has fired on THIS scheduler instance. For barrier tasks
+	// the callback is OnSwapRequested; for non-barrier tasks it's
+	// OnGroupCompleted (carrying the full PREP+SWAP body — pre-barrier
+	// behavior preserved). Renamed semantically by docs/proposals/
+	// prep_swap_barrier.md from "the only callback fired" to "the swap
+	// callback"; the parallel prepCallbackFired tracks the prep phase
+	// for barrier tasks.
+	groupCallbackFired map[TaskDescriptor]map[string]bool
+
+	// prepCallbackFired tracks per-(task, group) whether the PREP-phase
+	// OnGroupCompleted has fired on THIS scheduler instance. Populated
+	// only for barrier tasks (NeedsPrepBarrier=true). Non-barrier tasks
+	// skip the PREP phase entirely (STARTED → SWAPPING directly) and
+	// this map stays empty for their descriptors.
+	prepCallbackFired map[TaskDescriptor]map[string]bool
 
 	// postCompletionAckEmitted tracks per-task whether THIS node has
-	// already published its post-completion ack via the ack recorder.
-	// The ack is emitted once per (scheduler instance, task) after
-	// OnGroupCompleted has fired for every local group of the task.
-	// Survival on restart: false (the in-memory map is rebuilt on
-	// startup); the recovery path repeats OnGroupCompleted via the
-	// rehydrate branch (see ReindexProvider.OnGroupCompleted) so the
+	// already published its SWAP-phase post-completion ack via the ack
+	// recorder. The ack is emitted once per (scheduler instance, task)
+	// after the SWAP callback has fired for every local group of the
+	// task. Survival on restart: false (the in-memory map is rebuilt
+	// on startup); the recovery path repeats the SWAP callback via the
+	// rehydrate branch (see ReindexProvider.OnSwapRequested for barrier
+	// tasks; ReindexProvider.OnGroupCompleted for non-barrier) so the
 	// ack is re-emitted post-restart and the cluster never loses the
 	// barrier.
 	postCompletionAckEmitted map[TaskDescriptor]bool
 
-	// postCompletionGroupErrors aggregates per-group OnGroupCompleted
-	// errors for THIS node across a single task. The scheduler joins
-	// the entries when emitting the per-node ack, so the cluster sees
-	// every group's failure even if they arrived across multiple ticks
-	// (e.g. tenant-grouped reindex tasks). Cleared once the ack has
-	// been emitted (postCompletionAckEmitted[desc] == true) so a later
-	// re-emit attempt (after a transient apply error) re-aggregates
-	// from the still-fired groups in the descriptor list.
+	// prepAckEmitted tracks per-task whether THIS node has already
+	// published its PREP-phase ack (RecordPrepCompleteAck) via the ack
+	// recorder. Same lifecycle as postCompletionAckEmitted but for the
+	// upstream PREP barrier (per docs/proposals/prep_swap_barrier.md).
+	// Empty for non-barrier tasks (no PREP phase, no ack).
+	prepAckEmitted map[TaskDescriptor]bool
+
+	// postCompletionGroupErrors aggregates per-group SWAP-callback errors
+	// for THIS node across a single task. The scheduler joins the
+	// entries when emitting the per-node ack, so the cluster sees every
+	// group's failure even if they arrived across multiple ticks (e.g.
+	// tenant-grouped reindex tasks).
 	postCompletionGroupErrors map[TaskDescriptor]map[string]error
+
+	// prepCompletionGroupErrors aggregates per-group PREP-callback errors
+	// for THIS node across a single task. Same shape and lifecycle as
+	// postCompletionGroupErrors but for the PREP-phase callback.
+	// Populated only for barrier tasks.
+	prepCompletionGroupErrors map[TaskDescriptor]map[string]error
 
 	// bootstrapped flips to true once the scheduler has snapshotted the
 	// RAFT-replicated task list and pre-marked every task that was
@@ -156,8 +183,11 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		completionRecorder:        params.CompletionRecorder,
 		completedCallbackFired:    map[TaskDescriptor]bool{},
 		groupCallbackFired:        map[TaskDescriptor]map[string]bool{},
+		prepCallbackFired:         map[TaskDescriptor]map[string]bool{},
 		postCompletionAckEmitted:  map[TaskDescriptor]bool{},
+		prepAckEmitted:            map[TaskDescriptor]bool{},
 		postCompletionGroupErrors: map[TaskDescriptor]map[string]error{},
+		prepCompletionGroupErrors: map[TaskDescriptor]map[string]error{},
 		taskLister:                params.TaskLister,
 		taskCleaner:               params.TaskCleaner,
 		taskFinalizer:             params.TaskFinalizer,
@@ -322,16 +352,25 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 			if s.groupCallbackFired[desc] == nil {
 				s.groupCallbackFired[desc] = map[string]bool{}
 			}
+			if s.prepCallbackFired[desc] == nil {
+				s.prepCallbackFired[desc] = map[string]bool{}
+			}
 			for _, groupID := range task.Groups() {
 				s.groupCallbackFired[desc][groupID] = true
+				// Pre-mark prep as fired too — a terminal task is past
+				// both phases of the barrier so neither the prep nor
+				// the swap callback should re-fire on this scheduler
+				// instance.
+				s.prepCallbackFired[desc][groupID] = true
 			}
 			// Tasks that were already terminal at bootstrap have, by
 			// definition, already gone through the ack barrier (or
-			// were FAILED/CANCELLED, which bypasses it). Mark the
-			// per-node ack as emitted so the next tick does not
-			// re-emit for a task that's already past the FINALIZING
-			// gate.
+			// were FAILED/CANCELLED, which bypasses it). Mark BOTH the
+			// per-node prep-ack and the swap-ack as emitted so the
+			// next tick does not re-emit for a task that's already
+			// past either gate.
 			s.postCompletionAckEmitted[desc] = true
+			s.prepAckEmitted[desc] = true
 		}
 	}
 }
@@ -514,11 +553,96 @@ func (s *Scheduler) tick() {
 					continue
 				}
 
-				// Phase 1: per-group finalization (fires mid-flight as groups complete).
-				// A group is ready to finalize when either:
-				//   - All units in the group are terminal (normal completion), OR
-				//   - The task itself is past STARTED (fail-fast or all units
-				//     terminal: remaining units won't complete)
+				// PHASE A — PREP-phase per-group callback firing.
+				// Barrier tasks (NeedsPrepBarrier=true) only. Fires
+				// OnGroupCompleted's PREP body for every local group
+				// on each scheduler tick after the FSM transitions
+				// STARTED → PREPARING. The atomic swap is deferred to
+				// PHASE B after the cluster-wide PrepCompleteAck
+				// barrier lifts. See docs/proposals/prep_swap_barrier.md.
+				if task.NeedsPrepBarrier && task.Status == TaskStatusPreparing {
+					for _, groupID := range task.Groups() {
+						if s.prepCallbackFired[desc] != nil && s.prepCallbackFired[desc][groupID] {
+							continue
+						}
+						localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
+						if len(localIDs) == 0 {
+							continue
+						}
+						if s.prepCallbackFired[desc] == nil {
+							s.prepCallbackFired[desc] = map[string]bool{}
+						}
+						s.prepCallbackFired[desc][groupID] = true
+						groupErr := suProvider.OnGroupCompleted(task, groupID, localIDs)
+						// Same context-cancellation handling as
+						// PHASE B below: drop the fired mark on
+						// shutdown-cancellation so recovery re-fires
+						// on the next tick.
+						if errors.Is(groupErr, context.Canceled) {
+							delete(s.prepCallbackFired[desc], groupID)
+							s.loggerWithTask(namespace, desc).
+								WithField("groupID", groupID).
+								Info("OnGroupCompleted (PREP phase) aborted by graceful shutdown; recovery on next boot will re-fire and emit the prep-complete ack")
+							continue
+						}
+						if s.prepCompletionGroupErrors[desc] == nil {
+							s.prepCompletionGroupErrors[desc] = map[string]error{}
+						}
+						s.prepCompletionGroupErrors[desc][groupID] = groupErr
+					}
+
+					// PHASE A.5: emit per-node PrepCompleteAck once
+					// every local group has fired PREP. The Manager
+					// FSM (in RecordPrepCompleteAck's apply) gates the
+					// PREPARING → SWAPPING transition on every
+					// expected ack landing with Success=true.
+					if s.ackRecorder != nil &&
+						!s.prepAckEmitted[desc] &&
+						s.allLocalGroupsPrepFiredLocked(task, desc) {
+						success, joined := s.aggregatePrepAckErrorsLocked(task, desc)
+						if err := s.ackRecorder.RecordDistributedTaskPrepCompleteAck(
+							context.Background(), namespace, task.ID, task.Version,
+							s.localNode, success, joined,
+						); err != nil {
+							s.loggerWithTask(namespace, desc).WithError(err).
+								Warn("failed to record distributed task prep-complete ack; will retry on next tick or wake")
+						} else {
+							s.prepAckEmitted[desc] = true
+							if task.PrepCompletionAcks == nil {
+								task.PrepCompletionAcks = map[string]PostCompletionAck{}
+							}
+							task.PrepCompletionAcks[s.localNode] = PostCompletionAck{
+								Success: success,
+								Error:   joined,
+								AckedAt: s.clock.Now(),
+							}
+							// On prep-failure, reflect the FSM-side
+							// PREPARING → FAILED transition on the
+							// local clone so PHASE B / Phase 2 in this
+							// same tick see the right status without
+							// an extra listTasks round-trip.
+							if !success && task.Status == TaskStatusPreparing {
+								task.Status = TaskStatusFailed
+							}
+						}
+					}
+				}
+
+				// PHASE B — SWAP-phase per-group callback firing.
+				// Fires for both barrier and non-barrier tasks, but
+				// the called method differs (OnSwapRequested for
+				// barrier, OnGroupCompleted for non-barrier — the
+				// latter carries the full PREP+SWAP body in its
+				// pre-barrier shape).
+				//
+				// Per-group readiness for firing:
+				//   - Non-barrier: postStarted (matches existing
+				//     pre-barrier behavior) OR mid-flight per-group
+				//     AllGroupUnitsTerminal (the existing grouped /
+				//     MT path).
+				//   - Barrier: postStarted only (mid-flight per-group
+				//     firing doesn't apply because the FSM gates SWAP
+				//     on the cluster-wide PrepCompleteAck barrier).
 				postStarted := task.Status == TaskStatusSwapping ||
 					task.Status == TaskStatusFailed ||
 					task.Status == TaskStatusFinished
@@ -526,8 +650,14 @@ func (s *Scheduler) tick() {
 					if s.groupCallbackFired[desc] != nil && s.groupCallbackFired[desc][groupID] {
 						continue
 					}
-					if !postStarted && !task.AllGroupUnitsTerminal(groupID) {
-						continue
+					if task.NeedsPrepBarrier {
+						if !postStarted {
+							continue
+						}
+					} else {
+						if !postStarted && !task.AllGroupUnitsTerminal(groupID) {
+							continue
+						}
 					}
 					localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
 					if len(localIDs) > 0 {
@@ -535,7 +665,12 @@ func (s *Scheduler) tick() {
 							s.groupCallbackFired[desc] = map[string]bool{}
 						}
 						s.groupCallbackFired[desc][groupID] = true
-						groupErr := suProvider.OnGroupCompleted(task, groupID, localIDs)
+						var groupErr error
+						if task.NeedsPrepBarrier {
+							groupErr = suProvider.OnSwapRequested(task, groupID, localIDs)
+						} else {
+							groupErr = suProvider.OnGroupCompleted(task, groupID, localIDs)
+						}
 						// Context-cancellation handling: a graceful
 						// process shutdown (SIGTERM during a rolling
 						// restart) propagates ctx.Canceled into the
@@ -543,8 +678,8 @@ func (s *Scheduler) tick() {
 						// the lsmkv "long-running compaction in
 						// progress: context canceled" shape. That is
 						// NOT a permanent failure — the post-restart
-						// recovery path re-fires OnGroupCompleted via
-						// the rehydrate branch on a fresh process
+						// recovery path re-fires the SWAP callback
+						// via the rehydrate branch on a fresh process
 						// with no in-flight compaction to cancel, and
 						// the swap completes cleanly. Treating
 						// shutdown-cancellation as a failure ack
@@ -555,17 +690,14 @@ func (s *Scheduler) tick() {
 						//
 						// Drop the in-memory "fired" mark for this
 						// group so the next scheduler tick (on the
-						// restarted process) re-fires
-						// OnGroupCompleted and the ack-emission gate
-						// below sees a fresh success/failure picture.
-						// Skip the per-group error capture and the
-						// ack emission — let the recovery path own
-						// the resolution.
+						// restarted process) re-fires the SWAP
+						// callback and the ack-emission gate below
+						// sees a fresh success/failure picture.
 						if errors.Is(groupErr, context.Canceled) {
 							delete(s.groupCallbackFired[desc], groupID)
 							s.loggerWithTask(namespace, desc).
 								WithField("groupID", groupID).
-								Info("OnGroupCompleted aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack")
+								Info("SWAP callback aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack")
 							continue
 						}
 						// Capture the per-group error so the
@@ -889,6 +1021,24 @@ func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) b
 	return true
 }
 
+// allLocalGroupsPrepFiredLocked is the PREP-phase counterpart to
+// allLocalGroupsFiredLocked — returns true iff every local group of
+// the task has had its PREP-phase OnGroupCompleted callback fire on
+// THIS scheduler instance. Gates the per-node RecordPrepCompleteAck
+// emission. Caller must hold s.mu.
+func (s *Scheduler) allLocalGroupsPrepFiredLocked(task *Task, desc TaskDescriptor) bool {
+	for _, groupID := range task.Groups() {
+		localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
+		if len(localIDs) == 0 {
+			continue
+		}
+		if s.prepCallbackFired[desc] == nil || !s.prepCallbackFired[desc][groupID] {
+			return false
+		}
+	}
+	return true
+}
+
 // aggregateAckErrorsLocked returns (success, joined-error-message) for
 // THIS node's OnGroupCompleted results captured in
 // postCompletionGroupErrors[desc]. Caller must hold s.mu.
@@ -900,6 +1050,28 @@ func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) b
 // forensic visibility.
 func (s *Scheduler) aggregateAckErrorsLocked(task *Task, desc TaskDescriptor) (bool, string) {
 	errs := s.postCompletionGroupErrors[desc]
+	if len(errs) == 0 {
+		return true, ""
+	}
+	var msgs []string
+	for groupID, err := range errs {
+		if err == nil {
+			continue
+		}
+		msgs = append(msgs, fmt.Sprintf("group=%q: %v", groupID, err))
+	}
+	if len(msgs) == 0 {
+		return true, ""
+	}
+	return false, strings.Join(msgs, "; ")
+}
+
+// aggregatePrepAckErrorsLocked is the PREP-phase counterpart to
+// aggregateAckErrorsLocked. Returns (success, joined-error-message)
+// for THIS node's PREP-callback results captured in
+// prepCompletionGroupErrors[desc]. Caller must hold s.mu.
+func (s *Scheduler) aggregatePrepAckErrorsLocked(task *Task, desc TaskDescriptor) (bool, string) {
+	errs := s.prepCompletionGroupErrors[desc]
 	if len(errs) == 0 {
 		return true, ""
 	}
