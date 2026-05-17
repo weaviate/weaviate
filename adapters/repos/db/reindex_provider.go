@@ -1026,6 +1026,46 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 				Info("reindex provider: OnGroupCompleted: rebuilding tasks from disk (node likely restarted); will rehydrate before swap")
 		}
 
+		// 0-weaviate-issues#216 Gap B: for tokenization-changing migrations
+		// we set the per-shard tokenization overlay BEFORE RunSwapOnShard
+		// flips the canonical bucket pointer. The ordering matters: any
+		// query that arrives while the swap is in flight (between
+		// RunSwapOnShard kickoff and OnTaskCompleted's cluster-wide
+		// schema flip via flipSemanticMigrationSchema) reads the live
+		// schema's OLD tokenization unless the overlay is already
+		// populated. Setting it pre-swap means:
+		//
+		//   - Pre-swap window (overlay=NEW, bucket=OLD): query input
+		//     tokenizes as NEW but hits OLD bucket — bounded by the
+		//     in-memory swap latency (microseconds), strictly less
+		//     harmful than the pre-#216 failure shape.
+		//   - Post-swap window (overlay=NEW, bucket=NEW): aligned;
+		//     query returns full results until the schema flip lands
+		//     and the overlay is cleared by OnTaskCompleted (or by
+		//     Shard.TokenizationFor's defensive self-clear).
+		//
+		// We set the overlay unconditionally of the per-task swap result:
+		// even on the partial-swap path, whichever swap actually
+		// succeeded did flip its bucket pointer, so the overlay-vs-bucket
+		// alignment argument holds for the swapped index type. The
+		// partial-swap failure case is already loud (FAILED-task
+		// repair_command from #221) and the overlay being set is
+		// strictly an improvement over leaving queries to misroute.
+		if IsTokenizationChangingMigration(payload.MigrationType) && payload.TargetTokenization != "" {
+			concreteShard, ok := shard.(*Shard)
+			if ok {
+				for _, propName := range payload.Properties {
+					concreteShard.SetTokenizationOverlay(propName, payload.TargetTokenization)
+				}
+			} else {
+				// Tests that swap in a non-*Shard ShardLike would skip the
+				// overlay; production always uses *Shard. Log so a real
+				// type-mismatch in production would be visible.
+				logger.WithField("unit", unitID).WithField("shard", shardName).
+					Debug("reindex provider: skipping tokenization overlay set — shard is not a concrete *Shard")
+			}
+		}
+
 		allSwapped := true
 		for _, reindexTask := range unitTasks {
 			if rehydrate {
@@ -1048,39 +1088,6 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 					sawContextCanceled = true
 				}
 				allSwapped = false
-			}
-		}
-		// 0-weaviate-issues#216 Gap B: for tokenization-changing migrations
-		// the canonical bucket pointer on this shard now references NEW-
-		// tokenized data, but the cluster-wide schema flip in
-		// OnTaskCompleted.flipSemanticMigrationSchema hasn't committed yet.
-		// Without this overlay, queries arriving on this shard during the
-		// FINALIZING window would tokenize input against the OLD schema
-		// value while hitting NEW bucket content — counts mismatch.
-		//
-		// We set the overlay unconditionally of `allSwapped`: even on the
-		// partial-swap path, whichever per-task swap actually succeeded
-		// did flip its bucket pointer, so the overlay-vs-bucket alignment
-		// argument still holds for the swapped index type. The
-		// partial-swap failure case is already loud (FAILED-task
-		// repair_command in #221's logger) and the overlay being set is
-		// strictly an improvement over leaving queries to misroute.
-		//
-		// Cleared in OnTaskCompleted after flipSemanticMigrationSchema
-		// commits on this node, with a defensive self-clear in
-		// Shard.TokenizationFor as backstop against callback ordering.
-		if IsTokenizationChangingMigration(payload.MigrationType) && payload.TargetTokenization != "" {
-			concreteShard, ok := shard.(*Shard)
-			if ok {
-				for _, propName := range payload.Properties {
-					concreteShard.SetTokenizationOverlay(propName, payload.TargetTokenization)
-				}
-			} else {
-				// Tests that swap in a non-*Shard ShardLike would skip the
-				// overlay; production always uses *Shard. Log so a real
-				// type-mismatch in production would be visible.
-				logger.WithField("unit", unitID).WithField("shard", shardName).
-					Debug("reindex provider: skipping tokenization overlay set — shard is not a concrete *Shard")
 			}
 		}
 
