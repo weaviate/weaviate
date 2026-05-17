@@ -124,8 +124,9 @@ function main() {
               "--acceptance-go-client-named-vectors-cluster | -agnvc"\
               "--acceptance-only-graphql | -aog"\
               "--acceptance-only-replication| -aor"\
-              "--acceptance-only-async-replication-fast| -aoarf"\
-              "--acceptance-only-async-replication-slow| -aoars"\
+              "--acceptance-only-replica-replication-fast | -aorrf"\
+              "--acceptance-only-replica-replication-slow | -aorrs"\
+              "--acceptance-only-async-replication | -aoar"\
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
@@ -266,7 +267,7 @@ function main() {
   fi
 
   if $run_acceptance_reindex_multinode; then
-    echo "running reindex multinode acceptance tests (everything except AdjacentJourneys + RestartMatrix)"
+    echo "running reindex multinode acceptance tests (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
     run_acceptance_reindex_multinode
   fi
 
@@ -619,14 +620,7 @@ function build_weaviate_test_image() {
     return  # already built or provided externally
   fi
   echo_green "Building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
 }
 
 function run_acceptance_compaction_recovery() {
@@ -647,15 +641,7 @@ function run_acceptance_recovery() {
 }
 
 function run_acceptance_reindex_multinode() {
-  echo_green "acceptance — reindex-multinode: building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   echo_green "acceptance — reindex-multinode (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
   # The reindex_multinode package is partitioned across 6 CI shards to
   # keep each shard's wall-clock under ~10 min for fast PR feedback (see
@@ -686,15 +672,7 @@ function run_acceptance_reindex_multinode() {
 }
 
 function run_acceptance_reindex_multinode_restart() {
-  echo_green "acceptance — reindex-multinode-restart: building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-restart"
   # Restart-themed multinode tests. Locally measured wall-clock ≈ 331s
   # across 9 tests; +CI overhead → ~9-10 min total per shard.
@@ -710,15 +688,7 @@ function run_acceptance_reindex_multinode_restart() {
 }
 
 function run_acceptance_reindex_multinode_scale() {
-  echo_green "acceptance — reindex-multinode-scale: building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-scale"
   # Scale / orchestration tests. Locally measured wall-clock ≈ 283s
   # across 5 tests; +CI overhead → ~8-9 min total. The single longest
@@ -730,15 +700,7 @@ function run_acceptance_reindex_multinode_scale() {
 }
 
 function run_acceptance_reindex_multinode_changetok() {
-  echo_green "acceptance — reindex-multinode-changetok: building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-changetok"
   # Change-tokenization tests (non-AJ; AJ has its own -aj shard) plus
   # the FINALIZING-window probe tests. Locally measured wall-clock
@@ -748,15 +710,7 @@ function run_acceptance_reindex_multinode_changetok() {
 }
 
 function run_acceptance_reindex_multinode_aj() {
-  echo_green "acceptance — reindex-multinode-aj (AdjacentJourneys only): building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-aj"
   # AdjacentJourneys was split into multiple TestMultiNode_ChangeTokenization_AJ_*
   # top-level tests (see test/acceptance/reindex_multinode/round_trip_adjacent_test.go).
@@ -767,15 +721,7 @@ function run_acceptance_reindex_multinode_aj() {
 }
 
 function run_acceptance_reindex_multinode_rm() {
-  echo_green "acceptance — reindex-multinode-rm (RestartMatrix only): building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-rm"
   # TestMultiNode_RestartMatrix runs 7 sub-scenarios (R0..R5) each
   # involving a full 3-node cluster restart cycle. The total at ~5.5 min
@@ -789,15 +735,7 @@ function run_acceptance_reindex_multinode_rm() {
 }
 
 function run_acceptance_reindex_singlenode() {
-  echo_green "acceptance — reindex-singlenode: building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   echo_green "acceptance — reindex-singlenode"
   # Previously this bundled reindex_concurrent + reindex_mt +
   # distributed_tasks, pushing wall-clock to 19+ min and DUPLICATING
@@ -811,15 +749,7 @@ function run_acceptance_reindex_singlenode() {
 }
 
 function run_acceptance_reindex_concurrent() {
-  echo_green "acceptance — reindex-concurrent: building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   echo_green "acceptance — reindex-concurrent"
   # Concurrency tests (TestConcurrentReindex, TestParallelConflictMatrix,
   # TestParallelEnableFilterableAndRangeable). TestParallelConflictMatrix
@@ -831,15 +761,7 @@ function run_acceptance_reindex_concurrent() {
 }
 
 function run_acceptance_reindex_mt() {
-  echo_green "acceptance — reindex-mt: building weaviate/test-server image..."
-  GIT_REVISION=$(git rev-parse --short HEAD)
-  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  docker compose -f docker-compose-test.yml build \
-    --build-arg GIT_REVISION="$GIT_REVISION" \
-    --build-arg GIT_BRANCH="$GIT_BRANCH" \
-    --build-arg EXTRA_BUILD_ARGS="-race" \
-    weaviate
-  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  build_weaviate_test_image
   echo_green "acceptance — reindex-mt"
   # Multi-tenant reindex suite (single top-level test
   # TestMultiTenant_ReindexSuite with many subtests).  Split out of the
