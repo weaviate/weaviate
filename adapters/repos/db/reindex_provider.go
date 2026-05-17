@@ -1050,6 +1050,40 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 				allSwapped = false
 			}
 		}
+		// 0-weaviate-issues#216 Gap B: for tokenization-changing migrations
+		// the canonical bucket pointer on this shard now references NEW-
+		// tokenized data, but the cluster-wide schema flip in
+		// OnTaskCompleted.flipSemanticMigrationSchema hasn't committed yet.
+		// Without this overlay, queries arriving on this shard during the
+		// FINALIZING window would tokenize input against the OLD schema
+		// value while hitting NEW bucket content — counts mismatch.
+		//
+		// We set the overlay unconditionally of `allSwapped`: even on the
+		// partial-swap path, whichever per-task swap actually succeeded
+		// did flip its bucket pointer, so the overlay-vs-bucket alignment
+		// argument still holds for the swapped index type. The
+		// partial-swap failure case is already loud (FAILED-task
+		// repair_command in #221's logger) and the overlay being set is
+		// strictly an improvement over leaving queries to misroute.
+		//
+		// Cleared in OnTaskCompleted after flipSemanticMigrationSchema
+		// commits on this node, with a defensive self-clear in
+		// Shard.TokenizationFor as backstop against callback ordering.
+		if IsTokenizationChangingMigration(payload.MigrationType) && payload.TargetTokenization != "" {
+			concreteShard, ok := shard.(*Shard)
+			if ok {
+				for _, propName := range payload.Properties {
+					concreteShard.SetTokenizationOverlay(propName, payload.TargetTokenization)
+				}
+			} else {
+				// Tests that swap in a non-*Shard ShardLike would skip the
+				// overlay; production always uses *Shard. Log so a real
+				// type-mismatch in production would be visible.
+				logger.WithField("unit", unitID).WithField("shard", shardName).
+					Debug("reindex provider: skipping tokenization overlay set — shard is not a concrete *Shard")
+			}
+		}
+
 		if allSwapped {
 			logger.WithField("unit", unitID).WithField("shard", shardName).
 				Info("reindex provider: swap complete")
@@ -1159,6 +1193,44 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.WithError(err).Error("reindex provider: OnTaskCompleted: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state)")
+		// Schema flip failed: don't clear the overlay. The bucket pointer
+		// is still NEW-tokenized on this node's shards (set by
+		// OnGroupCompleted), and the schema is still pre-flip on this
+		// node. Queries need the overlay to keep tokenizing for the NEW
+		// buckets until either (a) a retry of the schema flip succeeds
+		// and we get another chance to clear, or (b) the defensive self-
+		// clear in TokenizationFor fires when the live schema eventually
+		// catches up.
+		return
+	}
+
+	// 0-weaviate-issues#216 Gap B: clear the per-shard tokenization
+	// overlay now that the cluster-wide schema flip has committed and
+	// the live schema's `prop.Tokenization` matches what the overlay
+	// has been serving. The defensive self-clear in
+	// Shard.TokenizationFor would also handle this lazily, but
+	// clearing explicitly here keeps the steady-state overlay map empty
+	// (no entries lingering until the next query touches each prop).
+	//
+	// Per-shard, on every shard this node owns for the class. Multi-
+	// node: each node runs OnTaskCompleted independently and clears its
+	// own shards — the RAFT-idempotent flipSemanticMigrationSchema
+	// ensures every node's local FSM has the new tokenization before
+	// we clear here.
+	if IsTokenizationChangingMigration(payload.MigrationType) {
+		className := entschema.ClassName(payload.Collection)
+		if idx := p.db.GetIndex(className); idx != nil {
+			idx.ForEachShard(func(_ string, sh ShardLike) error {
+				concreteShard, ok := sh.(*Shard)
+				if !ok {
+					return nil
+				}
+				for _, propName := range payload.Properties {
+					concreteShard.ClearTokenizationOverlay(propName)
+				}
+				return nil
+			})
+		}
 	}
 }
 
@@ -1541,6 +1613,27 @@ func IsSemanticMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
 		mt == ReindexTypeEnableSearchable
+}
+
+// IsTokenizationChangingMigration reports whether the migration type flips
+// the property's stored `Tokenization` field as part of its schema commit
+// in [flipSemanticMigrationSchema]. These are the migrations that open
+// the Gap B window from 0-weaviate-issues#216: between the per-shard
+// bucket-pointer flip in OnGroupCompleted.RunSwapOnShard and the cluster-
+// wide schema flip in OnTaskCompleted, queries on the migrated property
+// would tokenize against the OLD schema value while hitting the NEW
+// bucket content.
+//
+// Both change-tokenization and change-tokenization-filterable end up
+// calling applyPerPropertySchemaUpdate with TargetTokenization (see the
+// switch arm in flipSemanticMigrationSchema), so both qualify here.
+// enable-searchable also writes Tokenization, but its window is closed
+// by EnableSearchableStrategy.AnalyzerOverlay during backfill — the
+// query-side gap from #216 specifically affects properties whose
+// tokenization is being CHANGED.
+func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
+	return mt == ReindexTypeChangeTokenization ||
+		mt == ReindexTypeChangeTokenizationFilterable
 }
 
 // WaitForLocalTaskDrain blocks until the local goroutine processing the
