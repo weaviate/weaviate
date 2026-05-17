@@ -97,7 +97,7 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // index whose flag was now false, removing the in-flight migration's
 // .migrations/<dir>/ working directory and causing the next
 // markProgress to fail with "progress.mig.000000001: no such file or
-// directory" → task FAILED. weaviate/weaviate#10675 frontend repro on
+// directory" → task FAILED. https://github.com/weaviate/weaviate/issues/10675 frontend repro on
 // parallel enable-filterable + enable-rangeable hit this.
 //
 // Closing the window at submit time is correct: reject any new task

@@ -130,7 +130,7 @@ type Provider interface {
 // the moment they each query the cluster task list) and both submit a
 // RAFT task. At that point two reindex migrations race on shared
 // on-disk state for the property and one of them ends up FAILED —
-// the multi-node face of weaviate/weaviate#10675 (issue tracked as
+// the multi-node face of https://github.com/weaviate/weaviate/issues/10675 (issue tracked as
 // "parallel-migration bug #54").
 //
 // Putting the conflict check inside [Manager.AddTask] under m.mu makes

@@ -1047,7 +1047,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 }
 
 // TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError pins
-// the regression fixed in PR #11320 after Copilot's review on
+// the regression fixed in PR https://github.com/weaviate/weaviate/pull/11320 after Copilot's review on
 // `cluster/schema/manager.go:520`:
 //
 // SchemaReader.ReadOnlyClass returns a SHALLOW clone of the live FSM

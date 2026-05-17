@@ -32,7 +32,7 @@ import (
 )
 
 // TestMultiNode_EnableRangeable_NoPartialCountsInFlight pins GH
-// 0-weaviate-issues#212 Issue C. During an in-flight enable-rangeable
+// https://github.com/weaviate/0-weaviate-issues/issues/212 Issue C. During an in-flight enable-rangeable
 // migration, range queries on a numeric property must NEVER return
 // partial counts. The expected behaviour is one of:
 //

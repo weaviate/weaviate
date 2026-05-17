@@ -20,7 +20,7 @@ import (
 
 // Test*TokenizationOverlay* pin the per-shard tokenization overlay
 // lifecycle that [ReindexProvider.OnGroupCompleted] orchestrates for
-// 0-weaviate-issues#216 Gap B. The helpers
+// https://github.com/weaviate/0-weaviate-issues/issues/216 Gap B. The helpers
 // [maybeSetTokenizationOverlayPreSwap] and
 // [maybeClearTokenizationOverlayOnAllFailed] encapsulate the SET (pre-
 // per-task-swap) and the defensive CLEAR (post-loop, all-failed) so
@@ -28,7 +28,7 @@ import (
 // up a full provider + DB + index.
 //
 // The most important regression to guard against is the original
-// Copilot-review finding (PR #11322 review comment 3254170106):
+// Copilot-review finding (PR https://github.com/weaviate/weaviate/pull/11322 review comment 3254170106):
 // if every per-task RunSwapOnShard fails before flipping its bucket
 // pointer, the migration transitions to FAILED, the cluster-wide
 // schema flip is skipped, OnTaskCompleted's explicit clear hook

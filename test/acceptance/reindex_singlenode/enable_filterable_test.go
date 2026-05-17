@@ -74,7 +74,7 @@ var enableFilterableQueries = []enableFilterableQuery{
 // schema flag is still false at migration time. As a result the
 // post-migration baseline queries against the freshly-built bucket return
 // no rows and require.NotEmpty fires. Kept red on purpose per repo policy
-// — see issue #10675 follow-up "backfill skipped for from-scratch enable".
+// — see issue https://github.com/weaviate/weaviate/issues/10675 follow-up "backfill skipped for from-scratch enable".
 func testEnableFilterable(t *testing.T, restURI string) {
 	falseVal := false
 	class := &models.Class{

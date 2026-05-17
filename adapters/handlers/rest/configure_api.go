@@ -992,7 +992,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// [Manager.AddTask]. This closes the multi-node parallel-submit
 	// race the REST handler's per-node submit lock cannot cover (see
 	// [distributedtask.ConflictDetector] godoc for the parallel-
-	// migration bug #54 / #10675 family).
+	// migration bug https://github.com/weaviate/0-weaviate-issues/issues/54 / https://github.com/weaviate/weaviate/issues/10675 family).
 	conflictDetectors := map[string]distributedtask.ConflictDetector{}
 	for ns, p := range providers {
 		if cd, ok := p.(distributedtask.ConflictDetector); ok {

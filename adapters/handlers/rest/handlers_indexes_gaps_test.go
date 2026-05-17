@@ -83,7 +83,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 	// Conflict rule: any two reindex migrations on the same (collection,
 	// property) tuple conflict, regardless of which bucket type they
 	// primarily write to. See typesConflict's godoc for the bug
-	// (weaviate/weaviate#10675) that motivated dropping the per-bucket-type
+	// (https://github.com/weaviate/weaviate/issues/10675) that motivated dropping the per-bucket-type
 	// exception for enable-rangeable.
 	cases := []row{
 		// Same type, same property — conflict.

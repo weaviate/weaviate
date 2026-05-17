@@ -457,7 +457,7 @@ func restartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCom
 // rollingRestartCluster stops + restarts each node ONE AT A TIME,
 // waiting for the node to be ready (and for RAFT to accept writes
 // again) before moving on. Mimics a Kubernetes StatefulSet rolling
-// update — the failure mode that hid weaviate/weaviate#10675 in
+// update — the failure mode that hid https://github.com/weaviate/weaviate/issues/10675 in
 // Frontend Claude's prod environment, where pods rolled at different
 // times produced different on-disk states for the same migration.
 //
@@ -592,7 +592,7 @@ type probeFn func(restURI, className string) (int, error)
 // spurious failures even though the per-shard tokenization overlay is
 // working correctly.
 //
-// Observed on PR #11323 CI run b19dd49366 / job 76404184658:
+// Observed on PR https://github.com/weaviate/weaviate/pull/11323 CI run b19dd49366 / job 76404184658:
 //
 //	baseline captured: 1495 (lagged replica)
 //	steady-state count: 1500 (all replicas converged)

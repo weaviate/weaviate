@@ -63,7 +63,7 @@ var enableSearchableBM25Queries = []enableSearchableBM25{
 // empty because the analyzer skips properties whose IndexSearchable is
 // still false at migration time. Post-migration BM25 queries return
 // no hits and require.NotEmpty fires. Kept red on purpose per repo
-// policy — see issue #10675 follow-up.
+// policy — see issue https://github.com/weaviate/weaviate/issues/10675 follow-up.
 func testEnableSearchable(t *testing.T, restURI string) {
 	falseVal := false
 	class := &models.Class{

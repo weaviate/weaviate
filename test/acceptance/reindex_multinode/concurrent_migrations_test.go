@@ -30,7 +30,7 @@ import (
 )
 
 // TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle pins
-// GH 0-weaviate-issues#212 Issues C + D as observed by Frontend Claude on
+// GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issues C + D as observed by Frontend Claude on
 // `1.38.0-dev-3e78517.amd64` (the merge sha of 64249a9efc):
 //
 //   - Phase-3 (post-fix settled) on the 1M-record demo cluster returned

@@ -28,7 +28,7 @@ import (
 
 // TestMultiNode_ChangeTokenization_AdjacentJourneys enumerates every realistic
 // adjacent journey to the word→field→word round-trip data-loss bug
-// (weaviate/weaviate#10675).
+// (https://github.com/weaviate/weaviate/issues/10675).
 //
 // Each journey is independently RED-expected on the current branch state.
 // The failure pattern to look for is the same as the pinning test:

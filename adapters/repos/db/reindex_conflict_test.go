@@ -350,7 +350,7 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 }
 
 // TestCheckPropertyUpdate_InFlightOnSamePropertyRejects pins the
-// load-bearing case (0-weaviate-issues#218): a STARTED or FINALIZING
+// load-bearing case (https://github.com/weaviate/0-weaviate-issues/issues/218): a STARTED or FINALIZING
 // reindex task on the same (collection, property) must reject every
 // external property mutation. Without this, a DELETE-searchable mid-
 // migration wipes the in-flight searchable_retokenize working dir and
@@ -522,7 +522,7 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 }
 
 // TestCheckClassMutation_* pin the class-wide guard
-// (DeleteClass family; 0-weaviate-issues#219). Stricter than
+// (DeleteClass family; https://github.com/weaviate/0-weaviate-issues/issues/219). Stricter than
 // CheckPropertyUpdate — any in-flight reindex on the class is a
 // conflict, regardless of which property the migration targets.
 

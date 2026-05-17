@@ -88,7 +88,7 @@ func newTestClass(className string) *models.Class {
 // newTestClassWithProps builds a test class with N searchable text
 // properties. Used by regression tests that exercise the per-prop
 // loop inside runtimeSwap (the atomic-phase contract per
-// 0-weaviate-issues#216 — see file-level godoc in
+// https://github.com/weaviate/0-weaviate-issues/issues/216 — see file-level godoc in
 // inverted_reindex_task_generic.go).
 func newTestClassWithProps(className string, propNames []string) *models.Class {
 	props := make([]*models.Property, len(propNames))
@@ -307,7 +307,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 
 // TestRunSwapOnShard_SentinelAwareDispatch pins the recovery branches in
 // [ShardReindexTaskGeneric.RunSwapOnShard] that took over after
-// 0-weaviate-issues#214 Phase 7c.
+// https://github.com/weaviate/0-weaviate-issues/issues/214 Phase 7c.
 //
 // Before the dispatch fix, RunSwapOnShard unconditionally called
 // runtimeSwap which required the reindex bucket to be in the in-memory
@@ -398,8 +398,8 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 }
 
 // TestRuntimeSwap_Phase2a_AtomicTightLoop pins the architectural
-// contract from 0-weaviate-issues#216 (per QA-Claude design
-// consideration in PR #11322 comment 4470016252): between consecutive
+// contract from https://github.com/weaviate/0-weaviate-issues/issues/216 (per QA-Claude design
+// consideration in PR https://github.com/weaviate/weaviate/pull/11322 comment 4470016252): between consecutive
 // per-prop SwapBucketPointer calls inside runtimeSwap's Phase 2a, only
 // the cheap sentinel fsync (markSwappedProp) is allowed — no Shutdown,
 // no Rename, no RAFT, no compaction wait. The total Phase 2a wall-clock

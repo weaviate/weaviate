@@ -21,7 +21,7 @@ import (
 )
 
 // Tests for the per-migration generation helpers added for
-// weaviate/weaviate#10675. The functions under test live in
+// https://github.com/weaviate/weaviate/issues/10675. The functions under test live in
 // inverted_reindex_finalize.go and inverted_reindex_strategy_dir_names.go.
 
 func TestParseMigrationDirName(t *testing.T) {
@@ -606,7 +606,7 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 }
 
 // TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge
-// pins 0-weaviate-issues#214 Test Gap unit-level item 1: a single
+// pins https://github.com/weaviate/0-weaviate-issues/issues/214 Test Gap unit-level item 1: a single
 // shard's .migrations/ directory carrying multiple in-flight migrations
 // on different properties simultaneously, each at a different stage of
 // half-finalization, must converge to the same final on-disk shape as
@@ -711,7 +711,7 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 }
 
 // TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge
-// pins 0-weaviate-issues#214 Test Gap unit-level item 2: three shards
+// pins https://github.com/weaviate/0-weaviate-issues/issues/214 Test Gap unit-level item 2: three shards
 // of the same collection enter restart with deliberately divergent
 // half-finalized states for the SAME migration. All three must
 // converge to the same canonical-bucket shape after their per-shard

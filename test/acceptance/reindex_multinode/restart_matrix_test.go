@@ -26,7 +26,7 @@ import (
 )
 
 // The tests in this file pin the deferred-finalize + per-migration-
-// generation contract from the weaviate/weaviate#10675 fix. They cover
+// generation contract from the https://github.com/weaviate/weaviate/issues/10675 fix. They cover
 // every restart-vs-migration-count combination in a 3-node RF=3 cluster
 // (every replica holds every shard) and assert per-replica BM25 results
 // hit DIRECTLY — never via the LB's round-robin, which masks per-replica
@@ -385,7 +385,7 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 }
 
 // TestMultiNode_RollingRestartBetweenMigrations mimics the prod
-// scenario from weaviate/weaviate#10675: pods are rolled at different
+// scenario from https://github.com/weaviate/weaviate/issues/10675: pods are rolled at different
 // times between migrations, leading to different on-disk states for
 // the same property. The per-node generation suffix must isolate the
 // migrations so the second one runs cleanly on every replica.

@@ -20,7 +20,7 @@ import (
 )
 
 // TestShard_TokenizationOverlay_* pin the per-shard tokenization overlay
-// lifecycle introduced for 0-weaviate-issues#216 (Gap B). The overlay
+// lifecycle introduced for https://github.com/weaviate/0-weaviate-issues/issues/216 (Gap B). The overlay
 // bridges the per-replica window between a change-tokenization
 // migration's local bucket swap (in OnGroupCompleted.RunSwapOnShard) and
 // the cluster-wide schema flip (in OnTaskCompleted's

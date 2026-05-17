@@ -108,7 +108,7 @@ func (p *recordingUnitAwareProvider) OnGroupCompleted(task *Task, _ string, _ []
 
 // SetGroupCompletedError makes subsequent OnGroupCompleted calls on
 // this provider return the given error. Used to drive the
-// 0-weaviate-issues#214 Gap A ack-failure path in tests.
+// https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A ack-failure path in tests.
 func (p *recordingUnitAwareProvider) SetGroupCompletedError(err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -209,7 +209,7 @@ func (r *fanoutRecorder) UpdateDistributedTaskUnitProgress(_ context.Context, ns
 // commits; in-process we just call into the FSM directly because the
 // schedulers all poll the same Manager.
 //
-// See 0-weaviate-issues#214 Gap A.
+// See https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A.
 type fanoutAckRecorder struct {
 	t       *testing.T
 	manager *Manager
@@ -253,7 +253,7 @@ func newMultiSchedulerHarness(t *testing.T, nodeIDs []string) *multiSchedulerHar
 
 // newMultiSchedulerHarnessWithAckBarrier wires the post-completion ack
 // recorder on every scheduler so tests can drive the
-// 0-weaviate-issues#214 Gap A barrier. Without an ack recorder the
+// https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A barrier. Without an ack recorder the
 // scheduler falls back to the legacy pre-#214 behavior (no barrier;
 // schema flip fires as soon as OnTaskCompleted returns), which is the
 // default for tests that don't care about the barrier.
@@ -550,7 +550,7 @@ func TestMultiScheduler_OnGroupCompletedFiresPerNodeOnlyForLocalUnits(t *testing
 }
 
 // TestMultiScheduler_AckBarrier_BlocksFinalizeUntilEveryNodeAcks pins
-// 0-weaviate-issues#214 Gap A: with the post-completion ack recorder
+// https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A: with the post-completion ack recorder
 // wired, MarkDistributedTaskFinalized (and therefore OnTaskCompleted's
 // cluster-wide schema flip) must NOT commit until every node with local
 // units has recorded a success ack. A node that crashed between local
@@ -647,7 +647,7 @@ func TestMultiScheduler_AckBarrier_BlocksFinalizeUntilEveryNodeAcks(t *testing.T
 }
 
 // TestMultiScheduler_AckBarrier_FailureAckTransitionsToFailed pins the
-// failure-path branch of 0-weaviate-issues#214 Gap A: when one node's
+// failure-path branch of https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A: when one node's
 // OnGroupCompleted returns an error, the per-node ack records
 // success=false, which transitions the FSM straight to FAILED. The
 // cluster-wide schema flip (in the reindex provider's OnTaskCompleted)
@@ -782,7 +782,7 @@ func TestMultiScheduler_AckBarrier_LateSuccessAckSurvivesIdempotently(t *testing
 }
 
 // TestMultiScheduler_AckBarrier_ContextCanceledIsTransient pins the
-// graceful-shutdown recovery semantics for 0-weaviate-issues#214 +
+// graceful-shutdown recovery semantics for https://github.com/weaviate/0-weaviate-issues/issues/214 +
 // #213: when OnGroupCompleted returns a context.Canceled-rooted error
 // (the production graceful-shutdown shape produced by lsmkv's
 // non-cancellable in-flight compaction during SIGTERM), the scheduler
@@ -793,7 +793,7 @@ func TestMultiScheduler_AckBarrier_LateSuccessAckSurvivesIdempotently(t *testing
 // Without this discipline the task would transition to FAILED on the
 // first node whose graceful shutdown raced its swap (CI surfaced this
 // exact failure in TestMultiNode_RollingRestartDuringFinalizing on
-// PR #10694), short-circuiting the post-restart recovery and turning
+// PR https://github.com/weaviate/weaviate/pull/10694), short-circuiting the post-restart recovery and turning
 // every rolling restart that lands in the FINALIZING window into a
 // permanent migration failure.
 func TestMultiScheduler_AckBarrier_ContextCanceledIsTransient(t *testing.T) {

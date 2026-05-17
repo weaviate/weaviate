@@ -931,7 +931,7 @@ func TestManager_SnapshotRestore_WithGroups(t *testing.T) {
 }
 
 // TestManager_RecordPostCompletionAck_Success pins the happy path of
-// the per-node ack barrier introduced in 0-weaviate-issues#214 Gap A:
+// the per-node ack barrier introduced in https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A:
 // every node's success ack is recorded, the task stays FINALIZING (no
 // status change from a success ack), and the AckedAt timestamp lands
 // on the persisted record.
@@ -987,7 +987,7 @@ func TestManager_RecordPostCompletionAck_Success(t *testing.T) {
 }
 
 // TestManager_RecordPostCompletionAck_FailureTransitionsToFailed
-// pins the failure-path of 0-weaviate-issues#214 Gap A: when a node
+// pins the failure-path of https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A: when a node
 // reports a failure ack, the FSM transitions the task to FAILED
 // immediately AND records the error on Task.Error for forensics. The
 // cluster-wide schema flip will see FAILED and skip the flip.
@@ -1153,7 +1153,7 @@ func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T
 }
 
 // TestManager_SnapshotRestore_WithPostCompletionAcks pins the
-// crash-safety property the 0-weaviate-issues#214 Gap A fix relies on:
+// crash-safety property the https://github.com/weaviate/0-weaviate-issues/issues/214 Gap A fix relies on:
 // the per-node acks survive RAFT snapshot/restore. Without this, a
 // follower installing a snapshot mid-FINALIZING would lose the ack
 // barrier state and the scheduler couldn't gate MarkTaskFinalized
@@ -1247,7 +1247,7 @@ func (f *fakeSchemaMutationDetector) CheckTenantMutation(className string, tenan
 // [SchemaMutationDetector] with the current FSM-stored task list for
 // each detector's namespace.
 //
-// Motivating bug: 0-weaviate-issues#218. Symmetric to the existing
+// Motivating bug: https://github.com/weaviate/0-weaviate-issues/issues/218. Symmetric to the existing
 // TestManager_AddTask_ConflictDetector pattern.
 func TestManager_CheckPropertyUpdate_DispatchToDetectors(t *testing.T) {
 	t.Run("no detectors registered → nil", func(t *testing.T) {

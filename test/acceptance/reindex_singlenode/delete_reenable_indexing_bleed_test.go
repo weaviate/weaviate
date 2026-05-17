@@ -23,7 +23,7 @@ import (
 )
 
 // testDeleteThenReEnableIndexingBleed pins the Sev 1 frontend repro on
-// 2026-05-14 in weaviate/weaviate#10675: after multiple enable→DELETE cycles
+// 2026-05-14 in https://github.com/weaviate/weaviate/issues/10675: after multiple enable→DELETE cycles
 // on the same property, GET /indexes shows a synthetic "indexing(1)" entry
 // for the just-deleted index, "carrying over from the previous FINISHED
 // task". The synthetic status sticks: a follow-up enable's swap doesn't

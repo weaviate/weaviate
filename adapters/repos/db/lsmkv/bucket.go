@@ -103,7 +103,7 @@ type Bucket struct {
 	// flush. Any follow-up `CursorOnDisk` would miss data parked in
 	// `b.flushing`. Serializing here gives every caller the invariant
 	// "after FlushAndSwitch returns, all data written before the call
-	// is durably in segments." See GH 0-weaviate-issues#212 Issues C+D.
+	// is durably in segments." See GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issues C+D.
 	//
 	// Lock ordering: flushAndSwitchMu MUST be acquired BEFORE flushLock.
 	// FlushAndSwitch takes flushAndSwitchMu for its full duration and
@@ -1783,7 +1783,7 @@ func (b *Bucket) FlushAndSwitch() error {
 	}
 
 	// Serialize against any other in-flight FlushAndSwitch on this bucket.
-	// See the [flushAndSwitchMu] godoc and GH 0-weaviate-issues#212
+	// See the [flushAndSwitchMu] godoc and GH https://github.com/weaviate/0-weaviate-issues/issues/212
 	// Issues C+D for the rationale. This ensures the invariant
 	// "after FlushAndSwitch returns, all data written before the call is
 	// durably in segments" holds even when two callers race — the second

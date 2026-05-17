@@ -72,7 +72,7 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 	})
 	// The "tenants subset accepted on MT collection" sub-test submits a
 	// repair-filterable task on mtClass.text_word and does NOT await
-	// terminal state. After PR #11320 / 0-weaviate-issues#218 / #219,
+	// terminal state. After PR https://github.com/weaviate/weaviate/pull/11320 / https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219,
 	// DeleteClass is rejected by the schema FSM's MutationGuard while
 	// any reindex task is in flight on the collection (the guard is
 	// what protects against the bucket↔schema-inversion family of

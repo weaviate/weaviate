@@ -477,7 +477,7 @@ func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardSta
 
 // recordingMutationGuard captures every CheckPropertyUpdate call and
 // optionally rejects with a configured error. Used to pin the
-// SchemaManager.UpdateProperty guard call site (0-weaviate-issues#218).
+// SchemaManager.UpdateProperty guard call site (https://github.com/weaviate/0-weaviate-issues/issues/218).
 type recordingMutationGuard struct {
 	called     int
 	lastClass  string
@@ -506,7 +506,7 @@ func (g *recordingMutationGuard) CheckTenantMutation(class string, tenants []str
 
 // TestSchemaManager_UpdateProperty_MutationGuard pins the cross-FSM
 // MutationGuard wiring on the UpdateProperty apply path
-// (0-weaviate-issues#218). The guard:
+// (https://github.com/weaviate/0-weaviate-issues/issues/218). The guard:
 //
 //   - MUST be consulted before the schema apply on any external
 //     UpdateProperty.
@@ -628,7 +628,7 @@ func TestSchemaManager_UpdateProperty_MutationGuard(t *testing.T) {
 
 // TestSchemaManager_DeleteClass_MutationGuard pins the class-wide
 // guard wiring on the DeleteClass apply path
-// (0-weaviate-issues#218 / #219). DeleteClass mid-reindex destroys
+// (https://github.com/weaviate/0-weaviate-issues/issues/218 / https://github.com/weaviate/0-weaviate-issues/issues/219). DeleteClass mid-reindex destroys
 // every property's bucket state at once; the guard rejection must
 // fire BEFORE any class-deletion side effect.
 func TestSchemaManager_DeleteClass_MutationGuard(t *testing.T) {

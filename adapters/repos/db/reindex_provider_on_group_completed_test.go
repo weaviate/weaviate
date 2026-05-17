@@ -29,7 +29,7 @@ import (
 // found" because the swap dirs were trimmed at migration completion,
 // spamming every node restart with bogus ERROR-level log entries.
 //
-// See 0-weaviate-issues#217 (spillover from 0-weaviate-issues#214 A5).
+// See https://github.com/weaviate/0-weaviate-issues/issues/217 (spillover from https://github.com/weaviate/0-weaviate-issues/issues/214 A5).
 //
 // The test exercises every status value defined in
 // [distributedtask.TaskStatus] to make the boundary explicit: STARTED

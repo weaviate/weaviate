@@ -260,7 +260,7 @@ func TestRestartDuringSwap(t *testing.T) {
 	// the static ShardReindexerV3 at startup so OnAfterLsmInit fires during
 	// shard load — before any writes reach the shard. Currently the static
 	// reindexer is NewShardReindexerV3Noop, so this hook does not fire.
-	// Tracked as follow-up on issue #10675 ("register runtime tasks at
+	// Tracked as follow-up on issue https://github.com/weaviate/weaviate/issues/10675 ("register runtime tasks at
 	// shard init for restart resilience").
 	//
 	// The schema-flip assertion above (step 8) is the part the rehydrate

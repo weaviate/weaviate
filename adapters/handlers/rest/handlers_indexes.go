@@ -105,7 +105,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// window reasonable in both pathological sub-second tick configs
 	// (clamp up to 3s) and production 60s+ tick configs (clamp down to
 	// 10s) — a longer-lived bleed in production was the user-visible
-	// face of weaviate/weaviate#10675, and capping the override here
+	// face of https://github.com/weaviate/weaviate/issues/10675, and capping the override here
 	// keeps the worst-case stale "indexing(1)" pill bounded.
 	finalizeWindow := 2 * h.appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval
 	if finalizeWindow < finalizeWindowMin {
@@ -750,13 +750,13 @@ const reindexCancelDrainTimeout = 10 * time.Second
 //   - finalizeWindowMax (10s) caps how long a stale FINISHED task can
 //     bleed an "indexing(1)" pill after a DELETE — production tick is
 //     60s, so a naive 2× would let the bleed live for 2 minutes,
-//     which was the user-visible face of weaviate/weaviate#10675.
+//     which was the user-visible face of https://github.com/weaviate/weaviate/issues/10675.
 //
 // Outside the window, flagOn==false cannot legitimately mean "swap
 // pending" — either the swap failed silently (logged as "swap
 // INCOMPLETE" elsewhere) or the swap completed and DELETE flipped the
 // flag back to false (the frontend repro on 2026-05-14 in
-// weaviate/weaviate#10675 — "indexing(1) bleed"). In both cases
+// https://github.com/weaviate/weaviate/issues/10675 — "indexing(1) bleed"). In both cases
 // surfacing the override would be a status lie. The trade-off in
 // production: between task FINISHED and the schema flag flip, a
 // caller polling the GET endpoint will see "indexing@100%" for up to

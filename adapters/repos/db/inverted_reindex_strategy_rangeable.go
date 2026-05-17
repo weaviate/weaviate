@@ -163,7 +163,7 @@ func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(stri
 // "not locally ready" on this shard. The query path consults this via
 // [*Shard.IsRangeableLocallyReady] and falls back to the filterable
 // bucket walk while the rangeable bucket is empty. See
-// `Shard.rangeableLocalReady` for the full GH 0-weaviate-issues#212
+// `Shard.rangeableLocalReady` for the full GH https://github.com/weaviate/0-weaviate-issues/issues/212
 // Issue C rationale. The post-runtimeSwap finalize flips the prop back
 // to "ready" after `markTidied()`.
 func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []string) {
@@ -232,7 +232,7 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 	// just-about-to-swap, but the per-shard ready flag controls THIS
 	// shard's behavior in isolation. Set it before the schema update so
 	// THIS shard's queries that observe the new schema flag also see
-	// ready=true. See GH 0-weaviate-issues#212 Issue C +
+	// ready=true. See GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issue C +
 	// Shard.rangeableLocalReady.
 	//
 	// Unwrap before the assertion: a *LazyLoadShard wraps the concrete

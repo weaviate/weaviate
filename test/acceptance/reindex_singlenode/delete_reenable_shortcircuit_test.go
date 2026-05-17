@@ -24,7 +24,7 @@ import (
 )
 
 // testDeleteThenReEnableShortCircuit pins the cycle-3 silent-failure
-// family reported in weaviate/weaviate#10675: after multiple
+// family reported in https://github.com/weaviate/weaviate/issues/10675: after multiple
 // enable→DELETE cycles on a property with measurable data volume, the
 // final cycle must still rebuild the bucket end-to-end. The frontend
 // report mentioned cycle 3 finishing in 1.6s with the schema flag

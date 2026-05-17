@@ -20,7 +20,7 @@ import (
 // TestTaskStatus_IsTerminal pins the terminal-status classification used
 // by providers' recovery-replay short-circuit (see e.g.
 // [ReindexProvider.OnGroupCompleted] in
-// adapters/repos/db/reindex_provider.go and 0-weaviate-issues#217).
+// adapters/repos/db/reindex_provider.go and https://github.com/weaviate/0-weaviate-issues/issues/217).
 // Adding a new TaskStatus value should require an explicit decision
 // here; the default-case below ensures unknown values are non-terminal.
 func TestTaskStatus_IsTerminal(t *testing.T) {

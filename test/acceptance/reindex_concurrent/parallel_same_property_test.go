@@ -31,7 +31,7 @@ import (
 )
 
 // TestParallelEnableFilterableAndRangeable mirrors the frontend repro on
-// weaviate/weaviate#10675: parallel enable-filterable + enable-rangeable
+// https://github.com/weaviate/weaviate/issues/10675: parallel enable-filterable + enable-rangeable
 // on the same numeric property both end up FAILED with
 // "progress.mig.000000001: no such file or directory".
 //
@@ -233,7 +233,7 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 		err := awaitTask(t, restURI, r.taskID, 3*time.Minute)
 		require.NoError(t, err,
 			"%s task %s must FINISH; if it FAILED with 'no such file or directory' "+
-				"the parallel-cleanup race regressed (weaviate/weaviate#10675)",
+				"the parallel-cleanup race regressed (https://github.com/weaviate/weaviate/issues/10675)",
 			r.label, r.taskID)
 	}
 

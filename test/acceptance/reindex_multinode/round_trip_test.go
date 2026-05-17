@@ -26,7 +26,7 @@ import (
 )
 
 // TestMultiNode_ChangeTokenization_RoundTrip pins the bug reported in
-// weaviate/weaviate#10675: after a word→field→word round-trip on a 3-node
+// https://github.com/weaviate/weaviate/issues/10675: after a word→field→word round-trip on a 3-node
 // RF=3 cluster, only one replica ends up with a populated inverted bucket.
 // The other replicas report task FINISHED and the schema flag flipped, but
 // their on-disk buckets are empty, so a BM25 query routed to them returns
@@ -111,7 +111,7 @@ func TestMultiNode_ChangeTokenization_RoundTrip(t *testing.T) {
 		sort.Strings(failures)
 		t.Fatalf(
 			"per-replica inverted-bucket mismatch after word→field→word "+
-				"round-trip (see weaviate/weaviate#10675); %d mismatches:\n  %s",
+				"round-trip (see https://github.com/weaviate/weaviate/issues/10675); %d mismatches:\n  %s",
 			len(failures), strings.Join(failures, "\n  "))
 	}
 }

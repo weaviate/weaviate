@@ -269,7 +269,7 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_KeepsFinalizingEntry(t *tes
 			},
 		)
 		// FinishedAt must be inside the finalize window for the override
-		// to fire. The bug fix (weaviate/weaviate#10675, 2026-05-14)
+		// to fire. The bug fix (https://github.com/weaviate/weaviate/issues/10675, 2026-05-14)
 		// added a recency bound so stale FINISHED tasks (whose flag has
 		// since been DELETE-flipped back off) don't bleed an
 		// "indexing(1)" pill across cycles. Set FinishedAt to "just
