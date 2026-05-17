@@ -60,97 +60,22 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 			}), "object %d", i)
 		}
 
-		// Cycle 1: enable → wait FINISHED → DELETE.
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
-			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
-		requireSearchableEnabled(t, class, "body")
-		deleteIndex(t, restURI, class, "body", "searchable")
-
-		// Right after DELETE: schema flag has flipped to false. GET /indexes
-		// must NOT surface a synthetic "indexing"/"pending"/"failed"/
-		// "cancelled" entry for the searchable index. The prior FINISHED
-		// task's flag-flip completed before DELETE; it is NOT in finalize
-		// window any more. Any synthetic entry here is the bug.
-		//
-		// Eventually-poll because the schema-flag flip may take a moment
-		// to propagate. Use a tight window (5s) — the bug surfaces
-		// immediately, the fix lets the poll converge inside the window.
-		require.Eventually(t, func() bool {
-			resp := reindexhelpers.GetIndexes(t, restURI, class)
-			for _, prop := range resp.Properties {
-				if prop.Name != "body" {
-					continue
-				}
-				for _, idx := range prop.Indexes {
-					if idx.Type == "searchable" {
-						// Any searchable entry surfacing right after DELETE
-						// is the bleed. Even "ready" would be wrong because
-						// the schema flag is off — synthetic statuses
-						// (indexing/pending/failed/cancelled) are the bug.
-						t.Logf("bleed detected: cycle 1 DELETE — searchable entry still present: %+v", idx)
-						return false
-					}
-				}
-				return true
-			}
-			return false
-		}, 12*time.Second, 250*time.Millisecond,
-			"after DELETE: GET /indexes must NOT surface any searchable entry — the schema flag is off and no reindex is in flight. A bleed here means the synthetic-status override in mergeReindexStatus is treating a stale FINISHED task as still finalizing.")
-
-		// Cycle 2: enable again. After this cycle's FINISHED+DELETE, the
-		// bleed reproduces with two stale FINISHED tasks competing.
-		taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
-			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
-		requireSearchableEnabled(t, class, "body")
-		deleteIndex(t, restURI, class, "body", "searchable")
-
-		// Same assertion after cycle 2's DELETE — the bleed must NOT appear
-		// even with multiple FINISHED tasks in DTM history.
-		require.Eventually(t, func() bool {
-			resp := reindexhelpers.GetIndexes(t, restURI, class)
-			for _, prop := range resp.Properties {
-				if prop.Name != "body" {
-					continue
-				}
-				for _, idx := range prop.Indexes {
-					if idx.Type == "searchable" {
-						t.Logf("bleed detected: cycle 2 DELETE — searchable entry still present: %+v", idx)
-						return false
-					}
-				}
-				return true
-			}
-			return false
-		}, 12*time.Second, 250*time.Millisecond,
-			"after 2nd DELETE: GET /indexes must NOT surface any searchable entry. Two stale FINISHED tasks must not be picked as the finalize-window winner.")
-
-		// Cycle 3: enable again. After this cycle's FINISHED+DELETE, three
-		// stale FINISHED tasks accumulate.
-		taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
-			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
-		requireSearchableEnabled(t, class, "body")
-		deleteIndex(t, restURI, class, "body", "searchable")
-
-		require.Eventually(t, func() bool {
-			resp := reindexhelpers.GetIndexes(t, restURI, class)
-			for _, prop := range resp.Properties {
-				if prop.Name != "body" {
-					continue
-				}
-				for _, idx := range prop.Indexes {
-					if idx.Type == "searchable" {
-						t.Logf("bleed detected: cycle 3 DELETE — searchable entry still present: %+v", idx)
-						return false
-					}
-				}
-				return true
-			}
-			return false
-		}, 12*time.Second, 250*time.Millisecond,
-			"after 3rd DELETE: GET /indexes must NOT surface any searchable entry. Three stale FINISHED tasks accumulated.")
+		// Three enable→FINISHED→DELETE cycles. After each one, the GET
+		// /indexes surface must not surface a synthetic "indexing"/"pending"/
+		// "failed"/"cancelled" entry for the just-deleted searchable index.
+		// The bleed mode is the synthetic-status override in
+		// mergeReindexStatus reclassifying a stale FINISHED task as "still
+		// finalizing" — and the bug compounds with each completed-then-
+		// deleted cycle (more stale FINISHED tasks in DTM history to
+		// compete for the "finalize-window winner" pick).
+		for cycle := 1; cycle <= 3; cycle++ {
+			runEnableThenDeleteCycle(t, restURI, class, "body",
+				`{"searchable":{"enabled":true,"tokenization":"word"}}`,
+				"searchable",
+				func() { requireSearchableEnabled(t, class, "body") })
+			assertNoIndexBleedAfterDelete(t, restURI, class, "body", "searchable",
+				"cycle %d: after DELETE: GET /indexes must NOT surface any searchable entry — schema flag is off and no reindex is in flight.", cycle)
+		}
 	})
 
 	t.Run("filterable_bleed_after_delete", func(t *testing.T) {
@@ -171,30 +96,12 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 			}))
 		}
 
-		// Two enable→DELETE cycles, then assert no bleed.
 		for cycle := 1; cycle <= 2; cycle++ {
-			taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-				`{"filterable":{"enabled":true}}`)
-			reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
-			requireFilterableEnabled(t, class, "name")
-			deleteIndex(t, restURI, class, "name", "filterable")
-
-			require.Eventually(t, func() bool {
-				resp := reindexhelpers.GetIndexes(t, restURI, class)
-				for _, prop := range resp.Properties {
-					if prop.Name != "name" {
-						continue
-					}
-					for _, idx := range prop.Indexes {
-						if idx.Type == "filterable" {
-							t.Logf("filterable bleed detected (cycle %d): %+v", cycle, idx)
-							return false
-						}
-					}
-					return true
-				}
-				return false
-			}, 12*time.Second, 250*time.Millisecond,
+			runEnableThenDeleteCycle(t, restURI, class, "name",
+				`{"filterable":{"enabled":true}}`,
+				"filterable",
+				func() { requireFilterableEnabled(t, class, "name") })
+			assertNoIndexBleedAfterDelete(t, restURI, class, "name", "filterable",
 				"cycle %d: after DELETE filterable, GET /indexes must NOT surface any filterable entry on %q", cycle, class)
 		}
 	})
@@ -217,37 +124,79 @@ func testDeleteThenReEnableIndexingBleed(t *testing.T, restURI string) {
 			}))
 		}
 
-		// Two enable→DELETE cycles. Rangeable is non-semantic so it
-		// doesn't go through OnGroupCompleted's swap — the bleed mode
-		// for non-semantic migrations is slightly different but the
-		// post-DELETE invariant is the same: no synthetic entry must
-		// surface for the deleted index.
+		// Rangeable is non-semantic so it doesn't go through OnGroupCompleted's
+		// swap. The bleed mode for non-semantic migrations is slightly
+		// different but the post-DELETE invariant is the same: no synthetic
+		// entry must surface for the deleted index.
 		for cycle := 1; cycle <= 2; cycle++ {
-			taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
-				`{"rangeable":{"enabled":true}}`)
-			reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
-			requireRangeableEnabled(t, class, "score")
-			deleteIndex(t, restURI, class, "score", "rangeFilters")
-
-			require.Eventually(t, func() bool {
-				resp := reindexhelpers.GetIndexes(t, restURI, class)
-				for _, prop := range resp.Properties {
-					if prop.Name != "score" {
-						continue
-					}
-					for _, idx := range prop.Indexes {
-						if idx.Type == "rangeable" {
-							t.Logf("rangeable bleed detected (cycle %d): %+v", cycle, idx)
-							return false
-						}
-					}
-					return true
-				}
-				return false
-			}, 12*time.Second, 250*time.Millisecond,
+			runEnableThenDeleteCycle(t, restURI, class, "score",
+				`{"rangeable":{"enabled":true}}`,
+				"rangeFilters",
+				func() { requireRangeableEnabled(t, class, "score") })
+			assertNoIndexBleedAfterDelete(t, restURI, class, "score", "rangeable",
 				"cycle %d: after DELETE rangeFilters, GET /indexes must NOT surface any rangeable entry on %q", cycle, class)
 		}
 	})
+}
+
+// runEnableThenDeleteCycle submits a PUT to enable an index on the named
+// property, waits for FINISHED, asserts the schema flag flipped on via the
+// per-index-type require* helper, then DELETEs the index by its REST name
+// (which is "searchable"/"filterable"/"rangeFilters" — distinct from the
+// GET /indexes status-block type name "rangeable" for the rangeable case).
+//
+// Shared by the bleed test's 3 subtests (searchable / filterable /
+// rangeable) so the enable→FINISHED→DELETE shape stays identical across
+// the per-migration-type variants of the same Sev 1 repro.
+func runEnableThenDeleteCycle(
+	t *testing.T,
+	restURI, class, propName, putBody, deleteIndexName string,
+	requireEnabled func(),
+) {
+	t.Helper()
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, propName, putBody)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	requireEnabled()
+	deleteIndex(t, restURI, class, propName, deleteIndexName)
+}
+
+// assertNoIndexBleedAfterDelete is the inverse of the FINISHED-task
+// "finalize-window override" bug surface: after a DELETE, GET /indexes
+// must NOT surface any entry of the named type on the named property. The
+// schema flag is off and no reindex is in flight; a synthetic entry here
+// means the mergeReindexStatus override is treating a stale FINISHED task
+// as still finalizing.
+//
+// Eventually-polls because the schema-flag flip may take a moment to
+// propagate. 12s window with 250ms poll cadence — the bug surfaces
+// immediately at t=0, the fix lets the poll converge inside the window.
+//
+// `idxStatusType` is the GET /indexes status-block type name (one of
+// "searchable" / "filterable" / "rangeable"), distinct from the DELETE
+// URL's `indexName` ("searchable" / "filterable" / "rangeFilters").
+func assertNoIndexBleedAfterDelete(
+	t *testing.T,
+	restURI, class, propName, idxStatusType, msgAndArgsFmt string,
+	msgArgs ...interface{},
+) {
+	t.Helper()
+	args := append([]interface{}{msgAndArgsFmt}, msgArgs...)
+	require.Eventually(t, func() bool {
+		resp := reindexhelpers.GetIndexes(t, restURI, class)
+		for _, prop := range resp.Properties {
+			if prop.Name != propName {
+				continue
+			}
+			for _, idx := range prop.Indexes {
+				if idx.Type == idxStatusType {
+					t.Logf("%s bleed detected: %+v", idxStatusType, idx)
+					return false
+				}
+			}
+			return true
+		}
+		return false
+	}, 12*time.Second, 250*time.Millisecond, args...)
 }
 
 // TestSuppress ensures this file compiles in isolation. The actual entry

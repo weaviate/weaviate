@@ -44,6 +44,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 // -- Functional options --------------------------------------------------------
@@ -300,4 +301,115 @@ func IdsMatchUnordered(a, b []string) bool {
 		seen[v]--
 	}
 	return true
+}
+
+// -- Test environment fixture -------------------------------------------------
+
+// SetupClass creates a single-tenant class with the named properties and
+// `Vectorizer: "none"` (the runtime-reindex tests all use BM25/filter
+// paths, never a vectorizer), then registers a t.Cleanup that deletes
+// the class at test end. Returns nothing — the class name passed in is
+// the handle.
+//
+// Used by [WithEnv] but also useful standalone for tests that want to
+// drive their own object creation (e.g. batch import, special data
+// shapes) but still want the class lifecycle managed.
+//
+// Requires the test process to have already called
+// [helper.SetupClient(restURI)] at the suite level — class creation
+// goes through the package-level helper client, not a per-call HTTP
+// hit.
+func SetupClass(t *testing.T, class string, props []*models.Property) {
+	t.Helper()
+	helper.CreateClass(t, &models.Class{
+		Class:      class,
+		Properties: props,
+		Vectorizer: "none",
+	})
+	t.Cleanup(func() { helper.DeleteClass(t, class) })
+}
+
+// SetupClassWithConfig is the [SetupClass] variant that lets the caller
+// pass arbitrary class-level config (InvertedIndexConfig,
+// MultiTenancyConfig, ReplicationConfig, etc.). The caller-supplied
+// `class` value MUST match `c.Class`; this is enforced via require so
+// a typo fails loudly.
+func SetupClassWithConfig(t *testing.T, c *models.Class) {
+	t.Helper()
+	require.NotEmpty(t, c.Class, "Class name must be set on the models.Class")
+	if c.Vectorizer == "" {
+		c.Vectorizer = "none"
+	}
+	helper.CreateClass(t, c)
+	t.Cleanup(func() { helper.DeleteClass(t, c.Class) })
+}
+
+// ImportObjects creates one object per entry in `objects` against the
+// given class via [helper.CreateObject]. Each entry is the Properties
+// map for that object — IDs and vectors are not set (the suites that
+// need explicit IDs/vectors use the lower-level helper.CreateObject
+// directly).
+//
+// Failures fail the test at the create-object call site (via
+// require.NoError); the object index is included in the failure
+// message so the offending row is identifiable.
+//
+// For large object counts use [helper.CreateObjectsBatch] directly;
+// this loop is intentionally simple and not batched. The suites that
+// need batch import (e.g. multinode round-trip) call the batch helper
+// themselves.
+func ImportObjects(t *testing.T, class string, objects []map[string]interface{}) {
+	t.Helper()
+	for i, props := range objects {
+		require.NoError(t, helper.CreateObject(t, &models.Object{
+			Class:      class,
+			Properties: props,
+		}), "create object %d", i)
+	}
+}
+
+// WithEnv is the closure-style fixture for the common "create class,
+// import N objects, run test, delete class" pattern. Replaces ~12-15
+// lines of boilerplate per test with one call.
+//
+// The fixture:
+//
+//  1. Calls [SetupClass] (creates the class + registers cleanup).
+//  2. Calls [ImportObjects] (one-by-one create, no batching).
+//  3. Invokes `body` — the per-test logic, which typically submits
+//     a reindex via [SubmitIndexUpdate] then awaits via
+//     [AwaitReindexFinished].
+//
+// Tests that need MT / custom InvertedIndexConfig / batch import / explicit
+// IDs should use [SetupClass] / [SetupClassWithConfig] / [ImportObjects]
+// directly — WithEnv targets the 80% case where the boilerplate is
+// uniform.
+//
+// Example:
+//
+//	reindexhelpers.WithEnv(t, "MyClass",
+//	    []*models.Property{
+//	        {Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+//	    },
+//	    []map[string]interface{}{
+//	        {"text": "hello world"},
+//	        {"text": "foo bar"},
+//	    },
+//	    func() {
+//	        taskID := reindexhelpers.SubmitIndexUpdate(t, restURI,
+//	            "MyClass", "text", `{"searchable":{"tokenization":"field"}}`)
+//	        reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+//	        // assertions...
+//	    })
+func WithEnv(
+	t *testing.T,
+	class string,
+	props []*models.Property,
+	objects []map[string]interface{},
+	body func(),
+) {
+	t.Helper()
+	SetupClass(t, class, props)
+	ImportObjects(t, class, objects)
+	body()
 }

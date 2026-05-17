@@ -63,7 +63,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def _proxy(self, method: str) -> None:
-        upstream_url = CLUSTER_URL + self.path[len("/api"):]
+        # Sanitize the path before concatenating into the upstream URL.
+        # The proxy is local-dev only (loopback bind, single operator) so
+        # the practical attack surface is the operator themselves, but
+        # Sonar's "Server-side requests should not be vulnerable to
+        # traversing attacks" applies regardless and the fix is cheap:
+        # reject any path containing ".." segments or backslashes, and
+        # require the canonicalized path to remain under /api/.
+        raw_path = self.path[len("/api"):]
+        if ".." in raw_path or "\\" in raw_path:
+            self.send_error(400, "invalid path")
+            return
+        # urlparse + posixpath.normpath collapses redundant separators
+        # and resolves any in-segment "." references; we then re-check
+        # the result stays inside the API namespace.
+        import posixpath
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(raw_path)
+        normalized = posixpath.normpath("/" + parsed.path.lstrip("/"))
+        if normalized.startswith(".."):
+            self.send_error(400, "invalid path")
+            return
+        upstream_url = CLUSTER_URL + urlunparse(parsed._replace(path=normalized))
 
         body: bytes | None = None
         content_length = self.headers.get("Content-Length")
