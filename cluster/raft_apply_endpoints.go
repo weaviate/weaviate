@@ -121,9 +121,10 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 // This is the public entry point: callers reach it from the REST / gRPC
 // schema handlers. The cluster-side MutationGuard at apply time blocks
 // updates while a reindex on the same (collection, property) is STARTED
-// or FINALIZING (0-weaviate-issues#218). Internal callers driven by the
-// distributed-task scheduler's own completion path must use
-// [Raft.UpdatePropertyFromMigration] instead, which sets the bypass flag.
+// or FINALIZING. Internal callers driven by the distributed-task
+// scheduler's own completion path must use
+// [Raft.UpdatePropertyFromMigration] instead, which sets the bypass
+// flag.
 func (s *Raft) UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
 	return s.updateProperty(ctx, class, property, false, fields...)
 }

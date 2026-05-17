@@ -331,7 +331,8 @@ type Shard struct {
 
 	// rangeableLocalReadyMu guards rangeableLocalReady. Holds the per-prop
 	// "is this shard's rangeable bucket fully populated and safe to
-	// query?" answer used to fix GH 0-weaviate-issues#212 Issue C.
+	// query?" answer that gates whether the query path can route range
+	// queries to the local rangeable bucket.
 	//
 	// True means the local rangeable bucket has all the data for this
 	// property — either the property was created with
@@ -362,7 +363,8 @@ type Shard struct {
 
 	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
 	// "what tokenization should query input use on this shard?" override
-	// used to close the Gap B race in 0-weaviate-issues#216.
+	// that closes the FINALIZING-window misalignment of a
+	// change-tokenization migration.
 	//
 	// Mechanism: a change-tokenization (or change-tokenization-filterable)
 	// migration's per-shard runtimeSwap flips the canonical bucket pointer
@@ -371,8 +373,9 @@ type Shard struct {
 	// that seconds-long window on each replica:
 	//   - Bucket content on this shard: NEW tokenization (post-swap)
 	//   - Live schema as seen by the analyzer: OLD tokenization (pre-flip)
-	// Query input gets tokenized against OLD; lookup hits NEW bucket; counts
-	// don't match. Frontend Claude's `7→4→1→7→3→2` flap on the live demo.
+	// Query input gets tokenized against OLD; lookup hits NEW bucket;
+	// counts don't match. The empirical signature is a per-replica count
+	// flap (e.g. `7→4→1→7→3→2`) on a steady probe across the window.
 	//
 	// Lifecycle (see reindex_provider.go's OnGroupCompleted +
 	// OnTaskCompleted):
@@ -628,8 +631,7 @@ func (s *Shard) isFallbackToSearchable() bool {
 
 // IsRangeableLocallyReady reports whether this shard's local rangeable
 // bucket for the given property is fully populated and safe to query.
-// See [rangeableLocalReady] for the full rationale (GH
-// 0-weaviate-issues#212 Issue C).
+// See [rangeableLocalReady] for the full rationale.
 //
 // Returns true when:
 //   - The per-shard map has an explicit `true` entry. Set by
@@ -782,10 +784,9 @@ func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
 // analyzer's WithSchemaOverlay mechanism (see
 // adapters/repos/db/inverted/analyzer.go).
 //
-// Per QA Claude's micro-note on #216: this avoids cloning the entire
-// underlying map at every query — only the requested props are
-// snapshotted, and an empty result returns nil so the analyzer can
-// take its fast path.
+// Avoids cloning the entire underlying overlay map on every query —
+// only the requested props are snapshotted, and an empty result
+// returns nil so the analyzer can take its fast path.
 //
 // The returned map is owned by the caller.
 func (s *Shard) SnapshotTokenizationOverlay(propNames []string) map[string]string {

@@ -2115,7 +2115,10 @@ func (x *MarkTaskFinalizedRequest) GetFinalizedAtUnixMillis() int64 {
 // Idempotent: the FSM keeps the first ack per (task, node) — duplicate
 // acks (from retries on the scheduler's wake/tick loop) are no-ops.
 //
-// See 0-weaviate-issues#214 Gap A for the underlying crash-safety bug.
+// The recorder closes the crash-safety gap where a node whose
+// RunSwapOnShard silently failed could otherwise let the
+// cluster-wide schema flip commit while one replica's bucket pointer
+// never moved.
 type RecordDistributedTaskPostCompletionAckRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Namespace         string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`

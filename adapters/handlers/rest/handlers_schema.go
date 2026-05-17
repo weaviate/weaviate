@@ -40,13 +40,13 @@ import (
 // in-flight reindex migration. Implemented by the RAFT-backed
 // distributed-task state (today: cluster/raft.Raft).
 //
-// This is the T3 / UX layer of the 0-weaviate-issues#218 fix: the
-// REST handler returns 409 Conflict before issuing the RAFT command,
-// so operators see a clean error instead of a downstream "apply
-// rejected" surprise. The cluster-wide safety net lives at the schema
-// FSM's UpdateProperty apply path via
-// [cluster/schema.SchemaManager]'s MutationGuard (T1) — that is the
-// load-bearing check; this one is a pre-flight optimization.
+// This is the REST-handler UX layer of the mutation guard: the
+// handler returns 409 Conflict before issuing the RAFT command, so
+// operators see a clean error instead of a downstream "apply rejected"
+// surprise. The cluster-wide safety net lives at the schema FSM's
+// UpdateProperty apply path via [cluster/schema.SchemaManager]'s
+// [MutationGuard] — that is the load-bearing check; this one is a
+// pre-flight optimization.
 type reindexInFlightChecker interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
 }
@@ -54,8 +54,8 @@ type reindexInFlightChecker interface {
 // reindexSubmitLockProvider returns the per-(collection, property)
 // mutex shared with the reindex-submit REST handler. This is the
 // SAME lock acquired by indexesHandlers.submitLock — the sharing is
-// load-bearing; see state.ReindexSubmitLocks godoc for the race the
-// lock closes (0-weaviate-issues#218 parallel matrix).
+// load-bearing; see [state.ReindexSubmitLocks] godoc for the race
+// the lock closes.
 //
 // We accept the interface form (rather than the concrete
 // *state.ReindexSubmitLocks) so the schema handlers stay testable
@@ -217,11 +217,11 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		defer lock.Unlock()
 	}
 
-	// T3 pre-flight (0-weaviate-issues#218): fail fast at the REST
-	// boundary if a reindex on this (class, property) is in flight,
-	// so operators get a clean 4xx instead of a downstream RAFT-apply
-	// rejection minutes later. The cluster-wide safety net at the
-	// schema FSM's UpdateProperty apply (T1) still closes the
+	// REST-handler pre-flight: fail fast at the REST boundary if a
+	// reindex on this (class, property) is in flight, so operators get
+	// a clean 4xx instead of a downstream RAFT-apply rejection minutes
+	// later. The cluster-wide safety net at the schema FSM's
+	// UpdateProperty apply ([MutationGuard]) still closes the
 	// multi-node race that this per-node check cannot — they are
 	// complementary, not redundant.
 	if conflict := s.checkReindexConflictForPropertyMutation(ctx, params.ClassName, params.PropertyName); conflict != "" {
@@ -247,8 +247,8 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	return schema.NewSchemaObjectsPropertiesDeleteOK()
 }
 
-// checkReindexConflictForPropertyMutation is the REST-handler T3
-// pre-flight for 0-weaviate-issues#218. Returns a non-empty conflict
+// checkReindexConflictForPropertyMutation is the REST-handler
+// pre-flight for the mutation guard. Returns a non-empty conflict
 // reason iff a reindex migration on (className, propertyName) is in
 // STARTED or FINALIZING — same epistemics as the schema FSM's
 // MutationGuard at apply time, just earlier in the request lifecycle
@@ -256,9 +256,10 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 //
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
-// the T1 MutationGuard at apply time is what closes that multi-node
-// race. This check exists purely to short-circuit the common single-
-// node case with a clean 4xx instead of an apply-time rejection.
+// the apply-time [MutationGuard] is what closes that multi-node
+// race. This check exists purely to short-circuit the common
+// single-node case with a clean 4xx instead of an apply-time
+// rejection.
 //
 // Degrades gracefully: a TasksLister error returns "" (no conflict
 // detected) so the request proceeds to RAFT and the apply-time guard

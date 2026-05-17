@@ -53,8 +53,8 @@ type indexesHandlers struct {
 // the sharing, a parallel PUT /indexes/{prop} (which submits a
 // reindex task) and DELETE /properties/{prop}/index/{indexName}
 // (which drops the canonical bucket) race at the RAFT serializer and
-// produce a torn bucket — see state.ReindexSubmitLocks godoc for the
-// full failure shape (0-weaviate-issues#218 / #11320).
+// produce a torn bucket — see [state.ReindexSubmitLocks] godoc for the
+// full failure shape.
 //
 // The map is keyed by collection-lowercased + property so case-folded
 // collection lookups (matching the rest of the conflict logic) hit
@@ -222,15 +222,14 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// `validateTokenizationChange(targetProp)` snapshot which still
 	// observed IndexSearchable=true, so validation passed and PUT
 	// proceeded to submit a change-tok task against a no-longer-existing
-	// bucket — FilterableRetokenize/SearchableRetokenize then fails at
-	// the swap step (0-weaviate-issues#218
+	// bucket — FilterableRetokenize/SearchableRetokenize then failed
+	// at the swap step. The
 	// TestParallelConflictMatrix/change_tokenization_both__delete_searchable_parallel
-	// returned RED on PR #11319 CI run 25977837049 after the lock
-	// manager was made shared but acquisition stayed late).
+	// case in test/acceptance/reindex_concurrent pins this scenario.
 	//
 	// Now: PUT holds the lock across class read + validation + RAFT
 	// task-add. A concurrent DELETE waits; when it acquires, the task
-	// is in-flight in RAFT and the apply-time MutationGuard (T1)
+	// is in-flight in RAFT and the apply-time MutationGuard
 	// rejects the DELETE deterministically. If DELETE wins instead,
 	// PUT's class read sees IndexSearchable=false and
 	// validateTokenizationChange rejects with 400.
@@ -459,11 +458,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Note: propLock for (collection, propertyName) was acquired at
 	// the top of this handler — before the class read and validation —
 	// so the conflict-check + AddDistributedTask + DELETE-property-
-	// index races (frontend-observed on weaviate/weaviate#10675 and
-	// the parallel-conflict-matrix Sev 1 on 0-weaviate-issues#218) are
-	// all serialized through the same lock entry. See the early-
-	// acquisition comment up top + state.ReindexSubmitLocks godoc for
-	// the multi-node caveat.
+	// index races are all serialized through the same lock entry. See
+	// the early-acquisition comment up top + [state.ReindexSubmitLocks]
+	// godoc for the multi-node caveat.
 
 	// Check for conflicting active tasks. Any two reindex migrations on
 	// the same (collection, property) tuple conflict; see typesConflict's

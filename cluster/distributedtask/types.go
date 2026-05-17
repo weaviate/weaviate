@@ -65,10 +65,11 @@ type TaskFinalizer interface {
 // and survives RAFT snapshot/restore so a node restart during the
 // FINALIZING window does not lose the cluster's collected acks.
 //
-// See 0-weaviate-issues#214 Gap A for the crash-safety bug this hook
-// closes: without it, a node whose RunSwapOnShard silently failed could
-// still let the cluster-wide schema flip commit, leaving that replica
-// serving wrong-tokenization data with no operator signal.
+// Crash-safety contract: without this hook, a node whose RunSwapOnShard
+// silently failed could still let the cluster-wide schema flip commit,
+// leaving that replica serving wrong-tokenization data with no operator
+// signal. The recorder closes that gap by gating MarkTaskFinalized on
+// every per-node ack landing.
 type PostCompletionAckRecorder interface {
 	RecordDistributedTaskPostCompletionAck(
 		ctx context.Context,
@@ -156,17 +157,18 @@ type ConflictDetector interface {
 // the schema FSM's UpdateProperty apply path can reject external schema
 // mutations that would race with one of the provider's in-flight tasks.
 //
-// Motivation: 0-weaviate-issues#218. A `change-tokenization` reindex
-// spawns separate per-shard sub-tasks for the searchable and filterable
+// Motivating failure mode: a `change-tokenization` reindex spawns
+// separate per-shard sub-tasks for the searchable and filterable
 // indexes. A DELETE `/index/searchable` arriving mid-flight applies
 // `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
 // `searchable_retokenize_<prop>_<gen>/` working dir under the still-
-// running sub-task. That sub-unit FAILs; the sibling filterable sub-unit
-// keeps going and commits its local bucket swap; the per-shard ack
-// barrier sees mixed acks → task → FAILED → `flipSemanticMigrationSchema`
-// skipped → schema stays at OLD tokenization while the filterable bucket
-// on disk now holds NEW-tokenized data. Bucket↔schema inversion (Sev 1),
-// same failure family as #214 Gap A but triggered by an external schema
+// running sub-task. That sub-unit FAILs; the sibling filterable
+// sub-unit keeps going and commits its local bucket swap; the
+// per-shard ack barrier sees mixed acks → task FAILED →
+// `flipSemanticMigrationSchema` skipped → schema stays at OLD
+// tokenization while the filterable bucket on disk now holds
+// NEW-tokenized data. Bucket↔schema inversion — same family as the
+// ack-barrier failure mode but triggered by an external schema
 // mutation instead of a crash.
 //
 // Putting the check inside the schema FSM's UpdateProperty apply makes
@@ -280,7 +282,6 @@ type UnitAwareProvider interface {
 	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck];
 	// any reported failure transitions the task to FAILED in the FSM,
 	// which makes OnTaskCompleted skip the cluster-wide schema flip.
-	// See 0-weaviate-issues#214 Gap A.
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
 	OnTaskCompleted(task *Task)
 }
@@ -333,8 +334,10 @@ const (
 	// act upon from the API surface: callers polling for "fully done"
 	// must wait for [TaskStatusFinished]. Format-only journeys (no
 	// post-completion callback work) pass through this state in
-	// essentially zero time. See GH 0-weaviate-issues#212 Issues F+G for
-	// the underlying race this state fixes.
+	// essentially zero time. The state was introduced to fix the
+	// schema-flip-lag race where a task could be FINISHED at the FSM
+	// layer before every node's post-completion callback had committed
+	// its bucket-pointer flip.
 	TaskStatusFinalizing TaskStatus = "FINALIZING"
 	// TaskStatusFinished means that the task was successfully executed by
 	// all nodes AND every post-completion callback (per-node swap +
@@ -359,8 +362,7 @@ func (t TaskStatus) String() string {
 // callbacks for it via the normal in-flight path. Recovery replays on
 // startup can still observe terminal tasks — providers that own
 // destructive side-effects (per-shard swaps, file moves) should
-// short-circuit on terminal status to avoid running them again. See
-// 0-weaviate-issues#217 for a concrete instance.
+// short-circuit on terminal status to avoid running them again.
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
@@ -425,11 +427,9 @@ type Task struct {
 	// [PostCompletionAck.Success]==false the FSM transitions the task
 	// to FAILED instead.
 	//
-	// Nil for tasks created before this branch (backward-compat with
-	// older RAFT snapshots) and for tasks whose provider does not
+	// Nil for tasks created before this field was added (backward-compat
+	// with older RAFT snapshots) and for tasks whose provider does not
 	// implement [UnitAwareProvider] (no OnGroupCompleted to ack).
-	//
-	// See 0-weaviate-issues#214 Gap A.
 	PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
 }
 

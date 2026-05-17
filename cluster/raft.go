@@ -82,7 +82,7 @@ func (s *Raft) SetDistributedTaskConflictDetectors(detectors map[string]distribu
 // UpdateProperty apply path. Called once at startup from MakeAppState,
 // after the providers are registered. See
 // [distributedtask.SchemaMutationDetector] for the contract and
-// motivating bug (0-weaviate-issues#218).
+// motivating failure mode.
 func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
 	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
 }

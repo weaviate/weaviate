@@ -131,10 +131,9 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 	// FSM's actual *models.Property structs. Mutating the index flags
 	// through that pointer would change FSM state OUTSIDE RAFT, so a
 	// later apply-time rejection (e.g. the in-flight-reindex
-	// MutationGuard from 0-weaviate-issues#218 / #11320, but also any
-	// existing rejection like a RAFT timeout) would leave the local
-	// node's in-memory schema diverged from the cluster-wide RAFT
-	// state.
+	// MutationGuard, or any existing rejection like a RAFT timeout)
+	// would leave the local node's in-memory schema diverged from the
+	// cluster-wide RAFT state.
 	//
 	// Defensive copy: copy the located property struct by value, then
 	// take the address of the local copy. *models.Property has nested

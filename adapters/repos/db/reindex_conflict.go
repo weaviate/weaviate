@@ -143,18 +143,18 @@ func reindexPropsOverlap(a, b []string) bool {
 // migration on the same (collection, property) is STARTED or
 // FINALIZING.
 //
-// Motivating bug: 0-weaviate-issues#218. A `change-tokenization`
-// migration spawns separate per-shard sub-tasks for the searchable
-// and filterable indexes. A DELETE `/index/searchable` arriving
-// mid-flight applies `cleanStaleMigrationDirs("<prop>", "searchable")`,
-// which wipes the searchable sub-task's working dir under the still-
-// running runtimeSwap → searchable sub-unit FAILs → sibling
-// filterable sub-unit commits its local swap → per-shard ack barrier
-// sees mixed acks → task FAILED → `flipSemanticMigrationSchema`
-// skipped → schema stays at OLD tokenization while the filterable
-// bucket on disk holds NEW-tokenized data. Bucket↔schema inversion
-// (Sev 1), same failure family as #214 Gap A but triggered by an
-// external schema mutation instead of a crash.
+// Motivating failure mode: a `change-tokenization` migration spawns
+// separate per-shard sub-tasks for the searchable and filterable
+// indexes. A DELETE `/index/searchable` arriving mid-flight applies
+// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
+// searchable sub-task's working dir under the still-running
+// runtimeSwap → searchable sub-unit FAILs → sibling filterable
+// sub-unit commits its local swap → per-shard ack barrier sees mixed
+// acks → task FAILED → `flipSemanticMigrationSchema` skipped →
+// schema stays at OLD tokenization while the filterable bucket on
+// disk holds NEW-tokenized data. Bucket↔schema inversion — same
+// family as the ack-barrier failure mode but triggered by an external
+// schema mutation instead of a crash.
 //
 // Rule: blanket reject any property mutation overlapping an in-flight
 // reindex task's properties on the same collection. Migration-driven
@@ -218,8 +218,9 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 // every property's bucket state at once including the in-flight
 // migration's working dirs and canonical bucket pointers.
 //
-// Motivating bug: 0-weaviate-issues#219 — DeleteClass arriving mid-
-// reindex is the catastrophic extension of the #218 family.
+// Class-wide blast radius: DeleteClass arriving mid-reindex is the
+// catastrophic extension of the per-property bucket↔schema inversion
+// — it destroys every property's bucket state at once.
 //
 // Same FSM-determinism contract as CheckPropertyUpdate. Unparseable
 // in-flight payloads are treated as a hard reject (we cannot prove

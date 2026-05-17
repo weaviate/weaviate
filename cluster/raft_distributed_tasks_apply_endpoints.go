@@ -139,8 +139,7 @@ func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, task
 // cluster has durable evidence of which nodes' post-completion work
 // succeeded before MarkDistributedTaskFinalized is allowed to land.
 //
-// See [distributedtask.PostCompletionAckRecorder] and
-// 0-weaviate-issues#214 Gap A.
+// See [distributedtask.PostCompletionAckRecorder].
 func (s *Raft) RecordDistributedTaskPostCompletionAck(
 	ctx context.Context,
 	namespace, taskID string,

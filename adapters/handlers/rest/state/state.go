@@ -114,13 +114,14 @@ type State struct {
 	// destructive property-index handler (DELETE
 	// /v1/schema/{class}/properties/{prop}/index/{indexName}).
 	//
-	// Motivating bug: 0-weaviate-issues#218
-	// (change_tokenization_both__delete_searchable_parallel matrix
-	// sub-test). Two parallel REST requests on the same property race
-	// at the RAFT serializer: if DELETE searchable's UPDATE_PROPERTY
+	// Motivating failure mode (pinned by
+	// test/acceptance/reindex_concurrent's
+	// change_tokenization_both__delete_searchable_parallel matrix
+	// sub-test): two parallel REST requests on the same property race
+	// at the RAFT serializer. If DELETE searchable's UPDATE_PROPERTY
 	// command commits BEFORE change-tokenization's DISTRIBUTED_TASK_ADD,
-	// the apply-time MutationGuard (T1) cannot reject DELETE because
-	// no task is in-flight yet; the bucket is dropped; the change-tok
+	// the apply-time MutationGuard cannot reject DELETE because no
+	// task is in-flight yet; the bucket is dropped; the change-tok
 	// task is then admitted, runs against a missing canonical bucket,
 	// and FAILS — leaving a torn filterable bucket on the shard.
 	//

@@ -64,8 +64,8 @@ type SchemaManager interface {
 	// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the
 	// schema FSM's cross-FSM MutationGuard (which blocks property
 	// mutations while a reindex on the same property is STARTED or
-	// FINALIZING — 0-weaviate-issues#218) bypasses the check for
-	// migration-driven schema flips.
+	// FINALIZING) bypasses the check for migration-driven schema
+	// flips.
 	//
 	// Public REST / gRPC handlers must not call this; they go through
 	// UpdateProperty above. The bypass is mechanically required

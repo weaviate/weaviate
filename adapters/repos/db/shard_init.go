@@ -162,11 +162,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// Without this, a post-restart shard whose recovery hasn't finished
 	// the local swap yet would serve range queries from an empty
 	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
-	// flips on another node. See [Shard.rangeableLocalReady] and GH
-	// 0-weaviate-issues#212 Issue C for the full rationale. Props not
-	// found in this scan default to "ready" (no migration ever ran, or
-	// every prior migration already tidied — FinalizeCompletedMigrations
-	// above promoted them to canonical above).
+	// flips on another node. See [Shard.rangeableLocalReady] for the
+	// full rationale. Props not found in this scan default to "ready"
+	// (no migration ever ran, or every prior migration already tidied —
+	// FinalizeCompletedMigrations above promoted them to canonical).
 	markInFlightRangeableMigrationsNotReady(s)
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
@@ -224,10 +223,9 @@ func (s *Shard) NotifyReady() {
 // markInFlightRangeableMigrationsNotReady scans this shard's
 // .migrations/ directory for rangeable-related tracker dirs whose
 // `tidied.mig` sentinel is not present, and flips the corresponding
-// per-prop entry in Shard.rangeableLocalReady to false. See GH
-// 0-weaviate-issues#212 Issue C and [Shard.rangeableLocalReady] for
-// rationale. Idempotent and safe to call on shards with no rangeable
-// migrations on disk.
+// per-prop entry in Shard.rangeableLocalReady to false. See
+// [Shard.rangeableLocalReady] for rationale. Idempotent and safe to
+// call on shards with no rangeable migrations on disk.
 //
 // Property names are read from the on-disk recovery payload (payload.mig
 // inside each tracker dir). Parsing them out of the dir name would be

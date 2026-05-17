@@ -126,9 +126,9 @@ type SchedulerParams struct {
 	// AckRecorder is the RAFT-apply hook used to publish this node's
 	// OnGroupCompleted result for each task. May be nil in unit-test
 	// constructions; when nil, the scheduler falls back to the legacy
-	// pre-#214 behavior (no ack barrier — MarkTaskFinalized fires as
-	// soon as OnTaskCompleted returns). Production wiring in
-	// configure_api.go always sets this.
+	// no-ack-barrier behavior (MarkTaskFinalized fires as soon as
+	// OnTaskCompleted returns). Production wiring in configure_api.go
+	// always sets this.
 	AckRecorder       PostCompletionAckRecorder
 	Providers         map[string]Provider
 	Clock             clockwork.Clock
@@ -330,7 +330,7 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 			// were FAILED/CANCELLED, which bypasses it). Mark the
 			// per-node ack as emitted so the next tick does not
 			// re-emit for a task that's already past the FINALIZING
-			// gate. See 0-weaviate-issues#214 Gap A.
+			// gate.
 			s.postCompletionAckEmitted[desc] = true
 		}
 	}
@@ -541,9 +541,8 @@ func (s *Scheduler) tick() {
 						// restart) propagates ctx.Canceled into the
 						// per-shard RunSwapOnShard, which fails with
 						// the lsmkv "long-running compaction in
-						// progress: context canceled" shape (see
-						// 0-weaviate-issues#213). That is NOT a
-						// permanent failure — the post-restart
+						// progress: context canceled" shape. That is
+						// NOT a permanent failure — the post-restart
 						// recovery path re-fires OnGroupCompleted via
 						// the rehydrate branch on a fresh process
 						// with no in-flight compaction to cancel, and
@@ -566,16 +565,16 @@ func (s *Scheduler) tick() {
 							delete(s.groupCallbackFired[desc], groupID)
 							s.loggerWithTask(namespace, desc).
 								WithField("groupID", groupID).
-								Info("OnGroupCompleted aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack (0-weaviate-issues#214 + #213)")
+								Info("OnGroupCompleted aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack")
 							continue
 						}
 						// Capture the per-group error so the
 						// per-node post-completion ack can report the
-						// aggregated picture (0-weaviate-issues#214
-						// Gap A). Even success (nil) is captured so
-						// the ack-emission predicate below can see
-						// "this group fired and succeeded" vs "this
-						// group hasn't fired yet on this node".
+						// aggregated picture. Even success (nil) is
+						// captured so the ack-emission predicate
+						// below can see "this group fired and
+						// succeeded" vs "this group hasn't fired yet
+						// on this node".
 						if s.postCompletionGroupErrors[desc] == nil {
 							s.postCompletionGroupErrors[desc] = map[string]error{}
 						}
@@ -593,7 +592,7 @@ func (s *Scheduler) tick() {
 				// Gating conditions:
 				//   - ack recorder configured (production wiring; nil
 				//     in legacy unit-test setups, where we fall back
-				//     to the pre-#214 behavior).
+				//     to the no-ack-barrier behavior).
 				//   - task is past STARTED (the post-completion barrier
 				//     is only meaningful from FINALIZING onward).
 				//   - ack not yet emitted this scheduler-instance.
@@ -682,15 +681,14 @@ func (s *Scheduler) tick() {
 				// Post-completion ack gate: on the FINALIZING path,
 				// wait until every node with local units has recorded
 				// an ack. This is the cluster-wide crash-safety
-				// barrier from 0-weaviate-issues#214 Gap A — without
-				// it, OnTaskCompleted's schema flip could commit
-				// while one replica's RunSwapOnShard had silently
-				// failed, leaving that replica permanently wrong-
-				// tokenized. The FAILED / FINISHED paths bypass this
-				// gate: FAILED already short-circuits the schema flip
-				// inside OnTaskCompleted (see reindex_provider.go
-				// ~L1045), and FINISHED has already committed past
-				// the ack barrier on whichever node won the
+				// barrier — without it, OnTaskCompleted's schema flip
+				// could commit while one replica's RunSwapOnShard had
+				// silently failed, leaving that replica permanently
+				// wrong-tokenized. The FAILED / FINISHED paths bypass
+				// this gate: FAILED already short-circuits the schema
+				// flip inside OnTaskCompleted (see reindex_provider.go
+				// ~L1045), and FINISHED has already committed past the
+				// ack barrier on whichever node won the
 				// MarkDistributedTaskFinalized race.
 				readyForFinalize := task.Status == TaskStatusFinalizing ||
 					task.Status == TaskStatusFailed ||
@@ -878,8 +876,6 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 // Groups in which this node has zero local units are skipped — those
 // groups' OnGroupCompleted only fires on the nodes that own units in
 // them, so this node never has anything to ack for them.
-//
-// See 0-weaviate-issues#214 Gap A.
 func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) bool {
 	for _, groupID := range task.Groups() {
 		localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
@@ -902,8 +898,6 @@ func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) b
 // empty when success==true. Order is unspecified (map iteration); the
 // FSM persists the joined string as-is on PostCompletionAck.Error for
 // forensic visibility.
-//
-// See 0-weaviate-issues#214 Gap A.
 func (s *Scheduler) aggregateAckErrorsLocked(task *Task, desc TaskDescriptor) (bool, string) {
 	errs := s.postCompletionGroupErrors[desc]
 	if len(errs) == 0 {

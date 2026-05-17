@@ -961,13 +961,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		TasksLister:        appState.ClusterService.Raft,
 		TaskCleaner:        appState.ClusterService.Raft,
 		TaskFinalizer:      appState.ClusterService.Raft,
-		// AckRecorder wires the post-completion ack barrier from
-		// 0-weaviate-issues#214 Gap A: each node, after OnGroupCompleted
-		// returns for every local group, RAFTs a per-node ack. The
-		// scheduler gates MarkDistributedTaskFinalized on having an ack
-		// from every node with local units, and the FSM transitions the
-		// task to FAILED if any ack reports failure (which makes
-		// OnTaskCompleted skip the cluster-wide schema flip).
+		// AckRecorder wires the post-completion ack barrier: each node,
+		// after OnGroupCompleted returns for every local group, RAFTs a
+		// per-node ack. The scheduler gates MarkDistributedTaskFinalized
+		// on having an ack from every node with local units, and the FSM
+		// transitions the task to FAILED if any ack reports failure
+		// (which makes OnTaskCompleted skip the cluster-wide schema
+		// flip).
 		AckRecorder:       appState.ClusterService.Raft,
 		Providers:         providers,
 		Logger:            appState.Logger,
@@ -1001,13 +1001,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 	appState.ClusterService.SetDistributedTaskConflictDetectors(conflictDetectors)
 
-	// Cross-FSM schema-mutation guard (0-weaviate-issues#218): any
-	// provider implementing [distributedtask.SchemaMutationDetector]
-	// participates in the FSM-deterministic reject path inside the
-	// schema FSM's UpdateProperty apply. Symmetric to the conflict
-	// detectors above: same registration shape, same "pure function
-	// of FSM state" contract, opposite direction (this one protects
-	// in-flight tasks from out-of-band schema mutations).
+	// Cross-FSM schema-mutation guard: any provider implementing
+	// [distributedtask.SchemaMutationDetector] participates in the
+	// FSM-deterministic reject path inside the schema FSM's
+	// UpdateProperty apply. Symmetric to the conflict detectors above:
+	// same registration shape, same "pure function of FSM state"
+	// contract, opposite direction (this one protects in-flight tasks
+	// from out-of-band schema mutations).
 	schemaMutationDetectors := map[string]distributedtask.SchemaMutationDetector{}
 	for ns, p := range providers {
 		if smd, ok := p.(distributedtask.SchemaMutationDetector); ok {

@@ -88,7 +88,7 @@ type UpdatePropertyRequest struct {
 	// flipSemanticMigrationSchema). The schema FSM uses this to bypass
 	// the in-flight-reindex MutationGuard that otherwise blocks property
 	// mutations while a reindex on the same (collection, property) is
-	// STARTED or FINALIZING (0-weaviate-issues#218).
+	// STARTED or FINALIZING.
 	//
 	// Set only by the migration completion path (via
 	// [Raft.UpdatePropertyFromMigration] →

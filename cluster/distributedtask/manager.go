@@ -49,9 +49,8 @@ type Manager struct {
 
 	// schemaMutationDetectors is the per-namespace registry consulted
 	// by the schema FSM's UpdateProperty apply path (see
-	// [SchemaMutationDetector] godoc for the motivating bug,
-	// 0-weaviate-issues#218). nil-safe per the same convention as
-	// conflictDetectors.
+	// [SchemaMutationDetector] godoc for the motivating bug).
+	// nil-safe per the same convention as conflictDetectors.
 	//
 	// Set once at startup via
 	// [Manager.SetSchemaMutationDetectors]. The schema FSM consults
@@ -407,7 +406,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // its local OnGroupCompleted has returned for every local group, so the
 // cluster has durable evidence of which nodes' post-completion work
 // succeeded before the task is allowed to transition FINALIZING →
-// FINISHED. See 0-weaviate-issues#214 Gap A.
+// FINISHED — the load-bearing invariant that prevents a per-node swap
+// failure from leaving the cluster-wide schema flipped past a node
+// whose local bucket pointer never moved.
 //
 // FSM transitions on apply:
 //
@@ -506,7 +507,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 // MarkTaskFinalized transitions a task from FINALIZING to FINISHED. It
 // is issued by the scheduler once OnGroupCompleted (per-node swap) and
 // OnTaskCompleted (cluster-wide schema flip for semantic migrations)
-// have both succeeded — see GH 0-weaviate-issues#212 Issues F+G.
+// have both succeeded.
 //
 // Idempotent at the FSM layer: every node's scheduler fires this command
 // after its local callbacks succeed. The first commit flips the status;

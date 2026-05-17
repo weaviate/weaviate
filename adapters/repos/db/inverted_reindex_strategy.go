@@ -137,10 +137,9 @@ type MigrationStrategy interface {
 	//     These are slow (hundreds of ms) — correctness is preserved by
 	//     the overlay covering the per-shard window — but they widen
 	//     the FINALIZING duration beyond what the per-shard atomic
-	//     contract intends. See 0-weaviate-issues#216 follow-up
-	//     QA-Claude comment 4470016252; the long-term fix is to split
-	//     this hook into "local-in-memory (atomic-safe)" and
-	//     "cluster-wide-RAFT (outside-atomic)" callbacks.
+	//     contract intends. The long-term fix is to split this hook
+	//     into "local-in-memory (atomic-safe)" and "cluster-wide-RAFT
+	//     (outside-atomic)" callbacks.
 	//
 	// Forbidden work in this position:
 	//
@@ -235,9 +234,9 @@ func applyPerPropertySchemaUpdate(
 		// Route through the migration-aware path so the
 		// FromInFlightMigration flag is set on the resulting RAFT
 		// command. Without this flag the schema FSM's MutationGuard
-		// (0-weaviate-issues#218) would reject this update because
-		// the in-flight reindex task is in STARTED/FINALIZING — the
-		// very guard the migration completion depends on bypassing.
+		// would reject this update because the in-flight reindex task
+		// is in STARTED/FINALIZING — the very guard the migration
+		// completion depends on bypassing.
 		if err := schema.UpdatePropertyInternalFromMigration(&mgr.Handler, ctx, className, &updated, fields...); err != nil {
 			return missing, fmt.Errorf("updating property %q: %w", propName, err)
 		}
