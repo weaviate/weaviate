@@ -433,8 +433,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// checkReindexConflict (each runs before the other has called
 	// AddDistributedTask and registered itself in the task list) and
 	// both successfully submit — which is exactly the race the
-	// frontend hit on weaviate/weaviate#10675. See the submitLocks
-	// field godoc for the multi-node caveat.
+	// frontend hit on weaviate/weaviate#10675. See the
+	// state.ReindexSubmitLocks field godoc for the multi-node caveat.
 	propLock := h.submitLock(collection, propertyName)
 	propLock.Lock()
 	defer propLock.Unlock()
