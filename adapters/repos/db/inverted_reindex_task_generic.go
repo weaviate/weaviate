@@ -1515,43 +1515,35 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	defer t.disableCallbacks()
 
 	store := shard.Store()
-	lsmPath := shard.pathLSM()
 
-	// Phase 2a (atomic, tight loop): in-memory pointer swap per property.
-	// This is the ONLY work that runs inside the per-shard tokenization
-	// overlay's "mixed-state" window (between first prop swapped and last
-	// prop swapped). SwapBucketPointer is a single map-write under
-	// bucketsLock (microseconds); markSwappedProp is a single fsync
-	// (single-digit ms). The per-prop loop completes in a few ms total
-	// even for 4-property migrations.
+	// Phase 2 (atomic): in-memory pointer swap per property. This is
+	// the ONLY work that runs inside the per-shard tokenization overlay
+	// window. The disk-side cleanup (old bucket shutdown + dir rename
+	// from main_<gen> → backup_<gen> and ingest_<gen> → main_<gen>) is
+	// deferred to next process restart via OnBeforeLsmInit's
+	// recoverRuntimeSwapBuckets path. See 0-weaviate-issues#216
+	// follow-up comment 4469995685 for the design contract.
 	//
-	// Per 0-weaviate-issues#216 follow-up comment 4469995685: the slow
-	// disk work (old-bucket Shutdown, oldMainDir→backupDir rename) is
-	// pulled OUT of this loop so it can't extend the mixed-state window.
-	// It runs in Phase 2b below (after all in-memory swaps are done) and
-	// only touches the OLD (already shut-down) bucket — never the LIVE
-	// ingest bucket whose dir stays at ingest_<gen> until next-restart
-	// recovery does the ingest→main rename safely (no in-memory state
-	// at that point).
-	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
+	// SwapBucketPointer is a single map-write under store.bucketsLock
+	// (microseconds). markSwappedProp is one sentinel fsync (single-
+	// digit ms on a healthy disk). The per-prop loop completes in a
+	// few ms total for typical migrations with 1–4 props.
 	for _, propName := range props {
 		if rt.IsSwappedProp(propName) {
 			// Recovery: partial loop crash already covered this prop's
-			// in-memory pointer flip (sentinel-confirmed). The original
-			// runtimeSwap call also shut down the old bucket and renamed
-			// its dir to _bak before returning, so disk state is fine —
-			// just skip and rely on the post-loop tidy to no-op for this
-			// prop (no oldMainBucket captured).
+			// in-memory pointer flip (sentinel-confirmed). Skip the
+			// SwapBucketPointer call (would error on a missing source
+			// or mis-mapped destination) and rely on the next-restart
+			// disk-rename path for completeness.
 			continue
 		}
 		ingestName := t.ingestBucketName(propName)
 		mainName := t.strategy.SourceBucketName(propName)
 
-		oldMainBucket, err := store.SwapBucketPointer(ctx, mainName, ingestName)
+		_, err := store.SwapBucketPointer(ctx, mainName, ingestName)
 		if err != nil {
 			return fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
 		}
-		oldMainBuckets[propName] = oldMainBucket
 
 		if err := rt.markSwappedProp(propName); err != nil {
 			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
@@ -1559,54 +1551,33 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 
-	// Phase 2b (post-atomic, slow but inline): shutdown + rename of the
-	// OLD (now-dead) main buckets. Per Etienne's #216 follow-up: "you
-	// can of course rename the old, already shutdown bucket, but never
-	// the live one that's serving queries to the user." The OLD bucket
-	// is no longer in the store's bucketsByName map (SwapBucketPointer
-	// deleted it), so it's not serving queries; Shutdown drains any
-	// in-flight compaction and closes mmaps cleanly. The rename moves
-	// its dir off the canonical name so the LIVE bucket (still at
-	// ingest_<gen> on disk) is the only candidate for the canonical
-	// name on next restart.
+	// NOTE: rt.markSwapped(), oldMainBucket.Shutdown(), and
+	// os.Rename(oldMainDir, backupDir) are intentionally OMITTED here.
 	//
-	// This work is OUTSIDE the mixed-state window — every prop has
-	// already had its in-memory pointer swapped. Queries during this
-	// phase see new buckets for all props (overlay matches), so
-	// per-prop slow ops here don't extend the correctness-sensitive
-	// window.
-	for _, propName := range props {
-		oldMainBucket, ok := oldMainBuckets[propName]
-		if !ok {
-			// IsSwappedProp(propName) was true on entry — the previous
-			// attempt's runtimeSwap call shut down + renamed already.
-			continue
-		}
-		if err := oldMainBucket.Shutdown(ctx); err != nil {
-			return fmt.Errorf("shutting down old main bucket for %q: %w", propName, err)
-		}
-		oldMainDir := oldMainBucket.GetDir()
-		backupDir := filepath.Join(lsmPath, t.backupBucketName(propName))
-		if err := os.Rename(oldMainDir, backupDir); err != nil {
-			return fmt.Errorf("renaming old main dir %q -> %q: %w", oldMainDir, backupDir, err)
-		}
-	}
-
-	if err := rt.markSwapped(); err != nil {
-		return fmt.Errorf("marking swapped: %w", err)
-	}
-
-	// markTidied signals that all on-disk cleanup that can be done inline
-	// has been done. The LIVE bucket's dir (ingest_<gen>) is still at its
-	// pre-swap name — that rename to the canonical name is deferred to
-	// next-restart recovery (OnBeforeLsmInit → recoverRuntimeSwapBuckets)
-	// because renaming a dir whose buckets are mmap'd by the in-memory
-	// store is unsafe per Etienne's #216 follow-up. At restart time,
-	// nothing has loaded that dir yet, so the rename is safe.
-	if err := rt.markTidied(); err != nil {
-		return fmt.Errorf("marking tidied: %w", err)
-	}
-	logger.Debug("runtime swap: tidy complete (ingest→main rename deferred to next restart)")
+	// They violated the #216 atomic-phase contract: Shutdown waits for
+	// compaction to drain (seconds at scale), and renaming a directory
+	// whose bucket is still loaded by the in-memory store is unsafe
+	// per Etienne's explicit guidance — "never rename the live one
+	// that's serving queries to the user; you can rename the old,
+	// already shutdown bucket, but only via the next-startup path."
+	//
+	// State at this point:
+	//   - in-memory: main pointer → ingest_<gen> bucket (the NEW data)
+	//   - on disk: main_<gen> dir unchanged (still holds OLD data),
+	//     ingest_<gen> dir unchanged (still holds NEW data), no backup
+	//     dir yet.
+	//   - sentinels: rt.IsMerged()=true, rt.IsSwappedProp(p)=true for
+	//     every p; rt.IsSwapped()=false, rt.IsTidied()=false.
+	//
+	// On next process restart, FinalizeCompletedMigrations →
+	// OnBeforeLsmInit reads the sentinels and sees IsMerged &&
+	// !IsSwapped && IsPrepended → dispatches to
+	// recoverRuntimeSwapBuckets (the dir-rename swap path) BEFORE
+	// LSM init touches the main bucket name. recoverRuntimeSwapBuckets
+	// observes mainDir+ingestDir present, backupDir missing → does the
+	// full rename sequence (main → backup, ingest → main) per prop and
+	// advances markSwapped + markTidied. LSM init then loads the
+	// renamed dirs correctly.
 
 	// OnMigrationComplete: no-op for semantic migrations (the cluster-
 	// wide schema flip lives in OnTaskCompleted.flipSemanticMigrationSchema).
@@ -1623,7 +1594,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// dirs whose owning gen is strictly older than this gen.
 	t.trimOlderGenerationsLocked(logger, shard, rt, props)
 
-	logger.Info("runtime swap: migration complete (ingest→main rename deferred to next restart)")
+	logger.Info("runtime swap: in-memory swap complete; disk rename deferred to next restart")
 
 	return nil
 }
