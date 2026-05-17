@@ -14,7 +14,6 @@ package reindex_multinode
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -72,19 +71,12 @@ func TestLiveQueriesDuringChangeTokenization(t *testing.T) {
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
-	// probeFn is the per-case query function: it takes a node URI and
-	// the class name, returns (count, err). Different probe types
-	// exercise different query paths (BM25 via bm25Searcher, Equal
-	// filter via Searcher) — both of which are wired through the
-	// per-shard tokenization overlay.
-	type probeFn func(restURI, className string) (int, error)
-
 	cases := []struct {
 		name       string
 		startTok   string // tokenization at class creation
 		targetTok  string // tokenization after migration
 		indexType  string // "searchable" (change-tokenization) or "filterable" (change-tokenization-filterable)
-		probeQuery string // query string passed to the probe
+		probeQuery string // for log messages only — actual query is in `probe`
 		probe      probeFn
 		// expectedAfter is the count the probe should yield after the
 		// migration commits. We use it only as a sanity check; the
@@ -143,15 +135,14 @@ func runLiveQueryDuringChangeTokenizationCase(
 	t *testing.T,
 	compose *docker.DockerCompose,
 	startTok, targetTok, indexType, probeQuery string,
-	probe func(restURI, className string) (int, error),
+	probe probeFn,
 	expectedAfter int,
 ) {
 	const (
-		shardCount    = 3
-		rf            = 3
-		objectCount   = 1500
-		batchSize     = 100
-		probeInterval = 25 * time.Millisecond
+		shardCount  = 3
+		rf          = 3
+		objectCount = 1500
+		batchSize   = 100
 		// partialSampleBudget is the post-#216 tight bound. Pre-fix,
 		// TestPartialResultsDuringChangeTokenization allowed up to 15
 		// partial samples in a 700ms window; this test asserts the
@@ -169,11 +160,11 @@ func runLiveQueryDuringChangeTokenizationCase(
 		})
 	defer deleteCollection(t, compose.GetWeaviateNode(1).URI(), className)
 
-	// Generate `objectCount` documents each containing the literal token
-	// "alpha" and the full-text phrase variant. Under WORD tokenization,
-	// BM25 "alpha" matches all objects; under FIELD, "alpha" matches
-	// none because the entire phrase is one token. The full-phrase
-	// query matches one specific object under FIELD only.
+	// Generate `objectCount` documents that each contain the literal
+	// token "alpha" inside a multi-word phrase. Under WORD tokenization,
+	// "alpha" matches every doc; under FIELD it matches none because
+	// the entire phrase is one token. The full-phrase query matches
+	// exactly one object under FIELD only.
 	texts := make([]string, 0, objectCount)
 	for i := 0; i < objectCount; i++ {
 		texts = append(texts, fmt.Sprintf("alpha doc number %d filler", i))
@@ -191,106 +182,24 @@ func runLiveQueryDuringChangeTokenizationCase(
 			"so partial samples during the migration are detectable", startTok, probeQuery)
 	t.Logf("baseline (start=%s) count: %d", startTok, baselineCount)
 
-	// Start probing every node every 25ms throughout the migration.
-	type sample struct {
-		t      time.Time
-		nodeID int
-		count  int
-		err    error
-	}
-	samplesMu := sync.Mutex{}
-	samples := make([]sample, 0, 1024)
-	record := func(s sample) {
-		samplesMu.Lock()
-		samples = append(samples, s)
-		samplesMu.Unlock()
-	}
+	indexUpdateJSON := buildTokenizationIndexUpdate(t, indexType, targetTok)
 
-	stopCh := make(chan struct{})
-	var wg sync.WaitGroup
-	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
-		wg.Add(1)
-		nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
-		idx := nodeIdx + 1
-		go func() {
-			defer wg.Done()
-			for {
-				select {
-				case <-stopCh:
-					return
-				default:
-				}
-				start := time.Now()
-				count, perr := probe(nodeURI, className)
-				record(sample{t: start, nodeID: idx, count: count, err: perr})
-				time.Sleep(probeInterval)
-			}
-		}()
-	}
-
-	// Build the index-update JSON for the requested migration type.
-	var indexUpdateJSON string
-	switch indexType {
-	case "searchable":
-		indexUpdateJSON = fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok)
-	case "filterable":
-		indexUpdateJSON = fmt.Sprintf(`{"filterable":{"tokenization":%q}}`, targetTok)
-	default:
-		t.Fatalf("unsupported indexType %q", indexType)
-	}
-
-	migrationStart := time.Now()
-	taskID := submitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text", indexUpdateJSON)
-	t.Logf("submitted change-tokenization-%s task: %s", indexType, taskID)
-
-	awaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID)
-	require.Eventually(t, func() bool {
-		return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
-			className, "text") == targetTok
-	}, 60*time.Second, 200*time.Millisecond,
-		"tokenization should change to %s after swap phase", targetTok)
-
-	// Let probes run a little longer to capture the post-flip steady
-	// state (so any racy late partial samples are observable).
-	time.Sleep(2 * time.Second)
-	close(stopCh)
-	wg.Wait()
-
+	var taskID string
+	samples, migrationStart := runMigrationWithProbes(t, compose, className,
+		25*time.Millisecond, 2*time.Second, probe, func() {
+			taskID = submitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text", indexUpdateJSON)
+			t.Logf("submitted change-tokenization-%s task: %s", indexType, taskID)
+			awaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID)
+			require.Eventually(t, func() bool {
+				return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
+					className, "text") == targetTok
+			}, 60*time.Second, 200*time.Millisecond,
+				"tokenization should change to %s after swap phase", targetTok)
+		})
 	t.Logf("migration completed in %v, collected %d probe samples",
 		time.Since(migrationStart), len(samples))
 
-	// Classify samples relative to the start-tok baseline. Any value
-	// in (0, baselineCount) is partial — the bucket and the query
-	// analyzer disagreed at the moment of the probe.
-	var fullN, emptyN, partialN, errN int
-	var firstPartial, lastPartial time.Time
-	for _, s := range samples {
-		switch {
-		case s.err != nil:
-			errN++
-		case s.count == baselineCount:
-			fullN++
-		case s.count == 0:
-			emptyN++
-		default:
-			partialN++
-			if firstPartial.IsZero() {
-				firstPartial = s.t
-			}
-			lastPartial = s.t
-			t.Logf("partial @ +%v node=%d count=%d (baseline=%d)",
-				s.t.Sub(migrationStart).Round(time.Millisecond), s.nodeID, s.count, baselineCount)
-		}
-	}
-
-	t.Logf("probe classification: full=%d empty=%d partial=%d err=%d",
-		fullN, emptyN, partialN, errN)
-	if partialN > 0 {
-		t.Logf("partial-results window spanned %v (first @ +%v, last @ +%v)",
-			lastPartial.Sub(firstPartial).Round(time.Millisecond),
-			firstPartial.Sub(migrationStart).Round(time.Millisecond),
-			lastPartial.Sub(migrationStart).Round(time.Millisecond))
-	}
+	c := classifyProbeSamples(t, samples, baselineCount, migrationStart)
 
 	// Sanity check that the post-flip steady state is what we expect
 	// (not just zero everywhere — that'd be silent failure).
@@ -307,7 +216,7 @@ func runLiveQueryDuringChangeTokenizationCase(
 	//   - partialWindowBudget catches a slow drain (the overlay clears
 	//     correctly but bounded by something slow like RAFT rather
 	//     than the in-memory pointer flip).
-	assert.LessOrEqualf(t, partialN, partialSampleBudget,
+	assert.LessOrEqualf(t, c.Partial, partialSampleBudget,
 		"observed %d partial samples (budget=%d) for %s→%s on %s — "+
 			"per-shard tokenization overlay is not keeping the query "+
 			"analyzer aligned with bucket content during the FINALIZING "+
@@ -315,10 +224,10 @@ func runLiveQueryDuringChangeTokenizationCase(
 			"BM25Searcher.WithTokenizationResolver, Searcher.WithTokenizationResolver, "+
 			"aggregator.New tokResolver parameter) and the set/clear hooks "+
 			"(OnGroupCompleted, OnTaskCompleted).",
-		partialN, partialSampleBudget, startTok, targetTok, indexType)
+		c.Partial, partialSampleBudget, startTok, targetTok, indexType)
 
-	if partialN > 0 {
-		windowDuration := lastPartial.Sub(firstPartial)
+	if c.Partial > 0 {
+		windowDuration := c.LastPartial.Sub(c.FirstPartial)
 		assert.LessOrEqualf(t, windowDuration, partialWindowBudget,
 			"partial-results window of %v exceeds budget of %v for %s→%s on %s — "+
 				"a partial sample arrived long after the in-memory swap completed; "+
@@ -332,27 +241,31 @@ func runLiveQueryDuringChangeTokenizationCase(
 	// every sample must be a full or empty count. A late partial
 	// indicates the cutover is not converging.
 	var afterAnchor time.Time
-	if !lastPartial.IsZero() {
-		afterAnchor = lastPartial.Add(50 * time.Millisecond)
+	if !c.LastPartial.IsZero() {
+		afterAnchor = c.LastPartial.Add(50 * time.Millisecond)
 	} else {
-		// No partials observed — anchor at migration start; any later
-		// non-{0,baseline} sample is a late partial.
 		afterAnchor = migrationStart
 	}
-	var latePartial int
-	for _, s := range samples {
-		if s.err != nil {
-			continue
-		}
-		if s.t.After(afterAnchor) && s.count != 0 && s.count != baselineCount {
-			latePartial++
-			t.Logf("late partial @ +%v node=%d count=%d (after anchor)",
-				s.t.Sub(migrationStart).Round(time.Millisecond), s.nodeID, s.count)
-		}
-	}
+	latePartial := countLatePartials(t, samples, baselineCount, afterAnchor, migrationStart)
 	assert.Zerof(t, latePartial,
 		"observed %d partial samples after the bounded cutover window for %s→%s on %s — "+
 			"cutover is not converging; either the overlay isn't being cleared "+
 			"or the schema flip isn't propagating to every replica.",
 		latePartial, startTok, targetTok, indexType)
+}
+
+// buildTokenizationIndexUpdate produces the index-update request body
+// for a change-tokenization migration. Split out of the test body so
+// the assertion logic above stays readable.
+func buildTokenizationIndexUpdate(t *testing.T, indexType, targetTok string) string {
+	t.Helper()
+	switch indexType {
+	case "searchable":
+		return fmt.Sprintf(`{"searchable":{"tokenization":%q}}`, targetTok)
+	case "filterable":
+		return fmt.Sprintf(`{"filterable":{"tokenization":%q}}`, targetTok)
+	default:
+		t.Fatalf("unsupported indexType %q", indexType)
+		return ""
+	}
 }

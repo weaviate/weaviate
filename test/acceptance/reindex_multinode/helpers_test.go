@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -693,4 +694,143 @@ func dumpStartupLogs(ctx context.Context, t *testing.T, compose *docker.DockerCo
 		}
 		t.Logf("=== Node %d logs (%d migration/reindex lines) ===\n%s", i, len(filtered), strings.Join(filtered, "\n"))
 	}
+}
+
+// probeSample is one observation of a probe function against a node.
+type probeSample struct {
+	t      time.Time
+	nodeID int
+	count  int
+	err    error
+}
+
+// probeFn is the shape of a per-node query probe. Returns (count, err).
+type probeFn func(restURI, className string) (int, error)
+
+// runMigrationWithProbes spins up one probe goroutine per node, each
+// invoking `probe` every `probeInterval`, while `migrate` runs. After
+// `migrate` returns, probes continue for `tailDuration` to capture the
+// post-cutover steady state, then stop. Returns the collected samples
+// and the wall-clock time `migrate` started at.
+//
+// Shared between TestPartialResultsDuringChangeTokenization (which pins
+// the pre-#216 cluster-wide cutover bound) and
+// TestLiveQueriesDuringChangeTokenization (which pins the post-#216
+// per-shard alignment bound) so both tests use identical sampling
+// machinery — only their assertions differ.
+func runMigrationWithProbes(
+	t *testing.T,
+	compose *docker.DockerCompose,
+	className string,
+	probeInterval, tailDuration time.Duration,
+	probe probeFn,
+	migrate func(),
+) ([]probeSample, time.Time) {
+	t.Helper()
+
+	samplesMu := sync.Mutex{}
+	samples := make([]probeSample, 0, 1024)
+	record := func(s probeSample) {
+		samplesMu.Lock()
+		samples = append(samples, s)
+		samplesMu.Unlock()
+	}
+
+	stopCh := make(chan struct{})
+	var wg sync.WaitGroup
+	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
+		wg.Add(1)
+		nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
+		idx := nodeIdx + 1
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stopCh:
+					return
+				default:
+				}
+				start := time.Now()
+				count, err := probe(nodeURI, className)
+				record(probeSample{t: start, nodeID: idx, count: count, err: err})
+				time.Sleep(probeInterval)
+			}
+		}()
+	}
+
+	migrationStart := time.Now()
+	migrate()
+
+	// Let probes continue past the migration completion to capture late
+	// samples and the post-cutover steady state.
+	time.Sleep(tailDuration)
+	close(stopCh)
+	wg.Wait()
+
+	return samples, migrationStart
+}
+
+// probeClassification summarizes a probe sample set against a known
+// baseline (the count expected before the migration starts).
+type probeClassification struct {
+	Full, Empty, Partial, Errors int
+	FirstPartial, LastPartial    time.Time
+}
+
+// classifyProbeSamples buckets each non-error sample as Full (==
+// baseline), Empty (== 0), or Partial (anything else). Logs every
+// partial sample for forensic visibility.
+func classifyProbeSamples(t *testing.T, samples []probeSample, baseline int, migrationStart time.Time) probeClassification {
+	t.Helper()
+	var c probeClassification
+	for _, s := range samples {
+		switch {
+		case s.err != nil:
+			c.Errors++
+		case s.count == baseline:
+			c.Full++
+		case s.count == 0:
+			c.Empty++
+		default:
+			c.Partial++
+			if c.FirstPartial.IsZero() {
+				c.FirstPartial = s.t
+			}
+			c.LastPartial = s.t
+			t.Logf("partial @ +%v node=%d count=%d (baseline=%d)",
+				s.t.Sub(migrationStart).Round(time.Millisecond),
+				s.nodeID, s.count, baseline)
+		}
+	}
+	t.Logf("probe classification: full=%d empty=%d partial=%d err=%d",
+		c.Full, c.Empty, c.Partial, c.Errors)
+	if c.Partial > 0 {
+		t.Logf("partial-results window spanned %v (first @ +%v, last @ +%v)",
+			c.LastPartial.Sub(c.FirstPartial).Round(time.Millisecond),
+			c.FirstPartial.Sub(migrationStart).Round(time.Millisecond),
+			c.LastPartial.Sub(migrationStart).Round(time.Millisecond))
+	}
+	return c
+}
+
+// countLatePartials returns the number of non-error samples whose
+// timestamp is after `anchor` and whose count is neither 0 nor
+// baseline. Used by both tests as the post-window convergence
+// guarantee — late partials indicate the cutover has not stabilized
+// after the bounded window closed.
+func countLatePartials(t *testing.T, samples []probeSample, baseline int, anchor, migrationStart time.Time) int {
+	t.Helper()
+	var late int
+	for _, s := range samples {
+		if s.err != nil {
+			continue
+		}
+		if s.t.After(anchor) && s.count != 0 && s.count != baseline {
+			late++
+			t.Logf("late partial @ +%v node=%d count=%d (after anchor)",
+				s.t.Sub(migrationStart).Round(time.Millisecond),
+				s.nodeID, s.count)
+		}
+	}
+	return late
 }
