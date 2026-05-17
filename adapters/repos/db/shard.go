@@ -360,6 +360,43 @@ type Shard struct {
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
+	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
+	// "what tokenization should query input use on this shard?" override
+	// used to close the Gap B race in 0-weaviate-issues#216.
+	//
+	// Mechanism: a change-tokenization (or change-tokenization-filterable)
+	// migration's per-shard runtimeSwap flips the canonical bucket pointer
+	// to NEW-tokenization data BEFORE the cluster-wide schema flip in
+	// OnTaskCompleted.flipSemanticMigrationSchema commits via RAFT. During
+	// that seconds-long window on each replica:
+	//   - Bucket content on this shard: NEW tokenization (post-swap)
+	//   - Live schema as seen by the analyzer: OLD tokenization (pre-flip)
+	// Query input gets tokenized against OLD; lookup hits NEW bucket; counts
+	// don't match. Frontend Claude's `7→4→1→7→3→2` flap on the live demo.
+	//
+	// The overlay bridges that window per-shard: when runtimeSwap completes
+	// it records {propName → targetTokenization} here. Every query-time
+	// analyzer construction on this shard pulls a snapshot via
+	// SnapshotTokenizationOverlay and applies it through the existing
+	// inverted.PropertyOverlay.Tokenization channel; the analyzer's
+	// effectiveProperty machinery handles the substitution.
+	//
+	// The entry self-clears once the live schema catches up to the overlay
+	// value (defensive — avoids depending on schema-update callback
+	// ordering). The schema-update callback path also clears explicitly so
+	// the steady-state map is empty.
+	//
+	// Per-shard, in-memory only — the cluster-wide schema flip is the
+	// authoritative cross-replica signal; this overlay just bridges the
+	// local seconds-long gap between bucket-swap-here and schema-flip-
+	// observed-here.
+	//
+	// Read on every query that touches the affected property, so kept
+	// under a fast RWMutex rather than a sync.Map (consistent with
+	// rangeableLocalReady above).
+	tokenizationOverlayMu sync.RWMutex
+	tokenizationOverlay   map[string]string
+
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
@@ -639,6 +676,122 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 		s.rangeableLocalReady = map[string]bool{}
 	}
 	s.rangeableLocalReady[propName] = ready
+}
+
+// SetTokenizationOverlay records that propName's query-time tokenization on
+// this shard should be `target` instead of the schema-stored value until
+// the live schema catches up. Set by the change-tokenization migration's
+// per-shard runtimeSwap (in OnGroupCompleted.RunSwapOnShard) AFTER the
+// canonical bucket pointer has flipped to NEW-tokenized data. Cleared by
+// the schema-update callback (or defensively by [TokenizationFor] on next
+// access) once the cluster-wide schema flip is observed locally. See the
+// [tokenizationOverlay] field godoc for the full rationale.
+//
+// Empty target is a no-op — used by the migration cleanup path to avoid
+// having every caller guard the call.
+func (s *Shard) SetTokenizationOverlay(propName, target string) {
+	if propName == "" || target == "" {
+		return
+	}
+	s.tokenizationOverlayMu.Lock()
+	defer s.tokenizationOverlayMu.Unlock()
+	if s.tokenizationOverlay == nil {
+		s.tokenizationOverlay = map[string]string{}
+	}
+	s.tokenizationOverlay[propName] = target
+}
+
+// ClearTokenizationOverlay removes any tokenization-overlay entry for
+// propName. Idempotent — called by the schema-update callback when the
+// live schema's tokenization for propName matches the overlay's target,
+// indicating OnTaskCompleted's flipSemanticMigrationSchema has applied
+// on this node and the overlay is no longer needed.
+func (s *Shard) ClearTokenizationOverlay(propName string) {
+	if propName == "" {
+		return
+	}
+	s.tokenizationOverlayMu.Lock()
+	defer s.tokenizationOverlayMu.Unlock()
+	if s.tokenizationOverlay == nil {
+		return
+	}
+	delete(s.tokenizationOverlay, propName)
+}
+
+// TokenizationFor returns the active query-time tokenization for propName
+// on this shard. Consults the overlay first; if the overlay's value
+// matches the live schema's `liveTokenization` the overlay is self-
+// cleared (defensive against schema-update-callback ordering) and the
+// live value is returned. Otherwise the overlay value is returned if
+// present, else liveTokenization.
+//
+// liveTokenization is the value the caller would have used in the
+// absence of any overlay — typically `prop.Tokenization`. Passing the
+// live value as a parameter (rather than re-reading the schema here)
+// keeps this helper cheap and avoids a schema-manager dependency in the
+// query hot path.
+func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
+	if propName == "" {
+		return liveTokenization
+	}
+	s.tokenizationOverlayMu.RLock()
+	if s.tokenizationOverlay == nil {
+		s.tokenizationOverlayMu.RUnlock()
+		return liveTokenization
+	}
+	overlay, ok := s.tokenizationOverlay[propName]
+	s.tokenizationOverlayMu.RUnlock()
+	if !ok {
+		return liveTokenization
+	}
+	if overlay == liveTokenization {
+		// Live schema has caught up. Self-clear so future calls take the
+		// fast path — write under the write lock so concurrent self-
+		// clears don't race the migration's explicit clear.
+		s.tokenizationOverlayMu.Lock()
+		if s.tokenizationOverlay != nil {
+			if current, ok := s.tokenizationOverlay[propName]; ok && current == liveTokenization {
+				delete(s.tokenizationOverlay, propName)
+			}
+		}
+		s.tokenizationOverlayMu.Unlock()
+		return liveTokenization
+	}
+	return overlay
+}
+
+// SnapshotTokenizationOverlay returns a fixed-allocation map of
+// {propName → target} entries for the supplied propNames, restricted
+// to entries that currently exist in the overlay. Used by query setup
+// paths that need to populate inverted.PropertyOverlay values for the
+// analyzer's WithSchemaOverlay mechanism (see
+// adapters/repos/db/inverted/analyzer.go).
+//
+// Per QA Claude's micro-note on #216: this avoids cloning the entire
+// underlying map at every query — only the requested props are
+// snapshotted, and an empty result returns nil so the analyzer can
+// take its fast path.
+//
+// The returned map is owned by the caller.
+func (s *Shard) SnapshotTokenizationOverlay(propNames []string) map[string]string {
+	if len(propNames) == 0 {
+		return nil
+	}
+	s.tokenizationOverlayMu.RLock()
+	defer s.tokenizationOverlayMu.RUnlock()
+	if len(s.tokenizationOverlay) == 0 {
+		return nil
+	}
+	var out map[string]string
+	for _, name := range propNames {
+		if v, ok := s.tokenizationOverlay[name]; ok {
+			if out == nil {
+				out = make(map[string]string, len(propNames))
+			}
+			out[name] = v
+		}
+	}
+	return out
 }
 
 func (s *Shard) tenant() string {
