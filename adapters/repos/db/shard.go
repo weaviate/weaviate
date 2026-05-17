@@ -111,7 +111,6 @@ type ShardLike interface {
 	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error)
-	AnalyzeObjectForMigration(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
 	AnalyzeObjectForMigrationWithOverlay(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)

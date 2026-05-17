@@ -101,15 +101,11 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	return props, nilProps, nestedProps, err
 }
 
-// AnalyzeObjectForMigration is like AnalyzeObject but captures raw (pre-tokenization)
-// text values in Property.RawValues. Use this only during migration reads where
-// retokenize strategies need the original text.
-func (s *Shard) AnalyzeObjectForMigration(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
-	return s.AnalyzeObjectForMigrationWithOverlay(object, nil)
-}
-
-// AnalyzeObjectForMigrationWithOverlay is the overlay-aware variant of
-// AnalyzeObjectForMigration. The overlay forces the analyzer to treat
+// AnalyzeObjectForMigrationWithOverlay is the migration-time variant of
+// [Shard.AnalyzeObject]. Unlike AnalyzeObject it captures raw
+// (pre-tokenization) text values in Property.RawValues, which the
+// retokenize strategies need to apply the new tokenization without
+// re-fetching the source object. The overlay forces the analyzer to treat
 // specific properties as if their inverted-index flag (and optionally their
 // tokenization) were already updated, even though the live RAFT-stored
 // schema still has them in the pre-migration state. The live schema is
