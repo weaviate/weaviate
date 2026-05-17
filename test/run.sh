@@ -797,13 +797,20 @@ function run_acceptance_reindex_singlenode_a() {
 
 function run_acceptance_reindex_singlenode_b() {
   build_weaviate_test_image
-  echo_green "acceptance — reindex-singlenode-b (PropertyStateMigrationMatrix + PostRestartFinalize)"
-  # The PSMM subtest alone takes 128s locally (~5 min CI). Co-runs the
-  # PostRestartFinalize subtest so the suite still validates that any
-  # state PSMM left on disk survives a container restart (PSMM doesn't
-  # currently add to shardInfos, but the assertion shape is preserved
-  # for future expansion).
-  AOF_GROUP_RUN='^TestSingleNode_ReindexSuite$/^(PropertyStateMigrationMatrix|PostRestartFinalize)$' \
+  echo_green "acceptance — reindex-singlenode-b (PropertyStateMigrationMatrix only)"
+  # The PSMM subtest alone takes 128s locally (~5 min CI). PostRestartFinalize
+  # is deliberately NOT included here: that subtest hard-codes 6 post-restart
+  # asserters (testBlockmaxPostRestart, testChangeTokenizationPostRestart, …)
+  # which assume the corresponding migration subtest already ran on the same
+  # container and populated its collection. In shard-b only PSMM has run, so
+  # those collections don't exist on this fresh cluster — the first
+  # post-restart asserter (change_tokenization_test.go:178 / RetokenizeTest)
+  # gets a graphql 422 and the whole subtest fails. PostRestartFinalize is
+  # therefore covered exclusively by shard-a, where all 19 other subtests
+  # run first and populate the expected collections. PSMM is itself
+  # finalize-aware (the FINALIZING-window matrix it asserts is in-flight,
+  # not post-restart) so no coverage is lost for PSMM specifically.
+  AOF_GROUP_RUN='^TestSingleNode_ReindexSuite$/^PropertyStateMigrationMatrix$' \
     run_aof_group "reindex-singlenode-b" test/acceptance/reindex_singlenode
 }
 
