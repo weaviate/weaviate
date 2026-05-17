@@ -48,13 +48,13 @@ import (
 // `IndexRangeFilters` can flip to true as soon as the first replica
 // completes its swap, but other replicas may still be mid-iteration
 // with an empty PreReindexHook-created rangeable bucket — so a query
-// using the rangeable bucket on those replicas returns partial / zero
-// counts (GH 0-weaviate-issues#212 Issue C). When this callback returns
-// false, the filter resolver treats the property as if it had no
-// rangeable index for THIS shard only and falls back to the filterable
-// bucket walk (slow but correct). Returns true for properties that have
-// no in-flight migration on disk — i.e. either never migrated (native
-// rangeable from collection creation) or already-completed migrations.
+// using the rangeable bucket on those replicas would return partial /
+// zero counts. When this callback returns false, the filter resolver
+// treats the property as if it had no rangeable index for THIS shard
+// only and falls back to the filterable bucket walk (slow but correct).
+// Returns true for properties that have no in-flight migration on disk
+// — i.e. either never migrated (native rangeable from collection
+// creation) or already-completed migrations.
 type IsRangeableLocallyReady func(propName string) bool
 
 type Searcher struct {
@@ -72,11 +72,11 @@ type Searcher struct {
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
 	// tokResolver, when non-nil, overrides prop.Tokenization on query
-	// input analysis. Used by the per-shard tokenization overlay from
-	// 0-weaviate-issues#216 (Gap B) to keep query tokenization aligned
-	// with the bucket content during the FINALIZING window of a
-	// change-tokenization migration. Nil = use prop.Tokenization
-	// directly (tests, pre-#216 callers).
+	// input analysis. Used by the per-shard tokenization overlay to
+	// keep query tokenization aligned with the bucket content during
+	// the FINALIZING window of a change-tokenization migration. Nil =
+	// use prop.Tokenization directly (tests and callers with no
+	// in-flight migration).
 	tokResolver TokenizationResolver
 }
 
@@ -87,8 +87,8 @@ type Searcher struct {
 //
 // Production callers wire `Shard.TokenizationFor` here so a
 // change-tokenization migration's FINALIZING-window overlay routes
-// query input to the post-swap tokenization. See
-// 0-weaviate-issues#216 for the failure shape this closes.
+// query input to the post-swap tokenization. See [TokenizationResolver]
+// for the misalignment this closes.
 //
 // Pass nil (the default) to use the schema-stored value directly.
 func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
@@ -708,11 +708,10 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	case schema.DataTypeText:
 		// effectiveTok consults the per-shard tokenization overlay (set
 		// during the FINALIZING window of a change-tokenization
-		// migration — see 0-weaviate-issues#216 Gap B) before falling
-		// back to the schema-stored value. Both the LIKE wildcard path
-		// and the standard analyze path tokenize query input against
-		// effectiveTok so the resulting terms match the bucket content
-		// on this shard.
+		// migration) before falling back to the schema-stored value.
+		// Both the LIKE wildcard path and the standard analyze path
+		// tokenize query input against effectiveTok so the resulting
+		// terms match the bucket content on this shard.
 		effectiveTok := ResolveTokenization(s.tokResolver, prop.Name, prop.Tokenization)
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols

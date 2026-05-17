@@ -17,16 +17,17 @@ package inverted
 // tokenization overlay before falling back to the schema-stored
 // value on the property.
 //
-// The motivating overlay is the one introduced for 0-weaviate-issues#216
-// (Gap B): during the FINALIZING window of a change-tokenization
-// migration each replica's bucket pointer flips to NEW-tokenized data
-// before the cluster-wide schema flip commits via RAFT. Queries that
-// arrive in that window must tokenize their input against the NEW value
-// (matching the bucket content) rather than the still-OLD schema value.
+// The overlay is what closes the FINALIZING-window misalignment of a
+// change-tokenization migration: on each replica the bucket pointer
+// flips to NEW-tokenized data before the cluster-wide schema flip
+// commits via RAFT, so queries that arrive in that window must tokenize
+// their input against the NEW value (matching the bucket content)
+// rather than the still-OLD schema value.
 //
 // Nil resolver means "no overlay configured" — typical for tests and
-// pre-#216 callers. Use [ResolveTokenization] to handle the nil case
-// at call sites without boilerplate.
+// for callers that have no in-flight migration. Use
+// [ResolveTokenization] to handle the nil case at call sites without
+// boilerplate.
 type TokenizationResolver func(propName, schemaTokenization string) string
 
 // ResolveTokenization applies r to (propName, schemaTokenization) if r

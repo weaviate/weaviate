@@ -61,9 +61,10 @@ type Aggregator struct {
 	// tokResolver, when non-nil, is propagated to inverted.Searcher /
 	// inverted.BM25Searcher built by this aggregator so query input
 	// gets analyzed under the per-shard tokenization overlay during
-	// the FINALIZING window of a change-tokenization migration. See
-	// 0-weaviate-issues#216 Gap B. Nil = use prop.Tokenization
-	// directly (tests, pre-#216 callers).
+	// the FINALIZING window of a change-tokenization migration. Nil
+	// means "no overlay configured" — query input is tokenized against
+	// prop.Tokenization directly (tests and callers with no in-flight
+	// migration).
 	tokResolver inverted.TokenizationResolver
 }
 

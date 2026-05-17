@@ -54,11 +54,11 @@ type BM25Searcher struct {
 	shardVersion     uint16
 	stopwordProvider *stopwords.Provider
 	// tokResolver, when non-nil, overrides prop.Tokenization on query
-	// input analysis. Used by the per-shard tokenization overlay from
-	// 0-weaviate-issues#216 (Gap B) to keep query tokenization aligned
-	// with the bucket content during the FINALIZING window of a
-	// change-tokenization migration. Nil = use prop.Tokenization
-	// directly (tests, pre-#216 callers).
+	// input analysis. Used by the per-shard tokenization overlay to
+	// keep query tokenization aligned with the bucket content during
+	// the FINALIZING window of a change-tokenization migration. Nil =
+	// use prop.Tokenization directly (tests and callers with no
+	// in-flight migration).
 	tokResolver TokenizationResolver
 }
 
@@ -99,8 +99,8 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 //
 // Production callers wire `Shard.TokenizationFor` here so a
 // change-tokenization migration's FINALIZING-window overlay routes
-// query input to the post-swap tokenization. See
-// 0-weaviate-issues#216 for the failure shape this closes.
+// query input to the post-swap tokenization. See [TokenizationResolver]
+// for the misalignment this closes.
 //
 // Pass nil (the default) to use the schema-stored value directly.
 func (b *BM25Searcher) WithTokenizationResolver(r TokenizationResolver) *BM25Searcher {
@@ -184,9 +184,9 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		// effectiveTokenization is the active query-time tokenization for
 		// this property — either the schema-stored `prop.Tokenization`
 		// or the value returned by the per-shard tokenization overlay
-		// (see [TokenizationResolver] / 0-weaviate-issues#216).
-		// Computed once at prop discovery and used everywhere downstream
-		// to avoid recomputing the same value across the BM25 pipeline.
+		// (see [TokenizationResolver]). Computed once at prop discovery
+		// and used everywhere downstream to avoid recomputing the same
+		// value across the BM25 pipeline.
 		effectiveTokenization string
 		tokKey                string
 		propMean              float64
@@ -228,14 +228,13 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
-			// effectiveTok consults the per-shard tokenization overlay (set
-			// during the FINALIZING window of a change-tokenization
-			// migration — see 0-weaviate-issues#216) before falling back
-			// to the schema-stored value. The rest of the BM25 pipeline
-			// for this property uses effectiveTok everywhere
-			// `prop.Tokenization` would have been read, so query input
-			// gets tokenized against the value that matches the bucket
-			// content on this shard.
+			// effectiveTok consults the per-shard tokenization overlay
+			// (set during the FINALIZING window of a change-tokenization
+			// migration) before falling back to the schema-stored value.
+			// The rest of the BM25 pipeline for this property uses
+			// effectiveTok everywhere `prop.Tokenization` would have been
+			// read, so query input gets tokenized against the value that
+			// matches the bucket content on this shard.
 			effectiveTok := ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
 			tokKey := effectiveTok
 			hasCustomStopwords := prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != ""
