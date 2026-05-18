@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallToolRequest, args GetCollectionConfigArgs) (*GetCollectionConfigResp, error) {
@@ -33,6 +34,18 @@ func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallTo
 	if err != nil {
 		return nil, err
 	}
+
+	// Resolve only the specific-name branch: the list-all branch returns
+	// whatever GetConsistentSchema (RBAC-filtered) yields, so there is no
+	// user-supplied name to qualify.
+	if args.CollectionName != "" {
+		resolved, _, err := namespacing.Resolve(principal, r.schemaManager, r.namespacesEnabled, args.CollectionName)
+		if err != nil {
+			return nil, err
+		}
+		args.CollectionName = resolved
+	}
+
 	res, err := r.schemaReader.GetConsistentSchema(ctx, principal, true)
 	if err != nil {
 		log.Warnf("failed to get schema: %v", err)
