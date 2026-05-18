@@ -530,20 +530,15 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	return mockStore, log
 }
 
-// TestStore_Apply_DeleteClass_CascadesToDistributedTasks verifies the
-// regression guarded by weaviate/0-weaviate-issues#231: when a class is
-// dropped via DELETE_CLASS, distributed-task records bound to that
-// class via a registered CollectionExtractor are removed alongside the
-// schema-level delete, so a subsequent CREATE_CLASS with the same name
-// does not inherit the prior incarnation's task status.
-// TestStore_Apply_DeleteClass_NilCascadeIsSafe verifies the nil-safe guard in
-// SchemaManager: if no distributed-task manager has been wired (bootstrap,
-// partial-harness tests), a DELETE_CLASS apply must still succeed without
-// panicking. QA Claude review flag on PR #11345 (nit 2): the production wiring
-// happens in NewFSM so the nil branch is hard to exercise end-to-end; this
-// test explicitly nils the field after MockStore is constructed and re-issues
-// the apply path.
-func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
+// setupCascadeTestStore constructs a MockStore wired up for the DELETE_CLASS
+// cascade tests below. It builds the standard mock harness (metrics,
+// snapshotStore, mock expectations for indexer/parser/replicationFSM) and
+// returns the harness plus the ready-to-apply ADD_CLASS and DELETE_CLASS
+// raft.Logs for `className`. Callers can then either nil out the wired
+// distributed-task manager (NilCascadeIsSafe) or register a CollectionExtractor
+// and add tasks (CascadesToDistributedTasks) before driving the apply pair.
+func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Log, *raft.Log) {
+	t.Helper()
 	ms := NewMockStore(t, "Node-1", 0)
 	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
 
@@ -553,11 +548,6 @@ func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
 		t.Fatalf("snapshot store: %v", err)
 	}
 	ms.store.snapshotStore = snapshotStore
-
-	// Override the wired manager with nil — this is the shape a bootstrapping
-	// or harness-only node has before NewFSM runs the SetDistributedTaskManager
-	// line. The schema manager's DELETE_CLASS path must remain panic-free.
-	ms.store.schemaManager.SetDistributedTaskManager(nil)
 
 	ms.indexer.On("Open", mock.Anything).Return(nil)
 	ms.indexer.On("AddClass", mock.Anything).Return(nil)
@@ -566,7 +556,7 @@ func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
 	ms.parser.On("ParseClass", mock.Anything).Return(nil)
 	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
 
-	cls := &models.Class{Class: "Bareback"}
+	cls := &models.Class{Class: className}
 	state := &sharding.State{
 		Physical: map[string]sharding.Physical{
 			"T1": {Name: "T1", BelongsToNodes: []string{"Node-1"}, Status: "HOT"},
@@ -575,38 +565,54 @@ func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
 	addLog := &raft.Log{
 		Index: 1,
 		Type:  raft.LogCommand,
-		Data: cmdAsBytes("Bareback", api.ApplyRequest_TYPE_ADD_CLASS,
+		Data: cmdAsBytes(className, api.ApplyRequest_TYPE_ADD_CLASS,
 			api.AddClassRequest{Class: cls, State: state}, nil),
 	}
-	if r, ok := ms.store.Apply(addLog).(Response); !ok || r.Error != nil {
-		t.Fatalf("apply add-class: ok=%v err=%v", ok, r.Error)
-	}
-
 	deleteLog := &raft.Log{
 		Index: 2,
 		Type:  raft.LogCommand,
-		Data:  cmdAsBytes("Bareback", api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil),
+		Data:  cmdAsBytes(className, api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil),
 	}
-	r, ok := ms.store.Apply(deleteLog).(Response)
+	return &ms, addLog, deleteLog
+}
+
+// applyOrFail runs the given Apply log and t.Fatalf's if the result is not
+// a clean Response with nil Error. Test helper for the cascade tests below.
+func applyOrFail(t *testing.T, ms *MockStore, log *raft.Log, label string) {
+	t.Helper()
+	r, ok := ms.store.Apply(log).(Response)
 	if !ok || r.Error != nil {
-		t.Fatalf("apply delete-class with nil cascade: ok=%v err=%v", ok, r.Error)
+		t.Fatalf("apply %s: ok=%v err=%v", label, ok, r.Error)
 	}
 }
 
-func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
-	// NewMockStore keeps the distributedTasksManager wired into the
-	// schema manager via NewFSM; only the replication FSM is overridden,
-	// so the cascade path is exercised end-to-end as it would be in
-	// production.
-	ms := NewMockStore(t, "Node-1", 0)
-	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
+// TestStore_Apply_DeleteClass_NilCascadeIsSafe verifies the nil-safe guard in
+// SchemaManager: if no distributed-task manager has been wired (bootstrap,
+// partial-harness tests), a DELETE_CLASS apply must still succeed without
+// panicking. QA Claude review flag on PR #11345 (nit 2): the production wiring
+// happens in NewFSM so the nil branch is hard to exercise end-to-end; this
+// test explicitly nils the field after MockStore is constructed and re-issues
+// the apply path.
+func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
+	ms, addLog, deleteLog := setupCascadeTestStore(t, "Bareback")
 
-	tmpDir := t.TempDir()
-	snapshotStore, err := raft.NewFileSnapshotStore(tmpDir, 3, nil)
-	if err != nil {
-		t.Fatalf("snapshot store: %v", err)
-	}
-	ms.store.snapshotStore = snapshotStore
+	// Override the wired manager with nil — this is the shape a bootstrapping
+	// or harness-only node has before NewFSM runs the SetDistributedTaskManager
+	// line. The schema manager's DELETE_CLASS path must remain panic-free.
+	ms.store.schemaManager.SetDistributedTaskManager(nil)
+
+	applyOrFail(t, ms, addLog, "add-class")
+	applyOrFail(t, ms, deleteLog, "delete-class with nil cascade")
+}
+
+// TestStore_Apply_DeleteClass_CascadesToDistributedTasks verifies the
+// regression guarded by weaviate/0-weaviate-issues#231: when a class is
+// dropped via DELETE_CLASS, distributed-task records bound to that
+// class via a registered CollectionExtractor are removed alongside the
+// schema-level delete, so a subsequent CREATE_CLASS with the same name
+// does not inherit the prior incarnation's task status.
+func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
+	ms, addLog, deleteLog := setupCascadeTestStore(t, "Foo")
 
 	// Register a collection extractor for the namespace that owns our
 	// fake tasks. JSON-encoded payload with a "collection" field is
@@ -651,29 +657,7 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 		}
 	}
 
-	// Set up the class in memory so DELETE_CLASS has something to drop.
-	ms.indexer.On("Open", mock.Anything).Return(nil)
-	ms.indexer.On("AddClass", mock.Anything).Return(nil)
-	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
-	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-	ms.parser.On("ParseClass", mock.Anything).Return(nil)
-	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
-
-	cls := &models.Class{Class: "Foo"}
-	state := &sharding.State{
-		Physical: map[string]sharding.Physical{
-			"T1": {Name: "T1", BelongsToNodes: []string{"Node-1"}, Status: "HOT"},
-		},
-	}
-	addLog := &raft.Log{
-		Index: 1,
-		Type:  raft.LogCommand,
-		Data: cmdAsBytes("Foo", api.ApplyRequest_TYPE_ADD_CLASS,
-			api.AddClassRequest{Class: cls, State: state}, nil),
-	}
-	if r, ok := ms.store.Apply(addLog).(Response); !ok || r.Error != nil {
-		t.Fatalf("apply add-class: ok=%v err=%v", ok, r.Error)
-	}
+	applyOrFail(t, ms, addLog, "add-class")
 
 	addTask(t, "foo-1", "Foo")
 	addTask(t, "foo-2", "Foo")
@@ -689,14 +673,7 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 	}
 
 	// Apply DELETE_CLASS for "Foo" and verify the cascade fired.
-	deleteLog := &raft.Log{
-		Index: 2,
-		Type:  raft.LogCommand,
-		Data:  cmdAsBytes("Foo", api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil),
-	}
-	if r, ok := ms.store.Apply(deleteLog).(Response); !ok || r.Error != nil {
-		t.Fatalf("apply delete-class: ok=%v err=%v", ok, r.Error)
-	}
+	applyOrFail(t, ms, deleteLog, "delete-class")
 
 	postTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
 	if err != nil {
