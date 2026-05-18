@@ -18,7 +18,6 @@ import (
 	"iter"
 	"slices"
 	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/puzpuzpuz/xsync/v4"
@@ -34,20 +33,16 @@ type PostingMetadata struct {
 
 // PostingMap manages various information about postings.
 type PostingMap struct {
-	metrics    *Metrics
-	data       *xsync.Map[uint64, *PostingMetadata]
-	bucket     *PostingMapStore
-	sizeMetric *oncePer
+	data   *xsync.Map[uint64, *PostingMetadata]
+	bucket *PostingMapStore
 }
 
-func NewPostingMap(bucket *lsmkv.Bucket, metrics *Metrics) *PostingMap {
+func NewPostingMap(bucket *lsmkv.Bucket) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
 
 	return &PostingMap{
-		data:       xsync.NewMap[uint64, *PostingMetadata](),
-		metrics:    metrics,
-		bucket:     b,
-		sizeMetric: OncePer(30 * time.Second),
+		data:   xsync.NewMap[uint64, *PostingMetadata](),
+		bucket: b,
 	}
 }
 
@@ -114,9 +109,6 @@ func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting Posting) error {
-	defer v.setSizeMetricIfDue(ctx)
-	defer func() { v.metrics.SetPostings(v.Size()) }()
-
 	if len(posting) == 0 {
 		err := v.bucket.Delete(ctx, postingID)
 		if err != nil {
@@ -147,8 +139,6 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		return err
 	}
 
-	count := pm.Count()
-
 	// update the in-memory cache, if the posting metadata already exists,
 	// update it in-place to avoid unnecessary allocations
 	v.data.Compute(postingID, func(oldValue *PostingMetadata, loaded bool) (newValue *PostingMetadata, op xsync.ComputeOp) {
@@ -166,8 +156,6 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		return oldValue, xsync.CancelOp
 	})
 
-	v.metrics.ObservePostingSize(float64(count))
-
 	return nil
 }
 
@@ -182,48 +170,27 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		return 0, err
 	}
 
-	var count uint32
 	if m != nil {
 		m.Lock()
 		m.PackedPostingMetadata = m.AddVector(vectorID, version)
-		count = m.Count()
+		count := m.Count()
 		m.Unlock()
+		return uint32(count), nil
 	} else {
 		m = &PostingMetadata{
 			PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}, []VectorVersion{version}),
 		}
-		count = m.Count()
+		count := m.Count()
 		v.data.Store(postingID, m)
+		return uint32(count), nil
 	}
-
-	v.metrics.ObservePostingSize(float64(count))
-	v.metrics.SetPostings(v.Size())
-	return uint32(count), nil
 }
 
 // Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
 func (v *PostingMap) Restore(ctx context.Context) error {
-	defer v.setSizeMetricIfDue(ctx)
-	defer func() { v.metrics.SetPostings(v.Size()) }()
-
 	return v.bucket.Iter(ctx, func(u uint64, ppm PackedPostingMetadata) error {
 		v.data.Store(u, &PostingMetadata{PackedPostingMetadata: ppm})
 		return nil
-	})
-}
-
-// setSizeMetricIfDue updates the size metric if the next update is due.
-// It is called after any operation that modifies the postings to ensure the metric is reasonably up-to-date without causing too much overhead.
-func (v *PostingMap) setSizeMetricIfDue(ctx context.Context) {
-	var err error
-	v.sizeMetric.do(func() {
-		var count uint64
-		count, err = v.CountAllVectors(ctx)
-		if err != nil {
-			return
-		}
-
-		v.metrics.SetSize(int(count))
 	})
 }
 
@@ -539,38 +506,4 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 	}
 
 	return ctx.Err()
-}
-
-type oncePer struct {
-	d    time.Duration
-	t    *time.Timer
-	mu   sync.Mutex
-	once sync.Once
-}
-
-func OncePer(d time.Duration) *oncePer {
-	return &oncePer{
-		d: d,
-	}
-}
-
-func (o *oncePer) do(f func()) {
-	o.once.Do(func() {
-		o.mu.Lock()
-		defer o.mu.Unlock()
-		f()
-		o.t = time.NewTimer(o.d)
-	})
-
-	if !o.mu.TryLock() {
-		return
-	}
-	defer o.mu.Unlock()
-
-	select {
-	case <-o.t.C:
-		f()
-		o.t.Reset(o.d)
-	default:
-	}
 }

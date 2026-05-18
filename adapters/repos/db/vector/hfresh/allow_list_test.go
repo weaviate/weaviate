@@ -19,14 +19,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TestPostingPassesFilterSlice_PassesIfAddsNewVector(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// posting 0 has allowed vector 0
@@ -56,7 +55,7 @@ func TestPostingPassesFilterSlice_IgnoresDisallowedVectors(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// postings only have vectors that are NOT in allowList
@@ -85,7 +84,7 @@ func TestPostingPassesFilterSlice_SkipsAlreadyUsedAndFindsLaterNewOne(t *testing
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// posting 0 consumes vector 0
@@ -116,7 +115,7 @@ func TestPostingPassesFilterSlice_StopsOnFirstNewContribution(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// posting 0 has [0, 1]. It should consume ONLY 0 (first new allowed) and stop.
@@ -147,7 +146,7 @@ func TestPostingPassesFilterSlice_CachesAcceptedPostingID(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	pm := NewPostingMap(bucket, NewMetrics(monitoring.GetMetrics(), "n/a", "n/a"))
+	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
 	// posting 0 has allowed vector 0

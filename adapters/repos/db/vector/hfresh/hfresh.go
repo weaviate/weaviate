@@ -125,7 +125,7 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		PostingStore:  postingStore,
 		vectorForId:   cfg.VectorForIDThunk,
 		VersionMap:    NewVersionMap(bucket),
-		PostingMap:    NewPostingMap(bucket, metrics),
+		PostingMap:    NewPostingMap(bucket),
 		PostingSizes:  NewPostingSizes(bucket, metrics),
 		IndexMetadata: NewIndexMetadataStore(bucket),
 		postingLocks:  common.NewDefaultShardedRWLocks(),

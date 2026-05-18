@@ -147,14 +147,37 @@ func (h *HFresh) restoreMetadata() error {
 		return err
 	}
 
-	if err := h.PostingSizes.Restore(h.ctx); err != nil {
-		return err
-	}
 	if err := h.PostingMap.Restore(h.ctx); err != nil {
 		return err
 	}
+	if err := h.PostingSizes.Restore(h.ctx); err != nil {
+		return err
+	}
+	if h.PostingSizes.Count() == 0 && h.PostingMap.Size() > 0 {
+		if err := h.restorePostingSizesFromPostingMap(h.ctx); err != nil {
+			return err
+		}
+	}
 
 	return h.restoreMetrics()
+}
+
+func (h *HFresh) restorePostingSizesFromPostingMap(ctx context.Context) error {
+	for postingID, metadata := range h.PostingMap.Iter() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		metadata.RLock()
+		size := metadata.Count()
+		metadata.RUnlock()
+
+		if err := h.PostingSizes.Set(ctx, postingID, int(size)); err != nil {
+			return errors.Wrapf(err, "restore posting size for posting %d", postingID)
+		}
+	}
+
+	return nil
 }
 
 // restoreDimensions restores dimension-dependent components from persisted
@@ -223,7 +246,7 @@ func (h *HFresh) restoreMetrics() error {
 	h.metrics.SetPendingReassignTasks(reassignCount)
 	h.metrics.SetPendingAnalyzeTasks(analyzeCount)
 
-	postingsCount := h.PostingMap.Size()
+	postingsCount := int(h.PostingSizes.Count())
 	h.Centroids.counter.Store(int32(postingsCount))
 	h.metrics.SetPostings(postingsCount)
 
