@@ -1119,10 +1119,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.PreServerShutdown = func() {
-		// Kick off backup shutdown so any in-flight DBRO starts aborting its
-		// participants now, while the cluster client is fully alive. The drain
-		// is awaited in ServerShutdown below.
+		// Coordinator: signal in-flight backups to abort participants. Drain
+		// happens at the end of ServerShutdown.
 		backupScheduler.Shutdown()
+		// Participant: cancel any local upload running on this node.
+		appState.BackupManager.Shutdown()
 		batchDrain()
 	}
 
@@ -1200,8 +1201,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				Errorf("failed to gracefully shutdown")
 		}
 
-		// Block until the in-flight backup/restore drain (kicked off in
-		// PreServerShutdown) finishes. Placed last so it overlaps with the rest of the teardown.
+		// Drain the backup shutdown kicked off in PreServerShutdown. Placed
+		// last to overlap with the rest of teardown.
 		backupScheduler.Wait(30 * time.Second)
 	}
 

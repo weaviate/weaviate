@@ -103,11 +103,10 @@ type coordinator struct {
 	descriptor   *backup.DistributedBackupDescriptor
 	shardSyncChan
 
-	// shutdownCtx is cancelled when the node is shutting down so any in-flight
-	// DBRO can abort participants and persist a cancelled status before exit.
+	// shutdownCtx is cancelled on node shutdown; an in-flight backup sees this
+	// and aborts participants + persists a Cancelled descriptor.
 	shutdownCtx context.Context
-	// inflight tracks the background goroutine driving a DBRO so the scheduler
-	// can wait for it to drain during shutdown.
+	// inflight tracks the backup goroutine so Scheduler.Wait can drain it.
 	inflight sync.WaitGroup
 
 	// timeouts
@@ -229,8 +228,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		defer c.inflight.Done()
 		defer c.lastOp.reset()
 		c.commit(c.shutdownCtx, &statusReq, nodes, false)
-		// PutMeta must use a fresh context: shutdownCtx may already be cancelled,
-		// and we still want to persist the final (possibly Cancelled) descriptor.
+		// Fresh ctx: shutdownCtx may be cancelled but we still need to persist
+		// the final descriptor.
 		putCtx, putCancel := context.WithTimeout(context.Background(), _ShutdownPutMetaTimeout)
 		defer putCancel()
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
@@ -463,9 +462,8 @@ func (c *coordinator) commit(ctx context.Context,
 	for canContinue {
 		select {
 		case <-ctx.Done():
-			// Node is shutting down. Mark any participant we haven't heard back
-			// from yet as cancelled so the descriptor flips to Cancelled and the
-			// abortAll below fires for the full participant set.
+			// Shutdown: mark remaining participants Cancelled so the descriptor
+			// flips to Cancelled and abortAll fires below.
 			for node := range node2Host {
 				st := c.Participants[node]
 				st.Status = backup.Cancelled
@@ -484,8 +482,7 @@ func (c *coordinator) commit(ctx context.Context,
 	}
 	if !toleratePartialFailure && nFailures > 0 {
 		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
-		// abortAll uses a fresh context: ctx may already be cancelled by shutdown
-		// and we still need the abort RPCs to go out.
+		// Fresh ctx: shutdown may have cancelled ctx but aborts must still fire.
 		c.abortAll(context.Background(), req, node2Addr)
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()

@@ -30,8 +30,8 @@ import (
 )
 
 var (
-	errLocalBackendDBRO = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
-	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
+	errLocalBackendCluster = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
+	errIncludeExclude      = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
 )
 
 const (
@@ -54,13 +54,11 @@ type Scheduler struct {
 	restorer   *coordinator
 	backends   BackupBackendProvider
 
-	// shutdownCancel cancels the context shared by the backupper and restorer
-	// coordinators; firing it makes any in-flight backup abort its participants
-	// and persist a Cancelled descriptor before exiting.
+	// shutdownCancel cancels the ctx shared by the backupper and restorer
+	// coordinators, triggering abort + Cancelled descriptor on any in-flight op.
 	shutdownCancel context.CancelFunc
 	shutdownOnce   sync.Once
-	// drained closes once both coordinators' in-flight goroutines have exited.
-	// Populated by Shutdown, consumed by Wait.
+	// drained closes once both coordinators' goroutines have exited.
 	drained chan struct{}
 }
 
@@ -95,11 +93,9 @@ func NewScheduler(
 	return m
 }
 
-// Shutdown signals any in-flight backup to abort its participants and persist a
-// Cancelled descriptor. It returns immediately; the actual drain happens in a
-// background goroutine. Use Wait to block until the drain completes.
-//
-// Safe to call multiple times; only the first call has an effect.
+// Shutdown signals any in-flight backup to abort participants and persist a
+// Cancelled descriptor. Returns immediately; use Wait to block on the drain.
+// Idempotent.
 func (s *Scheduler) Shutdown() {
 	s.shutdownOnce.Do(func() {
 		s.shutdownCancel()
@@ -111,9 +107,8 @@ func (s *Scheduler) Shutdown() {
 	})
 }
 
-// Wait blocks until in-flight backup goroutines have exited (i.e. aborts have
-// been sent and the final Cancelled descriptor has been persisted), or until
-// the timeout elapses.
+// Wait blocks until in-flight backup goroutines have exited (aborts sent,
+// Cancelled descriptor persisted), or until the timeout elapses.
 func (s *Scheduler) Wait(timeout time.Duration) {
 	select {
 	case <-s.drained:
@@ -425,7 +420,7 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
 	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
-		return nil, errLocalBackendDBRO
+		return nil, errLocalBackendCluster
 	}
 
 	if err := validateID(req.ID); err != nil {
@@ -489,7 +484,7 @@ func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, r
 
 func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
 	if !store.backend.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
-		return nil, errLocalBackendDBRO
+		return nil, errLocalBackendCluster
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
