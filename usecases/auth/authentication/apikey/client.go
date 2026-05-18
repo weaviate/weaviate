@@ -76,6 +76,15 @@ func (c *StaticApiKey) validateConfig() error {
 		return fmt.Errorf("length of users and keys must match, alternatively provide single user for all keys")
 	}
 
+	// Check for duplicate API keys
+	seenKeys := make(map[string]bool)
+	for _, key := range c.config.AllowedKeys {
+		if seenKeys[key] {
+			return fmt.Errorf("duplicate api key found: %s", key)
+		}
+		seenKeys[key] = true
+	}
+
 	return nil
 }
 
