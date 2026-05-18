@@ -1403,6 +1403,21 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		return p.Collection, true
 	}
 
+	// addRawTask is a fixture-style helper that drops the per-test boilerplate
+	// for AddTask. Sub-tests below need the same shape (NS, ID, payload,
+	// single unit) with different fields per scenario; making it a helper
+	// keeps the sub-tests focused on the behavioural assertion.
+	addRawTask := func(t *testing.T, h *testHarness, ns, id string, payload []byte, unitID string) {
+		t.Helper()
+		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             ns,
+			Id:                    id,
+			Payload:               payload,
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			UnitIds:               []string{unitID},
+		}), 1))
+	}
+
 	t.Run("removes only tasks whose payload matches the collection", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		h.manager.RegisterCollectionExtractor("scoped", collectionExtractor)
@@ -1451,13 +1466,7 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		// collection name being deleted.
 		bytes, err := json.Marshal(map[string]string{"collection": "Foo"})
 		require.NoError(t, err)
-		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace:             "unscoped",
-			Id:                    "u-1",
-			Payload:               bytes,
-			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			UnitIds:               []string{"u-only"},
-		}), 1))
+		addRawTask(t, h, "unscoped", "u-1", bytes, "u-only")
 
 		removed := h.manager.DeleteTasksForCollection("Foo")
 		assert.Empty(t, removed, "tasks in namespaces without an extractor must not be removed")
@@ -1477,13 +1486,7 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 			return "", true
 		})
 
-		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace:             "scoped",
-			Id:                    "still-here",
-			Payload:               []byte("anything"),
-			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			UnitIds:               []string{"u-1"},
-		}), 1))
+		addRawTask(t, h, "scoped", "still-here", []byte("anything"), "u-1")
 
 		removed := h.manager.DeleteTasksForCollection("")
 		assert.Empty(t, removed, "empty collection name must be refused")
@@ -1499,13 +1502,7 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		// Overwrite with an extractor that never matches.
 		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) { return "", false })
 
-		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-			Namespace:             "scoped",
-			Id:                    "task",
-			Payload:               []byte("payload"),
-			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-			UnitIds:               []string{"u-1"},
-		}), 1))
+		addRawTask(t, h, "scoped", "task", []byte("payload"), "u-1")
 
 		removed := h.manager.DeleteTasksForCollection("Foo")
 		assert.Empty(t, removed, "second extractor takes effect; task must NOT be removed")

@@ -536,6 +536,63 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 // class via a registered CollectionExtractor are removed alongside the
 // schema-level delete, so a subsequent CREATE_CLASS with the same name
 // does not inherit the prior incarnation's task status.
+// TestStore_Apply_DeleteClass_NilCascadeIsSafe verifies the nil-safe guard in
+// SchemaManager: if no distributed-task manager has been wired (bootstrap,
+// partial-harness tests), a DELETE_CLASS apply must still succeed without
+// panicking. QA Claude review flag on PR #11345 (nit 2): the production wiring
+// happens in NewFSM so the nil branch is hard to exercise end-to-end; this
+// test explicitly nils the field after MockStore is constructed and re-issues
+// the apply path.
+func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
+	ms := NewMockStore(t, "Node-1", 0)
+	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
+
+	tmpDir := t.TempDir()
+	snapshotStore, err := raft.NewFileSnapshotStore(tmpDir, 3, nil)
+	if err != nil {
+		t.Fatalf("snapshot store: %v", err)
+	}
+	ms.store.snapshotStore = snapshotStore
+
+	// Override the wired manager with nil — this is the shape a bootstrapping
+	// or harness-only node has before NewFSM runs the SetDistributedTaskManager
+	// line. The schema manager's DELETE_CLASS path must remain panic-free.
+	ms.store.schemaManager.SetDistributedTaskManager(nil)
+
+	ms.indexer.On("Open", mock.Anything).Return(nil)
+	ms.indexer.On("AddClass", mock.Anything).Return(nil)
+	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
+	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	ms.parser.On("ParseClass", mock.Anything).Return(nil)
+	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
+
+	cls := &models.Class{Class: "Bareback"}
+	state := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"T1": {Name: "T1", BelongsToNodes: []string{"Node-1"}, Status: "HOT"},
+		},
+	}
+	addLog := &raft.Log{
+		Index: 1,
+		Type:  raft.LogCommand,
+		Data: cmdAsBytes("Bareback", api.ApplyRequest_TYPE_ADD_CLASS,
+			api.AddClassRequest{Class: cls, State: state}, nil),
+	}
+	if r, ok := ms.store.Apply(addLog).(Response); !ok || r.Error != nil {
+		t.Fatalf("apply add-class: ok=%v err=%v", ok, r.Error)
+	}
+
+	deleteLog := &raft.Log{
+		Index: 2,
+		Type:  raft.LogCommand,
+		Data:  cmdAsBytes("Bareback", api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil),
+	}
+	r, ok := ms.store.Apply(deleteLog).(Response)
+	if !ok || r.Error != nil {
+		t.Fatalf("apply delete-class with nil cascade: ok=%v err=%v", ok, r.Error)
+	}
+}
+
 func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 	// NewMockStore keeps the distributedTasksManager wired into the
 	// schema manager via NewFSM; only the replication FSM is overridden,
