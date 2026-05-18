@@ -2228,7 +2228,8 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 	// - PANIC
 
 	t.Run("delete entrypoint should not panic when other nodes have higher levels", func(t *testing.T) {
-		// This test currently fails with panic. Once the fix is applied, it should pass.
+		// Guard against a regression where deleting the entrypoint panicked when the
+		// replacement node existed only on higher levels.
 		err := index.Delete(0)
 		require.Nil(t, err)
 
