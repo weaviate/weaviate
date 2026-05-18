@@ -18,10 +18,11 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/objects/alias"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.
@@ -52,7 +53,7 @@ type batchRepoNew interface {
 		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchReferences, error)
 }
 
-// NewBatchManager creates a new manager
+// NewBatchManager creates a new manager.
 func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider,
 	schemaManager schemaManager, config *config.WeaviateConfig,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
@@ -71,7 +72,8 @@ func NewBatchManager(vectorRepo BatchVectorRepo, modulesProvider ModulesProvider
 	}
 }
 
-// Alias support
-func (m *BatchManager) resolveAlias(class string) (className, aliasName string) {
-	return alias.ResolveAlias(m.schemaManager, class)
+// resolveNS qualifies name with the principal's namespace (if enabled)
+// and resolves any alias to its underlying class.
+func (b *BatchManager) resolveNS(principal *models.Principal, name string) (class, originalAlias string, err error) {
+	return namespacing.Resolve(principal, b.schemaManager, b.config.Config.Namespaces.Enabled, name)
 }

@@ -115,6 +115,30 @@ type SchemaHandlerConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
+// UsageLimitsConfig holds the env-var and runtime-overrideable usage-limit
+// knobs introduced by the Free-Tier guardrails RFC. The collection-count
+// limit lives separately on SchemaHandlerConfig for backward compatibility
+// with the pre-existing MAXIMUM_ALLOWED_COLLECTIONS_COUNT env var.
+//
+// All fields are *runtime.DynamicValue[*]; nil means "unset" (treated as
+// unlimited / default). Operators set values via env vars at startup and
+// can also override at runtime via the YAML runtime-overrides file.
+type UsageLimitsConfig struct {
+	// ErrorMessage is the operator-overridable template used to render the
+	// `message` field of the structured limit-exceeded response. Recognized
+	// placeholders are {limit} and {value}; see usagelimits.RenderTemplate.
+	ErrorMessage *runtime.DynamicValue[string] `json:"error_message" yaml:"error_message"`
+	// MaxObjectsCount caps the total live object count. Negative (incl.
+	// the default -1) means unlimited.
+	MaxObjectsCount *runtime.DynamicValue[int] `json:"max_objects_count" yaml:"max_objects_count"`
+	// MaxTenantsPerCollection caps the number of tenants on a multi-tenant
+	// class. Checked at tenant create time only.
+	MaxTenantsPerCollection *runtime.DynamicValue[int] `json:"max_tenants_per_collection" yaml:"max_tenants_per_collection"`
+	// MaxShardsPerCollection caps the requested shard count of a class
+	// create request. Config-time only.
+	MaxShardsPerCollection *runtime.DynamicValue[int] `json:"max_shards_per_collection" yaml:"max_shards_per_collection"`
+}
+
 type RuntimeOverrides struct {
 	Enabled      bool          `json:"enabled"`
 	Path         string        `json:"path" yaml:"path"`
@@ -186,6 +210,7 @@ type Config struct {
 	Sentry                              *entsentry.ConfigOpts  `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer         `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig    `json:"schema" yaml:"schema"`
+	UsageLimits                         UsageLimitsConfig      `json:"usage_limits" yaml:"usage_limits"`
 	DistributedTasks                    DistributedTasksConfig `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                    `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                    `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
@@ -264,6 +289,10 @@ type Config struct {
 	// Export configures the data export feature and its storage destination.
 	Export Export `json:"export" yaml:"export"`
 
+	// Namespaces configures cluster-level namespace support. Namespaces can
+	// only be enabled on newly bootstrapped clusters (enforced at startup).
+	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
+
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 
@@ -322,6 +351,17 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("cannot enable anonymous access and rbac authorization")
 	}
 
+	// Namespaces are incompatible with GraphQL: the GraphQL schema does not
+	// model namespace-qualified class names. On namespace-enabled clusters the
+	// operator must disable GraphQL explicitly via DISABLE_GRAPHQL=true.
+	if c.Namespaces.Enabled && !c.DisableGraphQL {
+		return fmt.Errorf("NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true: GraphQL is not supported on namespace-enabled clusters")
+	}
+
+	if err := c.validateOIDCNamespaceClaims(); err != nil {
+		return configErr(err)
+	}
+
 	if err := c.Persistence.Validate(); err != nil {
 		return configErr(err)
 	}
@@ -338,7 +378,70 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateUsageLimitsReplicationLinkage(); err != nil {
+		return configErr(err)
+	}
+
 	return nil
+}
+
+// validateOIDCNamespaceClaims requires the namespace + global-principal
+// claim env vars when NAMESPACES_ENABLED and AUTHENTICATION_OIDC_ENABLED
+// are both on, and forbids them when NAMESPACES_ENABLED is off. No-op
+// when OIDC is disabled.
+func (c *Config) validateOIDCNamespaceClaims() error {
+	if !c.Authentication.OIDC.Enabled {
+		return nil
+	}
+
+	nsClaim := dynamicString(c.Authentication.OIDC.NamespaceClaim)
+	globalClaim := dynamicString(c.Authentication.OIDC.GlobalPrincipalClaim)
+
+	if c.Namespaces.Enabled {
+		if nsClaim == "" || globalClaim == "" {
+			return fmt.Errorf("AUTHENTICATION_OIDC_NAMESPACE_CLAIM and AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM are required when NAMESPACES_ENABLED=true and AUTHENTICATION_OIDC_ENABLED=true")
+		}
+		return nil
+	}
+
+	if nsClaim != "" || globalClaim != "" {
+		return fmt.Errorf("AUTHENTICATION_OIDC_NAMESPACE_CLAIM and AUTHENTICATION_OIDC_GLOBAL_PRINCIPAL_CLAIM must not be set when NAMESPACES_ENABLED=false")
+	}
+	return nil
+}
+
+// validateUsageLimitsReplicationLinkage enforces the RF=1 precondition for the
+// object/tenant/shard usage limits: only the RF=1 deployment shape is
+// supported, so when any of those caps is set we require
+// REPLICATION_MAXIMUM_FACTOR=1 so per-class RF cannot exceed 1. The collection
+// cap is excluded because it predates this PR and tying it would be a breaking
+// change for existing operators.
+func (c *Config) validateUsageLimitsReplicationLinkage() error {
+	hasLimit := dynamicIntSet(c.UsageLimits.MaxObjectsCount) ||
+		dynamicIntSet(c.UsageLimits.MaxTenantsPerCollection) ||
+		dynamicIntSet(c.UsageLimits.MaxShardsPerCollection)
+	if !hasLimit {
+		return nil
+	}
+	if c.Replication.MaximumFactor != 1 {
+		return fmt.Errorf("usage limits require REPLICATION_MAXIMUM_FACTOR=1; got %d", c.Replication.MaximumFactor)
+	}
+	return nil
+}
+
+// dynamicString returns the value carried by a *DynamicValue[string], or ""
+// when the pointer itself is nil (uninitialized config).
+func dynamicString(v *runtime.DynamicValue[string]) string {
+	if v == nil {
+		return ""
+	}
+	return v.Get()
+}
+
+// dynamicIntSet reports whether dv carries a configured (>=0) value. A nil
+// DynamicValue or a negative value means "unset / unlimited".
+func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
+	return dv != nil && dv.Get() >= 0
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own
@@ -471,6 +574,7 @@ type Persistence struct {
 	LSMSegmentsCleanupIntervalSeconds            int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
 	LSMSeparateObjectsCompactions                bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
 	LSMEnableSegmentsChecksumValidation          bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
+	LSMSkipWriteClassNameEnabled                 bool   `json:"lsmSkipClassNameEnabled" yaml:"lsmSkipClassNameEnabled"`
 	LSMCycleManagerRoutinesFactor                int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	IndexRangeableInMemory                       bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 	MinMMapSize                                  int64  `json:"minMMapSize" yaml:"minMMapSize"`
@@ -616,6 +720,20 @@ type Export struct {
 	// so this value is used directly.
 	// Env: EXPORT_DEFAULT_PATH, runtime config: export_default_path.
 	DefaultPath *runtime.DynamicValue[string] `json:"default_path" yaml:"default_path"`
+}
+
+// Namespaces configures cluster-level namespace support.
+//
+// NAMESPACES_ENABLED is a cluster-wide feature flag. Once enabled on a
+// bootstrapping cluster it is the exclusive source of truth for namespace
+// existence (see cluster/namespaces). The flag must not be toggled on an
+// already-populated cluster; startup invariants refuse such configurations.
+type Namespaces struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+
+	// CleanupInterval drives the deleting-namespace sweep on the leader.
+	// NAMESPACE_CLEANUP_INTERVAL; <= 0 disables.
+	CleanupInterval *runtime.DynamicValue[time.Duration] `json:"cleanup_interval" yaml:"cleanup_interval"`
 }
 
 const (

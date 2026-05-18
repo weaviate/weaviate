@@ -12,6 +12,8 @@
 package schema
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -304,6 +306,130 @@ func TestValidateTenantNameIncludesRegex(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+// TestValidateClassName_RejectsNamespaceSeparator locks in the invariant that
+// plain class names must not contain NamespaceSeparator (":"). This is the
+// *contract* the namespaces startup guard depends on to distinguish
+// namespace-qualified classes from plain ones. If ClassNameRegexCore is ever
+// loosened to accept ":", this test will start passing for qualified names
+// and must be updated together with the consumers of NamespaceSeparator.
+func TestValidateClassName_RejectsNamespaceSeparator(t *testing.T) {
+	cases := []string{
+		"Foo" + NamespaceSeparator + "Bar",
+		NamespaceSeparator + "Movie",
+		"Movie" + NamespaceSeparator,
+		"a" + NamespaceSeparator + "b",
+		"Namespace" + NamespaceSeparator + "Movie",
+	}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ValidateClassName(name)
+			assert.Error(t, err, "class name %q containing NamespaceSeparator must be rejected", name)
+		})
+	}
+}
+
+// TestIndexNameRegexCore covers what IndexNameRegexCore accepts and rejects:
+// plain class names, "<namespace>:<class>" with a 3-36 char namespace, and
+// the boundary cases (hyphen edges, leading/trailing ":", more than one ":",
+// out-of-range namespace lengths).
+func TestIndexNameRegexCore(t *testing.T) {
+	re := regexp.MustCompile(`^` + IndexNameRegexCore + `$`)
+
+	maxNs := strings.Repeat("a", NamespaceMaxLength)
+	tooLongNs := strings.Repeat("a", NamespaceMaxLength+1)
+	tooShortNs := strings.Repeat("a", NamespaceMinLength-1)
+
+	accept := []string{
+		"Movies",
+		"customer1:Movies",
+		"tenant-a:My_Class",
+		"abc:Movies",
+		maxNs + ":Movies",
+		"a-b-c:Movies",
+		"123:Movies",
+	}
+	for _, name := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			assert.True(t, re.MatchString(name), "expected %q to match", name)
+		})
+	}
+
+	reject := []string{
+		":Movies",
+		"customer:",
+		"customer:1Movies",
+		"-abc:Movies",
+		"abc-:Movies",
+		"Customer:Movies",
+		tooShortNs + ":Movies",
+		tooLongNs + ":Movies",
+		"a:b:Movies", // more than one ":" — no character class in the pattern accepts ":"
+		"customer/Movies",
+		"customer:Movies/extra",
+		"customer:movies",
+		"",
+	}
+	for _, name := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			assert.False(t, re.MatchString(name), "expected %q to be rejected", name)
+		})
+	}
+}
+
+// TestValidateQualifiedClassName covers the post-resolver validator used by
+// the filter parser: plain class names continue to validate, qualified
+// "<namespace>:<Class>" names are accepted, and malformed qualified names
+// (uppercase namespace, lowercase class, empty parts, oversized namespace,
+// double-prefix, hyphen edges) are rejected. The function returns the input
+// name unchanged on success — qualification is preserved for downstream
+// schema lookups.
+func TestValidateQualifiedClassName(t *testing.T) {
+	minNs := strings.Repeat("a", NamespaceMinLength)
+	maxNs := strings.Repeat("a", NamespaceMaxLength)
+	tooShortNs := strings.Repeat("a", NamespaceMinLength-1)
+	tooLongNs := strings.Repeat("a", NamespaceMaxLength+1)
+
+	accept := []string{
+		"Movies",
+		"M",
+		"customer1:Movies",
+		"abc:M",
+		"cust--er:Movies", // consecutive hyphens are allowed in the namespace interior
+		"tenant-a:My_Class",
+		minNs + ":Movies",
+		maxNs + ":Movies",
+	}
+	for _, name := range accept {
+		t.Run("accept/"+name, func(t *testing.T) {
+			got, err := ValidateQualifiedClassName(name)
+			assert.NoError(t, err)
+			assert.Equal(t, ClassName(name), got, "qualified name must be returned unchanged")
+		})
+	}
+
+	reject := []string{
+		"",
+		":Movies",
+		"customer1:",
+		"cust:movies",  // lowercase class
+		"Cust:Movies",  // uppercase namespace
+		"-cust:Movies", // leading hyphen on namespace
+		"cust-:Movies", // trailing hyphen on namespace
+		tooShortNs + ":Movies",
+		tooLongNs + ":Movies",
+		"a:b:Movies",          // double-prefix — only one ":" is allowed
+		"customer:1Movies",    // class portion must start with [A-Z_]
+		"customer:Movies/bad", // class portion has invalid character
+		strings.Repeat("a", NamespaceMaxLength+1+ClassNameMaxLength+1), // exceeds combined cap
+	}
+	for _, name := range reject {
+		t.Run("reject/"+name, func(t *testing.T) {
+			_, err := ValidateQualifiedClassName(name)
+			assert.Error(t, err, "expected %q to be rejected", name)
 		})
 	}
 }

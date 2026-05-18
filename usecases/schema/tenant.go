@@ -26,7 +26,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const (
@@ -40,6 +42,11 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	if err != nil {
+		return 0, err
+	}
+
 	tenantNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
 		tenantNames[i] = tenant.Name
@@ -55,6 +62,24 @@ func (h *Handler) AddTenants(ctx context.Context,
 
 	if err = h.validateActivityStatuses(ctx, validated, true, false); err != nil {
 		return 0, err
+	}
+
+	// Per-collection tenant cap. Same pattern as the collection-count check
+	// in class.go — count current tenants, compare against the cap, return
+	// a typed *usagelimits.LimitExceededError on miss. Tenants are checked
+	// at create time only (not on subsequent MT config changes).
+	if dv := h.config.UsageLimits.MaxTenantsPerCollection; dv != nil {
+		cap := dv.Get()
+		if cap >= 0 {
+			existing, _, err := h.schemaManager.QueryTenants(class, nil)
+			if err != nil {
+				return 0, fmt.Errorf("count tenants for limit check: %w", err)
+			}
+			if len(existing)+len(validated) > cap {
+				return 0, usagelimits.NewLimitExceededError(
+					h.errorMessageTemplate(), usagelimits.LimitTenants, int64(cap))
+			}
+		}
 	}
 
 	request := api.AddTenantsRequest{
@@ -145,6 +170,11 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	if err != nil {
+		return nil, err
+	}
+
 	shardNames := make([]string, len(tenants))
 	for idx := range tenants {
 		shardNames[idx] = tenants[idx].Name
@@ -202,6 +232,11 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	if err != nil {
+		return err
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsMetadata(class, tenants...)...); err != nil {
 		return err
 	}
@@ -227,10 +262,8 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	var allTenants []*models.Tenant
 	var err error
 
-	// support getting tenants via alias
-	class = schema.UppercaseClassName(class)
-	if rclass := h.schemaReader.ResolveAlias(class); rclass != "" {
-		class = rclass
+	if class, _, err = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class); err != nil {
+		return nil, err
 	}
 	if consistency {
 		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
@@ -258,12 +291,16 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 }
 
 func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return nil, err
 	}
 
 	var allTenants []*models.Tenant
-	var err error
 
 	tenants := []string{tenant}
 	if consistency {
@@ -299,12 +336,16 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	if err != nil {
+		return err
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return err
 	}
 
 	var tenants []*models.Tenant
-	var err error
 	if consistency {
 		tenants, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
 	} else {

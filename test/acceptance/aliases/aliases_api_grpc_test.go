@@ -300,6 +300,50 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		require.NotNil(t, srep)
 		require.Len(t, srep.Results, 0)
 	})
+	t.Run("TenantsGet using alias", func(t *testing.T) {
+		mtClassName := "GRPCTenantsAliasTarget"
+		mtAliasName := "GRPCTenantsAlias"
+
+		helper.CreateClass(t, &models.Class{
+			Class:              mtClassName,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Properties:         []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		})
+		defer helper.DeleteClass(t, mtClassName)
+
+		helper.CreateAlias(t, &models.Alias{Alias: mtAliasName, Class: mtClassName})
+		defer helper.DeleteAlias(t, mtAliasName)
+
+		helper.CreateTenants(t, mtClassName, []*models.Tenant{
+			{Name: "alphaT", ActivityStatus: "HOT"},
+			{Name: "betaT", ActivityStatus: "HOT"},
+			{Name: "gammaT", ActivityStatus: "HOT"},
+		})
+
+		// No Params → returns all tenants of the underlying class.
+		respAll, err := grpcClient.TenantsGet(ctx, &pb.TenantsGetRequest{Collection: mtAliasName})
+		require.NoError(t, err)
+		gotAll := make([]string, len(respAll.Tenants))
+		for i, tt := range respAll.Tenants {
+			gotAll[i] = tt.Name
+		}
+		assert.ElementsMatch(t, []string{"alphaT", "betaT", "gammaT"}, gotAll)
+
+		// Names param → filtered subset, also resolved via alias.
+		respFiltered, err := grpcClient.TenantsGet(ctx, &pb.TenantsGetRequest{
+			Collection: mtAliasName,
+			Params: &pb.TenantsGetRequest_Names{
+				Names: &pb.TenantNames{Values: []string{"alphaT", "gammaT"}},
+			},
+		})
+		require.NoError(t, err)
+		gotFiltered := make([]string, len(respFiltered.Tenants))
+		for i, tt := range respFiltered.Tenants {
+			gotFiltered[i] = tt.Name
+		}
+		assert.ElementsMatch(t, []string{"alphaT", "gammaT"}, gotFiltered)
+	})
+
 	t.Run("batch insert using alias", func(t *testing.T) {
 		theMartian := "67b79643-cf8b-4b22-b206-000000000001"
 		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{

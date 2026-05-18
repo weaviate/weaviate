@@ -112,7 +112,7 @@ func (db *DB) init(ctx context.Context) error {
 				}
 			}
 
-			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig)
+			asyncConfig, err := asyncReplicationConfigFromModel(isMultiTenant, class.ReplicationConfig.AsyncConfig, db.logger.WithField("class", class.Class))
 			if err != nil {
 				return fmt.Errorf("async replication config: %w", err)
 			}
@@ -176,10 +176,11 @@ func (db *DB) init(ctx context.Context) error {
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
+				SkipWriteClassNameOnDisk:                     db.config.LSMSkipWriteClassNameEnabled,
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 				AsyncReplicationConfig:                       asyncConfig,
-				AsyncReplicationWorkersLimiter:               db.asyncReplicationWorkersLimiter,
+				AsyncReplicationScheduler:                    db.asyncReplicationScheduler,
 				DeletionStrategy:                             class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                             db.shardLoadLimiter,
 				BucketLoadLimiter:                            db.bucketLoadLimiter,
@@ -218,6 +219,7 @@ func (db *DB) init(ctx context.Context) error {
 				return errors.Wrap(err, "create index")
 			}
 
+			idx.usageLimits = db.usageLimits
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()

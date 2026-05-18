@@ -61,16 +61,18 @@ type AnonymousAccess struct {
 
 // OIDC configures the OIDC middleware
 type OIDC struct {
-	Enabled           bool                            `json:"enabled" yaml:"enabled"`
-	Issuer            *runtime.DynamicValue[string]   `json:"issuer" yaml:"issuer"`
-	ClientID          *runtime.DynamicValue[string]   `json:"client_id" yaml:"client_id"`
-	SkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"skip_client_id_check" json:"skip_client_id_check"`
-	UsernameClaim     *runtime.DynamicValue[string]   `yaml:"username_claim" json:"username_claim"`
-	GroupsClaim       *runtime.DynamicValue[string]   `yaml:"groups_claim" json:"groups_claim"`
-	Scopes            *runtime.DynamicValue[[]string] `yaml:"scopes" json:"scopes"`
-	Certificate       *runtime.DynamicValue[string]   `yaml:"certificate" json:"certificate"`
-	JWKSUrl           *runtime.DynamicValue[string]   `yaml:"jwks_url" json:"jwks_url"`
-	SkipTLSVerify     *runtime.DynamicValue[bool]     `yaml:"insecure_skip_tls_verify" json:"insecure_skip_tls_verify"`
+	Enabled              bool                            `json:"enabled" yaml:"enabled"`
+	Issuer               *runtime.DynamicValue[string]   `json:"issuer" yaml:"issuer"`
+	ClientID             *runtime.DynamicValue[string]   `json:"client_id" yaml:"client_id"`
+	SkipClientIDCheck    *runtime.DynamicValue[bool]     `yaml:"skip_client_id_check" json:"skip_client_id_check"`
+	UsernameClaim        *runtime.DynamicValue[string]   `yaml:"username_claim" json:"username_claim"`
+	GroupsClaim          *runtime.DynamicValue[string]   `yaml:"groups_claim" json:"groups_claim"`
+	NamespaceClaim       *runtime.DynamicValue[string]   `yaml:"namespace_claim" json:"namespace_claim"`
+	GlobalPrincipalClaim *runtime.DynamicValue[string]   `yaml:"global_principal_claim" json:"global_principal_claim"`
+	Scopes               *runtime.DynamicValue[[]string] `yaml:"scopes" json:"scopes"`
+	Certificate          *runtime.DynamicValue[string]   `yaml:"certificate" json:"certificate"`
+	JWKSUrl              *runtime.DynamicValue[string]   `yaml:"jwks_url" json:"jwks_url"`
+	SkipTLSVerify        *runtime.DynamicValue[bool]     `yaml:"insecure_skip_tls_verify" json:"insecure_skip_tls_verify"`
 }
 
 type StaticAPIKey struct {

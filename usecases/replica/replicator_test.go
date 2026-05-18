@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -24,7 +25,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"golang.org/x/exp/slices"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"

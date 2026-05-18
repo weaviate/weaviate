@@ -41,7 +41,7 @@ const (
 )
 
 // writeRuntimeOverride replaces the runtime override file's contents. Using
-// `sh -c` with a here-string keeps it simple and avoids shell-escaping issues.
+// `sh -c` with a heredoc keeps it simple and avoids shell-escaping issues.
 func writeRuntimeOverride(t *testing.T, ctx context.Context, container testcontainers.Container, contents string) {
 	t.Helper()
 	exitCode, _, err := container.Exec(ctx, []string{
@@ -75,11 +75,13 @@ func listMCPToolNames(ctx context.Context, t *testing.T, mcpURL, key string) []s
 
 // rawMCPInitializeStatus issues a raw HTTP POST to /v1/mcp with an initialize
 // request and returns the HTTP status code. Used to verify the disabled-MCP
-// 404 response without going through the MCP client (which masks status codes).
-func rawMCPInitializeStatus(t *testing.T, mcpURL, key string) (int, string) {
+// 503 response without going through the MCP client (which masks status codes).
+// Accepts a context so the request stays bounded when called from
+// require.Eventually polls.
+func rawMCPInitializeStatus(ctx context.Context, t *testing.T, mcpURL, key string) (int, string) {
 	t.Helper()
 	body := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}`)
-	req, err := http.NewRequest(http.MethodPost, mcpURL, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mcpURL, body)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
@@ -88,7 +90,8 @@ func rawMCPInitializeStatus(t *testing.T, mcpURL, key string) (int, string) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	bodyBytes, _ := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 	return resp.StatusCode, string(bodyBytes)
 }
 
@@ -132,10 +135,10 @@ type toggleStep struct {
 	verify   func(t *testing.T, mcpURL, key string)
 }
 
-// TestMCPRuntimeToggle verifies that the MCP server's Enabled and
+// TestMCPRuntimeConfigToggle verifies that the MCP server's Enabled and
 // WriteAccessEnabled flags can be toggled at runtime via the runtime overrides
 // YAML, without restarting the cluster.
-func TestMCPRuntimeToggle(t *testing.T) {
+func TestMCPRuntimeConfigToggle(t *testing.T) {
 	mainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -179,7 +182,9 @@ func TestMCPRuntimeToggle(t *testing.T) {
 		return func(t *testing.T, mcpURL, key string) {
 			t.Helper()
 			require.Eventually(t, func() bool {
-				status, _ := rawMCPInitializeStatus(t, mcpURL, key)
+				ctx, cancel := context.WithTimeout(context.Background(), pollInterval)
+				defer cancel()
+				status, _ := rawMCPInitializeStatus(ctx, t, mcpURL, key)
 				return status == wantStatus
 			}, pollTimeout, pollInterval, msg)
 		}
@@ -196,9 +201,27 @@ func TestMCPRuntimeToggle(t *testing.T) {
 
 	steps := []toggleStep{
 		{
-			name:     "disable write access → write tool hidden",
+			name:     "disable write access → write tool hidden and calls rejected",
 			override: "mcp_server_write_access_enabled: false\n",
-			verify:   expectToolVisibility(false, "write tool should disappear from tools/list"),
+			verify: func(t *testing.T, mcpURL, key string) {
+				t.Helper()
+				expectToolVisibility(false, "write tool should disappear from tools/list")(t, mcpURL, key)
+
+				// Beyond the visibility check, calling the write tool while
+				// disabled must return the explicit "write access is disabled" error.
+				ctx, c := context.WithTimeout(context.Background(), 15*time.Second)
+				defer c()
+				var resp create.UpsertObjectResp
+				err := callToolOnceWithAuth(ctx, t, mcpURL, upsertToolName, key,
+					create.UpsertObjectArgs{
+						CollectionName: className,
+						Objects: []create.ObjectToUpsert{
+							{Properties: map[string]any{"content": "should fail"}},
+						},
+					}, &resp)
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "write access is disabled")
+			},
 		},
 		{
 			name:     "re-enable write access → write tool visible again",
@@ -206,9 +229,9 @@ func TestMCPRuntimeToggle(t *testing.T) {
 			verify:   expectToolVisibility(true, "write tool should reappear in tools/list"),
 		},
 		{
-			name:     "disable MCP entirely → /v1/mcp returns 404",
+			name:     "disable MCP entirely → /v1/mcp returns 503",
 			override: "mcp_server_enabled: false\n",
-			verify:   expectMCPStatus(http.StatusNotFound, "MCP endpoint should return 404 when disabled at runtime"),
+			verify:   expectMCPStatus(http.StatusServiceUnavailable, "MCP endpoint should return 503 when disabled at runtime"),
 		},
 		{
 			name:     "re-enable MCP → /v1/mcp serves again",
@@ -223,25 +246,4 @@ func TestMCPRuntimeToggle(t *testing.T) {
 			step.verify(t, mcpURL, adminKey)
 		})
 	}
-
-	// Beyond the visibility check, also verify that calling the write tool
-	// while disabled returns the explicit "write access is disabled" error.
-	t.Run("write tool call while disabled returns explicit error", func(t *testing.T) {
-		writeRuntimeOverride(t, mainCtx, weaviateContainer, "mcp_server_write_access_enabled: false\n")
-		expectToolVisibility(false, "write tool should be hidden")(t, mcpURL, adminKey)
-
-		ctx, c := context.WithTimeout(context.Background(), 15*time.Second)
-		defer c()
-
-		var resp create.UpsertObjectResp
-		err := callToolOnceWithAuth(ctx, t, mcpURL, upsertToolName, adminKey,
-			create.UpsertObjectArgs{
-				CollectionName: className,
-				Objects: []create.ObjectToUpsert{
-					{Properties: map[string]any{"content": "should fail"}},
-				},
-			}, &resp)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "write access is disabled")
-	})
 }

@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.2"
+    "version": "1.38.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -2142,6 +2142,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -2334,6 +2340,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
@@ -2381,6 +2393,12 @@ func init() {
           },
           "404": {
             "description": "Classification with the given ID not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
@@ -2665,6 +2683,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -2719,6 +2743,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2830,6 +2860,206 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.query.meta"
         ]
+      }
+    },
+    "/namespaces": {
+      "get": {
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "List namespaces",
+        "operationId": "listNamespaces",
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of namespaces (possibly empty).",
+            "schema": {
+              "$ref": "#/definitions/NamespaceListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}": {
+      "get": {
+        "description": "Retrieve details about a specific namespace by its name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Get a namespace",
+        "operationId": "getNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the namespace.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Create a new namespace",
+        "operationId": "createNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace. Must start with a lowercase letter, contain only lowercase letters and digits, length 3-36, and not be a reserved name.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Namespace created successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Delete a namespace",
+        "operationId": "deleteNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/nodes": {
@@ -3009,6 +3239,12 @@ func init() {
           "404": {
             "description": "Successful query result but no matching objects were found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the specified collection exists.",
             "schema": {
@@ -3075,6 +3311,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -3824,6 +4066,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -3886,6 +4134,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
@@ -3945,6 +4199,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -3991,6 +4251,12 @@ func init() {
           },
           "404": {
             "description": "Object does not exist."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
@@ -4052,6 +4318,12 @@ func init() {
           },
           "404": {
             "description": "Object not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).",
@@ -4124,6 +4396,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
@@ -4189,6 +4467,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4264,6 +4548,12 @@ func init() {
           },
           "404": {
             "description": "Object or reference not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5018,6 +5308,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the ` + "`" + `UsageLimitExceededResponse` + "`" + ` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
@@ -5072,6 +5368,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found."
+          },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
@@ -5695,6 +5997,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while creating tenants. Check the ErrorResponse for details.",
             "schema": {
@@ -6162,6 +6470,10 @@ func init() {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
                   "default": false
+                },
+                "namespace": {
+                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.",
+                  "type": "string"
                 }
               }
             }
@@ -7448,6 +7760,10 @@ func init() {
           ],
           "format": "date-time"
         },
+        "namespace": {
+          "description": "The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise.",
+          "type": "string"
+        },
         "roles": {
           "description": "The roles associated with the user.",
           "type": "array",
@@ -8003,6 +8319,31 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "Namespace": {
+      "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The unique name of the namespace.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "type": "string",
+          "enum": [
+            "active",
+            "deleting"
+          ]
+        }
+      }
+    },
+    "NamespaceListResponse": {
+      "description": "Response object containing a list of namespaces.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Namespace"
+      }
+    },
     "NestedProperty": {
       "type": "object",
       "properties": {
@@ -8411,7 +8752,8 @@ func init() {
             "read_groups",
             "create_mcp",
             "read_mcp",
-            "update_mcp"
+            "update_mcp",
+            "manage_namespaces"
           ]
         },
         "aliases": {
@@ -8484,6 +8826,17 @@ func init() {
             },
             "groupType": {
               "$ref": "#/definitions/GroupType"
+            }
+          }
+        },
+        "namespaces": {
+          "description": "Resources applicable for namespace actions.",
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -8614,6 +8967,14 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isGlobalOperator": {
+          "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
+          "type": "boolean"
+        },
+        "namespace": {
+          "description": "The namespace this principal is bound to. Empty for global principals (e.g. static API keys).",
+          "type": "string"
         },
         "userType": {
           "$ref": "#/definitions/UserTypeInput"
@@ -8839,13 +9200,6 @@ func init() {
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
-        "aliveNodesCheckingFrequency": {
-          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "diffBatchSize": {
           "description": "Maximum number of object keys included in a single diff batch.",
           "type": "integer",
@@ -8883,13 +9237,6 @@ func init() {
         },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "maxWorkers": {
-          "description": "Maximum number of async replication workers.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,
@@ -9717,6 +10064,38 @@ func init() {
         }
       }
     },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `limit` + "`" + `, ` + "`" + `value` + "`" + `) are stable contract; the ` + "`" + `message` + "`" + ` text is operator-overridable via the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "description": "Machine-stable identifier. Always ` + "`" + `USAGE_LIMIT_EXCEEDED` + "`" + ` for this response.",
+          "type": "string",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "description": "Which limit was hit.",
+          "type": "string",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{limit}` + "`" + ` and ` + "`" + `{value}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The configured threshold value (the cap, not the current count).",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
     "UserApiKey": {
       "type": "object",
       "required": [
@@ -10115,6 +10494,10 @@ func init() {
     {
       "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
       "name": "mcp"
+    },
+    {
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "name": "namespaces"
     }
   ],
   "externalDocs": {
@@ -10141,7 +10524,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.2"
+    "version": "1.38.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -12214,6 +12597,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -12415,6 +12804,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
@@ -12462,6 +12857,12 @@ func init() {
           },
           "404": {
             "description": "Classification with the given ID not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
@@ -12746,6 +13147,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -12800,6 +13207,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12911,6 +13324,206 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.query.meta"
         ]
+      }
+    },
+    "/namespaces": {
+      "get": {
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "List namespaces",
+        "operationId": "listNamespaces",
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of namespaces (possibly empty).",
+            "schema": {
+              "$ref": "#/definitions/NamespaceListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}": {
+      "get": {
+        "description": "Retrieve details about a specific namespace by its name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Get a namespace",
+        "operationId": "getNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the namespace.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Create a new namespace",
+        "operationId": "createNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace. Must start with a lowercase letter, contain only lowercase letters and digits, length 3-36, and not be a reserved name.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Namespace created successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Delete a namespace",
+        "operationId": "deleteNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/nodes": {
@@ -13125,6 +13738,12 @@ func init() {
           "404": {
             "description": "Successful query result but no matching objects were found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the specified collection exists.",
             "schema": {
@@ -13194,6 +13813,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -13994,6 +14619,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -14058,6 +14689,12 @@ func init() {
           },
           "404": {
             "description": "Object not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
@@ -14124,6 +14761,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -14170,6 +14813,12 @@ func init() {
           },
           "404": {
             "description": "Object does not exist."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
@@ -14234,6 +14883,12 @@ func init() {
           },
           "404": {
             "description": "Object not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).",
@@ -14309,6 +14964,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
@@ -14377,6 +15038,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14455,6 +15122,12 @@ func init() {
           },
           "404": {
             "description": "Object or reference not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15209,6 +15882,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the ` + "`" + `UsageLimitExceededResponse` + "`" + ` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
@@ -15263,6 +15942,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found."
+          },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
@@ -15886,6 +16571,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while creating tenants. Check the ErrorResponse for details.",
             "schema": {
@@ -16353,6 +17044,10 @@ func init() {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
                   "default": false
+                },
+                "namespace": {
+                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.",
+                  "type": "string"
                 }
               }
             }
@@ -17788,6 +18483,10 @@ func init() {
           ],
           "format": "date-time"
         },
+        "namespace": {
+          "description": "The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise.",
+          "type": "string"
+        },
         "roles": {
           "description": "The roles associated with the user.",
           "type": "array",
@@ -18379,6 +19078,31 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "Namespace": {
+      "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The unique name of the namespace.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "type": "string",
+          "enum": [
+            "active",
+            "deleting"
+          ]
+        }
+      }
+    },
+    "NamespaceListResponse": {
+      "description": "Response object containing a list of namespaces.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Namespace"
+      }
+    },
     "NestedProperty": {
       "type": "object",
       "properties": {
@@ -18804,7 +19528,8 @@ func init() {
             "read_groups",
             "create_mcp",
             "read_mcp",
-            "update_mcp"
+            "update_mcp",
+            "manage_namespaces"
           ]
         },
         "aliases": {
@@ -18877,6 +19602,17 @@ func init() {
             },
             "groupType": {
               "$ref": "#/definitions/GroupType"
+            }
+          }
+        },
+        "namespaces": {
+          "description": "Resources applicable for namespace actions.",
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -19038,6 +19774,17 @@ func init() {
         }
       }
     },
+    "PermissionNamespaces": {
+      "description": "Resources applicable for namespace actions.",
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
     "PermissionNodes": {
       "description": "Resources applicable for cluster actions.",
       "type": "object",
@@ -19163,6 +19910,14 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "isGlobalOperator": {
+          "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
+          "type": "boolean"
+        },
+        "namespace": {
+          "description": "The namespace this principal is bound to. Empty for global principals (e.g. static API keys).",
+          "type": "string"
         },
         "userType": {
           "$ref": "#/definitions/UserTypeInput"
@@ -19388,13 +20143,6 @@ func init() {
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
-        "aliveNodesCheckingFrequency": {
-          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "diffBatchSize": {
           "description": "Maximum number of object keys included in a single diff batch.",
           "type": "integer",
@@ -19432,13 +20180,6 @@ func init() {
         },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "maxWorkers": {
-          "description": "Maximum number of async replication workers.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,
@@ -20272,6 +21013,38 @@ func init() {
         }
       }
     },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `limit` + "`" + `, ` + "`" + `value` + "`" + `) are stable contract; the ` + "`" + `message` + "`" + ` text is operator-overridable via the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "description": "Machine-stable identifier. Always ` + "`" + `USAGE_LIMIT_EXCEEDED` + "`" + ` for this response.",
+          "type": "string",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "description": "Which limit was hit.",
+          "type": "string",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{limit}` + "`" + ` and ` + "`" + `{value}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The configured threshold value (the cap, not the current count).",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
     "UserApiKey": {
       "type": "object",
       "required": [
@@ -20679,6 +21452,10 @@ func init() {
     {
       "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
       "name": "mcp"
+    },
+    {
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "name": "namespaces"
     }
   ],
   "externalDocs": {

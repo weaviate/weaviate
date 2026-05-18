@@ -319,7 +319,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 				Temperature: params.Temperature,
 			},
 		}, nil
-	} else if v.isAnthropicClaude3Model(model) {
+	} else if v.isAnthropicModel(model) && !v.isAnthropicLegacyModel(model) {
 		var content []bedrockAnthropicClaude3Content
 		for i := range params.Images {
 			imageName := fmt.Sprintf("Image %d:", i+1)
@@ -351,7 +351,7 @@ func (v *awsClient) createRequestBody(prompt string, params awsparams.Params, cf
 				},
 			},
 		}, nil
-	} else if v.isAnthropicModel(model) {
+	} else if v.isAnthropicLegacyModel(model) {
 		var builder strings.Builder
 		builder.WriteString("\n\nHuman: ")
 		builder.WriteString(prompt)
@@ -435,7 +435,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte, st
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
 		}
 		return resBody.Text, nil
-	} else if v.isAnthropicClaude3Model(model) {
+	} else if v.isAnthropicModel(model) && !v.isAnthropicLegacyModel(model) {
 		var resBody bedrockAnthropicClaude3Response
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
@@ -444,7 +444,7 @@ func (v *awsClient) getBedrockResponseMessage(model string, bodyBytes []byte, st
 			return *resBody.Content[0].Text, nil
 		}
 		return "", fmt.Errorf("no message from model: %s", model)
-	} else if v.isAnthropicModel(model) {
+	} else if v.isAnthropicLegacyModel(model) {
 		var resBody bedrockAnthropicClaudeResponse
 		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 			return "", fmt.Errorf("failed to parse generative response (status %d): %w", statusCode, err)
@@ -592,8 +592,14 @@ func (v *awsClient) isAnthropicModel(model string) bool {
 	return strings.Contains(model, "anthropic.")
 }
 
-func (v *awsClient) isAnthropicClaude3Model(model string) bool {
-	return strings.Contains(model, "anthropic.claude-3")
+// isAnthropicLegacyModel reports whether the model uses the legacy
+// text-completion API (prompt with "\n\nHuman: ... \n\nAssistant:") instead of
+// the Messages API. Only Anthropic's pre-Claude-3 models accept this format:
+// claude-v1, claude-v2, claude-instant-v1. Claude 3.x, 4.x and any future
+// family use the Messages API and must not match here.
+func (v *awsClient) isAnthropicLegacyModel(model string) bool {
+	return strings.Contains(model, "anthropic.claude-v") ||
+		strings.Contains(model, "anthropic.claude-instant")
 }
 
 func (v *awsClient) isCohereModel(model string) bool {

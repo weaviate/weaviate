@@ -164,6 +164,51 @@ func (o *ObjectsReferencesDeleteNotFound) WriteResponse(rw http.ResponseWriter, 
 	}
 }
 
+// ObjectsReferencesDeleteGoneCode is the HTTP code returned for type ObjectsReferencesDeleteGone
+const ObjectsReferencesDeleteGoneCode int = 410
+
+/*
+ObjectsReferencesDeleteGone Endpoint not available in the current cluster configuration.
+
+swagger:response objectsReferencesDeleteGone
+*/
+type ObjectsReferencesDeleteGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsReferencesDeleteGone creates ObjectsReferencesDeleteGone with default headers values
+func NewObjectsReferencesDeleteGone() *ObjectsReferencesDeleteGone {
+
+	return &ObjectsReferencesDeleteGone{}
+}
+
+// WithPayload adds the payload to the objects references delete gone response
+func (o *ObjectsReferencesDeleteGone) WithPayload(payload *models.ErrorResponse) *ObjectsReferencesDeleteGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects references delete gone response
+func (o *ObjectsReferencesDeleteGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsReferencesDeleteGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ObjectsReferencesDeleteInternalServerErrorCode is the HTTP code returned for type ObjectsReferencesDeleteInternalServerError
 const ObjectsReferencesDeleteInternalServerErrorCode int = 500
 

@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -67,7 +68,10 @@ type SchemaManager interface {
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
 	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
-	QueryCollectionsCount() (int, error)
+	// QueryCollectionsCount returns a leader-consistent count. Empty
+	// namespace returns the cluster-global total; a non-empty namespace
+	// restricts the count to classes in that namespace.
+	QueryCollectionsCount(namespace string) (int, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
@@ -155,6 +159,16 @@ type Handler struct {
 	classGetter *ClassGetter
 
 	asyncIndexingEnabled bool
+}
+
+// errorMessageTemplate returns the operator-overridable usage-limit
+// message template, or "" when unset (in which case the usagelimits
+// package falls back to its built-in default). See docs/usage_limits.md.
+func (h *Handler) errorMessageTemplate() string {
+	if dv := h.config.UsageLimits.ErrorMessage; dv != nil {
+		return dv.Get()
+	}
+	return ""
 }
 
 // NewHandler creates a new handler
@@ -248,8 +262,12 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 	if err != nil {
+		return 0, err
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...); err != nil {
 		return 0, err
 	}
 
@@ -259,16 +277,12 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	// NOTE: support get shard status via alias
-	// Also we resolve before doing `Authorize` so that Authorizer will work
-	// with correct `collectionName` for permissions and errors UX
-	class = schema.UppercaseClassName(class)
-	if rclass := h.schemaReader.ResolveAlias(class); rclass != "" {
-		class = rclass
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	if err != nil {
+		return nil, err
 	}
 
-	err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
-	if err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, shard)...); err != nil {
 		return nil, err
 	}
 

@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -177,11 +178,19 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
 		f = func() {
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
 		f = func() {
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(cmd.Class)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly, !catchingUp)
 		}
 
@@ -223,10 +232,28 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
 		f = func() {
+			req := &api.CreateAliasRequest{}
+			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal create-alias subcommand: %w", err)
+				return
+			}
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.CreateAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
 		f = func() {
+			req := &api.ReplaceAliasRequest{}
+			if err := proto.Unmarshal(cmd.SubCommand, req); err != nil {
+				ret.Error = fmt.Errorf("unmarshal replace-alias subcommand: %w", err)
+				return
+			}
+			if err := requireNamespaceActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Alias)); err != nil {
+				ret.Error = err
+				return
+			}
 			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
 		}
 	case api.ApplyRequest_TYPE_DELETE_ALIAS:
@@ -316,6 +343,24 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
 		}
+
+	case api.ApplyRequest_TYPE_ADD_NAMESPACE:
+		f = func() {
+			ret.Error = st.namespaceManager.Add(&cmd)
+		}
+	case api.ApplyRequest_TYPE_CHANGE_NAMESPACE_STATE:
+		f = func() {
+			ret.Error = st.namespaceManager.ChangeState(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REMOVE_NAMESPACE_ENTITY:
+		f = func() {
+			ret.Error = st.namespaceManager.RemoveEntity(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_USERS_IN_NAMESPACE:
+		f = func() {
+			ret.Error = st.dynUserManager.DeleteUsersInNamespace(&cmd)
+		}
+
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)

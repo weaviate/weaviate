@@ -303,11 +303,21 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) SetAsyncReplicationState(ctx context.Context, config AsyncReplicationConfig, enabled bool) error {
+func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.SetAsyncReplicationState(ctx, config, enabled)
+	return l.shard.enableAsyncReplication(ctx, config)
+}
+
+func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
+	l.mutex.Lock()
+	loaded := l.loaded
+	l.mutex.Unlock()
+	if !loaded {
+		return nil
+	}
+	return l.shard.disableAsyncReplication(ctx)
 }
 
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
@@ -555,7 +565,7 @@ func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
 	return l.shard.SetPropertyLengths(props)
 }
 
-func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
+func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
 	l.mustLoad()
 	return l.shard.AnalyzeObject(object)
 }
@@ -682,6 +692,13 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 		return []hashtree.Digest{}, nil
 	}
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
+}
+
+func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.CompareDigests(ctx, sourceDigests)
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {

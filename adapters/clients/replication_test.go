@@ -442,7 +442,8 @@ func TestReplicationFetchObject(t *testing.T) {
 		Object: &storobj.Object{
 			MarshallerVersion: 1,
 			Object: models.Object{
-				ID: UUID1,
+				Class: "C1",
+				ID:    UUID1,
 				Properties: map[string]interface{}{
 					"stringProp": "abc",
 				},
@@ -474,7 +475,8 @@ func TestReplicationFetchObjects(t *testing.T) {
 			Object: &storobj.Object{
 				MarshallerVersion: 1,
 				Object: models.Object{
-					ID: UUID1,
+					Class: "C1",
+					ID:    UUID1,
 					Properties: map[string]interface{}{
 						"stringProp": "abc",
 					},
@@ -488,7 +490,8 @@ func TestReplicationFetchObjects(t *testing.T) {
 			Object: &storobj.Object{
 				MarshallerVersion: 1,
 				Object: models.Object{
-					ID: UUID2,
+					Class: "C1",
+					ID:    UUID2,
 					Properties: map[string]interface{}{
 						"floatProp": float64(123),
 					},
@@ -606,7 +609,9 @@ func TestReplicationHashTreeLevel(t *testing.T) {
 		{0xdeadbeefcafebabe, 0x0123456789abcdef},
 	}
 
-	discriminant := hashtree.NewBitset(4)
+	// level-local discriminant: size must equal hashtree.LeavesCount(level)
+	// = 8 for level 3.
+	discriminant := hashtree.NewBitset(hashtree.LeavesCount(3))
 	discriminant.Set(0)
 	discriminant.Set(2)
 

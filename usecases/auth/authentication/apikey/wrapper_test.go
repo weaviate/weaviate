@@ -126,7 +126,7 @@ func TestValidDynamicKey(t *testing.T) {
 			apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
 
-			require.NoError(t, wrapper.Dynamic.CreateUser(userId, hash, identifier, "", time.Now()))
+			require.NoError(t, wrapper.Dynamic.CreateUser(userId, hash, identifier, "", "", time.Now()))
 
 			principal, err := wrapper.ValidateAndExtract(apiKey, nil)
 			if testCase.expectError {

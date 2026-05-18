@@ -26,11 +26,18 @@ import (
 
 func TestBatchDeleteRequest(t *testing.T) {
 	collection := "TestClass"
+	qualifiedCollection := "customer1:TestClass"
 	scheme := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
 					Class: collection,
+					Properties: []*models.Property{
+						{Name: "name", DataType: schema.DataTypeText.PropString()},
+					},
+				},
+				{
+					Class: qualifiedCollection,
 					Properties: []*models.Property{
 						{Name: "name", DataType: schema.DataTypeText.PropString()},
 					},
@@ -46,6 +53,13 @@ func TestBatchDeleteRequest(t *testing.T) {
 	simpleFilterOutput := &filters.LocalFilter{
 		Root: &filters.Clause{
 			On:       &filters.Path{Class: schema.ClassName(collection), Property: "name"},
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
+		},
+	}
+	qualifiedFilterOutput := &filters.LocalFilter{
+		Root: &filters.Clause{
+			On:       &filters.Path{Class: schema.ClassName(qualifiedCollection), Property: "name"},
 			Operator: filters.OperatorEqual,
 			Value:    &filters.Value{Value: "test", Type: schema.DataTypeText},
 		},
@@ -113,11 +127,31 @@ func TestBatchDeleteRequest(t *testing.T) {
 			},
 			error: nil,
 		},
+		{
+			// Models the post-resolver input: namespacing.Resolve at
+			// service.go has already qualified req.Collection. The proto
+			// → params conversion must keep the qualified name on
+			// BatchDeleteParams.ClassName and on the filter root
+			// Path.Class so downstream schema lookups hit the right
+			// internal class.
+			name: "qualified collection preserves namespace prefix",
+			req: &pb.BatchDeleteRequest{
+				Collection: qualifiedCollection,
+				Filters:    simpleFilterInput,
+			},
+			out: objects.BatchDeleteParams{
+				ClassName: schema.ClassName(qualifiedCollection),
+				DryRun:    false,
+				Output:    "minimal",
+				Filters:   qualifiedFilterOutput,
+			},
+			error: nil,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := batchDeleteParamsFromProto(tt.req, getClass)
+			out, err := batchDeleteParamsFromProto(tt.req, getClass, false)
 			require.Equal(t, tt.error, err)
 
 			if tt.error == nil {
@@ -125,6 +159,60 @@ func TestBatchDeleteRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestBatchDeleteRequest_NamespacesEnabledRejectsRefPath asserts that on
+// namespace-enabled clusters an old-style reference-path filter (Filters.On
+// with more than one element, no Filters.Target) is rejected. The check
+// fires early in ExtractFilters with a message pointing clients at the
+// new-style FilterTarget, which auto-qualifies inner class segments via
+// the schema and so works correctly under namespacing.
+func TestBatchDeleteRequest_NamespacesEnabledRejectsRefPath(t *testing.T) {
+	collection := "TestClass"
+	scheme := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class: collection,
+					Properties: []*models.Property{
+						{Name: "name", DataType: schema.DataTypeText.PropString()},
+					},
+				},
+			},
+		},
+	}
+	getClass := func(name string) (*models.Class, error) {
+		return scheme.GetClass(name), nil
+	}
+
+	refPathFilter := &pb.Filters{
+		Operator:  pb.Filters_OPERATOR_EQUAL,
+		On:        []string{"inOther", "Other", "name"},
+		TestValue: &pb.Filters_ValueText{ValueText: "x"},
+	}
+	directFilter := &pb.Filters{
+		Operator:  pb.Filters_OPERATOR_EQUAL,
+		Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "name"}},
+		TestValue: &pb.Filters_ValueText{ValueText: "x"},
+	}
+
+	t.Run("rejects ref-path with namespacesEnabled", func(t *testing.T) {
+		_, err := batchDeleteParamsFromProto(&pb.BatchDeleteRequest{
+			Collection: collection,
+			Filters:    refPathFilter,
+		}, getClass, true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "reference-path filters")
+		require.Contains(t, err.Error(), "Filters.target")
+	})
+
+	t.Run("accepts direct property with namespacesEnabled", func(t *testing.T) {
+		_, err := batchDeleteParamsFromProto(&pb.BatchDeleteRequest{
+			Collection: collection,
+			Filters:    directFilter,
+		}, getClass, true)
+		require.NoError(t, err)
+	})
 }
 
 var (
