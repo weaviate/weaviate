@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type schemaHandlers struct {
@@ -41,6 +42,10 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	_, _, err := s.manager.AddClass(ctx, principal, params.ObjectClass)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return schema.NewSchemaObjectsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsCreateForbidden().
@@ -92,6 +97,9 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrValidation):
+			return schema.NewSchemaObjectsGetUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -128,7 +136,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	_, _, err := s.manager.AddClassProperty(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, false, params.Body)
+	_, _, err := s.manager.AddClassProperty(ctx, principal, params.ClassName, false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -149,7 +157,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	err := s.manager.DeleteClassPropertyIndex(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, params.PropertyName, params.IndexName)
+	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, params.IndexName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch {
@@ -274,6 +282,10 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 		ctx, principal, params.ClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return schema.NewTenantsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsCreateForbidden().

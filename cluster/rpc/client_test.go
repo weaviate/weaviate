@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -84,10 +85,18 @@ func TestClient(t *testing.T) {
 
 type mockClusterService struct {
 	cmd.UnimplementedClusterServiceServer
+	applyErr error
 }
 
 func (m *mockClusterService) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	return nil, status.Error(codes.NotFound, "resource not found")
+}
+
+func (m *mockClusterService) Apply(ctx context.Context, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
+	if m.applyErr != nil {
+		return nil, m.applyErr
+	}
+	return &cmd.ApplyResponse{}, nil
 }
 
 func TestClient_Query_ParseError(t *testing.T) {
@@ -128,4 +137,103 @@ func TestClient_Query_ParseError(t *testing.T) {
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	require.Equal(t, codes.NotFound, st.Code())
+}
+
+// TestFromRPCError_NamespaceSentinels covers the round-trip from
+// toRPCError on the server to fromRPCError on the client for every
+// namespace sentinel. After this round-trip a caller must be able to
+// errors.Is the returned error to the original sentinel — the RPC pair
+// is the only sentinel re-chain point.
+func TestFromRPCError_NamespaceSentinels(t *testing.T) {
+	tests := []struct {
+		name string
+		send error
+	}{
+		{name: "ErrAlreadyExists", send: namespaces.ErrAlreadyExists},
+		{name: "ErrBadRequest", send: namespaces.ErrBadRequest},
+		{name: "ErrInvalidState", send: namespaces.ErrInvalidState},
+		{name: "ErrInvalidStateTransition", send: namespaces.ErrInvalidStateTransition},
+		{name: "ErrNamespaceDeleting", send: namespaces.ErrNamespaceDeleting},
+		{name: "ErrNamespaceGone", send: namespaces.ErrNamespaceGone},
+		{name: "ErrNamespaceNotEmpty", send: namespaces.ErrNamespaceNotEmpty},
+		{name: "ErrNotFound", send: namespaces.ErrNotFound},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wireErr := toRPCError(tc.send)
+			parsed := fromRPCError(wireErr)
+			require.ErrorIs(t, parsed, tc.send)
+		})
+	}
+}
+
+// TestClient_Apply_ReChainsNamespaceSentinels exercises the live
+// Client.Apply -> mock server -> client return path. The leader's apply
+// can return any namespace sentinel when a follower forwards a
+// create-like request; the round-trip must preserve the typed sentinel
+// so handler errors.Is checks classify correctly.
+func TestClient_Apply_ReChainsNamespaceSentinels(t *testing.T) {
+	tests := []struct {
+		name string
+		send error
+	}{
+		{name: "ErrAlreadyExists", send: namespaces.ErrAlreadyExists},
+		{name: "ErrBadRequest", send: namespaces.ErrBadRequest},
+		{name: "ErrInvalidState", send: namespaces.ErrInvalidState},
+		{name: "ErrInvalidStateTransition", send: namespaces.ErrInvalidStateTransition},
+		{name: "ErrNamespaceDeleting", send: namespaces.ErrNamespaceDeleting},
+		{name: "ErrNamespaceGone", send: namespaces.ErrNamespaceGone},
+		{name: "ErrNamespaceNotEmpty", send: namespaces.ErrNamespaceNotEmpty},
+		{name: "ErrNotFound", send: namespaces.ErrNotFound},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			lis := bufconn.Listen(1024 * 1024)
+			s := grpc.NewServer()
+			cmd.RegisterClusterServiceServer(s, &mockClusterService{applyErr: toRPCError(tc.send)})
+
+			go func() {
+				_ = s.Serve(lis)
+			}()
+			defer s.Stop()
+
+			conn, err := grpc.NewClient("passthrough:bufnet",
+				grpc.WithContextDialer(func(ctx context.Context, address string) (net.Conn, error) {
+					return lis.Dial()
+				}),
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+			)
+			require.NoError(t, err)
+			defer conn.Close()
+
+			cl := &Client{addrResolver: fakes.NewFakeRPCAddressResolver("bufnet", nil), rpcMessageMaxSize: 1024 * 1024, logger: logrus.StandardLogger()}
+			cl.leaderRpcConn = conn
+			cl.leaderRaftAddr = "bufnet"
+
+			_, err = cl.Apply(ctx, "bufnet", &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_ADD_CLASS})
+			require.Error(t, err)
+			require.ErrorIs(t, err, tc.send)
+		})
+	}
+}
+
+// TestFromRPCError_NotFoundDisambiguation asserts that a NotFound code
+// re-chains the namespace sentinel when the message identifies it,
+// otherwise falls back to schemaUC.ErrNotFound.
+func TestFromRPCError_NotFoundDisambiguation(t *testing.T) {
+	// Schema-flavour NotFound — message does not mention the namespace sentinel.
+	parsed := fromRPCError(toRPCError(schemaUC.ErrNotFound))
+	require.ErrorIs(t, parsed, schemaUC.ErrNotFound)
+
+	// Namespace-gone uses the same code but is disambiguated by message.
+	parsed = fromRPCError(toRPCError(namespaces.ErrNamespaceGone))
+	require.ErrorIs(t, parsed, namespaces.ErrNamespaceGone)
+
+	// namespaces.ErrNotFound also uses NotFound — the message must drive
+	// re-chain to the namespace sentinel, not schemaUC.ErrNotFound, so the
+	// REST handler's errors.Is mapping returns 404 instead of 500.
+	parsed = fromRPCError(toRPCError(namespaces.ErrNotFound))
+	require.ErrorIs(t, parsed, namespaces.ErrNotFound)
+	require.NotErrorIs(t, parsed, schemaUC.ErrNotFound)
 }

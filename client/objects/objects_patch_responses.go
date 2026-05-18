@@ -64,6 +64,12 @@ func (o *ObjectsPatchReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
+	case 410:
+		result := NewObjectsPatchGone()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewObjectsPatchUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -369,6 +375,74 @@ func (o *ObjectsPatchNotFound) String() string {
 }
 
 func (o *ObjectsPatchNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewObjectsPatchGone creates a ObjectsPatchGone with default headers values
+func NewObjectsPatchGone() *ObjectsPatchGone {
+	return &ObjectsPatchGone{}
+}
+
+/*
+ObjectsPatchGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type ObjectsPatchGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this objects patch gone response has a 2xx status code
+func (o *ObjectsPatchGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this objects patch gone response has a 3xx status code
+func (o *ObjectsPatchGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this objects patch gone response has a 4xx status code
+func (o *ObjectsPatchGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this objects patch gone response has a 5xx status code
+func (o *ObjectsPatchGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this objects patch gone response a status code equal to that given
+func (o *ObjectsPatchGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the objects patch gone response
+func (o *ObjectsPatchGone) Code() int {
+	return 410
+}
+
+func (o *ObjectsPatchGone) Error() string {
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsPatchGone) String() string {
+	return fmt.Sprintf("[PATCH /objects/{id}][%d] objectsPatchGone  %+v", 410, o.Payload)
+}
+
+func (o *ObjectsPatchGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ObjectsPatchGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

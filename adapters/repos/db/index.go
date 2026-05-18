@@ -71,7 +71,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/dynsemaphore"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -80,6 +79,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
@@ -297,8 +297,8 @@ type Index struct {
 	allShardsReady atomic.Bool
 	allocChecker   memwatch.AllocChecker
 
-	replicationConfigLock          sync.RWMutex
-	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
+	replicationConfigLock     sync.RWMutex
+	asyncReplicationScheduler *AsyncReplicationScheduler
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
@@ -311,6 +311,11 @@ type Index struct {
 	shardResolver  *resolver.ShardResolver
 	bitmapBufPool  roaringset.BitmapBufPool
 	tenantsManager schemaUC.TenantsActivityManager
+
+	// usageLimits is inherited from the owning DB at index creation; nil
+	// means no enforcement. Read by Shards on the write path. See
+	// docs/usage_limits.md.
+	usageLimits *usagelimits.Manager
 }
 
 func (i *Index) ID() string {
@@ -424,12 +429,13 @@ func NewIndex(
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}
 
-	index.asyncReplicationWorkersLimiter = dynsemaphore.NewDynamicWeightedWithParent(index.Config.AsyncReplicationWorkersLimiter,
-		func() int64 {
-			index.replicationConfigLock.RLock()
-			defer index.replicationConfigLock.RUnlock()
-			return int64(index.Config.AsyncReplicationConfig.maxWorkers)
-		})
+	if cfg.AsyncReplicationScheduler == nil && cfg.ReplicationFactor > 1 {
+		return nil, fmt.Errorf("init index %q: async replication scheduler is required when ReplicationFactor > 1", cfg.ClassName.String())
+	}
+	if globalReplicationConfig == nil && cfg.ReplicationFactor > 1 {
+		return nil, fmt.Errorf("init index %q: global replication config is required when ReplicationFactor > 1", cfg.ClassName.String())
+	}
+	index.asyncReplicationScheduler = cfg.AsyncReplicationScheduler
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -862,6 +868,9 @@ func (i *Index) getStopwordProvider() *stopwords.Provider {
 }
 
 func (i *Index) asyncReplicationGloballyDisabled() bool {
+	if i.globalreplicationConfig == nil {
+		return false
+	}
 	return i.globalreplicationConfig.AsyncReplicationDisabled.Get()
 }
 
@@ -873,7 +882,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
 
-	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig)
+	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
 	if err != nil {
 		return err
 	}
@@ -881,15 +890,23 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	// unloaded shards will fetch the latest config when they are loaded
 	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if i.Config.AsyncReplicationEnabled && cfg.AsyncConfig != nil {
-			// if async replication is being enabled, first disable it to reset any previous config
-			if err := shard.SetAsyncReplicationState(ctx, AsyncReplicationConfig{}, false); err != nil {
-				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
-			}
+		ctrl, ok := shard.(asyncReplicationController)
+		if !ok {
+			return fmt.Errorf("shard %q does not implement asyncReplicationController", name)
 		}
 
-		if err := shard.SetAsyncReplicationState(ctx, i.Config.AsyncReplicationConfig, i.asyncReplicationEnabled()); err != nil {
-			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+		if i.asyncReplicationEnabled() {
+			// enableAsyncReplication handles the already-running case by updating
+			// the stored config in-place. The scheduler's runEntry detects height
+			// changes and triggers a rebuild via asyncRepNeedsRebuild, so a
+			// stop/start cycle is only needed for height changes (handled there).
+			if err := ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig); err != nil {
+				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+			}
+		} else {
+			if err := ctrl.disableAsyncReplication(ctx); err != nil {
+				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+			}
 		}
 		return nil
 	})
@@ -940,12 +957,13 @@ type IndexConfig struct {
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
 	AsyncReplicationConfig              AsyncReplicationConfig
-	AsyncReplicationWorkersLimiter      *dynsemaphore.DynamicWeighted
+	AsyncReplicationScheduler           *AsyncReplicationScheduler
 	AvoidMMap                           bool
 	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
+	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
@@ -1252,12 +1270,56 @@ func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
 	return i.Config.AsyncReplicationConfig
 }
 
-func (i *Index) asyncReplicationWorkerAcquire(ctx context.Context) error {
-	return i.asyncReplicationWorkersLimiter.Acquire(ctx, 1)
+// InitAsyncReplicationOnShard force-starts async replication on a single named
+// shard. Called by the copier after a shard copy completes, before the index's
+// ReplicationFactor has been updated cluster-wide.
+func (i *Index) InitAsyncReplicationOnShard(ctx context.Context, shardName string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("get shard %s: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("get shard %s: not found", shardName)
+	}
+	defer release()
+
+	i.replicationConfigLock.RLock()
+	cfg := i.Config.AsyncReplicationConfig
+	i.replicationConfigLock.RUnlock()
+
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
+	}
+	return ctrl.enableAsyncReplication(ctx, cfg)
 }
 
-func (i *Index) asyncReplicationWorkerRelease() {
-	i.asyncReplicationWorkersLimiter.Release(1)
+// RevertAsyncReplicationOnShard reverts a shard to the async replication state
+// dictated by the index's current ReplicationFactor. Called by the copier when
+// rolling back a copy operation.
+func (i *Index) RevertAsyncReplicationOnShard(ctx context.Context, shardName string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("get shard %s: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("get shard %s: not found", shardName)
+	}
+	defer release()
+
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
+	}
+
+	i.replicationConfigLock.RLock()
+	cfg := i.Config.AsyncReplicationConfig
+	i.replicationConfigLock.RUnlock()
+
+	if i.asyncReplicationEnabled() {
+		return ctrl.enableAsyncReplication(ctx, cfg)
+	}
+	return ctrl.disableAsyncReplication(ctx)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which

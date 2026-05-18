@@ -47,7 +47,7 @@ type schemaManager interface {
 	ReadOnlyClass(name string) *models.Class
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
-	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
+	AddClassProperty(ctx context.Context, principal *models.Principal, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
 
 	// Consistent methods with the consistency flag.
 	// This is used to ensure that internal users will not miss-use the flag and it doesn't need to be set to a default
@@ -162,7 +162,7 @@ type ModulesProvider interface {
 	VectorizerName(className string) (string, error)
 }
 
-// NewManager creates a new manager
+// NewManager creates a new manager.
 func NewManager(schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorization.Authorizer, vectorRepo VectorRepo,
@@ -198,7 +198,7 @@ func (m *Manager) resolveAlias(class string) (className, aliasName string) {
 
 // resolveNS qualifies name with the principal's namespace (if enabled)
 // and resolves any alias to its underlying class.
-func (m *Manager) resolveNS(principal *models.Principal, name string) (class, originalAlias string) {
+func (m *Manager) resolveNS(principal *models.Principal, name string) (class, originalAlias string, err error) {
 	return namespacing.Resolve(principal, m.schemaManager, m.config.Config.Namespaces.Enabled, name)
 }
 

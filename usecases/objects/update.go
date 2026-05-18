@@ -34,8 +34,10 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	className := schema.UppercaseClassName(updates.Class)
-	className, _ = m.resolveNS(principal, className)
+	className, _, err := m.resolveNS(principal, updates.Class)
+	if err != nil {
+		return nil, NewErrInvalidUserInput("%v", err)
+	}
 	updates.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {

@@ -180,7 +180,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input, "Todo")
+				filter, err := Parse(test.input, "Todo", false)
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -286,7 +286,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input, "Todo")
+				filter, err := Parse(test.input, "Todo", false)
 				assert.ErrorAs(t, err, &test.expectedErr)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -335,7 +335,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input, "Todo")
+				filter, err := Parse(test.input, "Todo", false)
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -469,7 +469,7 @@ func Test_ExtractFlatFilters(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				filter, err := Parse(test.input, "Todo")
+				filter, err := Parse(test.input, "Todo", false)
 				assert.Equal(t, test.expectedErr, err)
 				assert.Equal(t, test.expectedFilter, filter)
 			})
@@ -550,4 +550,51 @@ func inputGeoRangeFilter(lat, lon, max float64) *models.WhereFilterGeoRange {
 
 func ptFloat32(in float32) *float32 {
 	return &in
+}
+
+// Test_Parse_NamespacesEnabledRejectsRefPath asserts that on namespace-enabled
+// clusters reference-path filters (path with more than one element) are
+// rejected before parsing. Direct-property filters (single-element path)
+// are unaffected, and global-cluster behavior (namespacesEnabled == false)
+// keeps accepting nested paths so existing operator workloads keep working.
+func Test_Parse_NamespacesEnabledRejectsRefPath(t *testing.T) {
+	t.Parallel()
+
+	value := "v"
+	directProp := &models.WhereFilter{
+		Operator:  models.WhereFilterOperatorEqual,
+		Path:      []string{"name"},
+		ValueText: &value,
+	}
+	refPath := &models.WhereFilter{
+		Operator:  models.WhereFilterOperatorEqual,
+		Path:      []string{"inCountry", "Country", "name"},
+		ValueText: &value,
+	}
+	nestedAndWithRefPath := &models.WhereFilter{
+		Operator: models.WhereFilterOperatorAnd,
+		Operands: []*models.WhereFilter{directProp, refPath},
+	}
+
+	t.Run("namespacesEnabled rejects ref-path", func(t *testing.T) {
+		_, err := Parse(refPath, "City", true)
+		assert.ErrorContains(t, err, "reference-path filters")
+	})
+
+	t.Run("namespacesEnabled rejects ref-path nested in compound operand", func(t *testing.T) {
+		_, err := Parse(nestedAndWithRefPath, "City", true)
+		assert.ErrorContains(t, err, "reference-path filters")
+	})
+
+	t.Run("namespacesEnabled accepts direct property filter", func(t *testing.T) {
+		out, err := Parse(directProp, "City", true)
+		assert.NoError(t, err)
+		assert.NotNil(t, out)
+	})
+
+	t.Run("namespacesEnabled=false still accepts ref-path", func(t *testing.T) {
+		out, err := Parse(refPath, "City", false)
+		assert.NoError(t, err)
+		assert.NotNil(t, out)
+	})
 }

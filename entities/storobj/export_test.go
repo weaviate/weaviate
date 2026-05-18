@@ -302,7 +302,7 @@ func BenchmarkExportFromBinary(b *testing.B) {
 	b.Run("FromBinary_plus_reserialization", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			o, err := FromBinary(data)
+			o, err := FromBinaryNetwork(data)
 			if err != nil {
 				b.Fatal(err)
 			}

@@ -163,12 +163,12 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class *models.Class, className string, merge bool, newProps ...*models.Property,
+	className string, merge bool, newProps ...*models.Property,
 ) (*models.Class, uint64, error) {
 	existing := map[string]int{}
 	var existedClass *models.Class
 	for _, c := range f.GetSchemaResponse.Objects.Classes {
-		if c.Class == class.Class {
+		if c.Class == className {
 			existedClass = c
 			for idx, p := range c.Properties {
 				existing[strings.ToLower(p.Name)] = idx
@@ -188,7 +188,7 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 		}
 	}
 
-	return class, f.AutoSchemaVersion, nil
+	return existedClass, f.AutoSchemaVersion, nil
 }
 
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,

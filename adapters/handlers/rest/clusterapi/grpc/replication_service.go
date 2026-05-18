@@ -50,7 +50,7 @@ var _ pb.ReplicationServiceServer = (*ReplicationService)(nil)
 // ── Write operations ─────────────────────────────────────────────────────────
 
 func (s *ReplicationService) PutObject(ctx context.Context, req *pb.PutObjectRequest) (*pb.PutObjectResponse, error) {
-	obj, err := storobj.FromBinary(req.GetObjectData())
+	obj, err := storobj.FromBinaryNetwork(req.GetObjectData())
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal object: %v", err)
 	}
@@ -201,6 +201,17 @@ func (s *ReplicationService) DigestObjectsInRange(ctx context.Context, req *pb.D
 	return &pb.DigestObjectsInRangeResponse{Digests: repairResponsesToProto(results)}, nil
 }
 
+func (s *ReplicationService) CompareDigests(ctx context.Context, req *pb.CompareDigestsRequest) (*pb.CompareDigestsResponse, error) {
+	digests := repairResponsesFromProto(req.GetDigests())
+
+	results, err := s.server.CompareDigests(ctx, req.GetIndex(), req.GetShard(), digests)
+	if err != nil {
+		return nil, replicationErrorToGRPC(err)
+	}
+
+	return &pb.CompareDigestsResponse{Digests: repairResponsesToProto(results)}, nil
+}
+
 func (s *ReplicationService) OverwriteObjects(ctx context.Context, req *pb.OverwriteObjectsRequest) (*pb.OverwriteObjectsResponse, error) {
 	vobjs, err := shared.IndicesPayloads.VersionedObjectList.Unmarshal(req.GetVobjectsData())
 	if err != nil {
@@ -270,6 +281,20 @@ func simpleResponseToProto(r *replica.SimpleResponse) *pb.SimpleReplicaResponse 
 		}
 	}
 	return &pb.SimpleReplicaResponse{Errors: errs}
+}
+
+func repairResponsesFromProto(in []*pb.RepairResponse) []types.RepairResponse {
+	out := make([]types.RepairResponse, len(in))
+	for i, r := range in {
+		out[i] = types.RepairResponse{
+			ID:         r.GetId(),
+			Version:    r.GetVersion(),
+			UpdateTime: r.GetUpdateTime(),
+			Err:        r.GetErr(),
+			Deleted:    r.GetDeleted(),
+		}
+	}
+	return out
 }
 
 func repairResponsesToProto(results []types.RepairResponse) []*pb.RepairResponse {

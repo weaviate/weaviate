@@ -323,6 +323,65 @@ func (_c *MockShardLike_AnalyzeObject_Call) RunAndReturn(run func(*storobj.Objec
 	return _c
 }
 
+// CompareDigests provides a mock function with given fields: ctx, sourceDigests
+func (_m *MockShardLike) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+	ret := _m.Called(ctx, sourceDigests)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompareDigests")
+	}
+
+	var r0 []types.RepairResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []types.RepairResponse) ([]types.RepairResponse, error)); ok {
+		return rf(ctx, sourceDigests)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []types.RepairResponse) []types.RepairResponse); ok {
+		r0 = rf(ctx, sourceDigests)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]types.RepairResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []types.RepairResponse) error); ok {
+		r1 = rf(ctx, sourceDigests)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_CompareDigests_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompareDigests'
+type MockShardLike_CompareDigests_Call struct {
+	*mock.Call
+}
+
+// CompareDigests is a helper method to define mock.On call
+//   - ctx context.Context
+//   - sourceDigests []types.RepairResponse
+func (_e *MockShardLike_Expecter) CompareDigests(ctx interface{}, sourceDigests interface{}) *MockShardLike_CompareDigests_Call {
+	return &MockShardLike_CompareDigests_Call{Call: _e.mock.On("CompareDigests", ctx, sourceDigests)}
+}
+
+func (_c *MockShardLike_CompareDigests_Call) Run(run func(ctx context.Context, sourceDigests []types.RepairResponse)) *MockShardLike_CompareDigests_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]types.RepairResponse))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_CompareDigests_Call) Return(_a0 []types.RepairResponse, _a1 error) *MockShardLike_CompareDigests_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockShardLike_CompareDigests_Call) RunAndReturn(run func(context.Context, []types.RepairResponse) ([]types.RepairResponse, error)) *MockShardLike_CompareDigests_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ConvertQueue provides a mock function with given fields: targetVector
 func (_m *MockShardLike) ConvertQueue(targetVector string) error {
 	ret := _m.Called(targetVector)
@@ -2750,54 +2809,6 @@ func (_c *MockShardLike_RequantizeIndex_Call) Return(_a0 error) *MockShardLike_R
 }
 
 func (_c *MockShardLike_RequantizeIndex_Call) RunAndReturn(run func(context.Context, string) error) *MockShardLike_RequantizeIndex_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// SetAsyncReplicationState provides a mock function with given fields: ctx, _a1, enabled
-func (_m *MockShardLike) SetAsyncReplicationState(ctx context.Context, _a1 AsyncReplicationConfig, enabled bool) error {
-	ret := _m.Called(ctx, _a1, enabled)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetAsyncReplicationState")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, AsyncReplicationConfig, bool) error); ok {
-		r0 = rf(ctx, _a1, enabled)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_SetAsyncReplicationState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAsyncReplicationState'
-type MockShardLike_SetAsyncReplicationState_Call struct {
-	*mock.Call
-}
-
-// SetAsyncReplicationState is a helper method to define mock.On call
-//   - ctx context.Context
-//   - _a1 AsyncReplicationConfig
-//   - enabled bool
-func (_e *MockShardLike_Expecter) SetAsyncReplicationState(ctx interface{}, _a1 interface{}, enabled interface{}) *MockShardLike_SetAsyncReplicationState_Call {
-	return &MockShardLike_SetAsyncReplicationState_Call{Call: _e.mock.On("SetAsyncReplicationState", ctx, _a1, enabled)}
-}
-
-func (_c *MockShardLike_SetAsyncReplicationState_Call) Run(run func(ctx context.Context, _a1 AsyncReplicationConfig, enabled bool)) *MockShardLike_SetAsyncReplicationState_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(AsyncReplicationConfig), args[2].(bool))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_SetAsyncReplicationState_Call) Return(_a0 error) *MockShardLike_SetAsyncReplicationState_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_SetAsyncReplicationState_Call) RunAndReturn(run func(context.Context, AsyncReplicationConfig, bool) error) *MockShardLike_SetAsyncReplicationState_Call {
 	_c.Call.Return(run)
 	return _c
 }
