@@ -54,7 +54,7 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 	}
 
 	// update the posting map in-memory cache and persist the vector IDs
-	err = h.PostingMap.SetVectorIDs(ctx, postingID, p)
+	err = h.setPostingVectorIDs(ctx, postingID, p)
 	if err != nil {
 		return errors.Wrapf(err, "failed to set vector IDs for posting %d", postingID)
 	}
