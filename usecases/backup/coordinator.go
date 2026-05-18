@@ -47,12 +47,13 @@ var (
 )
 
 const (
-	_BookingPeriod      = time.Second * 20
-	_TimeoutNodeDown    = 7 * time.Minute
-	_TimeoutQueryStatus = 5 * time.Second
-	_TimeoutCanCommit   = 8 * time.Second
-	_NextRoundPeriod    = 10 * time.Second
-	_MaxNumberConns     = 16
+	_BookingPeriod          = time.Second * 20
+	_TimeoutNodeDown        = 7 * time.Minute
+	_TimeoutQueryStatus     = 5 * time.Second
+	_TimeoutCanCommit       = 8 * time.Second
+	_NextRoundPeriod        = 10 * time.Second
+	_MaxNumberConns         = 16
+	_ShutdownPutMetaTimeout = 30 * time.Second
 )
 
 type nodeMap map[string]*backup.NodeDescriptor
@@ -119,6 +120,13 @@ type coordinator struct {
 	descriptor   *backup.DistributedBackupDescriptor
 	shardSyncChan
 
+	// shutdownCtx is cancelled when the node is shutting down so any in-flight
+	// DBRO can abort participants and persist a cancelled status before exit.
+	shutdownCtx context.Context
+	// inflight tracks the background goroutine driving a DBRO so the scheduler
+	// can wait for it to drain during shutdown.
+	inflight sync.WaitGroup
+
 	// timeouts
 	timeoutNodeDown    time.Duration
 	timeoutQueryStatus time.Duration
@@ -134,6 +142,7 @@ func newCoordinator(
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
+	shutdownCtx context.Context,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -143,6 +152,7 @@ func newCoordinator(
 		nodeResolver:       nodeResolver,
 		backends:           backends,
 		Participants:       make(map[string]participantStatus, 16),
+		shutdownCtx:        shutdownCtx,
 		timeoutNodeDown:    _TimeoutNodeDown,
 		timeoutQueryStatus: _TimeoutQueryStatus,
 		timeoutCanCommit:   _TimeoutCanCommit,
@@ -233,12 +243,17 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		BaseBackupID: req.BaseBackupID,
 	}
 
+	c.inflight.Add(1)
 	f := func() {
+		defer c.inflight.Done()
 		defer c.lastOp.reset()
-		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes, false)
+		c.commit(c.shutdownCtx, &statusReq, nodes, false)
+		// PutMeta must use a fresh context: shutdownCtx may already be cancelled,
+		// and we still want to persist the final (possibly Cancelled) descriptor.
+		putCtx, putCancel := context.WithTimeout(context.Background(), _ShutdownPutMetaTimeout)
+		defer putCancel()
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
+		if err := cstore.PutMeta(putCtx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -306,7 +321,9 @@ func (c *coordinator) Restore(
 	}
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
+	c.inflight.Add(1)
 	g := func() {
+		defer c.inflight.Done()
 		defer c.lastOp.reset()
 		ctx := context.Background()
 
@@ -334,7 +351,7 @@ func (c *coordinator) Restore(
 
 		// Time commit polling phase (waits for all nodes to finish staging)
 		commitStart := time.Now()
-		c.commit(ctx, &statusReq, nodes, true)
+		c.commit(c.shutdownCtx, &statusReq, nodes, true)
 		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
 		// Check storage for cancellation before transitioning to Finalizing.
@@ -367,7 +384,7 @@ func (c *coordinator) Restore(
 		if c.descriptor.Status == backup.Finalizing {
 			// Time schema apply phase (Raft commits for each class)
 			schemaApplyStart := time.Now()
-			c.restoreClasses(ctx, schema, req)
+			c.restoreClasses(c.shutdownCtx, schema, req)
 			c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
 
 			// Set final status - restoreClasses may have set Failed, otherwise set Success
@@ -381,8 +398,12 @@ func (c *coordinator) Restore(
 		// CancelRestore rejects requests when status is Finalizing (see scheduler.go),
 		// so CANCELLED cannot be written to storage during schema apply.
 
+		// PutMeta must use a fresh context: shutdownCtx may already be cancelled,
+		// and we still want to persist the final (possibly Cancelled) descriptor.
+		putCtx, putCancel := context.WithTimeout(context.Background(), _ShutdownPutMetaTimeout)
+		defer putCancel()
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
-		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
+		if err := store.PutMeta(putCtx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
@@ -644,13 +665,22 @@ func (c *coordinator) commit(ctx context.Context,
 		}
 
 		select {
+		case <-ctx.Done():
+			// Node is shutting down. Mark any participant we haven't heard back
+			// from yet as cancelled so the descriptor flips to Cancelled and the
+			// abortAll below fires for the full participant set.
+			for node := range node2Host {
+				st := c.Participants[node]
+				st.Status = backup.Cancelled
+				st.Reason = "node shutting down: " + ctx.Err().Error()
+				c.Participants[node] = st
+				delete(node2Host, node)
+				nFailures++
+			}
+			canContinue = false
+			continue
 		case <-time.After(retryAfter):
 			// continue with polling
-		case <-ctx.Done():
-			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: context cancelled")
-			c.descriptor.Status = backup.Cancelled
-			c.descriptor.Error = "restore cancelled: context cancelled"
-			return
 		}
 		retryAfter = c.timeoutNextRound
 		nFailures += c.queryAll(ctx, req, node2Host)
@@ -658,6 +688,8 @@ func (c *coordinator) commit(ctx context.Context,
 	}
 	if !toleratePartialFailure && nFailures > 0 {
 		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
+		// abortAll uses a fresh context: ctx may already be cancelled by shutdown
+		// and we still need the abort RPCs to go out.
 		c.abortAll(context.Background(), req, node2Addr)
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()

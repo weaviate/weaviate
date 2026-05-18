@@ -19,12 +19,14 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -69,6 +71,15 @@ type Scheduler struct {
 	// namespaced dynamic one. Build it with rbac.StaticAPIKeyUsers, so this list
 	// is the same one the nodes strip with.
 	staticAPIKeyUsers []string
+
+	// shutdownCancel cancels the context shared by the backupper and restorer
+	// coordinators; firing it makes any in-flight backup abort its participants
+	// and persist a Cancelled descriptor before exiting.
+	shutdownCancel context.CancelFunc
+	shutdownOnce   sync.Once
+	// drained closes once both coordinators' in-flight goroutines have exited.
+	// Populated by Shutdown, consumed by Wait.
+	drained chan struct{}
 }
 
 // NewScheduler creates a new scheduler with two coordinators
@@ -84,6 +95,7 @@ func NewScheduler(
 	staticAPIKeyUsers []string,
 	logger logrus.FieldLogger,
 ) *Scheduler {
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	m := &Scheduler{
 		logger:            logger,
 		authorizer:        authorizer,
@@ -92,20 +104,50 @@ func NewScheduler(
 		roleLister:        roleLister,
 		schema:            schema,
 		staticAPIKeyUsers: staticAPIKeyUsers,
+		shutdownCancel:    shutdownCancel,
+		drained:           make(chan struct{}),
 		backupper: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends,
+			logger, nodeResolver, backends, shutdownCtx,
 		),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends,
+			logger, nodeResolver, backends, shutdownCtx,
 		),
 	}
 	return m
+}
+
+// Shutdown signals any in-flight backup to abort its participants and persist a
+// Cancelled descriptor. It returns immediately; the actual drain happens in a
+// background goroutine. Use Wait to block until the drain completes.
+//
+// Safe to call multiple times; only the first call has an effect.
+func (s *Scheduler) Shutdown() {
+	s.shutdownOnce.Do(func() {
+		s.shutdownCancel()
+		enterrors.GoWrapper(func() {
+			defer close(s.drained)
+			s.backupper.inflight.Wait()
+			s.restorer.inflight.Wait()
+		}, s.logger)
+	})
+}
+
+// Wait blocks until in-flight backup goroutines have exited (i.e. aborts have
+// been sent and the final Cancelled descriptor has been persisted), or until
+// the timeout elapses.
+func (s *Scheduler) Wait(timeout time.Duration) {
+	select {
+	case <-s.drained:
+	case <-time.After(timeout):
+		s.logger.WithField("action", "backup_scheduler_shutdown").
+			Warn("timeout waiting for in-flight backup/restore operations to drain")
+	}
 }
 
 func (s *Scheduler) CleanupUnfinishedBackups(ctx context.Context) {

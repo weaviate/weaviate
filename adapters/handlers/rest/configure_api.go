@@ -1562,6 +1562,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// wait for export drain happens in ServerShutdown.
 		exportScheduler.StartShutdown()
 		appState.ExportParticipant.StartShutdown()
+		// Kick off backup shutdown so any in-flight DBRO starts aborting its
+		// participants now, while the cluster client is fully alive. The drain
+		// is awaited in ServerShutdown below.
+		backupScheduler.Shutdown()
 		batchDrain()
 	}
 
@@ -1668,6 +1672,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				WithField("action", "shutdown modules").
 				Errorf("failed to gracefully shutdown")
 		}
+
+		// Block until the in-flight backup/restore drain (kicked off in
+		// PreServerShutdown) finishes. Placed last so it overlaps with the rest of the teardown.
+		backupScheduler.Wait(30 * time.Second)
 	}
 
 	startGrpcServer(grpcServer, appState)
