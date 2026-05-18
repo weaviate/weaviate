@@ -437,6 +437,24 @@ func TestPostingMapEncoding(t *testing.T) {
 		require.True(t, scheme >= schemeID2Byte && scheme <= schemeID8Byte)
 	})
 
+	t.Run("AddVector avoids large default backing buffer", func(t *testing.T) {
+		var data PackedPostingMetadata
+
+		data = data.AddVector(12345, 1)
+
+		require.Equal(t, 8, len(data))
+		require.LessOrEqual(t, cap(data), 16)
+	})
+
+	t.Run("Compact trims spare capacity", func(t *testing.T) {
+		data := PackedPostingMetadata(make([]byte, 8, 128))
+
+		compact := data.Compact()
+
+		require.Equal(t, len(data), len(compact))
+		require.Equal(t, len(compact), cap(compact))
+	})
+
 	t.Run("AddVector with zero ID", func(t *testing.T) {
 		var data PackedPostingMetadata
 

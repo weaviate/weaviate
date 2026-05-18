@@ -130,6 +130,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	for _, vector := range posting {
 		pm = pm.AddVector(vector.ID(), vector.Version())
 	}
+	pm = pm.Compact()
 
 	existing, err := v.bucket.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
@@ -396,7 +397,7 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 		currentBytesPerValue := currentScheme.BytesPerValue()
 		newSize := headerSize + int(newCount)*(currentBytesPerValue+1)
 		if cap(p) < newSize {
-			newP := bufferPool.Get(len(p), newSize)
+			newP := bufferPool.Get(len(p), growPackedPostingMetadataCapacity(cap(p), newSize))
 			copy(newP, p)
 			bufferPool.Put(p)
 			p = newP
@@ -448,6 +449,33 @@ func (p PackedPostingMetadata) AddVector(vectorID uint64, version VectorVersion)
 	bufferPool.Put(p)
 
 	return newData
+}
+
+func (p PackedPostingMetadata) Compact() PackedPostingMetadata {
+	if len(p) == cap(p) {
+		return p
+	}
+
+	compact := make(PackedPostingMetadata, len(p))
+	copy(compact, p)
+	bufferPool.Put(p)
+
+	return compact
+}
+
+// growPackedPostingMetadataCapacity calculates a new capacity for a PackedPostingMetadata
+// buffer when adding a new vector ID would exceed the current capacity.
+func growPackedPostingMetadataCapacity(current, needed int) int {
+	if current <= 0 {
+		return needed
+	}
+
+	growth := current / 4
+	if growth < 64 {
+		growth = 64
+	}
+
+	return max(needed, current+growth)
 }
 
 // Get retrieves the vector IDs for the given posting ID.
