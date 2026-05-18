@@ -103,9 +103,9 @@ func TestNamespaces_MCP(t *testing.T) {
 
 	// On NS-enabled clusters the namespace-prefix validator rejects qualified
 	// input from a namespaced principal with "is not a valid class name".
-	// Only the tools that resolve at the MCP handler (hybrid, get-config) see
-	// this validator. Upsert and tenants-list resolve in deeper layers and are
-	// covered by the namespace REST/gRPC tests.
+	// Hybrid and get-config see the validator at the MCP handler; upsert and
+	// tenants-list see it through BatchManager.AddObjects / GetConsistentTenants
+	// respectively. All four are covered here to lock the MCP-wrapped error.
 	t.Run("namespaced principal, own-namespace qualified input is rejected", func(t *testing.T) {
 		var hybridResp *search.QueryHybridResp
 		err := helper.CallToolOnce(t.Context(), t, mcpToolHybrid, &search.QueryHybridArgs{
@@ -119,6 +119,22 @@ func TestNamespaces_MCP(t *testing.T) {
 		var cfg *read.GetCollectionConfigResp
 		err = helper.CallToolOnce(t.Context(), t, mcpToolGetConfig,
 			&read.GetCollectionConfigArgs{CollectionName: qualNs1}, &cfg, user1Key)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a valid class name")
+
+		var upsertResp *create.UpsertObjectResp
+		err = helper.CallToolOnce(t.Context(), t, mcpToolUpsert, &create.UpsertObjectArgs{
+			CollectionName: qualNs1,
+			Objects: []create.ObjectToUpsert{
+				{Properties: map[string]any{"title": "Tenet"}},
+			},
+		}, &upsertResp, user1Key)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a valid class name")
+
+		var tenantsResp *read.GetTenantsResp
+		err = helper.CallToolOnce(t.Context(), t, mcpToolGetTenants,
+			&read.GetTenantsArgs{CollectionName: qualNs1}, &tenantsResp, user1Key)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
@@ -138,6 +154,22 @@ func TestNamespaces_MCP(t *testing.T) {
 			&read.GetCollectionConfigArgs{CollectionName: qualNs2}, &cfg, user1Key)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
+
+		var upsertResp *create.UpsertObjectResp
+		err = helper.CallToolOnce(t.Context(), t, mcpToolUpsert, &create.UpsertObjectArgs{
+			CollectionName: qualNs2,
+			Objects: []create.ObjectToUpsert{
+				{Properties: map[string]any{"title": "Tenet"}},
+			},
+		}, &upsertResp, user1Key)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a valid class name")
+
+		var tenantsResp *read.GetTenantsResp
+		err = helper.CallToolOnce(t.Context(), t, mcpToolGetTenants,
+			&read.GetTenantsArgs{CollectionName: qualNs2}, &tenantsResp, user1Key)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
 
 	t.Run("global admin, qualified input succeeds", func(t *testing.T) {
@@ -147,17 +179,35 @@ func TestNamespaces_MCP(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, cfg.Collections, 1)
 		assert.Equal(t, qualNs1, cfg.Collections[0].Class)
+
+		var hybridResp *search.QueryHybridResp
+		err = helper.CallToolOnce(t.Context(), t, mcpToolHybrid, &search.QueryHybridArgs{
+			CollectionName: qualNs1,
+			Query:          "Inception",
+			Alpha:          &alpha0,
+		}, &hybridResp, adminKey)
+		require.NoError(t, err)
+		require.NotEmpty(t, hybridResp.Results)
 	})
 
 	// Global principals carry no namespace, so the resolver doesn't qualify
 	// "Movies" and the equality filter against the schema (which stores
-	// "customer1:Movies") returns the existing "not found" path.
+	// "customer1:Movies") returns the existing "not found" path. Hybrid hits
+	// the traverser, which surfaces a class-missing error.
 	t.Run("global admin, short input does not resolve to namespaced class", func(t *testing.T) {
 		var cfg *read.GetCollectionConfigResp
 		err := helper.CallToolOnce(t.Context(), t, mcpToolGetConfig,
 			&read.GetCollectionConfigArgs{CollectionName: short}, &cfg, adminKey)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
+
+		var hybridResp *search.QueryHybridResp
+		err = helper.CallToolOnce(t.Context(), t, mcpToolHybrid, &search.QueryHybridArgs{
+			CollectionName: short,
+			Query:          "Inception",
+			Alpha:          &alpha0,
+		}, &hybridResp, adminKey)
+		require.Error(t, err)
 	})
 
 	t.Run("alias resolves through hybrid search", func(t *testing.T) {
@@ -167,14 +217,16 @@ func TestNamespaces_MCP(t *testing.T) {
 			helper.DeleteAliasWithAuthz(t, "customer1:"+alias, helper.CreateAuth(adminKey))
 		})
 
+		var hybridResp *search.QueryHybridResp
 		retryOnAliasLag(t, func() error {
-			var hybridResp *search.QueryHybridResp
 			return helper.CallToolOnce(t.Context(), t, mcpToolHybrid, &search.QueryHybridArgs{
 				CollectionName: alias,
 				Query:          "Inception",
 				Alpha:          &alpha0,
 			}, &hybridResp, user1Key)
 		})
+		require.NotNil(t, hybridResp)
+		require.NotEmpty(t, hybridResp.Results)
 	})
 
 	// filterext.Parse rejects reference-path filters (path length > 1) on

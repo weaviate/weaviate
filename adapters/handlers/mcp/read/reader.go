@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/objects"
-	ucschema "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type schemaReader interface {
@@ -41,13 +41,13 @@ type WeaviateReader struct {
 	auth.Auth
 
 	schemaReader      schemaReader
-	schemaManager     *ucschema.Manager
+	schemaManager     namespacing.SchemaManager
 	namespacesEnabled bool
 	objectsManager    objectsManager
 	logger            logrus.FieldLogger
 }
 
-func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, schemaManager *ucschema.Manager, namespacesEnabled bool, objectsManager objectsManager, logger logrus.FieldLogger) *WeaviateReader {
+func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, schemaManager namespacing.SchemaManager, namespacesEnabled bool, objectsManager objectsManager, logger logrus.FieldLogger) *WeaviateReader {
 	return &WeaviateReader{
 		schemaReader:      schemaReader,
 		schemaManager:     schemaManager,

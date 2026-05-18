@@ -18,14 +18,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type WeaviateSearcher struct {
 	auth.Auth
 
 	traverser         traverser
-	schemaManager     *schema.Manager
+	schemaManager     namespacing.SchemaManager
 	namespacesEnabled bool
 	logger            logrus.FieldLogger
 }
@@ -34,7 +34,7 @@ type traverser interface {
 	GetClass(ctx context.Context, principal *models.Principal, params dto.GetParams) ([]any, error)
 }
 
-func NewWeaviateSearcher(auth *auth.Auth, traverser traverser, schemaManager *schema.Manager, namespacesEnabled bool, logger logrus.FieldLogger) *WeaviateSearcher {
+func NewWeaviateSearcher(auth *auth.Auth, traverser traverser, schemaManager namespacing.SchemaManager, namespacesEnabled bool, logger logrus.FieldLogger) *WeaviateSearcher {
 	return &WeaviateSearcher{
 		traverser:         traverser,
 		schemaManager:     schemaManager,

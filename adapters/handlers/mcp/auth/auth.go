@@ -41,6 +41,17 @@ func NewAuth(state *state.State) *Auth {
 	}
 }
 
+// NewAuthFromComponents builds an Auth directly from its dependencies. Used by
+// MCP handler tests to inject a fake authComposer and authorizer without
+// standing up a full *state.State.
+func NewAuthFromComponents(allowAnonymousAccess bool, authComposer composer.TokenFunc, authorizer authorization.Authorizer) *Auth {
+	return &Auth{
+		allowAnonymousAccess: allowAnonymousAccess,
+		authComposer:         authComposer,
+		authorizer:           authorizer,
+	}
+}
+
 func (a *Auth) Authorize(ctx context.Context, req mcp.CallToolRequest, verb string) (*models.Principal, error) {
 	principal, err := a.principalFromRequest(req)
 	if err != nil {
