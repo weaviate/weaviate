@@ -114,9 +114,14 @@ func TestNamespaces_TenantPinsToHomeNode(t *testing.T) {
 		}, helper.CreateAuth(userKey))
 		waitForTenantStatus(t, ns+":Books", "tenantA", models.TenantActivityStatusHOT, adminKey)
 
-		home, other := homeNodeShards(t, ns+":Books", homeNode, adminKey)
-		require.Len(t, home, len(tenants))
-		assert.Zero(t, other, "reactivated tenant shard must remain on home_node")
+		// The schema status flips to HOT as soon as the apply commits, but the
+		// shard download from S3 and the index re-registration are async. Poll
+		// the /nodes endpoint until the unfrozen shard is back on home_node.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			home, other := homeNodeShards(t, ns+":Books", homeNode, adminKey)
+			assert.Len(c, home, len(tenants))
+			assert.Zero(c, other, "reactivated tenant shard must remain on home_node")
+		}, 60*time.Second, 500*time.Millisecond, "unfrozen tenant never returned to home_node %q", homeNode)
 	})
 }
 

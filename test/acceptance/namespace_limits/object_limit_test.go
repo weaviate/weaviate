@@ -24,12 +24,14 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// insertItem POSTs one object and returns the raw server error.
-func insertItem(t *testing.T, namespacedClass, key string, i int) error {
+// insertItem POSTs one object and returns the raw server error. The class
+// is the short (unqualified) name; the server qualifies it via the
+// namespaced principal's namespace.
+func insertItem(t *testing.T, class, key string, i int) error {
 	t.Helper()
 	obj := &models.Object{
 		ID:         strfmt.UUID(uuid.NewString()),
-		Class:      namespacedClass,
+		Class:      class,
 		Properties: map[string]any{"i": i},
 	}
 	return helper.CreateObjectAuth(t, obj, key)
@@ -39,11 +41,11 @@ func insertItem(t *testing.T, namespacedClass, key string, i int) error {
 // USAGE_LIMIT_EXCEEDED payload. The loop tolerates a brief overshoot above
 // objectCap: CountAsync excludes the memtable, so writes between two flush
 // cycles are invisible to the cap check. maxInserts bounds the overshoot.
-func fillUntilQuota(t *testing.T, namespacedClass, key string) {
+func fillUntilQuota(t *testing.T, class, key string) {
 	t.Helper()
 	const maxInserts = 200
 	for i := 0; i < maxInserts; i++ {
-		err := insertItem(t, namespacedClass, key, i)
+		err := insertItem(t, class, key, i)
 		if err == nil {
 			continue
 		}
@@ -90,11 +92,11 @@ func TestObjectLimitEnforcedPerNamespace(t *testing.T) {
 	})
 
 	t.Run("alpha fills to its own cap", func(t *testing.T) {
-		fillUntilQuota(t, nsA+":Items", userA)
+		fillUntilQuota(t, "Items", userA)
 	})
 
 	t.Run("beta is unaffected by alpha's cap", func(t *testing.T) {
-		require.NoError(t, insertItem(t, nsB+":Items", userB, 0),
+		require.NoError(t, insertItem(t, "Items", userB, 0),
 			"namespace beta should still have room — cap is per namespace")
 	})
 }
@@ -117,7 +119,7 @@ func TestObjectLimitFromNonHomeNode(t *testing.T) {
 	helper.CreateClassAuth(t, &models.Class{Class: "Items"}, userKey)
 	t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":Items", adminKey) })
 
-	fillUntilQuota(t, ns+":Items", userKey)
+	fillUntilQuota(t, "Items", userKey)
 }
 
 // TestUpdatesAtQuotaRejected regression-guards the documented behaviour
@@ -145,7 +147,7 @@ func TestUpdatesAtQuotaRejected(t *testing.T) {
 		Properties: map[string]any{"i": 0},
 	}, userKey))
 
-	fillUntilQuota(t, ns+":Items", userKey)
+	fillUntilQuota(t, "Items", userKey)
 
 	_, err := helper.Client(t).Objects.ObjectsClassPut(
 		objects.NewObjectsClassPutParams().

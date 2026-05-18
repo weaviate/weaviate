@@ -220,8 +220,9 @@ func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, princip
 	}
 
 	return nsops.NewGetNamespaceOK().WithPayload(&models.Namespace{
-		Name:  got[0].Name,
-		State: string(got[0].State),
+		Name:     got[0].Name,
+		HomeNode: got[0].HomeNode,
+		State:    string(got[0].State),
 	})
 }
 

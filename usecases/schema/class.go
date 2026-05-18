@@ -206,8 +206,20 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, err
 	}
+	shardingCfg := cls.ShardingConfig.(shardingcfg.Config)
+	if h.config.Namespaces.Enabled && !schema.MultiTenancyEnabled(cls) {
+		// Namespaced classes pin to a single home_node; one shard per class
+		// matches the candidate list. Without this cap, DesiredCount stays at
+		// nodeCount (set by the parser) and initPhysical creates duplicate
+		// shards on the same node.
+		shardingCfg.DesiredCount = len(candidates)
+		shardingCfg.DesiredVirtualCount = shardingCfg.DesiredCount * shardingCfg.VirtualPerPhysical
+		shardingCfg.ActualCount = shardingCfg.DesiredCount
+		shardingCfg.ActualVirtualCount = shardingCfg.DesiredVirtualCount
+		cls.ShardingConfig = shardingCfg
+	}
 	shardState, err := sharding.InitState(cls.Class,
-		cls.ShardingConfig.(shardingcfg.Config),
+		shardingCfg,
 		h.clusterState.LocalName(), candidates, cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
