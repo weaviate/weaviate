@@ -211,8 +211,8 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 // [distributedtask.SchemaMutationDetector] for the reindex namespace.
 // Called from the schema FSM's UpdateProperty apply path under
 // [Manager.mu] to reject external property mutations while a reindex
-// migration on the same (collection, property) is STARTED or
-// FINALIZING.
+// migration on the same (collection, property) is in any non-terminal
+// state (STARTED, PREPARING, or SWAPPING).
 //
 // Motivating failure mode: a `change-tokenization` migration spawns
 // separate per-shard sub-tasks for the searchable and filterable

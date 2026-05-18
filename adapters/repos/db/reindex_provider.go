@@ -50,7 +50,7 @@ import (
 //     OnGroupCompleted fire to run the swap phase (RunSwapOnShard) on each
 //     local shard, followed by OnTaskCompleted's cluster-wide schema flip.
 //     No shard serves new data until ALL shards are ready. This is where
-//     the FINALIZING-window tokenization overlay lives.
+//     the SWAPPING-window tokenization overlay lives.
 //
 //   - "Format-only" migrations don't change query semantics — they only
 //     change the on-disk bucket format. enable-rangeable, repair-rangeable,
@@ -767,17 +767,18 @@ func (p *ReindexProvider) failUnit(
 // [distributedtask.RehydratePermanentRejection] in
 // applyDistributedTaskCommand.
 //
-// As a safety net during rolling upgrades, we keep the legacy
-// substring matching as a fallback for the case where an old leader
-// (pre-sentinel) returns the legacy plain-text error to a new
-// follower. Whenever the fallback fires, we log at Warn level so
+// As a safety net during rolling upgrades, we keep a substring-matching
+// fallback for the case where a pre-sentinel peer (running an older
+// build that returns the plain-text error rather than the typed
+// sentinel) is the leader and a newer follower receives its rejection
+// over RPC. Whenever the fallback fires, we log at Warn level so
 // operators can confirm in prod whether the sentinel path has fully
 // rolled out.
 //
 // TODO(v1.40): remove the substring fallback below. The sentinel
 // path ships in v1.38; once the supported rolling-upgrade window
 // can no longer include a pre-sentinel binary (i.e. the v1.40
-// cycle), the legacy markers and the operator-Warn become dead
+// cycle), the substring markers and the operator-Warn become dead
 // code. The errors.Is check above is the steady-state.
 //
 // The unmarshal-error path in Manager.RecordUnitCompletion (a malformed
@@ -796,10 +797,10 @@ func isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
 		return true
 	}
 
-	// Legacy fallback for mixed-version clusters: substring match
-	// against the historical phrasings. If this fires, we want a Warn
-	// log so an operator can see that the sentinel path isn't (yet)
-	// fully rolled out in their cluster.
+	// Pre-sentinel fallback for mixed-version clusters: substring match
+	// against the wire phrasings used by older peers. If this fires, we
+	// want a Warn log so an operator can see that the sentinel path
+	// isn't (yet) fully rolled out in their cluster.
 	msg := err.Error()
 	// All four substrings come from cluster/distributedtask/manager.go:
 	//   "task %s/%s/%d is no longer running"          → ErrTaskNotRunning
@@ -815,7 +816,7 @@ func isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
 		if strings.Contains(msg, marker) {
 			if logger != nil {
 				logger.WithField("matchedMarker", marker).WithField("recorderError", msg).
-					Warn("reindex provider: permanent-rejection detected via legacy substring fallback; " +
+					Warn("reindex provider: permanent-rejection detected via pre-sentinel substring fallback; " +
 						"a peer is likely running a pre-sentinel build")
 			}
 			return true
@@ -911,10 +912,9 @@ func (p *ReindexProvider) persistRecoveryRecord(
 //     called per-task (to fire OnAfterLsmInit and register double-write
 //     callbacks) before any phase work.
 //
-// sawContextCanceled mirrors the legacy error-aggregation contract —
-// true iff a setup error wraps context.Canceled (caller propagates
-// up via the context.Canceled chain so the scheduler's transient-vs-
-// permanent ack routing fires correctly).
+// sawContextCanceled is true iff a setup error wraps context.Canceled.
+// The caller propagates this up via the context.Canceled chain so the
+// scheduler's transient-vs-permanent ack routing fires correctly.
 func (p *ReindexProvider) resolveUnitForPhase(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -1001,10 +1001,9 @@ func (p *ReindexProvider) resolveUnitForPhase(
 // callbacks before PrepareOnShard touches any bucket state.
 //
 // prepOK is true iff every task on this shard reached merged.mig
-// without error. Per-task error handling is preserved from the legacy
-// inline loop: a failure on one task does NOT abort the others (best-
-// effort PREP), but if ANY task failed prepOK=false and the caller
-// MUST skip OVERLAY+SWAP for this shard.
+// without error. A failure on one task does NOT abort the others
+// (best-effort PREP), but if ANY task failed prepOK=false and the
+// caller MUST skip OVERLAY+SWAP for this shard.
 //
 // errs and sawContextCanceled feed the outer aggregator and the
 // scheduler's transient-vs-permanent ack routing.
@@ -1059,7 +1058,7 @@ func (p *ReindexProvider) runShardPrepPhase(
 // buckets still hold OLD data.
 //
 // Partial-success (some swapped, some failed) leaves the overlay in
-// place — queries during the FINALIZING window get the NEW
+// place — queries during the SWAPPING window get the NEW
 // tokenization, which matches the swapped buckets; the un-swapped
 // buckets remain at OLD tokenization, which the per-shard overlay
 // keeps the analyzer aligned with for the swapped subset. Operator
@@ -1077,7 +1076,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 	anySwapped := false
 
 	// Phase 2: set the per-shard tokenization overlay before the
-	// atomic swap so queries observing the FINALIZING window get the
+	// atomic swap so queries observing the SWAPPING window get the
 	// correct analyzer alignment for swapped buckets.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
 	if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
@@ -1205,11 +1204,11 @@ func (p *ReindexProvider) runPerUnitPhase(
 // time for semantic migrations under the new two-phase RAFT barrier
 // model; see docs/proposals/prep_swap_barrier.md):
 //
-//   - Task.NeedsPrepBarrier == false (legacy / format-only):
-//     run the full per-shard PREP + OVERLAY + SWAP body inline. This
-//     preserves the pre-barrier behavior for format-only migrations
-//     (where this whole callback is a no-op) and for any provider /
-//     caller that hasn't opted into the barrier yet.
+//   - Task.NeedsPrepBarrier == false (format-only):
+//     run the full per-shard PREP + OVERLAY + SWAP body inline.
+//     Used for format-only migrations (where this whole callback is a
+//     no-op anyway) and for any provider / caller that does not opt
+//     into the barrier.
 //   - Task.NeedsPrepBarrier == true (new, semantic migrations):
 //     run the PREP phase ONLY. The scheduler emits
 //     RecordDistributedTaskPrepCompleteAck after this returns; the
@@ -1267,7 +1266,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	if task.NeedsPrepBarrier {
 		logger.Info("reindex provider: OnGroupCompleted — starting PREP phase (barrier mode; SWAP deferred to OnSwapRequested after cluster-wide PrepCompleteAck barrier)")
 	} else {
-		logger.Info("reindex provider: OnGroupCompleted — starting swap phase for semantic migration (legacy, no barrier)")
+		logger.Info("reindex provider: OnGroupCompleted — starting swap phase for semantic migration (no-barrier path)")
 	}
 
 	className := entschema.ClassName(payload.Collection)
@@ -1289,12 +1288,13 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	//      dirs aren't renamed here; that's deferred to next startup
 	//      via OnBeforeLsmInit's recoverRuntimeSwapBuckets path.
 	//
-	// Under barrier=false (legacy), all three phases run inside this
-	// single OnGroupCompleted callback on each node. Under barrier=true,
+	// Under barrier=false, all three phases run inside this single
+	// OnGroupCompleted callback on each node. Under barrier=true,
 	// phase 1 runs here; phases 2-3 run in OnSwapRequested after the
 	// cluster-wide PrepCompleteAck barrier transitions PREPARING to
-	// SWAPPING. The split is what closes the cross-replica stagger
-	// window at billion-scale (see docs/proposals/prep_swap_barrier.md).
+	// SWAPPING. The split bounds the cross-replica stagger window at
+	// billion-scale to RAFT propagation latency rather than per-node
+	// PREP duration (see docs/proposals/prep_swap_barrier.md).
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"OnGroupCompleted",
@@ -1305,15 +1305,15 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 
 // onGroupCompletedRunPhaseForUnit is the per-unit callback driven by
 // runPerUnitPhase for OnGroupCompleted. Encapsulates the
-// barrier-vs-legacy dispatch:
+// barrier-vs-non-barrier dispatch:
 //
 //   - Always runs PHASE 1 (PREP) via runShardPrepPhase. Idempotent at
 //     the merged.mig sentinel.
 //   - For barrier tasks: stops after PREP. OVERLAY+SWAP run in
 //     OnSwapRequested after the cluster-wide PrepCompleteAck barrier.
-//   - For legacy non-barrier tasks: continues with OVERLAY+SWAP
-//     (Phase 2 + 3) via runShardSwapPhase when PREP succeeded; logs
-//     loudly and skips OVERLAY+SWAP when PREP failed.
+//   - For non-barrier tasks: continues with OVERLAY+SWAP (Phase 2 + 3)
+//     via runShardSwapPhase when PREP succeeded; logs loudly and skips
+//     OVERLAY+SWAP when PREP failed.
 func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -1340,8 +1340,8 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	}
 
 	if !prepOK {
-		// Legacy mode + PREP failed: skip OVERLAY+SWAP entirely for
-		// this shard — the recovery path re-runs PREP on the next
+		// Non-barrier mode + PREP failed: skip OVERLAY+SWAP entirely
+		// for this shard — the recovery path re-runs PREP on the next
 		// OnGroupCompleted invocation. Logging is already loud
 		// (per-task error logs from runShardPrepPhase + the
 		// swap-INCOMPLETE log here).
@@ -1353,7 +1353,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 		return errs, sawContextCanceled
 	}
 
-	// Legacy mode + PREP succeeded: run OVERLAY+SWAP inline.
+	// Non-barrier mode + PREP succeeded: run OVERLAY+SWAP inline.
 	shardName := payload.UnitToShard[unitID]
 	_, swapErrs, swapCC := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
 	if len(swapErrs) > 0 {
@@ -1425,7 +1425,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
-	// Per-unit OVERLAY+SWAP loop. Mirrors the legacy OnGroupCompleted
+	// Per-unit OVERLAY+SWAP loop. Mirrors the non-barrier OnGroupCompleted
 	// loop's bottom half, but with PREP elided (it ran in the
 	// PREPARING phase and was acked cluster-wide before we got here).
 	// On cache miss (post-restart between PrepCompleteAck and SWAPPING
@@ -1883,9 +1883,9 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) error {
 	if p.schemaManager == nil {
-		// Defensive: legacy test setups constructed without a schema
-		// manager would have skipped the schema flip in the old
-		// strategy-side code too. Match that behavior.
+		// Defensive: tests can construct the provider without a schema
+		// manager; treat that as a no-op rather than a panic so those
+		// tests keep working.
 		return nil
 	}
 
@@ -1894,16 +1894,16 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		if payload.TargetTokenization == "" {
 			return fmt.Errorf("change-tokenization without targetTokenization in payload")
 		}
-		// No stale-replay guard needed: with the FINALIZING status (see
-		// [distributedtask.TaskStatusSwapping]), OnTaskCompleted only
-		// fires while the task is FINALIZING — never on an already-FINISHED
-		// task. The cluster-wide conflict check
-		// ([db.checkConcurrentReindex]) treats FINALIZING as in-flight,
-		// so a newer change-tokenization for the same property cannot be
-		// submitted until this one transitions FINALIZING→FINISHED via
-		// MarkDistributedTaskFinalized. The "older task replays past a
-		// newer one" shape that motivated the OriginalTokenization guard
-		// can no longer occur.
+		// No stale-replay guard needed: OnTaskCompleted only fires while
+		// the task is in [distributedtask.TaskStatusSwapping], never on
+		// an already-FINISHED task. The cluster-wide conflict check
+		// ([db.checkConcurrentReindex]) treats SWAPPING as in-flight,
+		// so a newer change-tokenization for the same property cannot
+		// be submitted until this one transitions SWAPPING→FINISHED via
+		// MarkDistributedTaskFinalized. This structurally prevents the
+		// "older task replays past a newer one" shape that the
+		// OriginalTokenization guard would otherwise need to defend
+		// against.
 		missing, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldTokenization},
 			func(prop *models.Property) bool {
@@ -2000,9 +2000,8 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 // before the enable-* family was introduced. Promoting it would change
 // behavior for existing operators and is tracked separately.
 //
-// NOTE: with the FINALIZING state (see
-// [distributedtask.TaskStatusSwapping]), the FSM stays at FINALIZING
-// while OnGroupCompleted (per-node swap) + OnTaskCompleted
+// NOTE: in [distributedtask.TaskStatusSwapping], the FSM stays at
+// SWAPPING while OnGroupCompleted (per-node swap) + OnTaskCompleted
 // (cluster-wide schema flip) run; only after the scheduler's
 // MarkDistributedTaskFinalized RAFT command commits does the status
 // flip to FINISHED. Callers polling for FINISHED can therefore trust
@@ -2017,7 +2016,7 @@ func IsSemanticMigration(mt ReindexMigrationType) bool {
 // IsTokenizationChangingMigration reports whether the migration type
 // flips the property's stored `Tokenization` field as part of its
 // schema commit in [flipSemanticMigrationSchema]. These are the
-// migrations that open the FINALIZING-window misalignment between the
+// migrations that open the SWAPPING-window misalignment between the
 // per-shard bucket-pointer flip in OnGroupCompleted.RunSwapOnShard and
 // the cluster-wide schema flip in OnTaskCompleted: queries on the
 // migrated property would tokenize against the OLD schema value while

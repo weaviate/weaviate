@@ -87,10 +87,10 @@ type RecoveredReindex struct {
 //
 // Recovery surface under the two-phase RAFT swap barrier
 // (NeedsPrepBarrier=true, see docs/proposals/prep_swap_barrier.md):
-// the on-disk sentinel sequence is identical to the legacy single-
-// callback flow (started -> reindexed -> merged -> swapped -> tidied),
-// so the discovery layer needs no per-status branching. The crash
-// windows enumerated below all converge through the same
+// the on-disk sentinel sequence is identical to the non-barrier
+// single-callback flow (started -> reindexed -> merged -> swapped
+// -> tidied), so the discovery layer needs no per-status branching.
+// The crash windows enumerated below all converge through the same
 // reindexed.mig && !tidied.mig recovery window:
 //
 //   - **STARTED crash window**: reindexed.mig absent. NOT a recovery

@@ -543,10 +543,11 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Semantic migrations also opt into the two-phase RAFT PREP barrier
 	// (NeedsPrepBarrier=true): PHASE A (PREP) runs on every node in
 	// parallel; PHASE B (OVERLAY+SWAP) only fires after every node has
-	// acked PrepComplete via RAFT. This closes the cross-replica stagger
-	// window that was previously bounded by per-node PREP duration —
-	// minutes at billion-scale on large clusters — and is now bounded
-	// by RAFT propagation latency (10s of ms).
+	// acked PrepComplete via RAFT. The cross-replica stagger window
+	// between the slowest and fastest PREP completion is therefore
+	// bounded by RAFT propagation latency (~10s of ms) rather than by
+	// per-node PREP duration (which can reach minutes at billion-scale
+	// on large clusters).
 	//
 	// Format-only migrations (repair-*, enable-rangeable) keep
 	// NeedsPrepBarrier=false: they flip metadata only inside
@@ -875,7 +876,7 @@ type parsedReindexTask struct {
 //
 // FINISHED tasks are kept in the slice (they were dropped here historically,
 // but mergeReindexStatus now uses them to surface a brief "indexing@100%"
-// finalizing-window entry while OnGroupCompleted's swap propagates to the
+// SWAPPING-window entry while OnGroupCompleted's swap propagates to the
 // schema — without that, the GET response goes empty for a few ms between
 // FINISHED and the schema flip, which renders as "None" in the UI).
 func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
@@ -915,15 +916,12 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
-// Previously the repair-* branches treated an empty Properties list as
-// "match all properties" (via the now-removed propertyMatches helper),
-// while every other branch treated it as "match nothing" — so a single
-// repair-searchable payload with an empty list would fan out a synthetic
-// "indexing" entry to every searchable property in the collection. The
-// current REST handler always populates Properties with exactly one
-// entry, so the empty-means-all branch was unreachable from the API and
-// only reachable via direct cluster payload authoring; we now reject
-// empty Properties consistently.
+// The REST handler always populates Properties with exactly one entry;
+// rejecting an empty list consistently guards against direct cluster
+// payload authoring fanning out a synthetic "indexing" entry to every
+// property in the collection (a hazard that would otherwise be specific
+// to the repair-* migration types if they accepted an empty list as
+// "match all").
 //
 // The logger is used to flag unknown migration types: a future ReindexType
 // added without updating this switch would otherwise silently report "ready"
@@ -1008,7 +1006,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	//
 	// The rule is: a side-effect field is surfaced only when the status
 	// switch below changes idx.Status away from "ready" (i.e., we are
-	// actually painting an in-flight or finalizing-window signal). When the
+	// actually painting an in-flight or SWAPPING-window signal). When the
 	// status stays "ready", we keep idx in its base state.
 	surfaceSyntheticFields := false
 
@@ -1063,10 +1061,11 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// The DTM declares a task FINISHED once every unit is terminal, but
 		// for semantic migrations (enable-*, change-tokenization) the actual
 		// schema flag flip happens later, inside OnGroupCompleted's swap
-		// phase. That window — from "task FINISHED" to "schema flag flipped
-		// on this node" — used to leave the GET response with no synthetic
-		// entry at all and no base "ready" entry (because the flag is still
-		// off), so the UI saw an empty `indexes` array and rendered "None".
+		// phase. Without a synthetic entry, that window — from "task
+		// FINISHED" to "schema flag flipped on this node" — would leave the
+		// GET response with no synthetic entry at all and no base "ready"
+		// entry (because the flag is still off), so the UI would see an
+		// empty `indexes` array and render "None".
 		// Treat it as "indexing@100%" until the schema catches up; once
 		// flagOn flips true, the base case "ready" override takes precedence
 		// and this branch is effectively ignored.

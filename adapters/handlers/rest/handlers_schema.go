@@ -250,9 +250,9 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // checkReindexConflictForPropertyMutation is the REST-handler
 // pre-flight for the mutation guard. Returns a non-empty conflict
 // reason iff a reindex migration on (className, propertyName) is in
-// STARTED or FINALIZING — same epistemics as the schema FSM's
-// MutationGuard at apply time, just earlier in the request lifecycle
-// for operator UX.
+// any non-terminal state (STARTED, PREPARING, or SWAPPING) — same
+// epistemics as the schema FSM's MutationGuard at apply time, just
+// earlier in the request lifecycle for operator UX.
 //
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,

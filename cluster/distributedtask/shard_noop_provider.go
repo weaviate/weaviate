@@ -47,7 +47,7 @@ type ShardLister interface {
 //
 // MaxConcurrency controls how many units are processed in parallel on each
 // node. When > 1, processUnits fans out with a [ConcurrencyLimiter] instead
-// of sequential iteration. Default 0 = sequential (existing behavior).
+// of sequential iteration. Default 0 = sequential.
 type ShardNoopProviderPayload struct {
 	FailUnitID        string            `json:"failUnitId,omitempty"`
 	Collection        string            `json:"collection,omitempty"`

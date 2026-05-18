@@ -25,9 +25,10 @@ import (
 
 func errTaskNotRunning(namespace, taskID string, version uint64) error {
 	// Wrap with the permanent-rejection sentinels so callers can detect
-	// the stable FSM state via errors.Is. The legacy phrase
-	// "is no longer running" is preserved verbatim inside the human
-	// portion so substring-based classifiers on older nodes keep working.
+	// the stable FSM state via errors.Is. The wire-level "is no longer
+	// running" phrase is preserved verbatim inside the human portion so
+	// substring-based classifiers on older nodes (during a rolling
+	// upgrade window) keep working.
 	return wrapPermanent(ErrTaskNotRunning,
 		fmt.Sprintf("task %s/%s/%d is no longer running", namespace, taskID, version))
 }
@@ -307,10 +308,10 @@ func (m *Manager) findStartedUnitWithLock(namespace, taskID string, version uint
 	u, ok := task.Units[unitID]
 	if !ok {
 		// "unit ... does not exist" → ErrTaskDoesNotExist is the closest
-		// existing sentinel; both phrases historically used the
-		// "does not exist" substring and were classified as the same
-		// permanent state. Keep the original phrasing so legacy
-		// substring matching keeps working.
+		// existing sentinel; both phrases use the "does not exist"
+		// substring and are classified as the same permanent state.
+		// Keep the wire-level phrasing so substring matching on older
+		// peers (during a rolling upgrade window) keeps working.
 		return nil, nil, wrapPermanent(ErrTaskDoesNotExist,
 			fmt.Sprintf("unit %s does not exist in task %s/%s/%d", unitID, namespace, taskID, task.Version))
 	}
@@ -396,11 +397,11 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			}
 		}
 		// FinishedAt records when units completed, regardless of which
-		// status path we took. For the FINALIZING path this is intentional:
+		// status path we took. For the SWAPPING path this is intentional:
 		// completed-task TTL counts from "all units done," not from when
 		// the callbacks finished committing. The cleanup predicate in
-		// [Scheduler.tick] excludes FINALIZING explicitly so a task whose
-		// FinishedAt is already past TTL won't be cleaned mid-finalize.
+		// [Scheduler.tick] excludes SWAPPING explicitly so a task whose
+		// FinishedAt is already past TTL won't be cleaned mid-swap.
 		task.FinishedAt = finishedAt
 	}
 
@@ -417,7 +418,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 // the task. The [Scheduler] tick on each node fires this command after
 // its local OnGroupCompleted has returned for every local group, so the
 // cluster has durable evidence of which nodes' post-completion work
-// succeeded before the task is allowed to transition FINALIZING →
+// succeeded before the task is allowed to transition SWAPPING →
 // FINISHED — the load-bearing invariant that prevents a per-node swap
 // failure from leaving the cluster-wide schema flipped past a node
 // whose local bucket pointer never moved.
@@ -430,13 +431,13 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 //     (FAILED / FINISHED / CANCELLED): no-op. A late-arriving ack from
 //     a slow follower after the leader has already failed the task is
 //     expected and not an error.
-//   - Ack with Success==false arrives while the task is FINALIZING:
+//   - Ack with Success==false arrives while the task is SWAPPING:
 //     records the ack AND transitions the task to FAILED. The cluster-
 //     wide schema flip (in [UnitAwareProvider.OnTaskCompleted]) is
 //     skipped on FAILED, so a node whose RunSwapOnShard silently failed
-//     can no longer let the schema commit while one replica is broken.
+//     cannot let the schema commit while one replica is broken.
 //   - Ack with Success==true arrives while the task is STARTED or
-//     FINALIZING: records the ack and leaves the status alone (the
+//     SWAPPING: records the ack and leaves the status alone (the
 //     scheduler issues MarkTaskFinalized once every expected ack has
 //     landed).
 //
@@ -655,7 +656,7 @@ func allExpectedPrepAcksLanded(task *Task) bool {
 	return true
 }
 
-// MarkTaskFinalized transitions a task from FINALIZING to FINISHED. It
+// MarkTaskFinalized transitions a task from SWAPPING to FINISHED. It
 // is issued by the scheduler once OnGroupCompleted (per-node swap) and
 // OnTaskCompleted (cluster-wide schema flip for semantic migrations)
 // have both succeeded.

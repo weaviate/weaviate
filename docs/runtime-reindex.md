@@ -241,7 +241,7 @@ preceding a transition on the per-task field. Annotations
         │    + OnMigrationComplete (per-strategy hook)                  │
         │   RecordPostCompletionAck(success bool) — RAFT (per node)     │
         │                                                                │
-        │  (Format-only path: Provider.OnGroupCompleted runs the legacy │
+        │  (Format-only path: Provider.OnGroupCompleted runs the       │
         │   inline PREP+OVERLAY+SWAP body in a single callback; no      │
         │   PrepCompleteAck barrier; SWAPPING fires directly from       │
         │   AllUnitsTerminal.)                                          │
@@ -300,8 +300,7 @@ What goes through RAFT (cluster-wide commits):
   with `Success=true`.
 - `RecordPostCompletionAck` — one per node, with `Success=bool`.
   Fires after each node's local SWAP body (`OnSwapRequested` for
-  barrier tasks, `OnGroupCompleted` for legacy non-barrier tasks)
-  returns.
+  barrier tasks, `OnGroupCompleted` for non-barrier tasks) returns.
 - The transition `SWAPPING → FINISHED` — committed by
   `MarkTaskFinalized` once every expected PostCompletionAck has
   landed successfully.
@@ -442,7 +441,7 @@ Key types & contracts:
   FSM-deterministic.
 - **`Scheduler`** — per-node loop. Polls Manager for current task list,
   starts/stops local work via Provider, fires `OnGroupCompleted`
-  (PHASE A: PREP for barrier tasks, PREP+SWAP for legacy non-barrier),
+  (PHASE A: PREP for barrier tasks, PREP+SWAP for non-barrier),
   fires `OnSwapRequested` (PHASE B: SWAP for barrier tasks),
   `OnTaskCompleted` (cluster-wide schema flip), submits
   `MarkTaskFinalized` when the local callbacks succeed.
@@ -462,21 +461,21 @@ Key types & contracts:
   `CheckTenantMutation`. Uses `TaskStatus.IsActive()` so PREPARING,
   SWAPPING, and STARTED all count as "in flight" for mutation gating.
 - **`TaskStatusPreparing` and `TaskStatusSwapping`** — the post-units,
-  pre-FINISHED coordination states. Replaced the legacy
-  `TaskStatusFinalizing` to split per-node PREP from per-node SWAP
-  with a cluster-wide PrepCompleteAck barrier in between. Semantic
-  migrations transit STARTED → PREPARING → SWAPPING → FINISHED;
-  format-only migrations skip PREPARING and transit STARTED →
-  SWAPPING → FINISHED. The task is NOT safe to act on from the API
+  pre-FINISHED coordination states that split per-node PREP from
+  per-node SWAP with a cluster-wide PrepCompleteAck barrier in between.
+  Semantic migrations transit STARTED → PREPARING → SWAPPING →
+  FINISHED; format-only migrations skip PREPARING and transit STARTED
+  → SWAPPING → FINISHED. The task is NOT safe to act on from the API
   surface in either coordination state; callers polling for "fully
   done" must wait for `FINISHED`. Format-only journeys pass through
   SWAPPING in essentially zero time.
-  These states were introduced to fix the schema-flip-lag race where
-  a task could be FINISHED at the FSM layer before every node's
+  These states close the schema-flip-lag race where a task would
+  otherwise be FINISHED at the FSM layer before every node's
   post-completion callback had committed its bucket-pointer flip, and
-  evolved into the two-phase barrier to additionally bound the
-  cross-replica stagger window (originally minutes at billion-scale,
-  now tens-of-ms RAFT propagation).
+  the two-phase split additionally bounds the cross-replica stagger
+  window to RAFT propagation latency (tens of ms) instead of per-node
+  PREP duration variance (which scales with bucket size and reaches
+  minutes at billion-scale).
 - **Two-phase ack barrier** — `RecordPrepCompleteAck` (semantic only)
   + `RecordPostCompletionAck` (all paths). Every node's scheduler
   records its phase outcome (success or error) on the task before the
@@ -495,8 +494,9 @@ Key types & contracts:
   stable `codes.FailedPrecondition` + `[dtm-perm/<id>] ...` message
   marker so the sentinel identity survives wire transit and gets
   re-attached on the receiving side by `RehydratePermanentRejection`.
-  Mixed-version friendly (old leaders return legacy phrasing; the
-  classifier substring-matches as a fallback). See [`cluster/distributedtask/errors.go`](../cluster/distributedtask/errors.go).
+  Mixed-version friendly (pre-sentinel peers return plain-text
+  phrasing; the classifier substring-matches as a fallback). See
+  [`cluster/distributedtask/errors.go`](../cluster/distributedtask/errors.go).
 
 ### 4.3 Schema FSM — `cluster/schema/` + `cluster/proto/api/`
 
@@ -512,8 +512,8 @@ been rebuilt since I last looked."
 (`MergePropsMasked`). Two strategies running in parallel on the same
 property — each touching different fields — no longer clobber each
 other on RAFT apply: the FSM merges only the listed fields onto the
-live class state. An empty mask falls back to the legacy
-"replace every field" semantics for callers that don't care.
+live class state. An empty mask falls back to "replace every field"
+semantics for callers that don't care.
 
 **`FromInFlightMigration` flag.** Routed via
 `UpdatePropertyInternalFromMigration`. Bypasses the MutationGuard
@@ -791,7 +791,7 @@ cross-replica stagger bug it closes.
 
 **Format-only migrations (NeedsPrepBarrier=false):** PHASE A is
 skipped; the FSM goes `STARTED → SWAPPING` directly. `OnGroupCompleted`
-runs the legacy inline PREP+OVERLAY+SWAP body and the scheduler emits
+runs the inline PREP+OVERLAY+SWAP body and the scheduler emits
 `RecordPostCompletionAck`. SWAPPING → FINISHED is gated on the
 PostCompletionAck barrier only.
 
@@ -812,9 +812,9 @@ which different nodes' buckets are in mixed-tokenization state
 (some swapped, some not) is bounded by RAFT propagation latency
 between PHASE B firing on the fastest-node and PHASE B firing on the
 slowest-node — tens of milliseconds regardless of PREP duration.
-Under the legacy single-phase path the same window was bounded by
-per-node PREP duration variance, which scales with bucket size and
-hit minutes at billion-scale.
+A single-phase path (no barrier) would bound the same window by
+per-node PREP duration variance instead, which scales with bucket
+size and reaches minutes at billion-scale.
 
 Acks idempotent (first ack per `(task, node)` wins); rehydrate over
 restart (the scheduler re-fires on the next tick); silent on already-

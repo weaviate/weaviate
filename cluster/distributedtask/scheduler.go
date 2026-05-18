@@ -152,10 +152,9 @@ type SchedulerParams struct {
 	TaskFinalizer      TaskFinalizer
 	// AckRecorder is the RAFT-apply hook used to publish this node's
 	// OnGroupCompleted result for each task. May be nil in unit-test
-	// constructions; when nil, the scheduler falls back to the legacy
-	// no-ack-barrier behavior (MarkTaskFinalized fires as soon as
-	// OnTaskCompleted returns). Production wiring in configure_api.go
-	// always sets this.
+	// constructions; when nil, the scheduler falls back to no-ack-barrier
+	// behavior (MarkTaskFinalized fires as soon as OnTaskCompleted
+	// returns). Production wiring in configure_api.go always sets this.
 	AckRecorder       PostCompletionAckRecorder
 	Providers         map[string]Provider
 	Clock             clockwork.Clock
@@ -537,7 +536,7 @@ func (s *Scheduler) tick() {
 		// Fire group-level and task-level callbacks for unit-aware providers.
 		// OnGroupCompleted fires per-group as each group's units all reach terminal
 		// state (can fire mid-flight while task is still STARTED).
-		// OnTaskCompleted fires once when the task reaches the FINALIZING
+		// OnTaskCompleted fires once when the task reaches the SWAPPING
 		// (success path) or FAILED state. FINISHED tasks have already had
 		// their callbacks fire — the FINISHED transition is committed by
 		// [TaskFinalizer.MarkDistributedTaskFinalized] below only AFTER
@@ -545,7 +544,7 @@ func (s *Scheduler) tick() {
 		// state is by construction past this point. The callback-fired
 		// maps' pre-mark from [Scheduler.bootstrapProviders] (and the
 		// deferred-bootstrap path in this tick) also marks FINISHED tasks
-		// as already-fired so a node restart can't replay them.
+		// as already-fired so a node restart cannot replay them.
 		_, providerIsUnitAware := provider.(UnitAwareProvider)
 		if suProvider, ok := provider.(UnitAwareProvider); ok {
 			for desc, task := range tasks {
@@ -723,10 +722,10 @@ func (s *Scheduler) tick() {
 				//
 				// Gating conditions:
 				//   - ack recorder configured (production wiring; nil
-				//     in legacy unit-test setups, where we fall back
-				//     to the no-ack-barrier behavior).
+				//     in unit-test setups that don't wire it, where we
+				//     fall back to the no-ack-barrier behavior).
 				//   - task is past STARTED (the post-completion barrier
-				//     is only meaningful from FINALIZING onward).
+				//     is only meaningful from SWAPPING onward).
 				//   - ack not yet emitted this scheduler-instance.
 				//   - every group this node has local units in has had
 				//     OnGroupCompleted fire on this scheduler instance.
@@ -786,15 +785,15 @@ func (s *Scheduler) tick() {
 					}
 				}
 
-				// Phase 2: global task completion. Fires on FINALIZING (success
+				// Phase 2: global task completion. Fires on SWAPPING (success
 				// path — every unit COMPLETED, no failures), FAILED, or
 				// FINISHED. FINISHED is included so a node that observes
 				// the task only after MarkDistributedTaskFinalized has
-				// already flipped it past FINALIZING still gets to fire
+				// already flipped it past SWAPPING still gets to fire
 				// OnTaskCompleted exactly once: the first node to see
-				// FINALIZING will issue MarkFinalized inside the same
+				// SWAPPING will issue MarkFinalized inside the same
 				// tick, so other nodes' next tick sees FINISHED, not
-				// FINALIZING. Without FINISHED here, those other nodes
+				// SWAPPING. Without FINISHED here, those other nodes
 				// silently skip the callback, breaking idempotent
 				// per-node post-completion work (reindex provider clears
 				// caches and emits its completion marker from here).
@@ -804,13 +803,13 @@ func (s *Scheduler) tick() {
 				// scheduler instance" fires the callback.
 				//
 				// The MarkDistributedTaskFinalized RAFT command is issued
-				// in the finalize-issuance block below only for FINALIZING
+				// in the finalize-issuance block below only for SWAPPING
 				// tasks — FINISHED is already terminal, so re-issuing the
 				// finalize would be a wasted no-op RAFT round-trip.
 				// CANCELLED tasks are skipped at the top of the outer
 				// loop (line above) so they never reach here.
 				//
-				// Post-completion ack gate: on the FINALIZING path,
+				// Post-completion ack gate: on the SWAPPING path,
 				// wait until every node with local units has recorded
 				// an ack. This is the cluster-wide crash-safety
 				// barrier — without it, OnTaskCompleted's schema flip
@@ -842,14 +841,14 @@ func (s *Scheduler) tick() {
 			}
 		}
 
-		// Issue MarkDistributedTaskFinalized for FINALIZING tasks. For
+		// Issue MarkDistributedTaskFinalized for SWAPPING tasks. For
 		// unit-aware providers we wait until OnTaskCompleted has fired
 		// (s.completedCallbackFired[desc] == true) so the FINISHED
 		// transition lines up with "every post-completion callback
 		// committed cluster-wide." For non-unit-aware providers there is
 		// no OnTaskCompleted to gate on — the task transitions straight
-		// from FINALIZING to FINISHED as soon as the scheduler sees the
-		// FINALIZING status.
+		// from SWAPPING to FINISHED as soon as the scheduler sees the
+		// SWAPPING status.
 		if s.taskFinalizer != nil {
 			for desc, task := range tasks {
 				if task.Status != TaskStatusSwapping {
@@ -859,7 +858,7 @@ func (s *Scheduler) tick() {
 					// OnTaskCompleted hasn't fired yet (e.g. provider's
 					// callback returned an error so the fired flag was
 					// reset, or the task only just transitioned to
-					// FINALIZING). Wait until the next tick.
+					// SWAPPING). Wait until the next tick.
 					continue
 				}
 				if err := s.taskFinalizer.MarkDistributedTaskFinalized(

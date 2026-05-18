@@ -40,14 +40,14 @@ type TaskCleaner interface {
 }
 
 // TaskFinalizer is an interface for issuing a request to transition a task
-// from [TaskStatusFinalizing] to [TaskStatusFinished]. The [Scheduler] calls
+// from [TaskStatusSwapping] to [TaskStatusFinished]. The [Scheduler] calls
 // this from its tick after [Provider.OnTaskCompleted] returns successfully so
 // the FSM-level FINISHED state lines up with "every post-completion callback
 // committed cluster-wide" (not just "every unit terminal"). Idempotent at the
 // FSM layer — every node's scheduler issues this independently after its
 // local OnTaskCompleted returns; only the first commit actually flips the
-// status. See the FINALIZING godoc on [TaskStatusFinalizing] for the
-// underlying race this discipline fixes.
+// status. See the godoc on [TaskStatusSwapping] for the underlying race
+// this discipline fixes.
 type TaskFinalizer interface {
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
@@ -63,7 +63,7 @@ type TaskFinalizer interface {
 //
 // The recorded state is stored on the [Task] (see [Task.PostCompletionAcks])
 // and survives RAFT snapshot/restore so a node restart during the
-// FINALIZING window does not lose the cluster's collected acks.
+// SWAPPING window does not lose the cluster's collected acks.
 //
 // Crash-safety contract: without this hook, a node whose RunSwapOnShard
 // silently failed could still let the cluster-wide schema flip commit,
@@ -220,9 +220,10 @@ type SchemaMutationDetector interface {
 	// mutation; the error propagates back to the caller.
 	//
 	// Stricter than CheckPropertyUpdate: any reindex on the class
-	// (any property) in STARTED or FINALIZING is a conflict, because
-	// dropping the class destroys every property's bucket state at
-	// once, including the in-flight migration's working dirs.
+	// (any property) in any non-terminal state (STARTED, PREPARING,
+	// or SWAPPING) is a conflict, because dropping the class destroys
+	// every property's bucket state at once, including the in-flight
+	// migration's working dirs.
 	CheckClassMutation(className string, existingTasks []*Task) error
 
 	// CheckTenantMutation is called under [Manager.mu] from the
@@ -304,7 +305,7 @@ type UnitAwareProvider interface {
 	//
 	// Behavior depends on Task.NeedsPrepBarrier:
 	//   - NeedsPrepBarrier=false (format-only / debug / etc.): runs the
-	//     full PREP + OVERLAY + SWAP cycle (legacy behavior preserved).
+	//     full PREP + OVERLAY + SWAP cycle inline.
 	//   - NeedsPrepBarrier=true (semantic migrations): runs PREP only.
 	//     The swap is deferred to OnSwapRequested after the cluster-wide
 	//     barrier lifts. See docs/proposals/prep_swap_barrier.md.
@@ -446,9 +447,8 @@ func (t TaskStatus) IsTerminal() bool {
 // IsActive reports whether this status is a non-terminal in-flight
 // state — STARTED, PREPARING, or SWAPPING. Useful for "is this task
 // still being worked on?" checks (e.g. conflict detection, schema
-// MutationGuard) that previously hard-coded
-// `status == STARTED || status == FINALIZING` and now need to also
-// admit PREPARING.
+// MutationGuard) that need a single predicate covering every
+// non-terminal state.
 func (t TaskStatus) IsActive() bool {
 	switch t {
 	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
@@ -567,16 +567,8 @@ type Task struct {
 	// [PostCompletionAck.Success]==false the FSM transitions the task
 	// to FAILED instead.
 	//
-	// (Historical note: pre-PREP-barrier, this was the only
-	// post-completion ack and the task transitioned STARTED → FINALIZING
-	// → FINISHED. With the PREP barrier added per
-	// docs/proposals/prep_swap_barrier.md, the FINALIZING state was
-	// renamed to SWAPPING and the new PrepCompletionAcks layer was
-	// inserted upstream of this one.)
-	//
-	// Nil for tasks created before this field was added (backward-compat
-	// with older RAFT snapshots) and for tasks whose provider does not
-	// implement [UnitAwareProvider] (no OnGroupCompleted to ack).
+	// Nil for tasks whose provider does not implement [UnitAwareProvider]
+	// (no OnGroupCompleted to ack).
 	PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
 }
 
@@ -594,8 +586,8 @@ type PostCompletionAck struct {
 	// AckedAt is the wall-clock time the ack was applied on the FSM
 	// (set on the apply path, not from the scheduler). Useful for
 	// forensics — the gap between AllUnitsTerminal's FinishedAt and the
-	// last AckedAt is the FINALIZING window's wall-clock duration on
-	// this cluster.
+	// last AckedAt is the SWAPPING window's wall-clock duration on this
+	// cluster.
 	AckedAt time.Time `json:"ackedAt"`
 }
 
@@ -702,7 +694,7 @@ func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
 // NodesWithLocalUnits returns the set of node IDs that own at least one
 // unit assigned to them in this task. Used by the [Scheduler] tick to
 // compute the ack-barrier predicate: every such node must record a
-// post-completion ack before the task can transition FINALIZING →
+// post-completion ack before the task can transition SWAPPING →
 // FINISHED. Units with empty NodeID (still PENDING / never claimed) are
 // skipped — they cannot have a node-side OnGroupCompleted result yet.
 //
@@ -726,7 +718,7 @@ func (t *Task) NodesWithLocalUnits() []string {
 // MissingPostCompletionAckNodes returns the node IDs that have local
 // units in this task but have NOT yet recorded a post-completion ack.
 // The scheduler uses this as the gating predicate for
-// [TaskFinalizer.MarkDistributedTaskFinalized] — the FINALIZING →
+// [TaskFinalizer.MarkDistributedTaskFinalized] — the SWAPPING →
 // FINISHED transition must wait until this returns empty, so a node
 // whose RunSwapOnShard silently failed cannot let the cluster-wide
 // schema flip commit before its ack is recorded as a failure (which
