@@ -167,10 +167,10 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 	//  2. Container-log scan for the unique start-of-phase log lines
 	//     emitted by OnGroupCompleted (barrier mode) and
 	//     OnSwapRequested. These two logs are emitted ONLY on the
-	//     barrier path — the legacy single-phase path emits a
+	//     barrier path — the non-barrier single-phase path emits a
 	//     different OnGroupCompleted log ("starting swap phase for
-	//     semantic migration (legacy, no barrier)") and never emits
-	//     an OnSwapRequested log. Container-log scan is robust against
+	//     semantic migration (no-barrier path)") and never emits an
+	//     OnSwapRequested log. Container-log scan is robust against
 	//     PREPARING being too fast to observe at the REST polling
 	//     layer.
 	//
@@ -256,12 +256,12 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 //   - "reindex provider: OnGroupCompleted — starting PREP phase
 //     (barrier mode; SWAP deferred to OnSwapRequested after cluster-
 //     wide PrepCompleteAck barrier)" — fires once per node per task
-//     in PHASE A. The legacy non-barrier path emits a different
-//     message ("starting swap phase for semantic migration (legacy,
-//     no barrier)") instead.
+//     in PHASE A. The non-barrier path emits a different message
+//     ("starting swap phase for semantic migration (no-barrier
+//     path)") instead.
 //   - "reindex provider: OnSwapRequested — starting OVERLAY+SWAP
 //     phases after cluster-wide PREP barrier" — fires once per node
-//     per task in PHASE B. The legacy non-barrier path never invokes
+//     per task in PHASE B. The non-barrier path never invokes
 //     OnSwapRequested at all.
 //
 // Both signals must be present for the test's barrier-active

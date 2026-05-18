@@ -816,7 +816,7 @@ func isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
 		if strings.Contains(msg, marker) {
 			if logger != nil {
 				logger.WithField("matchedMarker", marker).WithField("recorderError", msg).
-					Warn("reindex provider: permanent-rejection detected via pre-sentinel substring fallback; " +
+					Warn("reindex provider: permanent-rejection detected via legacy substring fallback; " +
 						"a peer is likely running a pre-sentinel build")
 			}
 			return true
