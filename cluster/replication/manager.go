@@ -37,10 +37,8 @@ type Manager struct {
 	schemaReader   schema.SchemaReader
 	nodeSelector   cluster.NodeSelector
 
-	// Bumped on every op-state-mutating apply so a leader-routed
-	// schema query returns a version reflecting the latest op-state;
-	// the per-write WaitForUpdate fence then catches coords up before
-	// they build routing. nil is tolerated for tests.
+	// Bumped on every op-state-mutating apply so per-write WaitForUpdate
+	// catches stale-FSM coords up before they build routing. nil ok in tests.
 	bumpReplicationVersion func(class string, raftIndex uint64)
 }
 
@@ -119,9 +117,8 @@ func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 	return nil
 }
 
-// Looks up the source collection for an op so the bump callback knows
-// which class's RV to advance. Returns "" + false if the op isn't in
-// the FSM — the caller should treat this as "no bump needed".
+// opCollectionByUUID returns the source class for the bump callback,
+// or "" + false if the op isn't known (caller skips the bump).
 func (m *Manager) opCollectionByUUID(uuid strfmt.UUID) (string, bool) {
 	op, ok := m.replicationFSM.GetOpByUuid(uuid)
 	if !ok {

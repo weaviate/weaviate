@@ -250,9 +250,7 @@ type Store struct {
 	lastAppliedIndex atomic.Uint64
 
 	// Close-and-replace notify: closed on each apply so
-	// WaitForAppliedIndex waiters wake without polling, then a fresh
-	// channel installed so a closed channel never re-fires. Mirrors
-	// changelog.wakeTailersLocked.
+	// WaitForAppliedIndex waiters wake without polling.
 	appliedNotifyMu sync.Mutex
 	appliedNotify   chan struct{}
 
@@ -321,10 +319,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
-	// Entry-path fence against stale-FSM coord routing during a MOVE:
-	// every op-state apply bumps RV so leader-routed schema queries
-	// reflect it, and the per-write WaitForUpdate forces local FSMs
-	// to catch up before routing is built.
+	// Bump RV on every op-state apply so per-write WaitForUpdate catches
+	// stale-FSM coords up before they build routing.
 	replicationManager.SetReplicationVersionBumper(schemaManager.BumpReplicationVersion)
 
 	var dynusersLister namespaces.DynusersNamespaceLister
@@ -625,10 +621,10 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 	}
 }
 
-// Blocks until the local FSM has applied at least version, ctx is
-// cancelled, or ConsistencyWaitTimeout elapses. Snapshots the notify
-// channel before re-checking lastAppliedIndex so any apply that lands
-// between the snapshot and the re-check is observed without sleeping.
+// WaitForAppliedIndex blocks until the local FSM has applied version, ctx
+// is cancelled, or ConsistencyWaitTimeout elapses. Snapshots the notify
+// channel before re-checking so any apply between snapshot and re-check is
+// observed without sleeping.
 func (st *Store) WaitForAppliedIndex(ctx context.Context, version uint64) error {
 	if idx := st.lastAppliedIndex.Load(); idx >= version {
 		return nil
@@ -650,8 +646,7 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, version uint64) error 
 	}
 }
 
-// Wakes WaitForAppliedIndex waiters. Waiters re-check after waking,
-// so over-signalling is safe.
+// signalApplied wakes WaitForAppliedIndex waiters; over-signalling is safe.
 func (st *Store) signalApplied() {
 	st.appliedNotifyMu.Lock()
 	close(st.appliedNotify)

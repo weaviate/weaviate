@@ -46,10 +46,8 @@ var (
 	ErrNoDiffFound = errors.New("no diff found")
 )
 
-// routeStaleErr carries source's RAFT lastAppliedIndex through the abort
-// chain so the coord's retry can wait for its local FSM to catch up before
-// rebuilding routing — otherwise the retry rebuilds against the same stale
-// FSM and re-fails.
+// routeStaleErr carries the source's lastAppliedIndex through the abort
+// chain so the coord's retry can catch its FSM up before rebuilding routing.
 type routeStaleErr struct {
 	Applied uint64
 	Wrapped error

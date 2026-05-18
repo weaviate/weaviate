@@ -32,12 +32,8 @@ const (
 	REGISTERED ShardReplicationState = "REGISTERED"
 	HYDRATING  ShardReplicationState = "HYDRATING"
 	FINALIZING ShardReplicationState = "FINALIZING"
-	// INTEGRATING is the COPY-only state between FINALIZING and READY: the
-	// target replica has joined the sharding state and is a counted write
-	// replica, while the source's change-capture log is still alive and being
-	// drained to its final LSN. It is the COPY-side mirror of MOVE's
-	// DEHYDRATING — it exists so the target becomes a reliable write replica
-	// before the log is sealed and torn down.
+	// INTEGRATING: target is a counted write replica; source CCL is
+	// draining to its final LSN before seal.
 	INTEGRATING ShardReplicationState = "INTEGRATING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"

@@ -33,10 +33,9 @@ type (
 		ClassVersion uint64
 		Sharding     sharding.State
 		ShardVersion uint64
-		// Latest RAFT index of any replication-op-mutating apply for
-		// this class. Folded into version() so per-write WaitForUpdate
-		// fences stale-FSM coord routing during a move without an
-		// explicit fan-out.
+		// Latest RAFT index of any replication-op-mutating apply for this
+		// class; folded into version() so per-write WaitForUpdate catches
+		// stale-FSM coord routing without an explicit fan-out.
 		ReplicationVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
@@ -78,8 +77,8 @@ func (m *metaClass) version() uint64 {
 	return max(m.ClassVersion, m.ShardVersion, m.ReplicationVersion)
 }
 
-// Monotonic: a late RAFT-replicated apply must not regress the
-// version a coordinator may already be waiting on.
+// BumpReplicationVersion is monotonic: a late apply must not regress a
+// version a coord may already be waiting on.
 func (m *metaClass) BumpReplicationVersion(v uint64) {
 	m.Lock()
 	defer m.Unlock()

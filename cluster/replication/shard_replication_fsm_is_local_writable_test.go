@@ -30,10 +30,8 @@ const (
 	testShard = "shard1"
 )
 
-// TestShardReplicationFSM_IsLocalShardWritable_MOVE pins the MOVE source-side
-// rejection contract: once a MOVE op for which the local node is the source
-// has reached DEHYDRATING, the FSM rejects writes unconditionally (the source
-// is being torn down). Targets and uninvolved nodes always pass.
+// TestShardReplicationFSM_IsLocalShardWritable_MOVE: MOVE/DEHYDRATING on
+// source rejects unconditionally; targets and uninvolved nodes always pass.
 func TestShardReplicationFSM_IsLocalShardWritable_MOVE(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -70,17 +68,10 @@ func TestShardReplicationFSM_IsLocalShardWritable_MOVE(t *testing.T) {
 	}
 }
 
-// TestShardReplicationFSM_IsLocalShardWritable_VersionGated pins the shared
-// INTEGRATING/READY source-side version-gated contract. Both COPY and MOVE
-// flow through INTEGRATING now; once the source-shard op reaches INTEGRATING
-// or READY, the FSM rejects writes whose schemaVersion predates the op's
-// AddReplicaVersion (the target's routing hasn't propagated to that
-// coordinator yet). The rejection carries the AddReplicaVersion as the
-// catchUpIndex so the coordinator waits its FSM up to that index and retries
-// with refreshed routing.
-//
-// Parametrised over TransferType to demonstrate the rule is state-keyed, not
-// TT-keyed — MOVE-INTEGRATING and COPY-INTEGRATING behave identically here.
+// TestShardReplicationFSM_IsLocalShardWritable_VersionGated: INTEGRATING/READY
+// on source rejects when schemaVersion < AddReplicaVersion, with catchUp set
+// to AddReplicaVersion. Parametrised over TransferType — the rule is
+// state-keyed, not TT-keyed.
 func TestShardReplicationFSM_IsLocalShardWritable_VersionGated(t *testing.T) {
 	cases := []struct {
 		name              string
@@ -137,9 +128,8 @@ func TestShardReplicationFSM_IsLocalShardWritable_VersionGated(t *testing.T) {
 	}
 }
 
-// TestShardReplicationFSM_IsLocalShardWritable_NoOp guarantees the happy
-// path: with no replication op touching (class, shard), every node passes
-// the source-side fence regardless of schemaVersion.
+// TestShardReplicationFSM_IsLocalShardWritable_NoOp: no op on the shard
+// means the fence passes for any node regardless of schemaVersion.
 func TestShardReplicationFSM_IsLocalShardWritable_NoOp(t *testing.T) {
 	fsm := NewShardReplicationFSM(prometheus.NewPedanticRegistry())
 	allowed, catchUp := fsm.IsLocalShardWritable("anyNode", "AnyClass", "anyShard", 100)
@@ -147,15 +137,11 @@ func TestShardReplicationFSM_IsLocalShardWritable_NoOp(t *testing.T) {
 	assert.Equal(t, uint64(0), catchUp)
 }
 
-// TestShardReplicationFSM_IsLocalShardWritable_MaxAcrossOps verifies that
-// when multiple qualifying COPY ops on the same source FQDN would reject,
-// the highest AddReplicaVersion wins as the catchUpIndex.
+// TestShardReplicationFSM_IsLocalShardWritable_MaxAcrossOps: on multiple
+// qualifying ops the highest AddReplicaVersion wins as catchUpIndex.
 func TestShardReplicationFSM_IsLocalShardWritable_MaxAcrossOps(t *testing.T) {
 	fsm := NewShardReplicationFSM(prometheus.NewPedanticRegistry())
-	// Two COPY ops on the same source shard (node1, TestClass, shard1) but
-	// different target nodes. Both reach INTEGRATING.
 	seedOpOfType(t, fsm, 1, api.COPY)
-	// Second op: same source, different target node.
 	uuid2 := strfmt.UUID("00000000-0000-0000-0000-000000000002")
 	require.NoError(t, fsm.Replicate(2, &api.ReplicationReplicateShardRequest{
 		Version:          api.ReplicationCommandVersionV0,

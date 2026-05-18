@@ -19,10 +19,9 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestMetaClass_ReplicationVersion pins the contract that
-// ReplicationVersion participates in version() / ClassInfo.Version() so the
-// per-write WaitForUpdate fence covers replication-op-mutating applies that
-// don't otherwise touch ClassVersion or ShardVersion.
+// TestMetaClass_ReplicationVersion: ReplicationVersion folds into version()
+// and ClassInfo.Version() so the per-write WaitForUpdate fence covers
+// op-mutating applies that don't touch Class/Shard versions.
 func TestMetaClass_ReplicationVersion(t *testing.T) {
 	t.Run("zero by default and excluded from version()", func(t *testing.T) {
 		m := &metaClass{Class: models.Class{Class: "C"}, ClassVersion: 5, ShardVersion: 3}

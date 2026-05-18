@@ -23,9 +23,6 @@ import (
 	"context"
 	"fmt"
 
-	// "github.com/sirupsen/logrus" // restored alongside the
-	// write_routing_plan trace below.
-
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -200,9 +197,7 @@ func (r *singleTenantRouter) WaitForUpdate(ctx context.Context, version uint64) 
 	return r.schemaReader.WaitForUpdate(ctx, version)
 }
 
-// HasReplicationOpsForShard delegates to the replication FSM reader so the
-// Index can decide whether to force the Replicator path on RF=1 collections
-// undergoing a scale-out — see the interface godoc for the full motivation.
+// HasReplicationOpsForShard — see the interface godoc.
 func (r *singleTenantRouter) HasReplicationOpsForShard(collection, shard string) bool {
 	return r.replicationFSMReader.HasReplicationOpsForShard(collection, shard)
 }
@@ -333,22 +328,6 @@ func (r *singleTenantRouter) writeReplicasForShard(collection, tenant, shard str
 	}
 
 	writeNodeNames, additionalWriteNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
-
-	// HOT-PATH SILENCED: this trace fires on every coord-side write whose
-	// routing plan included an in-flight replication target (write or
-	// additional). The structured logrus emit suppresses the race window
-	// we use it to diagnose; commented out so it can be flipped back on
-	// when we want a verbose dump.
-	// if len(writeNodeNames) != len(replicas) || len(additionalWriteNodeNames) > 0 {
-	// 	logrus.WithFields(logrus.Fields{
-	// 		"trace":      "write_routing_plan",
-	// 		"collection": collection,
-	// 		"shard":      shard,
-	// 		"candidates": replicas,
-	// 		"write":      writeNodeNames,
-	// 		"additional": additionalWriteNodeNames,
-	// 	}).Warn("write routing plan trace")
-	// }
 
 	write = buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
 	additional = buildReplicas(additionalWriteNodeNames, shard, r.nodeSelector.NodeHostname)

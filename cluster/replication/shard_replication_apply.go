@@ -118,12 +118,10 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	return nil
 }
 
-// UpdateReplicationOpStatus applies a state transition for op c.Id. raftIndex
-// is the RAFT apply index of this call (passed in by the manager) so the
-// FSM-stored status reflects the latest state-change index on every node —
-// the source-side fence (IsLocalShardWritable) reads it for MOVE/DEHYDRATING
-// catch-up. Tests that drive the FSM directly without going through the apply
-// path may pass 0.
+// UpdateReplicationOpStatus applies a state transition. raftIndex is the
+// apply index of this call; it lands in LastStateChangeVersion so the
+// source-side fence has a per-op catch-up target. Tests driving the FSM
+// directly may pass 0.
 func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdateOpStateRequest, raftIndex uint64) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
@@ -180,13 +178,9 @@ func (s *ShardReplicationFSM) SetUnCancellable(id uint64) error {
 	return nil
 }
 
-// SetAddReplicaVersion records the RAFT index at which the op's
-// ReplicationAddReplicaToShard applied. Called from the schema manager's
-// updateSchema callback during that same apply, so the index becomes durably
-// queryable for the source-side write fence (see IsLocalShardWritable).
-//
-// Monotonic: a lower index is ignored. This guards against any spurious
-// re-call; the field is set once and never decreases.
+// SetAddReplicaVersion records the RAFT index of the op's
+// ReplicationAddReplicaToShard apply for the IsLocalShardWritable fence.
+// Monotonic: a lower index is ignored.
 func (s *ShardReplicationFSM) SetAddReplicaVersion(id uint64, raftIndex uint64) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()

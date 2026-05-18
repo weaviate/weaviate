@@ -117,9 +117,9 @@ type Client struct {
 	// default maximum can still get through
 	rpcMessageMaxSize int
 
-	// One gRPC ClientConn per peer RAFT address. The
-	// WaitForAppliedIndex fan-out addresses every peer per convergence
-	// point, so dial-per-call would dominate cost without this cache.
+	// Cached gRPC ClientConn per peer RAFT address — the
+	// WaitForAppliedIndex fan-out hits every peer, so dial-per-call would
+	// dominate cost.
 	peerConnsMu sync.Mutex
 	peerConns   map[string]*grpc.ClientConn
 
@@ -263,7 +263,7 @@ func (cl *Client) Close() {
 	}
 }
 
-// Mirrors getConn but keyed per peer so peer dials don't serialise.
+// getPeerConn is keyed per peer so peer dials don't serialise.
 func (cl *Client) getPeerConn(peerRaftAddr string) (*grpc.ClientConn, error) {
 	cl.peerConnsMu.Lock()
 	defer cl.peerConnsMu.Unlock()

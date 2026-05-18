@@ -962,124 +962,9 @@ func dumpReplicaLogsOnce(t *testing.T, ctx context.Context, nodes nodeSourcer, o
 	})
 }
 
-// dumpReplicaTraceOnce dumps, once, the cross-node trace of a single lost
-// object. To keep the output focused on the missed UUID, it does TWO passes
-// per node's log:
-//
-//  1. First pass: collect tx_ids from any line mentioning objUUID. Those are
-//     the PREPARE traces tagged with the UUID (emitted in the readyOp closures
-//     in replicator.go), plus any other UUID-bearing line.
-//  2. Second pass: emit a line iff it (a) mentions objUUID, (b) carries one of
-//     the collected tx_ids — pulling in COMMIT replica_rpc traces and any
-//     other tx-correlated log lines — or (c) matches a non-replica_rpc
-//     diagnostic keyword (CCL lifecycle, sharding state, fence eval, etc.).
-//
-// VERIFICATION INSTRUMENTATION for the lost-write flake hunt; remove with the
-// trace logging.
-func dumpReplicaTraceOnce(t *testing.T, ctx context.Context, nodes nodeSourcer, objUUID string, once *sync.Once) {
-	once.Do(func() {
-		for i := 1; i <= nodes.Size(); i++ {
-			logs, err := nodes.FetchLogs(ctx, i)
-			if err != nil {
-				t.Logf("weaviate-%d: failed to get logs: %v", i-1, err)
-				continue
-			}
-			buf, _ := io.ReadAll(logs)
-			logs.Close()
-
-			lines := strings.Split(string(buf), "\n")
-
-			// First pass: harvest tx_ids attached to any UUID-bearing line.
-			// The PREPARE replica_rpc trace carries both uuid and tx_id, so
-			// any UUID-matched line that also has a tx_id field gives us a
-			// correlation key for COMMIT lines emitted from coordinator.go.
-			txIDs := make(map[string]struct{})
-			for _, line := range lines {
-				if !strings.Contains(line, objUUID) {
-					continue
-				}
-				if tx := extractTxID(line); tx != "" {
-					txIDs[tx] = struct{}{}
-				}
-			}
-
-			// Second pass: emit anything that's relevant.
-			for _, line := range lines {
-				if strings.Contains(line, objUUID) || matchesAnyTxID(line, txIDs) || matchesRouteStaleDiagnostics(line) {
-					t.Logf("weaviate-%d: %s", i-1, line)
-				}
-			}
-		}
-	})
-}
-
-// extractTxID pulls the tx_id field out of a logrus-formatted line. Returns
-// "" if not present. Handles both the JSON formatter ("tx_id":"...") and the
-// text formatter (tx_id=...) since logrus may emit either depending on TTY.
-func extractTxID(line string) string {
-	if v := extractKeyJSON(line, "tx_id"); v != "" {
-		return v
-	}
-	return extractKeyText(line, "tx_id")
-}
-
-// extractKeyJSON returns the value of "<key>":"<value>" in line, or "".
-func extractKeyJSON(line, key string) string {
-	needle := `"` + key + `":"`
-	i := strings.Index(line, needle)
-	if i < 0 {
-		return ""
-	}
-	rest := line[i+len(needle):]
-	j := strings.Index(rest, `"`)
-	if j < 0 {
-		return ""
-	}
-	return rest[:j]
-}
-
-// extractKeyText returns the value of `<key>=<value>` in line. The value runs
-// until the next whitespace or end-of-line; logrus quotes values containing
-// spaces, which we strip.
-func extractKeyText(line, key string) string {
-	needle := key + "="
-	i := strings.Index(line, needle)
-	if i < 0 {
-		return ""
-	}
-	rest := line[i+len(needle):]
-	if strings.HasPrefix(rest, `"`) {
-		rest = rest[1:]
-		j := strings.Index(rest, `"`)
-		if j < 0 {
-			return ""
-		}
-		return rest[:j]
-	}
-	j := strings.IndexAny(rest, " \t")
-	if j < 0 {
-		return rest
-	}
-	return rest[:j]
-}
-
-func matchesAnyTxID(line string, txIDs map[string]struct{}) bool {
-	if len(txIDs) == 0 {
-		return false
-	}
-	for tx := range txIDs {
-		if strings.Contains(line, tx) {
-			return true
-		}
-	}
-	return false
-}
-
-// matchesRouteStaleDiagnostics matches lines worth emitting regardless of any
-// specific UUID — global lifecycle, fence evaluations, routing decisions.
-// Per-tx noise (replica_rpc) is intentionally NOT included here; those are
-// surfaced via the tx_id-correlation pass in dumpReplicaTraceOnce so the
-// dump stays scoped to the missed UUID.
+// matchesRouteStaleDiagnostics matches log lines worth dumping when a
+// parallel-write goroutine sees a real write error — global lifecycle and
+// routing decisions that explain why a CL=ALL write failed.
 func matchesRouteStaleDiagnostics(line string) bool {
 	keywords := []string{
 		"push.retry_route_stale",
@@ -1093,22 +978,6 @@ func matchesRouteStaleDiagnostics(line string) bool {
 		"FINALIZING",
 		"WaitForUpdateAllNodes",
 		"replicate insertion",
-		// verification instrumentation: silent best-effort additional-write
-		// failures (coordinator.go) — a freshly-added replica missing a write.
-		"best_effort_additional_write",
-		// verification instrumentation: CCL lifecycle transitions
-		// (activate/seal/stop/fail_deactivate) — places a torn-down CCL
-		// against a lost write's timestamp.
-		"ccl_lifecycle",
-		// verification instrumentation: sharding-state replica add/remove
-		// applies — catches a COPY source being dropped from its replica set.
-		"sharding_state",
-		// verification instrumentation: write routing plan computation —
-		// shows the candidate set vs the resulting write/additional replicas.
-		"write_routing_plan",
-		// verification instrumentation: source-side fence evaluation —
-		// every IsLocalShardWritable call with the matched ops and decision.
-		"is_local_shard_writable",
 	}
 	for _, k := range keywords {
 		if strings.Contains(line, k) {

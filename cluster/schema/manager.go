@@ -91,9 +91,8 @@ func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
 }
 
-// Side-effect hook from the replication manager's apply path; not a
-// top-level RAFT command. Called with v = the op-mutating apply's
-// RAFT index.
+// BumpReplicationVersion is invoked from the replication manager's apply
+// path with v = that apply's RAFT index.
 func (s *SchemaManager) BumpReplicationVersion(class string, v uint64) {
 	s.schema.bumpReplicationVersion(class, v)
 }
@@ -433,33 +432,13 @@ func (s *SchemaManager) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly 
 	)
 }
 
-// traceShardingStateChange is VERIFICATION INSTRUMENTATION for the
-// replica-movement lost-write flake hunt — it logs every sharding-state
-// replica add/remove apply so the dump can catch a COPY source being dropped
-// from its shard's replica set. REMOVE once the root cause is found.
-func (s *SchemaManager) traceShardingStateChange(event, class, shard, node string, version uint64, err error) {
-	detail := ""
-	if err != nil {
-		detail = err.Error()
-	}
-	s.log.WithFields(logrus.Fields{
-		"trace":   "sharding_state",
-		"event":   event,
-		"class":   class,
-		"shard":   shard,
-		"node":    node,
-		"version": version,
-		"detail":  detail,
-	}).Info("sharding state replica change")
-}
-
 func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := command.AddReplicaToShard{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	err := s.apply(
+	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode) },
@@ -472,8 +451,6 @@ func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly 
 			schemaOnly: schemaOnly,
 		},
 	)
-	s.traceShardingStateChange("add_replica", cmd.Class, req.Shard, req.TargetNode, cmd.Version, err)
-	return err
 }
 
 func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schemaOnly bool) error {
@@ -482,7 +459,7 @@ func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schema
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	err := s.apply(
+	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
 			updateSchema: func() error {
@@ -497,8 +474,6 @@ func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schema
 			schemaOnly: schemaOnly,
 		},
 	)
-	s.traceShardingStateChange("delete_replica", cmd.Class, req.Shard, req.TargetNode, cmd.Version, err)
-	return err
 }
 
 func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) error {
@@ -661,7 +636,7 @@ func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, 
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	err := s.apply(
+	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
 			updateSchema: func() error {
@@ -669,9 +644,7 @@ func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, 
 				if err != nil {
 					return fmt.Errorf("set un-cancellable: %w", err)
 				}
-				// Record the add's RAFT index on the op for the durable source-side
-				// write fence. See IsLocalShardWritable for the gate; see
-				// ShardReplicationOpStatus.AddReplicaVersion for the field.
+				// AddReplicaVersion feeds the IsLocalShardWritable fence.
 				if err := s.replicationFSM.SetAddReplicaVersion(req.OpId, cmd.Version); err != nil {
 					return fmt.Errorf("set add-replica version: %w", err)
 				}
@@ -686,8 +659,6 @@ func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, 
 			schemaOnly: schemaOnly,
 		},
 	)
-	s.traceShardingStateChange("replication_add_replica", cmd.Class, req.Shard, req.TargetNode, cmd.Version, err)
-	return err
 }
 
 type applyOp struct {

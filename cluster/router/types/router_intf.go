@@ -119,19 +119,15 @@ type Router interface {
 	//   - hostnames: a slice of all known hostnames; always returns a valid slice, possibly empty.
 	AllHostnames() []string
 
-	// WaitForUpdate blocks until the local node's RAFT FSM has applied
-	// at least the given index. Used by the replica-write retry path
-	// to catch the local FSM up to a rejecting source's
-	// lastAppliedIndex before rebuilding routing.
+	// WaitForUpdate blocks until the local FSM has applied at least
+	// version. Used by the replica-write retry path to catch up to a
+	// rejecting source's lastAppliedIndex before rebuilding routing.
 	WaitForUpdate(ctx context.Context, version uint64) error
 
 	// HasReplicationOpsForShard reports whether any replication op is in
-	// flight for (collection, shard). The Index uses this to force a
-	// write through the Replicator path even when its local sharding
-	// state shows only one replica — otherwise a coordinator whose FSM
-	// hasn't yet applied the ReplicationAddReplicaToShard for a fresh
-	// target would skip the Replicator entirely, bypassing the source-
-	// side fence and missing the new target.
+	// flight for (collection, shard). The Index uses this to force the
+	// Replicator path on RF=1 mid-scale-out, so a coord that hasn't applied
+	// the add yet can't bypass the source-side fence via the direct path.
 	HasReplicationOpsForShard(collection, shard string) bool
 }
 

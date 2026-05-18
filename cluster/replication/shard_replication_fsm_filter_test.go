@@ -20,12 +20,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// TestShardReplicationFSM_FilterReplicas_ByState pins the read/write
-// routing-filter contract across a COPY op's lifecycle. The COPY-only
-// INTEGRATING state is the crux: the target must be a *counted* write replica
-// (in writeReplicas, NOT additionalWriteReplicas) so writes routed to it
-// during the change-capture-log handoff land reliably — unlike FINALIZING,
-// where the target is only a best-effort additional write replica.
+// TestShardReplicationFSM_FilterReplicas_ByState: read/write filter
+// contract across a COPY lifecycle. INTEGRATING promotes target from
+// additional (FINALIZING) to a counted write replica.
 func TestShardReplicationFSM_FilterReplicas_ByState(t *testing.T) {
 	const (
 		class  = "TestClass"

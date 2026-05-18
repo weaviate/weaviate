@@ -1426,10 +1426,8 @@ func TestConsumerShutdown(t *testing.T) {
 	mockReplicaCopier.AssertExpectations(t)
 }
 
-// TestConsumerCopyIntegratingState pins the COPY INTEGRATING handler: it waits
-// for the FINALIZING->INTEGRATING transition to converge across every node,
-// does a fresh capped drain, seals the source change-capture log, syncs both
-// shards, and reaches READY.
+// TestConsumerCopyIntegratingState: handler waits for transition convergence,
+// drains, seals, syncs, then reaches READY.
 func TestConsumerCopyIntegratingState(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	mockFSMUpdater := types.NewMockFSMUpdater(t)
@@ -1540,10 +1538,8 @@ func TestConsumerCopyIntegratingState(t *testing.T) {
 	mockReplicaCopier.AssertExpectations(t)
 }
 
-// TestConsumerCopyIntegratingRetryAfterSeal pins idempotency of the INTEGRATING
-// handler: a retry after a prior attempt already sealed the source log finds
-// the log gone on the capped-drain snapshot, treats integration as complete,
-// syncs, and still reaches READY — without re-issuing finalize/stop RPCs.
+// TestConsumerCopyIntegratingRetryAfterSeal: a retry after a prior seal
+// sees "log gone" on snapshot, syncs, and reaches READY — no re-finalize.
 func TestConsumerCopyIntegratingRetryAfterSeal(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	mockFSMUpdater := types.NewMockFSMUpdater(t)

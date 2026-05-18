@@ -91,10 +91,8 @@ func (s *Raft) WaitForAppliedIndex(ctx context.Context, version uint64) (uint64,
 }
 
 // WaitForUpdateAllNodes blocks until every RAFT peer (including local) has
-// applied version. Local wait skips the self-dial. Including local is
-// load-bearing: the caller (replication consumer post-leader-bump) has not
-// necessarily waited for its own apply, and a stale local FSM lets parallel
-// writes routed here build stale routing plans.
+// applied version. Local is included so the caller's own stale FSM can't
+// build stale routing for parallel writes routed here.
 func (s *Raft) WaitForUpdateAllNodes(ctx context.Context, version uint64) error {
 	servers, err := s.store.Servers()
 	if err != nil {

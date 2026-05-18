@@ -28,13 +28,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/fakes"
 )
 
-// TestManager_ReplicationVersionBump pins the contract that every
-// op-state-mutating apply on the Manager bumps the per-class
-// ReplicationVersion to the apply's RAFT index via the wired bumper.
-// This is the entry-path defense: a leader-routed schema query (e.g.
-// EnsureTenantActiveForWrite) returns version >= bumped RV, and the
-// per-write WaitForUpdate fence on the coord side forces every
-// coord's local FSM to catch up before routing is built.
+// TestManager_ReplicationVersionBump: every op-state-mutating apply bumps
+// per-class ReplicationVersion to that apply's RAFT index via the wired
+// bumper, so per-write WaitForUpdate catches coords up before routing.
 func TestManager_ReplicationVersionBump(t *testing.T) {
 	type bumpCall struct {
 		class string

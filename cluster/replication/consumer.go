@@ -46,14 +46,10 @@ type OpConsumer interface {
 // DELETED is a constant representing a temporary deleted state of a replication operation that should not be stored in the FSM.
 const DELETED = "deleted"
 
-// finalizeAndTail seals the source CCL while an uncapped tailer drains it onto
-// target. Idempotent on retry: "log gone" from either RPC means already-drained.
-//
-// Stale-routed PREPAREs (writes whose coordinator predates the target's
-// addition to the sharding state) are rejected on the source by the durable
-// FSM-driven write fence (see ShardReplicationFSM.IsLocalShardWritable),
-// independent of CCL lifecycle. FinalizeChangeLog therefore only needs to
-// flush the pre-seal in-flight PREPARE set before sealing.
+// finalizeAndTail seals the source CCL while an uncapped tailer drains it
+// onto target. Idempotent on retry: "log gone" from either RPC means
+// already-drained. Stale-routed writes are kept out by IsLocalShardWritable
+// independently, so FinalizeChangeLog only flushes its pre-seal pending set.
 func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Entry, src, coll, shard, opID string) error {
 	tailCtx, cancelTail := context.WithCancel(ctx)
 	defer cancelTail()
@@ -86,8 +82,8 @@ func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Ent
 	return nil
 }
 
-// isCCLAlreadyGone matches the "log gone" signal source emits after
-// StopChangeCapture — the already-drained marker on retry.
+// isCCLAlreadyGone matches the source's post-StopChangeCapture "log gone"
+// signal — the already-drained marker on retry.
 func isCCLAlreadyGone(err error) bool {
 	if err == nil {
 		return false
@@ -422,7 +418,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 		if err := c.checkCancelled(logger, op); err != nil {
 			return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 		}
-		// ver pins the DEHYDRATING/INTEGRATING handlers' WaitForUpdateAllNodes to the exact apply index.
+		// ver pins the next handler's WaitForUpdateAllNodes to this apply index.
 		ver, err := c.leaderClient.ReplicationUpdateReplicaOpStatus(ctx, op.Op.ID, nextState)
 		if err != nil {
 			logger.WithError(err).Errorf("failed to update replica status to '%s'", nextState)
@@ -661,11 +657,8 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	// Order matters: RAFT-add only after the target is caught up to snap.
-	// Adding the replica makes the target visible in the sharding state. The
-	// source's change-capture log is NOT sealed here — COPY hands off to
-	// INTEGRATING and MOVE to DEHYDRATING, where the seal happens only after
-	// the state transition has converged across every node.
+	// RAFT-add only after the target is caught up to snap. CCL stays alive;
+	// the seal happens in INTEGRATING after the transition converges.
 	if !replicaExists {
 		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
 			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
@@ -679,31 +672,17 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		}
 	}
 
-	// Target has joined the sharding state. Hand off to INTEGRATING for the
-	// shared seal+drain phase (both COPY and MOVE go through it). MOVE
-	// continues into DEHYDRATING after INTEGRATING to remove the source.
 	return api.INTEGRATING, nil
 }
 
-// processIntegratingOp is the shared INTEGRATING handler for both COPY and
-// MOVE. By the time we get here the target replica has joined the sharding
-// state, so this handler waits for that transition to converge across every
-// node — making the target a counted write replica everywhere — then does a
-// fresh capped drain and seals the source's change-capture log. Sealing only
-// after convergence is what closes the lost-write window: until every
-// coordinator routes writes to the target, the log must stay alive to catch
-// anything still landing on the source alone.
+// processIntegratingOp is the shared seal+drain phase for COPY and MOVE.
+// It waits for INTEGRATING to converge across every node — making the target
+// a counted write replica everywhere — then does a capped drain and seals the
+// source CCL. Idempotent: re-running after a prior seal sees "log gone" and
+// finishes via sync.
 //
-// Returns:
-//   - api.READY for COPY: source stays a permanent replica; nothing more to do.
-//   - api.DEHYDRATING for MOVE: source still needs to be removed from the
-//     sharding state. processDehydratingOp handles that next.
-//
-// Every step is idempotent so the op can be retried or recovered from a
-// snapshot: WaitForUpdateAllNodes on an already-converged index returns
-// immediately, the capped TailAndApply re-applies log entries idempotently, and
-// a "log gone" response from any source RPC means a prior attempt already
-// sealed it — integration is complete.
+// Returns READY for COPY (source stays), DEHYDRATING for MOVE (source removed
+// next by processDehydratingOp).
 func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing integrating replication operation")
@@ -718,12 +697,9 @@ func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardRepli
 	coll := op.Op.SourceShard.CollectionId
 	shard := op.Op.SourceShard.ShardId
 
-	// Wait for every peer's local FSM to reach INTEGRATING before sealing the
-	// CCL: until then the target is only a counted write replica on the nodes
-	// that have applied the transition. Once converged, every coordinator
-	// routes writes to the target, so the seal cannot orphan a write.
-	// Zero on snapshot-recovered ops — the transition was already applied
-	// before the snapshot, so skip the wait.
+	// Wait for INTEGRATING to converge — until then the target is a counted
+	// write replica only where the transition has applied. Zero on
+	// snapshot-recovered ops; skip the wait.
 	if op.Status.LastStateChangeVersion > 0 {
 		if err := c.leaderClient.WaitForUpdateAllNodes(ctx, op.Status.LastStateChangeVersion); err != nil {
 			logger.WithError(err).Error("failure waiting for INTEGRATING op-state to converge across nodes")
@@ -731,10 +707,8 @@ func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardRepli
 		}
 	}
 
-	// Fresh capped drain: shrink the window between the target becoming a
-	// counted write replica and it being caught up to the source's final LSN.
-	// A retry after a prior attempt already sealed the log finds it gone — that
-	// just means the drain is already complete, so sync and finish.
+	// Capped drain shrinks the gap before the final seal. "Log gone" on retry
+	// means a prior attempt already sealed; sync and finish.
 	snap, err := c.replicaCopier.SnapshotChangeLogLSN(ctx, src, coll, shard, opID)
 	if err != nil {
 		if isCCLAlreadyGone(err) {
@@ -772,9 +746,6 @@ func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardRepli
 	return nextStateAfterIntegrating(op.Op.TransferType), nil
 }
 
-// nextStateAfterIntegrating decides what comes after the shared seal+drain
-// phase. COPY's source stays a permanent replica → done. MOVE's source still
-// needs DeleteReplicaFromShard → DEHYDRATING.
 func nextStateAfterIntegrating(tt api.ShardReplicationTransferType) api.ShardReplicationState {
 	if tt == api.MOVE {
 		return api.DEHYDRATING
@@ -782,15 +753,10 @@ func nextStateAfterIntegrating(tt api.ShardReplicationTransferType) api.ShardRep
 	return api.READY
 }
 
-// processDehydratingOp is the MOVE-only post-INTEGRATING handler: by now the
-// CCL has been sealed and drained (in processIntegratingOp) and the source's
-// IsLocalShardWritable check is rejecting any straggling stale writes; this
-// handler only needs to remove the source from the sharding state. After the
-// INTEGRATING→DEHYDRATING transition converges every coordinator routes
-// target-only, then DeleteReplicaFromShard removes the source replica.
-//
-// Retry-safe: the "is the source still in the replica set" guard skips the
-// delete on a re-entry where it already applied.
+// processDehydratingOp is the MOVE-only post-seal handler: wait for
+// DEHYDRATING to converge (so the source-side fence is rejecting stale writes
+// everywhere), then remove the source from the sharding state. Retry-safe via
+// the "still in replica set" guard.
 func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger, op.Op, op.Status)
 	logger.Info("processing dehydrating replication operation")
@@ -811,9 +777,8 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	shard := op.Op.SourceShard.ShardId
 
 	if slices.Contains(nodes, op.Op.SourceShard.NodeId) {
-		// Wait for every peer's local FSM to reach DEHYDRATING so the
-		// source-side IsLocalShardWritable rejection is active everywhere
-		// before we remove the source. Zero on snapshot-recovered ops — skip.
+		// Wait for DEHYDRATING to converge so the source-side fence is active
+		// everywhere before we remove the source.
 		if op.Status.LastStateChangeVersion > 0 {
 			if err := c.leaderClient.WaitForUpdateAllNodes(ctx, op.Status.LastStateChangeVersion); err != nil {
 				logger.WithError(err).Error("failure waiting for DEHYDRATING op-state to converge across nodes")

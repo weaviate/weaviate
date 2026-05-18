@@ -61,7 +61,7 @@ func (db *DB) ReplicateObject(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateObject(ctx, shard, requestID, object, schemaVersion)
+	return index.ReplicateObject(ctx, shard, requestID, object)
 }
 
 func (db *DB) ReplicateObjects(ctx context.Context, class,
@@ -79,7 +79,7 @@ func (db *DB) ReplicateObjects(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateObjects(ctx, shard, requestID, objects, schemaVersion)
+	return index.ReplicateObjects(ctx, shard, requestID, objects)
 }
 
 func (db *DB) ReplicateUpdate(ctx context.Context, class,
@@ -98,7 +98,7 @@ func (db *DB) ReplicateUpdate(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateUpdate(ctx, shard, requestID, mergeDoc, schemaVersion)
+	return index.ReplicateUpdate(ctx, shard, requestID, mergeDoc)
 }
 
 func (db *DB) ReplicateDeletion(ctx context.Context, class,
@@ -117,7 +117,7 @@ func (db *DB) ReplicateDeletion(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateDeletion(ctx, shard, requestID, uuid, deletionTime, schemaVersion)
+	return index.ReplicateDeletion(ctx, shard, requestID, uuid, deletionTime)
 }
 
 func (db *DB) ReplicateDeletions(ctx context.Context, class,
@@ -135,7 +135,7 @@ func (db *DB) ReplicateDeletions(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateDeletions(ctx, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
+	return index.ReplicateDeletions(ctx, shard, requestID, uuids, deletionTime, dryRun)
 }
 
 func (db *DB) ReplicateReferences(ctx context.Context, class,
@@ -154,24 +154,14 @@ func (db *DB) ReplicateReferences(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateReferences(ctx, shard, requestID, refs, schemaVersion)
+	return index.ReplicateReferences(ctx, shard, requestID, refs)
 }
 
-// checkLocalWritable rejects PREPAREs that fail the unified source-side
-// write fence. Two rules fold into the FSM call:
-//
-//   - MOVE / DEHYDRATING with the local node as source: unconditional
-//     reject (source is being torn down).
-//   - COPY / {INTEGRATING, READY} with the local node as source AND the
-//     write's schemaVersion < op.AddReplicaVersion: reject (the coord's
-//     routing plan predates the target's addition to the sharding state).
-//
-// On rejection the response carries LastAppliedIndex = the FSM's catchUp
-// index so the coord's pushWithRouteStaleRetry / waitForFSMCatchUp path
-// can wait its FSM up to that point and rebuild routing before retrying.
-// When the FSM returns 0 (e.g. snapshot-recovered DEHYDRATING op with no
-// LastStateChangeVersion), we fall back to the source's current raft
-// applied index — strictly conservative.
+// checkLocalWritable applies the source-side fence; see
+// ShardReplicationFSM.IsLocalShardWritable for the rules. On rejection the
+// response carries LastAppliedIndex so the coord's retry path can catch its
+// FSM up and rebuild routing. Falls back to raftAppliedIndex when the FSM
+// returns 0 (snapshot-recovered ops with no LastStateChangeVersion).
 func (db *DB) checkLocalWritable(class, shard string, schemaVersion uint64) *replica.SimpleResponse {
 	if db.replicationFSM == nil {
 		return nil
@@ -325,7 +315,7 @@ func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func
 	return localShard, release, nil
 }
 
-func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object, schemaVersion uint64) replica.SimpleResponse {
+func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
@@ -336,7 +326,7 @@ func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, ob
 	return localShard.preparePutObject(ctx, requestID, object)
 }
 
-func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument, schemaVersion uint64) replica.SimpleResponse {
+func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
@@ -347,7 +337,7 @@ func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, do
 	return localShard.prepareMergeObject(ctx, requestID, doc)
 }
 
-func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time, schemaVersion uint64) replica.SimpleResponse {
+func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
@@ -358,7 +348,7 @@ func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, 
 	return localShard.prepareDeleteObject(ctx, requestID, uuid, deletionTime)
 }
 
-func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse {
+func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
@@ -370,7 +360,7 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 }
 
 func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
-	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
@@ -382,7 +372,7 @@ func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 	return localShard.prepareDeleteObjects(ctx, requestID, uuids, deletionTime, dryRun)
 }
 
-func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference, schemaVersion uint64) replica.SimpleResponse {
+func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
@@ -1026,14 +1016,8 @@ func (idx *Index) OverwriteObjectsFromChangeLog(
 		}
 
 		if currUpdateTime > u.LastUpdateTimeUnixMilli {
-			// VERIFICATION INSTRUMENTATION (replica-movement flake hunt) — REMOVE after.
-			emitReplicaWriteTrace(idx.logger, "ccl_replay_skip", shard, "", u.ID.String(), u.LastUpdateTimeUnixMilli, 0,
-				fmt.Sprintf("localTs=%d isDelete=%v", currUpdateTime, u.IsDelete))
 			continue
 		}
-		// VERIFICATION INSTRUMENTATION (replica-movement flake hunt) — REMOVE after.
-		emitReplicaWriteTrace(idx.logger, "ccl_replay_apply", shard, "", u.ID.String(), u.LastUpdateTimeUnixMilli, 0,
-			fmt.Sprintf("localTs=%d isDelete=%v", currUpdateTime, u.IsDelete))
 
 		if u.IsDelete {
 			if err := flushPending(); err != nil {

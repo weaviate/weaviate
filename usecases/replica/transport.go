@@ -52,9 +52,8 @@ const (
 	StatusPreconditionFailed
 	StatusReadOnly
 	StatusObjectNotFound
-	// Replica refused the write because its local view no longer lists
-	// it as a valid write target — coords must refresh routing and
-	// re-issue. Generic name: reusable for future shard-state transitions.
+	// Replica's local view no longer lists it as a valid write target;
+	// coords must refresh routing and re-issue.
 	StatusRouteStale
 )
 
@@ -63,8 +62,7 @@ type Error struct {
 	Code StatusCode `json:"code"`
 	Msg  string     `json:"msg,omitempty"`
 	// StatusRouteStale only: source's lastAppliedIndex at rejection. The
-	// coord's retry waits for its local FSM to reach this before rebuilding
-	// routing, else it routes to the same draining replica again.
+	// retry path waits for this before rebuilding routing.
 	LastAppliedIndex uint64 `json:"last_applied_index,omitempty"`
 	Err              error  `json:"-"`
 }

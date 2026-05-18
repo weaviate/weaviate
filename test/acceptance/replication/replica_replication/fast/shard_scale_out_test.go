@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sync"
 	"testing"
 	"time"
 
@@ -34,18 +33,12 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-// TestReplicaMovementShardScaleOutParallelWrites is the COPY/single-tenant
-// analogue of TestReplicaMovementTenantParallelWrites. It scales a
-// thrice-sharded single-tenant collection from rf=1 to rf=3 — six COPY ops,
-// two of which share each source shard, exercising concurrent finalize fences
-// on one source — while startParallelWrites hammers every node with
-// CREATE/UPDATE/DELETE at consistency ALL.
-//
-// AsyncEnabled is false on purpose: the change-capture log plus the source's
-// finalize fence are then the *only* path getting writes that landed during
-// HYDRATING/FINALIZING onto a freshly-added replica. So once every op is READY
-// the writer's tracked state must be present, exactly, on every shard of every
-// node — there is no async-replication safety net to paper over a lost write.
+// TestReplicaMovementShardScaleOutParallelWrites: COPY/single-tenant
+// analogue of TestReplicaMovementTenantParallelWrites. Scales a 3-shard
+// collection rf=1→3 (six COPY ops, two per source shard) while parallel
+// writes hammer every node at CL=ALL. AsyncEnabled=false so the CCL is
+// the only path bringing in-flight writes onto a fresh replica — any
+// lost write surfaces directly.
 func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutParallelWrites() {
 	t := suite.T()
 	mainCtx := context.Background()
@@ -224,12 +217,6 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 	})
 
 	t.Run("all parallel writes present on every shard of every node", func(t *testing.T) {
-		// diagDumpOnce gates a one-shot dump of every node's
-		// replication/best-effort-write diagnostics the first time the test
-		// finds a write missing — a lost write returns no error to the writer,
-		// so dumpReplicaLogsOnce in the writer goroutine never fires for it.
-		var diagDumpOnce sync.Once
-
 		// Counts first: a fast, whole-collection check that every node's
 		// replica set agrees on cardinality before the per-object sweep.
 		for _, n := range nodeAddrs {
@@ -256,43 +243,24 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 					obj = o
 				}, 30*time.Second, 2*time.Second, "live id %s missing on node %s", id, n.name)
 				if !assert.NotNil(t, obj, "live id %s missing on node %s", id, n.name) {
-					t.Logf("MISSING: live id %s on node %s — dumping full cross-node trace for this UUID", id, n.name)
-					dumpReplicaTraceOnce(t, mainCtx, cluster, id.String(), &diagDumpOnce)
 					continue
 				}
 				props, ok := obj.Properties.(map[string]any)
 				if !assert.True(t, ok, "object %s on node %s has unexpected properties shape", id, n.name) {
 					continue
 				}
-				if !assert.Equal(t, expectedContents, props["contents"],
-					"contents mismatch for id %s on node %s (lost or stale write during scale-out?)", id, n.name) {
-					// Stale-contents failure mode: the object reached this
-					// node, but a subsequent UPDATE/PATCH did not. Same
-					// "writer saw no error yet a write was lost" diagnostic
-					// shape as the missing-object case, so dump the same
-					// cross-node trace.
-					t.Logf("STALE: live id %s on node %s — dumping full cross-node trace for this UUID", id, n.name)
-					dumpReplicaTraceOnce(t, mainCtx, cluster, id.String(), &diagDumpOnce)
-				}
+				assert.Equal(t, expectedContents, props["contents"],
+					"contents mismatch for id %s on node %s (lost or stale write during scale-out?)", id, n.name)
 			}
 		}
 
 		// Every deleted id must be absent from every node.
 		for id := range writes.deletedIDs {
 			for _, n := range nodeAddrs {
-				gone := assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+				assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 					_, err := getObjectThreadSafe(n.uri, paragraphClass.Class, id, n.name, "")
 					assert.ErrorIs(ct, err, errObjectNotFound, "deleted id %s unexpectedly present on node %s", id, n.name)
 				}, 30*time.Second, 2*time.Second, "deleted id %s still present on node %s", id, n.name)
-				// Lingering-DELETE failure mode: a DELETE was acknowledged
-				// to the writer (so id is in writes.deletedIDs) but the
-				// object is still present on this node. Dump the same
-				// cross-node trace we use for missing-PUT / stale-PATCH so
-				// the post-mortem has the full picture.
-				if !gone {
-					t.Logf("LINGERING: deleted id %s on node %s — dumping full cross-node trace for this UUID", id, n.name)
-					dumpReplicaTraceOnce(t, mainCtx, cluster, id.String(), &diagDumpOnce)
-				}
 			}
 		}
 	})

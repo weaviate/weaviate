@@ -64,9 +64,7 @@ func (p *pendingReplicaTasks) len() int {
 	return len(p.Tasks)
 }
 
-// keys snapshots the set of in-flight request IDs. FinalizeChangeLog takes
-// this snapshot when arming the fence so it can wait for exactly that bounded
-// set to drain.
+// keys snapshots the set of in-flight request IDs.
 func (p *pendingReplicaTasks) keys() map[string]struct{} {
 	p.Lock()
 	defer p.Unlock()
@@ -79,10 +77,6 @@ func (p *pendingReplicaTasks) keys() map[string]struct{} {
 
 // registerReplicaTask records a PREPARE under writeBarrierMux.RLock so
 // FinalizeChangeLog's Lock fences out new registrations during the seal.
-// Stale-routed PREPAREs are rejected upstream by the durable FSM-driven
-// source-side fence in db.checkLocalWritable / ShardReplicationFSM.
-// IsLocalShardWritable, so by the time we get here the routing is fresh
-// (target included) and the task is safe to register unconditionally.
 func (s *Shard) registerReplicaTask(requestID string, task replicaTask) {
 	s.writeBarrierMux.RLock()
 	defer s.writeBarrierMux.RUnlock()

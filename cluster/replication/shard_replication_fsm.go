@@ -19,9 +19,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	// "github.com/sirupsen/logrus" // restored alongside the
-	// is_local_shard_writable trace below.
-	// "strings"                    // ditto
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -373,11 +370,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 		readOk = true
 		writeOk = true
 	case api.INTEGRATING:
-		// COPY target has joined the sharding state and is a counted write
-		// replica while the source's change-capture log is still alive — so
-		// writes routed here land reliably before the log is sealed. Reads are
-		// also safe: the target was caught up to the FINALIZING snapshot LSN
-		// before the transition, and any further writes are routed here too.
+		// Target is a counted r/w replica while the CCL is still draining.
 		readOk = true
 		writeOk = true
 	default:
@@ -385,34 +378,19 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	return readOk, writeOk
 }
 
-// IsLocalShardWritable is the source-side PREPARE fence. It produces a single
-// StatusRouteStale (with LastAppliedIndex = catchUpIndex) the caller emits
-// downstream, feeding into the coordinator's waitForFSMCatchUp + retry path.
+// IsLocalShardWritable is the source-side PREPARE fence. When allowed is
+// false the caller emits StatusRouteStale with LastAppliedIndex=catchUpIndex,
+// driving the coordinator's waitForFSMCatchUp + retry. Rules per op where
+// localNode is the source of (collection, shard):
 //
-// For each op where localNode is the source of (collection, shard):
+//   - DEHYDRATING: reject; catchUpIndex = LastStateChangeVersion.
+//   - INTEGRATING|READY && schemaVersion < AddReplicaVersion: reject;
+//     catchUpIndex = AddReplicaVersion. The coord's routing predates the
+//     target's add, so its PREPARE excludes the new target.
 //
-//   - state == DEHYDRATING (MOVE-only by construction): reject unconditionally.
-//     catchUpIndex is the op's LastStateChangeVersion (RAFT index of the
-//     INTEGRATING→DEHYDRATING transition, populated by the FSM apply on
-//     every node). If still zero (very old snapshot), the caller falls
-//     back to its own raftAppliedIndex — conservative but correct.
-//
-//   - state ∈ {INTEGRATING, READY} (shared by COPY and MOVE — MOVE passes
-//     through INTEGRATING before reaching DEHYDRATING) && schemaVersion <
-//     op.AddReplicaVersion: reject. The caller's routing plan predates the
-//     target's addition to the sharding state — its PREPARE excludes the
-//     new target. catchUpIndex is op.AddReplicaVersion; the coordinator
-//     waits its FSM up to that index, rebuilds routing (now including the
-//     target), and retries. AddReplicaVersion is snapshot-persisted.
-//
-//   - Otherwise: allow.
-//
-// Targets always pass — a coord routing a PREPARE to a target has a fresher
-// view of the world than the target's own FSM, and "shard not ready"
-// belongs to the storage layer, not this FSM filter.
-//
-// When multiple qualifying ops on this source FQDN reject, the highest
-// catchUpIndex wins (the most conservative — covers all of them).
+// Targets always pass — a coord routing to a target has a fresher view than
+// the target's own FSM. On multiple rejecting ops, the highest catchUpIndex
+// wins.
 func (s *ShardReplicationFSM) IsLocalShardWritable(localNode, collection, shard string, schemaVersion uint64) (allowed bool, catchUpIndex uint64) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
@@ -422,44 +400,20 @@ func (s *ShardReplicationFSM) IsLocalShardWritable(localNode, collection, shard 
 		return true, 0
 	}
 
-	// VERIFICATION INSTRUMENTATION (replica-movement lost-write flake hunt) —
-	// REMOVE after. Per-call summary of what the fence saw so the post-mortem
-	// trace can answer: did the source see this PREPARE, what was the coord's
-	// schemaVersion, which ops on this source matched, and what did the fence
-	// decide. Filter keyword: is_local_shard_writable.
-	//
-	// To keep the trace cheap on the write hot path during the COPY window we
-	// only emit a line when something noteworthy is in play: either the fence
-	// is about to reject, or at least one matched op is in a state where the
-	// fence COULD reject (post-AddReplica, i.e. DEHYDRATING/INTEGRATING/READY).
-	// Pre-AddReplica ops (REGISTERED/HYDRATING/FINALIZING) leave the fence
-	// dormant so logging them adds noise without diagnostic value.
-	var opsSummary []string
-	noteworthy := false
-
 	allowed = true
 	for _, op := range ops {
 		opState, ok := s.statusById[op.ID]
 		if !ok {
 			continue
 		}
-		opsSummary = append(opsSummary, fmt.Sprintf("op=%d/%s state=%s addV=%d lscV=%d",
-			op.ID, op.TransferType, opState.GetCurrentState(), opState.AddReplicaVersion, opState.LastStateChangeVersion))
 		switch opState.GetCurrentState() {
 		case api.DEHYDRATING:
-			// MOVE-only by construction (processIntegratingOp only returns
-			// DEHYDRATING for MOVE). Source is being removed; reject all writes.
+			// MOVE-only by construction: source is being removed.
 			allowed = false
-			noteworthy = true
 			if opState.LastStateChangeVersion > catchUpIndex {
 				catchUpIndex = opState.LastStateChangeVersion
 			}
 		case api.INTEGRATING, api.READY:
-			// Shared seal+drain phase for COPY and MOVE: reject writes whose
-			// routing predates the target's addition to the sharding state
-			// (schemaVersion < op.AddReplicaVersion) so the coord catches its
-			// FSM up and re-routes to include the target.
-			noteworthy = true
 			if opState.AddReplicaVersion != 0 && schemaVersion < opState.AddReplicaVersion {
 				allowed = false
 				if opState.AddReplicaVersion > catchUpIndex {
@@ -468,46 +422,15 @@ func (s *ShardReplicationFSM) IsLocalShardWritable(localNode, collection, shard 
 			}
 		}
 	}
-	// HOT-PATH SILENCED: this trace fires per PREPARE on any source shard
-	// undergoing replication. The structured logrus emit plus output-mutex
-	// contention measurably suppresses the race window we use it to
-	// diagnose; commented out (not deleted) so it can be re-enabled when
-	// we want a verbose dump.
-	_ = noteworthy
-	_ = opsSummary
-	// if !allowed || noteworthy {
-	// 	logrus.WithFields(logrus.Fields{
-	// 		"trace":         "is_local_shard_writable",
-	// 		"local_node":    localNode,
-	// 		"collection":    collection,
-	// 		"shard":         shard,
-	// 		"schemaVersion": schemaVersion,
-	// 		"ops":           strings.Join(opsSummary, " | "),
-	// 		"allowed":       allowed,
-	// 		"catchUpIndex":  catchUpIndex,
-	// 	}).Warn("is_local_shard_writable trace")
-	// }
 	return allowed, catchUpIndex
 }
 
-// HasReplicationOpsForShard reports whether any replication operation
-// (in any state) currently targets the given (collection, shard). The
-// caller — Index.shardHasMultipleReplicasWrite — uses this as a forcing
-// signal to route a write through the Replicator path even when its local
-// view of the sharding state shows only one replica.
-//
-// Why: an RF=1 collection in the middle of a scale-out has more than one
-// replica from the cluster's perspective the moment ReplicationAddReplicaToShard
-// applies, but a coordinator whose local FSM hasn't yet applied that command
-// still sees a single replica and would otherwise skip the Replicator
-// entirely (Index.putObject's direct path). The direct path doesn't go
-// through the source-side fence, so a stale-routed write commits to one
-// node and never reaches the newly-added target. With this method, the
-// presence of an in-flight op on the shard forces the Replicator path
-// regardless of local view, letting the fence + StatusRouteStale retry
-// engage and refresh routing before the write proceeds.
-//
-// O(2) map lookup under RLock — cheap enough for the write hot path.
+// HasReplicationOpsForShard reports whether any replication op currently
+// targets (collection, shard). Index.shardHasMultipleReplicasWrite uses this
+// to force the Replicator path on an RF=1 mid-scale-out: a coord whose FSM
+// hasn't applied ReplicationAddReplicaToShard yet would otherwise take the
+// direct putObject path, bypassing the source-side fence and missing the new
+// target.
 func (s *ShardReplicationFSM) HasReplicationOpsForShard(collection, shard string) bool {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()

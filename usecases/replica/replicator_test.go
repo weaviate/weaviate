@@ -30,8 +30,6 @@ import (
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
-	entSchema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
@@ -786,20 +784,7 @@ func TestReplicatorAddReferences(t *testing.T) {
 		shard = "SH1"
 		nodes = []string{"A", "B"}
 		ctx   = context.Background()
-		// Use real crossref values rather than zero-valued BatchReference
-		// structs: the replicator emits a per-PREPARE trace line that calls
-		// From.String() / To.String() for diagnostics, which would panic on
-		// nil pointer fields.
-		refs = []objects.BatchReference{
-			{
-				From: crossref.NewSource(entSchema.ClassName(cls), "ref", strfmt.UUID("11111111-1111-1111-1111-111111111111")),
-				To:   crossref.NewLocalhost(cls, strfmt.UUID("22222222-2222-2222-2222-222222222222")),
-			},
-			{
-				From: crossref.NewSource(entSchema.ClassName(cls), "ref", strfmt.UUID("33333333-3333-3333-3333-333333333333")),
-				To:   crossref.NewLocalhost(cls, strfmt.UUID("44444444-4444-4444-4444-444444444444")),
-			},
-		}
+		refs  = []objects.BatchReference{{}, {}}
 	)
 
 	testCases := []struct {

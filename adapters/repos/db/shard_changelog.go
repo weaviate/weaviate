@@ -20,65 +20,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 )
-
-// emitReplicaWriteTrace is VERIFICATION INSTRUMENTATION for the replica-movement
-// lost-write flake hunt — it emits one greppable line per object touch so a
-// missing UUID can be traced across every node. REMOVE once the root cause is
-// found.
-//
-// event ∈ {lsm_put, lsm_delete, lsm_delete_noop, ccl_append_put,
-// ccl_append_delete, ccl_replay_apply, ccl_replay_skip}. opID is "" for direct
-// (non-CCL) writes; lsn is 0 for everything but a successful ccl_append.
-func emitReplicaWriteTrace(logger logrus.FieldLogger, event, shard, opID, objUUID string, ts int64, lsn uint64, detail string) {
-	// HOT-PATH SILENCED: this trace fires per lsm_put / lsm_delete /
-	// ccl_append_* / ccl_replay_* — i.e. on every replica's data path. The
-	// structured logrus call plus output-mutex contention measurably
-	// suppresses the race window we use it to diagnose. Body kept commented
-	// so we can flip it back on later by uncommenting.
-	_ = logger
-	_ = event
-	_ = shard
-	_ = opID
-	_ = objUUID
-	_ = ts
-	_ = lsn
-	_ = detail
-	// logger.
-	// 	WithField("trace", "replica_write").
-	// 	WithField("event", event).
-	// 	WithField("shard", shard).
-	// 	WithField("op_id", opID).
-	// 	WithField("uuid", objUUID).
-	// 	WithField("ts", ts).
-	// 	WithField("lsn", lsn).
-	// 	WithField("detail", detail).
-	// 	Info("replica write trace")
-}
-
-// traceReplicaWrite — see emitReplicaWriteTrace.
-func (s *Shard) traceReplicaWrite(event, opID, objUUID string, ts int64, lsn uint64, detail string) {
-	emitReplicaWriteTrace(s.index.logger, event, s.name, opID, objUUID, ts, lsn, detail)
-}
-
-// traceCCLLifecycle is VERIFICATION INSTRUMENTATION for the replica-movement
-// flake hunt — it logs every change-capture-log lifecycle transition so the
-// dump can place a torn-down CCL against a lost write's timestamp. REMOVE with
-// the rest of the trace logging.
-//
-// event ∈ {activate, seal, stop, fail_deactivate}.
-func (s *Shard) traceCCLLifecycle(event, opID, detail string) {
-	s.index.logger.
-		WithField("trace", "ccl_lifecycle").
-		WithField("event", event).
-		WithField("shard", s.name).
-		WithField("op_id", opID).
-		WithField("detail", detail).
-		Info("ccl lifecycle trace")
-}
 
 var errNoSuchChangeLog = errors.New("shard: " + changelog.ErrMsgNoActiveChangeCaptureLog + " for that op-id")
 
@@ -117,34 +60,21 @@ func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.
 		return nil, fmt.Errorf("shard %q: open changelog for op %q: %w", s.ID(), opID, err)
 	}
 	changelog.Register(&s.changeLogs, opID, log)
-	s.traceCCLLifecycle("activate", opID, "")
 	return log, nil
 }
 
-// FinalizeChangeLog seals the log for opID after every PREPARE that was
-// in flight on the shard at the moment FinalizeChangeLog ran has either
-// committed or aborted. Sealing under writeBarrierMux.Lock blocks new
-// registerReplicaTask calls (which RLock) so the very tick of Finalize
-// fences out racing registrations.
-//
-// Stale-routed writes — those whose coordinator predates the target's
-// addition to the sharding state — are rejected upstream by the durable
-// FSM-driven source-side fence (see ShardReplicationFSM.IsLocalShardWritable
-// and adapters/repos/db/replication.go checkLocalWritable). Fresh-routed
-// writes that arrive during/after the seal already include the target in
-// their routing plan, so their CCL append being dropped on a sealed log
-// is harmless — the target receives them directly. This function only
-// needs to flush the pre-seal in-flight set so their CCL appends are
-// durably applied before the log freezes.
+// FinalizeChangeLog waits for the PREPAREs in flight at entry to commit or
+// abort, then seals under writeBarrierMux.Lock. Writes that arrive after the
+// snapshot don't block the seal — stale-routed ones are caught upstream by
+// IsLocalShardWritable, and fresh-routed ones already include the target so
+// a dropped CCL append is harmless.
 func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {
 		return 0, errNoSuchChangeLog
 	}
-	// Snapshot the pre-seal in-flight PREPARE set under the write barrier:
-	// while Lock is held, registerReplicaTask (RLock) can't add new tasks,
-	// so the snapshot is consistent. The drain check uses replicationMap's
-	// own mutex; no need to re-Lock for it.
+	// Snapshot pending under writeBarrierMux.Lock so registerReplicaTask
+	// (RLock) can't slip a new entry in between.
 	s.writeBarrierMux.Lock()
 	pending := s.replicationMap.keys()
 	s.writeBarrierMux.Unlock()
@@ -157,27 +87,21 @@ func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, err
 		for reqID := range pending {
 			if _, stillPending := s.replicationMap.get(reqID); stillPending {
 				draining = true
+				break
 			}
 		}
-		if draining {
-			continue
+		if !draining {
+			// Seal under Lock so new registerReplicaTask callers can't race in.
+			s.writeBarrierMux.Lock()
+			l, err := log.Finalize()
+			s.writeBarrierMux.Unlock()
+			return l, err
 		}
-		// Seal under Lock: blocks new registerReplicaTask callers (and
-		// thus their AppendChangeLog* calls) from racing with Finalize.
-		s.writeBarrierMux.Lock()
-		l, err := log.Finalize()
-		s.writeBarrierMux.Unlock()
-		if err == nil {
-			s.traceCCLLifecycle("seal", opID, fmt.Sprintf("finalLSN=%d", l))
-		}
-		return l, err
-
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
 		case <-time.After(5 * time.Millisecond):
 		}
-
 	}
 }
 
@@ -201,7 +125,6 @@ func (s *Shard) StopChangeCapture(ctx context.Context, opID string) error {
 		return nil
 	}
 	changelog.Unregister(&s.changeLogs, opID)
-	s.traceCCLLifecycle("stop", opID, "")
 	return log.Deactivate()
 }
 
@@ -229,14 +152,9 @@ func (s *Shard) AppendChangeLogPut(idBytes []byte, updateTimeMillis int64, objBi
 	copy(uuidArr[:], idBytes)
 
 	set.ForEach(func(opID string, log *changelog.ChangeLog) {
-		lsn, appendErr := s.appendWithRetry(func() (uint64, error) {
+		_, appendErr := s.appendWithRetry(func() (uint64, error) {
 			return log.AppendPut(uuidArr, updateTimeMillis, objBinary)
 		})
-		detail := ""
-		if appendErr != nil {
-			detail = appendErr.Error()
-		}
-		s.traceReplicaWrite("ccl_append_put", opID, uuid.UUID(uuidArr).String(), updateTimeMillis, lsn, detail)
 		s.dispatchAppendResult(opID, log, appendErr)
 	})
 }
@@ -251,14 +169,9 @@ func (s *Shard) AppendChangeLogDelete(idBytes []byte, updateTimeMillis int64) {
 	copy(uuidArr[:], idBytes)
 
 	set.ForEach(func(opID string, log *changelog.ChangeLog) {
-		lsn, appendErr := s.appendWithRetry(func() (uint64, error) {
+		_, appendErr := s.appendWithRetry(func() (uint64, error) {
 			return log.AppendDelete(uuidArr, updateTimeMillis)
 		})
-		detail := ""
-		if appendErr != nil {
-			detail = appendErr.Error()
-		}
-		s.traceReplicaWrite("ccl_append_delete", opID, uuid.UUID(uuidArr).String(), updateTimeMillis, lsn, detail)
 		s.dispatchAppendResult(opID, log, appendErr)
 	})
 }
@@ -306,7 +219,6 @@ func (s *Shard) handleChangeLogFailure(opID string, log *changelog.ChangeLog, ca
 		WithField("shard", s.ID()).
 		Error(fmt.Errorf("change-capture log entered terminal failure, deactivating: %w", cause))
 	changelog.Unregister(&s.changeLogs, opID)
-	s.traceCCLLifecycle("fail_deactivate", opID, cause.Error())
 	if err := log.Deactivate(); err != nil {
 		s.index.logger.
 			WithField("op_id", opID).

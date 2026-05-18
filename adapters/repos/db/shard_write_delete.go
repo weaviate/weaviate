@@ -61,8 +61,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 
 	if existing == nil {
 		// nothing to do
-		// VERIFICATION INSTRUMENTATION (replica-movement flake hunt) — REMOVE after.
-		s.traceReplicaWrite("lsm_delete_noop", "", id.String(), deletionTime.UnixMilli(), 0, "object not present locally")
 		return nil
 	}
 
@@ -91,8 +89,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	if !deletionTime.IsZero() {
 		logTime = deletionTime.UnixMilli()
 	}
-	// VERIFICATION INSTRUMENTATION (replica-movement flake hunt) — REMOVE after.
-	s.traceReplicaWrite("lsm_delete", "", id.String(), logTime, 0, "")
 	s.AppendChangeLogDelete(idBytes, logTime)
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {

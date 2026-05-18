@@ -27,52 +27,27 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// parallelWriteResult is the writer's final source of truth once it has
-// stopped: the exact object set every replica of the collection must hold
-// after the replication op under test completes.
+// parallelWriteResult is the writer's final source of truth: the exact
+// object set every replica must hold after the op under test completes.
 type parallelWriteResult struct {
-	// liveIDs maps object id -> the contents string of its most recent write.
-	liveIDs map[strfmt.UUID]string
-	// deletedIDs is the set of ids the workload created (or seeded) and then
-	// deleted — they must be absent from every replica.
-	deletedIDs map[strfmt.UUID]struct{}
+	liveIDs    map[strfmt.UUID]string  // id → most-recent contents
+	deletedIDs map[strfmt.UUID]struct{} // ids that were deleted
 }
 
-// startParallelWrites launches a single background goroutine that round-robins
-// CREATE (60%) / UPDATE (20%) / DELETE (20%) operations across every node in
-// the cluster, each at consistency level ALL, until the returned stop func is
-// called.
+// startParallelWrites launches a single goroutine that round-robins CREATE
+// (60%) / UPDATE (20%) / DELETE (20%) at CL=ALL across every node. A single
+// serialized writer is deliberate: with one op in flight at a time the
+// returned maps are an exact source of truth — no EC fudge.
 //
-// It is the shared workload behind the parallel-write replication tests
-// (TestReplicaMovementTenantParallelWrites for MOVE on a multi-tenant
-// collection, TestReplicaMovementShardScaleOutParallelWrites for COPY scale-out
-// on a single-tenant collection). A *single, serialized* writer is deliberate:
-// because only one operation is in flight at a time and each is acked at
-// CL=ALL before the next begins, the returned liveIDs/deletedIDs maps are an
-// exact source of truth for what every replica must hold once the op under
-// test finishes — no eventual-consistency fudge needed.
+// tenant is "" for single-tenant. seed pre-populates liveIDs.
 //
-// tenant is "" for single-tenant collections. seed pre-populates liveIDs with
-// the objects that already exist before writes start, so the workload is free
-// to UPDATE/DELETE pre-existing data too.
-//
-// The returned stop func closes the writer, waits for it to exit, and returns
-// its final tracked state. Call it only after the replication op under test
-// has reached READY.
-// nodeSourcer abstracts the per-node lookups the parallel writer + dumpers
-// need so the same helpers work against either testcontainers (production
-// path) or a long-running local docker-compose stack (fast-iteration path).
-// Implementations are tiny — see composeNodeSource / localNodeSource in the
-// scale-out test for the two flavours.
+// The returned stop func joins the writer and returns its final state.
+// nodeSourcer abstracts per-node lookups so the same helpers work against
+// either testcontainers or a long-running local compose stack.
 type nodeSourcer interface {
-	// Size is the number of weaviate nodes in the cluster.
-	Size() int
-	// URIFor returns the host:port REST URI for the i-th node (1-indexed,
-	// matching the existing compose.ContainerURI convention).
-	URIFor(i int) string
-	// FetchLogs returns the full container log for the i-th weaviate node
-	// (1-indexed). The caller owns the returned reader and must Close it.
-	FetchLogs(ctx context.Context, i int) (io.ReadCloser, error)
+	Size() int                                                    // number of nodes
+	URIFor(i int) string                                          // REST URI for 1-indexed node i
+	FetchLogs(ctx context.Context, i int) (io.ReadCloser, error) // caller closes the reader
 }
 
 func startParallelWrites(
@@ -86,18 +61,15 @@ func startParallelWrites(
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
 
-	// liveIDs/deletedIDs are owned exclusively by the writer goroutine until
-	// stop() joins it; the happens-before from wg.Wait() makes the post-stop
-	// read race-free.
+	// liveIDs/deletedIDs are owned by the writer until stop()'s wg.Wait
+	// establishes happens-before for the post-stop read.
 	liveIDs := make(map[strfmt.UUID]string, len(seed))
 	for id, contents := range seed {
 		liveIDs[id] = contents
 	}
 	deletedIDs := map[strfmt.UUID]struct{}{}
 
-	// dumpLogsOnce gates dumpReplicaLogsOnce so the first parallel-write
-	// failure dumps the relevant log lines from every node and subsequent
-	// failures stay quiet.
+	// dumpLogsOnce gates the per-test log dump to the first failure.
 	var dumpLogsOnce sync.Once
 	var wg sync.WaitGroup
 	done := make(chan struct{})
@@ -178,12 +150,9 @@ func startParallelWrites(
 		}
 	}, logger)
 
-	// The returned stop is idempotent — the close+wait runs at most once,
-	// so callers can both `defer stopWrites()` immediately after this
-	// returns AND later call `writes = stopWrites()` to capture the
-	// writer's final state. The defer is what prevents a require-driven
-	// Goexit from leaving the writer running past the test's lifetime
-	// and racing on the now-defunct *testing.T.
+	// Idempotent stop so callers can both `defer stopWrites()` and later
+	// call `writes = stopWrites()` — the defer protects against a
+	// require-driven Goexit leaving the writer racing on a defunct *testing.T.
 	var stopOnce sync.Once
 	return func() parallelWriteResult {
 		stopOnce.Do(func() {

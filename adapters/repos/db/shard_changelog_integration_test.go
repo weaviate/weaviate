@@ -456,15 +456,9 @@ func TestShard_SnapshotChangeLogLSN_AfterFinalize(t *testing.T) {
 	require.NoError(t, shard.StopChangeCapture(ctx, "op-after-final"))
 }
 
-// TestShard_ChangeLog_Finalize_WaitsForPreSealPendingOnly pins the pre-seal
-// drain: FinalizeChangeLog waits for the PREPAREs in flight at the moment it
-// snapshots the pending set, but does NOT wait for PREPAREs that register
-// after. Under sustained write load the seal still completes in bounded time.
-//
-// The stale-routing rejection that the old transient fence layered on top
-// has moved to the durable FSM-driven source-side fence
-// (ShardReplicationFSM.IsLocalShardWritable / db.checkLocalWritable), so the
-// shard-layer drain only needs this pre-snapshot-pending semantic.
+// TestShard_ChangeLog_Finalize_WaitsForPreSealPendingOnly: FinalizeChangeLog
+// blocks on the in-flight set snapshotted at entry but not on later
+// registrations, so the seal completes under sustained write load.
 func TestShard_ChangeLog_Finalize_WaitsForPreSealPendingOnly(t *testing.T) {
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)

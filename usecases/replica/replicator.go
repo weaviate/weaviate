@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -105,7 +104,6 @@ func (r *Replicator) PutObject(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
-			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, obj.ID().String(), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -139,7 +137,6 @@ func (r *Replicator) MergeObject(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
-			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, doc.ID.String(), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -177,7 +174,6 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
-			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, id.String(), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -210,7 +206,6 @@ func (r *Replicator) PutObjects(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
-			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, joinObjUUIDs(objs), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -249,7 +244,6 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
-			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, joinUUIDs(uuids), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -297,7 +291,6 @@ func (r *Replicator) AddReferences(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
-			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, joinRefIDs(refs), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -452,47 +445,9 @@ func (r *Replicator) requestID(op opID) string {
 		r.requestCounter.Add(1))
 }
 
-// joinObjUUIDs / joinUUIDs / joinRefIDs format a batch's identifiers as
-// "|"-separated strings for the replica_rpc PREPARE trace. The dump filter
-// uses substring matching on objUUID, so any single UUID still matches.
-// VERIFICATION INSTRUMENTATION — remove with the trace itself.
-func joinObjUUIDs(objs []*storobj.Object) string {
-	if len(objs) == 0 {
-		return ""
-	}
-	parts := make([]string, len(objs))
-	for i, o := range objs {
-		parts[i] = o.ID().String()
-	}
-	return strings.Join(parts, "|")
-}
-
-func joinUUIDs(uuids []strfmt.UUID) string {
-	if len(uuids) == 0 {
-		return ""
-	}
-	parts := make([]string, len(uuids))
-	for i, u := range uuids {
-		parts[i] = u.String()
-	}
-	return strings.Join(parts, "|")
-}
-
-func joinRefIDs(refs []objects.BatchReference) string {
-	if len(refs) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(refs)*2)
-	for _, r := range refs {
-		parts = append(parts, r.From.String(), r.To.String())
-	}
-	return strings.Join(parts, "|")
-}
-
-// wrapRouteStale chains a typed *routeStaleErr (carrying source's applied
-// index) into err when err is a StatusRouteStale replica.Error. The typed
-// wrapper survives later fmt.Errorf wrapping so the retry path can errors.As
-// the index out.
+// wrapRouteStale tags a StatusRouteStale replica.Error with a typed
+// *routeStaleErr so the retry path can errors.As the applied index out
+// even after further fmt.Errorf wrapping.
 func wrapRouteStale(host string, err error) error {
 	var rerr *Error
 	if errors.As(err, &rerr) && rerr != nil && rerr.Code == StatusRouteStale {
@@ -502,15 +457,11 @@ func wrapRouteStale(host string, err error) error {
 	return fmt.Errorf("%q: %w", host, err)
 }
 
-// pushWithRouteStaleRetry runs one bounded retry when source rejects with
-// StatusRouteStale. Push reports replica-level failures via rs (not err), so
-// errOf lets findRouteStaleErr scan both. Before retry: catch the local FSM
-// up to source's applied index so refreshed routing reflects post-DEHYDRATING,
-// and bump sv to the same index so receivers' waitForSchemaVersionForIndexWrite
-// catches their FSMs up too. broadcast already aborted the failed PREPARE.
-//
-// A free function, not a method: Go methods cannot take type parameters. T is
-// the coordinator response type, R the flattened per-item result type.
+// pushWithRouteStaleRetry runs one bounded retry on StatusRouteStale.
+// Push reports replica-level failures via rs (not err), so errOf lets
+// findRouteStaleErr scan both. Before retry: catch the local FSM up to
+// source's applied index and bump sv to match so receivers catch up too.
+// Free function because Go methods can't take type parameters.
 func pushWithRouteStaleRetry[T, R any](
 	r *Replicator,
 	ctx context.Context,
@@ -551,8 +502,8 @@ func nextSchemaVersion(sv uint64, routeStale error) uint64 {
 	return sv
 }
 
-// findRouteStaleErr scans both err and rs because Push reports replica-level
-// failures inside rs (via flattenErrors), not err.
+// findRouteStaleErr scans both err and rs since Push reports replica-level
+// failures via rs.
 func findRouteStaleErr[T any](err error, rs []T, errOf func(T) error) error {
 	if isRouteStale(err) {
 		return err
@@ -573,9 +524,8 @@ func isRouteStale(err error) bool {
 	return errors.As(err, &rs)
 }
 
-// waitForFSMCatchUp blocks until the local FSM reaches the Applied index
-// carried by err's *routeStaleErr. Best-effort: if Applied is missing the
-// retry proceeds against possibly-still-stale routing (no worse than pre-fix).
+// waitForFSMCatchUp blocks until the local FSM reaches err's Applied index.
+// If Applied is missing, retry proceeds without waiting (best-effort).
 func (r *Replicator) waitForFSMCatchUp(ctx context.Context, err error) error {
 	logEntry := r.log.WithField("op", "push.retry_route_stale").
 		WithField("class", r.class).
