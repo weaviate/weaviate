@@ -260,11 +260,11 @@ func applyPropertyValueModifier(val float64, modifier filters.PropertyValueModif
 }
 
 // extractProps gets the properties map from a search result.
-func extractProps(r *search.Result) map[string]interface{} {
+func extractProps(r *search.Result) map[string]any {
 	if r.Schema == nil {
 		return nil
 	}
-	props, ok := r.Schema.(map[string]interface{})
+	props, ok := r.Schema.(map[string]any)
 	if !ok {
 		return nil
 	}
@@ -273,14 +273,14 @@ func extractProps(r *search.Result) map[string]interface{} {
 
 // matchesFilter evaluates a LocalFilter against an object's properties in-memory.
 // This handles the common filter operators used in boost conditions.
-func matchesFilter(filter *filters.LocalFilter, props map[string]interface{}) bool {
+func matchesFilter(filter *filters.LocalFilter, props map[string]any) bool {
 	if filter == nil || filter.Root == nil || props == nil {
 		return false
 	}
 	return matchesClause(filter.Root, props)
 }
 
-func matchesClause(clause *filters.Clause, props map[string]interface{}) bool {
+func matchesClause(clause *filters.Clause, props map[string]any) bool {
 	switch clause.Operator {
 	case filters.OperatorAnd:
 		for i := range clause.Operands {
@@ -309,7 +309,7 @@ func matchesClause(clause *filters.Clause, props map[string]interface{}) bool {
 	}
 }
 
-func matchesValueClause(clause *filters.Clause, props map[string]interface{}) bool {
+func matchesValueClause(clause *filters.Clause, props map[string]any) bool {
 	if clause.On == nil || clause.Value == nil {
 		return false
 	}
@@ -323,7 +323,7 @@ func matchesValueClause(clause *filters.Clause, props map[string]interface{}) bo
 	return compareValues(clause.Operator, propVal, clause.Value.Value)
 }
 
-func compareValues(op filters.Operator, propVal, filterVal interface{}) bool {
+func compareValues(op filters.Operator, propVal, filterVal any) bool {
 	// Try boolean comparison.
 	if boolVal, ok := asBool(propVal); ok {
 		if filterBool, ok := asBool(filterVal); ok {
@@ -388,7 +388,7 @@ func compareValues(op filters.Operator, propVal, filterVal interface{}) bool {
 	return false
 }
 
-func asBool(v interface{}) (bool, bool) {
+func asBool(v any) (bool, bool) {
 	switch b := v.(type) {
 	case bool:
 		return b, true
@@ -397,7 +397,7 @@ func asBool(v interface{}) (bool, bool) {
 	}
 }
 
-func asFloat64(v interface{}) (float64, bool) {
+func asFloat64(v any) (float64, bool) {
 	switch n := v.(type) {
 	case float64:
 		return n, true
@@ -455,7 +455,7 @@ func parseDecayParams(d *filters.Decay) parsedDecay {
 	}
 }
 
-func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, props map[string]interface{}, nowTime time.Time) float32 {
+func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, props map[string]any, nowTime time.Time) float32 {
 	if !parsed.valid || props == nil || decay.Path == nil {
 		return 0
 	}
@@ -474,7 +474,7 @@ func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, props map[s
 	return computeDecayFunction(parsed.curve, dist, parsed.offset, parsed.scale, parsed.decayValue)
 }
 
-func computeDistance(decay *filters.Decay, propValue interface{}, nowTime time.Time) (float64, error) {
+func computeDistance(decay *filters.Decay, propValue any, nowTime time.Time) (float64, error) {
 	if dateVal, ok := tryParseDate(propValue); ok {
 		origin := decay.Origin
 		if origin == "" {
@@ -530,7 +530,7 @@ func computeDecayFunction(curve filters.DecayCurveType, dist, offset, scale, dec
 
 // --- Time/duration parsing helpers ---
 
-func tryParseDate(val interface{}) (time.Time, bool) {
+func tryParseDate(val any) (time.Time, bool) {
 	switch v := val.(type) {
 	case time.Time:
 		return v, true
@@ -593,7 +593,7 @@ func parseNumericOrDuration(s string) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
-func toFloat64(val interface{}) (float64, error) {
+func toFloat64(val any) (float64, error) {
 	switch v := val.(type) {
 	case float64:
 		return v, nil

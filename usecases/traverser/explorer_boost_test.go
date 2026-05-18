@@ -37,16 +37,16 @@ type spyModulesProvider struct {
 }
 
 func (s *spyModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector models.Vector,
-	argumentModuleParams map[string]interface{},
+	moduleParams map[string]any, searchVector models.Vector,
+	argumentModuleParams map[string]any,
 ) ([]search.Result, error) {
 	s.recordCall(in)
 	return in, nil
 }
 
 func (s *spyModulesProvider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{},
-	argumentModuleParams map[string]interface{},
+	moduleParams map[string]any,
+	argumentModuleParams map[string]any,
 ) ([]search.Result, error) {
 	s.recordCall(in)
 	return in, nil
@@ -68,7 +68,7 @@ func makeBM25Results(n int) []search.Result {
 		results[i] = search.Result{
 			ID:    strfmt.UUID(fmt.Sprintf("id-%02d", i)),
 			Score: float32(n-i) * 0.1,
-			Schema: map[string]interface{}{
+			Schema: map[string]any{
 				"name":  fmt.Sprintf("Item %02d", i),
 				"likes": float64(i * 100),
 			},
@@ -85,7 +85,7 @@ func makeVectorResults(n int) []search.Result {
 		results[i] = search.Result{
 			ID:   strfmt.UUID(fmt.Sprintf("id-%02d", i)),
 			Dist: float32(i) * 0.05,
-			Schema: map[string]interface{}{
+			Schema: map[string]any{
 				"name":  fmt.Sprintf("Item %02d", i),
 				"likes": float64(i * 100),
 			},
@@ -122,13 +122,13 @@ func likesBoost(weight float32, depth int) *filters.Boost {
 	}
 }
 
-func idsFromResponse(res []interface{}) []string {
-	// GetClass returns []interface{} where each is the Schema map.
+func idsFromResponse(res []any) []string {
+	// GetClass returns []any where each is the Schema map.
 	// We can't read IDs from Schema unless we put _additional in.
 	// Instead, read the "name" field which encodes the index.
 	ids := make([]string, len(res))
 	for i, r := range res {
-		m := r.(map[string]interface{})
+		m := r.(map[string]any)
 		ids[i] = m["name"].(string)
 	}
 	return ids

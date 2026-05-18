@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 )
 
-func makeResult(id string, score float32, props map[string]interface{}) search.Result {
+func makeResult(id string, score float32, props map[string]any) search.Result {
 	return search.Result{
 		ID:     strfmt.UUID(id),
 		Score:  score,
@@ -33,7 +33,7 @@ func makeResult(id string, score float32, props map[string]interface{}) search.R
 	}
 }
 
-func filterCondition(path string, op filters.Operator, val interface{}, dt schema.DataType) filters.BoostCondition {
+func filterCondition(path string, op filters.Operator, val any, dt schema.DataType) filters.BoostCondition {
 	return filters.BoostCondition{
 		Filter: &filters.LocalFilter{
 			Root: &filters.Clause{
@@ -92,8 +92,8 @@ func TestApplyBoostScoring_EmptyConditions(t *testing.T) {
 
 func TestApplyBoostScoring_WeightZero(t *testing.T) {
 	results := []search.Result{
-		makeResult("a", 1.0, map[string]interface{}{"inStock": true}),
-		makeResult("b", 0.5, map[string]interface{}{"inStock": false}),
+		makeResult("a", 1.0, map[string]any{"inStock": true}),
+		makeResult("b", 0.5, map[string]any{"inStock": false}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{
@@ -109,8 +109,8 @@ func TestApplyBoostScoring_WeightZero(t *testing.T) {
 
 func TestApplyBoostScoring_FilterPromotesMatchingResults(t *testing.T) {
 	results := []search.Result{
-		makeResult("no-stock", 1.0, map[string]interface{}{"inStock": false}),
-		makeResult("in-stock", 0.5, map[string]interface{}{"inStock": true}),
+		makeResult("no-stock", 1.0, map[string]any{"inStock": false}),
+		makeResult("in-stock", 0.5, map[string]any{"inStock": true}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{
@@ -126,9 +126,9 @@ func TestApplyBoostScoring_FilterPromotesMatchingResults(t *testing.T) {
 
 func TestApplyBoostScoring_Truncation(t *testing.T) {
 	results := []search.Result{
-		makeResult("a", 1.0, map[string]interface{}{"x": true}),
-		makeResult("b", 0.9, map[string]interface{}{"x": true}),
-		makeResult("c", 0.8, map[string]interface{}{"x": true}),
+		makeResult("a", 1.0, map[string]any{"x": true}),
+		makeResult("b", 0.9, map[string]any{"x": true}),
+		makeResult("c", 0.8, map[string]any{"x": true}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{
@@ -149,7 +149,7 @@ func TestApplyBoostScoring_DepthPromotesDeepResult(t *testing.T) {
 		results[i] = makeResult(
 			fmt.Sprintf("item-%d", i),
 			float32(10-i)*0.1, // decreasing primary scores: 1.0, 0.9, ..., 0.1
-			map[string]interface{}{"promoted": i == 9},
+			map[string]any{"promoted": i == 9},
 		)
 	}
 	boost := &filters.Boost{
@@ -172,7 +172,7 @@ func TestApplyBoostScoring_SmallDepthMissesDeepResult(t *testing.T) {
 		results[i] = makeResult(
 			fmt.Sprintf("item-%d", i),
 			float32(10-i)*0.1,
-			map[string]interface{}{"promoted": false},
+			map[string]any{"promoted": false},
 		)
 	}
 	boost := &filters.Boost{
@@ -195,7 +195,7 @@ func TestApplyBoostScoring_DepthTruncatesToOriginalLimit(t *testing.T) {
 		results[i] = makeResult(
 			fmt.Sprintf("item-%02d", i),
 			float32(20-i)*0.05,
-			map[string]interface{}{"inStock": i%3 == 0},
+			map[string]any{"inStock": i%3 == 0},
 		)
 	}
 	boost := &filters.Boost{
@@ -209,7 +209,7 @@ func TestApplyBoostScoring_DepthTruncatesToOriginalLimit(t *testing.T) {
 	// With weight=0.8, inStock items should dominate the top-5.
 	inStockCount := 0
 	for _, r := range got {
-		props := r.Schema.(map[string]interface{})
+		props := r.Schema.(map[string]any)
 		if props["inStock"] == true {
 			inStockCount++
 		}
@@ -221,8 +221,8 @@ func TestApplyBoostScoring_AllSamePrimaryScore(t *testing.T) {
 	// When all primary scores are equal, they normalize to 1.0
 	// and boost becomes the tiebreaker.
 	results := []search.Result{
-		makeResult("no-match", 0.5, map[string]interface{}{"inStock": false}),
-		makeResult("match", 0.5, map[string]interface{}{"inStock": true}),
+		makeResult("no-match", 0.5, map[string]any{"inStock": false}),
+		makeResult("match", 0.5, map[string]any{"inStock": true}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{
@@ -253,9 +253,9 @@ func TestDistToScore(t *testing.T) {
 func TestApplyBoostScoring_WithDistConvertedScores(t *testing.T) {
 	// Simulates vector search: explorer calls distToScore before applyBoostScoring.
 	results := []search.Result{
-		{ID: strfmt.UUID("close"), Dist: 0.01, Schema: map[string]interface{}{"streaming": false}},
-		{ID: strfmt.UUID("medium"), Dist: 0.10, Schema: map[string]interface{}{"streaming": true}},
-		{ID: strfmt.UUID("far"), Dist: 0.90, Schema: map[string]interface{}{"streaming": true}},
+		{ID: strfmt.UUID("close"), Dist: 0.01, Schema: map[string]any{"streaming": false}},
+		{ID: strfmt.UUID("medium"), Dist: 0.10, Schema: map[string]any{"streaming": true}},
+		{ID: strfmt.UUID("far"), Dist: 0.90, Schema: map[string]any{"streaming": true}},
 	}
 	distToScore(results)
 	boost := &filters.Boost{
@@ -285,7 +285,7 @@ func TestApplyBoostScoring_EmptyResults(t *testing.T) {
 // --- scoreResult tests ---
 
 func TestScoreResult_FilterMatch(t *testing.T) {
-	r := makeResult("a", 1.0, map[string]interface{}{"color": "red"})
+	r := makeResult("a", 1.0, map[string]any{"color": "red"})
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
@@ -294,7 +294,7 @@ func TestScoreResult_FilterMatch(t *testing.T) {
 }
 
 func TestScoreResult_FilterNoMatch(t *testing.T) {
-	r := makeResult("a", 1.0, map[string]interface{}{"color": "blue"})
+	r := makeResult("a", 1.0, map[string]any{"color": "blue"})
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
@@ -303,7 +303,7 @@ func TestScoreResult_FilterNoMatch(t *testing.T) {
 }
 
 func TestScoreResult_FilterMissingProperty(t *testing.T) {
-	r := makeResult("a", 1.0, map[string]interface{}{})
+	r := makeResult("a", 1.0, map[string]any{})
 	conds := []filters.BoostCondition{
 		filterCondition("color", filters.OperatorEqual, "red", schema.DataTypeText),
 	}
@@ -321,7 +321,7 @@ func TestScoreResult_NilSchema(t *testing.T) {
 }
 
 func TestScoreResult_WeightedAverage(t *testing.T) {
-	r := makeResult("a", 1.0, map[string]interface{}{
+	r := makeResult("a", 1.0, map[string]any{
 		"inStock":  true,
 		"category": "electronics",
 	})
@@ -349,7 +349,7 @@ func TestScoreResult_WeightedAverage(t *testing.T) {
 }
 
 func TestScoreResult_ZeroWeight(t *testing.T) {
-	r := makeResult("a", 1.0, map[string]interface{}{"x": true})
+	r := makeResult("a", 1.0, map[string]any{"x": true})
 	conds := []filters.BoostCondition{
 		{
 			Filter: &filters.LocalFilter{Root: &filters.Clause{
@@ -367,7 +367,7 @@ func TestScoreResult_ZeroWeight(t *testing.T) {
 // --- matchesFilter / matchesClause tests ---
 
 func TestMatchesFilter_And(t *testing.T) {
-	props := map[string]interface{}{"a": true, "b": true}
+	props := map[string]any{"a": true, "b": true}
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorAnd,
 		Operands: []filters.Clause{
@@ -382,7 +382,7 @@ func TestMatchesFilter_And(t *testing.T) {
 }
 
 func TestMatchesFilter_Or(t *testing.T) {
-	props := map[string]interface{}{"a": false, "b": true}
+	props := map[string]any{"a": false, "b": true}
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorOr,
 		Operands: []filters.Clause{
@@ -397,7 +397,7 @@ func TestMatchesFilter_Or(t *testing.T) {
 }
 
 func TestMatchesFilter_Not(t *testing.T) {
-	props := map[string]interface{}{"a": false}
+	props := map[string]any{"a": false}
 	filter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorNot,
 		Operands: []filters.Clause{
@@ -408,8 +408,8 @@ func TestMatchesFilter_Not(t *testing.T) {
 }
 
 func TestMatchesFilter_NilInputs(t *testing.T) {
-	assert.False(t, matchesFilter(nil, map[string]interface{}{}))
-	assert.False(t, matchesFilter(&filters.LocalFilter{}, map[string]interface{}{}))
+	assert.False(t, matchesFilter(nil, map[string]any{}))
+	assert.False(t, matchesFilter(&filters.LocalFilter{}, map[string]any{}))
 	assert.False(t, matchesFilter(&filters.LocalFilter{Root: &filters.Clause{
 		On: &filters.Path{Property: "a"}, Value: &filters.Value{Value: true}, Operator: filters.OperatorEqual,
 	}}, nil))
@@ -421,8 +421,8 @@ func TestCompareValues_Numeric(t *testing.T) {
 	tests := []struct {
 		name     string
 		op       filters.Operator
-		propVal  interface{}
-		filterV  interface{}
+		propVal  any
+		filterV  any
 		expected bool
 	}{
 		{"equal float64", filters.OperatorEqual, float64(10), float64(10), true},
@@ -539,7 +539,7 @@ func TestComputeDecayForResult_NumericProperty(t *testing.T) {
 		DecayValue: 0.5,
 	}
 	parsed := parseDecayParams(decay)
-	props := map[string]interface{}{"price": float64(300)} // dist=200=scale → 0.5
+	props := map[string]any{"price": float64(300)} // dist=200=scale → 0.5
 	score := computeDecayForResult(decay, parsed, props, time.Now())
 	assert.InDelta(t, 0.5, float64(score), 0.001)
 }
@@ -551,7 +551,7 @@ func TestComputeDecayForResult_MissingProperty(t *testing.T) {
 		Scale:  "200",
 	}
 	parsed := parseDecayParams(decay)
-	props := map[string]interface{}{}
+	props := map[string]any{}
 	score := computeDecayForResult(decay, parsed, props, time.Now())
 	assert.InDelta(t, 0.0, float64(score), 0.001)
 }
@@ -571,12 +571,12 @@ func TestComputeDecayForResult_DateProperty(t *testing.T) {
 
 	// 7 days ago → dist=scale → 0.5
 	t7dAgo := now.Add(-7 * 24 * time.Hour).Format(time.RFC3339)
-	props := map[string]interface{}{"createdAt": t7dAgo}
+	props := map[string]any{"createdAt": t7dAgo}
 	score := computeDecayForResult(decay, parsed, props, now)
 	assert.InDelta(t, 0.5, float64(score), 0.05)
 
 	// Now → dist=0 → 1.0
-	props = map[string]interface{}{"createdAt": now.Format(time.RFC3339)}
+	props = map[string]any{"createdAt": now.Format(time.RFC3339)}
 	score = computeDecayForResult(decay, parsed, props, now)
 	assert.InDelta(t, 1.0, float64(score), 0.05)
 }
@@ -652,7 +652,7 @@ func TestParseDecayParams_InvalidScale(t *testing.T) {
 
 func TestToFloat64(t *testing.T) {
 	tests := []struct {
-		input    interface{}
+		input    any
 		expected float64
 		hasErr   bool
 	}{
@@ -707,7 +707,7 @@ func TestTryParseDate(t *testing.T) {
 // --- extractProps ---
 
 func TestExtractProps(t *testing.T) {
-	r := makeResult("a", 1.0, map[string]interface{}{"key": "val"})
+	r := makeResult("a", 1.0, map[string]any{"key": "val"})
 	props := extractProps(&r)
 	assert.Equal(t, "val", props["key"])
 
@@ -722,8 +722,8 @@ func TestExtractProps(t *testing.T) {
 
 func TestApplyBoostScoring_DecayReorders(t *testing.T) {
 	results := []search.Result{
-		makeResult("far", 0.5, map[string]interface{}{"price": float64(1000)}),
-		makeResult("close", 0.5, map[string]interface{}{"price": float64(110)}),
+		makeResult("far", 0.5, map[string]any{"price": float64(1000)}),
+		makeResult("close", 0.5, map[string]any{"price": float64(110)}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{
@@ -739,9 +739,9 @@ func TestApplyBoostScoring_DecayReorders(t *testing.T) {
 
 func TestApplyBoostScoring_MixedConditions(t *testing.T) {
 	results := []search.Result{
-		makeResult("a", 0.5, map[string]interface{}{"inStock": true, "price": float64(500)}),
-		makeResult("b", 0.5, map[string]interface{}{"inStock": false, "price": float64(100)}),
-		makeResult("c", 0.5, map[string]interface{}{"inStock": true, "price": float64(100)}),
+		makeResult("a", 0.5, map[string]any{"inStock": true, "price": float64(500)}),
+		makeResult("b", 0.5, map[string]any{"inStock": false, "price": float64(100)}),
+		makeResult("c", 0.5, map[string]any{"inStock": true, "price": float64(100)}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{
@@ -768,7 +768,7 @@ func TestApplyBoostScoring_MixedConditions(t *testing.T) {
 
 func TestScoreResult_NegativeWeightDemotes(t *testing.T) {
 	// A single negative weight: matching result gets demoted.
-	r := makeResult("a", 1.0, map[string]interface{}{"inStock": true})
+	r := makeResult("a", 1.0, map[string]any{"inStock": true})
 	conds := []filters.BoostCondition{
 		{
 			Filter: &filters.LocalFilter{Root: &filters.Clause{
@@ -786,7 +786,7 @@ func TestScoreResult_NegativeWeightDemotes(t *testing.T) {
 
 func TestScoreResult_MixedPositiveNegativeWeights(t *testing.T) {
 	// Positive weight=2 matches + negative weight=-1 matches → (2*1 + -1*1) / (2+1) = 1/3
-	r := makeResult("a", 1.0, map[string]interface{}{
+	r := makeResult("a", 1.0, map[string]any{
 		"inStock":  true,
 		"category": "electronics",
 	})
@@ -815,8 +815,8 @@ func TestScoreResult_MixedPositiveNegativeWeights(t *testing.T) {
 
 func TestApplyBoostScoring_NegativeWeightDemotesMatchingResult(t *testing.T) {
 	results := []search.Result{
-		makeResult("match", 0.5, map[string]interface{}{"banned": true}),
-		makeResult("no-match", 0.5, map[string]interface{}{"banned": false}),
+		makeResult("match", 0.5, map[string]any{"banned": true}),
+		makeResult("no-match", 0.5, map[string]any{"banned": false}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{
@@ -944,8 +944,8 @@ func propertyValueCondition(path string, modifier filters.PropertyValueModifierT
 
 func TestApplyBoostScoring_PropertyValuePromotesHighValues(t *testing.T) {
 	results := []search.Result{
-		makeResult("low-likes", 1.0, map[string]interface{}{"likes": float64(10)}),
-		makeResult("high-likes", 0.5, map[string]interface{}{"likes": float64(1000)}),
+		makeResult("low-likes", 1.0, map[string]any{"likes": float64(10)}),
+		makeResult("high-likes", 0.5, map[string]any{"likes": float64(1000)}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierNone)},
@@ -959,9 +959,9 @@ func TestApplyBoostScoring_PropertyValuePromotesHighValues(t *testing.T) {
 
 func TestApplyBoostScoring_PropertyValueLog1p(t *testing.T) {
 	results := []search.Result{
-		makeResult("a", 0.5, map[string]interface{}{"likes": float64(0)}),
-		makeResult("b", 0.5, map[string]interface{}{"likes": float64(100)}),
-		makeResult("c", 0.5, map[string]interface{}{"likes": float64(10000)}),
+		makeResult("a", 0.5, map[string]any{"likes": float64(0)}),
+		makeResult("b", 0.5, map[string]any{"likes": float64(100)}),
+		makeResult("c", 0.5, map[string]any{"likes": float64(10000)}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierLog1p)},
@@ -978,8 +978,8 @@ func TestApplyBoostScoring_PropertyValueLog1p(t *testing.T) {
 
 func TestApplyBoostScoring_PropertyValueSqrt(t *testing.T) {
 	results := []search.Result{
-		makeResult("a", 0.5, map[string]interface{}{"likes": float64(0)}),
-		makeResult("b", 0.5, map[string]interface{}{"likes": float64(100)}),
+		makeResult("a", 0.5, map[string]any{"likes": float64(0)}),
+		makeResult("b", 0.5, map[string]any{"likes": float64(100)}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierSqrt)},
@@ -992,8 +992,8 @@ func TestApplyBoostScoring_PropertyValueSqrt(t *testing.T) {
 
 func TestApplyBoostScoring_PropertyValueAllSameValue(t *testing.T) {
 	results := []search.Result{
-		makeResult("a", 1.0, map[string]interface{}{"likes": float64(50)}),
-		makeResult("b", 0.5, map[string]interface{}{"likes": float64(50)}),
+		makeResult("a", 1.0, map[string]any{"likes": float64(50)}),
+		makeResult("b", 0.5, map[string]any{"likes": float64(50)}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierNone)},
@@ -1007,8 +1007,8 @@ func TestApplyBoostScoring_PropertyValueAllSameValue(t *testing.T) {
 
 func TestApplyBoostScoring_PropertyValueMissingProperty(t *testing.T) {
 	results := []search.Result{
-		makeResult("has-likes", 0.5, map[string]interface{}{"likes": float64(100)}),
-		makeResult("no-likes", 0.5, map[string]interface{}{"title": "hello"}),
+		makeResult("has-likes", 0.5, map[string]any{"likes": float64(100)}),
+		makeResult("no-likes", 0.5, map[string]any{"title": "hello"}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{propertyValueCondition("likes", filters.PropertyValueModifierNone)},
@@ -1045,7 +1045,7 @@ func TestApplyPropertyValueModifier(t *testing.T) {
 
 func TestScoreResult_NegativeWeightNonMatch(t *testing.T) {
 	// Negative weight on a non-matching result should score 0 (not negative).
-	r := makeResult("a", 1.0, map[string]interface{}{"inStock": false})
+	r := makeResult("a", 1.0, map[string]any{"inStock": false})
 	conds := []filters.BoostCondition{
 		{
 			Filter: &filters.LocalFilter{Root: &filters.Clause{
@@ -1068,7 +1068,7 @@ func TestComputeDecayForResult_NonExistingField(t *testing.T) {
 		Scale:  "200",
 	}
 	parsed := parseDecayParams(decay)
-	props := map[string]interface{}{"price": float64(50)}
+	props := map[string]any{"price": float64(50)}
 	score := computeDecayForResult(decay, parsed, props, time.Now())
 	assert.InDelta(t, 0.0, float64(score), 0.001, "decay on non-existing field should score 0")
 }
@@ -1086,8 +1086,8 @@ func TestComputeDecayForResult_NilProps(t *testing.T) {
 
 func TestApplyBoostScoring_PropertyValueNonExistingField(t *testing.T) {
 	results := []search.Result{
-		makeResult("a", 1.0, map[string]interface{}{"title": "hello"}),
-		makeResult("b", 0.5, map[string]interface{}{"title": "world"}),
+		makeResult("a", 1.0, map[string]any{"title": "hello"}),
+		makeResult("b", 0.5, map[string]any{"title": "world"}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{{
@@ -1109,7 +1109,7 @@ func TestApplyBoostScoring_PropertyValueNonExistingField(t *testing.T) {
 func TestApplyBoostScoring_PropertyValueNilSchema(t *testing.T) {
 	results := []search.Result{
 		makeResult("a", 1.0, nil),
-		makeResult("b", 0.5, map[string]interface{}{"likes": float64(100)}),
+		makeResult("b", 0.5, map[string]any{"likes": float64(100)}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{{
@@ -1136,7 +1136,7 @@ func TestApplyBoostScoring_OffsetSkipsTopResults(t *testing.T) {
 		results[i] = makeResult(
 			fmt.Sprintf("item-%d", i),
 			float32(10-i)*0.1,
-			map[string]interface{}{"promoted": i == 9},
+			map[string]any{"promoted": i == 9},
 		)
 	}
 	boost := &filters.Boost{
@@ -1170,7 +1170,7 @@ func TestApplyBoostScoring_OffsetPlusLimitMatchesFullResults(t *testing.T) {
 		results[i] = makeResult(
 			fmt.Sprintf("item-%d", i),
 			float32(10-i)*0.1,
-			map[string]interface{}{"likes": float64(i * 100)},
+			map[string]any{"likes": float64(i * 100)},
 		)
 	}
 	boost := &filters.Boost{
@@ -1202,8 +1202,8 @@ func TestApplyBoostScoring_OffsetPlusLimitMatchesFullResults(t *testing.T) {
 
 func TestApplyBoostScoring_OffsetBeyondResults(t *testing.T) {
 	results := []search.Result{
-		makeResult("a", 1.0, map[string]interface{}{"x": true}),
-		makeResult("b", 0.5, map[string]interface{}{"x": false}),
+		makeResult("a", 1.0, map[string]any{"x": true}),
+		makeResult("b", 0.5, map[string]any{"x": false}),
 	}
 	boost := &filters.Boost{
 		Conditions: []filters.BoostCondition{
