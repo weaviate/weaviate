@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -171,6 +170,4 @@ func TestExtractFilters_NamespaceStitching(t *testing.T) {
 			&models.Principal{Username: "u", Namespace: "customer1"})
 		require.Error(t, err)
 	})
-
-	_ = filters.OperatorEqual // keep filters import used if compilation later moves
 }
