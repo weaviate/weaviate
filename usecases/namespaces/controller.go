@@ -112,17 +112,21 @@ func NewController(logger logrus.FieldLogger) *Controller {
 }
 
 // Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
-// input's State is ignored. Returns [ErrBadRequest] for invalid names or an
-// empty HomeNode, [ErrAlreadyExists] when the name maps to an active
-// namespace, and [ErrNamespaceDeleting] when the name is currently being
-// torn down. HomeNode is rejected as empty here as defense in depth; the
-// REST/RAFT request paths fill it before propose.
+// input's State is ignored. Returns [ErrBadRequest] for invalid names or a
+// HomeNodes slice whose length isn't exactly 1, [ErrAlreadyExists] when the
+// name maps to an active namespace, and [ErrNamespaceDeleting] when the
+// name is currently being torn down. The HomeNodes check here is defense
+// in depth; the REST/RAFT request paths populate the slice before propose.
+//
+// The len==1 invariant is what every downstream consumer (placement,
+// object-limit counter, REST response shaping) relies on. Loosening it
+// requires updating those readers in lockstep.
 func (c *Controller) Create(ns cmd.Namespace) error {
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-	if ns.HomeNode == "" {
-		return fmt.Errorf("%w: home_node is required", ErrBadRequest)
+	if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
+		return fmt.Errorf("%w: home_nodes must contain exactly 1 non-empty entry", ErrBadRequest)
 	}
 
 	c.mu.Lock()
@@ -140,13 +144,16 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 	return nil
 }
 
-// Update overwrites the stored HomeNode for an existing namespace. Returns
-// [ErrBadRequest] for an empty HomeNode and [ErrNotFound] when the
-// namespace does not exist. Only HomeNode is mutable through this path;
-// callers cannot use Update to change Name or State.
+// Update overwrites the stored HomeNodes for an existing namespace. Returns
+// [ErrBadRequest] when HomeNodes does not contain exactly one entry,
+// [ErrNotFound] when the namespace does not exist, and
+// [ErrNamespaceDeleting] when the namespace is being torn down (the new
+// home_node would point at a target that has nothing left to place into).
+// Only HomeNodes is mutable through this path; callers cannot use Update
+// to change Name or State.
 func (c *Controller) Update(ns cmd.Namespace) error {
-	if ns.HomeNode == "" {
-		return fmt.Errorf("%w: home_node is required", ErrBadRequest)
+	if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
+		return fmt.Errorf("%w: home_nodes must contain exactly 1 non-empty entry", ErrBadRequest)
 	}
 
 	c.mu.Lock()
@@ -156,7 +163,10 @@ func (c *Controller) Update(ns cmd.Namespace) error {
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrNotFound, ns.Name)
 	}
-	existing.HomeNode = ns.HomeNode
+	if existing.State == cmd.NamespaceStateDeleting {
+		return fmt.Errorf("%w: %q", ErrNamespaceDeleting, ns.Name)
+	}
+	existing.HomeNodes = ns.HomeNodes
 	return nil
 }
 

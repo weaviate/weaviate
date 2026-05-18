@@ -122,8 +122,8 @@ func TestApplyTypeNamespaceGateClassification(t *testing.T) {
 func TestRequireNamespaceActive(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	controller := namespaces.NewController(logger)
-	require.NoError(t, controller.Create(api.Namespace{Name: "active1", HomeNode: "node-1"}))
-	require.NoError(t, controller.Create(api.Namespace{Name: "deleting1", HomeNode: "node-1"}))
+	require.NoError(t, controller.Create(api.Namespace{Name: "active1", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, controller.Create(api.Namespace{Name: "deleting1", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, controller.ChangeState("deleting1", api.NamespaceStateDeleting))
 	exister := clusternamespaces.NewManager(controller, emptySchemaLister{}, nil, logger)
 
@@ -202,7 +202,7 @@ func TestApplyGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 			name:      "deleting namespace rejected with ErrNamespaceDeleting",
 			className: "alpha:Foo",
 			seed: func(c *namespaces.Controller) {
-				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNode: "node-1"}))
+				require.NoError(t, c.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
 				require.NoError(t, c.ChangeState("alpha", api.NamespaceStateDeleting))
 			},
 			wantErr: namespaces.ErrNamespaceDeleting,
@@ -236,7 +236,7 @@ func TestApplyGate_RejectsCreateLikeApplyTypes(t *testing.T) {
 // the namespace is active.
 func TestApplyGate_PassesActiveNamespace(t *testing.T) {
 	ms, log := setupApplyTest(t)
-	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNode: "node-1"}))
+	require.NoError(t, ms.cfg.NamespacesController.Create(api.Namespace{Name: "alpha", HomeNodes: []string{"node-1"}}))
 
 	cls := &models.Class{
 		Class:              "alpha:Foo",

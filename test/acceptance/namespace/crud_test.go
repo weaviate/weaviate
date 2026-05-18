@@ -13,7 +13,9 @@ package namespace
 
 import (
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -130,9 +132,6 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 	assert.Equal(t, nodeB, updated.HomeNode)
 	assert.Equal(t, nodeB, helper.GetNamespace(t, ns, adminKey).HomeNode)
 
-	helper.CreateClassAuth(t, &models.Class{Class: "ClassB"}, userKey)
-	t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":ClassB", adminKey) })
-
 	t.Run("existing shard stays on original home_node", func(t *testing.T) {
 		home, other := homeNodeShards(t, ns+":ClassA", nodeA, adminKey)
 		require.Len(t, home, 1)
@@ -140,9 +139,29 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 	})
 
 	t.Run("new shard lands on updated home_node", func(t *testing.T) {
-		home, other := homeNodeShards(t, ns+":ClassB", nodeB, adminKey)
-		require.Len(t, home, 1)
-		assert.Zero(t, other, "ClassB shard expected only on %s", nodeB)
+		// GetNamespace routes through the leader and reports the new
+		// home_node immediately, so it can't tell us whether *this*
+		// node's controller has caught up — and that's the one placement
+		// reads from. Probe via class creation (the same code path) with
+		// fresh names per try, dropping any that land on the old node.
+		var probeName string
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			probeName = fmt.Sprintf("ClassB_%d", time.Now().UnixNano())
+			if _, err := helper.CreateClassAuthWithReturn(t, &models.Class{Class: probeName}, userKey); !assert.NoError(c, err) {
+				return
+			}
+			home, other := homeNodeShards(t, ns+":"+probeName, nodeB, adminKey)
+			if len(home) != 1 || other != 0 {
+				helper.DeleteClassAuth(t, ns+":"+probeName, adminKey)
+				assert.Failf(c, "wrong placement", "home=%d other=%d", len(home), other)
+				return
+			}
+		}, 30*time.Second, 500*time.Millisecond, "no class landed on %s after home_node update", nodeB)
+		t.Cleanup(func() {
+			if probeName != "" {
+				helper.DeleteClassAuth(t, ns+":"+probeName, adminKey)
+			}
+		})
 	})
 }
 

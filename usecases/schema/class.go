@@ -159,6 +159,15 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	}
 	// migrate only after validation in completed
 	h.migrateClassSettings(cls)
+
+	// Reject explicit desiredCount != 1 before ParseClass replaces the
+	// raw map, so we can tell "user asked for 3" from "default = NodeCount".
+	if h.config.Namespaces.Enabled && !schema.MultiTenancyEnabled(cls) {
+		if err := rejectExplicitMultiShardOnNamespacedClass(cls.ShardingConfig); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	if err := h.parser.ParseClass(cls); err != nil {
 		return nil, 0, err
 	}
@@ -186,22 +195,6 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
 	}
 
-	// Per-collection shard cap. Config-time check only — shard count comes
-	// straight from the create request, no live state to consult.
-	// Multi-tenant collections set DesiredCount=0 (shards are created
-	// per-tenant on demand) so the cap is naturally satisfied for those;
-	// the check meaningfully constrains single-tenant configurations only.
-	if dv := h.config.UsageLimits.MaxShardsPerCollection; dv != nil {
-		shardCap := dv.Get()
-		if shardCap >= 0 {
-			requested := cls.ShardingConfig.(shardingcfg.Config).DesiredCount
-			if requested > shardCap {
-				return nil, 0, usagelimits.NewLimitExceededError(
-					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
-			}
-		}
-	}
-
 	candidates, err := h.namespaceCandidates(cls.Class)
 	if err != nil {
 		return nil, 0, err
@@ -218,6 +211,23 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		shardingCfg.ActualVirtualCount = shardingCfg.DesiredVirtualCount
 		cls.ShardingConfig = shardingCfg
 	}
+
+	// Per-collection shard cap. Config-time check only — shard count comes
+	// straight from the (post-namespace-override) DesiredCount, no live
+	// state to consult. Multi-tenant collections set DesiredCount=0 (shards
+	// are created per-tenant on demand) so the cap is naturally satisfied
+	// for those; the check meaningfully constrains single-tenant
+	// configurations only.
+	if dv := h.config.UsageLimits.MaxShardsPerCollection; dv != nil {
+		shardCap := dv.Get()
+		if shardCap >= 0 {
+			if shardingCfg.DesiredCount > shardCap {
+				return nil, 0, usagelimits.NewLimitExceededError(
+					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
+			}
+		}
+	}
+
 	shardState, err := sharding.InitState(cls.Class,
 		shardingCfg,
 		h.clusterState.LocalName(), candidates, cls.ReplicationConfig.Factor,
@@ -234,6 +244,24 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	return cls, version, err
+}
+
+// rejectExplicitMultiShardOnNamespacedClass rejects an explicit
+// desiredCount != 1 in the raw request. ParseConfig with nodeCount=1
+// folds default and explicit-1 into the same value; anything else came
+// from the user. Parse errors fall through to parser.ParseClass below.
+func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
+	if _, ok := shardingConfig.(map[string]interface{}); !ok {
+		return nil
+	}
+	cfg, err := shardingcfg.ParseConfig(shardingConfig, 1)
+	if err != nil {
+		return nil
+	}
+	if cfg.DesiredCount != 1 {
+		return fmt.Errorf("desiredCount is limited to 1 (got %d)", cfg.DesiredCount)
+	}
+	return nil
 }
 
 // namespaceCandidates returns the storage-candidate list to feed into shard
@@ -256,14 +284,17 @@ func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("namespace %q not found", ns)
 	}
-	if got.HomeNode == "" {
+	// Primary() reads the single enforced HomeNodes entry; the controller
+	// rejects len != 1 on create/update.
+	homeNode := got.Primary()
+	if homeNode == "" {
 		return nil, fmt.Errorf("namespace %q has no home_node; refusing placement", ns)
 	}
 	candidates := h.schemaManager.StorageCandidates()
-	if !slices.Contains(candidates, got.HomeNode) {
-		return nil, fmt.Errorf("namespace %q home_node %q is not a current storage candidate", ns, got.HomeNode)
+	if !slices.Contains(candidates, homeNode) {
+		return nil, fmt.Errorf("namespace %q home_node %q is not a current storage candidate", ns, homeNode)
 	}
-	return []string{got.HomeNode}, nil
+	return []string{homeNode}, nil
 }
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {

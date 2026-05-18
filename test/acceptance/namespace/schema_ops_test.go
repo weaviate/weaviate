@@ -354,10 +354,9 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 }
 
 // TestNamespaces_ShardsStatus exercises GET /v1/schema/<class>/shards on a
-// multi-shard namespaced class. With 3 shards on a 3-node cluster at least
-// one shard lives on a remote node, so the request must hop the
-// /indices/<ns>:<class>/shards/<sh>/status route to collect each shard's
-// status.
+// namespaced class. The single shard is pinned to home_node, so the
+// request hops the /indices/<ns>:<class>/shards/<sh>/status route whenever
+// home_node differs from the node the test client talks to.
 func TestNamespaces_ShardsStatus(t *testing.T) {
 	const ns1 = "customer1"
 
@@ -367,13 +366,12 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
 
-	classWithShards := func(name string) *models.Class {
+	makeClass := func(name string) *models.Class {
 		return &models.Class{
 			Class: name,
 			Properties: []*models.Property{
 				{Name: "title", DataType: []string{"text"}},
 			},
-			ShardingConfig: map[string]any{"desiredCount": 3},
 		}
 	}
 
@@ -387,32 +385,32 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		return resp.Payload, nil
 	}
 
-	t.Run("namespaced user gets shards by short name across nodes", func(t *testing.T) {
-		helper.CreateClassAuth(t, classWithShards("Movies"), user1Key)
+	t.Run("namespaced user gets shard by short name", func(t *testing.T) {
+		helper.CreateClassAuth(t, makeClass("Movies"), user1Key)
 		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
 
 		shards, err := getShards(t, "Movies", user1Key)
 		require.NoError(t, err)
-		require.Len(t, shards, 3)
+		require.Len(t, shards, 1)
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
 		}
 	})
 
-	t.Run("global admin gets shards by qualified name across nodes", func(t *testing.T) {
-		helper.CreateClassAuth(t, classWithShards("Shows"), user1Key)
+	t.Run("global admin gets shard by qualified name", func(t *testing.T) {
+		helper.CreateClassAuth(t, makeClass("Shows"), user1Key)
 		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
 
 		shards, err := getShards(t, "customer1:Shows", adminKey)
 		require.NoError(t, err)
-		require.Len(t, shards, 3)
+		require.Len(t, shards, 1)
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
 		}
 	})
 
-	t.Run("namespaced user gets shards via alias across nodes", func(t *testing.T) {
-		helper.CreateClassAuth(t, classWithShards("Concerts"), user1Key)
+	t.Run("namespaced user gets shard via alias", func(t *testing.T) {
+		helper.CreateClassAuth(t, makeClass("Concerts"), user1Key)
 		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
@@ -426,7 +424,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 			shards, err = getShards(t, "Gigs", user1Key)
 			return err
 		})
-		require.Len(t, shards, 3)
+		require.Len(t, shards, 1)
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
 		}
@@ -611,7 +609,6 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "title", DataType: []string{"text"}},
 		},
-		ShardingConfig: map[string]any{"desiredCount": 3},
 	}, user1Key)
 	defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
 
@@ -639,7 +636,6 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 			Properties: []*models.Property{
 				{Name: "title", DataType: []string{"text"}},
 			},
-			ShardingConfig: map[string]any{"desiredCount": 3},
 		}, user1Key)
 		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)

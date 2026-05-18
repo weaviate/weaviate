@@ -29,15 +29,15 @@ import (
 // [namespaces.ErrBadRequest]. Callers that need a follow-up local read on
 // a non-leader node should pass the returned version to WaitForUpdate.
 //
-// An empty ns.HomeNode is filled from the cluster's storage candidates
+// An empty ns.HomeNodes is filled from the cluster's storage candidates
 // before propose.
 func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespace, uint64, error) {
-	if ns.HomeNode == "" {
+	if len(ns.HomeNodes) == 0 {
 		picked, err := s.nextHomeNode(s.StorageCandidates())
 		if err != nil {
 			return cmd.Namespace{}, 0, fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
 		}
-		ns.HomeNode = picked
+		ns.HomeNodes = []string{picked}
 	}
 
 	req := cmd.AddNamespaceRequest{
@@ -61,9 +61,9 @@ func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespac
 
 // UpdateNamespace proposes an UpdateNamespace RAFT command and returns the
 // apply version. The apply side returns [namespaces.ErrNotFound] when the
-// target namespace does not exist, and [namespaces.ErrBadRequest] for an
-// empty HomeNode. Only HomeNode is mutable; existing live shards are not
-// moved.
+// target namespace does not exist, and [namespaces.ErrBadRequest] when
+// HomeNodes does not contain exactly one entry. Only HomeNodes is mutable;
+// existing live shards are not moved.
 func (s *Raft) UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
 	req := cmd.UpdateNamespaceRequest{
 		Namespace: ns,
@@ -127,21 +127,30 @@ func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) (uint64, 
 // the one the cached iterator was built with — otherwise membership changes
 // (node join/leave) would leave the iterator rotating through a stale set,
 // silently locking out newly added nodes and still picking removed ones.
+//
+// Inputs are sorted before the cache-key comparison: Raft.StorageCandidates
+// returns a sorted slice on the RAFT path but an unsorted memberlist slice
+// on the MetaVoterOnly fallback. Without normalisation the iterator would
+// rebuild on every call whenever the memberlist ordering shifted, throwing
+// away the persisted rotation state.
 func (s *Raft) nextHomeNode(nodes []string) (string, error) {
 	if len(nodes) == 0 {
 		return "", errors.New("no storage candidates available")
 	}
 
+	sorted := slices.Clone(nodes)
+	slices.Sort(sorted)
+
 	s.homeNodeIteratorMu.Lock()
 	defer s.homeNodeIteratorMu.Unlock()
 
-	if s.homeNodeIterator == nil || !slices.Equal(s.homeNodeCandidates, nodes) {
-		it, err := clusterUtils.NewNodeIterator(nodes, clusterUtils.StartRandom)
+	if s.homeNodeIterator == nil || !slices.Equal(s.homeNodeCandidates, sorted) {
+		it, err := clusterUtils.NewNodeIterator(sorted, clusterUtils.StartRandom)
 		if err != nil {
 			return "", err
 		}
 		s.homeNodeIterator = it
-		s.homeNodeCandidates = slices.Clone(nodes)
+		s.homeNodeCandidates = sorted
 	}
 	return s.homeNodeIterator.Next(), nil
 }

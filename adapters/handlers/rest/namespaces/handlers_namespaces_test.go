@@ -323,7 +323,7 @@ func TestCreateNamespace_Created(t *testing.T) {
 	authz.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Namespaces("customer1")[0]).Return(nil)
 	// AddNamespace returns the persisted namespace with home_node filled.
 	raft.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1"}).
-		Return(cmd.Namespace{Name: "customer1", HomeNode: "node-1"}, 0, nil)
+		Return(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, 0, nil)
 
 	res := h.createNamespace(nsops.CreateNamespaceParams{NamespaceID: "customer1", HTTPRequest: req}, principal)
 	parsed, ok := res.(*nsops.CreateNamespaceCreated)
@@ -350,8 +350,8 @@ func TestCreateNamespace_BodyHomeNode(t *testing.T) {
 			homeNode: "node-2",
 			setupRaft: func(r *mockRaft) {
 				r.On("StorageCandidates").Return([]string{"node-1", "node-2"})
-				r.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNode: "node-2"}).
-					Return(cmd.Namespace{Name: "customer1", HomeNode: "node-2"}, 0, nil)
+				r.On("AddNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}).
+					Return(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}, 0, nil)
 			},
 			wantTyped: &nsops.CreateNamespaceCreated{},
 		},
@@ -444,6 +444,11 @@ func TestUpdateNamespace_RaftErrorMapping(t *testing.T) {
 			wantTyped: &nsops.UpdateNamespaceNotFound{},
 		},
 		{
+			name:      "ErrNamespaceDeleting → 409",
+			raftErr:   fmt.Errorf("%w: %q", usecasesNamespaces.ErrNamespaceDeleting, "customer1"),
+			wantTyped: &nsops.UpdateNamespaceConflict{},
+		},
+		{
 			name:      "ErrBadRequest → 422",
 			raftErr:   fmt.Errorf("%w: bad payload", usecasesNamespaces.ErrBadRequest),
 			wantTyped: &nsops.UpdateNamespaceUnprocessableEntity{},
@@ -459,7 +464,7 @@ func TestUpdateNamespace_RaftErrorMapping(t *testing.T) {
 			h, authz, raft := newHandler(t)
 			authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
 			raft.On("StorageCandidates").Return([]string{"node-1"})
-			raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNode: "node-1"}).Return(0, tc.raftErr)
+			raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}).Return(0, tc.raftErr)
 
 			hn := "node-1"
 			res := h.updateNamespace(nsops.UpdateNamespaceParams{
@@ -476,7 +481,7 @@ func TestUpdateNamespace_OK(t *testing.T) {
 	principal := &models.Principal{}
 	authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
 	raft.On("StorageCandidates").Return([]string{"node-1", "node-2"})
-	raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNode: "node-2"}).Return(0, nil)
+	raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}).Return(0, nil)
 
 	hn := "node-2"
 	res := h.updateNamespace(nsops.UpdateNamespaceParams{
@@ -634,9 +639,9 @@ func TestListNamespaces_FilteredByAuthz(t *testing.T) {
 	h, authz, raft := newHandler(t)
 	principal := &models.Principal{}
 	all := []cmd.Namespace{
-		{Name: "customer1", State: cmd.NamespaceStateActive},
-		{Name: "customer2", State: cmd.NamespaceStateDeleting},
-		{Name: "customer3", State: cmd.NamespaceStateActive},
+		{Name: "customer1", HomeNodes: []string{"node-1"}, State: cmd.NamespaceStateActive},
+		{Name: "customer2", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateDeleting},
+		{Name: "customer3", HomeNodes: []string{"node-3"}, State: cmd.NamespaceStateActive},
 	}
 	raft.On("GetNamespaces").Return(all, nil)
 
@@ -654,6 +659,8 @@ func TestListNamespaces_FilteredByAuthz(t *testing.T) {
 	require.Len(t, parsed.Payload, 1)
 	assert.Equal(t, "customer2", parsed.Payload[0].Name)
 	assert.Equal(t, string(cmd.NamespaceStateDeleting), parsed.Payload[0].State)
+	// HomeNode must round-trip through List, matching Create/Get/Update.
+	assert.Equal(t, "node-2", parsed.Payload[0].HomeNode)
 }
 
 func TestListNamespaces_NoPermissionsReturnsEmpty(t *testing.T) {

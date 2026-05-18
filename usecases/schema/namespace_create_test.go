@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -59,7 +60,7 @@ func (f fakeNamespacesExister) GetNamespace(name string) (cmd.Namespace, bool) {
 		return ns, true
 	}
 	if f.defaultHomeNode != "" {
-		return cmd.Namespace{Name: name, HomeNode: f.defaultHomeNode, State: cmd.NamespaceStateActive}, true
+		return cmd.Namespace{Name: name, HomeNodes: []string{f.defaultHomeNode}, State: cmd.NamespaceStateActive}, true
 	}
 	return cmd.Namespace{}, false
 }
@@ -215,7 +216,7 @@ func TestAddClass_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			enabled:   true,
 			principal: namespacedPrincipal("customer1"),
 			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNode: "node-2", State: cmd.NamespaceStateActive},
+				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
 			}},
 			inputName:    "Movies",
 			allowedNodes: []string{"node-2"},
@@ -286,7 +287,7 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 		{
 			name: "home_node empty",
 			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNode: "", State: cmd.NamespaceStateActive},
+				"customer1": {Name: "customer1", HomeNodes: nil, State: cmd.NamespaceStateActive},
 			}},
 			candidates: []string{"node-1"},
 			wantErr:    "has no home_node",
@@ -294,7 +295,7 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 		{
 			name: "home_node not in storage candidates",
 			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNode: "node-9", State: cmd.NamespaceStateActive},
+				"customer1": {Name: "customer1", HomeNodes: []string{"node-9"}, State: cmd.NamespaceStateActive},
 			}},
 			candidates: []string{"node-1"},
 			wantErr:    "is not a current storage candidate",
@@ -322,6 +323,165 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 	}
 }
 
+// TestAddClass_RejectsExplicitDesiredCount asserts an explicit
+// desiredCount != 1 is rejected before the propose runs.
+func TestAddClass_RejectsExplicitDesiredCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		desiredCount any
+		wantErrSub   string
+	}{
+		{name: "explicit 3", desiredCount: 3, wantErrSub: "desiredCount is limited to 1"},
+		{name: "explicit 0", desiredCount: 0, wantErrSub: "desiredCount is limited to 1"},
+		{name: "explicit 2 as float64 (JSON shape)", desiredCount: float64(2), wantErrSub: "desiredCount is limited to 1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, true)
+			sm.storageCandidates = []string{"node-1", "node-2", "node-3"}
+			handler.namespacesExister = fakeNamespacesExister{byName: map[string]cmd.Namespace{
+				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
+			}}
+			sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil).Maybe()
+
+			class := &models.Class{
+				Class:             "Movies",
+				Vectorizer:        "model1",
+				VectorIndexConfig: map[string]interface{}{},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				ShardingConfig:    map[string]interface{}{"desiredCount": tt.desiredCount},
+			}
+			_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErrSub)
+			sm.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
+		})
+	}
+}
+
+// TestAddClass_AcceptsExplicitDesiredCountOne accepts the only compatible
+// explicit value.
+func TestAddClass_AcceptsExplicitDesiredCountOne(t *testing.T) {
+	t.Parallel()
+
+	handler, sm := newTestHandlerWithNamespaces(t, true)
+	sm.storageCandidates = []string{"node-1", "node-2", "node-3"}
+	handler.namespacesExister = fakeNamespacesExister{byName: map[string]cmd.Namespace{
+		"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
+	}}
+	sm.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+	sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
+
+	class := &models.Class{
+		Class:             "Movies",
+		Vectorizer:        "model1",
+		VectorIndexConfig: map[string]interface{}{},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		ShardingConfig:    map[string]interface{}{"desiredCount": 1},
+	}
+	_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
+	require.NoError(t, err)
+}
+
+// TestAddClass_OmittedShardingConfigPinsToHomeNode covers the implicit
+// path: no ShardingConfig → parser default → override caps to 1.
+func TestAddClass_OmittedShardingConfigPinsToHomeNode(t *testing.T) {
+	t.Parallel()
+
+	handler, sm := newTestHandlerWithNamespaces(t, true)
+	sm.storageCandidates = []string{"node-1", "node-2", "node-3"}
+	handler.namespacesExister = fakeNamespacesExister{byName: map[string]cmd.Namespace{
+		"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
+	}}
+
+	var capturedClass *models.Class
+	var capturedState *sharding.State
+	sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
+		capturedClass = c
+		return c != nil
+	}), mock.MatchedBy(func(s *sharding.State) bool {
+		capturedState = s
+		return true
+	})).Return(nil)
+	sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
+
+	class := &models.Class{
+		Class:             "Movies",
+		Vectorizer:        "model1",
+		VectorIndexConfig: map[string]interface{}{},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+	_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
+	require.NoError(t, err)
+
+	require.NotNil(t, capturedClass)
+	got, ok := capturedClass.ShardingConfig.(shardingcfg.Config)
+	require.True(t, ok, "ShardingConfig should be shardingcfg.Config, got %T", capturedClass.ShardingConfig)
+	assert.Equal(t, 1, got.DesiredCount, "override caps DesiredCount to len(candidates)")
+	assert.Equal(t, got.DesiredCount, got.ActualCount)
+	assert.Equal(t, got.DesiredCount*got.VirtualPerPhysical, got.DesiredVirtualCount)
+
+	require.NotNil(t, capturedState)
+	require.Len(t, capturedState.Physical, 1, "expected one physical shard after override")
+	for _, phys := range capturedState.Physical {
+		assert.Equal(t, []string{"node-2"}, phys.BelongsToNodes)
+	}
+}
+
+// TestAddClass_ShardCapAppliesAfterOverride regression-guards the
+// ordering: shard cap must evaluate the post-override DesiredCount.
+func TestAddClass_ShardCapAppliesAfterOverride(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		shardCap      int
+		expectExceeds bool
+	}{
+		{name: "cap=1, post-override DesiredCount=1 fits", shardCap: 1, expectExceeds: false},
+		{name: "cap=0, post-override DesiredCount=1 still over", shardCap: 0, expectExceeds: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, true)
+			sm.storageCandidates = []string{"node-1", "node-2", "node-3"}
+			handler.namespacesExister = fakeNamespacesExister{byName: map[string]cmd.Namespace{
+				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
+			}}
+			handler.config.UsageLimits.MaxShardsPerCollection = runtime.NewDynamicValue(tt.shardCap)
+
+			if !tt.expectExceeds {
+				sm.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+			}
+			sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil)
+
+			class := &models.Class{
+				Class:             "Movies",
+				Vectorizer:        "model1",
+				VectorIndexConfig: map[string]interface{}{},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
+
+			if tt.expectExceeds {
+				require.Error(t, err)
+				le, ok := usagelimits.AsLimitExceeded(err)
+				require.True(t, ok, "expected *LimitExceededError, got %T: %v", err, err)
+				assert.Equal(t, usagelimits.LimitShards, le.Limit)
+				assert.Equal(t, int64(tt.shardCap), le.Value)
+			} else {
+				require.NoError(t, err, "override should reduce DesiredCount to 1 before the cap check")
+			}
+		})
+	}
+}
+
 // TestAddTenants_PinsShardsToNamespaceHomeNode covers the placement
 // override for tenant creation on NS-enabled clusters: the AddTenants RPC
 // is built with ClusterNodes=[home_node]. NS-disabled clusters fall back
@@ -344,7 +504,7 @@ func TestAddTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			enabled:   true,
 			principal: namespacedPrincipal("customer1"),
 			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNode: "node-2", State: cmd.NamespaceStateActive},
+				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
 			}},
 			class:     "Movies",
 			wantNodes: []string{"node-2"},
@@ -405,7 +565,7 @@ func TestUpdateTenants_PinsShardsToNamespaceHomeNode(t *testing.T) {
 			enabled:   true,
 			principal: namespacedPrincipal("customer1"),
 			exister: fakeNamespacesExister{byName: map[string]cmd.Namespace{
-				"customer1": {Name: "customer1", HomeNode: "node-2", State: cmd.NamespaceStateActive},
+				"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
 			}},
 			class:     "Movies",
 			wantNodes: []string{"node-2"},

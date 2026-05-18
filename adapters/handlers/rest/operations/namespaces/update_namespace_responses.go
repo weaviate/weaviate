@@ -184,6 +184,51 @@ func (o *UpdateNamespaceNotFound) WriteResponse(rw http.ResponseWriter, producer
 	}
 }
 
+// UpdateNamespaceConflictCode is the HTTP code returned for type UpdateNamespaceConflict
+const UpdateNamespaceConflictCode int = 409
+
+/*
+UpdateNamespaceConflict The namespace is being deleted; `home_node` cannot be updated while the namespace is in the `deleting` state.
+
+swagger:response updateNamespaceConflict
+*/
+type UpdateNamespaceConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewUpdateNamespaceConflict creates UpdateNamespaceConflict with default headers values
+func NewUpdateNamespaceConflict() *UpdateNamespaceConflict {
+
+	return &UpdateNamespaceConflict{}
+}
+
+// WithPayload adds the payload to the update namespace conflict response
+func (o *UpdateNamespaceConflict) WithPayload(payload *models.ErrorResponse) *UpdateNamespaceConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the update namespace conflict response
+func (o *UpdateNamespaceConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *UpdateNamespaceConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // UpdateNamespaceUnprocessableEntityCode is the HTTP code returned for type UpdateNamespaceUnprocessableEntity
 const UpdateNamespaceUnprocessableEntityCode int = 422
 

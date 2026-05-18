@@ -40,14 +40,14 @@ func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dyn
 
 func addCmd(t *testing.T, name string) *cmd.ApplyRequest {
 	t.Helper()
-	payload, err := json.Marshal(cmd.AddNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNode: "node-1"}})
+	payload, err := json.Marshal(cmd.AddNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}}})
 	require.NoError(t, err)
 	return &cmd.ApplyRequest{SubCommand: payload}
 }
 
 func updateCmd(t *testing.T, name, homeNode string) *cmd.ApplyRequest {
 	t.Helper()
-	payload, err := json.Marshal(cmd.UpdateNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNode: homeNode}})
+	payload, err := json.Marshal(cmd.UpdateNamespaceRequest{Namespace: cmd.Namespace{Name: name, HomeNodes: []string{homeNode}}})
 	require.NoError(t, err)
 	return &cmd.ApplyRequest{SubCommand: payload}
 }
@@ -257,7 +257,7 @@ func TestManager_Update(t *testing.T) {
 			require.NoError(t, err)
 			got := m.controller.Get(tc.updateName)
 			require.Len(t, got, 1)
-			assert.Equal(t, tc.wantHomeNode, got[0].HomeNode)
+			assert.Equal(t, tc.wantHomeNode, got[0].Primary())
 		})
 	}
 }

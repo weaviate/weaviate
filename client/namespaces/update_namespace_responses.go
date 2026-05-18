@@ -58,6 +58,12 @@ func (o *UpdateNamespaceReader) ReadResponse(response runtime.ClientResponse, co
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewUpdateNamespaceConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewUpdateNamespaceUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -324,6 +330,74 @@ func (o *UpdateNamespaceNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *UpdateNamespaceNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewUpdateNamespaceConflict creates a UpdateNamespaceConflict with default headers values
+func NewUpdateNamespaceConflict() *UpdateNamespaceConflict {
+	return &UpdateNamespaceConflict{}
+}
+
+/*
+UpdateNamespaceConflict describes a response with status code 409, with default header values.
+
+The namespace is being deleted; `home_node` cannot be updated while the namespace is in the `deleting` state.
+*/
+type UpdateNamespaceConflict struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this update namespace conflict response has a 2xx status code
+func (o *UpdateNamespaceConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this update namespace conflict response has a 3xx status code
+func (o *UpdateNamespaceConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this update namespace conflict response has a 4xx status code
+func (o *UpdateNamespaceConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this update namespace conflict response has a 5xx status code
+func (o *UpdateNamespaceConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this update namespace conflict response a status code equal to that given
+func (o *UpdateNamespaceConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the update namespace conflict response
+func (o *UpdateNamespaceConflict) Code() int {
+	return 409
+}
+
+func (o *UpdateNamespaceConflict) Error() string {
+	return fmt.Sprintf("[PUT /namespaces/{namespace_id}][%d] updateNamespaceConflict  %+v", 409, o.Payload)
+}
+
+func (o *UpdateNamespaceConflict) String() string {
+	return fmt.Sprintf("[PUT /namespaces/{namespace_id}][%d] updateNamespaceConflict  %+v", 409, o.Payload)
+}
+
+func (o *UpdateNamespaceConflict) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *UpdateNamespaceConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

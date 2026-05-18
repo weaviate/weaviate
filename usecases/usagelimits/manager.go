@@ -19,7 +19,7 @@
 // in adapters/repos/db/) so it covers both local and forwarded writes for
 // RF=1. On namespace-enabled clusters the cap applies per namespace: the
 // chokepoint passes the (namespace-qualified) class name and CheckObjects
-// extracts the namespace so the counter sums only that namespace's shards.
+// extracts the namespace so the counter sums only indices in that namespace.
 //
 // Schema-side limits (collections, tenants, shards) do their own counting
 // inline in usecases/schema/ and only reach into this package for the typed
@@ -36,15 +36,16 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// ObjectCounter sums object counts across all locally-owned shards. The
+// ObjectCounter sums object counts across all locally-loaded indices. The
 // implementation must use the async (CountAsync) path because synchronous
 // counting on every write is unacceptable on hot paths. Brief overshoot
 // during fast bulk imports is documented and accepted; it self-corrects on
 // the next memtable flush.
 //
-// namespace scopes the sum to a single namespace's classes; an empty
-// namespace sums all classes (NS-disabled clusters, or the global slice
-// on NS-enabled clusters that have no namespaced classes yet).
+// namespace scopes the sum to indices whose class name is qualified by
+// that namespace; an empty namespace sums all indices (NS-disabled
+// clusters, or the global slice on NS-enabled clusters that have no
+// namespaced classes yet).
 type ObjectCounter interface {
 	LocalObjectCount(ctx context.Context, namespace string) (int64, error)
 }

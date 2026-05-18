@@ -151,26 +151,26 @@ func TestRaftNamespaceEndpoints_HomeNode(t *testing.T) {
 		created, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "autohome"})
 		require.NoError(t, err)
 		require.NoError(t, srv.WaitForUpdate(ctx, version))
-		assert.NotEmpty(t, created.HomeNode, "home_node should be populated by AddNamespace")
-		assert.Contains(t, srv.StorageCandidates(), created.HomeNode)
+		assert.NotEmpty(t, created.Primary(), "home_node should be populated by AddNamespace")
+		assert.Contains(t, srv.StorageCandidates(), created.Primary())
 
 		got, err := srv.GetNamespaces("autohome")
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		assert.Equal(t, created.HomeNode, got[0].HomeNode)
+		assert.Equal(t, created.Primary(), got[0].Primary())
 	})
 
 	t.Run("explicit home_node is persisted as-is", func(t *testing.T) {
 		hn := srv.StorageCandidates()[0]
-		created, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "explicithome", HomeNode: hn})
+		created, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "explicithome", HomeNodes: []string{hn}})
 		require.NoError(t, err)
 		require.NoError(t, srv.WaitForUpdate(ctx, version))
-		assert.Equal(t, hn, created.HomeNode)
+		assert.Equal(t, hn, created.Primary())
 
 		got, err := srv.GetNamespaces("explicithome")
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		assert.Equal(t, hn, got[0].HomeNode)
+		assert.Equal(t, hn, got[0].Primary())
 	})
 }
 
@@ -183,7 +183,7 @@ func TestRaftNamespaceEndpoints_Update(t *testing.T) {
 
 	// Seed once; the wantErr cases below don't mutate the stored namespace,
 	// so cases share the same fixture.
-	_, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "customer1", HomeNode: "node-a"})
+	_, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-a"}})
 	require.NoError(t, err)
 	require.NoError(t, srv.WaitForUpdate(ctx, version))
 
@@ -193,8 +193,8 @@ func TestRaftNamespaceEndpoints_Update(t *testing.T) {
 		wantErr    error
 		wantStored string // expected HomeNode after a successful update
 	}{
-		{name: "update rewrites home_node", ns: cmd.Namespace{Name: "customer1", HomeNode: "node-b"}, wantStored: "node-b"},
-		{name: "update missing returns ErrNotFound", ns: cmd.Namespace{Name: "never-existed", HomeNode: "node-a"}, wantErr: usecasesNamespaces.ErrNotFound},
+		{name: "update rewrites home_node", ns: cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-b"}}, wantStored: "node-b"},
+		{name: "update missing returns ErrNotFound", ns: cmd.Namespace{Name: "never-existed", HomeNodes: []string{"node-a"}}, wantErr: usecasesNamespaces.ErrNotFound},
 		{name: "update empty home_node returns ErrBadRequest", ns: cmd.Namespace{Name: "customer1"}, wantErr: usecasesNamespaces.ErrBadRequest},
 	}
 
@@ -211,7 +211,7 @@ func TestRaftNamespaceEndpoints_Update(t *testing.T) {
 			got, err := srv.GetNamespaces(tc.ns.Name)
 			require.NoError(t, err)
 			require.Len(t, got, 1)
-			assert.Equal(t, tc.wantStored, got[0].HomeNode)
+			assert.Equal(t, tc.wantStored, got[0].Primary())
 		})
 	}
 }
