@@ -39,9 +39,9 @@ const (
 )
 
 // ErrWriteDisabled is returned by write tools when the runtime write-access
-// flag is disabled. The middleware uses errors.Is to classify the call as
+// flag is disabled. classify() uses errors.Is to label the call as
 // status="write_disabled" rather than a generic error.
-var ErrWriteDisabled = errors.New("mcp: write access disabled")
+var ErrWriteDisabled = errors.New("MCP write access is disabled")
 
 // MCPMetrics holds MCP-server-level Prometheus metrics. It is safe to use a
 // nil receiver — all observer methods become no-ops.
