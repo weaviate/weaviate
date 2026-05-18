@@ -254,7 +254,7 @@ func (b *recPlanBuilder) groupSubtreeNeedsOuterScope(g *recGroupNode) bool {
 func (b *recPlanBuilder) groupNeedsIdxLoop(g *recGroupNode) bool {
 	scalarArrays := 0
 	for _, leaf := range g.here {
-		if b.pathTerminalIsScalarArray(childRelPath(leaf)) {
+		if pathTerminalIsScalarArray(b.props, childRelPath(leaf)) {
 			scalarArrays++
 			if scalarArrays >= 2 {
 				return true
@@ -265,14 +265,14 @@ func (b *recPlanBuilder) groupNeedsIdxLoop(g *recGroupNode) bool {
 }
 
 // pathTerminalIsScalarArray reports whether path's terminal property in the
-// nested schema is a scalar-array type (text[], int[], number[], boolean[],
-// date[], uuid[]).
-func (b *recPlanBuilder) pathTerminalIsScalarArray(path string) bool {
+// given nested schema is a scalar-array type (text[], int[], number[],
+// boolean[], date[], uuid[]). Shared by recPlanBuilder and recExecutor so
+// planning and execution stay in sync on scalar-array detection.
+func pathTerminalIsScalarArray(props []*models.NestedProperty, path string) bool {
 	if path == "" {
 		return false
 	}
 	segs := filnested.SplitPath(path)
-	props := b.props
 	for i, seg := range segs {
 		np := filnested.FindNestedProp(props, seg)
 		if np == nil {

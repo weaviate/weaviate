@@ -19,9 +19,7 @@ import (
 	"github.com/weaviate/sroar"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // recExclude carries an IsNull=true raw _exists.{path} bitmap together with the
@@ -67,9 +65,9 @@ type recExecutor struct {
 	returnMasked   bool
 	// props is the nested schema of the root property the executor operates
 	// on. Used by collectFlatSubtree to identify scalar-array (text[], int[],
-	// …) here paths — those values get distinct leaves per element from
-	// walkScalarArray and break the inheritance bridge that flat raw AndAll
-	// relies on.
+	// uuid[], …) here paths — those values get distinct leaves per element
+	// from walkScalarArray and break the inheritance bridge that flat raw
+	// AndAll relies on.
 	props []*models.NestedProperty
 }
 
@@ -289,12 +287,16 @@ type flatSubtree struct {
 //   - empty props (without schema we cannot identify scalar-array paths;
 //     stay on runIdxLoopRecursive)
 //   - recSplitNode anywhere (arr[N] requires per-element evaluation)
-//   - duplicate here paths (each value lives at a distinct leaf — raw AndAll
-//     over duplicates over-rejects, even within the same physical element)
+//   - duplicate here paths (each text[]/scalar-array value lives at a distinct
+//     leaf assigned by walkScalarArray, so duplicate-path filters over a scalar
+//     array cannot match at the same leaf via raw AndAll — they need
+//     per-element evaluation. Regular scalars under Phase-3 inheritance can
+//     legitimately share leaves, but the planner only emits duplicate here
+//     paths when at least one terminal is a scalar-array, so this bail is safe)
 //   - any group with ≥2 subs (sibling sub-arrays produce conditions at
 //     distinct leaves with no inheritance bridge — raw AndAll fails)
-//   - any here condition on a scalar-array (text[], int[], …) path. These
-//     values are written by walkScalarArray with one leaf per element
+//   - any here condition on a scalar-array (text[], int[], uuid[], …) path.
+//     These values are written by walkScalarArray with one leaf per element
 //     (assign.go), so they don't share leaves via Phase-3 inheritance with
 //     other conditions.
 //   - more than one group below the root carrying here conditions. A
@@ -331,7 +333,7 @@ func (e *recExecutor) collectFlatSubtree(g *recGroupNode) (*flatSubtree, bool) {
 				return false
 			}
 			seen[path] = struct{}{}
-			if e.pathTerminalIsScalarArray(path) {
+			if pathTerminalIsScalarArray(e.props, path) {
 				return false
 			}
 			out.leaves = append(out.leaves, leaf)
@@ -347,32 +349,6 @@ func (e *recExecutor) collectFlatSubtree(g *recGroupNode) (*flatSubtree, bool) {
 		return nil, false
 	}
 	return out, true
-}
-
-// pathTerminalIsScalarArray reports whether path's terminal property in the
-// nested schema is a scalar-array type (text[], int[], number[], boolean[],
-// date[]).
-func (e *recExecutor) pathTerminalIsScalarArray(path string) bool {
-	if path == "" {
-		return false
-	}
-	segs := filnested.SplitPath(path)
-	props := e.props
-	for i, seg := range segs {
-		np := filnested.FindNestedProp(props, seg)
-		if np == nil {
-			return false
-		}
-		dt := schema.DataType(np.DataType[0])
-		if i == len(segs)-1 {
-			return schema.IsScalarArrayType(dt)
-		}
-		if !schema.IsNested(dt) {
-			return false
-		}
-		props = np.NestedProperties
-	}
-	return false
 }
 
 // evalFlatRawAndAll evaluates a flat subtree by raw-AndAll'ing every here
@@ -523,6 +499,12 @@ func (e *recExecutor) canUseRawAndAll(g *recGroupNode) bool {
 	if len(g.here) == 1 {
 		return true
 	}
+	if len(e.props) == 0 {
+		// Without schema we cannot identify scalar-array terminals, and the
+		// raw AndAll fast path silently produces empty results for ≥2 scalar
+		// arrays in the same group. Bail to runIdxLoopRecursive's masked path.
+		return false
+	}
 	seen := make(map[string]struct{}, len(g.here))
 	scalarArrays := 0
 	for _, leaf := range g.here {
@@ -531,7 +513,7 @@ func (e *recExecutor) canUseRawAndAll(g *recGroupNode) bool {
 			return false
 		}
 		seen[path] = struct{}{}
-		if e.pathTerminalIsScalarArray(path) {
+		if pathTerminalIsScalarArray(e.props, path) {
 			scalarArrays++
 			if scalarArrays >= 2 {
 				return false

@@ -7624,7 +7624,7 @@ func TestNestedFilteringCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 	// canUseRawAndAll false (multi-sub at GROUP@cars), flat-AndAll bails on
 	// multi-sub → runIdxLoopRecursive. The wrapping GROUP@garages must be
 	// kept (not collapsed away) so its _idx.garages[K_g] iteration provides
-	// per-garage parentScope to the inner GROUP@cars's _idx.cars[K_c]
+	// per-garage parentScope to the inner GROUP@cars' _idx.cars[K_c]
 	// iteration, disambiguating same-K-different-parent physical cars.
 	//
 	// Discriminating shapes:
