@@ -327,7 +327,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("test/path")
 
-		restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
+		restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false, context.Background())
 		restorer.lastOp.set(backup.Transferring)
 
 		desc := &backup.BackupDescriptor{
@@ -379,7 +379,7 @@ func TestRestoreThreadsRbacStripFlag(t *testing.T) {
 			backend := newFakeBackend()
 			backend.On("SourceDataPath").Return(t.TempDir())
 			rec := &recordingRbacRestorer{}
-			restorer := newRestorer("node1", nil, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip)
+			restorer := newRestorer("node1", nil, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip, context.Background())
 			restorer.lastOp.set(backup.Transferring)
 
 			desc := &backup.BackupDescriptor{
