@@ -34,9 +34,13 @@ type backupper struct {
 	backends       BackupBackendProvider
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
+
+	// shutdownCtx is cancelled on node shutdown; aborts the local upload
+	// without waiting for the coordinator's abort RPC.
+	shutdownCtx context.Context
 }
 
-func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, backends BackupBackendProvider, shutdownCtx context.Context,
 ) *backupper {
 	return &backupper{
 		node:           node,
@@ -47,6 +51,7 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 		dynUserSourcer: dynUserSourcer,
 		backends:       backends,
 		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shutdownCtx:    shutdownCtx,
 	}
 }
 
@@ -139,9 +144,9 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 
-		// the coordinator might want to abort the backup
+		// Upload ctx cancels on coordinator abort RPC OR local node shutdown.
 		done := make(chan struct{})
-		ctx := b.withCancellation(context.Background(), id, done, b.logger)
+		ctx := b.withCancellation(b.shutdownCtx, id, done, b.logger)
 		defer close(done)
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID, "override_bucket": req.Bucket, "override_path": req.Path, "routine_pool_size": provider.GoPoolSize}
 

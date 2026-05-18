@@ -190,6 +190,10 @@ type Handler struct {
 	backupper  *backupper
 	restorer   *restorer
 	backends   BackupBackendProvider
+
+	// shutdownCancel cancels the ctx handed to participant goroutines so local
+	// uploads abort on node shutdown without waiting for the coordinator's RPC.
+	shutdownCancel context.CancelFunc
 }
 
 func NewHandler(
@@ -203,20 +207,27 @@ func NewHandler(
 	dynUserSourcer dynUserSnapshotter,
 ) *Handler {
 	node := schema.NodeName()
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	m := &Handler{
-		node:       node,
-		logger:     logger,
-		authorizer: authorizer,
-		backends:   backends,
+		node:           node,
+		logger:         logger,
+		authorizer:     authorizer,
+		backends:       backends,
+		shutdownCancel: shutdownCancel,
 		backupper: newBackupper(node, logger, cfg,
 			sourcer, rbacSourcer, dynUserSourcer,
-			backends),
+			backends, shutdownCtx),
 		restorer: newRestorer(node, logger,
 			sourcer, rbacSourcer, dynUserSourcer,
 			backends, schema.NamespacesEnabled(),
 		),
 	}
 	return m
+}
+
+// Shutdown cancels in-flight participant-side uploads. Idempotent.
+func (m *Handler) Shutdown() {
+	m.shutdownCancel()
 }
 
 // Compression is the compression configuration.
