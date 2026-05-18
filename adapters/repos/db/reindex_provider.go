@@ -1120,6 +1120,84 @@ func (p *ReindexProvider) runShardSwapPhase(
 	return allSwapped, errs, sawContextCanceled
 }
 
+// runPerUnitPhase is the shared outer-loop driver for OnGroupCompleted
+// and OnSwapRequested. Both callbacks iterate this node's units in the
+// group, resolve each unit's shard + unitTasks (with rehydrate from
+// disk on cache miss), run a per-unit phase callback, accumulate
+// errors, and return a standard "%s: %d unit(s) failed: %s" error
+// wrapped with context.Canceled when applicable.
+//
+// callbackName is "OnGroupCompleted" or "OnSwapRequested" — used in
+// the returned error message and selected for the context.Canceled-
+// aware wrapping that the scheduler's transient-vs-permanent ack
+// routing depends on (see [Scheduler.tick] phase B/B.5 emission gate).
+//
+// runPhase is invoked once per successfully-resolved unit and returns
+// its accumulated per-task error strings plus a sawContextCanceled
+// flag for the standard wrap semantics. resolveUnitForPhase handles
+// the "skip silently" cases (unit failed during reindex, shard not on
+// this node, no on-disk state for already-finalized migration) and
+// the "setup failed" cases (shard lookup, unwrap, instantiate) before
+// runPhase ever fires — runPhase only sees resolved (shard, unitTasks,
+// rehydrate) triples.
+//
+// Extracted to dedupe the outer loop after the two-phase split (see
+// docs/proposals/prep_swap_barrier.md). Without this helper, the
+// boilerplate (~30 lines per callback: ctx setup, per-unit loop,
+// skip/setup-err branching, error aggregation, context.Canceled
+// wrap) appeared verbatim in both OnGroupCompleted and OnSwapRequested
+// — SonarCloud flagged the cross-callback duplication; this helper
+// resolves it without changing observable behavior on either path.
+func (p *ReindexProvider) runPerUnitPhase(
+	task *distributedtask.Task,
+	payload *ReindexTaskPayload,
+	localGroupUnitIDs []string,
+	idx *Index,
+	logger logrus.FieldLogger,
+	callbackName string,
+	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) (errs []string, sawContextCanceled bool),
+) error {
+	ctx := p.serverCtx
+	var unitErrs []string
+	var sawContextCanceled bool
+	for _, unitID := range localGroupUnitIDs {
+		shard, unitTasks, rehydrate, setupErrs, setupCC, skip := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
+		if skip {
+			continue
+		}
+		if len(setupErrs) > 0 {
+			unitErrs = append(unitErrs, setupErrs...)
+			if setupCC {
+				sawContextCanceled = true
+			}
+			continue
+		}
+
+		phaseErrs, phaseCC := runPhase(unitID, shard, unitTasks, rehydrate)
+		if len(phaseErrs) > 0 {
+			unitErrs = append(unitErrs, phaseErrs...)
+		}
+		if phaseCC {
+			sawContextCanceled = true
+		}
+	}
+	if len(unitErrs) == 0 {
+		return nil
+	}
+	// Preserve the context.Canceled chain when at least one unit failed
+	// due to shutdown so the scheduler's errors.Is check routes through
+	// the "transient — let recovery re-fire the callback" branch.
+	// Without this %w wrap, the joined string would lose the sentinel
+	// and the scheduler would emit a failure ack, flipping the task to
+	// FAILED before the post-restart recovery gets a chance.
+	if sawContextCanceled {
+		return fmt.Errorf("%s: %d unit(s) failed: %s: %w",
+			callbackName, len(unitErrs), strings.Join(unitErrs, "; "), context.Canceled)
+	}
+	return fmt.Errorf("%s: %d unit(s) failed: %s",
+		callbackName, len(unitErrs), strings.Join(unitErrs, "; "))
+}
+
 // OnGroupCompleted fires after all units in a group reach terminal state
 // (UnitStatusCompleted or UnitStatusFailed).
 //
@@ -1199,46 +1277,17 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
-	// Run the relevant phase(s) on each local shard. Use the provider's
-	// server ctx so a graceful shutdown aborts in-flight work rather than
-	// blocking forever in the FlushAndSwitch / rename loop.
-	//
-	// unitErrs aggregates per-unit errors so we can return the full
-	// failure picture to the scheduler. The scheduler aggregates this
-	// across all of this node's groups for the task and publishes ONE
-	// ack (PrepCompleteAck for barrier=true, PostCompletionAck for
-	// barrier=false; success=false with the joined error message on
-	// failure). The cluster gates the PREPARING -> SWAPPING transition
-	// (or SWAPPING -> FINISHED) on every node's ack landing; any
-	// failure transitions the task to FAILED and skips the cluster-wide
-	// schema flip.
-	//
-	// sawContextCanceled tracks whether at least one unit failed because
-	// the server context was cancelled (graceful shutdown / rolling
-	// restart). The scheduler treats a context-canceled return as a
-	// transient "didn't finish yet" — the recovery path on the next
-	// boot re-fires the appropriate callback via the rehydrate branch
-	// and the work completes cleanly without an in-flight compaction
-	// to abort. Returning context.Canceled up the stack lets
-	// [Scheduler] errors.Is the error and skip ack emission for THIS
-	// process — recovery owns the resolution.
-	//
 	// Atomic-phase contract (full picture, see file-level godoc on
 	// inverted_reindex_task_generic.go for the per-strategy detail):
 	//
 	//   1. PREP (RunPrepareOnShard, per task) — disk-I/O-heavy work:
-	//      FlushAndSwitch reindex bucket, ShutdownBucket (drains
-	//      compaction), PrependSegmentsFromBucket. Bucket=OLD and
-	//      schema=OLD throughout — safe to run with live queries.
-	//      No overlay set yet; the overlay would expose a (NEW input,
-	//      OLD bucket) mismatch during this phase.
+	//      FlushAndSwitch reindex bucket, ShutdownBucket, Prepend.
 	//   2. OVERLAY SET — maybeSetTokenizationOverlayPreSwap. After
 	//      every task on this shard has its prep merged.
 	//   3. ATOMIC SWAP (RunSwapOnShard, per task) — in-memory
-	//      bucket-pointer flip + per-prop sentinel fsync only.
-	//      Microseconds + a few ms per prop. The disk dirs aren't
-	//      renamed here; that's deferred to next startup via
-	//      OnBeforeLsmInit's recoverRuntimeSwapBuckets path.
+	//      bucket-pointer flip + per-prop sentinel fsync. The disk
+	//      dirs aren't renamed here; that's deferred to next startup
+	//      via OnBeforeLsmInit's recoverRuntimeSwapBuckets path.
 	//
 	// Under barrier=false (legacy), all three phases run inside this
 	// single OnGroupCompleted callback on each node. Under barrier=true,
@@ -1247,80 +1296,73 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// SWAPPING. The split is what closes the cross-replica stagger
 	// window at billion-scale (see docs/proposals/prep_swap_barrier.md).
 	ctx := p.serverCtx
-	var unitErrs []string
-	var sawContextCanceled bool
-	for _, unitID := range localGroupUnitIDs {
-		shard, unitTasks, rehydrate, setupErrs, setupCC, skip := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
-		if skip {
-			continue
-		}
-		if len(setupErrs) > 0 {
-			unitErrs = append(unitErrs, setupErrs...)
-			if setupCC {
-				sawContextCanceled = true
-			}
-			continue
-		}
+	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
+		"OnGroupCompleted",
+		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) ([]string, bool) {
+			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
+		})
+}
 
-		// Phase 1: PREP every task on this shard. Idempotent — calls
-		// into already-merged tasks short-circuit at the sentinel
-		// check.
-		prepOK, prepErrs, prepCC := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
-		if len(prepErrs) > 0 {
-			unitErrs = append(unitErrs, prepErrs...)
-		}
-		if prepCC {
-			sawContextCanceled = true
-		}
+// onGroupCompletedRunPhaseForUnit is the per-unit callback driven by
+// runPerUnitPhase for OnGroupCompleted. Encapsulates the
+// barrier-vs-legacy dispatch:
+//
+//   - Always runs PHASE 1 (PREP) via runShardPrepPhase. Idempotent at
+//     the merged.mig sentinel.
+//   - For barrier tasks: stops after PREP. OVERLAY+SWAP run in
+//     OnSwapRequested after the cluster-wide PrepCompleteAck barrier.
+//   - For legacy non-barrier tasks: continues with OVERLAY+SWAP
+//     (Phase 2 + 3) via runShardSwapPhase when PREP succeeded; logs
+//     loudly and skips OVERLAY+SWAP when PREP failed.
+func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
+	ctx context.Context,
+	task *distributedtask.Task,
+	payload *ReindexTaskPayload,
+	unitID string,
+	shard ShardLike,
+	unitTasks []*ShardReindexTaskGeneric,
+	rehydrate bool,
+	logger logrus.FieldLogger,
+) (errs []string, sawContextCanceled bool) {
+	// Phase 1: PREP every task on this shard.
+	prepOK, prepErrs, prepCC := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
+	if len(prepErrs) > 0 {
+		errs = append(errs, prepErrs...)
+	}
+	if prepCC {
+		sawContextCanceled = true
+	}
 
-		if task.NeedsPrepBarrier {
-			// Barrier mode: PREP only. OVERLAY+SWAP run in
-			// OnSwapRequested after every node's PrepCompleteAck
-			// lands. No per-shard final log here — runShardSwapPhase
-			// emits the swap-complete / swap-incomplete log in the
-			// SWAPPING phase.
-			continue
-		}
+	if task.NeedsPrepBarrier {
+		// Barrier mode: PREP only. OVERLAY+SWAP run in OnSwapRequested
+		// after every node's PrepCompleteAck lands.
+		return errs, sawContextCanceled
+	}
 
-		if !prepOK {
-			// Legacy mode + PREP failed: skip OVERLAY+SWAP entirely
-			// for this shard — the recovery path re-runs PREP on
-			// the next OnGroupCompleted invocation. Logging is
-			// already loud (per-task error logs from runShardPrepPhase
-			// + swap-INCOMPLETE log here).
-			shardName := payload.UnitToShard[unitID]
-			logger.WithField("unit", unitID).WithField("shard", shardName).
-				Warn("reindex provider: prep phase incomplete; skipping overlay set + atomic swap for this shard")
-			logger.WithField("unit", unitID).WithField("shard", shardName).
-				Error("reindex provider: swap INCOMPLETE for this shard — prep phase failed; the cluster-wide post-completion ack will report this as a failure")
-			continue
-		}
-
-		// Legacy mode + PREP succeeded: run OVERLAY+SWAP inline.
+	if !prepOK {
+		// Legacy mode + PREP failed: skip OVERLAY+SWAP entirely for
+		// this shard — the recovery path re-runs PREP on the next
+		// OnGroupCompleted invocation. Logging is already loud
+		// (per-task error logs from runShardPrepPhase + the
+		// swap-INCOMPLETE log here).
 		shardName := payload.UnitToShard[unitID]
-		_, swapErrs, swapCC := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
-		if len(swapErrs) > 0 {
-			unitErrs = append(unitErrs, swapErrs...)
-		}
-		if swapCC {
-			sawContextCanceled = true
-		}
+		logger.WithField("unit", unitID).WithField("shard", shardName).
+			Warn("reindex provider: prep phase incomplete; skipping overlay set + atomic swap for this shard")
+		logger.WithField("unit", unitID).WithField("shard", shardName).
+			Error("reindex provider: swap INCOMPLETE for this shard — prep phase failed; the cluster-wide post-completion ack will report this as a failure")
+		return errs, sawContextCanceled
 	}
-	if len(unitErrs) == 0 {
-		return nil
+
+	// Legacy mode + PREP succeeded: run OVERLAY+SWAP inline.
+	shardName := payload.UnitToShard[unitID]
+	_, swapErrs, swapCC := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
+	if len(swapErrs) > 0 {
+		errs = append(errs, swapErrs...)
 	}
-	// Preserve the context.Canceled chain when at least one unit failed
-	// due to shutdown so the scheduler's errors.Is check routes through
-	// the "transient — let recovery re-fire the callback" branch.
-	// Without this %w wrap, the joined string would lose the sentinel
-	// and the scheduler would emit a failure ack, flipping the task to
-	// FAILED before the post-restart recovery gets a chance.
-	if sawContextCanceled {
-		return fmt.Errorf("OnGroupCompleted: %d unit(s) failed: %s: %w",
-			len(unitErrs), strings.Join(unitErrs, "; "), context.Canceled)
+	if swapCC {
+		sawContextCanceled = true
 	}
-	return fmt.Errorf("OnGroupCompleted: %d unit(s) failed: %s",
-		len(unitErrs), strings.Join(unitErrs, "; "))
+	return errs, sawContextCanceled
 }
 
 // OnSwapRequested is the swap-phase counterpart to OnGroupCompleted
@@ -1386,71 +1428,66 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	// Per-unit OVERLAY+SWAP loop. Mirrors the legacy OnGroupCompleted
 	// loop's bottom half, but with PREP elided (it ran in the
 	// PREPARING phase and was acked cluster-wide before we got here).
-	//
-	// If the cache is empty (e.g. node restarted between PrepCompleteAck
-	// landing and SWAPPING firing), resolveUnitForPhase rehydrates +
-	// caches. runShardPrepPhase is still invoked under rehydrate=true
-	// to register OnAfterLsmInit callbacks — the per-task PREP work
-	// itself short-circuits at the merged.mig sentinel since it
-	// already completed.
+	// On cache miss (post-restart between PrepCompleteAck and SWAPPING
+	// firing), resolveUnitForPhase rehydrates + caches; the per-unit
+	// callback below runs a sentinel-only PREP pass to register
+	// OnAfterLsmInit callbacks before SWAP.
 	ctx := p.serverCtx
-	var unitErrs []string
-	var sawContextCanceled bool
-	for _, unitID := range localGroupUnitIDs {
-		shard, unitTasks, rehydrate, setupErrs, setupCC, skip := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
-		if skip {
-			continue
-		}
-		if len(setupErrs) > 0 {
-			unitErrs = append(unitErrs, setupErrs...)
-			if setupCC {
-				sawContextCanceled = true
-			}
-			continue
-		}
+	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
+		"OnSwapRequested",
+		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) ([]string, bool) {
+			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
+		})
+}
 
-		// If we rehydrated (cache was empty), register the
-		// OnAfterLsmInit callbacks before SWAP. The PREP work itself
-		// is idempotent — already-merged tasks short-circuit at the
-		// merged.mig sentinel — so re-invoking RunPrepareOnShard here
-		// costs only the sentinel check.
-		if rehydrate {
-			prepOK, prepErrs, prepCC := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
-			if len(prepErrs) > 0 {
-				unitErrs = append(unitErrs, prepErrs...)
-			}
-			if prepCC {
-				sawContextCanceled = true
-			}
-			if !prepOK {
-				// Rehydrate sentinel-check failed for at least one
-				// task. Skip OVERLAY+SWAP for this shard; the next
-				// callback firing will retry.
-				shardName := payload.UnitToShard[unitID]
-				logger.WithField("unit", unitID).WithField("shard", shardName).
-					Warn("reindex provider: OnSwapRequested: rehydrate prep-sentinel check failed; skipping overlay+swap for this shard")
-				continue
-			}
+// onSwapRequestedRunPhaseForUnit is the per-unit callback driven by
+// runPerUnitPhase for OnSwapRequested. Runs OVERLAY+SWAP only; if the
+// unit was just rehydrated from disk (cache miss), runs a sentinel-
+// only PREP pass first to register OnAfterLsmInit callbacks. The PREP
+// work itself short-circuits at the merged.mig sentinel since it
+// already completed in the PREPARING phase.
+func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
+	ctx context.Context,
+	payload *ReindexTaskPayload,
+	unitID string,
+	shard ShardLike,
+	unitTasks []*ShardReindexTaskGeneric,
+	rehydrate bool,
+	logger logrus.FieldLogger,
+) (errs []string, sawContextCanceled bool) {
+	// If we rehydrated (cache was empty), register the OnAfterLsmInit
+	// callbacks before SWAP. The PREP work itself is idempotent —
+	// already-merged tasks short-circuit at the merged.mig sentinel —
+	// so re-invoking RunPrepareOnShard here costs only the sentinel
+	// check.
+	if rehydrate {
+		prepOK, prepErrs, prepCC := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
+		if len(prepErrs) > 0 {
+			errs = append(errs, prepErrs...)
 		}
-
-		shardName := payload.UnitToShard[unitID]
-		_, swapErrs, swapCC := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
-		if len(swapErrs) > 0 {
-			unitErrs = append(unitErrs, swapErrs...)
-		}
-		if swapCC {
+		if prepCC {
 			sawContextCanceled = true
 		}
+		if !prepOK {
+			// Rehydrate sentinel-check failed for at least one task.
+			// Skip OVERLAY+SWAP for this shard; the next callback
+			// firing will retry.
+			shardName := payload.UnitToShard[unitID]
+			logger.WithField("unit", unitID).WithField("shard", shardName).
+				Warn("reindex provider: OnSwapRequested: rehydrate prep-sentinel check failed; skipping overlay+swap for this shard")
+			return errs, sawContextCanceled
+		}
 	}
-	if len(unitErrs) == 0 {
-		return nil
+
+	shardName := payload.UnitToShard[unitID]
+	_, swapErrs, swapCC := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
+	if len(swapErrs) > 0 {
+		errs = append(errs, swapErrs...)
 	}
-	if sawContextCanceled {
-		return fmt.Errorf("OnSwapRequested: %d unit(s) failed: %s: %w",
-			len(unitErrs), strings.Join(unitErrs, "; "), context.Canceled)
+	if swapCC {
+		sawContextCanceled = true
 	}
-	return fmt.Errorf("OnSwapRequested: %d unit(s) failed: %s",
-		len(unitErrs), strings.Join(unitErrs, "; "))
+	return errs, sawContextCanceled
 }
 
 // OnTaskCompleted fires after all units across all nodes are terminal.
