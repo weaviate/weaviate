@@ -39,7 +39,7 @@ import (
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -1257,7 +1257,7 @@ func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hash
 // worker goroutine. It uses shard-level state maps (asyncRepLast*) which are
 // only ever accessed from a single worker at a time (enforced by asyncRepWg).
 // Returns (propagated, err):
-//   - (false, replica.ErrNoDiffFound) – no diff; use long interval
+//   - (false, replicaerrors.ErrNoDiffFound) – no diff; use long interval
 //   - (false, ctx.Err())              – context cancelled
 //   - (false, <other error>)          – failure; scheduler applies backoff
 //   - (propagated, nil)               – success
@@ -1314,7 +1314,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 		if s.asyncReplicationStatsByTargetNode == nil {
 			s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
 		}
-		if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
+		if (err == nil || errors.Is(err, replicaerrors.ErrNoDiffFound)) && stats != nil {
 			for _, stat := range stats {
 				if stat != nil {
 					s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
@@ -1341,7 +1341,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			return false, ctx.Err()
 		}
 
-		if errors.Is(err, replica.ErrNoDiffFound) {
+		if errors.Is(err, replicaerrors.ErrNoDiffFound) {
 			if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
 				s.asyncRepLastLog.Store(time.Now().Unix())
 				s.index.logger.
@@ -1351,7 +1351,7 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 					WithField("hosts", s.getLastComparedHosts()).
 					Debug("hashbeat iteration successfully completed: no differences were found")
 			}
-			return false, replica.ErrNoDiffFound
+			return false, replicaerrors.ErrNoDiffFound
 		}
 
 		if time.Since(time.Unix(s.asyncRepLastLog.Load(), 0)) >= config.loggingFrequency {
@@ -1443,7 +1443,7 @@ func (s *Shard) hashBeat(
 	defer func() {
 		s.metrics.DecAsyncReplicationIterationRunning()
 
-		if err != nil && !errors.Is(err, replica.ErrNoDiffFound) {
+		if err != nil && !errors.Is(err, replicaerrors.ErrNoDiffFound) {
 			s.metrics.IncAsyncReplicationIterationFailureCount()
 			return
 		}
@@ -1471,7 +1471,7 @@ func (s *Shard) hashBeat(
 
 	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, targetNodeOverridesSnapshot)
 	if err != nil {
-		if errors.Is(err, replica.ErrNoDiffFound) && len(targetNodeOverridesSnapshot) > 0 {
+		if errors.Is(err, replicaerrors.ErrNoDiffFound) && len(targetNodeOverridesSnapshot) > 0 {
 			stats := make([]*hashBeatHostStats, 0, len(targetNodeOverridesSnapshot))
 			for _, o := range targetNodeOverridesSnapshot {
 				stats = append(stats, &hashBeatHostStats{
@@ -1481,7 +1481,7 @@ func (s *Shard) hashBeat(
 			}
 			return stats, err
 		}
-		if errors.Is(err, replica.ErrNoDiffFound) {
+		if errors.Is(err, replicaerrors.ErrNoDiffFound) {
 			return []*hashBeatHostStats{{
 				hashtreeDiffStartTime: hashtreeDiffStart,
 				hashtreeDiffTook:      time.Since(hashtreeDiffStart),
