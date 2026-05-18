@@ -154,6 +154,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		routerTypes.ReadReplicaSet{
 			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
+	router.EXPECT().HasReplicationOpsForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
@@ -390,6 +391,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		routerTypes.ReadReplicaSet{
 			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
+	router.EXPECT().HasReplicationOpsForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
@@ -588,6 +590,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		routerTypes.ReadReplicaSet{
 			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
+	router.EXPECT().HasReplicationOpsForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	schemaGetter := &fakeSchemaGetter{
 		schema: fakeSchema, shardState: shardState,
 	}
