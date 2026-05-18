@@ -750,6 +750,9 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		name := name
 		mockShard := NewMockShardLike(t)
 		files := hotFiles[name]
+		// preventShutdown is acquired by backupShardWithHardlinks on the active
+		// path before releasing shardCreateLocks. See weaviate/0-weaviate-issues#234.
+		mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
 		mockShard.EXPECT().
 			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
@@ -804,4 +807,142 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 	for _, name := range coldTenants {
 		assert.Contains(t, restoredState.Physical, name)
 	}
+}
+
+// TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked verifies that for the
+// active-shard path, backupShardWithHardlinks releases shardCreateLocks BEFORE
+// invoking CreateBackupSnapshot. This is the load-bearing invariant behind the
+// fix for weaviate/0-weaviate-issues#234: without it, concurrent queries that
+// take shardCreateLocks.RLock(name) via Index.getOptInitLocalShard block for
+// the entire snapshot duration (HaltForTransfer + flush + hardlink), which on
+// large clusters is 5-15 minutes of query stalls per backup.
+//
+// Regression guard requested by Copilot review on weaviate/weaviate#11349.
+func TestBackupShardWithHardlinks_ConcurrentRLockNotBlocked(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	shardName := "test-shard"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant(shardName, models.TenantActivityStatusHOT).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+
+	// Synchronization channels: CreateBackupSnapshot signals when it is
+	// in-flight, then blocks until the test releases it.
+	snapshotStarted := make(chan struct{})
+	releaseSnapshot := make(chan struct{})
+	releaseCalled := make(chan struct{})
+
+	mockShard := NewMockShardLike(t)
+	mockShard.EXPECT().preventShutdown().Return(func() {
+		close(releaseCalled)
+	}, nil)
+	mockShard.EXPECT().
+		CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
+			sd.Name = shardName
+			sd.Node = "node1"
+			close(snapshotStarted)
+			<-releaseSnapshot
+			return []string{}, nil
+		})
+	idx.shards.Store(shardName, mockShard)
+
+	// Drive backupShardWithHardlinks from a goroutine so the test can probe
+	// lock state while CreateBackupSnapshot is in-flight.
+	type backupResult struct {
+		sd  *backup.ShardDescriptor
+		err error
+	}
+	backupDone := make(chan backupResult, 1)
+	go func() {
+		sd, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+		backupDone <- backupResult{sd: sd, err: err}
+	}()
+
+	// Wait for CreateBackupSnapshot to be in-flight.
+	select {
+	case <-snapshotStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("CreateBackupSnapshot was not invoked within 5s")
+	}
+
+	// Core assertion: shardCreateLocks must NOT be held during the snapshot.
+	// A concurrent reader (Index.getOptInitLocalShard, which RLocks the same
+	// per-shard key) must proceed without blocking.
+	require.True(t, idx.shardCreateLocks.TryRLock(shardName),
+		"shardCreateLocks must be released before CreateBackupSnapshot — "+
+			"otherwise concurrent queries block for the snapshot duration "+
+			"(weaviate/0-weaviate-issues#234)")
+	idx.shardCreateLocks.RUnlock(shardName)
+
+	// Contrast assertion: backupLock MUST still be held. Concurrent writers
+	// and dropShards (which take backupLock.RLock or backupLock.Lock) still
+	// have to be excluded for the snapshot duration.
+	require.False(t, idx.backupLock.TryRLock(shardName),
+		"backupLock must remain held during CreateBackupSnapshot")
+
+	// Release the snapshot and expect the goroutine to finish promptly.
+	close(releaseSnapshot)
+	select {
+	case res := <-backupDone:
+		require.NoError(t, res.err)
+		require.NotNil(t, res.sd)
+		assert.Equal(t, shardName, res.sd.Name)
+	case <-time.After(5 * time.Second):
+		t.Fatal("backupShardWithHardlinks did not return within 5s of releasing snapshot")
+	}
+
+	// After return, both locks must be released and the preventShutdown
+	// release callback must have run (refcount returned).
+	select {
+	case <-releaseCalled:
+	default:
+		t.Error("preventShutdown release callback was not invoked")
+	}
+	require.True(t, idx.backupLock.TryRLock(shardName),
+		"backupLock must be released after backupShardWithHardlinks returns")
+	idx.backupLock.RUnlock(shardName)
+	require.True(t, idx.shardCreateLocks.TryRLock(shardName),
+		"shardCreateLocks must remain released after backupShardWithHardlinks returns")
+	idx.shardCreateLocks.RUnlock(shardName)
+}
+
+// TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks verifies the
+// error path: if preventShutdown fails (the shard is already shutting down),
+// backupShardWithHardlinks must still release both backupLock and
+// shardCreateLocks before returning. Regression guard for the
+// shardCreateLocksHeld bookkeeping introduced in #11349.
+func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T) {
+	rootDir := t.TempDir()
+	className := "TestClass"
+	shardName := "test-shard"
+	ctx := context.Background()
+
+	shardState := NewMultiTenantShardingStateBuilder().
+		AddTenant(shardName, models.TenantActivityStatusHOT).
+		WithReplicationFactor(1).
+		Build()
+
+	idx := newDescriptorTestIndex(t, rootDir, className, shardState)
+
+	mockShard := NewMockShardLike(t)
+	mockShard.EXPECT().preventShutdown().Return(nil, errors.New("shard is shutting down"))
+	idx.shards.Store(shardName, mockShard)
+
+	_, err := idx.backupShardWithHardlinks(ctx, shardName, nil, t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "prevent shutdown")
+
+	// Both locks must be released even on the error path.
+	require.True(t, idx.backupLock.TryRLock(shardName),
+		"backupLock must be released after preventShutdown failure")
+	idx.backupLock.RUnlock(shardName)
+	require.True(t, idx.shardCreateLocks.TryRLock(shardName),
+		"shardCreateLocks must be released after preventShutdown failure")
+	idx.shardCreateLocks.RUnlock(shardName)
 }
