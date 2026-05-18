@@ -1012,9 +1012,9 @@ func (s *Searcher) extractContains(ctx context.Context,
 	// switches treat ContainsAll as an AND alias and ContainsAny as an OR
 	// alias; ContainsNone has dedicated dispatch (a first-class resolver
 	// that reads `_exists.{relPath}` as the inversion universe so sibling-
-	// branch leaves and phantom leaves cannot leak through the AndNot —
-	// see project_containsnone_universe_leak.md). Non-nested (flat) paths
-	// keep the old desugared shapes which the flat resolver handles.
+	// branch leaves and phantom leaves cannot leak through the AndNot).
+	// Non-nested (flat) paths keep the old desugared shapes which the flat
+	// resolver handles.
 	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
@@ -1023,7 +1023,13 @@ func (s *Searcher) extractContains(ctx context.Context,
 	out.children = children
 	out.Class = class
 
-	nested := len(children) > 0 && children[0].nested.isNested
+	// Nested detection covers both direct leaves (isNested=true) and tokenization
+	// wrappers produced by buildNestedTextFilterPair for multi-token text values
+	// (isWithinRootSubtree=true, childrenFromTokenization=true, isNested=false).
+	// Without the isWithinRootSubtree branch, a nested ContainsAll/Any/None on a
+	// multi-token text value would misclassify as non-nested and lose operator
+	// identity / reintroduce the ContainsNone universe-leak.
+	nested := len(children) > 0 && (children[0].nested.isNested || children[0].nested.isWithinRootSubtree)
 
 	switch operator {
 	case filters.ContainsAll:

@@ -13855,6 +13855,327 @@ func TestNestedFilteringContainsNoneSiblingScalarArrayLeak(t *testing.T) {
 	})
 }
 
+// TestNestedFilteringContainsNoneMultiTokenWrapper regression-locks that
+// extractContains correctly classifies a nested Contains* as "nested" when
+// its query value tokenizes into multiple terms (and therefore produces a
+// tokenization wrapper, not a direct nested leaf, as children[0]).
+//
+// buildNestedTextFilterPair returns a propValuePair with
+// `nested.isWithinRootSubtree=true, childrenFromTokenization=true,
+// isNested=false` whenever the query value tokenizes into >1 term.
+// extractContains's nested-detection initially only checked
+// `children[0].nested.isNested`, so multi-token nested ContainsNone
+// (e.g. ContainsNone(tags, ["new york"]) under word tokenization) was
+// misclassified as non-nested and desugared to NOT(OR(...)) — which
+// reintroduces the ContainsNone universe leak the first-class operator
+// path was added to fix.
+//
+// Filter: ContainsNone(<root>.tags, ["new york"])  under word tokenization
+//
+// Docs (sibling-leak shape mirroring
+// TestNestedFilteringContainsNoneSiblingScalarArrayLeak, but with the
+// query value tokenizing into multiple terms):
+//
+//	d1: tags=["sport"],     cities=["paris"]  — no token matches; control
+//	d2: tags=["new york"],  cities=["paris"]  — both tokens at same position
+//	                                              (phrase match) → must drop
+//	d3:                     cities=["berlin"] — no tags; pre-fix universe-leaks
+//	                                              via cities leaf → must drop
+//
+// Post-fix: ContainsNone takes the first-class path, universe is
+// `_exists.tags`, only d1 matches.
+// Pre-fix: misclassified as non-nested → desugared NOT(OR(tags="new",
+// tags="york")) over `_exists.""` → d3 leaks via cities leaf.
+func TestNestedFilteringContainsNoneMultiTokenWrapper(t *testing.T) {
+	const nestedClass = "ContainsNoneMultiTokenWrapper"
+	vTrue := true
+	word := models.NestedPropertyTokenizationWord
+
+	rootInner := []*models.NestedProperty{
+		{Name: "tags", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+		{Name: "cities", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+			{Name: "countries", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	t.Run("country_object", func(t *testing.T) {
+		d1, d2, d3 := uuid(1), uuid(2), uuid(3)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"country": map[string]any{
+				"tags": "sport", "cities": "paris",
+			}}, note: "tags=sport (no token match); control"},
+			{id: d2, props: map[string]any{"country": map[string]any{
+				"tags": "new york", "cities": "paris",
+			}}, note: "tags=\"new york\" — both query tokens at same position"},
+			{id: d3, props: map[string]any{"country": map[string]any{
+				"cities": "berlin",
+			}}, note: "no tags, only sibling cities — pre-fix leaks via cities leaf"},
+		}
+		runScenario(t, docs, containsFilter("country.tags", filters.ContainsNone, "new york"),
+			[]strfmt.UUID{d1})
+	})
+
+	t.Run("countries_array", func(t *testing.T) {
+		d1, d2, d3 := uuid(1), uuid(2), uuid(3)
+		docs := []docDef{
+			{id: d1, props: map[string]any{"countries": []any{
+				map[string]any{"tags": "sport", "cities": "paris"},
+			}}, note: "tags=sport (control)"},
+			{id: d2, props: map[string]any{"countries": []any{
+				map[string]any{"tags": "new york", "cities": "paris"},
+			}}, note: "tags=\"new york\" — both tokens at same position"},
+			{id: d3, props: map[string]any{"countries": []any{
+				map[string]any{"cities": "berlin"},
+			}}, note: "no tags, only cities — pre-fix universe-leak shape"},
+		}
+		runScenario(t, docs, containsFilter("countries.tags", filters.ContainsNone, "new york"),
+			[]strfmt.UUID{d1})
+	})
+}
+
+// TestNestedFilteringContainsNoneMultiTokenArrNPin regression-locks that
+// buildNestedTextFilterPair's tokenization wrapper carries relPath and
+// arrayIndices onto itself, so the first-class ContainsNone path sees the
+// pinned operand scope. Without this propagation the multi-token wrapper
+// is created with empty `relPath`/`arrayIndices`, and extractContains's
+// first-class path silently drops the arr[N] pin — the query then
+// evaluates over the unpinned universe instead of `_exists.{relPath} ∩
+// _idx.<pinPath>[N]`.
+//
+// Schema: garages (object[]) > cars (object[]) > tags (text[]/word).
+// Filter: ContainsNone(garages.cars[1].tags, "new york")
+//
+// Docs:
+//
+//	d1: cars=[{tags:[new york]}, {tags:[sport]}]  — cars[1].tags=[sport]
+//	                                                  → ∃ tag without "new york"
+//	                                                  → match
+//	d2: cars=[{tags:[sport]}, {tags:[new york]}]  — cars[1].tags=[new york]
+//	                                                  → no qualifying tag in cars[1]
+//	                                                  → drop
+//	d3: cars=[{tags:[sport]}]                     — cars[1] doesn't exist
+//	                                                  → vacuous at the pinned LCA
+//	                                                  → drop
+//
+// With the pin honored: only d1 matches.
+// Without the pin (pre-Fix 1b): the universe ignores cars[1] and "sport"
+// in cars[0] qualifies for d2 and d3 too — both leak through.
+func TestNestedFilteringContainsNoneMultiTokenArrNPin(t *testing.T) {
+	const nestedClass = "ContainsNoneMultiTokenArrNPin"
+	vTrue := true
+	word := models.NestedPropertyTokenizationWord
+
+	carInner := []*models.NestedProperty{
+		{Name: "tags", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+	}
+	garagesInner := []*models.NestedProperty{
+		{
+			Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: carInner,
+		},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "garages", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: garagesInner},
+		},
+	}
+
+	asArr := func(items ...any) []any { return items }
+	car := func(tag string) map[string]any {
+		if tag == "" {
+			return map[string]any{}
+		}
+		return map[string]any{"tags": tag}
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+
+	d1, d2, d3 := uuid(1), uuid(2), uuid(3)
+	docs := []docDef{
+		{id: d1, props: map[string]any{"garages": asArr(
+			map[string]any{"cars": asArr(car("new york"), car("sport"))},
+		)}, note: "cars[1].tags=sport (qualifies for pinned scope)"},
+		{id: d2, props: map[string]any{"garages": asArr(
+			map[string]any{"cars": asArr(car("sport"), car("new york"))},
+		)}, note: "cars[1].tags=new york (does NOT qualify)"},
+		{id: d3, props: map[string]any{"garages": asArr(
+			map[string]any{"cars": asArr(car("sport"))},
+		)}, note: "no cars[1] — vacuous at pinned LCA"},
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+	for _, d := range docs {
+		require.NoError(t, db.PutObject(ctx, &models.Object{
+			Class: nestedClass, ID: d.id, Properties: d.props,
+		}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+	}
+	res, err := db.Search(ctx, dto.GetParams{
+		ClassName:  nestedClass,
+		Pagination: &filters.Pagination{Limit: 100},
+		Filters:    containsFilter("garages.cars[1].tags", filters.ContainsNone, "new york"),
+	})
+	require.NoError(t, err)
+	got := make([]strfmt.UUID, len(res))
+	for i, r := range res {
+		got[i] = r.ID
+	}
+	assert.ElementsMatch(t, []strfmt.UUID{d1}, got)
+}
+
+// TestNestedFilteringContainsAllAnyMultiTokenWrapper regression-locks that
+// extractContains correctly classifies a nested ContainsAll / ContainsAny
+// as "nested" when its query value tokenizes into multiple terms (the
+// children[0] is a tokenization wrapper, not a direct nested leaf). The
+// bug surface for ContainsAll/Any without Fix 1 is different from
+// ContainsNone (no universe leak), but the misclassification still
+// produces the wrong dispatch shape — the OUT pvp becomes OperatorAnd /
+// OperatorOr which flattenAndOperators may unwrap, exposing the inner
+// tokenization wrappers and breaking same-element correlation under any
+// surrounding AND.
+//
+// Schema: country.tags (text/word).
+// Filter A: ContainsAll(country.tags, "new york")  — single multi-token value
+// Filter B: ContainsAny(country.tags, "new york")  — same shape, OR operator
+//
+// Single multi-token value collapses to the inner tokenization wrapper
+// (per extractContains' len(children)==1 shortcut), so the regression
+// here is that the wrapper carries the same answer pre and post fix.
+// Verifies the nested detection at extractContains is symmetric across
+// the three Contains* operators.
+func TestNestedFilteringContainsAllAnyMultiTokenWrapper(t *testing.T) {
+	const nestedClass = "ContainsAllAnyMultiTokenWrapper"
+	vTrue := true
+	word := models.NestedPropertyTokenizationWord
+
+	rootInner := []*models.NestedProperty{
+		{Name: "tags", DataType: schema.DataTypeText.PropString(), Tokenization: word, IndexFilterable: &vTrue},
+	}
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: rootInner},
+		},
+	}
+
+	type docDef struct {
+		id    strfmt.UUID
+		props map[string]any
+		note  string
+	}
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+	containsFilter := func(path string, op filters.Operator, vals ...string) *filters.LocalFilter {
+		return &filters.LocalFilter{Root: &filters.Clause{
+			Operator: op,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: vals},
+			On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName(path)},
+		}}
+	}
+	runScenario := func(t *testing.T, docs []docDef, filter *filters.LocalFilter, want []strfmt.UUID) {
+		t.Helper()
+		db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+		ctx := context.Background()
+		for _, d := range docs {
+			require.NoError(t, db.PutObject(ctx, &models.Object{
+				Class: nestedClass, ID: d.id, Properties: d.props,
+			}, nil, nil, nil, nil, 0), "put %s (%s)", d.id, d.note)
+		}
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		got := make([]strfmt.UUID, len(res))
+		for i, r := range res {
+			got[i] = r.ID
+		}
+		assert.ElementsMatch(t, want, got)
+	}
+
+	d1, d2, d3 := uuid(1), uuid(2), uuid(3)
+	docs := []docDef{
+		{id: d1, props: map[string]any{"country": map[string]any{"tags": "new york"}}, note: "tags=new york (phrase match)"},
+		{id: d2, props: map[string]any{"country": map[string]any{"tags": "new orleans"}}, note: "tags=new orleans (only new token)"},
+		{id: d3, props: map[string]any{"country": map[string]any{"tags": "sport"}}, note: "tags=sport (no overlap)"},
+	}
+
+	t.Run("ContainsAll", func(t *testing.T) {
+		// ContainsAll(tags, "new york") — single multi-token value requires both
+		// tokens to co-occur at the same tag value. Only d1 matches.
+		runScenario(t, docs, containsFilter("country.tags", filters.ContainsAll, "new york"),
+			[]strfmt.UUID{d1})
+	})
+	t.Run("ContainsAny", func(t *testing.T) {
+		// ContainsAny(tags, "new york") — single value; equivalent to
+		// ContainsAll in this single-value case. Only d1 has both tokens.
+		runScenario(t, docs, containsFilter("country.tags", filters.ContainsAny, "new york"),
+			[]strfmt.UUID{d1})
+	})
+}
+
 // TestNestedFilteringContainsNoneInsideCorrelatedAnd exercises the
 // post-Route-1 correlated-AND handler for ContainsNone (materialized
 // inline via normalizeRecGroup's ContainsNone case). Two root prop
@@ -13998,7 +14319,7 @@ func TestNestedFilteringContainsNoneInsideCorrelatedAnd(t *testing.T) {
 	})
 
 	t.Run("countries_array", func(t *testing.T) {
-		d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+		d1, d2, d3, d4, d5, d6, d7, d8 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)
 		docs := []docDef{
 			{id: d1, props: map[string]any{"countries": []any{
 				map[string]any{"name": "germany", "tags": asTextArr("sport", "electric"), "cities": asTextArr("paris")},
@@ -14021,6 +14342,17 @@ func TestNestedFilteringContainsNoneInsideCorrelatedAnd(t *testing.T) {
 			{id: d7, props: map[string]any{"countries": []any{
 				map[string]any{"name": "germany", "tags": asTextArr("sport"), "cities": asTextArr("london")},
 			}}, note: "germany; qualifying tag + sibling"},
+			// d8 — multi-element discriminator: countries[0] has name=germany but
+			// only-listed tags; countries[1] has qualifying tags but wrong name.
+			// Under same-element correlated-AND semantics (Route 1 grouping
+			// includes ContainsNone), no single country satisfies both predicates,
+			// so the doc must drop. Pre-Route-1 (or if ContainsNone is left out
+			// of nestedRootProp's switch) the dispatch combines at docID level
+			// and the doc would erroneously match.
+			{id: d8, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("electric")},
+				map[string]any{"name": "france", "tags": asTextArr("sport")},
+			}}, note: "split across countries: germany has only-listed tags; sport tag is in france"},
 		}
 		f := andFilter(
 			valueFilter("countries.name", "germany"),
@@ -14170,7 +14502,7 @@ func TestNestedFilteringContainsAllInsideCorrelatedAnd(t *testing.T) {
 	})
 
 	t.Run("countries_array", func(t *testing.T) {
-		d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+		d1, d2, d3, d4, d5, d6, d7, d8 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)
 		docs := []docDef{
 			{id: d1, props: map[string]any{"countries": []any{
 				map[string]any{"name": "germany", "tags": asTextArr("sport", "luxury", "electric"), "cities": asTextArr("paris")},
@@ -14193,6 +14525,16 @@ func TestNestedFilteringContainsAllInsideCorrelatedAnd(t *testing.T) {
 			{id: d7, props: map[string]any{"countries": []any{
 				map[string]any{"name": "germany", "tags": asTextArr("luxury", "electric")},
 			}}, note: "germany; missing sport"},
+			// d8 — multi-element discriminator: countries[0] has name=germany but
+			// tags=[sport]; countries[1] has tags=[sport, luxury] but name=france.
+			// Same-element correlated-AND (ContainsAll same-root grouped with the
+			// name leaf) requires ONE country to satisfy both predicates → no
+			// match. Pre-grouping (docID-level combination) would erroneously
+			// match d8 (germany name in [0], all required tags in [1]).
+			{id: d8, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("sport")},
+				map[string]any{"name": "france", "tags": asTextArr("sport", "luxury")},
+			}}, note: "split across countries: germany lacks luxury; required tags are in france"},
 		}
 		f := andFilter(
 			valueFilter("countries.name", "germany"),
@@ -14338,7 +14680,7 @@ func TestNestedFilteringContainsAnyInsideCorrelatedAnd(t *testing.T) {
 	})
 
 	t.Run("countries_array", func(t *testing.T) {
-		d1, d2, d3, d4, d5, d6, d7 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7)
+		d1, d2, d3, d4, d5, d6, d7, d8 := uuid(1), uuid(2), uuid(3), uuid(4), uuid(5), uuid(6), uuid(7), uuid(8)
 		docs := []docDef{
 			{id: d1, props: map[string]any{"countries": []any{
 				map[string]any{"name": "germany", "tags": asTextArr("sport", "luxury", "electric"), "cities": asTextArr("paris")},
@@ -14361,6 +14703,16 @@ func TestNestedFilteringContainsAnyInsideCorrelatedAnd(t *testing.T) {
 			{id: d7, props: map[string]any{"countries": []any{
 				map[string]any{"name": "germany", "tags": asTextArr("electric"), "cities": asTextArr("paris")},
 			}}, note: "germany; wrong tag + sibling"},
+			// d8 — multi-element discriminator: countries[0] has name=germany but
+			// no qualifying tag; countries[1] has qualifying tag but wrong name.
+			// Same-element correlated-AND (ContainsAny same-root grouped with the
+			// name leaf) requires ONE country to satisfy both predicates → no
+			// match. Pre-grouping (docID-level combination) would erroneously
+			// match d8 (germany name in [0], qualifying tag in [1]).
+			{id: d8, props: map[string]any{"countries": []any{
+				map[string]any{"name": "germany", "tags": asTextArr("electric")},
+				map[string]any{"name": "france", "tags": asTextArr("sport")},
+			}}, note: "split across countries: germany lacks qualifying tag; sport tag is in france"},
 		}
 		f := andFilter(
 			valueFilter("countries.name", "germany"),
@@ -14371,10 +14723,11 @@ func TestNestedFilteringContainsAnyInsideCorrelatedAnd(t *testing.T) {
 }
 
 // TestNestedFilteringContainsNoneInsideOr — companion to the inside-AND
-// test, but with OR as the outer operator. ContainsNone is not folded
-// into same-root grouping (it's absent from nestedRootProp's switch), so
-// the outer OR resolves at docID level — each child resolves to a docID
-// bitmap and they are unioned.
+// test, but with OR as the outer operator. ContainsNone participates in
+// same-root grouping (it's in nestedRootProp's switch), so the OR is
+// wrapped under isWithinRootSubtree and the planner builds a
+// position-level recOrNode at the deepest common LCA; the two operand
+// bitmaps are unioned there.
 //
 // Semantics: doc matches iff name="germany" OR (∃ tag-element whose value
 // is NOT in the listed set). Strict-existential ContainsNone is supplied
