@@ -97,11 +97,13 @@ type RecoveredReindex struct {
 //     target here — the DTM scheduler will call StartTask on the next
 //     tick and re-register callbacks via processOneUnit. Discovery
 //     correctly skips.
+//
 //   - **PREPARING crash window (PREP in flight)**: reindexed.mig
 //     present, merged.mig absent. Discovery picks it up; scheduler
 //     re-fires OnGroupCompleted (PHASE A under barrier) on the next
 //     tick; RunPrepareOnShard short-circuits on already-merged tasks
 //     and completes the rest.
+//
 //   - **PREP-DONE-BARRIER-WAITING crash window (between local PREP
 //     and PrepCompleteAck landing OR between PrepCompleteAck and
 //     SWAPPING transition cluster-wide)**: reindexed.mig + merged.mig
@@ -109,12 +111,14 @@ type RecoveredReindex struct {
 //     is at PREPARING or SWAPPING; scheduler re-fires the appropriate
 //     PHASE A or PHASE B callback; both are idempotent against
 //     merged.mig.
+//
 //   - **SWAPPING crash window (between SWAPPING-transition and local
 //     SWAP completing)**: reindexed.mig + merged.mig present, swapped
 //     present-or-absent, tidied.mig absent. Discovery picks it up;
 //     scheduler re-fires OnSwapRequested; RunSwapOnShard's sentinel-
 //     aware dispatch picks the right resume branch (recoverRuntime
 //     SwapBuckets / runtimeSwap / tidyBackupBuckets).
+//
 //   - **TIDY-PENDING crash window (between markSwapped and
 //     markTidied)**: swapped.mig present, tidied.mig absent.
 //     Discovery picks it up; OnSwapRequested -> RunSwapOnShard's
