@@ -16,12 +16,12 @@ import (
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	mcpops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/mcp"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -29,11 +29,7 @@ import (
 // served is decided per-request by checking the runtime-configurable
 // MCP.Enabled flag, allowing operators to toggle MCP without a restart.
 func setupMCPHandlers(api *operations.WeaviateAPI, appState *state.State, objectsManager *objects.Manager) {
-	reg := monitoring.NoopRegisterer
-	if appState.Metrics != nil && appState.Metrics.Registerer != nil {
-		reg = appState.Metrics.Registerer
-	}
-	mcpServer := mcp.NewMCPServer(appState, objectsManager, reg)
+	mcpServer := mcp.NewMCPServer(appState, objectsManager, prometheus.DefaultRegisterer)
 	mcpHandler := mcpServer.Handler()
 
 	serveIfEnabled := func(w http.ResponseWriter, r *http.Request) {

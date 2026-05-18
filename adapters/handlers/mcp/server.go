@@ -45,13 +45,13 @@ type MCPServer struct {
 }
 
 func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prometheus.Registerer) *MCPServer {
-	m := metrics.New(reg)
-	authHandler := auth.NewAuth(state, m)
-	logger := state.Logger.WithField("component", "mcp")
-
 	writeAccessEnabled := func() bool {
 		return state.ServerConfig.Config.MCP.WriteAccessEnabled.Get()
 	}
+
+	m := metrics.New(reg, writeAccessEnabled)
+	authHandler := auth.NewAuth(state, m)
+	logger := state.Logger.WithField("component", "mcp")
 
 	s := &MCPServer{
 		server: server.NewMCPServer(
@@ -71,7 +71,6 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 	}
 	s.registerTools()
 	s.registerToolFilter()
-	s.metrics.SetWriteAccessEnabled(s.creator.IsWriteAccessEnabled())
 	return s
 }
 
@@ -85,7 +84,6 @@ func (s *MCPServer) Handler() http.Handler {
 func (s *MCPServer) registerToolFilter() {
 	server.WithToolFilter(func(ctx context.Context, tools []mcplib.Tool) []mcplib.Tool {
 		writeEnabled := s.creator.IsWriteAccessEnabled()
-		s.metrics.SetWriteAccessEnabled(writeEnabled)
 		s.metrics.ObserveListed(writeEnabled)
 		if writeEnabled {
 			return tools

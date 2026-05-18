@@ -13,6 +13,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 type Auth struct {
@@ -50,7 +52,7 @@ func (a *Auth) Authorize(ctx context.Context, req mcp.CallToolRequest, verb stri
 		return nil, fmt.Errorf("failed to get principal: %w", err)
 	}
 	if err := a.authorizer.Authorize(ctx, principal, verb, authorization.Mcp()); err != nil {
-		a.metrics.ObserveAuthFailure(metrics.AuthReasonForbidden)
+		a.observeAuthzFailure(err)
 		return nil, err
 	}
 	return principal, nil
@@ -65,7 +67,24 @@ func (a *Auth) AuthorizeCollectionData(ctx context.Context, principal *models.Pr
 	if tenant != "" {
 		resources = authorization.ShardsData(collection, tenant)
 	}
-	return a.authorizer.Authorize(ctx, principal, verb, resources...)
+	if err := a.authorizer.Authorize(ctx, principal, verb, resources...); err != nil {
+		a.observeAuthzFailure(err)
+		return err
+	}
+	return nil
+}
+
+func (a *Auth) observeAuthzFailure(err error) {
+	var forbidden authzerrors.Forbidden
+	if errors.As(err, &forbidden) {
+		a.metrics.ObserveAuthFailure(metrics.AuthReasonForbidden)
+		return
+	}
+	var unauth authzerrors.Unauthenticated
+	if errors.As(err, &unauth) {
+		a.metrics.ObserveAuthFailure(metrics.AuthReasonUnauthenticated)
+		return
+	}
 }
 
 func (a *Auth) principalFromRequest(req mcp.CallToolRequest) (*models.Principal, error) {
