@@ -558,6 +558,19 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 // unassigned unit sets its NodeID, claiming it for that node. After assignment, updates from
 // other nodes are rejected. Progress updates to terminal units are silently ignored (no error)
 // because in-flight Raft commands may arrive after a unit has already completed.
+//
+// Stored progress is monotonic — a request whose progress is smaller than the unit's current
+// value is ignored for the progress field (other fields are still updated; see below). The
+// guard is a receiver-side defence against sender-side bugs that compute progress
+// non-monotonically — phase-share, retry-without-resume, or denominator-grows-mid-flight
+// shapes all manifest as the WCS frontend showing a unit's progress bar regress visually
+// (e.g. 51% → 48% mid-migration). See weaviate/0-weaviate-issues#232 (Finding 1). Genuine
+// re-runs that need a per-unit reset must run as a new task version (different unit IDs);
+// this guard is the cluster-wide invariant that a single unit-run's progress only goes up.
+//
+// NodeID and UpdatedAt are still applied even when the progress component is clamped — the
+// sender is in fact making progress on the work, and the bookkeeping that they're alive and
+// owning the unit should track. Only the user-visible progress fraction is held back.
 func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	var r api.UpdateDistributedTaskUnitProgressRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -582,7 +595,11 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	}
 
 	u.NodeID = r.NodeId
-	u.Progress = r.Progress
+	if r.Progress > u.Progress {
+		// Monotonicity guard — see godoc above. r.Progress <= u.Progress
+		// falls through, leaving u.Progress unchanged.
+		u.Progress = r.Progress
+	}
 	u.UpdatedAt = time.UnixMilli(r.UpdatedAtUnixMillis)
 
 	wasPending := u.Status == UnitStatusPending
