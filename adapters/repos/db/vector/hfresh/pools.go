@@ -15,7 +15,7 @@ import "sync"
 
 // list of pools shared between all HFresh instances
 var (
-	bufferPool = newBufferPool(1024)
+	bufferPool = newBufferPool(0)
 )
 
 // BufferPool is a simple wrapper around sync.Pool to manage byte slices of varying sizes.
@@ -23,11 +23,11 @@ type BufferPool struct {
 	pool sync.Pool
 }
 
-func newBufferPool(size int) *BufferPool {
+func newBufferPool(defaultCapacity int) *BufferPool {
 	return &BufferPool{
 		pool: sync.Pool{
 			New: func() any {
-				b := make([]byte, size)
+				b := make([]byte, defaultCapacity)
 				return &b
 			},
 		},
@@ -36,7 +36,8 @@ func newBufferPool(size int) *BufferPool {
 
 func (p *BufferPool) Get(length, capacity int) []byte {
 	b := p.pool.Get().(*[]byte)
-	if cap(*b) < capacity {
+
+	if cap(*b) < capacity || cap(*b) > maxReusableBufferCapacity(capacity) {
 		*b = make([]byte, length, capacity)
 	} else {
 		*b = (*b)[:length]
@@ -50,4 +51,14 @@ func (p *BufferPool) Put(b []byte) {
 	}
 
 	p.pool.Put(&b)
+}
+
+// maxReusableBufferCapacity calculates the maximum capacity for a reusable buffer
+// based on the requested capacity.
+func maxReusableBufferCapacity(capacity int) int {
+	if capacity < 64 {
+		return capacity * 2
+	}
+
+	return capacity + capacity/4
 }
