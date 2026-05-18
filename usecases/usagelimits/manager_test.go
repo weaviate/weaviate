@@ -124,19 +124,33 @@ func TestManager_NilManagerIsSafe(t *testing.T) {
 }
 
 func TestManager_CheckObjects_ForwardsNamespace(t *testing.T) {
-	// The cap is applied per-namespace: the namespace string passed by the
-	// chokepoint must reach the counter so the right slice of indices is summed.
-	counter := &fakeObjectCounter{count: 5}
-	m := NewManager(Config{
-		MaxObjectsCount: runtime.NewDynamicValue(10),
-		ErrorMessage:    runtime.NewDynamicValue(""),
-	}, counter)
-
-	if err := m.CheckObjects(context.Background(), 1, "tenant-a"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// The cap is applied per-namespace: CheckObjects extracts the namespace
+	// from the qualified class name and forwards it to the counter so the
+	// right slice of indices is summed.
+	tests := []struct {
+		name          string
+		className     string
+		wantNamespace string
+	}{
+		{name: "qualified class name", className: "tenant-a:Movies", wantNamespace: "tenant-a"},
+		{name: "plain class name", className: "Movies", wantNamespace: ""},
+		{name: "empty class name", className: "", wantNamespace: ""},
 	}
-	if counter.gotNamespace != "tenant-a" {
-		t.Errorf("counter saw namespace %q, want %q", counter.gotNamespace, "tenant-a")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			counter := &fakeObjectCounter{count: 5}
+			m := NewManager(Config{
+				MaxObjectsCount: runtime.NewDynamicValue(10),
+				ErrorMessage:    runtime.NewDynamicValue(""),
+			}, counter)
+
+			if err := m.CheckObjects(context.Background(), 1, tt.className); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if counter.gotNamespace != tt.wantNamespace {
+				t.Errorf("counter saw namespace %q, want %q", counter.gotNamespace, tt.wantNamespace)
+			}
+		})
 	}
 }
 

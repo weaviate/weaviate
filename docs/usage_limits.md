@@ -42,7 +42,7 @@ The schema-side limits (collections, tenants, shards) stay at the use-case layer
 
 The object count is **node-wide** across local shards: the manager sums each loaded shard's `bucket.CountAsync()` (`adapters/repos/db/lsmkv/bucket.go`) on every enforced write. Each `CountAsync()` is O(segments-per-shard) — it walks the live segment list and sums each segment's already-loaded net-additions counter, no I/O. For the Free-Tier shape (few shards, few segments) that's a handful of atomic reads on the hot path.
 
-On namespace-enabled clusters the chokepoint passes the namespace extracted from the (namespace-qualified) class name; the counter then sums only indices in that namespace. The cap is applied **per namespace**, not cluster-wide. An empty namespace sums all indices (NS-disabled clusters; the global slice on NS-enabled clusters that have no namespaced classes yet).
+On namespace-enabled clusters the chokepoint passes the (namespace-qualified) class name and `CheckObjects` extracts the namespace; the counter then sums only indices in that namespace. The cap is applied **per namespace**, not cluster-wide. A plain (non-qualified) class name sums all indices (NS-disabled clusters; the global slice on NS-enabled clusters that have no namespaced classes yet).
 
 We deliberately don't route through `UsageForIndex` — that path triggers other usage-module computations beyond a count.
 

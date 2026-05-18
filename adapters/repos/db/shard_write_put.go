@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
@@ -36,8 +35,7 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
-	ns := namespacing.NamespaceFromQualified(s.index.Config.ClassName.String())
-	if err := s.index.usageLimits.CheckObjects(ctx, 1, ns); err != nil {
+	if err := s.index.usageLimits.CheckObjects(ctx, 1, s.index.Config.ClassName.String()); err != nil {
 		return err
 	}
 	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()

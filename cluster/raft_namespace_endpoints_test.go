@@ -57,28 +57,34 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 	srv, ctx, cleanup := setupRaftForNamespaceTests(t)
 	defer cleanup()
 
-	// Initially empty.
-	assert.Equal(t, 0, srv.NamespaceCount())
-	all, err := srv.GetNamespaces()
-	require.NoError(t, err)
-	assert.Empty(t, all)
-
-	t.Run("add a namespace", func(t *testing.T) {
-		_, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "customer1"})
+	// seed adds a namespace and blocks until the apply is visible. Subtests
+	// use unique names so they can run in any order without colliding.
+	seed := func(t *testing.T, name string) {
+		t.Helper()
+		_, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: name})
 		require.NoError(t, err)
 		require.NoError(t, srv.WaitForUpdate(ctx, version))
-		assert.Equal(t, 1, srv.NamespaceCount())
+	}
+
+	t.Run("AddNamespace persists and bumps the count", func(t *testing.T) {
+		before := srv.NamespaceCount()
+		seed(t, "add-target")
+		assert.Equal(t, before+1, srv.NamespaceCount())
+
+		got, err := srv.GetNamespaces("add-target")
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "add-target", got[0].Name)
 	})
 
 	t.Run("AddNamespace error mapping", func(t *testing.T) {
-		// "customer1" was seeded by the previous subtest; the duplicate case
-		// relies on that.
+		seed(t, "dup-target")
 		errCases := []struct {
 			name    string
 			input   string
 			wantErr error
 		}{
-			{name: "duplicate", input: "customer1", wantErr: usecasesNamespaces.ErrAlreadyExists},
+			{name: "duplicate", input: "dup-target", wantErr: usecasesNamespaces.ErrAlreadyExists},
 			{name: "invalid name", input: "BadName", wantErr: usecasesNamespaces.ErrBadRequest},
 			{name: "reserved name", input: "admin", wantErr: usecasesNamespaces.ErrBadRequest},
 		}
@@ -91,45 +97,46 @@ func TestRaftNamespaceEndpoints(t *testing.T) {
 		}
 	})
 
-	t.Run("add a second namespace and list all", func(t *testing.T) {
-		_, version, err := srv.AddNamespace(ctx, cmd.Namespace{Name: "customer2"})
-		require.NoError(t, err)
-		require.NoError(t, srv.WaitForUpdate(ctx, version))
-		assert.Equal(t, 2, srv.NamespaceCount())
-
-		all, err := srv.GetNamespaces()
-		require.NoError(t, err)
-		got := make([]string, 0, len(all))
-		for _, ns := range all {
-			got = append(got, ns.Name)
-		}
-		assert.ElementsMatch(t, []string{"customer1", "customer2"}, got)
-	})
-
-	t.Run("get specific names", func(t *testing.T) {
-		got, err := srv.GetNamespaces("customer1", "never-existed")
+	t.Run("GetNamespaces returns only the requested names", func(t *testing.T) {
+		seed(t, "get-target")
+		got, err := srv.GetNamespaces("get-target", "never-existed")
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		assert.Equal(t, "customer1", got[0].Name)
+		assert.Equal(t, "get-target", got[0].Name)
 	})
 
-	t.Run("two-phase delete an existing namespace", func(t *testing.T) {
-		version, err := srv.ChangeNamespaceState(ctx, "customer1", cmd.NamespaceStateDeleting)
+	t.Run("GetNamespaces with no args returns all seeded namespaces", func(t *testing.T) {
+		seed(t, "list-a")
+		seed(t, "list-b")
+		all, err := srv.GetNamespaces()
 		require.NoError(t, err)
-		require.NoError(t, srv.WaitForUpdate(ctx, version))
-		assert.Equal(t, 2, srv.NamespaceCount(), "entity stays until RemoveNamespaceEntity")
+		names := make([]string, 0, len(all))
+		for _, ns := range all {
+			names = append(names, ns.Name)
+		}
+		assert.Contains(t, names, "list-a")
+		assert.Contains(t, names, "list-b")
+	})
 
-		version, err = srv.RemoveNamespaceEntity(ctx, "customer1")
+	t.Run("two-phase delete removes the entity", func(t *testing.T) {
+		seed(t, "delete-target")
+		before := srv.NamespaceCount()
+
+		version, err := srv.ChangeNamespaceState(ctx, "delete-target", cmd.NamespaceStateDeleting)
 		require.NoError(t, err)
 		require.NoError(t, srv.WaitForUpdate(ctx, version))
-		assert.Equal(t, 1, srv.NamespaceCount())
+		assert.Equal(t, before, srv.NamespaceCount(), "entity stays until RemoveNamespaceEntity")
+
+		version, err = srv.RemoveNamespaceEntity(ctx, "delete-target")
+		require.NoError(t, err)
+		require.NoError(t, srv.WaitForUpdate(ctx, version))
+		assert.Equal(t, before-1, srv.NamespaceCount())
 	})
 
 	t.Run("ChangeNamespaceState on missing returns ErrNotFound", func(t *testing.T) {
 		_, err := srv.ChangeNamespaceState(ctx, "never-existed", cmd.NamespaceStateDeleting)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, usecasesNamespaces.ErrNotFound)
-		assert.Equal(t, 1, srv.NamespaceCount())
 	})
 }
 
@@ -235,6 +242,37 @@ func TestNextHomeNode_RoundRobin(t *testing.T) {
 	wrap, err := r.nextHomeNode(nodes)
 	require.NoError(t, err)
 	assert.Equal(t, first, wrap, "after a full rotation the iterator should wrap back to the first pick")
+}
+
+// TestNextHomeNode_RebuildsOnCandidateChange covers the membership-change
+// case: when the candidate set differs from the one the cached iterator was
+// built with, the iterator is rebuilt so newly added nodes become eligible
+// and removed nodes drop out. Without the rebuild, callers would keep
+// rotating through the stale set indefinitely.
+func TestNextHomeNode_RebuildsOnCandidateChange(t *testing.T) {
+	r := &Raft{}
+	initial := []string{"A", "B"}
+
+	// Burn through one full rotation on the initial set to seed the iterator.
+	seen := map[string]bool{}
+	for i := 0; i < len(initial); i++ {
+		got, err := r.nextHomeNode(initial)
+		require.NoError(t, err)
+		seen[got] = true
+	}
+	assert.Equal(t, map[string]bool{"A": true, "B": true}, seen, "initial rotation should cover the initial set")
+
+	// Membership change: drop B, add C and D. The iterator must rebuild;
+	// otherwise it would still hand back B (and never C or D).
+	updated := []string{"A", "C", "D"}
+	seen = map[string]bool{}
+	for i := 0; i < len(updated); i++ {
+		got, err := r.nextHomeNode(updated)
+		require.NoError(t, err)
+		assert.Contains(t, updated, got, "post-change pick must come from the updated set, never the removed node")
+		seen[got] = true
+	}
+	assert.Equal(t, map[string]bool{"A": true, "C": true, "D": true}, seen, "post-change rotation should cover the updated set exactly once")
 }
 
 // TestNextHomeNode_NoCandidates returns an error rather than picking nothing.

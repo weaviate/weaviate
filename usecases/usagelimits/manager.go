@@ -18,8 +18,8 @@
 // The check is invoked from the storage chokepoint (Shard.PutObject{,Batch}
 // in adapters/repos/db/) so it covers both local and forwarded writes for
 // RF=1. On namespace-enabled clusters the cap applies per namespace: the
-// chokepoint passes the namespace extracted from the (namespace-qualified)
-// class name and the counter sums only that namespace's shards.
+// chokepoint passes the (namespace-qualified) class name and CheckObjects
+// extracts the namespace so the counter sums only that namespace's shards.
 //
 // Schema-side limits (collections, tenants, shards) do their own counting
 // inline in usecases/schema/ and only reach into this package for the typed
@@ -33,6 +33,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // ObjectCounter sums object counts across all locally-owned shards. The
@@ -77,12 +78,14 @@ func NewManager(cfg Config, counter ObjectCounter) *Manager {
 
 // CheckObjects rejects when (currentObjects + n) would exceed the cap. n is
 // the number of objects this request would add (1 for single writes,
-// len(batch) for batches). namespace scopes the count to a single
-// namespace's classes; an empty namespace counts all classes (NS-disabled,
-// or pre-namespaces classes on an NS-enabled cluster). Whole-batch-rejection
-// is the caller's responsibility — the caller passes len(batch) and rejects
-// the entire request on a non-nil return.
-func (m *Manager) CheckObjects(ctx context.Context, n int64, namespace string) error {
+// len(batch) for batches). className is the (potentially namespace-qualified)
+// class name of the write target; on NS-enabled clusters the cap is applied
+// per namespace, so the namespace prefix is extracted and forwarded to the
+// counter. A plain (non-qualified) class name counts across all classes
+// (NS-disabled, or pre-namespaces classes on an NS-enabled cluster).
+// Whole-batch-rejection is the caller's responsibility — the caller passes
+// len(batch) and rejects the entire request on a non-nil return.
+func (m *Manager) CheckObjects(ctx context.Context, n int64, className string) error {
 	if m == nil {
 		return nil
 	}
@@ -93,6 +96,7 @@ func (m *Manager) CheckObjects(ctx context.Context, n int64, namespace string) e
 	if m.counter == nil {
 		return fmt.Errorf("usagelimits: object limit configured but no counter wired")
 	}
+	namespace := namespacing.NamespaceFromQualified(className)
 	current, err := m.counter.LocalObjectCount(ctx, namespace)
 	if err != nil {
 		return fmt.Errorf("usagelimits: counting objects: %w", err)

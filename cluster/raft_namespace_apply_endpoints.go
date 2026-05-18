@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterUtils "github.com/weaviate/weaviate/usecases/cluster"
@@ -122,7 +123,10 @@ func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) (uint64, 
 
 // nextHomeNode returns the next home_node from nodes, rotating across calls.
 // The iterator is constructed lazily with StartRandom so cold starts aren't
-// biased to nodes[0].
+// biased to nodes[0], and rebuilt whenever the candidate set changes from
+// the one the cached iterator was built with — otherwise membership changes
+// (node join/leave) would leave the iterator rotating through a stale set,
+// silently locking out newly added nodes and still picking removed ones.
 func (s *Raft) nextHomeNode(nodes []string) (string, error) {
 	if len(nodes) == 0 {
 		return "", errors.New("no storage candidates available")
@@ -131,12 +135,13 @@ func (s *Raft) nextHomeNode(nodes []string) (string, error) {
 	s.homeNodeIteratorMu.Lock()
 	defer s.homeNodeIteratorMu.Unlock()
 
-	if s.homeNodeIterator == nil {
+	if s.homeNodeIterator == nil || !slices.Equal(s.homeNodeCandidates, nodes) {
 		it, err := clusterUtils.NewNodeIterator(nodes, clusterUtils.StartRandom)
 		if err != nil {
 			return "", err
 		}
 		s.homeNodeIterator = it
+		s.homeNodeCandidates = slices.Clone(nodes)
 	}
 	return s.homeNodeIterator.Next(), nil
 }
