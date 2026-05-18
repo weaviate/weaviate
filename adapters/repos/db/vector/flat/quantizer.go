@@ -218,9 +218,9 @@ func NewCache(getUint64Vector func(ctx context.Context, id uint64) ([]uint64, er
 
 	switch quantizerType {
 	case Uint64Quantizer:
-		c.uint64Cache = cache.NewShardedUInt64LockCache(getUint64Vector, maxObjects, defaultCachePageSize, logger, 0, allocChecker)
+		c.uint64Cache = cache.NewShardedUInt64LockCache(getUint64Vector, maxObjects, defaultCachePageSize, logger, allocChecker)
 	case ByteQuantizer:
-		c.byteCache = cache.NewShardedByteLockCache(getByteVector, maxObjects, defaultCachePageSize, logger, 0, allocChecker)
+		c.byteCache = cache.NewShardedByteLockCache(getByteVector, maxObjects, defaultCachePageSize, logger, allocChecker)
 	}
 
 	return c

@@ -302,7 +302,7 @@ func New(cfg Config, uc ent.UserConfig,
 	var muveraEncoder *multivector.MuveraEncoder
 	if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects,
-			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+			cfg.Logger, normalizeOnRead, cfg.AllocChecker)
 	} else {
 		if uc.Multivector.MuveraConfig.Enabled {
 			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
@@ -319,11 +319,11 @@ func New(cfg Config, uc ent.UserConfig,
 			}
 			vectorCache = cache.NewShardedFloat32LockCache(
 				muveraVectorForID, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
-				normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+				normalizeOnRead, cfg.AllocChecker)
 
 		} else {
 			vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
-				normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+				normalizeOnRead, cfg.AllocChecker)
 		}
 	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())

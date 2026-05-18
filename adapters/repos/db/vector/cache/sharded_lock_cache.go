@@ -15,11 +15,9 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
-	"time"
 	"unsafe"
 
 	"github.com/pkg/errors"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 
 	"github.com/sirupsen/logrus"
@@ -35,9 +33,7 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 	normalizeOnRead        bool
 	maxSize                int64
 	count                  int64
-	cancel                 chan bool
 	logger                 logrus.FieldLogger
-	deletionInterval       time.Duration
 	allocChecker           memwatch.AllocChecker
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
@@ -55,7 +51,7 @@ const (
 )
 
 func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecForID common.VectorForID[[]float32], maxSize int, pageSize uint64,
-	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
+	logger logrus.FieldLogger, normalizeOnRead bool,
 	allocChecker memwatch.AllocChecker,
 ) Cache[float32] {
 	vc := &shardedLockCache[float32]{
@@ -74,59 +70,50 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], multiVecFo
 		normalizeOnRead:        normalizeOnRead,
 		count:                  0,
 		maxSize:                int64(maxSize),
-		cancel:                 make(chan bool),
 		logger:                 logger,
 		shardedLocks:           common.NewShardedRWLocksWithPageSize(pageSize),
 		maintenanceLock:        sync.RWMutex{},
-		deletionInterval:       deletionInterval,
 		allocChecker:           allocChecker,
 	}
 
-	vc.watchForDeletion()
 	return vc
 }
 
 func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int, pageSize uint64,
-	logger logrus.FieldLogger, deletionInterval time.Duration,
+	logger logrus.FieldLogger,
 	allocChecker memwatch.AllocChecker,
 ) Cache[byte] {
 	vc := &shardedLockCache[byte]{
-		vectorForID:      vecForID,
-		cache:            make([][]byte, InitialSize),
-		normalizeOnRead:  false,
-		count:            0,
-		maxSize:          int64(maxSize),
-		cancel:           make(chan bool),
-		logger:           logger,
-		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
-		maintenanceLock:  sync.RWMutex{},
-		deletionInterval: deletionInterval,
-		allocChecker:     allocChecker,
+		vectorForID:     vecForID,
+		cache:           make([][]byte, InitialSize),
+		normalizeOnRead: false,
+		count:           0,
+		maxSize:         int64(maxSize),
+		logger:          logger,
+		shardedLocks:    common.NewShardedRWLocksWithPageSize(pageSize),
+		maintenanceLock: sync.RWMutex{},
+		allocChecker:    allocChecker,
 	}
 
-	vc.watchForDeletion()
 	return vc
 }
 
 func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int, pageSize uint64,
-	logger logrus.FieldLogger, deletionInterval time.Duration,
+	logger logrus.FieldLogger,
 	allocChecker memwatch.AllocChecker,
 ) Cache[uint64] {
 	vc := &shardedLockCache[uint64]{
-		vectorForID:      vecForID,
-		cache:            make([][]uint64, InitialSize),
-		normalizeOnRead:  false,
-		count:            0,
-		maxSize:          int64(maxSize),
-		cancel:           make(chan bool),
-		logger:           logger,
-		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
-		maintenanceLock:  sync.RWMutex{},
-		deletionInterval: deletionInterval,
-		allocChecker:     allocChecker,
+		vectorForID:     vecForID,
+		cache:           make([][]uint64, InitialSize),
+		normalizeOnRead: false,
+		count:           0,
+		maxSize:         int64(maxSize),
+		logger:          logger,
+		shardedLocks:    common.NewShardedRWLocksWithPageSize(pageSize),
+		maintenanceLock: sync.RWMutex{},
+		allocChecker:    allocChecker,
 	}
 
-	vc.watchForDeletion()
 	return vc
 }
 
@@ -190,6 +177,7 @@ func (s *shardedLockCache[T]) handleCacheMiss(ctx context.Context, id uint64) ([
 	}
 
 	atomic.AddInt64(&s.count, 1)
+	s.replaceIfFull()
 
 	if vec != nil {
 		s.shardedLocks.Lock(id)
@@ -349,9 +337,6 @@ func (s *shardedLockCache[T]) CountVectors() int64 {
 
 func (s *shardedLockCache[T]) Drop() {
 	s.deleteAllVectors()
-	if s.deletionInterval != 0 {
-		s.cancel <- true
-	}
 }
 
 func (s *shardedLockCache[T]) deleteAllVectors() {
@@ -365,24 +350,6 @@ func (s *shardedLockCache[T]) deleteAllVectors() {
 	}
 
 	atomic.StoreInt64(&s.count, 0)
-}
-
-func (s *shardedLockCache[T]) watchForDeletion() {
-	if s.deletionInterval != 0 {
-		f := func() {
-			t := time.NewTicker(s.deletionInterval)
-			defer t.Stop()
-			for {
-				select {
-				case <-s.cancel:
-					return
-				case <-t.C:
-					s.replaceIfFull()
-				}
-			}
-		}
-		enterrors.GoWrapper(f, s.logger)
-	}
 }
 
 func (s *shardedLockCache[T]) replaceIfFull() {
@@ -442,10 +409,7 @@ type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 	normalizeOnRead        bool
 	maxSize                int64
 	count                  int64
-	ctx                    context.Context
-	cancelFn               func()
 	logger                 logrus.FieldLogger
-	deletionInterval       time.Duration
 	allocChecker           memwatch.AllocChecker
 	vectorDocID            []CacheKeys
 	// Only used by multi vector caches
@@ -457,7 +421,7 @@ type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 }
 
 func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float32], maxSize int,
-	logger logrus.FieldLogger, normalizeOnRead bool, deletionInterval time.Duration,
+	logger logrus.FieldLogger, normalizeOnRead bool,
 	allocChecker memwatch.AllocChecker,
 ) Cache[float32] {
 	multipleVecForIDValue := func(ctx context.Context, id uint64, relativeID uint64) ([]float32, error) {
@@ -487,19 +451,15 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float
 		logger:                 logger,
 		shardedLocks:           common.NewDefaultShardedRWLocks(),
 		maintenanceLock:        sync.RWMutex{},
-		deletionInterval:       deletionInterval,
 		allocChecker:           allocChecker,
 		vectorDocID:            make([]CacheKeys, InitialSize),
 	}
 
-	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
-
-	vc.watchForDeletion()
 	return vc
 }
 
 func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64], maxSize int,
-	logger logrus.FieldLogger, deletionInterval time.Duration,
+	logger logrus.FieldLogger,
 	allocChecker memwatch.AllocChecker,
 ) Cache[uint64] {
 	multipleVecForIDValue := func(ctx context.Context, id uint64, relativeID uint64) ([]uint64, error) {
@@ -520,20 +480,16 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 		logger:              logger,
 		shardedLocks:        common.NewDefaultShardedRWLocks(),
 		maintenanceLock:     sync.RWMutex{},
-		deletionInterval:    deletionInterval,
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
 		fetchByNodeID:       true,
 	}
 
-	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
-
-	vc.watchForDeletion()
 	return vc
 }
 
 func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], maxSize int,
-	logger logrus.FieldLogger, deletionInterval time.Duration,
+	logger logrus.FieldLogger,
 	allocChecker memwatch.AllocChecker,
 ) Cache[byte] {
 	multipleVecForIDValue := func(ctx context.Context, id uint64, relativeID uint64) ([]byte, error) {
@@ -554,15 +510,11 @@ func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], max
 		logger:              logger,
 		shardedLocks:        common.NewDefaultShardedRWLocks(),
 		maintenanceLock:     sync.RWMutex{},
-		deletionInterval:    deletionInterval,
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
 		fetchByNodeID:       true,
 	}
 
-	vc.ctx, vc.cancelFn = context.WithCancel(context.Background())
-
-	vc.watchForDeletion()
 	return vc
 }
 
@@ -681,6 +633,8 @@ func (s *shardedMultipleLockCache[T]) handleMultipleCacheMiss(ctx context.Contex
 	}
 
 	atomic.AddInt64(&s.count, 1)
+	s.replaceIfFull()
+
 	if len(vec) != 0 {
 		s.shardedLocks.Lock(id)
 		s.cache[id] = vec
@@ -778,9 +732,6 @@ func (s *shardedMultipleLockCache[T]) CountVectors() int64 {
 
 func (s *shardedMultipleLockCache[T]) Drop() {
 	s.deleteAllVectors()
-	if s.deletionInterval != 0 {
-		s.cancelFn()
-	}
 }
 
 func (s *shardedMultipleLockCache[T]) deleteAllVectors() {
@@ -795,24 +746,6 @@ func (s *shardedMultipleLockCache[T]) deleteAllVectors() {
 	}
 
 	atomic.StoreInt64(&s.count, 0)
-}
-
-func (s *shardedMultipleLockCache[T]) watchForDeletion() {
-	if s.deletionInterval != 0 {
-		f := func() {
-			t := time.NewTicker(s.deletionInterval)
-			defer t.Stop()
-			for {
-				select {
-				case <-s.ctx.Done():
-					return
-				case <-t.C:
-					s.replaceIfFull()
-				}
-			}
-		}
-		enterrors.GoWrapper(f, s.logger)
-	}
 }
 
 func (s *shardedMultipleLockCache[T]) replaceIfFull() {

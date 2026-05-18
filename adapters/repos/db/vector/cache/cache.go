@@ -13,10 +13,7 @@ package cache
 
 import (
 	"context"
-	"time"
 )
-
-const DefaultDeletionInterval = 3 * time.Second
 
 type MultiCache[T any] interface {
 	PreloadMulti(docID uint64, ids []uint64, vecs [][]T)
