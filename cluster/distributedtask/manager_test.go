@@ -817,15 +817,8 @@ func TestManager_UpdateUnitProgress_InvalidValues(t *testing.T) {
 	})
 }
 
-// TestManager_UpdateUnitProgress_MonotonicityGuard pins the receiver-side defence
-// against sender-side bugs that compute progress non-monotonically. The stored
-// Progress field of a unit must only ever grow — regressions are observed (frontend
-// shows e.g. 51% → 48% mid-migration; see weaviate/0-weaviate-issues#232 Finding 1)
-// when phase-share or denominator-grows-mid-flight shapes leak through. The
-// rejection silently clamps the Progress field while still applying NodeID and
-// UpdatedAt: the sender is in fact making progress on the work even if the
-// numeric fraction they compute regressed, and that liveness bookkeeping must
-// still flow.
+// Pins receiver-side monotonic clamp on Unit.Progress with NodeID+UpdatedAt still
+// flowing through on regressions. See weaviate/0-weaviate-issues#232.
 func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
 	getUnit := func(t *testing.T, h *testHarness, ns, id, unitID string) *Unit {
 		t.Helper()
@@ -841,28 +834,18 @@ func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
 	}
 
 	t.Run("smaller progress is clamped but UpdatedAt still advances", func(t *testing.T) {
-		// Reproduces the production shape from weaviate/0-weaviate-issues#232 QA repro:
-		// the same node emits a regressing progress value mid-run (e.g. 0.99 → 0.23 in
-		// a single 1 s poll, observed across 9 of 9 units). The stored Progress field
-		// must clamp to the prior floor while the unit's liveness fields (UpdatedAt)
-		// keep flowing — the work is still happening, the regression is a phase-share
-		// sender bug not a stall.
 		h := newTestHarness(t).init(t)
 		var version uint64 = 10
 		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
 
-		// Establish floor at 0.51 on node-1 (units are sticky to the first claiming node).
 		updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.51)
 		first := getUnit(t, h, "ns", "task1", "su-1")
 		require.Equal(t, float32(0.51), first.Progress)
 		require.Equal(t, "node-1", first.NodeID)
 		firstUpdatedAt := first.UpdatedAt
 
-		// Advance the test clock so UpdatedAt deltas are observable.
 		h.clock.Advance(time.Second)
 
-		// Same owner reports 0.48 (regression). UpdatedAt must still flow through,
-		// but the Progress field stays at 0.51.
 		err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
 			Namespace:           "ns",
 			Id:                  "task1",
@@ -904,8 +887,6 @@ func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
 
 		h.clock.Advance(time.Second)
 
-		// Same value re-sent → Progress unchanged (no-op via the > comparison),
-		// but NodeID + UpdatedAt still flow through.
 		err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
 			Namespace:           "ns",
 			Id:                  "task1",
@@ -927,10 +908,6 @@ func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
 		var version uint64 = 10
 		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
 
-		// Reproduces Finding 1's "51% → 48% → 52% → 50% → 100%" shape: each
-		// regression is clamped, then forward progress resumes from the high
-		// watermark, then the regression at 50% is clamped against 52%, finally
-		// completion at 1.0 lands.
 		seq := []struct {
 			send float32
 			want float32
@@ -938,9 +915,9 @@ func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
 			{0.10, 0.10},
 			{0.30, 0.30},
 			{0.51, 0.51},
-			{0.48, 0.51}, // regression — clamped
+			{0.48, 0.51},
 			{0.52, 0.52},
-			{0.50, 0.52}, // regression — clamped
+			{0.50, 0.52},
 			{0.75, 0.75},
 			{1.00, 1.00},
 		}
@@ -956,8 +933,6 @@ func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
 		var version uint64 = 10
 		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
 
-		// This is the retry-without-resume shape: a sender that crashes and
-		// re-emits "starting from zero" without consulting its prior reports.
 		updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.6)
 		updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.0)
 
@@ -966,9 +941,8 @@ func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
 	})
 
 	t.Run("invalid range still rejected even when smaller than floor", func(t *testing.T) {
-		// The validation that rejects out-of-range progress runs before the
-		// monotonicity clamp. A negative value must surface as an error even
-		// though clamping alone would have hidden the bad input.
+		// Range validation runs before the monotonicity clamp, so a bad input
+		// surfaces as an error even when clamping would have silently swallowed it.
 		h := newTestHarness(t).init(t)
 		var version uint64 = 10
 		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
@@ -986,7 +960,6 @@ func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
 		}))
 		require.ErrorContains(t, err, "between 0.0 and 1.0")
 
-		// Floor unchanged.
 		got := getUnit(t, h, "ns", "task1", "su-1")
 		assert.Equal(t, float32(0.7), got.Progress)
 	})
