@@ -112,7 +112,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
 		defer b.lastOp.reset()
-		if err := b.waitForCoordinator(expiration, id); err != nil {
+		if err := b.waitForCoordinator(b.shutdownCtx, expiration, id); err != nil {
 			b.logger.WithField("action", "create_backup").
 				Error(err)
 			b.lastAsyncError = err

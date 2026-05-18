@@ -80,8 +80,9 @@ type Handler struct {
 	restorer   *restorer
 	backends   BackupBackendProvider
 
-	// shutdownCancel cancels the ctx handed to participant goroutines so local
-	// uploads abort on node shutdown without waiting for the coordinator's RPC.
+	// shutdownCancel cancels the ctx handed to both participant-side goroutines
+	// (backupper and restorer) so local uploads/restores abort on node shutdown
+	// without waiting for the coordinator's RPC.
 	shutdownCancel context.CancelFunc
 }
 
@@ -108,14 +109,17 @@ func NewHandler(
 			backends, shutdownCtx),
 		restorer: newRestorer(node, logger,
 			sourcer, rbacSourcer, dynUserSourcer,
-			backends,
+			backends, shutdownCtx,
 		),
 	}
 	return m
 }
 
-// Shutdown cancels in-flight participant-side uploads. Idempotent.
+// Shutdown cancels in-flight participant-side backup uploads and restores.
+// Idempotent.
 func (m *Handler) Shutdown() {
+	m.logger.WithField("action", "backup_handler_shutdown").
+		Warn("backup handler shutdown initiated; in-flight participant uploads/restores will be cancelled")
 	m.shutdownCancel()
 }
 

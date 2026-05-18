@@ -1202,8 +1202,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Drain the backup shutdown kicked off in PreServerShutdown. Placed
-		// last to overlap with the rest of teardown.
-		backupScheduler.Wait(30 * time.Second)
+		// last to overlap with the rest of teardown. The 45s budget covers
+		// the worst-case inner chain (abortAll up to _ShutdownAbortTimeout
+		// 10s, then a final PutMeta up to _ShutdownPutMetaTimeout 30s) plus
+		// a small safety margin.
+		backupScheduler.Wait(45 * time.Second)
 	}
 
 	startGrpcServer(grpcServer, appState)

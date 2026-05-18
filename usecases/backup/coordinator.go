@@ -51,6 +51,7 @@ const (
 	_NextRoundPeriod        = 10 * time.Second
 	_MaxNumberConns         = 16
 	_ShutdownPutMetaTimeout = 30 * time.Second
+	_ShutdownAbortTimeout   = 10 * time.Second
 )
 
 type nodeMap map[string]*backup.NodeDescriptor
@@ -459,11 +460,18 @@ func (c *coordinator) commit(ctx context.Context,
 	nFailures := c.commitAll(ctx, req, node2Host)
 	retryAfter := c.timeoutNextRound / 5 // 2s for first time
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
+	shutdownTriggered := false
 	for canContinue {
 		select {
 		case <-ctx.Done():
 			// Shutdown: mark remaining participants Cancelled so the descriptor
 			// flips to Cancelled and abortAll fires below.
+			c.log.WithFields(logrus.Fields{
+				"action":    "coordinator_shutdown",
+				"method":    req.Method,
+				"backup_id": req.ID,
+				"remaining": len(node2Host),
+			}).Warn("node shutting down: cancelling in-flight backup and aborting participants")
 			for node := range node2Host {
 				st := c.Participants[node]
 				st.Status = backup.Cancelled
@@ -472,6 +480,7 @@ func (c *coordinator) commit(ctx context.Context,
 				delete(node2Host, node)
 				nFailures++
 			}
+			shutdownTriggered = true
 			canContinue = false
 			continue
 		case <-time.After(retryAfter):
@@ -480,10 +489,17 @@ func (c *coordinator) commit(ctx context.Context,
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}
-	if !toleratePartialFailure && nFailures > 0 {
+	// Send abort RPCs when either:
+	//   - any node failed and we don't tolerate partial failure (backup), OR
+	//   - the local node is shutting down (also for restore, which otherwise
+	//     tolerates partial failure and would never abort participants).
+	if shutdownTriggered || (!toleratePartialFailure && nFailures > 0) {
 		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
-		// Fresh ctx: shutdown may have cancelled ctx but aborts must still fire.
-		c.abortAll(context.Background(), req, node2Addr)
+		// Fresh ctx: shutdown may have cancelled ctx but aborts must still fire;
+		// bounded so a hanging participant can't block the drain goroutine.
+		abortCtx, abortCancel := context.WithTimeout(context.Background(), _ShutdownAbortTimeout)
+		c.abortAll(abortCtx, req, node2Addr)
+		abortCancel()
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()
 	status := backup.Success

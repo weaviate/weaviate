@@ -41,6 +41,10 @@ type restorer struct {
 	backends       BackupBackendProvider
 	shardSyncChan
 
+	// shutdownCtx is cancelled on node shutdown; aborts the local restore
+	// without waiting for the coordinator's abort RPC.
+	shutdownCtx context.Context
+
 	// TODO: keeping status in memory after restore has been done
 	// is not a proper solution for communicating status to the user.
 	// On app crash or restart this data will be lost
@@ -50,7 +54,7 @@ type restorer struct {
 
 func newRestorer(node string, logger logrus.FieldLogger,
 	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter,
-	backends BackupBackendProvider,
+	backends BackupBackendProvider, shutdownCtx context.Context,
 ) *restorer {
 	return &restorer{
 		node:           node,
@@ -60,6 +64,7 @@ func newRestorer(node string, logger logrus.FieldLogger,
 		dynUserSourcer: dynUserSourcer,
 		backends:       backends,
 		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shutdownCtx:    shutdownCtx,
 	}
 }
 
@@ -106,7 +111,7 @@ func (r *restorer) restore(
 			r.lastOp.reset()
 		}()
 
-		if err = r.waitForCoordinator(expiration, req.ID); err != nil {
+		if err = r.waitForCoordinator(r.shutdownCtx, expiration, req.ID); err != nil {
 			r.logger.WithField("action", "restore_backup").
 				Error(err)
 			r.lastAsyncError = err
@@ -116,7 +121,12 @@ func (r *restorer) restore(
 		overrideBucket := req.Bucket
 		overridePath := req.Path
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
+		// Restore ctx cancels on coordinator abort RPC OR local node shutdown.
+		done := make(chan struct{})
+		ctx := r.withCancellation(r.shutdownCtx, req.ID, done, r.logger)
+		defer close(done)
+
+		err = r.restoreAll(ctx, desc, req.CPUPercentage, store, overrideBucket, overridePath, req.RbacRestoreOption, req.UserRestoreOption)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
 			r.logger.WithFields(logFields).Error(err)

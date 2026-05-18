@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -30,8 +31,9 @@ import (
 )
 
 var (
-	errLocalBackendCluster = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
-	errIncludeExclude      = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
+	errLocalBackendDBRO = errors.New("local filesystem backend is not viable for backing up a node cluster, try s3 or gcs")
+	errIncludeExclude   = errors.New("malformed request: 'include' and 'exclude' cannot both contain values")
+	errShuttingDown     = errors.New("node is shutting down, backup/restore not accepted")
 )
 
 const (
@@ -58,6 +60,11 @@ type Scheduler struct {
 	// coordinators, triggering abort + Cancelled descriptor on any in-flight op.
 	shutdownCancel context.CancelFunc
 	shutdownOnce   sync.Once
+	// closed is set by Shutdown; subsequent Backup/Restore/Cancel calls reject
+	// with errShuttingDown. Without this gate a request arriving between
+	// Shutdown and the HTTP server actually closing would race the WaitGroup
+	// (inflight.Add while Wait is running with counter 0).
+	closed atomic.Bool
 	// drained closes once both coordinators' goroutines have exited.
 	drained chan struct{}
 }
@@ -98,6 +105,11 @@ func NewScheduler(
 // Idempotent.
 func (s *Scheduler) Shutdown() {
 	s.shutdownOnce.Do(func() {
+		// Mark closed before cancelling so new requests are rejected without
+		// touching the WaitGroup that Wait is about to drain.
+		s.closed.Store(true)
+		s.logger.WithField("action", "backup_scheduler_shutdown").
+			Warn("backup scheduler shutdown initiated; in-flight backups will be cancelled and new requests rejected")
 		s.shutdownCancel()
 		enterrors.GoWrapper(func() {
 			defer close(s.drained)
@@ -162,6 +174,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
+	if s.closed.Load() {
+		return nil, backup.NewErrUnprocessable(errShuttingDown)
+	}
+
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -214,6 +230,10 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	defer func(begin time.Time) {
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
 	}(time.Now())
+
+	if s.closed.Load() {
+		return nil, backup.NewErrUnprocessable(errShuttingDown)
+	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
@@ -312,6 +332,10 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		var err error
 		logOperation(s.logger, "cancel_backup", backupID, backend, begin, err)
 	}(time.Now())
+
+	if s.closed.Load() {
+		return backup.NewErrUnprocessable(errShuttingDown)
+	}
 
 	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
 	if err != nil {
@@ -420,7 +444,7 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
 	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
-		return nil, errLocalBackendCluster
+		return nil, errLocalBackendDBRO
 	}
 
 	if err := validateID(req.ID); err != nil {
@@ -484,7 +508,7 @@ func (s *Scheduler) checkIfBackupExists(ctx context.Context, store coordStore, r
 
 func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
 	if !store.backend.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
-		return nil, errLocalBackendCluster
+		return nil, errLocalBackendDBRO
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
 		return nil, errIncludeExclude
