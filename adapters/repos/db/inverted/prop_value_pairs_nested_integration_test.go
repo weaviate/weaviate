@@ -4641,7 +4641,7 @@ func newIsNullCorrelationSearcher(t *testing.T, prop string) (*Searcher, *lsmkv.
 	bitmapFactory := roaringset.NewBitmapFactory(newTrackingPool(t), func() uint64 { return 1_000_000 })
 	*searcher = *NewSearcher(logger, store, func(string) *models.Class { return class },
 		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
-		func() bool { return false }, "",
+		func() bool { return false }, nil, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 	return searcher, store.Bucket(vbName), store.Bucket(mbName)
 }

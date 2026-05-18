@@ -98,7 +98,7 @@ func ParseIndexedPath(path string) (cleanRelPath string, cleanRelSegs []string, 
 // RootPropName returns the root property name from a nested filter path,
 // stripping any [N] index. "addresses[1].city" → "addresses".
 func RootPropName(path string) string {
-	first := SplitPath(path)[0]
+	first, _, _ := strings.Cut(path, pathSep)
 	clean, _, _ := parseSegmentIndex(first)
 	return clean
 }

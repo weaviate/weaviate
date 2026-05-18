@@ -1131,16 +1131,21 @@ func getDocID(t *testing.T, db *DB, className string, id strfmt.UUID) uint64 {
 	t.Helper()
 	index := db.indices[indexID(schema.ClassName(className))]
 	require.NotNil(t, index, "index %q not found", className)
-	var docID uint64
+	var (
+		docID uint64
+		found bool
+	)
 	err := index.IterateShards(context.Background(), func(_ *Index, shard ShardLike) error {
 		obj, err := shard.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{})
 		if err != nil || obj == nil {
 			return err
 		}
 		docID = obj.DocID
+		found = true
 		return nil
 	})
 	require.NoError(t, err)
+	require.True(t, found, "object %q not found in any shard of class %q", id, className)
 	return docID
 }
 
