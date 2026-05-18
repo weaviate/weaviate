@@ -96,9 +96,8 @@ type shardSyncChan struct {
 	lastAsyncError error
 }
 
-// waitForCoordinator to confirm or to abort previous operation.
-// shutdownCtx, when cancelled, exits the wait so the participant goroutine
-// doesn't stall here for up to _BookingPeriod after a node-shutdown signal.
+// waitForCoordinator to confirm or to abort previous operation. Exits early
+// if shutdownCtx is cancelled.
 func (c *shardSyncChan) waitForCoordinator(shutdownCtx context.Context, d time.Duration, id string) error {
 	defer c.waitingForCoordinatorToCommit.Store(false)
 	if d == 0 {

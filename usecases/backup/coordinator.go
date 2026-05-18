@@ -104,11 +104,9 @@ type coordinator struct {
 	descriptor   *backup.DistributedBackupDescriptor
 	shardSyncChan
 
-	// shutdownCtx is cancelled on node shutdown; an in-flight backup sees this
-	// and aborts participants + persists a Cancelled descriptor.
+	// shutdownCtx cancels in-flight ops; drained via inflight.
 	shutdownCtx context.Context
-	// inflight tracks the backup goroutine so Scheduler.Wait can drain it.
-	inflight sync.WaitGroup
+	inflight    sync.WaitGroup
 
 	// timeouts
 	timeoutNodeDown    time.Duration
@@ -229,8 +227,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		defer c.inflight.Done()
 		defer c.lastOp.reset()
 		c.commit(c.shutdownCtx, &statusReq, nodes, false)
-		// Fresh ctx: shutdownCtx may be cancelled but we still need to persist
-		// the final descriptor.
+		// Fresh ctx: shutdownCtx may be cancelled, but persist the descriptor anyway.
 		putCtx, putCancel := context.WithTimeout(context.Background(), _ShutdownPutMetaTimeout)
 		defer putCancel()
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
@@ -464,14 +461,14 @@ func (c *coordinator) commit(ctx context.Context,
 	for canContinue {
 		select {
 		case <-ctx.Done():
-			// Shutdown: mark remaining participants Cancelled so the descriptor
-			// flips to Cancelled and abortAll fires below.
+			// abortAll below uses node2Addr (full set), so all participants
+			// get aborted on shutdown; deletes here only keep nFailures consistent.
 			c.log.WithFields(logrus.Fields{
 				"action":    "coordinator_shutdown",
 				"method":    req.Method,
 				"backup_id": req.ID,
 				"remaining": len(node2Host),
-			}).Warn("node shutting down: cancelling in-flight backup and aborting participants")
+			}).Warn("node shutting down: cancelling backup, aborting participants")
 			for node := range node2Host {
 				st := c.Participants[node]
 				st.Status = backup.Cancelled
@@ -489,14 +486,10 @@ func (c *coordinator) commit(ctx context.Context,
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}
-	// Send abort RPCs when either:
-	//   - any node failed and we don't tolerate partial failure (backup), OR
-	//   - the local node is shutting down (also for restore, which otherwise
-	//     tolerates partial failure and would never abort participants).
+	// Abort on backup failure OR on shutdown (restore otherwise tolerates partial failure).
 	if shutdownTriggered || (!toleratePartialFailure && nFailures > 0) {
 		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
-		// Fresh ctx: shutdown may have cancelled ctx but aborts must still fire;
-		// bounded so a hanging participant can't block the drain goroutine.
+		// Bounded fresh ctx so a hanging participant can't block the drain.
 		abortCtx, abortCancel := context.WithTimeout(context.Background(), _ShutdownAbortTimeout)
 		c.abortAll(abortCtx, req, node2Addr)
 		abortCancel()

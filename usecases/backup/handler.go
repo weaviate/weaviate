@@ -13,18 +13,23 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
+
+var errHandlerShuttingDown = errors.New("node is shutting down, backup/restore not accepted")
 
 // Version of backup structure
 const (
@@ -80,10 +85,16 @@ type Handler struct {
 	restorer   *restorer
 	backends   BackupBackendProvider
 
-	// shutdownCancel cancels the ctx handed to both participant-side goroutines
-	// (backupper and restorer) so local uploads/restores abort on node shutdown
-	// without waiting for the coordinator's RPC.
+	// shutdownCancel cancels the ctx shared by backupper and restorer.
 	shutdownCancel context.CancelFunc
+	shutdownOnce   sync.Once
+	// shutdownMu: OnCanCommit holds RLock for its full duration so the
+	// inflight.Add in backupper/restorer happens-before the drain's Wait.
+	shutdownMu sync.RWMutex
+	closed     bool
+	// inflight tracks participant goroutines; shared with backupper/restorer.
+	inflight sync.WaitGroup
+	drained  chan struct{}
 }
 
 func NewHandler(
@@ -104,23 +115,44 @@ func NewHandler(
 		authorizer:     authorizer,
 		backends:       backends,
 		shutdownCancel: shutdownCancel,
-		backupper: newBackupper(node, logger, cfg,
-			sourcer, rbacSourcer, dynUserSourcer,
-			backends, shutdownCtx),
-		restorer: newRestorer(node, logger,
-			sourcer, rbacSourcer, dynUserSourcer,
-			backends, shutdownCtx,
-		),
+		drained:        make(chan struct{}),
 	}
+	m.backupper = newBackupper(node, logger, cfg,
+		sourcer, rbacSourcer, dynUserSourcer,
+		backends, shutdownCtx, &m.inflight)
+	m.restorer = newRestorer(node, logger,
+		sourcer, rbacSourcer, dynUserSourcer,
+		backends, shutdownCtx, &m.inflight,
+	)
 	return m
 }
 
-// Shutdown cancels in-flight participant-side backup uploads and restores.
-// Idempotent.
+// Shutdown cancels participant-side uploads/restores. Use Wait to block on
+// the drain. Idempotent.
 func (m *Handler) Shutdown() {
-	m.logger.WithField("action", "backup_handler_shutdown").
-		Warn("backup handler shutdown initiated; in-flight participant uploads/restores will be cancelled")
-	m.shutdownCancel()
+	m.shutdownOnce.Do(func() {
+		// Lock waits for in-progress OnCanCommit RLock holders to release.
+		m.shutdownMu.Lock()
+		m.closed = true
+		m.shutdownMu.Unlock()
+		m.logger.WithField("action", "backup_handler_shutdown").
+			Warn("backup handler shutdown initiated")
+		m.shutdownCancel()
+		enterrors.GoWrapper(func() {
+			defer close(m.drained)
+			m.inflight.Wait()
+		}, m.logger)
+	})
+}
+
+// Wait blocks until participant goroutines exit or the timeout elapses.
+func (m *Handler) Wait(timeout time.Duration) {
+	select {
+	case <-m.drained:
+	case <-time.After(timeout):
+		m.logger.WithField("action", "backup_handler_shutdown").
+			Warn("timeout waiting for participant backup/restore to drain")
+	}
 }
 
 // Compression is the compression configuration.
@@ -169,6 +201,14 @@ type BackupRequest struct {
 // in a distributed backup operation
 func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitResponse {
 	ret := &CanCommitResponse{Method: req.Method, ID: req.ID}
+
+	// RLock held through backupper/restorer so inflight.Add cannot race the drain.
+	m.shutdownMu.RLock()
+	defer m.shutdownMu.RUnlock()
+	if m.closed {
+		ret.Err = errHandlerShuttingDown.Error()
+		return ret
+	}
 
 	nodeName := m.node
 	// If we are doing a restore and have a nodeMapping specified, ensure we use the "old" node name from the backup to retrieve/store the

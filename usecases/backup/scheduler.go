@@ -18,7 +18,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -56,17 +55,14 @@ type Scheduler struct {
 	restorer   *coordinator
 	backends   BackupBackendProvider
 
-	// shutdownCancel cancels the ctx shared by the backupper and restorer
-	// coordinators, triggering abort + Cancelled descriptor on any in-flight op.
+	// shutdownCancel cancels the ctx shared by both coordinators.
 	shutdownCancel context.CancelFunc
 	shutdownOnce   sync.Once
-	// closed is set by Shutdown; subsequent Backup/Restore/Cancel calls reject
-	// with errShuttingDown. Without this gate a request arriving between
-	// Shutdown and the HTTP server actually closing would race the WaitGroup
-	// (inflight.Add while Wait is running with counter 0).
-	closed atomic.Bool
-	// drained closes once both coordinators' goroutines have exited.
-	drained chan struct{}
+	// shutdownMu: Backup/Restore hold RLock for their full duration so
+	// coordinator.inflight.Add happens-before the drain goroutine's Wait.
+	shutdownMu sync.RWMutex
+	closed     bool
+	drained    chan struct{}
 }
 
 // NewScheduler creates a new scheduler with two coordinators
@@ -100,16 +96,16 @@ func NewScheduler(
 	return m
 }
 
-// Shutdown signals any in-flight backup to abort participants and persist a
-// Cancelled descriptor. Returns immediately; use Wait to block on the drain.
-// Idempotent.
+// Shutdown signals in-flight backups to abort and rejects new ones. Use Wait
+// to block on the drain. Idempotent.
 func (s *Scheduler) Shutdown() {
 	s.shutdownOnce.Do(func() {
-		// Mark closed before cancelling so new requests are rejected without
-		// touching the WaitGroup that Wait is about to drain.
-		s.closed.Store(true)
+		// Lock waits for in-progress Backup/Restore RLock holders to release.
+		s.shutdownMu.Lock()
+		s.closed = true
+		s.shutdownMu.Unlock()
 		s.logger.WithField("action", "backup_scheduler_shutdown").
-			Warn("backup scheduler shutdown initiated; in-flight backups will be cancelled and new requests rejected")
+			Warn("backup scheduler shutdown initiated")
 		s.shutdownCancel()
 		enterrors.GoWrapper(func() {
 			defer close(s.drained)
@@ -119,8 +115,7 @@ func (s *Scheduler) Shutdown() {
 	})
 }
 
-// Wait blocks until in-flight backup goroutines have exited (aborts sent,
-// Cancelled descriptor persisted), or until the timeout elapses.
+// Wait blocks until the drain completes or the timeout elapses.
 func (s *Scheduler) Wait(timeout time.Duration) {
 	select {
 	case <-s.drained:
@@ -174,7 +169,10 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		logOperation(s.logger, "try_backup", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
-	if s.closed.Load() {
+	// RLock held through coordinator.Backup so inflight.Add cannot race the drain.
+	s.shutdownMu.RLock()
+	defer s.shutdownMu.RUnlock()
+	if s.closed {
 		return nil, backup.NewErrUnprocessable(errShuttingDown)
 	}
 
@@ -231,7 +229,9 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
 	}(time.Now())
 
-	if s.closed.Load() {
+	s.shutdownMu.RLock()
+	defer s.shutdownMu.RUnlock()
+	if s.closed {
 		return nil, backup.NewErrUnprocessable(errShuttingDown)
 	}
 
@@ -333,9 +333,8 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		logOperation(s.logger, "cancel_backup", backupID, backend, begin, err)
 	}(time.Now())
 
-	if s.closed.Load() {
-		return backup.NewErrUnprocessable(errShuttingDown)
-	}
+	// Not gated on s.closed: Cancel doesn't Add to inflight, and operators
+	// may run it as part of orchestrated shutdown.
 
 	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
 	if err != nil {

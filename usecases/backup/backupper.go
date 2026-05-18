@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -36,12 +37,13 @@ type backupper struct {
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
 
-	// shutdownCtx is cancelled on node shutdown; aborts the local upload
-	// without waiting for the coordinator's abort RPC.
+	// shutdownCtx cancels the local upload on node shutdown.
 	shutdownCtx context.Context
+	// inflight tracks the upload goroutine; drained by Handler.Wait.
+	inflight *sync.WaitGroup
 }
 
-func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backends BackupBackendProvider, shutdownCtx context.Context,
+func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backends BackupBackendProvider, shutdownCtx context.Context, inflight *sync.WaitGroup,
 ) *backupper {
 	return &backupper{
 		node:           node,
@@ -53,6 +55,7 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 		backends:       backends,
 		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
 		shutdownCtx:    shutdownCtx,
+		inflight:       inflight,
 	}
 }
 
@@ -109,8 +112,10 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	}
 
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
+	b.inflight.Add(1)
 	// waits for ack from coordinator in order to processed with the backup
 	f := func() {
+		defer b.inflight.Done()
 		defer b.lastOp.reset()
 		if err := b.waitForCoordinator(b.shutdownCtx, expiration, id); err != nil {
 			b.logger.WithField("action", "create_backup").
@@ -129,7 +134,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			return
 		}
 
-		// Upload ctx cancels on coordinator abort RPC OR local node shutdown.
+		// ctx cancels on coordinator abort RPC or node shutdown.
 		done := make(chan struct{})
 		ctx := b.withCancellation(b.shutdownCtx, id, done, b.logger)
 		defer close(done)

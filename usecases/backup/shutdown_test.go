@@ -26,28 +26,68 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// TestHandler_ShutdownCancelsParticipantContexts verifies that Handler.Shutdown
-// cancels the shutdown ctx shared by both the backupper and the restorer.
+// Handler.Shutdown cancels the backupper and restorer ctx and is idempotent.
 func TestHandler_ShutdownCancelsParticipantContexts(t *testing.T) {
 	t.Parallel()
 	m := createManager(nil, nil, nil, nil)
 
-	assert.NoError(t, m.backupper.shutdownCtx.Err(), "backupper ctx should not be cancelled before shutdown")
-	assert.NoError(t, m.restorer.shutdownCtx.Err(), "restorer ctx should not be cancelled before shutdown")
+	assert.NoError(t, m.backupper.shutdownCtx.Err())
+	assert.NoError(t, m.restorer.shutdownCtx.Err())
 
 	m.Shutdown()
-
 	assert.ErrorIs(t, m.backupper.shutdownCtx.Err(), context.Canceled)
 	assert.ErrorIs(t, m.restorer.shutdownCtx.Err(), context.Canceled)
 
-	// Idempotent.
 	m.Shutdown()
 	assert.ErrorIs(t, m.backupper.shutdownCtx.Err(), context.Canceled)
 }
 
-// TestScheduler_ShutdownIdempotentAndDrains verifies that Scheduler.Shutdown is
-// safe to call multiple times and that Wait blocks until both coordinators'
-// inflight goroutines have exited.
+// Handler.Wait blocks until participant goroutines exit.
+func TestHandler_WaitDrainsInflightGoroutines(t *testing.T) {
+	t.Parallel()
+	m := createManager(nil, nil, nil, nil)
+
+	m.inflight.Add(1)
+	released := make(chan struct{})
+	go func() {
+		<-released
+		m.inflight.Done()
+	}()
+
+	m.Shutdown()
+
+	start := time.Now()
+	m.Wait(50 * time.Millisecond)
+	assert.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond)
+	select {
+	case <-m.drained:
+		t.Fatal("drained closed while inflight goroutine still running")
+	default:
+	}
+
+	close(released)
+	start = time.Now()
+	m.Wait(5 * time.Second)
+	assert.Less(t, time.Since(start), 1*time.Second)
+	select {
+	case <-m.drained:
+	default:
+		t.Fatal("drained not closed after inflight goroutine exited")
+	}
+}
+
+// OnCanCommit rejects after Handler.Shutdown.
+func TestHandler_OnCanCommitRejectsAfterShutdown(t *testing.T) {
+	t.Parallel()
+	m := createManager(nil, nil, nil, nil)
+	m.Shutdown()
+
+	req := &Request{Method: OpCreate, ID: "x", Backend: "s3"}
+	resp := m.OnCanCommit(context.Background(), req)
+	assert.Contains(t, resp.Err, errHandlerShuttingDown.Error())
+}
+
+// Scheduler.Shutdown is idempotent; Wait blocks until both coordinators drain.
 func TestScheduler_ShutdownIdempotentAndDrains(t *testing.T) {
 	t.Parallel()
 	logger, _ := test.NewNullLogger()
@@ -60,7 +100,6 @@ func TestScheduler_ShutdownIdempotentAndDrains(t *testing.T) {
 		restorer:       newCoordinator(nil, nil, nil, logger, nil, nil, shutdownCtx),
 	}
 
-	// Simulate an in-flight backup goroutine.
 	s.backupper.inflight.Add(1)
 	released := make(chan struct{})
 	go func() {
@@ -69,21 +108,19 @@ func TestScheduler_ShutdownIdempotentAndDrains(t *testing.T) {
 	}()
 
 	s.Shutdown()
-	s.Shutdown() // must not panic / re-fire.
+	s.Shutdown() // idempotent
 
 	assert.ErrorIs(t, shutdownCtx.Err(), context.Canceled)
 
-	// Wait returns on timeout while the goroutine is still in flight.
 	start := time.Now()
 	s.Wait(50 * time.Millisecond)
 	assert.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond)
 	select {
 	case <-s.drained:
-		t.Fatal("drained should still be open while inflight goroutine is running")
+		t.Fatal("drained closed while inflight goroutine still running")
 	default:
 	}
 
-	// Once the inflight goroutine completes, Wait returns immediately.
 	close(released)
 	start = time.Now()
 	s.Wait(5 * time.Second)
@@ -91,13 +128,11 @@ func TestScheduler_ShutdownIdempotentAndDrains(t *testing.T) {
 	select {
 	case <-s.drained:
 	default:
-		t.Fatal("drained should be closed once all inflight goroutines exit")
+		t.Fatal("drained not closed after all inflight goroutines exited")
 	}
 }
 
-// TestCoordinator_BackupShutdownCancelsAndAborts verifies that on node
-// shutdown an in-flight backup coordinator persists a Cancelled descriptor
-// and dispatches abort RPCs to all participants.
+// Backup coord: shutdown persists Cancelled descriptor + aborts participants.
 func TestCoordinator_BackupShutdownCancelsAndAborts(t *testing.T) {
 	t.Parallel()
 	var (
@@ -115,9 +150,8 @@ func TestCoordinator_BackupShutdownCancelsAndAborts(t *testing.T) {
 	fc.selector.On("Shards", mock.Anything, classes[0]).Return(nodes, nil)
 	fc.client.On("CanCommit", any, nodes[0], any).Return(cresp, nil)
 	fc.client.On("CanCommit", any, nodes[1], any).Return(cresp, nil)
-	// Commit succeeds so the goroutine enters the polling loop with both
-	// participants still active; the pre-cancelled shutdownCtx then trips the
-	// select arm and flips the descriptor to Cancelled.
+	// Commit returns nil so the polling loop enters; pre-cancelled shutdownCtx
+	// then trips the select arm.
 	fc.client.On("Commit", any, any, any).Return(nil)
 	fc.client.On("Status", any, any, any).Return(&StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpCreate}, nil).Maybe()
 	fc.client.On("Abort", any, nodes[0], abortReq).Return(nil).Once()
@@ -126,10 +160,10 @@ func TestCoordinator_BackupShutdownCancelsAndAborts(t *testing.T) {
 	fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	shutdownCancel() // shutdown before the inflight goroutine starts
+	shutdownCancel()
 
 	c := newCoordinator(&fc.selector, &fc.client, &fc.schema, fc.log, fc.nodeResolver, nil, shutdownCtx)
-	c.timeoutNextRound = time.Second // large so the ctx.Done branch wins the select
+	c.timeoutNextRound = time.Second // ensure ctx.Done arm wins the select
 
 	req := newReq(classes, backendName, backupID)
 	store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
@@ -138,14 +172,12 @@ func TestCoordinator_BackupShutdownCancelsAndAborts(t *testing.T) {
 	c.inflight.Wait()
 
 	got := fc.backend.glMeta
-	assert.Equal(t, backup.Cancelled, got.Status, "descriptor must be Cancelled after shutdown")
+	assert.Equal(t, backup.Cancelled, got.Status)
 	fc.client.AssertCalled(t, "Abort", mock.Anything, nodes[0], abortReq)
 	fc.client.AssertCalled(t, "Abort", mock.Anything, nodes[1], abortReq)
 }
 
-// TestCoordinator_RestoreShutdownAbortsParticipants verifies that on shutdown
-// the restore coordinator also sends abort RPCs, even though restore otherwise
-// tolerates partial failures (regression guard for Fix #2).
+// Restore coord: shutdown also sends abort RPCs despite toleratePartialFailure=true.
 func TestCoordinator_RestoreShutdownAbortsParticipants(t *testing.T) {
 	t.Parallel()
 	var (
@@ -191,17 +223,12 @@ func TestCoordinator_RestoreShutdownAbortsParticipants(t *testing.T) {
 	c.inflight.Wait()
 
 	got := fc.backend.glMeta
-	assert.Equal(t, backup.Cancelled, got.Status, "restore descriptor must be Cancelled after shutdown")
-	// Without Fix #2 these assertions would fail: restore tolerates partial
-	// failure, so the original code skipped abortAll entirely on shutdown.
+	assert.Equal(t, backup.Cancelled, got.Status)
 	fc.client.AssertCalled(t, "Abort", mock.Anything, nodes[0], abortReq)
 	fc.client.AssertCalled(t, "Abort", mock.Anything, nodes[1], abortReq)
 }
 
-// TestRestorer_ShutdownCancelsLocalRestore verifies that a participant-side
-// restore in flight reacts to Handler.Shutdown (regression guard for Fix #1).
-// Pre-fix, restorer.restore wrapped the work in context.Background() so the
-// local restore continued running past node shutdown.
+// Participant restore: Handler.Shutdown cancels the local restore ctx.
 func TestRestorer_ShutdownCancelsLocalRestore(t *testing.T) {
 	t.Parallel()
 	var (
@@ -257,10 +284,7 @@ func TestRestorer_ShutdownCancelsLocalRestore(t *testing.T) {
 	backend.On("GetObject", ctx, nodeHome, BackupFile).Return(bytes, nil)
 	backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
 	backend.On("SourceDataPath").Return(t.TempDir())
-	// WriteToFile honours ctx cancellation. If the restore ctx is not wired to
-	// shutdownCtx the call would block forever and waitForCompletion would
-	// time out. With the wiring in place, Handler.Shutdown cancels the ctx and
-	// WriteToFile returns ctx.Err(), which propagates as a Failed restore.
+	// WriteToFile blocks on its own ctx; shutdown should propagate cancellation.
 	writeStarted := make(chan struct{})
 	writeOnce := false
 	backend.On("WriteToFile", mock.Anything, nodeHome, mock.Anything, mock.Anything).
@@ -283,20 +307,17 @@ func TestRestorer_ShutdownCancelsLocalRestore(t *testing.T) {
 	select {
 	case <-writeStarted:
 	case <-time.After(2 * time.Second):
-		t.Fatal("restore goroutine did not reach WriteToFile in time")
+		t.Fatal("restore did not reach WriteToFile in time")
 	}
 
-	// Fire shutdown while the restore is mid-upload.
 	m.Shutdown()
 
 	st := m.restorer.waitForCompletion(req.Backend, req.ID, 40, 50)
-	assert.Equal(t, backup.Failed, st.Status,
-		"restore must terminate after Handler.Shutdown propagates ctx cancellation")
+	assert.Equal(t, backup.Failed, st.Status)
 	assert.Contains(t, st.Err, context.Canceled.Error())
 }
 
-// TestBackupper_ShutdownCancelsLocalUpload mirrors the restorer test for the
-// participant-side backupper to confirm the shutdownCtx wiring is intact.
+// Participant backup: Handler.Shutdown cancels the local upload ctx.
 func TestBackupper_ShutdownCancelsLocalUpload(t *testing.T) {
 	t.Parallel()
 	var (
@@ -320,8 +341,7 @@ func TestBackupper_ShutdownCancelsLocalUpload(t *testing.T) {
 	sourcer := &fakeSourcer{}
 	sourcer.On("Backupable", ctx, req.Classes).Return(nil)
 
-	// Block BackupDescriptors until we trigger shutdown so the upload ctx is
-	// known to be alive when Shutdown fires.
+	// Block BackupDescriptors so the upload goroutine is parked when Shutdown fires.
 	descriptorStarted := make(chan struct{})
 	descriptorRelease := make(chan struct{})
 	defer close(descriptorRelease)
@@ -352,22 +372,18 @@ func TestBackupper_ShutdownCancelsLocalUpload(t *testing.T) {
 	select {
 	case <-descriptorStarted:
 	case <-time.After(2 * time.Second):
-		t.Fatal("backup goroutine did not reach BackupDescriptors in time")
+		t.Fatal("backup did not reach BackupDescriptors in time")
 	}
 
 	m.Shutdown()
 
 	got := m.backupper.waitForCompletion(40, 50)
-	// Successful completion is impossible because descriptorRelease is still
-	// blocked: if the upload were not cancelled by Shutdown, waitForCompletion
-	// would time out and return "".
-	assert.NotEqual(t, backup.Success, got, "shutdown must terminate the upload before BackupDescriptors yields")
+	// descriptorRelease is still blocked, so Success is only reachable if
+	// Shutdown didn't cancel the upload.
+	assert.NotEqual(t, backup.Success, got)
 }
 
-// TestScheduler_RejectsRequestsAfterShutdown verifies that Backup/Restore/Cancel
-// reject with errShuttingDown after Shutdown. Without this gate a request
-// arriving between Shutdown and HTTP server close would race the inflight
-// WaitGroup (Add while Wait is running with counter 0 → panic).
+// Backup/Restore reject with errShuttingDown after Shutdown.
 func TestScheduler_RejectsRequestsAfterShutdown(t *testing.T) {
 	t.Parallel()
 	logger, _ := test.NewNullLogger()
@@ -389,13 +405,55 @@ func TestScheduler_RejectsRequestsAfterShutdown(t *testing.T) {
 	_, err = s.Restore(context.Background(), nil, req, false)
 	assert.ErrorContains(t, err, errShuttingDown.Error())
 
-	err = s.Cancel(context.Background(), nil, "s3", "x", "", "")
-	assert.ErrorContains(t, err, errShuttingDown.Error())
+	// Cancel is not gated; no assertion here.
 }
 
-// TestWaitForCoordinator_AbortsOnShutdown verifies that the participant's
-// can-commit→commit wait reacts to shutdownCtx. Pre-fix this would block
-// until _BookingPeriod expired.
+// Shutdown blocks until in-flight RLock holders release, preventing the
+// inflight.Add inside the coordinator from racing the drain goroutine's Wait.
+func TestScheduler_ShutdownWaitsForInflightCalls(t *testing.T) {
+	t.Parallel()
+	logger, _ := test.NewNullLogger()
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	s := &Scheduler{
+		logger:         logger,
+		shutdownCancel: shutdownCancel,
+		drained:        make(chan struct{}),
+		backupper:      newCoordinator(nil, nil, nil, logger, nil, nil, shutdownCtx),
+		restorer:       newCoordinator(nil, nil, nil, logger, nil, nil, shutdownCtx),
+	}
+
+	inFlight := make(chan struct{})
+	released := make(chan struct{})
+	go func() {
+		s.shutdownMu.RLock()
+		close(inFlight)
+		<-released
+		s.shutdownMu.RUnlock()
+	}()
+	<-inFlight
+
+	shutdownReturned := make(chan struct{})
+	go func() {
+		s.Shutdown()
+		close(shutdownReturned)
+	}()
+
+	select {
+	case <-shutdownReturned:
+		t.Fatal("Shutdown returned while RLock was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(released)
+
+	select {
+	case <-shutdownReturned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not return after RLock released")
+	}
+}
+
+// waitForCoordinator exits early on shutdownCtx cancel.
 func TestWaitForCoordinator_AbortsOnShutdown(t *testing.T) {
 	t.Parallel()
 	s := shardSyncChan{coordChan: make(chan interface{}, 5)}
@@ -403,12 +461,10 @@ func TestWaitForCoordinator_AbortsOnShutdown(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		// Use a long expiration so the timer arm cannot win the race.
 		done <- s.waitForCoordinator(shutdownCtx, time.Hour, "id-1")
 	}()
 
-	// Give the goroutine a chance to enter the select.
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond) // let the goroutine enter the select
 	shutdownCancel()
 
 	select {
