@@ -250,13 +250,18 @@ func TestStore_Apply_CatchingUp(t *testing.T) {
 }
 
 func TestStore_Apply_ReloadDB(t *testing.T) {
-	t.Run("Reload DB when caught up", func(t *testing.T) {
+	// runFirstApplyTriggeringReload performs the shared phase-1 setup both
+	// sub-tests below need: a store seeded with lastAppliedIndexToDB=100,
+	// then an Apply at index 150 that should trigger the DB-reload path and
+	// reset lastAppliedIndexToDB to 0. Returns the harness so callers can
+	// either assert mock expectations (sub-test 1) or drive a second apply
+	// to verify the reload doesn't re-trigger (sub-test 2).
+	runFirstApplyTriggeringReload := func(t *testing.T) (MockStore, *raft.Log) {
+		t.Helper()
 		ms, log := setupApplyTest(t)
-		// Set lastAppliedIndexToDB to trigger DB reload
 		ms.store.lastAppliedIndexToDB.Store(100)
-		log.Index = 150 // Greater than lastAppliedIndexToDB
+		log.Index = 150 // Greater than lastAppliedIndexToDB → triggers reload
 
-		// Setup mocks
 		ms.parser.On("ParseClass", mock.Anything).Return(nil)
 		ms.indexer.On("AddClass", mock.Anything).Return(nil)
 		ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -265,32 +270,20 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 		resp, ok := result.(Response)
 		assert.True(t, ok)
 		assert.NoError(t, resp.Error)
-
-		// Verify lastAppliedIndexToDB was reset to 0
+		// lastAppliedIndexToDB must be reset to 0 once the reload runs.
 		assert.Equal(t, uint64(0), ms.store.lastAppliedIndexToDB.Load())
+		return ms, log
+	}
 
+	t.Run("Reload DB when caught up", func(t *testing.T) {
+		ms, _ := runFirstApplyTriggeringReload(t)
 		// Verify all mock expectations
 		ms.parser.AssertExpectations(t)
 		ms.indexer.AssertExpectations(t)
 	})
 
 	t.Run("No reload on subsequent higher indices", func(t *testing.T) {
-		ms, log := setupApplyTest(t)
-		// Set lastAppliedIndexToDB to trigger initial DB reload
-		ms.store.lastAppliedIndexToDB.Store(100)
-		log.Index = 150 // Greater than lastAppliedIndexToDB
-
-		// Setup mocks for first apply
-		ms.parser.On("ParseClass", mock.Anything).Return(nil)
-		ms.indexer.On("AddClass", mock.Anything).Return(nil)
-		ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-
-		// First apply should trigger reload
-		result := ms.store.Apply(log)
-		resp, ok := result.(Response)
-		assert.True(t, ok)
-		assert.NoError(t, resp.Error)
-		assert.Equal(t, uint64(0), ms.store.lastAppliedIndexToDB.Load())
+		ms, log := runFirstApplyTriggeringReload(t)
 
 		// Reset mocks for second apply
 		ms.parser.ExpectedCalls = nil
@@ -323,8 +316,8 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 		// Second apply with higher index should not trigger reload
 		log.Index = 200
 		log.Data = cmdAsBytes("TestClass2", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls2, State: ss2}, nil)
-		result = ms.store.Apply(log)
-		resp, ok = result.(Response)
+		result := ms.store.Apply(log)
+		resp, ok := result.(Response)
 		assert.True(t, ok)
 		assert.NoError(t, resp.Error)
 
