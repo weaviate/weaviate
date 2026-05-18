@@ -58,12 +58,6 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 	p.Unlock()
 }
 
-func (p *pendingReplicaTasks) len() int {
-	p.Lock()
-	defer p.Unlock()
-	return len(p.Tasks)
-}
-
 // keys snapshots the set of in-flight request IDs.
 func (p *pendingReplicaTasks) keys() map[string]struct{} {
 	p.Lock()

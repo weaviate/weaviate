@@ -420,6 +420,7 @@ func (s *ShardReplicationFSM) IsLocalShardWritable(localNode, collection, shard 
 					catchUpIndex = opState.AddReplicaVersion
 				}
 			}
+		default:
 		}
 	}
 	return allowed, catchUpIndex

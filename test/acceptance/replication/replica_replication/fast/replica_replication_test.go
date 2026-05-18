@@ -925,8 +925,8 @@ func newComposeNodeSource(compose *docker.DockerCompose, clusterSize int) compos
 	return composeNodeSource{compose: compose, clusterSize: clusterSize}
 }
 
-func (c composeNodeSource) Size() int            { return c.clusterSize }
-func (c composeNodeSource) URIFor(i int) string  { return c.compose.ContainerURI(i) }
+func (c composeNodeSource) Size() int           { return c.clusterSize }
+func (c composeNodeSource) URIFor(i int) string { return c.compose.ContainerURI(i) }
 func (c composeNodeSource) FetchLogs(ctx context.Context, i int) (io.ReadCloser, error) {
 	node := c.compose.GetWeaviateNode(i)
 	if node == nil {

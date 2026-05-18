@@ -30,7 +30,7 @@ import (
 // parallelWriteResult is the writer's final source of truth: the exact
 // object set every replica must hold after the op under test completes.
 type parallelWriteResult struct {
-	liveIDs    map[strfmt.UUID]string  // id → most-recent contents
+	liveIDs    map[strfmt.UUID]string   // id → most-recent contents
 	deletedIDs map[strfmt.UUID]struct{} // ids that were deleted
 }
 
@@ -45,8 +45,8 @@ type parallelWriteResult struct {
 // nodeSourcer abstracts per-node lookups so the same helpers work against
 // either testcontainers or a long-running local compose stack.
 type nodeSourcer interface {
-	Size() int                                                    // number of nodes
-	URIFor(i int) string                                          // REST URI for 1-indexed node i
+	Size() int                                                   // number of nodes
+	URIFor(i int) string                                         // REST URI for 1-indexed node i
 	FetchLogs(ctx context.Context, i int) (io.ReadCloser, error) // caller closes the reader
 }
 
