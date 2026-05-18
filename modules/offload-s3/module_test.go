@@ -36,7 +36,8 @@ func TestUpload_ConcurrentNoFlagRedefinedPanic(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(shardDir, "data.bin"), []byte("payload"), 0o644))
 	}
 
-	// Route the endpoint via the env var. The --endpoint-url argv we
+	// Route the endpoint via the environment variable so every concurrent upload
+	// uses the same unreachable endpoint without relying on command-line flags.
 	const unreachable = "http://127.0.0.1:1"
 	t.Setenv("OFFLOAD_S3_ENDPOINT", unreachable)
 
