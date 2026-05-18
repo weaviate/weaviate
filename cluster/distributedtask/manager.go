@@ -565,8 +565,10 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 // non-monotonically — phase-share, retry-without-resume, or denominator-grows-mid-flight
 // shapes all manifest as the WCS frontend showing a unit's progress bar regress visually
 // (e.g. 51% → 48% mid-migration). See weaviate/0-weaviate-issues#232 (Finding 1). Genuine
-// re-runs that need a per-unit reset must run as a new task version (different unit IDs);
-// this guard is the cluster-wide invariant that a single unit-run's progress only goes up.
+// re-runs that need a per-unit reset must run as a new task version — AddTask rebuilds
+// the task with fresh Unit entries on the version bump, so the same unit IDs can be
+// reused safely. The guard is the cluster-wide invariant that within a single task
+// version, a unit's stored progress only goes up.
 //
 // NodeID and UpdatedAt are still applied even when the progress component is clamped — the
 // sender is in fact making progress on the work, and the bookkeeping that they're alive and
