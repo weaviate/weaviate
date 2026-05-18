@@ -105,6 +105,41 @@ func TestNamespaces_CreateInvalid_UnprocessableEntity(t *testing.T) {
 	}
 }
 
+// TestNamespaces_UpdateHomeNode updates a namespace's home_node and
+// verifies Get returns the new value.
+func TestNamespaces_UpdateHomeNode(t *testing.T) {
+	const name = "updatehomenode"
+
+	created := helper.CreateNamespaceWithHomeNode(t, name, "weaviate-0", adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, name, adminKey) })
+	require.Equal(t, "weaviate-0", created.HomeNode)
+
+	updated := helper.UpdateNamespace(t, name, "weaviate-1", adminKey)
+	assert.Equal(t, "weaviate-1", updated.HomeNode)
+
+	got := helper.GetNamespace(t, name, adminKey)
+	assert.Equal(t, "weaviate-1", got.HomeNode)
+}
+
+// TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_node with 422.
+func TestNamespaces_UpdateHomeNode_Invalid(t *testing.T) {
+	const name = "updatehomenodeinvalid"
+
+	helper.CreateNamespace(t, name, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, name, adminKey) })
+
+	homeNode := "not-a-real-node"
+	_, err := helper.Client(t).Namespaces.UpdateNamespace(
+		namespaces.NewUpdateNamespaceParams().
+			WithNamespaceID(name).
+			WithBody(&models.NamespaceUpdateRequest{HomeNode: &homeNode}),
+		helper.CreateAuth(adminKey),
+	)
+	require.Error(t, err)
+	var unproc *namespaces.UpdateNamespaceUnprocessableEntity
+	require.True(t, errors.As(err, &unproc), "expected UpdateNamespaceUnprocessableEntity, got %T: %v", err, err)
+}
+
 // namespaceNames extracts the Name field from a slice of *Namespace models,
 // used to make assertions on list responses more concise.
 func namespaceNames(list []*models.Namespace) []string {

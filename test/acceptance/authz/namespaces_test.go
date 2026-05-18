@@ -174,8 +174,8 @@ func TestAuthzNamespaces(t *testing.T) {
 		assert.Empty(t, helper.ListNamespaces(t, noPermsKey))
 	})
 
-	// Namespace-scoping subtests (WS5 matcher + role-safety guards). Reuses
-	// the same compose to avoid a second cluster boot.
+	// Namespace-scoping subtests (matcher + role-safety guards). Reuses the
+	// same compose to avoid a second cluster boot.
 	const (
 		ns1 = "customer1"
 		ns2 = "customer2"
