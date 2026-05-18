@@ -16,8 +16,8 @@ import (
 	"time"
 )
 
-// TasksLister is an interface for listing distributed tasks in the cluster.
-type TasksLister interface {
+// TaskLister is an interface for listing distributed tasks in the cluster.
+type TaskLister interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*Task, error)
 }
 

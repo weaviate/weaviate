@@ -108,7 +108,7 @@ type UpdatePropertyRequest struct {
 	// goes through new code on every node (the scheduler is per-node)
 	// so a mid-rolling-upgrade migration completion would still see the
 	// bypass on whichever node issues the flip.
-	FromInFlightMigration bool `json:"FromInFlightMigration,omitempty"`
+	FromInFlightMigration bool `json:"FromInFlightMigration"`
 }
 
 type DeleteClassRequest struct {

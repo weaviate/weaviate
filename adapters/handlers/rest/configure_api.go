@@ -961,7 +961,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
-		TasksLister:        appState.ClusterService.Raft,
+		TaskLister:        appState.ClusterService.Raft,
 		TaskCleaner:        appState.ClusterService.Raft,
 		TaskFinalizer:      appState.ClusterService.Raft,
 		// AckRecorder wires the post-completion ack barrier: each node,

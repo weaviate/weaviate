@@ -325,13 +325,13 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 	}
 
 	if err := t.OnAfterLsmInit(ctx, concreteShard); err != nil {
-		return fmt.Errorf("OnAfterLsmInit: %w", err)
+		return fmt.Errorf("after LSM init: %w", err)
 	}
 
 	for {
 		rerunAt, _, err := t.OnAfterLsmInitAsync(ctx, shard)
 		if err != nil {
-			return fmt.Errorf("OnAfterLsmInitAsync: %w", err)
+			return fmt.Errorf("after async LSM init: %w", err)
 		}
 		if rerunAt.IsZero() {
 			return nil
@@ -887,7 +887,7 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 	if rt.IsReindexed() && !rt.IsPrepended() && !rt.IsMerged() && !rt.IsSwapped() && !rt.IsTidied() {
 		if missing := t.firstMissingReindexBucketDir(shard.pathLSM(), props); missing != "" {
 			logger.WithField("missing_bucket_dir", missing).
-				Error(fmt.Errorf("torn migration state at OnBeforeLsmInit: reindexed.mig sentinel exists but reindex bucket dir %q is missing on disk; resetting reindexed sentinel so iteration runs again from scratch", missing))
+				Errorf("torn migration state at OnBeforeLsmInit: reindexed.mig sentinel exists but reindex bucket dir %q is missing on disk; resetting reindexed sentinel so iteration runs again from scratch", missing)
 			if uerr := rt.unmarkReindexed(); uerr != nil {
 				err = fmt.Errorf("torn-state recovery: removing stale reindexed.mig: %w", uerr)
 				return err
@@ -1093,7 +1093,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 	if rt.IsReindexed() && !rt.IsPrepended() && !rt.IsMerged() && !rt.IsSwapped() && !rt.IsTidied() {
 		if missing := t.firstMissingReindexBucketDir(shard.pathLSM(), props); missing != "" {
 			logger.WithField("missing_bucket_dir", missing).
-				Error(fmt.Errorf("torn migration state: reindexed.mig sentinel exists but reindex bucket dir %q is missing on disk; assuming the prior reindex never wrote any data and resetting sentinel so iteration runs again", missing))
+				Errorf("torn migration state: reindexed.mig sentinel exists but reindex bucket dir %q is missing on disk; assuming the prior reindex never wrote any data and resetting sentinel so iteration runs again", missing)
 			if uerr := rt.unmarkReindexed(); uerr != nil {
 				err = fmt.Errorf("torn-state recovery: removing stale reindexed.mig: %w", uerr)
 				return err

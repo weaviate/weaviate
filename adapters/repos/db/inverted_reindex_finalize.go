@@ -218,8 +218,8 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			// ENOENT is the normal "no migrations in progress" path; anything
 			// else (EACCES, EIO, etc.) is worth surfacing so an operator can
 			// notice that pending finalizations are being silently skipped.
-			logger.WithField("path", migrationsDir).WithError(err).
-				Warn("reindex finalize: unable to read migrations dir; pending finalizations skipped")
+			logger.WithField("path", migrationsDir).
+				Warnf("reindex finalize: unable to read migrations dir; pending finalizations skipped: %v", err)
 		}
 		return
 	}
@@ -296,8 +296,8 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 				}
 				migDir := filepath.Join(migrationsDir, g.dirName)
 				if err := writeRecoveryTidiedSentinels(migDir); err != nil {
-					logger.WithField("migration", g.dirName).WithError(err).
-						Error("reindex finalize: failed to write recovery tidied sentinels; this node may end up with stale data after restart")
+					logger.WithField("migration", g.dirName).
+						Errorf("reindex finalize: failed to write recovery tidied sentinels; this node may end up with stale data after restart: %v", err)
 					// Skip the recovery path; fall back to the tidied
 					// gen if any (existing behavior).
 					effective = highestTidied
@@ -324,8 +324,8 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 				// rename + backup removal. We also remove the tracker
 				// dir itself: its sentinels have done their job.
 				if err := os.RemoveAll(migDir); err != nil {
-					logger.WithField("path", migDir).WithError(err).
-						Warn("reindex finalize: failed to remove finalized tracker dir")
+					logger.WithField("path", migDir).
+						Warnf("reindex finalize: failed to remove finalized tracker dir: %v", err)
 				}
 			case g.gen < effective:
 				// Stale older gen: remove tracker dir AND its sidecar
@@ -337,8 +337,8 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 				// gen's promoted data).
 				removeStaleSidecarsForGen(lsmPath, namespace, g.dirName, logger)
 				if err := os.RemoveAll(migDir); err != nil {
-					logger.WithField("path", migDir).WithError(err).
-						Warn("reindex finalize: failed to remove stale older-gen tracker dir")
+					logger.WithField("path", migDir).
+						Warnf("reindex finalize: failed to remove stale older-gen tracker dir: %v", err)
 				}
 			default:
 				// gen > effective: even-earlier in-flight (e.g. crashed
@@ -398,8 +398,8 @@ func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus
 	}
 	props, err := readMigrationProps(migDir)
 	if err != nil {
-		logger.WithField("path", migDir).WithError(err).
-			Debug("reindex finalize: stale-gen cleanup: properties.mig missing/unreadable; sidecars (if any) will be left as orphans")
+		logger.WithField("path", migDir).
+			Debugf("reindex finalize: stale-gen cleanup: properties.mig missing/unreadable; sidecars (if any) will be left as orphans: %v", err)
 		return
 	}
 	// The gen suffix is implicit in `dirName`'s trailing `_<N>`; the

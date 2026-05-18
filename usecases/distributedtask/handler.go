@@ -25,13 +25,13 @@ import (
 
 type Handler struct {
 	authorizer  authorization.Authorizer
-	tasksLister distributedtask.TasksLister
+	taskLister distributedtask.TaskLister
 }
 
-func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.TasksLister) *Handler {
+func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.TaskLister) *Handler {
 	return &Handler{
 		authorizer:  authorizer,
-		tasksLister: taskLister,
+		taskLister: taskLister,
 	}
 }
 
@@ -44,7 +44,7 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 		return nil, err
 	}
 
-	tasksByNamespace, err := h.tasksLister.ListDistributedTasks(ctx)
+	tasksByNamespace, err := h.taskLister.ListDistributedTasks(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list distributed tasks: %w", err)
 	}

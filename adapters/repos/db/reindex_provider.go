@@ -1423,7 +1423,7 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 			"repair_command": fmt.Sprintf(
 				"PUT /v1/schema/%s/indexes/%s %s",
 				payload.Collection, propName, repairBody),
-		}).Error(fmt.Errorf(
+		}).Errorf(
 			"reindex provider: %s on %s.%s FAILED; per-shard sub-tasks "+
 				"that committed their swap BEFORE the failure left the "+
 				"canonical inverted bucket holding new-tokenization "+
@@ -1431,7 +1431,7 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 				"— issue the repair_command above to rebuild the "+
 				"affected inverted index(es) from raw objects against "+
 				"the current schema",
-			payload.MigrationType, payload.Collection, propName))
+			payload.MigrationType, payload.Collection, propName)
 	}
 }
 

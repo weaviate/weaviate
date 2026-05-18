@@ -606,7 +606,7 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRecorder,
-		TasksLister:        h.manager,
+		TaskLister:        h.manager,
 		TaskCleaner:        h.cleaner,
 		TaskFinalizer:      newDirectFinalizer(t, h.manager),
 		Providers:          h.registeredProviders,
@@ -987,7 +987,7 @@ type flappyTasksLister struct {
 	mu        sync.Mutex
 	failsLeft int
 	err       error
-	inner     TasksLister
+	inner     TaskLister
 }
 
 func (f *flappyTasksLister) ListDistributedTasks(ctx context.Context) (map[string][]*Task, error) {
@@ -1086,7 +1086,7 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 	require.Len(t, tasks, 1)
 	require.Equal(t, TaskStatusFinished, tasks[0].Status)
 
-	// Replace the scheduler's TasksLister with a flappy one that fails the
+	// Replace the scheduler's TaskLister with a flappy one that fails the
 	// first call (Start() time) and succeeds afterwards.
 	flappy := &flappyTasksLister{
 		failsLeft: 1,
@@ -1095,7 +1095,7 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 	}
 	h.scheduler = NewScheduler(SchedulerParams{
 		CompletionRecorder: h.completionRecorder,
-		TasksLister:        flappy,
+		TaskLister:        flappy,
 		TaskCleaner:        h.cleaner,
 		Providers:          h.registeredProviders,
 		Clock:              h.clock,
@@ -1235,7 +1235,7 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TasksLister:        nil,
+		TaskLister:        nil,
 		TaskCleaner:        nil,
 	})
 
@@ -1353,7 +1353,7 @@ func TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending(t *testing.T) 
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TasksLister:        nil,
+		TaskLister:        nil,
 		TaskCleaner:        nil,
 	})
 
@@ -1419,7 +1419,7 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TasksLister:        nil,
+		TaskLister:        nil,
 		TaskCleaner:        nil,
 	})
 

@@ -259,7 +259,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	// disturbed.
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		return fmt.Errorf("CleanStalePartialReindexState: unknown indexType %q", indexType)
+		return fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
 	}
 
 	logger := s.index.logger.WithFields(map[string]any{

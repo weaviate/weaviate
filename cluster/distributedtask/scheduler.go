@@ -45,7 +45,7 @@ type Scheduler struct {
 
 	providers          map[string]Provider // namespace -> Provider
 	completionRecorder TaskCompletionRecorder
-	tasksLister        TasksLister
+	taskLister        TaskLister
 	taskCleaner        TaskCleaner
 	taskFinalizer      TaskFinalizer
 	ackRecorder        PostCompletionAckRecorder
@@ -120,7 +120,7 @@ type Scheduler struct {
 
 type SchedulerParams struct {
 	CompletionRecorder TaskCompletionRecorder
-	TasksLister        TasksLister
+	TaskLister        TaskLister
 	TaskCleaner        TaskCleaner
 	TaskFinalizer      TaskFinalizer
 	// AckRecorder is the RAFT-apply hook used to publish this node's
@@ -158,7 +158,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		groupCallbackFired:        map[TaskDescriptor]map[string]bool{},
 		postCompletionAckEmitted:  map[TaskDescriptor]bool{},
 		postCompletionGroupErrors: map[TaskDescriptor]map[string]error{},
-		tasksLister:               params.TasksLister,
+		taskLister:               params.TaskLister,
 		taskCleaner:               params.TaskCleaner,
 		taskFinalizer:             params.TaskFinalizer,
 		ackRecorder:               params.AckRecorder,
@@ -799,7 +799,7 @@ func (s *Scheduler) tick() {
 }
 
 func (s *Scheduler) listTasks(ctx context.Context) (map[string]map[TaskDescriptor]*Task, error) {
-	tasksByNamespace, err := s.tasksLister.ListDistributedTasks(ctx)
+	tasksByNamespace, err := s.taskLister.ListDistributedTasks(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list distributed tasks: %w", err)
 	}

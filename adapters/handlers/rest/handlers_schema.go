@@ -67,7 +67,7 @@ type reindexSubmitLockProvider interface {
 type schemaHandlers struct {
 	manager             *schemaUC.Manager
 	metricRequestsTotal restApiRequestsTotal
-	reindexTasksLister  reindexInFlightChecker
+	reindexTaskLister  reindexInFlightChecker
 	reindexSubmitLocks  reindexSubmitLockProvider
 }
 
@@ -261,15 +261,15 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // single-node case with a clean 4xx instead of an apply-time
 // rejection.
 //
-// Degrades gracefully: a TasksLister error returns "" (no conflict
+// Degrades gracefully: a TaskLister error returns "" (no conflict
 // detected) so the request proceeds to RAFT and the apply-time guard
 // handles correctness. We never spuriously reject due to a transient
 // local error.
 func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
-	if s.reindexTasksLister == nil {
+	if s.reindexTaskLister == nil {
 		return ""
 	}
-	tasksByNamespace, err := s.reindexTasksLister.ListDistributedTasks(ctx)
+	tasksByNamespace, err := s.reindexTaskLister.ListDistributedTasks(ctx)
 	if err != nil {
 		return ""
 	}
@@ -559,11 +559,11 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTasksLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider) {
 	h := &schemaHandlers{
 		manager:             manager,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
-		reindexTasksLister:  reindexTasksLister,
+		reindexTaskLister:  reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
 	}
 
