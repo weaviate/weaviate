@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/objects"
+	ucschema "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type schemaReader interface {
@@ -39,16 +40,20 @@ type objectsManager interface {
 type WeaviateReader struct {
 	auth.Auth
 
-	schemaReader   schemaReader
-	objectsManager objectsManager
-	logger         logrus.FieldLogger
+	schemaReader      schemaReader
+	schemaManager     *ucschema.Manager
+	namespacesEnabled bool
+	objectsManager    objectsManager
+	logger            logrus.FieldLogger
 }
 
-func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, objectsManager objectsManager, logger logrus.FieldLogger) *WeaviateReader {
+func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, schemaManager *ucschema.Manager, namespacesEnabled bool, objectsManager objectsManager, logger logrus.FieldLogger) *WeaviateReader {
 	return &WeaviateReader{
-		schemaReader:   schemaReader,
-		objectsManager: objectsManager,
-		Auth:           *auth,
-		logger:         logger,
+		schemaReader:      schemaReader,
+		schemaManager:     schemaManager,
+		namespacesEnabled: namespacesEnabled,
+		objectsManager:    objectsManager,
+		Auth:              *auth,
+		logger:            logger,
 	}
 }
