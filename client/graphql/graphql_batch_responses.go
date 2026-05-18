@@ -52,6 +52,12 @@ func (o *GraphqlBatchReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
+	case 410:
+		result := NewGraphqlBatchGone()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewGraphqlBatchUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -248,6 +254,74 @@ func (o *GraphqlBatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlBatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewGraphqlBatchGone creates a GraphqlBatchGone with default headers values
+func NewGraphqlBatchGone() *GraphqlBatchGone {
+	return &GraphqlBatchGone{}
+}
+
+/*
+GraphqlBatchGone describes a response with status code 410, with default header values.
+
+Endpoint not available in the current cluster configuration.
+*/
+type GraphqlBatchGone struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this graphql batch gone response has a 2xx status code
+func (o *GraphqlBatchGone) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this graphql batch gone response has a 3xx status code
+func (o *GraphqlBatchGone) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this graphql batch gone response has a 4xx status code
+func (o *GraphqlBatchGone) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this graphql batch gone response has a 5xx status code
+func (o *GraphqlBatchGone) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this graphql batch gone response a status code equal to that given
+func (o *GraphqlBatchGone) IsCode(code int) bool {
+	return code == 410
+}
+
+// Code gets the status code for the graphql batch gone response
+func (o *GraphqlBatchGone) Code() int {
+	return 410
+}
+
+func (o *GraphqlBatchGone) Error() string {
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchGone  %+v", 410, o.Payload)
+}
+
+func (o *GraphqlBatchGone) String() string {
+	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchGone  %+v", 410, o.Payload)
+}
+
+func (o *GraphqlBatchGone) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GraphqlBatchGone) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

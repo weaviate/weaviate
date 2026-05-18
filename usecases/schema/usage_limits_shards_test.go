@@ -51,7 +51,7 @@ func TestAddClass_WithShardLimit(t *testing.T) {
 			handler.config.UsageLimits.MaxShardsPerCollection = runtime.NewDynamicValue(tt.shardCap)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 
-			fakeMgr.On("QueryCollectionsCount").Return(0, nil).Maybe()
+			fakeMgr.On("QueryCollectionsCount", "").Return(0, nil).Maybe()
 			if !tt.expectExceed {
 				fakeMgr.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			}

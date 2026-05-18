@@ -76,10 +76,16 @@ const (
 	minHashtreeHeight = 0
 	maxHashtreeHeight = 20
 
-	// minFrequency is the smallest accepted value for frequency and
-	// frequencyWhilePropagating in both per-class API overrides and global
-	// runtime config. Values below this would spin the dispatcher excessively.
-	minFrequency = 100 * time.Millisecond
+	// minFrequency is the smallest accepted value for `frequency` in both
+	// per-class API overrides and global runtime config. Below this, hashbeats
+	// would run too often to be useful in a steady-state cluster.
+	minFrequency = 5 * time.Second
+
+	// minFrequencyWhilePropagating is the smallest accepted value for
+	// `frequencyWhilePropagating`. This rate kicks in only while propagation is
+	// actively in flight, so it can be tighter than minFrequency but must stay
+	// at or above 1s to avoid dispatcher thrash.
+	minFrequencyWhilePropagating = 1 * time.Second
 
 	// minLoggingFrequency is the floor for loggingFrequency. Sub-second logging
 	// at hashbeat rate would flood logs in busy clusters.
@@ -216,17 +222,24 @@ func (c AsyncReplicationConfig) Effective(globals entreplication.GlobalConfig) A
 		}
 		*field = v
 	}
-	// applyDurMinFrequency applies a DynamicValue[time.Duration] only when it is
-	// at or above minFrequency. Used for scheduling-frequency fields where
-	// sub-100ms values would spin the dispatcher excessively; zero (the
-	// DynamicValue "not configured" default) is silently ignored.
-	applyDurMinFrequency := func(dv *configRuntime.DynamicValue[time.Duration], field *time.Duration) {
+	// applyDurMinFrequency applies a DynamicValue[time.Duration], clamping it
+	// up to the supplied minimum when the configured value is positive but
+	// below the minimum. Zero (the DynamicValue "not configured" sentinel) is
+	// silently ignored — mirrors applyInt's clamp-on-configured semantics so
+	// that an operator who explicitly sets a sub-minimum runtime value still
+	// gets a working value (the minimum) rather than a silently-dropped override.
+	applyDurMinFrequency := func(dv *configRuntime.DynamicValue[time.Duration], field *time.Duration, minVal time.Duration) {
 		if dv == nil {
 			return
 		}
-		if v := dv.Get(); v >= minFrequency {
-			*field = v
+		v := dv.Get()
+		if v <= 0 {
+			return
 		}
+		if v < minVal {
+			v = minVal
+		}
+		*field = v
 	}
 	// applyDurPositive applies a DynamicValue[time.Duration] only when it is
 	// strictly positive. Used for timeout and delay fields where zero is the
@@ -241,8 +254,8 @@ func (c AsyncReplicationConfig) Effective(globals entreplication.GlobalConfig) A
 		}
 	}
 	applyInt(globals.AsyncReplicationHashtreeHeight, &result.hashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
-	applyDurMinFrequency(globals.AsyncReplicationFrequency, &result.frequency)
-	applyDurMinFrequency(globals.AsyncReplicationFrequencyWhilePropagating, &result.frequencyWhilePropagating)
+	applyDurMinFrequency(globals.AsyncReplicationFrequency, &result.frequency, minFrequency)
+	applyDurMinFrequency(globals.AsyncReplicationFrequencyWhilePropagating, &result.frequencyWhilePropagating, minFrequencyWhilePropagating)
 	applyDurPositive(globals.AsyncReplicationLoggingFrequency, &result.loggingFrequency)
 	applyInt(globals.AsyncReplicationDiffBatchSize, &result.diffBatchSize, minDiffBatchSize, maxDiffBatchSize)
 	applyDurPositive(globals.AsyncReplicationDiffPerNodeTimeout, &result.diffPerNodeTimeout)
@@ -273,8 +286,8 @@ func (c AsyncReplicationConfig) Effective(globals entreplication.GlobalConfig) A
 	if result.frequency < minFrequency {
 		result.frequency = minFrequency
 	}
-	if result.frequencyWhilePropagating < minFrequency {
-		result.frequencyWhilePropagating = minFrequency
+	if result.frequencyWhilePropagating < minFrequencyWhilePropagating {
+		result.frequencyWhilePropagating = minFrequencyWhilePropagating
 	}
 	if result.loggingFrequency < minLoggingFrequency {
 		result.loggingFrequency = minLoggingFrequency
@@ -292,6 +305,61 @@ func (c AsyncReplicationConfig) Effective(globals entreplication.GlobalConfig) A
 	// Clear classOverrides in the snapshot — they have been applied.
 	result.classOverrides = asyncReplicationClassOverrides{}
 	return result
+}
+
+// asyncReplicationClampWarner surfaces positive-but-below-minimum global
+// runtime overrides on the two Frequency fields. Without it, an operator who
+// sets a frequency value below its declared minimum silently gets the
+// minimum, with no signal that their requested value was adjusted — the
+// per-class path emits this Warn, but the runtime path did not.
+//
+// Dedup is consecutive-duplicate suppression per field: only the last warned
+// value per field is remembered, so a stable misconfiguration logs exactly
+// once across all hashbeat cycles, and flipping to a new sub-minimum value
+// re-arms the warning. An A→B→A alternation would log A twice — a tradeoff
+// we accept to keep state O(fields).
+type asyncReplicationClampWarner struct {
+	mu     sync.Mutex
+	last   map[string]time.Duration
+	logger logrus.FieldLogger
+}
+
+// checkSubFloor emits one Warn per consecutive-distinct positive-but-below-minimum
+// requested value for the given field. Steady-state happy path returns under
+// the range check without touching the mutex.
+func (w *asyncReplicationClampWarner) checkSubFloor(field string, dv *configRuntime.DynamicValue[time.Duration], floor time.Duration) {
+	if w == nil || w.logger == nil || dv == nil {
+		return
+	}
+	v := dv.Get()
+	if v <= 0 || v >= floor {
+		return
+	}
+	w.mu.Lock()
+	if prev, ok := w.last[field]; ok && prev == v {
+		w.mu.Unlock()
+		return
+	}
+	if w.last == nil {
+		w.last = make(map[string]time.Duration)
+	}
+	w.last[field] = v
+	w.mu.Unlock()
+	w.logger.WithFields(logrus.Fields{
+		"field":     field,
+		"requested": v,
+		"min":       floor,
+		"applied":   floor,
+		"source":    "runtime",
+	}).Warn("async-replication global runtime value below minimum; clamping to min")
+}
+
+func (w *asyncReplicationClampWarner) checkGlobals(globals entreplication.GlobalConfig) {
+	if w == nil {
+		return
+	}
+	w.checkSubFloor("frequency", globals.AsyncReplicationFrequency, minFrequency)
+	w.checkSubFloor("frequencyWhilePropagating", globals.AsyncReplicationFrequencyWhilePropagating, minFrequencyWhilePropagating)
 }
 
 // initRetryBackoff returns the exponential backoff for hashtree initialisation
@@ -1262,7 +1330,6 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 			"hashtree_diff_took":              stat.hashtreeDiffTook,
 			"object_digests_diff_took":        stat.objectDigestsDiffTook,
 			"local_object_digests_count":      stat.localObjectDigestsCount,
-			"remote_object_digests_count":     stat.remoteObjectDigestsCount,
 			"objects_diff_count":              stat.objectsDiffCount,
 			"local_objects_propagation_count": stat.localObjectsPropagationCount,
 			"local_objects_propagation_took":  stat.localObjectsPropagationTook,
@@ -1319,7 +1386,6 @@ func (s *Shard) runHashbeatCycle(ctx context.Context, config AsyncReplicationCon
 				WithField("hashtree_diff_took", stat.hashtreeDiffTook).
 				WithField("object_digests_diff_took", stat.objectDigestsDiffTook).
 				WithField("local_object_digests_count", stat.localObjectDigestsCount).
-				WithField("remote_object_digests_count", stat.remoteObjectDigestsCount).
 				WithField("objects_diff_count", stat.objectsDiffCount).
 				WithField("local_objects_propagation_count", stat.localObjectsPropagationCount).
 				WithField("local_objects_propagation_took", stat.localObjectsPropagationTook).
@@ -1351,8 +1417,7 @@ type hashBeatHostStats struct {
 	hashtreeDiffTook             time.Duration
 	objectDigestsDiffTook        time.Duration
 	localObjectDigestsCount      int
-	remoteObjectDigestsCount     int // digests sent to remote for comparison
-	objectsDiffCount             int // total objects found different in this cycle: outbound propagations + local deletes
+	objectsDiffCount             int // total objects found different in this cycle: outbound propagations
 	localObjectsPropagationCount int
 	localObjectsPropagationTook  time.Duration
 	objectsNotResolved           int
@@ -1433,7 +1498,6 @@ func (s *Shard) hashBeat(
 	objectDigestsDiffStart := time.Now()
 
 	localObjectDigestsCount := 0
-	remoteObjectDigestsCount := 0
 	objectsDiffCount := 0
 
 	localObjectsToPropagate := make([]strfmt.UUID, 0, config.propagationLimit)
@@ -1452,7 +1516,7 @@ func (s *Shard) hashBeat(
 			return nil, fmt.Errorf("reading collected differences: %w", err)
 		}
 
-		localObjsCountWithinRange, remoteObjsCountWithinRange, objsToPropagateWithinRange, err := s.objectsToPropagateWithinRange(
+		localObjsCountWithinRange, objsToPropagateWithinRange, err := s.objectsToPropagateWithinRange(
 			objectDigestsDiffCtx,
 			config,
 			shardDiffReader.TargetNodeAddress,
@@ -1473,7 +1537,6 @@ func (s *Shard) hashBeat(
 		}
 
 		localObjectDigestsCount += localObjsCountWithinRange
-		remoteObjectDigestsCount += remoteObjsCountWithinRange
 		objectsDiffCount += len(objsToPropagateWithinRange)
 
 		for _, obj := range objsToPropagateWithinRange {
@@ -1529,7 +1592,6 @@ func (s *Shard) hashBeat(
 			hashtreeDiffTook:             hashtreeDiffTook,
 			objectDigestsDiffTook:        objectDigestsDiffTook,
 			localObjectDigestsCount:      localObjectDigestsCount,
-			remoteObjectDigestsCount:     remoteObjectDigestsCount,
 			objectsDiffCount:             objectsDiffCount,
 			localObjectsPropagationCount: len(localObjectsToPropagate),
 			localObjectsPropagationTook:  time.Since(objectsPropagationStart),
@@ -1605,20 +1667,19 @@ type objectToPropagate struct {
 	remoteStaleUpdateTime int64
 }
 
-// objectsToPropagateWithinRange determines which local objects in the given
-// hashtree leaf range the source must propagate to targetNodeAddress.
-//
-// For each local batch it:
-//  1. Fetches local digests via DigestObjectsInRange.
-//  2. Filters out objects that are too recent (per maxUpdateTime).
-//  3. Fetches remote digests for the same UUID range via DigestObjectsInRange
-//     on the target, then compares locally: objects missing or stale on the
-//     target are queued for propagation.
+// objectsToPropagateWithinRange returns the local objects in the given hashtree
+// leaf range that must be propagated to the target. Per batch it fetches local
+// digests (DigestObjectsInRange), drops the ones too recent to propagate (per
+// maxUpdateTime), and asks the target via CompareDigests for the subset needing
+// action: objects missing on the target (UpdateTime==0, which also covers
+// target-side tombstones) and objects the source holds a newer version of. Every
+// returned entry is queued; tombstone resolution is left to the post-Overwrite
+// resolveObjectConflict path.
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncReplicationConfig,
 	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 	targetNodeOverrides additional.AsyncReplicationTargetNodeOverrides,
-) (localObjectsCount int, remoteObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
-	objectsToPropagate = make([]objectToPropagate, 0, limit)
+) (localObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
+	objectsToPropagate = make([]objectToPropagate, 0, min(limit, config.diffBatchSize))
 
 	hashtreeHeight := config.hashtreeHeight
 
@@ -1628,38 +1689,35 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 
 	finalUUID, err := uuidFromBytes(finalUUIDBytes)
 	if err != nil {
-		return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
+		return localObjectsCount, objectsToPropagate, err
 	}
 
-	// Compute the threshold once per call so all batches use a consistent
-	// cut-off. Recomputing inside the loop would allow the threshold to drift
-	// between batches, producing inconsistent eligibility decisions for objects
-	// whose UpdateTime sits close to the boundary.
+	// Computed once so every batch uses the same cut-off; a per-batch recompute
+	// would let objects near the boundary flip eligibility mid-scan.
 	maxUpdateTime := s.getHashBeatMaxUpdateTime(config, targetNodeName, targetNodeOverrides)
 
 	currLocalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(currLocalUUIDBytes, initialLeaf<<(64-hashtreeHeight))
 
-	// filteredDigests and remoteByID are declared outside the loop and reset on
-	// each iteration to avoid per-batch heap allocations on this hot path.
+	// Reused (reset) each iteration to avoid per-batch allocations.
 	filteredDigests := make([]types.RepairResponse, 0, config.diffBatchSize)
-	remoteByID := make(map[uuid.UUID]types.RepairResponse, config.diffBatchSize)
+	localDigestsByUUID := make(map[uuid.UUID]int64, config.diffBatchSize)
 
 	for limit > 0 && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
 		if ctx.Err() != nil {
-			return localObjectsCount, remoteObjectsCount, objectsToPropagate, ctx.Err()
+			return localObjectsCount, objectsToPropagate, ctx.Err()
 		}
 
 		currLocalUUID, err := uuidFromBytes(currLocalUUIDBytes)
 		if err != nil {
-			return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
+			return localObjectsCount, objectsToPropagate, err
 		}
 
 		currBatchSize := min(limit, config.diffBatchSize)
 
 		allLocalDigests, err := s.index.DigestObjectsInRange(ctx, s.name, currLocalUUID, finalUUID, currBatchSize)
 		if err != nil {
-			return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching local object digests: %w", err)
+			return localObjectsCount, objectsToPropagate, fmt.Errorf("fetching local object digests: %w", err)
 		}
 
 		if len(allLocalDigests) == 0 {
@@ -1668,31 +1726,33 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 
 		lastLocalUUIDBytes, err := bytesFromUUID(strfmt.UUID(allLocalDigests[len(allLocalDigests)-1].ID))
 		if err != nil {
-			return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
+			return localObjectsCount, objectsToPropagate, err
 		}
 
-		// Filter out objects that are too recent to propagate.
+		// Drop too-recent objects; index the rest by parsed UUID so the
+		// CompareDigests response can be matched back without re-parsing.
 		filteredDigests = filteredDigests[:0]
+		clear(localDigestsByUUID)
 		for _, d := range allLocalDigests {
 			if d.UpdateTime > maxUpdateTime {
 				continue
 			}
-			if _, err := uuid.Parse(d.ID); err != nil {
-				// A local digest with an unparseable UUID indicates data corruption;
-				// log and skip rather than silently diverging the two collections.
+			parsed, err := uuid.Parse(d.ID)
+			if err != nil {
+				// Unparseable UUID => corrupt local data; log and skip.
 				s.index.logger.WithField("uuid", d.ID).
 					Error("async replication: skipping local digest with invalid UUID")
 				continue
 			}
 			filteredDigests = append(filteredDigests, d)
+			localDigestsByUUID[parsed] = d.UpdateTime
 		}
 		localObjectsCount += len(filteredDigests)
 
 		if len(filteredDigests) == 0 {
-			// All objects in this batch are too recent to propagate, but later
-			// UUID ranges may still contain eligible objects (DigestObjectsInRange
-			// returns results ordered by UUID, not by UpdateTime). Advance past
-			// this batch and keep scanning instead of stopping here.
+			// Whole batch too recent — but results are UUID-ordered, not
+			// UpdateTime-ordered, so later UUIDs may still be eligible: advance
+			// past this batch and keep scanning rather than stopping.
 			if len(allLocalDigests) < currBatchSize {
 				break
 			}
@@ -1704,46 +1764,37 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 			continue
 		}
 
-		// Fetch remote digests for the same UUID range covered by this local batch,
-		// then compare locally to find missing or stale objects.
-		firstUUID := strfmt.UUID(allLocalDigests[0].ID)
-		lastUUID := strfmt.UUID(allLocalDigests[len(allLocalDigests)-1].ID)
-		remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx, s.name, targetNodeAddress, firstUUID, lastUUID, currBatchSize)
+		// One round-trip: the target returns only the digests needing action
+		// (missing or stale; missing also covers target-side tombstones).
+		staleDigests, err := s.index.replicator.CompareDigests(ctx, s.name, targetNodeAddress, filteredDigests)
 		if err != nil {
-			return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching remote object digests: %w", err)
+			return localObjectsCount, objectsToPropagate, fmt.Errorf("comparing digests with remote: %w", err)
 		}
 
-		clear(remoteByID)
-		for _, rd := range remoteDigests {
-			key, err := uuid.Parse(rd.ID)
+		batchActionCount := 0
+		for _, stale := range staleDigests {
+			key, err := uuid.Parse(stale.ID)
 			if err != nil {
-				s.index.logger.WithField("uuid", rd.ID).
-					Error("async replication: skipping remote digest with invalid UUID")
+				s.index.logger.WithField("uuid", stale.ID).
+					Error("async replication: skipping stale digest with invalid UUID")
 				continue
 			}
-			remoteByID[key] = rd
-		}
-
-		remoteObjectsCount += len(remoteDigests)
-
-		propagated := 0
-		for _, d := range filteredDigests {
-			key, _ := uuid.Parse(d.ID) // already validated above
-			remoteDigest, found := remoteByID[key]
-			if found && remoteDigest.UpdateTime >= d.UpdateTime {
-				// Remote is up to date or newer; nothing to propagate.
+			localUT, ok := localDigestsByUUID[key]
+			if !ok {
+				// Target returned an ID we did not send — protocol/remote bug; skip.
+				s.index.logger.WithField("uuid", stale.ID).
+					Error("async replication: target returned a digest not present in source batch")
 				continue
 			}
-			var remoteStaleUpdateTime int64
-			if found {
-				remoteStaleUpdateTime = remoteDigest.UpdateTime
-			}
+
+			// Queue every returned digest (stale or missing/tombstoned); the
+			// target's Overwrite handler + resolveObjectConflict settle deletions.
 			objectsToPropagate = append(objectsToPropagate, objectToPropagate{
-				uuid:                  strfmt.UUID(d.ID),
-				lastUpdateTime:        d.UpdateTime,
-				remoteStaleUpdateTime: remoteStaleUpdateTime,
+				uuid:                  strfmt.UUID(stale.ID),
+				lastUpdateTime:        localUT,
+				remoteStaleUpdateTime: stale.UpdateTime, // 0 when missing-or-tombstoned on target
 			})
-			propagated++
+			batchActionCount++
 		}
 
 		if len(allLocalDigests) < currBatchSize {
@@ -1756,16 +1807,14 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config AsyncR
 		}
 
 		currLocalUUIDBytes = lastLocalUUIDBytes
-		// Decrement by objects actually queued for propagation so that limit
-		// reflects remaining propagation capacity, not objects scanned.
-		// Scanning many already-up-to-date objects should not exhaust the limit.
-		limit -= propagated
+		// Charge the budget only for queued propagations, not for scanned-but-current objects.
+		limit -= batchActionCount
 	}
 
 	// Note: propagations == 0 means local shard is laying behind remote shard,
 	// the local shard may receive recent objects when remote shard propagates them
 
-	return localObjectsCount, remoteObjectsCount, objectsToPropagate, nil
+	return localObjectsCount, objectsToPropagate, nil
 }
 
 // getHashBeatMaxUpdateTime returns the cutoff update time for propagation.

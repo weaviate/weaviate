@@ -9,7 +9,7 @@
 #   4. Trigger the e2e + chaos tests matrix workflow
 #
 # Usage:
-#   tools/dev/qa_pr.sh <pr_number_or_url>
+#   tools/dev/qa_pr.sh <pr_number_or_url> [--e2e-branch=<branch>] [--chaos-branch=<branch>]
 #
 # You can pass the PR in either of two ways:
 #   1. As a PR number:
@@ -17,13 +17,22 @@
 #   2. As a full PR URL:
 #        ./tools/dev/qa_pr.sh https://github.com/weaviate/weaviate/pull/11222
 #
+# Optional flags (both default to "main" when omitted or empty):
+#   --e2e-branch=<branch>    Branch of the e2e test suite to run
+#   --chaos-branch=<branch>  Branch of the chaos test suite to run
+#
+# Examples:
+#   ./tools/dev/qa_pr.sh 11222 --e2e-branch=custom-e2e-branch
+#   ./tools/dev/qa_pr.sh 11222 --chaos-branch=custom-chaos-branch
+#   ./tools/dev/qa_pr.sh 11222 --e2e-branch=foo --chaos-branch=bar
+#
 # Requires gh scopes: repo, project
 #   gh auth refresh -h github.com -s project
 
 set -euo pipefail
 
 usage() {
-  sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 if [[ $# -eq 0 ]]; then
@@ -33,12 +42,53 @@ if [[ $# -eq 0 ]]; then
   exit 1
 fi
 
-if [[ $# -ne 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
+PR_INPUT=""
+E2E_BRANCH=""
+CHAOS_BRANCH=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --e2e-branch=*)
+      E2E_BRANCH="${1#--e2e-branch=}"
+      shift
+      ;;
+    --chaos-branch=*)
+      CHAOS_BRANCH="${1#--chaos-branch=}"
+      shift
+      ;;
+    --*)
+      echo "ERROR: unknown option '$1'" >&2
+      echo "" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [[ -n "$PR_INPUT" ]]; then
+        echo "ERROR: unexpected positional argument '$1' (PR already set to '$PR_INPUT')" >&2
+        echo "" >&2
+        usage >&2
+        exit 1
+      fi
+      PR_INPUT="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$PR_INPUT" ]]; then
+  echo "ERROR: missing required argument <pr_number_or_url>" >&2
+  echo "" >&2
+  usage >&2
   exit 1
 fi
 
-PR_INPUT="$1"
+# Default both branches to "main" when omitted or empty.
+E2E_BRANCH="${E2E_BRANCH:-main}"
+CHAOS_BRANCH="${CHAOS_BRANCH:-main}"
 
 # Accept either a bare PR number (e.g. 11222) or a GitHub PR URL
 # (e.g. https://github.com/weaviate/weaviate/pull/11222).
@@ -201,23 +251,36 @@ TAGS=$(gh api "repos/$WEAVIATE_REPO/actions/jobs/$JOB_ID/logs" 2>&1 \
   | grep -oE 'semitechnologies/weaviate:[a-zA-Z0-9._-]+' \
   | sort -u || true)
 
-# Prefer the preview-branch tag (e.g. preview-prepare-release-v1-36-13-<sha>.amd64) over
-# the semver tag (e.g. 1.36.13-<sha>.amd64) — the preview tag encodes the source branch
-# and is what the QA workflow expects per the QA release process.
+# Prefer the preview-branch tag (e.g. preview-prepare-release-v1-36-13-<sha>) over the
+# semver tag (e.g. 1.36.13-<sha>) — the preview tag encodes the source branch and is
+# what the QA workflow expects per the QA release process.
+#
+# Two shapes are possible depending on how the PR built its image:
+#   - per-arch (default): two tags, suffixed `.amd64` and `.arm64`
+#   - multi-arch (opt-in): a single tag covering both arches, no suffix
 AMD64_TAG=$(echo "$TAGS" | grep '^semitechnologies/weaviate:preview-.*\.amd64$' | head -1 || true)
 ARM64_TAG=$(echo "$TAGS" | grep '^semitechnologies/weaviate:preview-.*\.arm64$' | head -1 || true)
+MULTIARCH_TAG=""
 
-if [[ -z "$AMD64_TAG" || -z "$ARM64_TAG" ]]; then
-  log "ERROR: Could not extract preview-* amd64/arm64 docker tags from job logs"
-  log "Tags found:"
-  echo "$TAGS" | sed 's/^/  /' >&2
-  exit 1
+if [[ -n "$AMD64_TAG" && -n "$ARM64_TAG" ]]; then
+  log "amd64 tag: $AMD64_TAG"
+  log "arm64 tag: $ARM64_TAG"
+  WEAVIATE_VERSION_INPUT="${AMD64_TAG#semitechnologies/weaviate:}"
+  TAGS_BLOCK="$AMD64_TAG"$'\n'"$ARM64_TAG"
+else
+  MULTIARCH_TAG=$(echo "$TAGS" \
+    | grep '^semitechnologies/weaviate:preview-' \
+    | grep -vE '\.(amd64|arm64)$' | head -1 || true)
+  if [[ -z "$MULTIARCH_TAG" ]]; then
+    log "ERROR: Could not extract preview-* docker tags from job logs (neither per-arch nor multi-arch)"
+    log "Tags found:"
+    echo "$TAGS" | sed 's/^/  /' >&2
+    exit 1
+  fi
+  log "multi-arch tag: $MULTIARCH_TAG"
+  WEAVIATE_VERSION_INPUT="${MULTIARCH_TAG#semitechnologies/weaviate:}"
+  TAGS_BLOCK="$MULTIARCH_TAG"
 fi
-log "amd64 tag: $AMD64_TAG"
-log "arm64 tag: $ARM64_TAG"
-
-# Strip the prefix for the workflow input (must NOT include semitechnologies/weaviate:)
-WEAVIATE_VERSION_INPUT="${AMD64_TAG#semitechnologies/weaviate:}"
 
 # ===== Step 2: Create QA issue =====
 log ""
@@ -228,8 +291,7 @@ if [[ "$IS_RELEASE_PR" == true ]]; then
 This issue tracks the testing executed to validate the Weaviate version $VERSION.
 
 \`\`\`
-$AMD64_TAG
-$ARM64_TAG
+$TAGS_BLOCK
 \`\`\`
 EOF
 )
@@ -238,8 +300,7 @@ else
 This issue tracks the QA tests executed for [PR #$PR_NUMBER](https://github.com/$WEAVIATE_REPO/pull/$PR_NUMBER): $PR_TITLE.
 
 \`\`\`
-$AMD64_TAG
-$ARM64_TAG
+$TAGS_BLOCK
 \`\`\`
 EOF
 )
@@ -300,7 +361,9 @@ log "Step 4: Triggering tests matrix workflow in $QA_REPO"
 log "  weaviate_version:        $WEAVIATE_VERSION_INPUT"
 log "  issue_number:            $ISSUE_NUMBER"
 log "  run_e2e_tests:           true"
+log "  e2e_branch:              $E2E_BRANCH"
 log "  run_chaos_tests:         true"
+log "  chaos_branch:            $CHAOS_BRANCH"
 log "  run_vectorizer_tests:    false"
 log "  run_performance_tests:   false"
 log "  include_7_replicas:      true"
@@ -308,12 +371,12 @@ log "  include_7_replicas:      true"
 gh workflow run main.yaml \
   --repo "$QA_REPO" \
   -f weaviate_version="$WEAVIATE_VERSION_INPUT" \
-  -f e2e_branch="main" \
+  -f e2e_branch="$E2E_BRANCH" \
   -f run_e2e_tests=true \
   -f run_vectorizer_tests=false \
   -f include_7_replicas=true \
   -f run_chaos_tests=true \
-  -f chaos_branch="main" \
+  -f chaos_branch="$CHAOS_BRANCH" \
   -f run_performance_tests=false \
   -f performance_branch="main" \
   -f issue_number="$ISSUE_NUMBER"

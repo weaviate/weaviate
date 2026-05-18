@@ -12,7 +12,7 @@ All limits are **opt-in**: env vars unset means no enforcement.
 |---|---|---|---|
 | `USAGE_LIMITS_ERROR_MESSAGE` | string | `"{limit} count limit of {value} reached for this instance."` | Operator-overridable template for the user-facing error message. Placeholders: `{limit}` (resource type) and `{value}` (configured threshold). |
 | `MAXIMUM_ALLOWED_OBJECTS_COUNT` | int | `-1` (unlimited) | Cap on live object count, summed across all loaded local shards (node-wide). Checked on every single + batch insert at the storage chokepoint. |
-| `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` | int | `-1` (unlimited) | Cap on number of collections. Pre-existing env var; behavior preserved. |
+| `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` | int | `-1` (unlimited) | Cap on number of collections. Cluster-global when `NAMESPACES_ENABLED=false`; per namespace when `NAMESPACES_ENABLED=true`. |
 | `MAXIMUM_ALLOWED_TENANTS_PER_COLLECTION` | int | `-1` (unlimited) | Cap on tenants per multi-tenant collection. Checked at tenant-create time only. |
 | `MAXIMUM_ALLOWED_SHARDS_PER_COLLECTION` | int | `-1` (unlimited) | Cap on `desiredCount` of a class create request's `shardingConfig`. Config-time check. |
 
@@ -43,6 +43,8 @@ The schema-side limits (collections, tenants, shards) stay at the use-case layer
 The object count is **node-wide** across local shards: the manager sums each loaded shard's `bucket.CountAsync()` (`adapters/repos/db/lsmkv/bucket.go`) on every enforced write. Each `CountAsync()` is O(segments-per-shard) — it walks the live segment list and sums each segment's already-loaded net-additions counter, no I/O. For the Free-Tier shape (few shards, few segments) that's a handful of atomic reads on the hot path.
 
 We deliberately don't route through `UsageForIndex` — that path triggers other usage-module computations beyond a count.
+
+The collection count is **schema/RAFT-backed**: the limit check in `AddClass()` calls `schemaManager.QueryCollectionsCount(namespace)`, which goes through RAFT to the leader. When `NAMESPACES_ENABLED=false` the namespace selector is empty and the response is the cluster-global `len(s.classes)`. When `NAMESPACES_ENABLED=true` the selector is the caller's `principal.Namespace` (namespaced creates already require a namespaced principal) and the count is restricted to stored class names whose `<namespace>:` prefix matches. Aliases live outside this map and do not consume the cap.
 
 ## Error response
 
@@ -80,7 +82,6 @@ Supported deployment shapes (where the cap is meaningful and exact):
 - **RF > 1.** The replicated write path bypasses `Shard.PutObject{,Batch}` (it goes through `shard_replication.go`'s `preparePutObject{,s}` → `s.putOne` / `s.putBatch` directly). Supporting RF>1 would require either dropping the check one level deeper or a smarter scheme like a lease-based quota.
 - **Hypothetical multi-node, non-namespaced, RF=1, single-shard clusters where collections are distributed across nodes.** Each node would only see its local slice of the count, so the effective cap stacks (`cap × min(N_collections, N_nodes_with_shards)`). Not a deployment shape we ship the cap in.
 - **Phase-2 namespaces** that spread a namespace's collections across nodes — same problem as the previous bullet.
-- **Cluster-wide enforcement.** Reserved for the future namespaces work; not API-stubbed here.
 
 ## Backward-compat note: collections-limit status code
 

@@ -248,11 +248,25 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	return cp
 }
 
-func (s *schema) CollectionsCount() int {
+// CollectionsCount returns the number of stored classes. With an empty
+// namespace it is the cluster-global total. With a non-empty namespace it
+// counts only classes whose internal name carries that namespace prefix.
+func (s *schema) CollectionsCount(namespace string) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return len(s.classes)
+	if namespace == "" {
+		return len(s.classes)
+	}
+
+	prefix := namespace + entSchema.NamespaceSeparator
+	count := 0
+	for name := range s.classes {
+		if strings.HasPrefix(name, prefix) {
+			count++
+		}
+	}
+	return count
 }
 
 // ShardOwner returns the node owner of the specified shard

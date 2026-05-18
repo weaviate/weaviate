@@ -223,6 +223,70 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	return objs, nil
 }
 
+// CompareDigests returns the subset of sourceDigests needing source-side action:
+// stale entries (source newer than local; local UpdateTime is reported back) and
+// missing entries (UpdateTime=0). Equal and locally-newer entries are dropped.
+// Tombstoned UUIDs are indistinguishable from missing here (the cursor skips
+// tombstones), so the source resolves any tombstone collision later via the
+// post-Overwrite resolveObjectConflict path.
+//
+// sourceDigests must be in strict lex UUID order; out-of-order input is rejected
+// rather than silently mis-joined.
+func (s *Shard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
+	if len(sourceDigests) == 0 {
+		return nil, nil
+	}
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+
+	firstUUID, err := uuid.Parse(sourceDigests[0].ID)
+	if err != nil {
+		return nil, fmt.Errorf("parse source uuid %q: %w", sourceDigests[0].ID, err)
+	}
+	cursorKey, cursorVal := cursor.Seek(firstUUID[:])
+
+	result := make([]types.RepairResponse, 0, len(sourceDigests))
+	var prevUUID uuid.UUID
+	var prevID string
+	for i, d := range sourceDigests {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		srcUUID, err := uuid.Parse(d.ID)
+		if err != nil {
+			return nil, fmt.Errorf("parse source uuid %q: %w", d.ID, err)
+		}
+		if i > 0 && bytes.Compare(srcUUID[:], prevUUID[:]) <= 0 {
+			return nil, fmt.Errorf("source digests not in strict lex order: %q after %q", d.ID, prevID)
+		}
+
+		for cursorKey != nil && bytes.Compare(cursorKey, srcUUID[:]) < 0 {
+			cursorKey, cursorVal = cursor.Next()
+		}
+
+		if cursorKey != nil && bytes.Equal(cursorKey, srcUUID[:]) {
+			_, localTime, err := storobj.DocIDAndTimeFromBinary(cursorVal)
+			if err != nil {
+				return nil, fmt.Errorf("extract update time for %q: %w", d.ID, err)
+			}
+			if d.UpdateTime > localTime {
+				result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: localTime})
+			}
+			cursorKey, cursorVal = cursor.Next()
+		} else {
+			result = append(result, types.RepairResponse{ID: d.ID, UpdateTime: 0})
+		}
+
+		prevUUID = srcUUID
+		prevID = d.ID
+	}
+
+	return result, nil
+}
+
 // TODO: This does an actual read which is not really needed, if we see this
 // come up in profiling, we could optimize this by adding an explicit Exists()
 // on the LSMKV which only checks the bloom filters, which at least in the case
@@ -867,9 +931,8 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
-	// waitForMinimalHashTreeInitialization must be called before acquiring the
-	// RLock because it may block, and blocking inside RLock would deadlock
-	// with initAsyncReplication (which takes the write lock).
+	// Wait outside RLock: initAsyncReplication holds the write lock while
+	// initialising, so blocking under RLock here would deadlock.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return err
 	}
