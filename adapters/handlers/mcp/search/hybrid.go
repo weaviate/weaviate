@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (*QueryHybridResp, error) {
@@ -41,6 +42,13 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	if err != nil {
 		return nil, err
 	}
+
+	resolved, _, err := namespacing.Resolve(principal, s.schemaManager, s.namespacesEnabled, args.CollectionName)
+	if err != nil {
+		return nil, err
+	}
+	args.CollectionName = resolved
+
 	if err := s.AuthorizeCollectionData(ctx, principal, authorization.READ, args.CollectionName, args.TenantName); err != nil {
 		return nil, err
 	}
@@ -96,11 +104,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 			return nil, fmt.Errorf("failed to unmarshal filters: %w", err)
 		}
 
-		// Parse to LocalFilter. MCP does not yet support namespaces, so the
-		// nested-path guard in filterext.Parse is hard-wired off here. Wire
-		// the real namespacesEnabled flag through when MCP gains namespace
-		// support.
-		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, false)
+		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, s.namespacesEnabled)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse filters: %w", err)
 		}
