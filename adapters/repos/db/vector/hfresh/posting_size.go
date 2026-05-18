@@ -83,13 +83,33 @@ func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size int) erro
 		return errors.Errorf("size cannot be negative, got %d", size)
 	}
 
+	if size == 0 {
+		page, slot := p.data.GetPageFor(postingID)
+		var oldSize uint32
+		if page != nil {
+			oldSize = atomic.LoadUint32(&page[slot])
+			if oldSize > 0 {
+				p.count.Add(^uint64(0)) // decrement by 1
+				atomic.StoreUint32(&page[slot], 0)
+				p.totalSize.Add(uint64(-int64(oldSize)))
+			}
+		}
+
+		if err := p.store.Delete(ctx, postingID); err != nil {
+			return err
+		}
+
+		p.metrics.SetPostings(int(p.count.Load()))
+		p.metrics.SetSize(int(p.totalSize.Load()))
+
+		return nil
+	}
+
 	page, slot := p.data.EnsurePageFor(postingID)
 
 	oldSize := atomic.LoadUint32(&page[slot])
-	if oldSize == 0 && size > 0 {
+	if oldSize == 0 {
 		p.count.Add(1)
-	} else if oldSize > 0 && size == 0 {
-		p.count.Add(^uint64(0)) // decrement by 1
 	}
 
 	atomic.StoreUint32(&page[slot], uint32(size))
@@ -114,12 +134,14 @@ func (p *PostingSizes) Restore(ctx context.Context) error {
 	}()
 
 	return p.store.Iter(ctx, func(postingID uint64, size uint32) error {
+		if size == 0 {
+			return nil
+		}
+
 		page, slot := p.data.EnsurePageFor(postingID)
 		atomic.StoreUint32(&page[slot], size)
-		if size > 0 {
-			p.count.Add(1)
-			p.totalSize.Add(uint64(size))
-		}
+		p.count.Add(1)
+		p.totalSize.Add(uint64(size))
 		return nil
 	})
 }
@@ -169,6 +191,11 @@ func (p *PostingSizesStore) Set(ctx context.Context, postingID uint64, size uint
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, size)
 	return p.bucket.Put(key[:], buf)
+}
+
+func (p *PostingSizesStore) Delete(ctx context.Context, postingID uint64) error {
+	key := p.key(postingID)
+	return p.bucket.Delete(key[:])
 }
 
 func (p *PostingSizesStore) Iter(ctx context.Context, fn func(uint64, uint32) error) error {
