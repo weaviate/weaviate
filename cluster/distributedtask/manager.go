@@ -235,7 +235,15 @@ func NewManager(params ManagerParameters) *Manager {
 // providers that don't opt in remain unaffected, which preserves the
 // existing behaviour for namespaces whose tasks are not bound to a
 // schema-collection lifetime.
+//
+// A nil extractor or empty namespace is a no-op (always a programmer
+// error to register either, but a panic at startup wiring would be
+// worse than silently dropping the registration; DeleteTasksForCollection
+// also defends against a nil entry slipping in).
 func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
+	if namespace == "" || extractor == nil {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
@@ -272,7 +280,10 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	var removed []TaskDescriptor
 	for namespace, tasksByID := range m.tasks {
 		extractor, ok := m.collectionExtractors[namespace]
-		if !ok {
+		if !ok || extractor == nil {
+			// nil shouldn't happen given the RegisterCollectionExtractor
+			// guard, but defense-in-depth: invoking a nil extractor would
+			// panic mid-iteration and leave the cascade half-applied.
 			continue
 		}
 		for taskID, task := range tasksByID {

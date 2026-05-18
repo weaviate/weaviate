@@ -1507,4 +1507,25 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 		removed := h.manager.DeleteTasksForCollection("Foo")
 		assert.Empty(t, removed, "second extractor takes effect; task must NOT be removed")
 	})
+
+	t.Run("RegisterCollectionExtractor rejects nil extractor and empty namespace", func(t *testing.T) {
+		// Without the guard, DeleteTasksForCollection would dereference a nil
+		// function pointer mid-iteration and panic (or register under "" and
+		// shadow the legitimate empty-namespace tasks if any).
+		h := newTestHarness(t).init(t)
+
+		// nil extractor: must NOT be stored; subsequent cascade must be a no-op.
+		h.manager.RegisterCollectionExtractor("scoped", nil)
+		addRawTask(t, h, "scoped", "task", []byte("anything"), "u-1")
+		require.NotPanics(t, func() {
+			removed := h.manager.DeleteTasksForCollection("Foo")
+			assert.Empty(t, removed, "nil extractor must not match anything")
+		})
+
+		// Empty namespace: drop on the floor.
+		h.manager.RegisterCollectionExtractor("", func([]byte) (string, bool) { return "Foo", true })
+		addRawTask(t, h, "", "task-in-empty-ns", []byte("anything"), "u-2")
+		removed := h.manager.DeleteTasksForCollection("Foo")
+		assert.Empty(t, removed, "empty-namespace registration must be ignored")
+	})
 }

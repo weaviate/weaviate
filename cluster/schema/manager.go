@@ -473,14 +473,23 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 					s.log.WithField("class", cmd.Class).
 						Debug("distributed-task manager not set; skipping cascade-delete on class delete")
 				} else if removed := s.distributedTaskManager.DeleteTasksForCollection(cmd.Class); len(removed) > 0 {
-					ids := make([]string, 0, len(removed))
-					for _, d := range removed {
-						ids = append(ids, fmt.Sprintf("%s/%d", d.ID, d.Version))
-					}
 					s.log.WithField("class", cmd.Class).
 						WithField("removed_count", len(removed)).
-						WithField("removed_tasks", ids).
 						Info("cascade-deleted distributed-task records for dropped class")
+					// Full ID/version list at Debug only — a class that
+					// accumulated many historical tasks would otherwise produce
+					// huge Info-level log lines (and the allocations to build
+					// them) at every DELETE_CLASS apply. IsLevelEnabled gates
+					// the allocation as well as the emit.
+					if s.log.IsLevelEnabled(logrus.DebugLevel) {
+						ids := make([]string, 0, len(removed))
+						for _, d := range removed {
+							ids = append(ids, fmt.Sprintf("%s/%d", d.ID, d.Version))
+						}
+						s.log.WithField("class", cmd.Class).
+							WithField("removed_tasks", ids).
+							Debug("cascade-deleted distributed-task IDs (full list)")
+					}
 				}
 				return s.db.DeleteClass(cmd.Class, hasFrozen)
 			},

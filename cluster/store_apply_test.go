@@ -633,15 +633,19 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 	// Add two tasks bound to "Foo" + one bound to "Bar" via Raft (so
 	// the same code path production uses lands them in the manager).
 	// Each goes through ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, whose
-	// SubCommand is JSON-encoded (see Manager.AddTask).
-	addTask := func(t *testing.T, id string, collection string) {
+	// SubCommand is JSON-encoded (see Manager.AddTask). Indexes are
+	// monotonic across the whole test (1=add-class, 2..4=add-task,
+	// 5=delete-class) because Store.Apply reads l.Index for Response.Version,
+	// lastAppliedIndex, metrics, and the catchingUp/schemaOnly decisions —
+	// non-monotonic indexes produce unrealistic FSM state in the test.
+	addTaskAtIndex := func(t *testing.T, idx uint64, id string, collection string) {
 		t.Helper()
 		payloadBytes, err := json.Marshal(map[string]string{"collection": collection})
 		if err != nil {
 			t.Fatalf("marshal: %v", err)
 		}
 		result := ms.store.Apply(&raft.Log{
-			Index: 100,
+			Index: idx,
 			Type:  raft.LogCommand,
 			Data: cmdAsBytes("", api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
 				&api.AddDistributedTaskRequest{
@@ -657,11 +661,11 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 		}
 	}
 
-	applyOrFail(t, ms, addLog, "add-class")
+	applyOrFail(t, ms, addLog, "add-class") // Index=1 from setupCascadeTestStore
 
-	addTask(t, "foo-1", "Foo")
-	addTask(t, "foo-2", "Foo")
-	addTask(t, "bar-1", "Bar")
+	addTaskAtIndex(t, 2, "foo-1", "Foo")
+	addTaskAtIndex(t, 3, "foo-2", "Foo")
+	addTaskAtIndex(t, 4, "bar-1", "Bar")
 
 	// Sanity check pre-delete: three tasks should be in the manager.
 	preTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
@@ -672,6 +676,9 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 		t.Fatalf("pre-delete task count: got %d want %d", got, want)
 	}
 
+	// Override the default deleteLog.Index (2 from setupCascadeTestStore) so
+	// the full sequence is monotonic: 1, 2, 3, 4, 5.
+	deleteLog.Index = 5
 	// Apply DELETE_CLASS for "Foo" and verify the cascade fired.
 	applyOrFail(t, ms, deleteLog, "delete-class")
 
