@@ -58,11 +58,8 @@ type Manager struct {
 	// safe — the setter takes m.mu.
 	schemaMutationDetectors map[string]SchemaMutationDetector
 
-	// collectionExtractors maps a namespace to a function that extracts
-	// the schema-collection a task's payload is bound to. Populated via
-	// [Manager.RegisterCollectionExtractor] at node startup; a namespace
-	// without a registered extractor is treated as not collection-scoped
-	// and is immune to [Manager.DeleteTasksForCollection]'s cascade.
+	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
+	// not collection-scoped and survives DeleteTasksForCollection.
 	collectionExtractors map[string]CollectionExtractor
 
 	completedTaskTTL time.Duration
@@ -223,23 +220,9 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 }
 
-// RegisterCollectionExtractor opts a task namespace into the
-// schema-collection cascade-delete path. The extractor is invoked under
-// the Manager's lock during [Manager.DeleteTasksForCollection], so it
-// must not block, acquire additional locks, or call back into the
-// Manager.
-//
-// Calling twice for the same namespace overwrites the prior extractor —
-// the expected pattern is one call per namespace at node startup. The
-// Manager itself never enforces that every namespace has an extractor:
-// providers that don't opt in remain unaffected, which preserves the
-// existing behaviour for namespaces whose tasks are not bound to a
-// schema-collection lifetime.
-//
-// A nil extractor or empty namespace is a no-op (always a programmer
-// error to register either, but a panic at startup wiring would be
-// worse than silently dropping the registration; DeleteTasksForCollection
-// also defends against a nil entry slipping in).
+// RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
+// cascade. Extractor runs under the Manager lock — must not block or recurse. Last
+// write wins per namespace; nil / empty arguments are silently dropped.
 func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
 	if namespace == "" || extractor == nil {
 		return
@@ -249,26 +232,11 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.collectionExtractors[namespace] = extractor
 }
 
-// DeleteTasksForCollection removes every task in every namespace whose
-// payload is bound to `collection`, as determined by the
-// CollectionExtractor registered for that namespace. Namespaces without
-// a registered extractor are skipped entirely.
-//
-// Invoked by the schema FSM when a class is dropped, so that terminal
-// (FAILED / FINISHED) task records do not survive a drop+recreate of a
-// class with the same name. Without this cascade, the recreated class
-// inherits the prior incarnation's task status (the index-status
-// materialisation joins by class name), surfacing a permanently
-// failed-looking schema for a freshly created collection — see
-// weaviate/0-weaviate-issues#231.
-//
-// Returns the descriptors of removed tasks (for caller logging /
-// metrics). Returns nil when nothing matched.
-//
-// Empty `collection` is treated as a no-op: an extractor that happens
-// to emit ("", true) on stray bytes must not catastrophically remove
-// every task in the cluster, so a `""` query is refused at the entry
-// point.
+// DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
+// from the schema FSM on DELETE_CLASS so a drop+recreate of the same class name
+// starts with a clean task slate. Empty `collection` is rejected (an extractor
+// emitting ("", true) on stray bytes would otherwise wipe the cluster).
+// See weaviate/0-weaviate-issues#231.
 func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	if collection == "" {
 		return nil
@@ -281,9 +249,6 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	for namespace, tasksByID := range m.tasks {
 		extractor, ok := m.collectionExtractors[namespace]
 		if !ok || extractor == nil {
-			// nil shouldn't happen given the RegisterCollectionExtractor
-			// guard, but defense-in-depth: invoking a nil extractor would
-			// panic mid-iteration and leave the cascade half-applied.
 			continue
 		}
 		for taskID, task := range tasksByID {
