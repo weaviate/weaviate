@@ -263,7 +263,7 @@ func (e *recExecutor) evalNode(ctx context.Context, node recPlanNode, parentScop
 // The here=0, subs=1 case is collapsed away by the planner so it does not
 // reach evalGroup (see buildGroup).
 func (e *recExecutor) evalGroup(ctx context.Context, g *recGroupNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
-	if canUseRawAndAll(g) || g.lcaPath == "" {
+	if e.canUseRawAndAll(g) || g.lcaPath == "" {
 		return e.evalGroupRoot(ctx, g, parentScope)
 	}
 	if flat, ok := e.collectFlatSubtree(g); ok {
@@ -471,7 +471,7 @@ func (e *recExecutor) evalGroupRoot(ctx context.Context, g *recGroupNode, parent
 		return nil, nil, fmt.Errorf("evalGroupRoot: no inputs for group at lcaPath=%q", g.lcaPath)
 	}
 
-	if canUseRawAndAll(g) {
+	if e.canUseRawAndAll(g) {
 		anded, andedRel := e.bitmapOps.AndAll(bitmaps, e.maxConcurrency)
 		// Apply matching excludes (lcaPath == g.lcaPath) at raw level — the
 		// anded bitmap is still raw-shape (leaf-precise) here, so AndNot'ing a
@@ -503,10 +503,20 @@ func (e *recExecutor) evalGroupRoot(ctx context.Context, g *recGroupNode, parent
 
 // canUseRawAndAll reports whether evalGroupRoot can combine bitmaps with raw
 // AndAll (preserving leaf-precise same-element semantics) instead of
-// AndAllMaskLeaf. True only when every here path is unique and there are no
-// subs; subs produce already-masked rootDoc bitmaps that cannot AND against
-// raw leaf-precise positions.
-func canUseRawAndAll(g *recGroupNode) bool {
+// AndAllMaskLeaf. True only when every here path is unique, at most one path
+// is a scalar-array terminal, and there are no subs. Subs produce already-
+// masked rootDoc bitmaps that cannot AND against raw leaf-precise positions.
+//
+// Scalar-array terminals (text[], int[], uuid[], …) get distinct leaves per
+// element from walkScalarArray. A single scalar-array sibling combined with
+// regular scalars works under raw AndAll because Phase-3 inheritance makes
+// the regular scalars' leaves the union of all descendants — which includes
+// the scalar-array's leaves. But two scalar-array siblings never share a
+// leaf even within the same parent element, so raw AndAll would yield empty
+// for genuine same-element matches. Routing to runIdxLoopRecursive's
+// MaskLeafAnd preserves correctness by comparing rootDoc after stripping
+// leaves.
+func (e *recExecutor) canUseRawAndAll(g *recGroupNode) bool {
 	if len(g.subs) > 0 || len(g.here) == 0 {
 		return false
 	}
@@ -514,12 +524,19 @@ func canUseRawAndAll(g *recGroupNode) bool {
 		return true
 	}
 	seen := make(map[string]struct{}, len(g.here))
+	scalarArrays := 0
 	for _, leaf := range g.here {
 		path := childRelPath(leaf)
 		if _, dup := seen[path]; dup {
 			return false
 		}
 		seen[path] = struct{}{}
+		if e.pathTerminalIsScalarArray(path) {
+			scalarArrays++
+			if scalarArrays >= 2 {
+				return false
+			}
+		}
 	}
 	return true
 }

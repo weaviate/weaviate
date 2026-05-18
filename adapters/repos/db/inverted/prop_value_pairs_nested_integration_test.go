@@ -1322,6 +1322,278 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		requireBitmapValid(t, result.docIDs)
 		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
 	})
+
+	t.Run("two scalar-array siblings — single value each — same-car semantics", func(t *testing.T) {
+		// garages.cars.tags = "german" AND garages.cars.labels = "red"
+		//
+		// Two scalar-array (text[]) terminals at the same parent (cars), each
+		// constrained to one value. canUseRawAndAll's current dispatch fires
+		// (unique paths, no subs) and routes to evalGroupRoot's raw AndAll;
+		// however walkScalarArray assigns DISTINCT leaves per text[] element
+		// so tags="german" and labels="red" never share a leaf within the
+		// same car — raw AndAll returns empty for every doc, including the
+		// case where both values are present in the same car.
+		//
+		// Schema-aware dispatch (canUseRawAndAll detecting scalar-array
+		// terminals) routes to runIdxLoopRecursive instead, whose
+		// matchElementRecursive uses MaskLeafAnd to compare rootDoc after
+		// stripping leaves — both leaves co-locate at the same rootDoc.
+		//
+		// doc5: cars[0]={tags:["german"], labels:["red"]} → should match
+		// doc7: cars[0]={tags:["german"]}, cars[1]={labels:["red"]} → should NOT match
+
+		vTrue := true
+		class := &models.Class{
+			Class: "TestClass",
+			Properties: []*models.Property{
+				{
+					Name:     "garages",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name:     "cars",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), IndexFilterable: &vTrue},
+								{Name: "labels", DataType: schema.DataTypeTextArray.PropString(), IndexFilterable: &vTrue},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		valueBucketName := helpers.BucketNestedFromPropNameLSM("garages")
+		metaBucketName := helpers.BucketNestedMetaFromPropNameLSM("garages")
+		searcher, store := newNestedTestSearcher(t, valueBucketName, metaBucketName)
+
+		vb := store.Bucket(valueBucketName)
+		// doc5: cars[0] has both tags="german" (leaf=1) and labels="red" (leaf=2).
+		writeNestedValue(t, vb, "cars.tags", "german", []uint64{invnested.Encode(1, 1, doc5)})
+		writeNestedValue(t, vb, "cars.labels", "red", []uint64{invnested.Encode(1, 2, doc5)})
+		// doc7: tags="german" in cars[0] (leaf=1), labels="red" in cars[1] (leaf=2).
+		writeNestedValue(t, vb, "cars.tags", "german", []uint64{invnested.Encode(1, 1, doc7)})
+		writeNestedValue(t, vb, "cars.labels", "red", []uint64{invnested.Encode(1, 2, doc7)})
+
+		mb := store.Bucket(metaBucketName)
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 0), []uint64{
+			invnested.Encode(1, 1, doc5), invnested.Encode(1, 2, doc5),
+			invnested.Encode(1, 1, doc7), // doc7 tags in cars[0]
+		}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("cars", 1), []uint64{
+			invnested.Encode(1, 2, doc7), // doc7 labels in cars[1]
+		}))
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvp(class, "garages", "cars.tags", "german"),
+			makeLeafPvp(class, "garages", "cars.labels", "red"),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
+	})
+
+	t.Run("two scalar-array siblings at intermediate LCA — same-car-across-garages disambiguation", func(t *testing.T) {
+		// countries.garages.cars.tags = "german" AND countries.garages.cars.labels = "red"
+		//
+		// Two scalar-array (text[]) terminals at an intermediate LCA (garages.cars)
+		// inside a 3-level structure (countries > garages > cars). The planner's
+		// dispatch routes to runIdxLoopRecursive at "garages.cars" (2+ scalar-array
+		// here paths force canUseRawAndAll to bail; collectFlatSubtree also bails
+		// on scalar-array). _idx.garages.cars[K] aggregates positions across all
+		// garages — so K=0 covers g[0].cars[0], g[1].cars[0], etc.
+		//
+		// Without an outer wrapping GROUP at "garages" providing per-garage
+		// parentScope, runIdxLoopRecursive cannot disambiguate same-K elements
+		// under different parents: a doc with tags=german in g[0].cars[0] and
+		// labels=red in g[1].cars[0] (different cars at the same K under
+		// different garages) erroneously matches.
+		//
+		// The planner's needsWrappingGroup is supposed to keep the outer wrap
+		// when the inner group uses runIdxLoopRecursive. groupSubtreeNeedsOuterScope
+		// currently detects ≥2 subs and duplicate here paths but NOT scalar-array
+		// terminals — so the outer wrap collapses incorrectly here.
+		//
+		// doc5: country[0].garages[0].cars[0]={tags:["german"], labels:["red"]} → should match
+		// doc7: country[0].garages[0].cars[0]={tags:["german"]},
+		//       country[0].garages[1].cars[0]={labels:["red"]} → should NOT match
+		//       (different cars at same K under different garages — leak case)
+
+		vTrue := true
+		class := &models.Class{
+			Class: "TestClass",
+			Properties: []*models.Property{
+				{
+					Name:     "countries",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name:     "garages",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:     "cars",
+									DataType: schema.DataTypeObjectArray.PropString(),
+									NestedProperties: []*models.NestedProperty{
+										{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), IndexFilterable: &vTrue},
+										{Name: "labels", DataType: schema.DataTypeTextArray.PropString(), IndexFilterable: &vTrue},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		valueBucketName := helpers.BucketNestedFromPropNameLSM("countries")
+		metaBucketName := helpers.BucketNestedMetaFromPropNameLSM("countries")
+		searcher, store := newNestedTestSearcher(t, valueBucketName, metaBucketName)
+
+		vb := store.Bucket(valueBucketName)
+		// doc5: country[0].garages[0].cars[0] has both tags=german (leaf=1) and labels=red (leaf=2).
+		writeNestedValue(t, vb, "garages.cars.tags", "german", []uint64{invnested.Encode(1, 1, doc5)})
+		writeNestedValue(t, vb, "garages.cars.labels", "red", []uint64{invnested.Encode(1, 2, doc5)})
+		// doc7: country[0]={garages:[{cars:[{tags:[german]}]}, {cars:[{labels:[red]}]}]}.
+		// DFS leaves within country[0]: g[0].cars[0].tags[0]=1, g[1].cars[0].labels[0]=2.
+		writeNestedValue(t, vb, "garages.cars.tags", "german", []uint64{invnested.Encode(1, 1, doc7)})
+		writeNestedValue(t, vb, "garages.cars.labels", "red", []uint64{invnested.Encode(1, 2, doc7)})
+
+		mb := store.Bucket(metaBucketName)
+		// _idx.garages[J]: positions per garage element.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 0), []uint64{
+			invnested.Encode(1, 1, doc5), invnested.Encode(1, 2, doc5), // doc5 g[0]
+			invnested.Encode(1, 1, doc7), // doc7 g[0]
+		}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 1), []uint64{
+			invnested.Encode(1, 2, doc7), // doc7 g[1]
+		}))
+		// _idx.garages.cars[K]: cars[K] positions aggregated across all garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages.cars", 0), []uint64{
+			invnested.Encode(1, 1, doc5), invnested.Encode(1, 2, doc5),
+			invnested.Encode(1, 1, doc7), invnested.Encode(1, 2, doc7),
+		}))
+
+		pv := makeCorrelatedPvp(class, "countries",
+			makeLeafPvp(class, "countries", "garages.cars.tags", "german"),
+			makeLeafPvp(class, "countries", "garages.cars.labels", "red"),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
+	})
+
+	t.Run("two scalar-array siblings under 1-branch SPLIT — wrapping group preserves per-garage scope", func(t *testing.T) {
+		// countries.garages.cars[1].tags = "german" AND
+		// countries.garages.cars[1].labels = "red"
+		//
+		// Both conditions pin to cars[1] (constraint at "garages.cars"). The
+		// planner produces:
+		//   GROUP@"garages" {here:[], subs:[
+		//     SPLIT@"garages.cars" 1-branch [GROUP@"garages.cars" {here:[tags, labels]}]
+		//   ]}
+		//
+		// The SPLIT pins to cars[1] at its lcaPath but doesn't disambiguate K=1
+		// across different garages within the same country. The inner GROUP
+		// dispatches to runIdxLoopRecursive (after the scalar-array fix), which
+		// reads _idx.garages.cars[K] aggregating cars[K] positions across all
+		// garages. Without the outer wrapping GROUP@"garages" iterating
+		// _idx.garages[J] to scope per-garage, the inner matchElementRecursive
+		// can match positions from DIFFERENT garages' cars[1] elements as if
+		// they were the same — the MaskLeafAnd zeroes leaf bits and collapses
+		// to (root, doc), conflating across garage parents.
+		//
+		// The planner's needsWrappingGroup for a 1-branch SPLIT must therefore
+		// recurse into the branch plan: if the branch needs outer scope, the
+		// wrapping group must be kept.
+		//
+		// doc5: country[0].garages[0].cars[1] = {tags:[german], labels:[red]}
+		//       → should match (same car has both)
+		// doc7: country[0].garages[0].cars[1] = {tags:[german]},
+		//       country[0].garages[1].cars[1] = {labels:[red]}
+		//       → should NOT match (cars[1] in different garages — leak case)
+
+		vTrue := true
+		class := &models.Class{
+			Class: "TestClass",
+			Properties: []*models.Property{
+				{
+					Name:     "countries",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{
+							Name:     "garages",
+							DataType: schema.DataTypeObjectArray.PropString(),
+							NestedProperties: []*models.NestedProperty{
+								{
+									Name:     "cars",
+									DataType: schema.DataTypeObjectArray.PropString(),
+									NestedProperties: []*models.NestedProperty{
+										{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), IndexFilterable: &vTrue},
+										{Name: "labels", DataType: schema.DataTypeTextArray.PropString(), IndexFilterable: &vTrue},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		valueBucketName := helpers.BucketNestedFromPropNameLSM("countries")
+		metaBucketName := helpers.BucketNestedMetaFromPropNameLSM("countries")
+		searcher, store := newNestedTestSearcher(t, valueBucketName, metaBucketName)
+
+		vb := store.Bucket(valueBucketName)
+		// doc5: country[0]={garages:[{cars:[{}, {tags:[german], labels:[red]}]}]}
+		// DFS leaves within country[0]: garages[0].cars[0]={} → 1; garages[0].cars[1].tags[0] → 2; garages[0].cars[1].labels[0] → 3.
+		writeNestedValue(t, vb, "garages.cars.tags", "german", []uint64{invnested.Encode(1, 2, doc5)})
+		writeNestedValue(t, vb, "garages.cars.labels", "red", []uint64{invnested.Encode(1, 3, doc5)})
+		// doc7: country[0]={garages:[
+		//   {cars:[{}, {tags:[german]}]},
+		//   {cars:[{}, {labels:[red]}]},
+		// ]}
+		// DFS within country[0]: g[0].cars[0]={}→1; g[0].cars[1].tags[0]→2;
+		//                       g[1].cars[0]={}→3; g[1].cars[1].labels[0]→4.
+		writeNestedValue(t, vb, "garages.cars.tags", "german", []uint64{invnested.Encode(1, 2, doc7)})
+		writeNestedValue(t, vb, "garages.cars.labels", "red", []uint64{invnested.Encode(1, 4, doc7)})
+
+		mb := store.Bucket(metaBucketName)
+		// _idx.garages[J]: per-garage element positions.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 0), []uint64{
+			invnested.Encode(1, 1, doc5), invnested.Encode(1, 2, doc5), invnested.Encode(1, 3, doc5),
+			invnested.Encode(1, 1, doc7), invnested.Encode(1, 2, doc7),
+		}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages", 1), []uint64{
+			invnested.Encode(1, 3, doc7), invnested.Encode(1, 4, doc7),
+		}))
+		// _idx.garages.cars[K]: cars[K] positions aggregated across all garages.
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages.cars", 0), []uint64{
+			invnested.Encode(1, 1, doc5), // doc5 g[0].cars[0]
+			invnested.Encode(1, 1, doc7), // doc7 g[0].cars[0]
+			invnested.Encode(1, 3, doc7), // doc7 g[1].cars[0]
+		}))
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey("garages.cars", 1), []uint64{
+			invnested.Encode(1, 2, doc5), invnested.Encode(1, 3, doc5), // doc5 g[0].cars[1]
+			invnested.Encode(1, 2, doc7), // doc7 g[0].cars[1]
+			invnested.Encode(1, 4, doc7), // doc7 g[1].cars[1]
+		}))
+
+		idx1cars := filnested.ArrayIndex{RelPath: "garages.cars", Index: 1}
+		pv := makeCorrelatedPvp(class, "countries",
+			makeLeafPvpWithIdx(class, "countries", "garages.cars.tags", "german", idx1cars),
+			makeLeafPvpWithIdx(class, "countries", "garages.cars.labels", "red", idx1cars),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc5}, result.docIDs.ToArray())
+	})
 	// -----------------------------------------------------------------------
 	// Known bugs — tokens + independent mixed in the same directAnd path.
 	//

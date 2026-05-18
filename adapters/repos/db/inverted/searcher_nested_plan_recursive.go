@@ -161,7 +161,7 @@ func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPla
 		subs = append(subs, b.buildPlan(subsByPath[p], p))
 	}
 
-	if len(here) == 0 && len(subs) == 1 && !needsWrappingGroup(scope, subs[0]) {
+	if len(here) == 0 && len(subs) == 1 && !b.needsWrappingGroup(scope, subs[0]) {
 		return subs[0]
 	}
 	return &recGroupNode{lcaPath: scope, here: here, subs: subs}
@@ -184,15 +184,23 @@ func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPla
 //
 // Returns false at root scope: root-level same-element is handled implicitly
 // by root_idx in the position encoding, no outer loop needed.
-func needsWrappingGroup(scope string, sub recPlanNode) bool {
+func (b *recPlanBuilder) needsWrappingGroup(scope string, sub recPlanNode) bool {
 	if scope == "" {
 		return false
 	}
 	switch n := sub.(type) {
 	case *recSplitNode:
-		return len(n.branches) > 1
+		if len(n.branches) > 1 {
+			return true
+		}
+		// 1-branch SPLIT pins to one K at its lcaPath but doesn't disambiguate
+		// that K across different parents at the same level. If the branch's
+		// plan itself needs outer scope (e.g. its descendants dispatch through
+		// runIdxLoopRecursive), the parent-level wrap must be kept so the
+		// outer iteration provides per-parent disambiguation.
+		return b.needsWrappingGroup(scope, n.branches[0].plan)
 	case *recGroupNode:
-		return groupSubtreeNeedsOuterScope(n)
+		return b.groupSubtreeNeedsOuterScope(n)
 	}
 	return false
 }
@@ -200,7 +208,8 @@ func needsWrappingGroup(scope string, sub recPlanNode) bool {
 // groupSubtreeNeedsOuterScope reports whether g (or any descendant
 // recGroupNode in g's subtree) will use runIdxLoopRecursive — which requires
 // the immediate ancestor's _idx scope to disambiguate same-K-different-parent
-// physical instances. A non-root recGroupNode uses runIdxLoopRecursive when:
+// physical instances. A non-root recGroupNode uses runIdxLoopRecursive when
+// neither canUseRawAndAll nor collectFlatSubtree succeeds:
 //
 //   - It has ≥2 subs (the flat raw-AndAll path bails on multi-sub since
 //     sibling sub-arrays produce conditions at distinct leaves with no
@@ -209,18 +218,74 @@ func needsWrappingGroup(scope string, sub recPlanNode) bool {
 //     per walkScalarArray, so canUseRawAndAll is false and the flat path
 //     bails). Same-element semantics for these requires per-element _idx
 //     iteration scoped by the outer parent.
-func groupSubtreeNeedsOuterScope(g *recGroupNode) bool {
-	if g.lcaPath != "" && (len(g.subs) >= 2 || hasDuplicateHerePaths(g)) {
+//   - It has ≥2 scalar-array (text[], int[], …) here paths — two scalar
+//     arrays never share a leaf even within the same parent element, so
+//     canUseRawAndAll bails and collectFlatSubtree bails on scalar-array.
+//   - It has ≥1 scalar-array here AND ≥1 sub — collectFlatSubtree bails on
+//     scalar-array, canUseRawAndAll bails on subs.
+func (b *recPlanBuilder) groupSubtreeNeedsOuterScope(g *recGroupNode) bool {
+	if g.lcaPath != "" && (len(g.subs) >= 2 || hasDuplicateHerePaths(g) || b.groupNeedsIdxLoop(g)) {
 		return true
 	}
 	for _, sub := range g.subs {
 		if grp, ok := sub.(*recGroupNode); ok {
-			if groupSubtreeNeedsOuterScope(grp) {
+			if b.groupSubtreeNeedsOuterScope(grp) {
 				return true
 			}
 		}
 		// recSplitNode descendants handle their own scoping at their level
 		// via needsWrappingGroup invocations during their own buildPlan.
+	}
+	return false
+}
+
+// groupNeedsIdxLoop reports whether g (considered in isolation, not its
+// descendants) will dispatch to runIdxLoopRecursive due to scalar-array
+// terminals among its here paths. Two cases:
+//
+//   - ≥2 scalar-array here paths: canUseRawAndAll bails (after counting
+//     scalar-arrays); collectFlatSubtree bails on the first scalar-array.
+//   - ≥1 scalar-array here AND ≥1 sub: canUseRawAndAll bails on subs;
+//     collectFlatSubtree bails on the scalar-array.
+//
+// A single scalar-array here with no subs goes through canUseRawAndAll's raw
+// AndAll path (works via Phase-3 inheritance with regular scalars) — no idx
+// loop, no outer scope needed.
+func (b *recPlanBuilder) groupNeedsIdxLoop(g *recGroupNode) bool {
+	scalarArrays := 0
+	for _, leaf := range g.here {
+		if b.pathTerminalIsScalarArray(childRelPath(leaf)) {
+			scalarArrays++
+			if scalarArrays >= 2 {
+				return true
+			}
+		}
+	}
+	return scalarArrays >= 1 && len(g.subs) >= 1
+}
+
+// pathTerminalIsScalarArray reports whether path's terminal property in the
+// nested schema is a scalar-array type (text[], int[], number[], boolean[],
+// date[], uuid[]).
+func (b *recPlanBuilder) pathTerminalIsScalarArray(path string) bool {
+	if path == "" {
+		return false
+	}
+	segs := filnested.SplitPath(path)
+	props := b.props
+	for i, seg := range segs {
+		np := filnested.FindNestedProp(props, seg)
+		if np == nil {
+			return false
+		}
+		dt := schema.DataType(np.DataType[0])
+		if i == len(segs)-1 {
+			return schema.IsScalarArrayType(dt)
+		}
+		if !schema.IsNested(dt) {
+			return false
+		}
+		props = np.NestedProperties
 	}
 	return false
 }
