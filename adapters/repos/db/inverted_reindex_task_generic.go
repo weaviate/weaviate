@@ -2739,4 +2739,3 @@ func (p *UuidKeyParser) FromString(key string) (indexKey, error) {
 func (p *UuidKeyParser) FromBytes(key []byte) indexKey {
 	return uuidBytes(key)
 }
-

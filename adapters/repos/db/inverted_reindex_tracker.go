@@ -18,11 +18,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 )
-
 
 // -----------------------------------------------------------------------------
 // Reindex tracker interface and file-based implementation
