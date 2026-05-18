@@ -105,20 +105,45 @@ func TestNamespaces_CreateInvalid_UnprocessableEntity(t *testing.T) {
 	}
 }
 
-// TestNamespaces_UpdateHomeNode updates a namespace's home_node and
-// verifies Get returns the new value.
+// TestNamespaces_UpdateHomeNode updates a namespace's home_node and asserts
+// (a) Get returns the new value, (b) the existing collection's shard stays
+// on the original node, and (c) a subsequently created collection lands on
+// the new home_node.
 func TestNamespaces_UpdateHomeNode(t *testing.T) {
-	const name = "updatehomenode"
+	const (
+		ns    = "updatehomenode"
+		nodeA = "weaviate-0"
+		nodeB = "weaviate-2"
+	)
 
-	created := helper.CreateNamespaceWithHomeNode(t, name, "weaviate-0", adminKey)
-	t.Cleanup(func() { helper.DeleteNamespace(t, name, adminKey) })
-	require.Equal(t, "weaviate-0", created.HomeNode)
+	created := helper.CreateNamespaceWithHomeNode(t, ns, nodeA, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
+	require.Equal(t, nodeA, created.HomeNode)
 
-	updated := helper.UpdateNamespace(t, name, "weaviate-1", adminKey)
-	assert.Equal(t, "weaviate-1", updated.HomeNode)
+	userKey := createNamespacedUser(t, "u1", ns, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
 
-	got := helper.GetNamespace(t, name, adminKey)
-	assert.Equal(t, "weaviate-1", got.HomeNode)
+	helper.CreateClassAuth(t, &models.Class{Class: "ClassA"}, userKey)
+	t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":ClassA", adminKey) })
+
+	updated := helper.UpdateNamespace(t, ns, nodeB, adminKey)
+	assert.Equal(t, nodeB, updated.HomeNode)
+	assert.Equal(t, nodeB, helper.GetNamespace(t, ns, adminKey).HomeNode)
+
+	helper.CreateClassAuth(t, &models.Class{Class: "ClassB"}, userKey)
+	t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":ClassB", adminKey) })
+
+	t.Run("existing shard stays on original home_node", func(t *testing.T) {
+		home, other := homeNodeShards(t, ns+":ClassA", nodeA, adminKey)
+		require.Len(t, home, 1)
+		assert.Zero(t, other, "ClassA shard must not have moved off %s", nodeA)
+	})
+
+	t.Run("new shard lands on updated home_node", func(t *testing.T) {
+		home, other := homeNodeShards(t, ns+":ClassB", nodeB, adminKey)
+		require.Len(t, home, 1)
+		assert.Zero(t, other, "ClassB shard expected only on %s", nodeB)
+	})
 }
 
 // TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_node with 422.
