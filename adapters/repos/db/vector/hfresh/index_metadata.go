@@ -44,10 +44,9 @@ var (
 	versionMapBucketPrefix     = []byte{sharedBucketVersionV1, 1}
 	postingMapBucketPrefix     = []byte{sharedBucketVersionV1, 2}
 	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
+	reassignBucketKey          = []byte{sharedBucketVersionV1, 4, 0}
+	postingSizesBucketPrefix   = []byte{sharedBucketVersionV1, 5}
 )
-
-// reassignBucketKey is used to track vectors that need to be reassigned to new postings.
-var reassignBucketKey = []byte{sharedBucketVersionV1, 4, 0}
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
 // This bucket is used to store metadata in namespaced regions of the bucket.
