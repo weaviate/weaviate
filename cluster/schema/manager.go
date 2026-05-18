@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	gproto "google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -42,85 +43,49 @@ type replicationFSM interface {
 	SetUnCancellable(id uint64) error
 }
 
-// MutationGuard is consulted at RAFT-apply time for cross-FSM
-// conflicts before a destructive schema mutation is merged. The
-// implementation lives in the package that owns the in-flight state
-// the schema mutation would race against (today: the distributed-task
-// FSM Manager, which knows about in-flight reindex migrations).
+// MutationGuard is consulted at RAFT-apply time for cross-FSM conflicts
+// before a destructive schema mutation merges. Prevents bucket↔schema
+// inversion when a schema mutation lands mid-reindex (DELETE searchable,
+// UPDATE tokenization, DELETE class, DELETE/UPDATE tenants). See
+// weaviate/0-weaviate-issues#218.
 //
-// The failure family it prevents is "bucket↔schema inversion": a
-// schema mutation (DELETE searchable, UPDATE tokenization, DELETE
-// class, DELETE/UPDATE tenants) lands while a reindex migration on
-// the same surface is mid-flight, leaving the FSM-consistent schema
-// pointing at bucket state the migration is in the middle of
-// rewriting. The original reproduction is documented at
-// https://github.com/weaviate/0-weaviate-issues/issues/218; see
-// [cluster/distributedtask.SchemaMutationDetector] for the in-FSM
-// detection logic.
-//
-// FSM-determinism contract: implementations MUST be pure functions of
-// their arguments + RAFT-replicated FSM state. They must not read
-// mutable process state — different nodes applying the same log entry
-// must reach the same accept/reject decision.
-//
-// Callsites collapse to a single conventional call shape per
-// [SchemaManager] method: the entire per-callsite rationale lives in
-// the per-method godoc below, so the call sites carry only a one-line
-// pointer back here.
+// FSM-determinism: implementations MUST be pure functions of their
+// arguments + RAFT-replicated FSM state.
 type MutationGuard interface {
-	// CheckPropertyUpdate returns nil if the property mutation is safe
-	// to apply, or a non-nil error describing the conflict. Called
-	// under the schema manager's apply path; must not block on IO.
-	//
-	// Bypass: the migration completion path
-	// ([adapters/repos/db/reindex_provider.flipSemanticMigrationSchema]
-	// → [Raft.UpdatePropertyFromMigration]) sets
-	// [api.UpdatePropertyRequest.FromInFlightMigration]=true on its own
-	// scheduled schema flip. Callers MUST skip the guard for that
-	// shape; otherwise the same protection that blocks external
-	// mutations during FINALIZING would also reject the migration's
-	// own flip (which fires while the task is still FINALIZING, not
-	// yet FINISHED).
+	// CheckPropertyUpdate gates UpdateProperty. The migration completion
+	// path bypasses this by setting FromInFlightMigration=true on its
+	// own scheduled flip, since the task is still FINALIZING when the
+	// flip lands.
 	CheckPropertyUpdate(className, propertyName string) error
 
-	// CheckClassMutation returns nil if a class-wide destructive
-	// mutation (DeleteClass, etc.) is safe to apply, or a non-nil
-	// error describing the conflict. Stricter than CheckPropertyUpdate
-	// — any in-flight reindex on the class blocks the mutation,
-	// because dropping the class destroys every property's bucket
-	// state and the working dirs the in-flight migration depends on
-	// (class-wide blast radius).
+	// CheckClassMutation gates class-wide destructive ops (DeleteClass).
+	// Stricter than CheckPropertyUpdate: any in-flight reindex on the
+	// class blocks the mutation.
 	CheckClassMutation(className string) error
 
-	// CheckTenantMutation returns nil if a tenant-level mutation is
-	// safe to apply, or a non-nil error describing the conflict.
-	// Used at DeleteTenants and at UpdateTenants when the transition
-	// would make tenant shards locally unavailable.
-	//
-	// Asymmetric semantics: transitions TOWARD locally-available
-	// (ACTIVE / HOT / ONLOADING / UNFREEZING) are NOT a conflict —
-	// they make data more available, not less. Callers that issue
-	// UpdateTenants MUST filter the tenant list through
-	// [tenantsTransitioningAwayFromActive] before invoking, so only
-	// tenants whose shards would actually become unavailable hit the
-	// guard.
+	// CheckTenantMutation gates tenant transitions that make shards
+	// locally unavailable. Transitions toward available are not a
+	// conflict — callers must filter via
+	// [tenantsTransitioningAwayFromActive] before invoking.
 	CheckTenantMutation(className string, tenants []string) error
 }
 
+// distributedTaskCascadeDeleter is the narrow slice of
+// *cluster/distributedtask.Manager the schema FSM needs on class delete.
+// Kept narrow so schema doesn't depend on the full Manager API and tests
+// can stub it. nil-safe (bootstrap / partial test harnesses).
+type distributedTaskCascadeDeleter interface {
+	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
+}
+
 type SchemaManager struct {
-	schema         *schema
-	db             Indexer
-	parser         Parser
-	log            *logrus.Logger
-	replicationFSM replicationFSM
-	// mutationGuard is consulted by [SchemaManager.UpdateProperty]
-	// before the merge applies. nil-safe — no guard installed means
-	// no extra rejection (legacy behavior, used by tests that
-	// exercise the schema apply in isolation). Set once at startup
-	// via [SchemaManager.SetMutationGuard]; concurrent setter/reader
-	// races are not contended in practice (setter runs once during
-	// FSM bootstrap before any apply).
-	mutationGuard MutationGuard
+	schema                 *schema
+	db                     Indexer
+	parser                 Parser
+	log                    *logrus.Logger
+	replicationFSM         replicationFSM
+	mutationGuard          MutationGuard
+	distributedTaskManager distributedTaskCascadeDeleter
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -206,6 +171,15 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
+}
+
+// SetDistributedTaskManager wires the distributed-task Manager into the
+// schema FSM so that [SchemaManager.DeleteClass] can cascade-delete task
+// records belonging to the dropped class. Safe to leave unset — the
+// cascade is a no-op when the manager is nil, preserving the pre-cascade
+// behaviour for bootstrap paths and partial-harness tests.
+func (s *SchemaManager) SetDistributedTaskManager(m distributedTaskCascadeDeleter) {
+	s.distributedTaskManager = m
 }
 
 func (s *SchemaManager) SchemaSnapshot() ([]byte, error) {
@@ -485,6 +459,28 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				} else if err := s.replicationFSM.DeleteReplicationsByCollection(cmd.Class); err != nil {
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
+				}
+				// Cascade-delete distributed-task records whose payload is
+				// scoped to this class. Without this, a drop+recreate of a
+				// class with the same name inherits the prior incarnation's
+				// task status (FAILED / FINISHED records survive the schema
+				// delete and the index-status materialisation joins by class
+				// name) — see weaviate/0-weaviate-issues#231. Best-effort:
+				// log + continue on a nil manager (bootstrap, partial-harness
+				// tests) so that a missing wire does not block the schema
+				// delete itself.
+				if s.distributedTaskManager == nil {
+					s.log.WithField("class", cmd.Class).
+						Debug("distributed-task manager not set; skipping cascade-delete on class delete")
+				} else if removed := s.distributedTaskManager.DeleteTasksForCollection(cmd.Class); len(removed) > 0 {
+					ids := make([]string, 0, len(removed))
+					for _, d := range removed {
+						ids = append(ids, fmt.Sprintf("%s/%d", d.ID, d.Version))
+					}
+					s.log.WithField("class", cmd.Class).
+						WithField("removed_count", len(removed)).
+						WithField("removed_tasks", ids).
+						Info("cascade-deleted distributed-task records for dropped class")
 				}
 				return s.db.DeleteClass(cmd.Class, hasFrozen)
 			},

@@ -319,19 +319,17 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
+	// distributedTasksManager is wired into schemaManager so the schema
+	// FSM can both consult it for property-mutation guarding AND cascade-
+	// delete task records belonging to a dropped class
+	// (weaviate/0-weaviate-issues#231).
 	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
 		Clock:            clockwork.NewRealClock(),
 		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
 	})
 
-	// Cross-FSM guard: the schema FSM's UpdateProperty apply path
-	// consults the distributed-task FSM to reject property mutations
-	// while a reindex on the same (collection, property) is STARTED or
-	// FINALIZING. The Manager implements [schema.MutationGuard] via its
-	// CheckPropertyUpdate method, which dispatches to the per-namespace
-	// [distributedtask.SchemaMutationDetector] registered by
-	// [Store.SetDistributedTaskSchemaMutationDetectors] at startup.
 	schemaManager.SetMutationGuard(distributedTasksManager)
+	schemaManager.SetDistributedTaskManager(distributedTasksManager)
 
 	var dynusersLister namespaces.DynusersNamespaceLister
 	if cfg.DynamicUserController != nil {

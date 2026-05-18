@@ -1385,3 +1385,129 @@ func TestManager_CheckTenantMutation_DispatchToDetectors(t *testing.T) {
 		require.Contains(t, err.Error(), "simulated")
 	})
 }
+
+func TestManager_DeleteTasksForCollection(t *testing.T) {
+	// Extractor for a collection-scoped namespace: payload is JSON
+	// with a "collection" field. Returns ("", false) on parse error so
+	// the cascade is conservative against unexpected shapes.
+	collectionExtractor := func(payload []byte) (string, bool) {
+		var p struct {
+			Collection string `json:"collection"`
+		}
+		if err := json.Unmarshal(payload, &p); err != nil {
+			return "", false
+		}
+		if p.Collection == "" {
+			return "", false
+		}
+		return p.Collection, true
+	}
+
+	t.Run("removes only tasks whose payload matches the collection", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor("scoped", collectionExtractor)
+
+		// 2 tasks bound to collection "Foo" + 1 bound to "Bar" + 1 with
+		// an opaque payload that the extractor cannot decode.
+		mkTask := func(id string, payload any) {
+			t.Helper()
+			bytes, err := json.Marshal(payload)
+			require.NoError(t, err)
+			require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+				Namespace:             "scoped",
+				Id:                    id,
+				Payload:               bytes,
+				SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+				UnitIds:               []string{"u-" + id},
+			}), 1))
+		}
+		mkTask("foo-1", map[string]string{"collection": "Foo"})
+		mkTask("foo-2", map[string]string{"collection": "Foo"})
+		mkTask("bar-1", map[string]string{"collection": "Bar"})
+		mkTask("nope", "opaque-string")
+
+		removed := h.manager.DeleteTasksForCollection("Foo")
+		require.Len(t, removed, 2, "should remove both Foo tasks")
+
+		removedIDs := []string{removed[0].ID, removed[1].ID}
+		sort.Strings(removedIDs)
+		assert.Equal(t, []string{"foo-1", "foo-2"}, removedIDs)
+
+		// Verify post-state: only the non-Foo tasks survive.
+		all, err := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		surviving := []string{}
+		for _, ts := range all["scoped"] {
+			surviving = append(surviving, ts.ID)
+		}
+		sort.Strings(surviving)
+		assert.Equal(t, []string{"bar-1", "nope"}, surviving)
+	})
+
+	t.Run("namespace without registered extractor is untouched", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		// 'unscoped' namespace has no extractor — its tasks must
+		// survive even if their payload incidentally contains the
+		// collection name being deleted.
+		bytes, err := json.Marshal(map[string]string{"collection": "Foo"})
+		require.NoError(t, err)
+		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "unscoped",
+			Id:                    "u-1",
+			Payload:               bytes,
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			UnitIds:               []string{"u-only"},
+		}), 1))
+
+		removed := h.manager.DeleteTasksForCollection("Foo")
+		assert.Empty(t, removed, "tasks in namespaces without an extractor must not be removed")
+
+		all, err := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, all["unscoped"], 1, "unscoped task must still be there")
+	})
+
+	t.Run("empty collection name is a no-op (refuses to nuke everything)", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		// An extractor that emits ("", true) on every payload would,
+		// without the entry-point guard, match every task in the
+		// namespace when DeleteTasksForCollection("") is called.
+		// Verify the guard refuses such queries outright.
+		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) {
+			return "", true
+		})
+
+		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "scoped",
+			Id:                    "still-here",
+			Payload:               []byte("anything"),
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			UnitIds:               []string{"u-1"},
+		}), 1))
+
+		removed := h.manager.DeleteTasksForCollection("")
+		assert.Empty(t, removed, "empty collection name must be refused")
+
+		all, err := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		assert.Len(t, all["scoped"], 1, "task must still exist after empty-name query")
+	})
+
+	t.Run("RegisterCollectionExtractor is idempotent (last write wins)", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) { return "Foo", true })
+		// Overwrite with an extractor that never matches.
+		h.manager.RegisterCollectionExtractor("scoped", func([]byte) (string, bool) { return "", false })
+
+		require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "scoped",
+			Id:                    "task",
+			Payload:               []byte("payload"),
+			SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+			UnitIds:               []string{"u-1"},
+		}), 1))
+
+		removed := h.manager.DeleteTasksForCollection("Foo")
+		assert.Empty(t, removed, "second extractor takes effect; task must NOT be removed")
+	})
+}

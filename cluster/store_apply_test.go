@@ -12,6 +12,8 @@
 package cluster
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -533,4 +535,130 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	mockStore.store.schemaManager.SetReplicationFSM(mockStore.replicationFSM)
 
 	return mockStore, log
+}
+
+// TestStore_Apply_DeleteClass_CascadesToDistributedTasks verifies the
+// regression guarded by weaviate/0-weaviate-issues#231: when a class is
+// dropped via DELETE_CLASS, distributed-task records bound to that
+// class via a registered CollectionExtractor are removed alongside the
+// schema-level delete, so a subsequent CREATE_CLASS with the same name
+// does not inherit the prior incarnation's task status.
+func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
+	// NewMockStore keeps the distributedTasksManager wired into the
+	// schema manager via NewFSM; only the replication FSM is overridden,
+	// so the cascade path is exercised end-to-end as it would be in
+	// production.
+	ms := NewMockStore(t, "Node-1", 0)
+	ms.store.metrics = newStoreMetrics("Node-1", prometheus.NewPedanticRegistry())
+
+	tmpDir := t.TempDir()
+	snapshotStore, err := raft.NewFileSnapshotStore(tmpDir, 3, nil)
+	if err != nil {
+		t.Fatalf("snapshot store: %v", err)
+	}
+	ms.store.snapshotStore = snapshotStore
+
+	// Register a collection extractor for the namespace that owns our
+	// fake tasks. JSON-encoded payload with a "collection" field is
+	// the same shape the production reindex provider will adopt.
+	ms.store.distributedTasksManager.RegisterCollectionExtractor(
+		"test-namespace",
+		func(payload []byte) (string, bool) {
+			var p struct {
+				Collection string `json:"collection"`
+			}
+			if err := json.Unmarshal(payload, &p); err != nil {
+				return "", false
+			}
+			return p.Collection, p.Collection != ""
+		},
+	)
+
+	// Add two tasks bound to "Foo" + one bound to "Bar" via Raft (so
+	// the same code path production uses lands them in the manager).
+	// Each goes through ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, whose
+	// SubCommand is JSON-encoded (see Manager.AddTask).
+	addTask := func(t *testing.T, id string, collection string) {
+		t.Helper()
+		payloadBytes, err := json.Marshal(map[string]string{"collection": collection})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		result := ms.store.Apply(&raft.Log{
+			Index: 100,
+			Type:  raft.LogCommand,
+			Data: cmdAsBytes("", api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+				&api.AddDistributedTaskRequest{
+					Namespace:             "test-namespace",
+					Id:                    id,
+					Payload:               payloadBytes,
+					SubmittedAtUnixMillis: 1,
+					UnitIds:               []string{"u-" + id},
+				}, nil),
+		})
+		if resp, ok := result.(Response); !ok || resp.Error != nil {
+			t.Fatalf("apply add-task %s: ok=%v err=%v", id, ok, resp.Error)
+		}
+	}
+
+	// Set up the class in memory so DELETE_CLASS has something to drop.
+	ms.indexer.On("Open", mock.Anything).Return(nil)
+	ms.indexer.On("AddClass", mock.Anything).Return(nil)
+	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
+	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	ms.parser.On("ParseClass", mock.Anything).Return(nil)
+	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
+
+	cls := &models.Class{Class: "Foo"}
+	state := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"T1": {Name: "T1", BelongsToNodes: []string{"Node-1"}, Status: "HOT"},
+		},
+	}
+	addLog := &raft.Log{
+		Index: 1,
+		Type:  raft.LogCommand,
+		Data: cmdAsBytes("Foo", api.ApplyRequest_TYPE_ADD_CLASS,
+			api.AddClassRequest{Class: cls, State: state}, nil),
+	}
+	if r, ok := ms.store.Apply(addLog).(Response); !ok || r.Error != nil {
+		t.Fatalf("apply add-class: ok=%v err=%v", ok, r.Error)
+	}
+
+	addTask(t, "foo-1", "Foo")
+	addTask(t, "foo-2", "Foo")
+	addTask(t, "bar-1", "Bar")
+
+	// Sanity check pre-delete: three tasks should be in the manager.
+	preTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	if err != nil {
+		t.Fatalf("list pre: %v", err)
+	}
+	if got, want := len(preTasks["test-namespace"]), 3; got != want {
+		t.Fatalf("pre-delete task count: got %d want %d", got, want)
+	}
+
+	// Apply DELETE_CLASS for "Foo" and verify the cascade fired.
+	deleteLog := &raft.Log{
+		Index: 2,
+		Type:  raft.LogCommand,
+		Data:  cmdAsBytes("Foo", api.ApplyRequest_TYPE_DELETE_CLASS, nil, nil),
+	}
+	if r, ok := ms.store.Apply(deleteLog).(Response); !ok || r.Error != nil {
+		t.Fatalf("apply delete-class: ok=%v err=%v", ok, r.Error)
+	}
+
+	postTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	if err != nil {
+		t.Fatalf("list post: %v", err)
+	}
+
+	// Both Foo tasks should be gone; bar-1 should survive untouched.
+	survivors := make([]string, 0)
+	for _, ts := range postTasks["test-namespace"] {
+		survivors = append(survivors, ts.ID)
+	}
+	if len(survivors) != 1 || survivors[0] != "bar-1" {
+		t.Fatalf("post-delete survivors: got %v want [bar-1]", survivors)
+	}
 }

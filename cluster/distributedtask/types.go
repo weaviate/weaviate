@@ -34,6 +34,15 @@ type SchedulerNotifier interface {
 	Wake()
 }
 
+// CollectionExtractor returns the schema-collection name a task's payload is
+// bound to. Returns ("", false) when the payload is not collection-scoped or
+// is unparseable. Providers register one via
+// [Manager.RegisterCollectionExtractor] to opt the namespace into the
+// cascade-delete fired by [Manager.DeleteTasksForCollection]; without it,
+// dead task records survive collection drop+recreate
+// (weaviate/0-weaviate-issues#231).
+type CollectionExtractor func(payload []byte) (collection string, ok bool)
+
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
