@@ -1109,7 +1109,19 @@ func (i *Index) shardHasMultipleReplicasWrite(tenantName, shardName string) bool
 	// we're including additional replicas here to make sure we at least try to push the write
 	// to them if they exist
 	allReplicas := append(ws.NodeNames(), ws.AdditionalNodeNames()...)
-	return len(allReplicas) > 1
+	if len(allReplicas) > 1 {
+		return true
+	}
+	// RF=1 mid-scale-out: this coordinator may not yet have applied the
+	// ReplicationAddReplicaToShard command, so its local sharding state
+	// (and hence ws) still shows a single replica even though a target
+	// has been added cluster-wide. Taking the direct (non-Replicator)
+	// path here would bypass the source-side fence and silently miss
+	// the new target. Force the Replicator path whenever a replication
+	// op exists on this shard — the Replicator's initial PREPARE will
+	// trip the fence, return StatusRouteStale, and the bounded retry
+	// rebuilds routing with a fresh view that includes the target.
+	return i.router.HasReplicationOpsForShard(i.Config.ClassName.String(), shardName)
 }
 
 func (i *Index) shardHasMultipleReplicasRead(tenantName, shardName string) bool {

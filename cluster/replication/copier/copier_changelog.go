@@ -91,9 +91,13 @@ func (c *Copier) SnapshotChangeLogLSN(ctx context.Context, srcNodeId, indexName,
 	return resp.Lsn, nil
 }
 
-// FinalizeChangeLog freezes the source log and returns its final LSN. The
-// caller does not need to compare this to lastAppliedLSN — the server closes
-// the stream with io.EOF once its tailer has drained through finalLSN.
+// FinalizeChangeLog seals the source's change-capture log and returns its
+// final LSN once its pre-seal pending-PREPARE set has drained. The caller
+// does not need to compare this to lastAppliedLSN — the server closes the
+// stream with io.EOF once its tailer has drained through finalLSN.
+// Stale-routed writes are rejected on the source by the durable FSM-driven
+// write fence (see ShardReplicationFSM.IsLocalShardWritable); the seal is
+// no longer responsible for fencing them.
 func (c *Copier) FinalizeChangeLog(ctx context.Context, srcNodeId, indexName, shardName, opID string) (uint64, error) {
 	client, err := c.dialSource(ctx, srcNodeId)
 	if err != nil {

@@ -14,51 +14,45 @@ package replication
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-// TestShardReplicationFSM_IsLocalShardWritable pins the source-side
-// rejection contract: once an op for which the local node is the source
-// has reached DEHYDRATING, the local FSM stops reporting it as a write
-// target. PREPARE handlers consult this to refuse stale-routed writes
-// with StatusRouteStale, forcing the coordinator to refresh routing.
-func TestShardReplicationFSM_IsLocalShardWritable(t *testing.T) {
-	const (
-		sourceNode = "node1"
-		targetNode = "node2"
-		otherNode  = "node3"
-		class      = "TestClass"
-		shard      = "shard1"
-	)
+const (
+	srcNode   = "node1"
+	tgtNode   = "node2"
+	otherNode = "node3"
+	testClass = "TestClass"
+	testShard = "shard1"
+)
 
+// TestShardReplicationFSM_IsLocalShardWritable_MOVE pins the MOVE source-side
+// rejection contract: once a MOVE op for which the local node is the source
+// has reached DEHYDRATING, the FSM rejects writes unconditionally (the source
+// is being torn down). Targets and uninvolved nodes always pass.
+func TestShardReplicationFSM_IsLocalShardWritable_MOVE(t *testing.T) {
 	cases := []struct {
 		name        string
 		state       api.ShardReplicationState
 		node        string
-		wantWriteOK bool
+		wantAllowed bool
 	}{
-		// Source-side: writable in early lifecycle, fenced from DEHYDRATING.
-		{"source writable in REGISTERED", api.REGISTERED, sourceNode, true},
-		{"source writable in HYDRATING", api.HYDRATING, sourceNode, true},
-		{"source writable in FINALIZING", api.FINALIZING, sourceNode, true},
-		{"source NOT writable in DEHYDRATING", api.DEHYDRATING, sourceNode, false},
-		{"source writable in READY", api.READY, sourceNode, true},
+		{"source writable in REGISTERED", api.REGISTERED, srcNode, true},
+		{"source writable in HYDRATING", api.HYDRATING, srcNode, true},
+		{"source writable in FINALIZING", api.FINALIZING, srcNode, true},
+		{"source NOT writable in DEHYDRATING", api.DEHYDRATING, srcNode, false},
+		{"source writable in READY", api.READY, srcNode, true},
 
-		// Target-side: ALWAYS writable. The fence only fires for sources that
-		// have reached DEHYDRATING. A coord routing a PREPARE to a target has
-		// a view of the world ahead of the target's own FSM; the storage
-		// layer is the right place to surface "shard not ready", not this
-		// FSM filter (which is only consulted as a write-rejection fence).
-		{"target writable in REGISTERED", api.REGISTERED, targetNode, true},
-		{"target writable in HYDRATING", api.HYDRATING, targetNode, true},
-		{"target writable in FINALIZING", api.FINALIZING, targetNode, true},
-		{"target writable in DEHYDRATING", api.DEHYDRATING, targetNode, true},
-		{"target writable in READY", api.READY, targetNode, true},
+		// Target-side: ALWAYS writable. The fence only fires on the source.
+		{"target writable in REGISTERED", api.REGISTERED, tgtNode, true},
+		{"target writable in DEHYDRATING", api.DEHYDRATING, tgtNode, true},
+		{"target writable in READY", api.READY, tgtNode, true},
 
-		// Uninvolved node: always writable regardless of op state.
+		// Uninvolved node: always writable.
 		{"unrelated node writable in HYDRATING", api.HYDRATING, otherNode, true},
 		{"unrelated node writable in DEHYDRATING", api.DEHYDRATING, otherNode, true},
 	}
@@ -66,19 +60,129 @@ func TestShardReplicationFSM_IsLocalShardWritable(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fsm := NewShardReplicationFSM(prometheus.NewPedanticRegistry())
-			seedOp(t, fsm, 1)
+			seedOpOfType(t, fsm, 1, api.MOVE)
 			driveToState(t, fsm, 1, tc.state)
 
-			got := fsm.IsLocalShardWritable(tc.node, class, shard)
-			assert.Equal(t, tc.wantWriteOK, got)
+			// schemaVersion is irrelevant for MOVE — the rejection is unconditional.
+			allowed, _ := fsm.IsLocalShardWritable(tc.node, testClass, testShard, 0)
+			assert.Equal(t, tc.wantAllowed, allowed)
 		})
 	}
 }
 
-// TestShardReplicationFSM_IsLocalShardWritable_NoOp guarantees the
-// happy path: with no replication op touching (class, shard), every
-// node passes the source-side fence.
+// TestShardReplicationFSM_IsLocalShardWritable_VersionGated pins the shared
+// INTEGRATING/READY source-side version-gated contract. Both COPY and MOVE
+// flow through INTEGRATING now; once the source-shard op reaches INTEGRATING
+// or READY, the FSM rejects writes whose schemaVersion predates the op's
+// AddReplicaVersion (the target's routing hasn't propagated to that
+// coordinator yet). The rejection carries the AddReplicaVersion as the
+// catchUpIndex so the coordinator waits its FSM up to that index and retries
+// with refreshed routing.
+//
+// Parametrised over TransferType to demonstrate the rule is state-keyed, not
+// TT-keyed — MOVE-INTEGRATING and COPY-INTEGRATING behave identically here.
+func TestShardReplicationFSM_IsLocalShardWritable_VersionGated(t *testing.T) {
+	cases := []struct {
+		name              string
+		transferType      api.ShardReplicationTransferType
+		state             api.ShardReplicationState
+		addReplicaVersion uint64
+		schemaVersion     uint64
+		node              string
+		wantAllowed       bool
+		wantCatchUp       uint64
+	}{
+		// Pre-INTEGRATING states: no fence (target not yet a routable write replica).
+		{"COPY: source allowed REGISTERED any sv", api.COPY, api.REGISTERED, 42, 0, srcNode, true, 0},
+		{"COPY: source allowed HYDRATING any sv", api.COPY, api.HYDRATING, 42, 0, srcNode, true, 0},
+		{"COPY: source allowed FINALIZING any sv", api.COPY, api.FINALIZING, 42, 0, srcNode, true, 0},
+
+		// INTEGRATING: version-gated. Same rule for both TTs.
+		{"COPY: INTEGRATING reject sv<floor", api.COPY, api.INTEGRATING, 42, 41, srcNode, false, 42},
+		{"COPY: INTEGRATING reject sv=0", api.COPY, api.INTEGRATING, 42, 0, srcNode, false, 42},
+		{"COPY: INTEGRATING allow sv=floor", api.COPY, api.INTEGRATING, 42, 42, srcNode, true, 0},
+		{"COPY: INTEGRATING allow sv>floor", api.COPY, api.INTEGRATING, 42, 100, srcNode, true, 0},
+		{"MOVE: INTEGRATING reject sv<floor", api.MOVE, api.INTEGRATING, 42, 41, srcNode, false, 42},
+		{"MOVE: INTEGRATING allow sv>=floor", api.MOVE, api.INTEGRATING, 42, 42, srcNode, true, 0},
+
+		// READY: same version gate.
+		{"COPY: READY reject sv<floor", api.COPY, api.READY, 42, 41, srcNode, false, 42},
+		{"COPY: READY allow sv>=floor", api.COPY, api.READY, 42, 42, srcNode, true, 0},
+
+		// AddReplicaVersion == 0 → fence disabled (pre-upgrade snapshot case).
+		{"COPY: INTEGRATING allow when AddReplicaVersion=0", api.COPY, api.INTEGRATING, 0, 0, srcNode, true, 0},
+		{"MOVE: INTEGRATING allow when AddReplicaVersion=0", api.MOVE, api.INTEGRATING, 0, 0, srcNode, true, 0},
+
+		// Target-side: ALWAYS allowed — fence only fires on the source.
+		{"COPY: target allow INTEGRATING any sv", api.COPY, api.INTEGRATING, 42, 0, tgtNode, true, 0},
+		{"MOVE: target allow INTEGRATING any sv", api.MOVE, api.INTEGRATING, 42, 0, tgtNode, true, 0},
+
+		// Uninvolved node: always allowed.
+		{"unrelated allow INTEGRATING any sv", api.COPY, api.INTEGRATING, 42, 0, otherNode, true, 0},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fsm := NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			seedOpOfType(t, fsm, 1, tc.transferType)
+			if tc.addReplicaVersion != 0 {
+				require.NoError(t, fsm.SetAddReplicaVersion(1, tc.addReplicaVersion))
+			}
+			driveToState(t, fsm, 1, tc.state)
+
+			allowed, catchUp := fsm.IsLocalShardWritable(tc.node, testClass, testShard, tc.schemaVersion)
+			assert.Equal(t, tc.wantAllowed, allowed, "allowed")
+			assert.Equal(t, tc.wantCatchUp, catchUp, "catchUpIndex")
+		})
+	}
+}
+
+// TestShardReplicationFSM_IsLocalShardWritable_NoOp guarantees the happy
+// path: with no replication op touching (class, shard), every node passes
+// the source-side fence regardless of schemaVersion.
 func TestShardReplicationFSM_IsLocalShardWritable_NoOp(t *testing.T) {
 	fsm := NewShardReplicationFSM(prometheus.NewPedanticRegistry())
-	assert.True(t, fsm.IsLocalShardWritable("anyNode", "AnyClass", "anyShard"))
+	allowed, catchUp := fsm.IsLocalShardWritable("anyNode", "AnyClass", "anyShard", 100)
+	assert.True(t, allowed)
+	assert.Equal(t, uint64(0), catchUp)
+}
+
+// TestShardReplicationFSM_IsLocalShardWritable_MaxAcrossOps verifies that
+// when multiple qualifying COPY ops on the same source FQDN would reject,
+// the highest AddReplicaVersion wins as the catchUpIndex.
+func TestShardReplicationFSM_IsLocalShardWritable_MaxAcrossOps(t *testing.T) {
+	fsm := NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+	// Two COPY ops on the same source shard (node1, TestClass, shard1) but
+	// different target nodes. Both reach INTEGRATING.
+	seedOpOfType(t, fsm, 1, api.COPY)
+	// Second op: same source, different target node.
+	uuid2 := strfmt.UUID("00000000-0000-0000-0000-000000000002")
+	require.NoError(t, fsm.Replicate(2, &api.ReplicationReplicateShardRequest{
+		Version:          api.ReplicationCommandVersionV0,
+		Uuid:             uuid2,
+		SourceNode:       srcNode,
+		SourceCollection: testClass,
+		SourceShard:      testShard,
+		TargetNode:       "node-extra",
+		TransferType:     api.COPY.String(),
+	}))
+	require.NoError(t, fsm.SetAddReplicaVersion(1, 30))
+	require.NoError(t, fsm.SetAddReplicaVersion(2, 42))
+	driveToState(t, fsm, 1, api.INTEGRATING)
+	driveToState(t, fsm, 2, api.INTEGRATING)
+
+	// schemaVersion 25 < both addReplicaVersions → reject with the higher (42).
+	allowed, catchUp := fsm.IsLocalShardWritable(srcNode, testClass, testShard, 25)
+	assert.False(t, allowed)
+	assert.Equal(t, uint64(42), catchUp)
+
+	// schemaVersion 35 < 42 but >= 30 → still reject (because of op 2).
+	allowed, catchUp = fsm.IsLocalShardWritable(srcNode, testClass, testShard, 35)
+	assert.False(t, allowed)
+	assert.Equal(t, uint64(42), catchUp)
+
+	// schemaVersion 42 >= both → allow.
+	allowed, catchUp = fsm.IsLocalShardWritable(srcNode, testClass, testShard, 42)
+	assert.True(t, allowed)
+	assert.Equal(t, uint64(0), catchUp)
 }

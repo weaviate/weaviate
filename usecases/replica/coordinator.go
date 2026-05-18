@@ -65,6 +65,44 @@ type (
 	}
 )
 
+// emitReplicaRPCTrace is VERIFICATION INSTRUMENTATION for the replica-movement
+// lost-write flake hunt — it emits one greppable line per PREPARE/COMMIT call
+// the coordinator dispatches so the post-mortem trace can answer "did the
+// coord even try this host for this tx?" REMOVE once the root cause is found.
+//
+// uuid is set on PREPARE (the readyOp closure has it) and empty on COMMIT
+// (the generic commit closure does not). The dump filter pairs COMMITs to
+// the right UUID via tx_id matching against UUID-tagged PREPARE lines.
+func emitReplicaRPCTrace(log logrus.FieldLogger, phase, host, class, shard, txID, uuid string, err error) {
+	// HOT-PATH SILENCED: this trace fires per PREPARE + per COMMIT per host
+	// per write. The structured logrus call plus its output-mutex contention
+	// adds enough latency to mask the replica-movement race the trace was
+	// installed to diagnose. Body left commented (not deleted) so it can be
+	// re-enabled with a one-line uncomment when we want a verbose dump.
+	_ = log
+	_ = phase
+	_ = host
+	_ = class
+	_ = shard
+	_ = txID
+	_ = uuid
+	_ = err
+	// entry := log.WithFields(logrus.Fields{
+	// 	"trace":   "replica_rpc",
+	// 	"phase":   phase,
+	// 	"host":    host,
+	// 	"class":   class,
+	// 	"shard":   shard,
+	// 	"tx_id":   txID,
+	// 	"uuid":    uuid,
+	// 	"err_nil": err == nil,
+	// })
+	// if err != nil {
+	// 	entry = entry.WithField("err", err.Error())
+	// }
+	// entry.Warn("replica rpc trace")
+}
+
 // NewWriteCoordinator used by the replicator to write objects to replicas
 func NewWriteCoordinator[T, R any](client Client,
 	router types.Router,
@@ -219,6 +257,11 @@ func (c *coordinator[T, R]) commitAll(ctx context.Context,
 				if err == nil {
 					successful.Add(1)
 				}
+				// VERIFICATION INSTRUMENTATION (replica-movement lost-write
+				// flake hunt) — REMOVE after. Per-COMMIT outcome so the
+				// post-mortem trace can pair this commit with the matching
+				// PREPARE via tx_id. Filter keyword: replica_rpc.
+				emitReplicaRPCTrace(c.log, "COMMIT", replica, c.Class, c.Shard, c.TxID, "", err)
 				replyCh <- Result[T]{resp, err}
 			}
 			enterrors.GoWrapper(g, c.log)
@@ -319,7 +362,25 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	// replicas used to reach level consistency
 	if len(writeRoutingPlan.AdditionalHostAddresses()) > 0 {
 		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, writeRoutingPlan.AdditionalHostAddresses(), ask, len(writeRoutingPlan.AdditionalHostAddresses()))
-		c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
+		additionalCommitCh := c.commitAll(context.Background(), additionalHostsBroadcast, com, nil)
+		// VERIFICATION INSTRUMENTATION (replica-movement flake hunt): best-effort
+		// writes to additional hosts (an op target in FINALIZING) are
+		// fire-and-forget for consistency, but a silent failure here means a
+		// freshly-added replica misses a write the CCL may no longer be
+		// capturing. Drain the otherwise-discarded result channel and log
+		// failures so they stop being invisible.
+		enterrors.GoWrapper(func() {
+			for res := range additionalCommitCh {
+				if res.Err != nil {
+					c.log.
+						WithField("action", "best_effort_additional_write").
+						WithField("class", c.Class).
+						WithField("shard", c.Shard).
+						WithField("tx_id", c.TxID).
+						Error(fmt.Errorf("best-effort additional replica write failed: %w", res.Err))
+				}
+			}
+		}, c.log)
 	}
 
 	return c.read(level, commitCh, onResult, onFlatten, batchSize), nil

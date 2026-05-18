@@ -118,7 +118,13 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	return nil
 }
 
-func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdateOpStateRequest) error {
+// UpdateReplicationOpStatus applies a state transition for op c.Id. raftIndex
+// is the RAFT apply index of this call (passed in by the manager) so the
+// FSM-stored status reflects the latest state-change index on every node —
+// the source-side fence (IsLocalShardWritable) reads it for MOVE/DEHYDRATING
+// catch-up. Tests that drive the FSM directly without going through the apply
+// path may pass 0.
+func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdateOpStateRequest, raftIndex uint64) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
@@ -137,6 +143,9 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
 	status.ChangeState(c.State)
+	if raftIndex > status.LastStateChangeVersion {
+		status.LastStateChangeVersion = raftIndex
+	}
 	s.statusById[op.ID] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
@@ -168,6 +177,28 @@ func (s *ShardReplicationFSM) SetUnCancellable(id uint64) error {
 	status.UnCancellable = true
 	s.statusById[id] = status
 
+	return nil
+}
+
+// SetAddReplicaVersion records the RAFT index at which the op's
+// ReplicationAddReplicaToShard applied. Called from the schema manager's
+// updateSchema callback during that same apply, so the index becomes durably
+// queryable for the source-side write fence (see IsLocalShardWritable).
+//
+// Monotonic: a lower index is ignored. This guards against any spurious
+// re-call; the field is set once and never decreases.
+func (s *ShardReplicationFSM) SetAddReplicaVersion(id uint64, raftIndex uint64) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	status, ok := s.statusById[id]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d: %w", id, types.ErrReplicationOperationNotFound)
+	}
+	if raftIndex > status.AddReplicaVersion {
+		status.AddReplicaVersion = raftIndex
+		s.statusById[id] = status
+	}
 	return nil
 }
 

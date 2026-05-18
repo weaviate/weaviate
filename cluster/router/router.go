@@ -23,6 +23,9 @@ import (
 	"context"
 	"fmt"
 
+	// "github.com/sirupsen/logrus" // restored alongside the
+	// write_routing_plan trace below.
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -197,6 +200,13 @@ func (r *singleTenantRouter) WaitForUpdate(ctx context.Context, version uint64) 
 	return r.schemaReader.WaitForUpdate(ctx, version)
 }
 
+// HasReplicationOpsForShard delegates to the replication FSM reader so the
+// Index can decide whether to force the Replicator path on RF=1 collections
+// undergoing a scale-out — see the interface godoc for the full motivation.
+func (r *singleTenantRouter) HasReplicationOpsForShard(collection, shard string) bool {
+	return r.replicationFSMReader.HasReplicationOpsForShard(collection, shard)
+}
+
 func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
@@ -324,6 +334,22 @@ func (r *singleTenantRouter) writeReplicasForShard(collection, tenant, shard str
 
 	writeNodeNames, additionalWriteNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
 
+	// HOT-PATH SILENCED: this trace fires on every coord-side write whose
+	// routing plan included an in-flight replication target (write or
+	// additional). The structured logrus emit suppresses the race window
+	// we use it to diagnose; commented out so it can be flipped back on
+	// when we want a verbose dump.
+	// if len(writeNodeNames) != len(replicas) || len(additionalWriteNodeNames) > 0 {
+	// 	logrus.WithFields(logrus.Fields{
+	// 		"trace":      "write_routing_plan",
+	// 		"collection": collection,
+	// 		"shard":      shard,
+	// 		"candidates": replicas,
+	// 		"write":      writeNodeNames,
+	// 		"additional": additionalWriteNodeNames,
+	// 	}).Warn("write routing plan trace")
+	// }
+
 	write = buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
 	additional = buildReplicas(additionalWriteNodeNames, shard, r.nodeSelector.NodeHostname)
 
@@ -441,6 +467,11 @@ func (r *multiTenantRouter) AllHostnames() []string {
 // GetReadWriteReplicasLocation returns read and write replicas for multi-tenant collections.
 func (r *multiTenantRouter) WaitForUpdate(ctx context.Context, version uint64) error {
 	return r.schemaReader.WaitForUpdate(ctx, version)
+}
+
+// HasReplicationOpsForShard — see singleTenantRouter's identical method.
+func (r *multiTenantRouter) HasReplicationOpsForShard(collection, shard string) bool {
+	return r.replicationFSMReader.HasReplicationOpsForShard(collection, shard)
 }
 
 func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {

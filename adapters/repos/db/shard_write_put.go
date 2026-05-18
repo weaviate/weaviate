@@ -296,6 +296,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		}
 		s.metrics.PutObjectUpsertObject(before)
 
+		// VERIFICATION INSTRUMENTATION (replica-movement flake hunt) — REMOVE after.
+		s.traceReplicaWrite("lsm_put", "", obj.ID().String(), obj.LastUpdateTimeUnix(), 0, "")
+
 		// Tee before hashtree: the bucket is the SSOT for movement catchup.
 		s.AppendChangeLogPut(idBytes, obj.LastUpdateTimeUnix(), objBinary)
 

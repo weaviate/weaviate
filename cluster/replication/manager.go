@@ -148,7 +148,7 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	if err := m.replicationFSM.UpdateReplicationOpStatus(req); err != nil {
+	if err := m.replicationFSM.UpdateReplicationOpStatus(req, c.Version); err != nil {
 		return err
 	}
 	if class, ok := m.opCollectionByID(req.Id); ok {

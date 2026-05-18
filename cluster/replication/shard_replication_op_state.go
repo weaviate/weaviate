@@ -91,10 +91,28 @@ type ShardReplicationOpStatus struct {
 	// By communicating it with remote nodes, we can ensure that they will wait for the schema version to be the same or greater before proceeding with the operation.
 	SchemaVersion uint64
 
-	// RAFT index of the most recent op-state apply. In-memory only;
-	// a consumer recovering from snapshot skips the fan-out rather
-	// than blocking on an index it doesn't know.
+	// RAFT index of the most recent op-state apply (the FSM applies set this
+	// to cmd.Version inside UpdateReplicationOpStatus, so every node's
+	// snapshot carries it). Used in two places:
+	//   - the op's consumer: passes it to WaitForUpdateAllNodes at the start
+	//     of the next handler (snapshot-recovered ops where it's still 0
+	//     skip the fan-out — safe, since the transition was already RAFT-
+	//     applied before the snapshot).
+	//   - IsLocalShardWritable (MOVE/DEHYDRATING branch): returned as the
+	//     coordinator's catch-up index on rejection; falls back to the
+	//     source's raftAppliedIndex() if 0.
 	LastStateChangeVersion uint64
+
+	// RAFT index at which ReplicationAddReplicaToShard for this op applied
+	// (the target joined the sharding state). Snapshot-persisted so that
+	// the source-side write fence in IsLocalShardWritable can durably
+	// reject writes whose routing predates the target's addition, even
+	// after the change-capture log has been torn down.
+	//
+	// Zero on pre-upgrade restored snapshots → fence disabled for those
+	// ops only; restored ops behave as the pre-fix code did until they
+	// complete.
+	AddReplicaVersion uint64
 
 	// Current is the current state of the shard replication operation
 	Current State

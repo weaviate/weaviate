@@ -124,6 +124,15 @@ type Router interface {
 	// to catch the local FSM up to a rejecting source's
 	// lastAppliedIndex before rebuilding routing.
 	WaitForUpdate(ctx context.Context, version uint64) error
+
+	// HasReplicationOpsForShard reports whether any replication op is in
+	// flight for (collection, shard). The Index uses this to force a
+	// write through the Replicator path even when its local sharding
+	// state shows only one replica — otherwise a coordinator whose FSM
+	// hasn't yet applied the ReplicationAddReplicaToShard for a fresh
+	// target would skip the Replicator entirely, bypassing the source-
+	// side fence and missing the new target.
+	HasReplicationOpsForShard(collection, shard string) bool
 }
 
 // Replica represents a single replica in the system, containing enough information

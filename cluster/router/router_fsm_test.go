@@ -183,7 +183,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				Version: api.ReplicationCommandVersionV0,
 				Id:      1,
 				State:   testCase.opStatus,
-			})
+			}, 0)
 			require.NoError(t, err)
 			if testCase.preRoutingPlanAction != nil {
 				testCase.preRoutingPlanAction(shardReplicationFSM)
@@ -351,7 +351,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				Version: api.ReplicationCommandVersionV0,
 				Id:      1,
 				State:   testCase.opStatus,
-			})
+			}, 0)
 			require.NoError(t, err)
 			if testCase.preRoutingPlanAction != nil {
 				testCase.preRoutingPlanAction(shardReplicationFSM)

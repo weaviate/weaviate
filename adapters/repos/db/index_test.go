@@ -214,6 +214,8 @@ func (f *fakeRouter) AllHostnames() []string {
 
 func (f *fakeRouter) WaitForUpdate(_ context.Context, _ uint64) error { return nil }
 
+func (f *fakeRouter) HasReplicationOpsForShard(_, _ string) bool { return false }
+
 var _ types.Router = (*fakeRouter)(nil)
 
 func (f *fakeRouter) BuildReadRoutingPlan(opt types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {

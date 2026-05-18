@@ -190,8 +190,11 @@ type ShardLike interface {
 	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
 	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
 	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
-	// FinalizeChangeLog seals + unregisters + deactivates the log atomically
-	// and returns its final LSN. Tailers drain to finalLSN and EOF.
+	// FinalizeChangeLog waits for the pre-seal in-flight PREPARE set to
+	// drain (so their CCL appends complete) and then seals the log under
+	// writeBarrierMux.Lock, returning the final LSN. Tailers drain to
+	// finalLSN and EOF. Stale-routed writes are rejected upstream by the
+	// FSM-driven source-side fence (see IsLocalShardWritable).
 	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
 	// StopChangeCapture unregisters and deactivates the log without sealing
 	// (cancellation paths where Finalize was never called).
@@ -269,7 +272,9 @@ type Shard struct {
 	// activates can't sweep each other's freshly-opened .log file.
 	changeLogsActivateMu sync.Mutex
 	// writeBarrierMux: writes/reads RLock; barrier-takers Lock to fence
-	// in-flight writes for a consistent LSN snapshot.
+	// in-flight writes for a consistent LSN snapshot, and to atomically
+	// seal the change-capture log against concurrent registerReplicaTask
+	// callers in FinalizeChangeLog.
 	writeBarrierMux sync.RWMutex
 	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
 	// derived from context.Background() and cancelled by asyncReplicationCancelFunc

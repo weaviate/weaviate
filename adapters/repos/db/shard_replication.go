@@ -64,8 +64,25 @@ func (p *pendingReplicaTasks) len() int {
 	return len(p.Tasks)
 }
 
-// registerReplicaTask holds writeBarrierMux.RLock so FinalizeChangeLog's
-// Lock fences out new PREPAREs before sealing.
+// keys snapshots the set of in-flight request IDs. FinalizeChangeLog takes
+// this snapshot when arming the fence so it can wait for exactly that bounded
+// set to drain.
+func (p *pendingReplicaTasks) keys() map[string]struct{} {
+	p.Lock()
+	defer p.Unlock()
+	out := make(map[string]struct{}, len(p.Tasks))
+	for k := range p.Tasks {
+		out[k] = struct{}{}
+	}
+	return out
+}
+
+// registerReplicaTask records a PREPARE under writeBarrierMux.RLock so
+// FinalizeChangeLog's Lock fences out new registrations during the seal.
+// Stale-routed PREPAREs are rejected upstream by the durable FSM-driven
+// source-side fence in db.checkLocalWritable / ShardReplicationFSM.
+// IsLocalShardWritable, so by the time we get here the routing is fresh
+// (target included) and the task is safe to register unconditionally.
 func (s *Shard) registerReplicaTask(requestID string, task replicaTask) {
 	s.writeBarrierMux.RLock()
 	defer s.writeBarrierMux.RUnlock()
@@ -94,7 +111,7 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 			Code: replica.StatusPreconditionFailed, Msg: err.Error(),
 		}}}
 	}
-	task := func(ctx context.Context) interface{} {
+	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.putOne(ctx, uuid, object); err != nil {
 			resp.Errors = []replica.Error{
@@ -102,8 +119,7 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 			}
 		}
 		return resp
-	}
-	s.registerReplicaTask(requestID, task)
+	})
 	return replica.SimpleResponse{}
 }
 
@@ -114,7 +130,7 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 			{Code: replica.StatusPreconditionFailed, Msg: err.Error()},
 		}}
 	}
-	task := func(ctx context.Context) interface{} {
+	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.merge(ctx, uuid, *doc); err != nil {
 			var code replica.StatusCode
@@ -128,13 +144,12 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 			}
 		}
 		return resp
-	}
-	s.registerReplicaTask(requestID, task)
+	})
 	return replica.SimpleResponse{}
 }
 
 func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
-	task := func(ctx context.Context) interface{} {
+	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.DeleteObject(ctx, uuid, deletionTime); err != nil {
 			resp.Errors = []replica.Error{
@@ -142,13 +157,12 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 			}
 		}
 		return resp
-	}
-	s.registerReplicaTask(requestID, task)
+	})
 	return replica.SimpleResponse{}
 }
 
 func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects []*storobj.Object) replica.SimpleResponse {
-	task := func(ctx context.Context) interface{} {
+	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
 		rawErrs := s.putBatch(ctx, objects)
 		resp := replica.SimpleResponse{Errors: make([]replica.Error, len(rawErrs))}
 		for i, err := range rawErrs {
@@ -157,15 +171,14 @@ func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects
 			}
 		}
 		return resp
-	}
-	s.registerReplicaTask(requestID, task)
+	})
 	return replica.SimpleResponse{}
 }
 
 func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) replica.SimpleResponse {
-	task := func(ctx context.Context) interface{} {
+	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
 		result := newDeleteObjectsBatcher(s).Delete(ctx, uuids, deletionTime, dryRun)
 		resp := replica.DeleteBatchResponse{
 			Batch: make([]replica.UUID2Error, len(result)),
@@ -179,13 +192,12 @@ func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 			resp.Batch[i] = entry
 		}
 		return resp
-	}
-	s.registerReplicaTask(requestID, task)
+	})
 	return replica.SimpleResponse{}
 }
 
 func (s *Shard) prepareAddReferences(ctx context.Context, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
-	task := func(ctx context.Context) interface{} {
+	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
 		rawErrs := newReferencesBatcher(s).References(ctx, refs)
 		resp := replica.SimpleResponse{Errors: make([]replica.Error, len(rawErrs))}
 		for i, err := range rawErrs {
@@ -194,8 +206,7 @@ func (s *Shard) prepareAddReferences(ctx context.Context, requestID string, refs
 			}
 		}
 		return resp
-	}
-	s.registerReplicaTask(requestID, task)
+	})
 	return replica.SimpleResponse{}
 }
 

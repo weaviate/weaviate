@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	mathrand "math/rand/v2"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,8 +28,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -39,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
@@ -48,7 +44,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-// errObjectNotFound is the sentinel returned by getTenantObjectThreadSafe on
+// errObjectNotFound is the sentinel returned by getObjectThreadSafe on
 // HTTP 404 so deleted-id assertions can use errors.Is instead of pattern-
 // matching on the swagger error type.
 var errObjectNotFound = errors.New("object not found")
@@ -459,13 +455,13 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWrites() {
 	t := suite.T()
 	mainCtx := context.Background()
-	logger, _ := logrustest.NewNullLogger()
 
 	clusterSize := 3
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
 		WithText2VecContextionary().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "10").
 		Start(mainCtx)
 	defer func() {
 		if err := compose.Terminate(mainCtx); err != nil {
@@ -505,8 +501,8 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 
 	t.Run("wait for eventual consistency of schema", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			for i := 1; i <= clusterSize; i++ {
-				helper.SetupClient(compose.ContainerURI(i))
+			for i := 0; i < clusterSize; i++ {
+				helper.SetupClient(compose.ContainerURI(i + 1))
 
 				consistency := false
 				respSchema, err := helper.Client(t).Schema.SchemaDump(
@@ -551,98 +547,22 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 		}
 	})
 
-	parallelWriteWg := sync.WaitGroup{}
-	// dumpLogsOnce gates dumpReplicaLogsOnce so the first parallel-write
-	// failure dumps the relevant log lines from every node and
-	// subsequent failures stay quiet.
-	var dumpLogsOnce sync.Once
-	// liveIDs is the test-side source of truth for what should exist on each
-	// non-source replica after the move. Seeded with the original paragraphs
-	// so the workload is free to UPDATE/DELETE pre-HYDRATING data too.
-	liveIDs := map[strfmt.UUID]string{}
+	// Seed the parallel writer with the original paragraphs so the workload is
+	// free to UPDATE/DELETE pre-HYDRATING data too. writes is populated once
+	// the writer is stopped, below, and is the test-side source of truth for
+	// what the move target must hold.
+	seed := map[strfmt.UUID]string{}
 	for i, id := range paragraphIDs {
-		liveIDs[id] = fmt.Sprintf("paragraph#%d", i)
+		seed[id] = fmt.Sprintf("paragraph#%d", i)
 	}
-	deletedIDs := map[strfmt.UUID]struct{}{}
-	replicationDone := make(chan struct{})
-	t.Run("start parallel writes", func(t *testing.T) {
-		parallelWriteWg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer parallelWriteWg.Done()
-			containerId := 1
-			// Per-iteration counter keeps every CREATE / UPDATE content
-			// string distinct so a stale PUT winning over a newer one shows
-			// up as a content-equality assertion failure.
-			opSeq := 0
-			// pickLive returns a random id from liveIDs, or "" if empty.
-			pickLive := func() strfmt.UUID {
-				if len(liveIDs) == 0 {
-					return ""
-				}
-				idx := mathrand.IntN(len(liveIDs))
-				i := 0
-				for id := range liveIDs {
-					if i == idx {
-						return id
-					}
-					i++
-				}
-				return ""
-			}
-			for {
-				select {
-				case <-replicationDone:
-					return
-				default:
-					opSeq++
-					uri := compose.ContainerURI(containerId)
-					containerId++
-					if containerId >= clusterSize+1 {
-						containerId = 1
-					}
-
-					// 60% CREATE / 20% UPDATE / 20% DELETE. Force CREATE if
-					// the live-set is empty (cannot UPDATE/DELETE nothing).
-					roll := mathrand.IntN(100)
-					switch {
-					case roll < 60 || len(liveIDs) == 0:
-						newID := strfmt.UUID(uuid.New().String())
-						contents := fmt.Sprintf("paragraph#%d", opSeq)
-						if err := createObjectThreadSafe(uri, paragraphClass.Class, map[string]any{"contents": contents}, string(newID), tenant); err != nil {
-							dumpReplicaLogsOnce(t, mainCtx, compose, clusterSize, &dumpLogsOnce)
-							assert.NoError(t, err, "error creating object %s on node %s", newID, uri)
-							continue
-						}
-						liveIDs[newID] = contents
-					case roll < 80:
-						target := pickLive()
-						if target == "" {
-							continue
-						}
-						contents := fmt.Sprintf("paragraph#%d-updated-%d", opSeq, opSeq)
-						if err := patchObjectThreadSafe(uri, paragraphClass.Class, string(target), tenant, map[string]any{"contents": contents}); err != nil {
-							dumpReplicaLogsOnce(t, mainCtx, compose, clusterSize, &dumpLogsOnce)
-							assert.NoError(t, err, "error patching object %s on node %s", target, uri)
-							continue
-						}
-						liveIDs[target] = contents
-					default:
-						target := pickLive()
-						if target == "" {
-							continue
-						}
-						if err := deleteObjectThreadSafe(uri, paragraphClass.Class, string(target), tenant); err != nil {
-							dumpReplicaLogsOnce(t, mainCtx, compose, clusterSize, &dumpLogsOnce)
-							assert.NoError(t, err, "error deleting object %s on node %s", target, uri)
-							continue
-						}
-						delete(liveIDs, target)
-						deletedIDs[target] = struct{}{}
-					}
-				}
-			}
-		}, logger)
-	})
+	stopWrites := startParallelWrites(t, mainCtx, newComposeNodeSource(compose, clusterSize), paragraphClass.Class, tenant, seed)
+	// Guard against the orphan-writer race: if any require.XXX between
+	// here and the explicit stopWrites() call below Goexits the test,
+	// the writer goroutine would otherwise outlive the test's *testing.T
+	// and race against tRunner.func1's deferred cleanup. stopWrites is
+	// idempotent so the explicit call later is still effective.
+	defer stopWrites()
+	var writes parallelWriteResult
 
 	// any node can be chosen as the tenant source node (even if that node is down at the time of creation)
 	// so we dynamically find the source and target nodes
@@ -756,9 +676,8 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
 			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
 		}, 240*time.Second, 1*time.Second, "replication operation %s not finished in time", opUuid)
-		// now stop the writes
-		close(replicationDone)
-		parallelWriteWg.Wait()
+		// now stop the writes and capture the writer's final tracked state
+		writes = stopWrites()
 	})
 
 	// Only target is asserted: replicaNode can validly diverge under
@@ -766,17 +685,17 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	t.Run("post-move object set matches the writer's tracked state on target", func(t *testing.T) {
 		// give time for any pending replication to finish so that all parallel writes are replicated to the new node before we check for their existence
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := countTenantObjectsThreadSafe(targetNode.nodeURI, paragraphClass.Class, tenant)
+			n, err := countObjectsThreadSafe(targetNode.nodeURI, paragraphClass.Class, tenant)
 			if !assert.NoError(ct, err, "count aggregate failed against target %s", targetNode.nodeName) {
 				return
 			}
-			assert.Equal(ct, int64(len(liveIDs)), n)
+			assert.Equal(ct, int64(len(writes.liveIDs)), n)
 		}, 30*time.Second, 1*time.Second, "not all parallel writes are available on target %s", targetNode.nodeName)
 
-		for id, expectedContents := range liveIDs {
+		for id, expectedContents := range writes.liveIDs {
 			var obj *models.Object
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-				o, err := getTenantObjectThreadSafe(targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, tenant)
+				o, err := getObjectThreadSafe(targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, tenant)
 				assert.NoError(ct, err, "error getting live id %s from target %s", id, targetNode.nodeName)
 				assert.NotNil(ct, o, "live id %s not yet present on target %s", id, targetNode.nodeName)
 				obj = o
@@ -792,26 +711,28 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 				"contents mismatch for id %s on target %s (LWW failure?)", id, targetNode.nodeName)
 		}
 
-		for id := range deletedIDs {
+		for id := range writes.deletedIDs {
 			assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-				_, err := getTenantObjectThreadSafe(targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, tenant)
+				_, err := getObjectThreadSafe(targetNode.nodeURI, paragraphClass.Class, id, targetNode.nodeName, tenant)
 				assert.ErrorIs(ct, err, errObjectNotFound, "deleted id %s unexpectedly present on target %s", id, targetNode.nodeName)
 			}, 10*time.Second, 1*time.Second, "deleted id %s still present on target %s", id, targetNode.nodeName)
 		}
 	})
 }
 
-// getTenantObjectThreadSafe issues GET /v1/objects/{class}/{id} with node_name
-// and tenant query params, bypassing the helper.Client global so it can be
-// called concurrently with other helper calls without racing on the
-// SetupClient/Client globals.
+// getObjectThreadSafe issues GET /v1/objects/{class}/{id} with a node_name
+// query param (and tenant, when non-empty), bypassing the helper.Client global
+// so it can be called concurrently with other helper calls without racing on
+// the SetupClient/Client globals. tenant is "" for single-tenant collections.
 //
 // Returns (nil, errObjectNotFound) on 404 so callers can distinguish "not
 // here yet" from network/server errors.
-func getTenantObjectThreadSafe(uri, class string, id strfmt.UUID, nodename, tenant string) (*models.Object, error) {
+func getObjectThreadSafe(uri, class string, id strfmt.UUID, nodename, tenant string) (*models.Object, error) {
 	q := url.Values{}
 	q.Set("node_name", nodename)
-	q.Set("tenant", tenant)
+	if tenant != "" {
+		q.Set("tenant", tenant)
+	}
 	target := fmt.Sprintf("http://%s/v1/objects/%s/%s?%s", uri, class, id, q.Encode())
 	req, err := http.NewRequest("GET", target, nil)
 	if err != nil {
@@ -837,11 +758,17 @@ func getTenantObjectThreadSafe(uri, class string, id strfmt.UUID, nodename, tena
 	return &obj, nil
 }
 
-// countTenantObjectsThreadSafe runs an Aggregate{Class(tenant:X){meta{count}}}
-// GraphQL query against the given node URI, bypassing the helper.Client
-// global. Same race-free rationale as getTenantObjectThreadSafe.
-func countTenantObjectsThreadSafe(uri, class, tenant string) (int64, error) {
-	query := fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, class, tenant)
+// countObjectsThreadSafe runs an Aggregate{Class{meta{count}}} GraphQL query
+// against the given node URI, bypassing the helper.Client global. When tenant
+// is non-empty it scopes the aggregate to that tenant; "" aggregates a
+// single-tenant collection. Same race-free rationale as getObjectThreadSafe.
+func countObjectsThreadSafe(uri, class, tenant string) (int64, error) {
+	var query string
+	if tenant != "" {
+		query = fmt.Sprintf(`{Aggregate{%s(tenant:%q){meta{count}}}}`, class, tenant)
+	} else {
+		query = fmt.Sprintf(`{Aggregate{%s{meta{count}}}}`, class)
+	}
 	body, err := json.Marshal(map[string]string{"query": query})
 	if err != nil {
 		return 0, fmt.Errorf("marshal graphql query: %w", err)
@@ -959,10 +886,13 @@ func patchObjectThreadSafe(uri, class, id, tenant string, properties map[string]
 }
 
 // deleteObjectThreadSafe issues a DELETE against /v1/objects/{class}/{id}.
-// tenant is sent as a query param (the REST API requires it for tenant-scoped
-// objects).
+// tenant is sent as a query param when non-empty (the REST API requires it for
+// tenant-scoped objects); "" deletes from a single-tenant collection.
 func deleteObjectThreadSafe(uri, class, id, tenant string) error {
-	url := fmt.Sprintf("http://%s/v1/objects/%s/%s?tenant=%s&consistency_level=ALL", uri, class, id, tenant)
+	url := fmt.Sprintf("http://%s/v1/objects/%s/%s?consistency_level=ALL", uri, class, id)
+	if tenant != "" {
+		url += "&tenant=" + tenant
+	}
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
@@ -983,6 +913,28 @@ func deleteObjectThreadSafe(uri, class, id, tenant string) error {
 	return nil
 }
 
+// composeNodeSource adapts a testcontainers DockerCompose into the
+// nodeSourcer interface that startParallelWrites / dumpReplica*Once consume.
+// Used by the tenant-MOVE tests which still spin up their own cluster.
+type composeNodeSource struct {
+	compose     *docker.DockerCompose
+	clusterSize int
+}
+
+func newComposeNodeSource(compose *docker.DockerCompose, clusterSize int) composeNodeSource {
+	return composeNodeSource{compose: compose, clusterSize: clusterSize}
+}
+
+func (c composeNodeSource) Size() int            { return c.clusterSize }
+func (c composeNodeSource) URIFor(i int) string  { return c.compose.ContainerURI(i) }
+func (c composeNodeSource) FetchLogs(ctx context.Context, i int) (io.ReadCloser, error) {
+	node := c.compose.GetWeaviateNode(i)
+	if node == nil {
+		return nil, fmt.Errorf("weaviate node %d not found in compose", i)
+	}
+	return node.Container().Logs(ctx)
+}
+
 // dumpReplicaLogsOnce dumps each node's container logs (filtered to
 // route-stale / DEHYDRATING / retry-related lines) the first time it
 // is invoked; subsequent calls are no-ops via the supplied sync.Once
@@ -991,14 +943,10 @@ func deleteObjectThreadSafe(uri, class, id, tenant string) error {
 // distinguish whether the coord-side retry engaged, whether
 // waitForFSMCatchUp logged its no-applied-index warning, and whether
 // the source-side fence saw DEHYDRATING.
-func dumpReplicaLogsOnce(t *testing.T, ctx context.Context, compose *docker.DockerCompose, clusterSize int, once *sync.Once) {
+func dumpReplicaLogsOnce(t *testing.T, ctx context.Context, nodes nodeSourcer, once *sync.Once) {
 	once.Do(func() {
-		for i := 1; i <= clusterSize; i++ {
-			node := compose.GetWeaviateNode(i)
-			if node == nil {
-				continue
-			}
-			logs, err := node.Container().Logs(ctx)
+		for i := 1; i <= nodes.Size(); i++ {
+			logs, err := nodes.FetchLogs(ctx, i)
 			if err != nil {
 				t.Logf("weaviate-%d: failed to get logs: %v", i-1, err)
 				continue
@@ -1014,6 +962,124 @@ func dumpReplicaLogsOnce(t *testing.T, ctx context.Context, compose *docker.Dock
 	})
 }
 
+// dumpReplicaTraceOnce dumps, once, the cross-node trace of a single lost
+// object. To keep the output focused on the missed UUID, it does TWO passes
+// per node's log:
+//
+//  1. First pass: collect tx_ids from any line mentioning objUUID. Those are
+//     the PREPARE traces tagged with the UUID (emitted in the readyOp closures
+//     in replicator.go), plus any other UUID-bearing line.
+//  2. Second pass: emit a line iff it (a) mentions objUUID, (b) carries one of
+//     the collected tx_ids — pulling in COMMIT replica_rpc traces and any
+//     other tx-correlated log lines — or (c) matches a non-replica_rpc
+//     diagnostic keyword (CCL lifecycle, sharding state, fence eval, etc.).
+//
+// VERIFICATION INSTRUMENTATION for the lost-write flake hunt; remove with the
+// trace logging.
+func dumpReplicaTraceOnce(t *testing.T, ctx context.Context, nodes nodeSourcer, objUUID string, once *sync.Once) {
+	once.Do(func() {
+		for i := 1; i <= nodes.Size(); i++ {
+			logs, err := nodes.FetchLogs(ctx, i)
+			if err != nil {
+				t.Logf("weaviate-%d: failed to get logs: %v", i-1, err)
+				continue
+			}
+			buf, _ := io.ReadAll(logs)
+			logs.Close()
+
+			lines := strings.Split(string(buf), "\n")
+
+			// First pass: harvest tx_ids attached to any UUID-bearing line.
+			// The PREPARE replica_rpc trace carries both uuid and tx_id, so
+			// any UUID-matched line that also has a tx_id field gives us a
+			// correlation key for COMMIT lines emitted from coordinator.go.
+			txIDs := make(map[string]struct{})
+			for _, line := range lines {
+				if !strings.Contains(line, objUUID) {
+					continue
+				}
+				if tx := extractTxID(line); tx != "" {
+					txIDs[tx] = struct{}{}
+				}
+			}
+
+			// Second pass: emit anything that's relevant.
+			for _, line := range lines {
+				if strings.Contains(line, objUUID) || matchesAnyTxID(line, txIDs) || matchesRouteStaleDiagnostics(line) {
+					t.Logf("weaviate-%d: %s", i-1, line)
+				}
+			}
+		}
+	})
+}
+
+// extractTxID pulls the tx_id field out of a logrus-formatted line. Returns
+// "" if not present. Handles both the JSON formatter ("tx_id":"...") and the
+// text formatter (tx_id=...) since logrus may emit either depending on TTY.
+func extractTxID(line string) string {
+	if v := extractKeyJSON(line, "tx_id"); v != "" {
+		return v
+	}
+	return extractKeyText(line, "tx_id")
+}
+
+// extractKeyJSON returns the value of "<key>":"<value>" in line, or "".
+func extractKeyJSON(line, key string) string {
+	needle := `"` + key + `":"`
+	i := strings.Index(line, needle)
+	if i < 0 {
+		return ""
+	}
+	rest := line[i+len(needle):]
+	j := strings.Index(rest, `"`)
+	if j < 0 {
+		return ""
+	}
+	return rest[:j]
+}
+
+// extractKeyText returns the value of `<key>=<value>` in line. The value runs
+// until the next whitespace or end-of-line; logrus quotes values containing
+// spaces, which we strip.
+func extractKeyText(line, key string) string {
+	needle := key + "="
+	i := strings.Index(line, needle)
+	if i < 0 {
+		return ""
+	}
+	rest := line[i+len(needle):]
+	if strings.HasPrefix(rest, `"`) {
+		rest = rest[1:]
+		j := strings.Index(rest, `"`)
+		if j < 0 {
+			return ""
+		}
+		return rest[:j]
+	}
+	j := strings.IndexAny(rest, " \t")
+	if j < 0 {
+		return rest
+	}
+	return rest[:j]
+}
+
+func matchesAnyTxID(line string, txIDs map[string]struct{}) bool {
+	if len(txIDs) == 0 {
+		return false
+	}
+	for tx := range txIDs {
+		if strings.Contains(line, tx) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesRouteStaleDiagnostics matches lines worth emitting regardless of any
+// specific UUID — global lifecycle, fence evaluations, routing decisions.
+// Per-tx noise (replica_rpc) is intentionally NOT included here; those are
+// surfaced via the tx_id-correlation pass in dumpReplicaTraceOnce so the
+// dump stays scoped to the missed UUID.
 func matchesRouteStaleDiagnostics(line string) bool {
 	keywords := []string{
 		"push.retry_route_stale",
@@ -1027,6 +1093,22 @@ func matchesRouteStaleDiagnostics(line string) bool {
 		"FINALIZING",
 		"WaitForUpdateAllNodes",
 		"replicate insertion",
+		// verification instrumentation: silent best-effort additional-write
+		// failures (coordinator.go) — a freshly-added replica missing a write.
+		"best_effort_additional_write",
+		// verification instrumentation: CCL lifecycle transitions
+		// (activate/seal/stop/fail_deactivate) — places a torn-down CCL
+		// against a lost write's timestamp.
+		"ccl_lifecycle",
+		// verification instrumentation: sharding-state replica add/remove
+		// applies — catches a COPY source being dropped from its replica set.
+		"sharding_state",
+		// verification instrumentation: write routing plan computation —
+		// shows the candidate set vs the resulting write/additional replicas.
+		"write_routing_plan",
+		// verification instrumentation: source-side fence evaluation —
+		// every IsLocalShardWritable call with the matched ops and decision.
+		"is_local_shard_writable",
 	}
 	for _, k := range keywords {
 		if strings.Contains(line, k) {

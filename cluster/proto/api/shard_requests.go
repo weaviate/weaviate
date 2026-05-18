@@ -29,9 +29,16 @@ func (s ShardReplicationState) String() string {
 }
 
 const (
-	REGISTERED  ShardReplicationState = "REGISTERED"
-	HYDRATING   ShardReplicationState = "HYDRATING"
-	FINALIZING  ShardReplicationState = "FINALIZING"
+	REGISTERED ShardReplicationState = "REGISTERED"
+	HYDRATING  ShardReplicationState = "HYDRATING"
+	FINALIZING ShardReplicationState = "FINALIZING"
+	// INTEGRATING is the COPY-only state between FINALIZING and READY: the
+	// target replica has joined the sharding state and is a counted write
+	// replica, while the source's change-capture log is still alive and being
+	// drained to its final LSN. It is the COPY-side mirror of MOVE's
+	// DEHYDRATING — it exists so the target becomes a reliable write replica
+	// before the log is sealed and torn down.
+	INTEGRATING ShardReplicationState = "INTEGRATING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
 	CANCELLED   ShardReplicationState = "CANCELLED" // The operation has been cancelled. It cannot be resumed.

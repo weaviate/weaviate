@@ -169,6 +169,53 @@ func (_c *MockreplicationFSM_HasOngoingReplication_Call) RunAndReturn(run func(s
 	return _c
 }
 
+// SetAddReplicaVersion provides a mock function with given fields: id, raftIndex
+func (_m *MockreplicationFSM) SetAddReplicaVersion(id uint64, raftIndex uint64) error {
+	ret := _m.Called(id, raftIndex)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetAddReplicaVersion")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(uint64, uint64) error); ok {
+		r0 = rf(id, raftIndex)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockreplicationFSM_SetAddReplicaVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAddReplicaVersion'
+type MockreplicationFSM_SetAddReplicaVersion_Call struct {
+	*mock.Call
+}
+
+// SetAddReplicaVersion is a helper method to define mock.On call
+//   - id uint64
+//   - raftIndex uint64
+func (_e *MockreplicationFSM_Expecter) SetAddReplicaVersion(id interface{}, raftIndex interface{}) *MockreplicationFSM_SetAddReplicaVersion_Call {
+	return &MockreplicationFSM_SetAddReplicaVersion_Call{Call: _e.mock.On("SetAddReplicaVersion", id, raftIndex)}
+}
+
+func (_c *MockreplicationFSM_SetAddReplicaVersion_Call) Run(run func(id uint64, raftIndex uint64)) *MockreplicationFSM_SetAddReplicaVersion_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64), args[1].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockreplicationFSM_SetAddReplicaVersion_Call) Return(_a0 error) *MockreplicationFSM_SetAddReplicaVersion_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockreplicationFSM_SetAddReplicaVersion_Call) RunAndReturn(run func(uint64, uint64) error) *MockreplicationFSM_SetAddReplicaVersion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetUnCancellable provides a mock function with given fields: id
 func (_m *MockreplicationFSM) SetUnCancellable(id uint64) error {
 	ret := _m.Called(id)

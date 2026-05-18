@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -104,6 +105,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
+			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, obj.ID().String(), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -137,6 +139,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
+			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, doc.ID.String(), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -174,6 +177,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
+			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, id.String(), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -206,6 +210,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
+			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, joinObjUUIDs(objs), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -244,6 +249,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
+			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, joinUUIDs(uuids), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -291,6 +297,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 			if err == nil {
 				err = resp.FirstError()
 			}
+			emitReplicaRPCTrace(r.log, "PREPARE", host, r.class, shard, requestID, joinRefIDs(refs), err)
 			if err != nil {
 				return wrapRouteStale(host, err)
 			}
@@ -443,6 +450,43 @@ func (r *Replicator) requestID(op opID) string {
 		op,
 		time.Now().UnixMilli(),
 		r.requestCounter.Add(1))
+}
+
+// joinObjUUIDs / joinUUIDs / joinRefIDs format a batch's identifiers as
+// "|"-separated strings for the replica_rpc PREPARE trace. The dump filter
+// uses substring matching on objUUID, so any single UUID still matches.
+// VERIFICATION INSTRUMENTATION — remove with the trace itself.
+func joinObjUUIDs(objs []*storobj.Object) string {
+	if len(objs) == 0 {
+		return ""
+	}
+	parts := make([]string, len(objs))
+	for i, o := range objs {
+		parts[i] = o.ID().String()
+	}
+	return strings.Join(parts, "|")
+}
+
+func joinUUIDs(uuids []strfmt.UUID) string {
+	if len(uuids) == 0 {
+		return ""
+	}
+	parts := make([]string, len(uuids))
+	for i, u := range uuids {
+		parts[i] = u.String()
+	}
+	return strings.Join(parts, "|")
+}
+
+func joinRefIDs(refs []objects.BatchReference) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(refs)*2)
+	for _, r := range refs {
+		parts = append(parts, r.From.String(), r.To.String())
+	}
+	return strings.Join(parts, "|")
 }
 
 // wrapRouteStale chains a typed *routeStaleErr (carrying source's applied

@@ -418,6 +418,7 @@ func (_m *MockFSMUpdater) ReplicationUpdateReplicaOpStatus(ctx context.Context, 
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
+
 	if rf, ok := ret.Get(1).(func(context.Context, uint64, api.ShardReplicationState) error); ok {
 		r1 = rf(ctx, id, state)
 	} else {
@@ -453,53 +454,6 @@ func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) Return(_a0 uint6
 }
 
 func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) RunAndReturn(run func(context.Context, uint64, api.ShardReplicationState) (uint64, error)) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// WaitForUpdateAllNodes provides a mock function with given fields: ctx, version
-func (_m *MockFSMUpdater) WaitForUpdateAllNodes(ctx context.Context, version uint64) error {
-	ret := _m.Called(ctx, version)
-
-	if len(ret) == 0 {
-		panic("no return value specified for WaitForUpdateAllNodes")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, uint64) error); ok {
-		r0 = rf(ctx, version)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockFSMUpdater_WaitForUpdateAllNodes_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitForUpdateAllNodes'
-type MockFSMUpdater_WaitForUpdateAllNodes_Call struct {
-	*mock.Call
-}
-
-// WaitForUpdateAllNodes is a helper method to define mock.On call
-//   - ctx context.Context
-//   - version uint64
-func (_e *MockFSMUpdater_Expecter) WaitForUpdateAllNodes(ctx interface{}, version interface{}) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
-	return &MockFSMUpdater_WaitForUpdateAllNodes_Call{Call: _e.mock.On("WaitForUpdateAllNodes", ctx, version)}
-}
-
-func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) Run(run func(ctx context.Context, version uint64)) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(uint64))
-	})
-	return _c
-}
-
-func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) Return(_a0 error) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) RunAndReturn(run func(context.Context, uint64) error) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -664,6 +618,53 @@ func (_c *MockFSMUpdater_WaitForUpdate_Call) Return(_a0 error) *MockFSMUpdater_W
 }
 
 func (_c *MockFSMUpdater_WaitForUpdate_Call) RunAndReturn(run func(context.Context, uint64) error) *MockFSMUpdater_WaitForUpdate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// WaitForUpdateAllNodes provides a mock function with given fields: ctx, version
+func (_m *MockFSMUpdater) WaitForUpdateAllNodes(ctx context.Context, version uint64) error {
+	ret := _m.Called(ctx, version)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WaitForUpdateAllNodes")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) error); ok {
+		r0 = rf(ctx, version)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockFSMUpdater_WaitForUpdateAllNodes_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WaitForUpdateAllNodes'
+type MockFSMUpdater_WaitForUpdateAllNodes_Call struct {
+	*mock.Call
+}
+
+// WaitForUpdateAllNodes is a helper method to define mock.On call
+//   - ctx context.Context
+//   - version uint64
+func (_e *MockFSMUpdater_Expecter) WaitForUpdateAllNodes(ctx interface{}, version interface{}) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
+	return &MockFSMUpdater_WaitForUpdateAllNodes_Call{Call: _e.mock.On("WaitForUpdateAllNodes", ctx, version)}
+}
+
+func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) Run(run func(ctx context.Context, version uint64)) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) Return(_a0 error) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockFSMUpdater_WaitForUpdateAllNodes_Call) RunAndReturn(run func(context.Context, uint64) error) *MockFSMUpdater_WaitForUpdateAllNodes_Call {
 	_c.Call.Return(run)
 	return _c
 }
