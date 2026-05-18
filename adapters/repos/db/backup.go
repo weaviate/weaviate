@@ -309,14 +309,23 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 // backupShardWithHardlinks backs up a single shard using hardlinks. Under backupLock.Lock,
 // it checks the shardMap to determine whether the shard is active (loaded in memory) or
 // inactive (on disk only), and uses the appropriate backup path.
+//
+// For active shards, shardCreateLocks is released early (after acquiring the
+// preventShutdown refcount) so concurrent queries — which RLock the same per-shard
+// key in getOptInitLocalShard — don't block for the snapshot duration. See
+// weaviate/0-weaviate-issues#234.
 func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, classBaseDescrs []*backup.ClassDescriptor, stagingRoot string) (*backup.ShardDescriptor, error) {
 	shardBaseDescr := i.collectShardBaseDescrs(name, classBaseDescrs)
 
 	i.backupLock.Lock(name)
+	defer i.backupLock.Unlock(name)
+
 	i.shardCreateLocks.Lock(name)
+	shardCreateLocksHeld := true
 	defer func() {
-		i.shardCreateLocks.Unlock(name)
-		i.backupLock.Unlock(name)
+		if shardCreateLocksHeld {
+			i.shardCreateLocks.Unlock(name)
+		}
 	}()
 
 	var sd backup.ShardDescriptor
@@ -353,8 +362,18 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 		releaseBlock()
 	}
 
-	// Active path => shard is loaded in memory. Call through the ShardLike
-	// interface so both *Shard and loaded *LazyLoadShard work correctly.
+	// Acquire preventShutdown before releasing shardCreateLocks: UnloadLocalShard
+	// holds only shardCreateLocks (not backupLock), so without the refcount it could
+	// call Shard.Shutdown between our release and CreateBackupSnapshot.
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, fmt.Errorf("prevent shutdown of shard %v: %w", name, err)
+	}
+	defer release()
+
+	i.shardCreateLocks.Unlock(name)
+	shardCreateLocksHeld = false
+
 	files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot shard %v: %w", name, err)
