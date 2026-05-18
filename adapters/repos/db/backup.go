@@ -268,32 +268,19 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 		return fmt.Errorf("list local shards: %w", err)
 	}
 
-	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
-	eg.SetLimit(_NUMCPU)
-	mu := sync.Mutex{}
 	shards := map[string]*backup.ShardDescriptor{}
-
 	for _, name := range shardNames {
-		eg.Go(func() error {
-			sd, err := i.backupShardWithHardlinks(ctx, name, classBaseDescrs, stagingRoot)
-			if err != nil {
-				if errors.Is(err, errShardNoLocalData) {
-					i.logger.WithField("shard", name).Debug("skipping shard with no local data")
-					return nil
-				}
-				return err
+		sd, err := i.backupShardWithHardlinks(ctx, name, classBaseDescrs, stagingRoot)
+		if err != nil {
+			if errors.Is(err, errShardNoLocalData) {
+				i.logger.WithField("shard", name).Debug("skipping shard with no local data")
+				continue
 			}
-			if sd != nil {
-				mu.Lock()
-				shards[name] = sd
-				mu.Unlock()
-			}
-			return nil
-		})
-	}
-
-	if err := eg.Wait(); err != nil {
-		return fmt.Errorf("backup shards with hardlinks: %w", err)
+			return err
+		}
+		if sd != nil {
+			shards[name] = sd
+		}
 	}
 
 	// Preserve original shard order from sharding state.
