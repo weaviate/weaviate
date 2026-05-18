@@ -169,7 +169,28 @@ Never use bare `go` statements. Always use the wrapper from `entities/errors/go_
 Uses `golangci-lint` v2 with `gofumpt` formatter. Key enabled linters: `bodyclose`, `errorlint`, `exhaustive`, `forbidigo` (no `fmt.Print*` or `println`), `gocritic` (deferInLoop), `misspell`, `nolintlint`.
 
 ### Logging
-We use logrus as logger. Always populate errors using `.Error(err)` and do NOT use `WithError`.
+
+We use logrus. Errors land in the **message body**, not in a separate `WithError` field, at **every level** (`Error`, `Warn`, `Info`, `Debug`).
+
+```go
+// Wrong — error text ends up in a separate "error" field that operator-side
+// log aggregators frequently render as a sibling column rather than inline.
+logger.WithField("path", p).WithError(err).Warn("failed to remove dir")
+
+// Right — error text lands in the message body.
+logger.WithField("path", p).Warnf("failed to remove dir: %v", err)
+```
+
+```go
+// Wrong — Error(fmt.Errorf(...)) builds a useless intermediate error value
+// just to stringify it.
+logger.WithField("k", v).Error(fmt.Errorf("torn state: %q missing", x))
+
+// Right — let the logger format directly.
+logger.WithField("k", v).Errorf("torn state: %q missing", x)
+```
+
+The rule applies to every level — `Errorf`, `Warnf`, `Infof`, `Debugf`. `WithError` is never used.
 
 
 ### API Code Generation
