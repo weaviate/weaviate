@@ -646,20 +646,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 	propertiesMap["id"] = ko.ID()
 	ko.SetProperties(propertiesMap)
 
-	additionalProperties := models.AdditionalProperties{}
-	if ko.AdditionalProperties() != nil {
-		if interpretation, ok := additional.ModuleParams["interpretation"]; ok {
-			if interpretationValue, ok := interpretation.(bool); ok && interpretationValue {
-				additionalProperties["interpretation"] = ko.AdditionalProperties()["interpretation"]
-			}
-		}
-		if additional.Classification {
-			additionalProperties["classification"] = ko.AdditionalProperties()["classification"]
-		}
-		if additional.Group {
-			additionalProperties["group"] = ko.AdditionalProperties()["group"]
-		}
-	}
+	additionalProperties := ko.buildAdditionalFromObject(additional)
 	if ko.ExplainScore() != "" {
 		additionalProperties["explainScore"] = ko.ExplainScore()
 	}
@@ -682,6 +669,31 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		Tenant:       tenant, // not part of the binary
 		// TODO: Beacon?
 	}
+}
+
+func (ko *Object) buildAdditionalFromObject(additional additional.Properties) models.AdditionalProperties {
+	out := models.AdditionalProperties{}
+	src := ko.AdditionalProperties()
+	if src == nil {
+		return out
+	}
+	if interp, ok := additional.ModuleParams["interpretation"]; ok {
+		if v, ok := interp.(bool); ok && v {
+			out["interpretation"] = src["interpretation"]
+		}
+	}
+	if additional.Classification {
+		out["classification"] = src["classification"]
+	}
+	if additional.Group {
+		out["group"] = src["group"]
+	}
+	if additional.Highlight {
+		if h := src["highlight"]; h != nil {
+			out["highlight"] = h
+		}
+	}
+	return out
 }
 
 func (ko *Object) asVectors(vectors map[string][]float32, multiVectors map[string][][]float32) models.Vectors {

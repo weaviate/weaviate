@@ -427,7 +427,7 @@ func (b *BM25Searcher) wand(
 	}
 
 	start = time.Now()
-	objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
+	objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional, params.Properties, params.HighlightMaxFragments, params.HighlightFragmentSize)
 
 	fetchTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", fetchTime)
@@ -436,7 +436,7 @@ func (b *BM25Searcher) wand(
 }
 
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
-	allRequests []string, additional additional.Properties,
+	allRequests []string, additional additional.Properties, propNames []string, maxFragments, fragmentSize int,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	scores := make([]float32, 0, topKHeap.Len())
@@ -480,6 +480,18 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 				queryTerm := allRequests[j]
 				objs[k].Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.Frequency
 				objs[k].Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.PropLength
+			}
+		}
+	}
+
+	if additional.Highlight {
+		for k := range objs {
+			if objs[k].AdditionalProperties() == nil {
+				objs[k].Object.Additional = make(map[string]interface{})
+			}
+			highlights := generateHighlights(objs[k].Properties(), propNames, allRequests, maxFragments, fragmentSize)
+			if highlights != nil {
+				objs[k].Object.Additional["highlight"] = highlights
 			}
 		}
 	}

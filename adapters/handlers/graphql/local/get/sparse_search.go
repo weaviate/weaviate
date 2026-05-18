@@ -41,5 +41,13 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.NewList(graphql.String),
 		},
 		"searchOperator": common_filters.GenerateBM25SearchOperatorFields(prefix),
+		"highlightMaxFragments": &graphql.InputObjectFieldConfig{
+			Description: "Maximum number of highlight fragments per property (default 3)",
+			Type:        graphql.Int,
+		},
+		"highlightFragmentSize": &graphql.InputObjectFieldConfig{
+			Description: "Characters of context around each matched term (default 50)",
+			Type:        graphql.Int,
+		},
 	}
 }

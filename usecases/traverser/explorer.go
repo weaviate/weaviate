@@ -15,8 +15,10 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"time"
 
+	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
@@ -39,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	nearText "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
@@ -157,10 +160,12 @@ func (e *Explorer) GetClass(ctx context.Context,
 	}
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
-		res, searchVector, err := e.getClassVectorSearch(ctx, params)
+		res, searchVector, namedVectors, err := e.getClassVectorSearch(ctx, params)
 		if err != nil {
 			return nil, err
 		}
+		res = attachQueryVector(res, params, searchVector, namedVectors)
+
 		return e.searchResultsToGetResponse(ctx, res, searchVector, params, searchStartTime)
 	}
 
@@ -168,6 +173,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
 	return e.searchResultsToGetResponse(ctx, res, nil, params, searchStartTime)
 }
 
@@ -215,44 +221,41 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
-) ([]search.Result, models.Vector, error) {
+) ([]search.Result, models.Vector, models.Vectors, error) {
 	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
+		return nil, nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
 	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
 		params.ClassName, targetVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
+		return nil, nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
 	}
 
-	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
+	res, searchVectors, namedVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
+		return nil, nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
 	}
 
 	if len(searchVectors) > 0 {
-		return res, searchVectors[0], nil
+		return res, searchVectors[0], namedVectors, nil
 	}
-	return res, []float32{}, nil
+	return res, []float32{}, namedVectors, nil
 }
 
-func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, error) {
-	var err error
+// vectorizeTargets computes search vectors for each target in parallel and
+// also returns the name→vector map used by callers that need to surface the
+// vectorized query (e.g. _additional { queryVector }). nil entries are skipped
+// in the named map so callers can tell which targets failed to vectorize.
+func (e *Explorer) vectorizeTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]models.Vector, models.Vectors, error) {
 	searchVectors := make([]models.Vector, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(2 * _NUMCPU)
 	for i := range targetVectors {
 		i := i
 		eg.Go(func() error {
-			var searchVectorParam *searchparams.NearVector
-			if params.NearVector != nil {
-				searchVectorParam = params.NearVector
-			} else if searchVectorParams != nil {
-				searchVectorParam = searchVectorParams
-			}
-
+			searchVectorParam := pickNearVectorParam(params.NearVector, searchVectorParams)
 			vec, err := e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
 			if err != nil {
 				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
@@ -261,9 +264,32 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 			return nil
 		})
 	}
-
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
+	}
+
+	named := make(models.Vectors, len(targetVectors))
+	for i, name := range targetVectors {
+		if searchVectors[i] != nil {
+			named[name] = searchVectors[i]
+		}
+	}
+	return searchVectors, named, nil
+}
+
+// pickNearVectorParam returns the first non-nil NearVector params, preferring
+// the explicit one on the request over the hybrid/sub-search fallback.
+func pickNearVectorParam(primary, fallback *searchparams.NearVector) *searchparams.NearVector {
+	if primary != nil {
+		return primary
+	}
+	return fallback
+}
+
+func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, []models.Vector, models.Vectors, error) {
+	searchVectors, named, err := e.vectorizeTargets(ctx, params, targetVectors, searchVectorParams)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
@@ -276,7 +302,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 	res, err := e.searcher.VectorSearch(ctx, params, targetVectors, searchVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -291,7 +317,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return nil, nil, errors.Errorf("grouper: %v", err)
+			return nil, nil, nil, errors.Errorf("grouper: %v", err)
 		}
 
 		res = grouped
@@ -303,12 +329,12 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
 		if err != nil {
-			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
 	e.trackUsageGet(res, params)
 
-	return res, searchVectors, nil
+	return res, searchVectors, named, nil
 }
 
 func MinInt(ints ...int) int {
@@ -463,7 +489,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			normalizedResultDist := res.Dist / 2
 
 			certainty := ExtractCertaintyFromParams(params)
-			if 1-(normalizedResultDist) < float32(certainty) && 1-normalizedResultDist >= 0 {
+			if 1-normalizedResultDist < float32(certainty) && 1-normalizedResultDist >= 0 {
 				// TODO: Clean this up. The >= check is so that this logic does not run
 				// non-cosine distance.
 				continue
@@ -528,6 +554,20 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			additionalProperties["isConsistent"] = res.IsConsistent
 		}
 
+		// For non-BM25 searches (nearText, Ask) the BM25 searcher never ran, so
+		// highlight is not yet in additionalProperties. Compute it here as a fallback.
+		if params.AdditionalProperties.Highlight && additionalProperties["highlight"] == nil {
+			if terms := extractHighlightTerms(params); len(terms) > 0 {
+				if schema, ok := res.Schema.(map[string]interface{}); ok {
+					props := schemaTextPropNames(schema)
+					maxFragments, fragmentSize := highlightSizing(params)
+					if h := dbinverted.GenerateHighlights(schema, props, terms, maxFragments, fragmentSize); h != nil {
+						additionalProperties["highlight"] = h
+					}
+				}
+			}
+		}
+
 		if len(additionalProperties) > 0 {
 			if additionalProperties["group"] != nil {
 				e.extractAdditionalPropertiesFromGroupRefs(additionalProperties["group"], params.GroupBy.Properties)
@@ -553,6 +593,83 @@ func (e *Explorer) extractAdditionalPropertiesFromGroupRefs(
 				e.extractAdditionalPropertiesFromRefs(hit, props)
 			}
 		}
+	}
+}
+
+// attachQueryVector puts the vectorized query onto results[0].AdditionalProperties
+// under "queryVector" (for GraphQL emission) and "queryVectorRaw" (for gRPC).
+// No-op when the user did not opt in, when there are no results, or when no
+// vector was produced (e.g. hybrid alpha=0, pure BM25).
+func attachQueryVector(results []search.Result, params dto.GetParams, single models.Vector, named models.Vectors) []search.Result {
+	if !params.AdditionalProperties.QueryVector || len(results) == 0 {
+		return results
+	}
+	single = normalizeQueryVector(single)
+
+	// Split the incoming named map: real target-vector keys vs the legacy
+	// single-vector entry (key ""). Legacy classes register `queryVector` as
+	// [Float] in GraphQL, so the value MUST be a flat list, not a map.
+	realNamed := models.Vectors{}
+	for name, v := range named {
+		if name == "" {
+			if single == nil {
+				single = normalizeQueryVector(v)
+			}
+			continue
+		}
+		realNamed[name] = normalizeQueryVector(v)
+	}
+
+	if single == nil && len(realNamed) == 0 {
+		return results
+	}
+	if results[0].AdditionalProperties == nil {
+		results[0].AdditionalProperties = models.AdditionalProperties{}
+	}
+	if len(realNamed) > 0 {
+		results[0].AdditionalProperties["queryVectorRaw"] = realNamed
+		results[0].AdditionalProperties["queryVector"] = realNamed
+	} else {
+		results[0].AdditionalProperties["queryVectorRaw"] = models.Vectors{"": single}
+		results[0].AdditionalProperties["queryVector"] = single
+	}
+	return results
+}
+
+// normalizeQueryVector coerces incoming vectors to the concrete shapes GraphQL
+// + gRPC serializers expect ([]float32 or [][]float32). The GraphQL parser
+// hands us []interface{} of float64 for user-supplied vectors; the vector
+// search backend converts internally but the value we carry on the query side
+// stays loose-typed.
+func normalizeQueryVector(v models.Vector) models.Vector {
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case []float32, [][]float32:
+		return x
+	case []interface{}:
+		out := make([]float32, 0, len(x))
+		for _, e := range x {
+			switch n := e.(type) {
+			case float64:
+				out = append(out, float32(n))
+			case float32:
+				out = append(out, n)
+			case int:
+				out = append(out, float32(n))
+			default:
+				return v
+			}
+		}
+		return out
+	case []float64:
+		out := make([]float32, len(x))
+		for i, n := range x {
+			out[i] = float32(n)
+		}
+		return out
+	default:
+		return v
 	}
 }
 
@@ -735,7 +852,8 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 	paramName string, paramValue interface{},
 ) ([]float32, string, error) {
 	if e.modulesProvider != nil {
-		vector, targetVector, err := e.modulesProvider.CrossClassVectorFromSearchParam(ctx,
+		vector, targetVector, err := e.modulesProvider.CrossClassVectorFromSearchParam(
+			ctx,
 			paramName, paramValue, e.nearParamsVector.findVector,
 		)
 		if err != nil {
@@ -965,6 +1083,71 @@ func (e *Explorer) usageOperationFromGetParams(params dto.GetParams) string {
 	}
 
 	return "n/a"
+}
+
+// extractHighlightTerms returns individual search terms for the explorer-level
+// highlight fallback (nearText, Ask). BM25/hybrid results already carry
+// highlights from the BM25 searcher, so this is only invoked when those paths
+// produced nothing.
+func extractHighlightTerms(params dto.GetParams) []string {
+	var raw []string
+
+	if params.KeywordRanking != nil && params.KeywordRanking.Query != "" {
+		raw = append(raw, strings.Fields(params.KeywordRanking.Query)...)
+	}
+	if params.HybridSearch != nil && params.HybridSearch.Query != "" {
+		raw = append(raw, strings.Fields(params.HybridSearch.Query)...)
+	}
+	if nt, ok := params.ModuleParams["nearText"]; ok {
+		if ntp, ok := nt.(*nearText.NearTextParams); ok {
+			for _, v := range ntp.Values {
+				raw = append(raw, strings.Fields(v)...)
+			}
+		}
+	}
+
+	seen := make(map[string]struct{}, len(raw))
+	out := raw[:0]
+	for _, t := range raw {
+		if _, dup := seen[t]; !dup && t != "" {
+			seen[t] = struct{}{}
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// highlightSizing picks max-fragments / fragment-size for the explorer-level
+// highlight fallback. Hybrid wins over KeywordRanking when both are set,
+// because hybrid is the higher-level request shape.
+func highlightSizing(params dto.GetParams) (maxFragments, fragmentSize int) {
+	if params.HybridSearch != nil {
+		maxFragments = params.HybridSearch.HighlightMaxFragments
+		fragmentSize = params.HybridSearch.HighlightFragmentSize
+	}
+	if params.KeywordRanking != nil {
+		if maxFragments == 0 {
+			maxFragments = params.KeywordRanking.HighlightMaxFragments
+		}
+		if fragmentSize == 0 {
+			fragmentSize = params.KeywordRanking.HighlightFragmentSize
+		}
+	}
+	return maxFragments, fragmentSize
+}
+
+// schemaTextPropNames returns the keys in a schema map whose values are
+// string-typed — used to choose which properties to highlight for vector
+// searches where no explicit property list was provided.
+func schemaTextPropNames(schema map[string]interface{}) []string {
+	names := make([]string, 0, len(schema))
+	for k, v := range schema {
+		switch v.(type) {
+		case string, []string, []interface{}:
+			names = append(names, k)
+		}
+	}
+	return names
 }
 
 func (e *Explorer) trackUsageExplore(res search.Results, params ExploreParams) {

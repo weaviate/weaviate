@@ -118,7 +118,7 @@ func (b *classBuilder) classField(class *models.Class, fusionEnum *graphql.Enum)
 func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name: b.getClassObjectName(class.Class),
-		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
 			classProperties := graphql.Fields{}
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
@@ -187,7 +187,9 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
+	additionalProperties["highlight"] = b.additionalHighlightField(class.Class)
 	additionalProperties["queryProfile"] = b.additionalQueryProfileField()
+	additionalProperties["queryVector"] = b.additionalQueryVectorField(class)
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
 	if replicationEnabled(class) {
 		additionalProperties["isConsistent"] = b.isConsistentField()
@@ -203,6 +205,18 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 			Name:   fmt.Sprintf("%sAdditional", class.Class),
 			Fields: additionalProperties,
 		}),
+	}
+}
+
+func (b *classBuilder) additionalHighlightField(className string) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalHighlight", className),
+			Fields: graphql.Fields{
+				"property":  &graphql.Field{Type: graphql.String},
+				"fragments": &graphql.Field{Type: graphql.NewList(graphql.String)},
+			},
+		})),
 	}
 }
 
@@ -290,6 +304,33 @@ func (b *classBuilder) additionalExplainScoreField() *graphql.Field {
 func (b *classBuilder) additionalQueryProfileField() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.String,
+	}
+}
+
+// additionalQueryVectorField returns the GraphQL field definition for the
+// vectorized query. For classes with named vectors, one entry per target;
+// for legacy single-vector classes, a flat [Float] list. Only results[0]
+// carries this value — subsequent rows' queryVector is null.
+func (b *classBuilder) additionalQueryVectorField(class *models.Class) *graphql.Field {
+	if len(class.VectorConfig) > 0 {
+		fields := graphql.Fields{}
+		for targetVector := range class.VectorConfig {
+			fields[targetVector] = &graphql.Field{
+				Name: fmt.Sprintf("%sAdditionalQueryVector%s", class.Class, targetVector),
+				Type: common_filters.Vector(fmt.Sprintf("%s%sQuery", class.Class, targetVector)),
+			}
+		}
+		return &graphql.Field{
+			Type: graphql.NewObject(
+				graphql.ObjectConfig{
+					Name:   fmt.Sprintf("%sAdditionalQueryVector", class.Class),
+					Fields: fields,
+				},
+			),
+		}
+	}
+	return &graphql.Field{
+		Type: graphql.NewList(graphql.Float),
 	}
 }
 

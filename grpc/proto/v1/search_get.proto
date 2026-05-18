@@ -86,6 +86,11 @@ message MetadataRequest {
   // query_profile enables per-shard query profiling. When true, the response includes
   // timing breakdowns for each shard and search type.
   bool query_profile = 11;
+  // query_vector enables returning the vectorized form of the query alongside the
+  // results. The vector is returned once at the top level of SearchReply, not per
+  // row. For named-vector classes one entry is returned per target vector.
+  // Omitted for pure BM25 / hybrid alpha=0 queries (no vector is produced).
+  bool query_vector = 12;
 }
 
 message PropertiesRequest {
@@ -120,6 +125,11 @@ message SearchReply {
   repeated GroupByResult group_by_results = 4;
   optional GenerativeResult generative_grouped_results = 5;
   optional QueryProfile query_profile = 6;
+  // query_vector contains the vectorized form of the user's query. One entry per
+  // target vector (a single-element list for non-named-vector classes; empty when
+  // no vector was produced, e.g. BM25-only). Reuses the existing Vectors message
+  // for single-fp32 and multi-fp32 (ColBERT-style) shapes.
+  repeated Vectors query_vector = 7;
 }
 
 // QueryProfile contains per-shard profiling data for a search query.

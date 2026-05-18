@@ -253,7 +253,8 @@ func (b *BM25Searcher) wandBlock(
 	start = time.Now()
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_4_bmw_time", blockSearchTime)
 
-	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit)
+	hl := hlParams{propNames: params.Properties, maxFragments: params.HighlightMaxFragments, fragmentSize: params.HighlightFragmentSize}
+	objects, scores := b.combineResults(allIds, allScores, allExplanation, termCounts, additional, limit, hl)
 
 	combineTime := time.Since(start)
 	helpers.AnnotateSlowQueryLog(ctx, "kwd_5_objects_time", combineTime)
@@ -262,7 +263,7 @@ func (b *BM25Searcher) wandBlock(
 	return objects, scores, false, nil
 }
 
-func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int) ([]*storobj.Object, []float32) {
+func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float32, allExplanation [][][][]*terms.DocPointerWithScore, queryTerms [][]string, additional additional.Properties, limit int, hl hlParams) ([]*storobj.Object, []float32) {
 	// combine all results
 	combinedIds := make([]uint64, 0, limit*len(allIds))
 	combinedScores := make([]float32, 0, limit*len(allIds))
@@ -289,7 +290,7 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 
 	limit = int(math.Min(float64(limit), float64(len(combinedIds))))
 
-	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit)
+	combinedObjects, combinedScores, err := b.getObjectsAndScores(combinedIds, combinedScores, combinedExplanations, combinedTerms, additional, limit, hl)
 	if err != nil {
 		return nil, nil
 	}
@@ -297,6 +298,12 @@ func (b *BM25Searcher) combineResults(allIds [][][]uint64, allScores [][][]float
 }
 
 type aggregate func(float32, float32) float32
+
+type hlParams struct {
+	propNames    []string
+	maxFragments int
+	fragmentSize int
+}
 
 func (b *BM25Searcher) combineResultsForMultiProp(allIds []uint64, allScores []float32, allExplanation [][]*terms.DocPointerWithScore, aggregateFn aggregate, singleProp bool) ([]uint64, []float32, [][]*terms.DocPointerWithScore) {
 	// if ids are the same, sum the scores
@@ -355,8 +362,7 @@ func (b *BM25Searcher) sortResultsByExternalId(objects []*storobj.Object, scores
 	return sorter.objects, sorter.scores
 }
 
-func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int) ([]*storobj.Object, []float32, error) {
-	// reverse arrays to start with the highest score
+func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore, queryTerms []string, additionalProps additional.Properties, limit int, hl hlParams) ([]*storobj.Object, []float32, error) {
 	slices.Reverse(ids)
 	slices.Reverse(scores)
 	if explanations != nil {
@@ -371,51 +377,86 @@ func (b *BM25Searcher) getObjectsAndScores(ids []uint64, scores []float32, expla
 
 	startAt := 0
 	endAt := limit
-	// try to get docs up to the limit
-	// if there are not enough docs, get limit more docs until we've exhausted the list of ids
 	for len(objs) < limit && startAt < len(ids) {
-		objsBatch, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
+		batchObjs, batchScores, batchExps, err := b.collectMatchingObjects(objectsBucket, ids, scores, explanations, additionalProps, startAt, endAt)
 		if err != nil {
-			return objs, nil, errors.Errorf("objects loading")
+			return objs, nil, err
 		}
-		for i, obj := range objsBatch {
-			if obj == nil || obj.DocID != ids[startAt+i] {
-				continue
-			}
-			objs = append(objs, obj)
-			scoresResult = append(scoresResult, scores[startAt+i])
-			if explanations != nil {
-				explanationsResults = append(explanationsResults, explanations[startAt+i])
-			}
-		}
+		objs = append(objs, batchObjs...)
+		scoresResult = append(scoresResult, batchScores...)
+		explanationsResults = append(explanationsResults, batchExps...)
 		startAt = endAt
 		endAt = min(endAt+limit, len(ids))
 	}
 
-	if explanationsResults != nil && len(explanationsResults) == len(scoresResult) {
-		for k := range objs {
-			// add score explanation
-			if objs[k].AdditionalProperties() == nil {
-				objs[k].Object.Additional = make(map[string]interface{})
-			}
-			for j, result := range explanationsResults[k] {
-				if result == nil {
-					continue
-				}
-				queryTerm := queryTerms[j]
-				objs[k].Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.Frequency
-				objs[k].Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.PropLength
-			}
-		}
+	if len(explanationsResults) == len(scoresResult) {
+		annotateExplanations(objs, explanationsResults, queryTerms)
+	}
+
+	if additionalProps.Highlight {
+		applyHighlights(objs, hl, queryTerms)
 	}
 
 	objs, scoresResult = b.sortResultsByExternalId(objs, scoresResult)
 
-	// reverse back the arrays to the expected order
 	slices.Reverse(objs)
 	slices.Reverse(scoresResult)
 
 	return objs, scoresResult, nil
+}
+
+func (b *BM25Searcher) collectMatchingObjects(
+	objectsBucket *lsmkv.Bucket,
+	ids []uint64, scores []float32, explanations [][]*terms.DocPointerWithScore,
+	additionalProps additional.Properties,
+	startAt, endAt int,
+) ([]*storobj.Object, []float32, [][]*terms.DocPointerWithScore, error) {
+	objsBatch, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, ids[startAt:endAt], additionalProps, nil, b.logger)
+	if err != nil {
+		return nil, nil, nil, errors.Errorf("objects loading")
+	}
+	var objs []*storobj.Object
+	var batchScores []float32
+	var batchExps [][]*terms.DocPointerWithScore
+	for i, obj := range objsBatch {
+		if obj == nil || obj.DocID != ids[startAt+i] {
+			continue
+		}
+		objs = append(objs, obj)
+		batchScores = append(batchScores, scores[startAt+i])
+		if explanations != nil {
+			batchExps = append(batchExps, explanations[startAt+i])
+		}
+	}
+	return objs, batchScores, batchExps, nil
+}
+
+func annotateExplanations(objs []*storobj.Object, explanationsResults [][]*terms.DocPointerWithScore, queryTerms []string) {
+	for k := range objs {
+		if objs[k].AdditionalProperties() == nil {
+			objs[k].Object.Additional = make(map[string]interface{})
+		}
+		for j, result := range explanationsResults[k] {
+			if result == nil {
+				continue
+			}
+			queryTerm := queryTerms[j]
+			objs[k].Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.Frequency
+			objs[k].Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.PropLength
+		}
+	}
+}
+
+func applyHighlights(objs []*storobj.Object, hl hlParams, queryTerms []string) {
+	for k := range objs {
+		if objs[k].AdditionalProperties() == nil {
+			objs[k].Object.Additional = make(map[string]interface{})
+		}
+		highlights := generateHighlights(objs[k].Properties(), hl.propNames, queryTerms, hl.maxFragments, hl.fragmentSize)
+		if highlights != nil {
+			objs[k].Object.Additional["highlight"] = highlights
+		}
+	}
 }
 
 type scoreSorter struct {

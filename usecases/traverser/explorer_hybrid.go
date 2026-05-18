@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -56,6 +55,9 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		params.KeywordRanking.MinimumOrTokensMatch = params.HybridSearch.MinimumOrTokensMatch
 	}
 
+	params.KeywordRanking.HighlightMaxFragments = params.HybridSearch.HighlightMaxFragments
+	params.KeywordRanking.HighlightFragmentSize = params.HybridSearch.HighlightFragmentSize
+
 	totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 	if err != nil {
 		return nil, "", err
@@ -74,7 +76,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 
 	out := make([]*search.Result, len(results))
 	for i, obj := range results {
-		sr := obj.SearchResultWithScore(additional.Properties{}, scores[i])
+		sr := obj.SearchResultWithScore(params.AdditionalProperties, scores[i])
 		sr.SecondarySortValue = sr.Score
 		out[i] = &sr
 	}
@@ -83,7 +85,8 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 }
 
 // Do a nearvector search.  The results will be used in the hybrid algorithm
-func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, error) {
+
+func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, models.Vector, models.Vectors, string, error) {
 	params.Pagination.Offset = 0
 	if params.Pagination.Limit < int(e.config.QueryHybridMaximumResults) {
 		params.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
@@ -91,9 +94,9 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	params.Group = nil
 	params.GroupBy = nil
 
-	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
+	partialResults, searchVectors, namedVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, nil, "", err
 	}
 	var vector models.Vector
 	if len(searchVectors) > 0 {
@@ -103,17 +106,16 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	// Pass zero time to disable time-based filtering during hybrid search
 	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params, time.Time{})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, nil, "", err
 	}
 
 	out := make([]*search.Result, 0, len(results))
 	for _, sr := range results {
-		out_sr := sr
-		out_sr.SecondarySortValue = 1 - sr.Dist
-		out = append(out, &out_sr)
+		outSr := sr
+		outSr.SecondarySortValue = 1 - sr.Dist
+		out = append(out, &outSr)
 	}
-
-	return out, "vector," + searchname, nil
+	return out, vector, namedVectors, "vector," + searchname, nil
 }
 
 /*
@@ -131,7 +133,7 @@ type NearTextParams struct {
 }
 */
 // Do a nearText search.  The results will be used in the hybrid algorithm
-func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, targetVectors []string) ([]*search.Result, string, error) {
+func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, targetVectors []string) ([]*search.Result, models.Vector, models.Vectors, string, error) {
 	var subSearchParams nearText2.NearTextParams
 
 	subSearchParams.Values = params.HybridSearch.NearTextParams.Values
@@ -139,7 +141,6 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 
 	subSearchParams.Certainty = params.HybridSearch.NearTextParams.Certainty
 	subSearchParams.Distance = params.HybridSearch.NearTextParams.Distance
-	subSearchParams.Limit = params.HybridSearch.NearTextParams.Limit
 	subSearchParams.MoveTo.Force = params.HybridSearch.NearTextParams.MoveTo.Force
 	subSearchParams.MoveTo.Values = params.HybridSearch.NearTextParams.MoveTo.Values
 
@@ -165,9 +166,9 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	subsearchWrap.HybridSearch = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
-	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
+	partialResults, vectors, namedVectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, nil, "", err
 	}
 
 	var vector models.Vector
@@ -178,17 +179,17 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	// Pass zero time to disable time-based filtering during hybrid search
 	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params, time.Time{})
 	if err != nil {
-		return nil, "", err
+		return nil, nil, nil, "", err
 	}
 
-	var out []*search.Result
+	out := make([]*search.Result, 0, len(results))
 	for _, res := range results {
 		sr := res
 		sr.SecondarySortValue = 1 - sr.Dist
 		out = append(out, &sr)
 	}
 
-	return out, "vector,nearText", nil
+	return out, vector, namedVectors, "vector,nearText", nil
 }
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
@@ -252,6 +253,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	weights = make([]float64, resultsCount)
 	names = make([]string, resultsCount)
 	var belowCutoffSet map[strfmt.UUID]struct{}
+	var (
+		denseQueryVec  models.Vector
+		namedQueryVecs models.Vectors
+	)
 
 	if (params.HybridSearch.Alpha) > 0 {
 		eg.Go(func() error {
@@ -261,7 +266,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			var res []*search.Result
 			var errorText string
 			if params.HybridSearch.NearTextParams != nil {
-				res, name, err = nearTextSubSearch(ctx, e, params, targetVectors)
+				res, denseQueryVec, namedQueryVecs, name, err = nearTextSubSearch(ctx, e, params, targetVectors)
 				errorText = "nearTextSubSearch"
 			} else if params.HybridSearch.NearVectorParams != nil {
 				searchVectors := make([]*searchparams.NearVector, len(targetVectors))
@@ -269,7 +274,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					searchVectors[i] = params.HybridSearch.NearVectorParams
 					searchVectors[i].TargetVectors = []string{targetVector}
 				}
-				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
+				res, denseQueryVec, namedQueryVecs, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
 				errorText = "nearVectorSubSearch"
 			} else {
 				sch := e.schemaGetter.GetSchemaSkipAuth()
@@ -318,7 +323,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					}
 				}
 
-				res, name, err = denseSearch(ctx, e, params, "hybridVector", targetVectors, searchVectors)
+				res, denseQueryVec, namedQueryVecs, name, err = denseSearch(ctx, e, params, "hybridVector", targetVectors, searchVectors)
 				errorText = "hybrid"
 			}
 
@@ -436,6 +441,8 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	if len(res) <= origParams.Pagination.Offset {
 		out = []search.Result{}
 	}
+
+	out = attachQueryVector(out, origParams, denseQueryVec, namedQueryVecs)
 
 	if origParams.AdditionalProperties.QueryProfile {
 		out = helpers.AttachQueryProfileToResults(ctx, out)

@@ -672,6 +672,60 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		{
+			name:  "with _additional highlight",
+			query: `{ Get { SomeAction { _additional { highlight { property fragments } } } } }`,
+			expectedParams: dto.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					Highlight: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"highlight": []map[string]interface{}{
+							{
+								"property":  "title",
+								"fragments": []string{"The <em>fashion</em> industry"},
+							},
+						},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"highlight": []interface{}{
+						map[string]interface{}{
+							"property":  "title",
+							"fragments": []interface{}{"The <em>fashion</em> industry"},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "with _additional queryVector (legacy single-vector class)",
+			query: `{ Get { SomeAction { _additional { queryVector } } } }`,
+			expectedParams: dto.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					QueryVector: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"queryVector": []float32{0.1, -0.3},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"queryVector": []interface{}{float32(0.1), float32(-0.3)},
+				},
+			},
+		},
+		{
 			name:  "with _additional semanticPath set",
 			query: `{ Get { SomeAction { _additional { semanticPath { path { concept distanceToQuery distanceToResult distanceToPrevious distanceToNext } } } } } }`,
 			expectedParams: dto.GetParams{
