@@ -42,9 +42,10 @@ type restorer struct {
 	namespacesEnabled bool
 	shardSyncChan
 
-	// shutdownCtx is cancelled on node shutdown; aborts the local restore
-	// without waiting for the coordinator's abort RPC.
+	// shutdownCtx cancels the local restore on node shutdown.
 	shutdownCtx context.Context
+	// inflight tracks the restore goroutine; drained by Handler.Wait.
+	inflight *sync.WaitGroup
 
 	// TODO: keeping status in memory after restore has been done
 	// is not a proper solution for communicating status to the user.
@@ -56,6 +57,7 @@ type restorer struct {
 func newRestorer(node string, logger logrus.FieldLogger,
 	sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter,
 	backends BackupBackendProvider, namespacesEnabled bool, shutdownCtx context.Context,
+	inflight *sync.WaitGroup,
 ) *restorer {
 	return &restorer{
 		node:              node,
@@ -67,6 +69,7 @@ func newRestorer(node string, logger logrus.FieldLogger,
 		namespacesEnabled: namespacesEnabled,
 		shardSyncChan:     shardSyncChan{coordChan: make(chan interface{}, 5)},
 		shutdownCtx:       shutdownCtx,
+		inflight:          inflight,
 	}
 }
 
@@ -96,8 +99,9 @@ func (r *restorer) restore(
 		return ret, err
 	}
 	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
-
+	r.inflight.Add(1)
 	f := func() {
+		defer r.inflight.Done()
 		var err error
 		status := Status{
 			Path:      destPath,
@@ -131,7 +135,7 @@ func (r *restorer) restore(
 			return
 		}
 
-		// Restore ctx cancels on coordinator abort RPC OR local node shutdown.
+		// ctx cancels on coordinator abort RPC or node shutdown.
 		done := make(chan struct{})
 		ctx := r.withCancellation(r.shutdownCtx, req.ID, done, r.logger)
 		defer close(done)

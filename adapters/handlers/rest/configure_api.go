@@ -1562,11 +1562,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// wait for export drain happens in ServerShutdown.
 		exportScheduler.StartShutdown()
 		appState.ExportParticipant.StartShutdown()
-		// Coordinator: signal in-flight backups to abort participants. Drain
-		// happens at the end of ServerShutdown.
 		backupScheduler.Shutdown()
-		// Participant: cancel any local upload running on this node.
-		appState.BackupManager.Shutdown()
+		if appState.BackupManager != nil {
+			appState.BackupManager.Shutdown()
+		}
 		batchDrain()
 	}
 
@@ -1674,12 +1673,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				Errorf("failed to gracefully shutdown")
 		}
 
-		// Drain the backup shutdown kicked off in PreServerShutdown. Placed
-		// last to overlap with the rest of teardown. The 45s budget covers
-		// the worst-case inner chain (abortAll up to _ShutdownAbortTimeout
-		// 10s, then a final PutMeta up to _ShutdownPutMetaTimeout 30s) plus
-		// a small safety margin.
+		// 45s = _ShutdownAbortTimeout (10s) + _ShutdownPutMetaTimeout (30s) + margin.
 		backupScheduler.Wait(45 * time.Second)
+		if appState.BackupManager != nil {
+			appState.BackupManager.Wait(45 * time.Second)
+		}
 	}
 
 	startGrpcServer(grpcServer, appState)
