@@ -96,6 +96,15 @@ func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
 	return s
 }
 
+// hasUsableRangeableIndex combines the schema-level [HasRangeableIndex] check
+// with the runtime [Searcher.isRangeableLocallyReady] gate. Always pair them
+// at query-extraction sites: schema may say the rangeable bucket exists, but
+// a swap-recovery window on this node may have it offline. Folding the two
+// removes the per-call-site reminder.
+func (s *Searcher) hasUsableRangeableIndex(prop *models.Property) bool {
+	return HasRangeableIndex(prop) && s.isRangeableLocallyReady(prop.Name)
+}
+
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
 	"Stopwords can be configured in class.invertedIndexConfig.stopwords")
 
@@ -495,7 +504,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop) && s.isRangeableLocallyReady(prop.Name)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
@@ -556,7 +565,7 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndex(prop),
 		hasSearchableIndex: HasSearchableIndex(prop),
-		hasRangeableIndex:  HasRangeableIndex(prop) && s.isRangeableLocallyReady(prop.Name),
+		hasRangeableIndex:  s.hasUsableRangeableIndex(prop),
 		Class:              class,
 	}, nil
 }
@@ -584,7 +593,7 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop) && s.isRangeableLocallyReady(prop.Name)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
@@ -743,7 +752,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop) && s.isRangeableLocallyReady(prop.Name)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
