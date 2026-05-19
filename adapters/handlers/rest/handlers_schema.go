@@ -67,7 +67,7 @@ type reindexSubmitLockProvider interface {
 type schemaHandlers struct {
 	manager             *schemaUC.Manager
 	metricRequestsTotal restApiRequestsTotal
-	reindexTaskLister  reindexInFlightChecker
+	reindexTaskLister   reindexInFlightChecker
 	reindexSubmitLocks  reindexSubmitLockProvider
 }
 
@@ -563,7 +563,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 	h := &schemaHandlers{
 		manager:             manager,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
-		reindexTaskLister:  reindexTaskLister,
+		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
 	}
 

@@ -45,7 +45,7 @@ type Scheduler struct {
 
 	providers          map[string]Provider // namespace -> Provider
 	completionRecorder TaskCompletionRecorder
-	taskLister        TaskLister
+	taskLister         TaskLister
 	taskCleaner        TaskCleaner
 	taskFinalizer      TaskFinalizer
 	ackRecorder        PostCompletionAckRecorder
@@ -120,7 +120,7 @@ type Scheduler struct {
 
 type SchedulerParams struct {
 	CompletionRecorder TaskCompletionRecorder
-	TaskLister        TaskLister
+	TaskLister         TaskLister
 	TaskCleaner        TaskCleaner
 	TaskFinalizer      TaskFinalizer
 	// AckRecorder is the RAFT-apply hook used to publish this node's
@@ -158,7 +158,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 		groupCallbackFired:        map[TaskDescriptor]map[string]bool{},
 		postCompletionAckEmitted:  map[TaskDescriptor]bool{},
 		postCompletionGroupErrors: map[TaskDescriptor]map[string]error{},
-		taskLister:               params.TaskLister,
+		taskLister:                params.TaskLister,
 		taskCleaner:               params.TaskCleaner,
 		taskFinalizer:             params.TaskFinalizer,
 		ackRecorder:               params.AckRecorder,

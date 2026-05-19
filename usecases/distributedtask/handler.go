@@ -24,13 +24,13 @@ import (
 )
 
 type Handler struct {
-	authorizer  authorization.Authorizer
+	authorizer authorization.Authorizer
 	taskLister distributedtask.TaskLister
 }
 
 func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.TaskLister) *Handler {
 	return &Handler{
-		authorizer:  authorizer,
+		authorizer: authorizer,
 		taskLister: taskLister,
 	}
 }
