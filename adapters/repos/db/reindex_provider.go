@@ -1020,7 +1020,7 @@ func (p *ReindexProvider) runShardPrepPhase(
 		if rehydrate {
 			if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-					WithError(err).Error("reindex provider: runShardPrepPhase: rehydrate failed; prep will not run for this task")
+					Errorf("reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)
 				errs = append(errs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
 				if errors.Is(err, context.Canceled) {
 					sawContextCanceled = true
@@ -1031,7 +1031,7 @@ func (p *ReindexProvider) runShardPrepPhase(
 		}
 		if err := reindexTask.RunPrepareOnShard(ctx, shard); err != nil {
 			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-				WithError(err).Error("reindex provider: runShardPrepPhase: prep failed; swap will not run for this task")
+				Errorf("reindex provider: shard prep — prep failed; swap will not run for this task: %v", err)
 			errs = append(errs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
 				sawContextCanceled = true
@@ -1081,8 +1081,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
 	if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
-			WithError(setUnwrapErr).
-			Warn("reindex provider: cannot set tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results")
+			Warnf("reindex provider: cannot set tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
 	}
 	overlayWasSet := maybeSetTokenizationOverlayPreSwap(setShard, payload)
 
@@ -1090,7 +1089,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 	for _, reindexTask := range unitTasks {
 		if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
 			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-				WithError(err).Error("reindex provider: runShardSwapPhase: RunSwapOnShard failed — migration is half-applied on this shard")
+				Errorf("reindex provider: shard swap — swap failed; migration is half-applied on this shard: %v", err)
 			errs = append(errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
 				sawContextCanceled = true
@@ -1140,12 +1139,10 @@ func (p *ReindexProvider) runShardSwapPhase(
 // runPhase ever fires — runPhase only sees resolved (shard, unitTasks,
 // rehydrate) triples.
 //
-// Extracted to dedupe the outer loop after the two-phase split (see
-// docs/proposals/prep_swap_barrier.md). Without this helper, the
-// boilerplate (~30 lines per callback: ctx setup, per-unit loop,
-// skip/setup-err branching, error aggregation, context.Canceled
-// wrap) appeared verbatim in both OnGroupCompleted and OnSwapRequested
-// — SonarCloud flagged the cross-callback duplication; this helper
+// Dedupes the outer loop shared by OnGroupCompleted and
+// OnSwapRequested. The boilerplate (~30 lines per callback: ctx
+// setup, per-unit loop, skip/setup-err branching, error aggregation,
+// context.Canceled wrap) would otherwise appear verbatim in both; this helper
 // resolves it without changing observable behavior on either path.
 func (p *ReindexProvider) runPerUnitPhase(
 	task *distributedtask.Task,
@@ -1201,8 +1198,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 // (UnitStatusCompleted or UnitStatusFailed).
 //
 // Routing depends on the task's NeedsPrepBarrier flag (set at AddTask
-// time for semantic migrations under the new two-phase RAFT barrier
-// model; see docs/proposals/prep_swap_barrier.md):
+// time for semantic migrations):
 //
 //   - Task.NeedsPrepBarrier == false (format-only):
 //     run the full per-shard PREP + OVERLAY + SWAP body inline.
@@ -1264,9 +1260,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	}
 
 	if task.NeedsPrepBarrier {
-		logger.Info("reindex provider: OnGroupCompleted — starting PREP phase (barrier mode; SWAP deferred to OnSwapRequested after cluster-wide PrepCompleteAck barrier)")
+		logger.Info("reindex provider: group-completion → starting PREP phase (barrier mode)")
 	} else {
-		logger.Info("reindex provider: OnGroupCompleted — starting swap phase for semantic migration (no-barrier path)")
+		logger.Info("reindex provider: group-completion → starting swap phase (no-barrier path)")
 	}
 
 	className := entschema.ClassName(payload.Collection)
@@ -1294,7 +1290,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// cluster-wide PrepCompleteAck barrier transitions PREPARING to
 	// SWAPPING. The split bounds the cross-replica stagger window at
 	// billion-scale to RAFT propagation latency rather than per-node
-	// PREP duration (see docs/proposals/prep_swap_barrier.md).
+	// PREP duration.
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"OnGroupCompleted",
@@ -1405,18 +1401,18 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 
 	payload, err := p.loadPayload(task)
 	if err != nil {
-		logger.WithError(err).Error("reindex provider: OnSwapRequested: failed to load payload")
+		logger.Errorf("reindex provider: swap-requested — failed to load payload: %v", err)
 		return fmt.Errorf("load payload: %w", err)
 	}
 
 	if !IsSemanticMigration(payload.MigrationType) {
 		// Format-only migrations don't set NeedsPrepBarrier so this
 		// callback shouldn't fire for them. Guard defensively.
-		logger.Warn("reindex provider: OnSwapRequested fired for non-semantic migration (NeedsPrepBarrier flag inconsistency); no-op")
+		logger.Warn("reindex provider: swap-requested for non-semantic migration (NeedsPrepBarrier inconsistency); no-op")
 		return nil
 	}
 
-	logger.Info("reindex provider: OnSwapRequested — starting OVERLAY+SWAP phases after cluster-wide PREP barrier")
+	logger.Info("reindex provider: swap-requested → starting OVERLAY+SWAP after cluster-wide PREP barrier")
 
 	className := entschema.ClassName(payload.Collection)
 	idx := p.db.GetIndex(className)

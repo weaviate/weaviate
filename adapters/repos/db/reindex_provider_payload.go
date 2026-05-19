@@ -68,21 +68,8 @@ type ReindexTaskPayload struct {
 	Collection         string               `json:"collection"`
 	Properties         []string             `json:"properties,omitempty"`
 	TargetTokenization string               `json:"targetTokenization,omitempty"`
-	// OriginalTokenization records the schema's `tokenization` value at
-	// task submit time. The original purpose was a stale-replay guard
-	// in OnTaskCompleted: refuse to flip the schema when the schema is
-	// no longer at this task's pre-migration tokenization (indicating a
-	// newer task already moved past us).
-	//
-	// That guard is structurally unreachable: the cluster-wide conflict
-	// check treats [distributedtask.TaskStatusSwapping] as in-flight, so
-	// a newer change-tokenization on the same property cannot be
-	// submitted until the current one transitions to FINISHED; and
-	// [Scheduler.bootstrapProviders] pre-marks FINISHED tasks so
-	// OnTaskCompleted does not re-fire for them on restart. The field
-	// is retained for forensic continuity on RAFT logs and for any
-	// future guard that wants to assert against the recorded
-	// pre-migration state, but it does not participate in correctness.
+	// OriginalTokenization records the schema's tokenization at task submit
+	// time. Retained for RAFT-log diagnostics; not consulted at runtime.
 	OriginalTokenization string `json:"originalTokenization,omitempty"`
 	BucketStrategy       string `json:"bucketStrategy,omitempty"`
 

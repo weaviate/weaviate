@@ -242,10 +242,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 // slip through and re-open the race this guard exists to close.
 func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
-		// PREPARING and SWAPPING both count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]) so a mutation arriving
-		// during the PREP barrier or post-PREP swap window blocks the
-		// same as during STARTED.
+		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
 			continue
 		}
@@ -301,10 +298,7 @@ func (p *ReindexProvider) CheckPropertyUpdate(className, propertyName string, ex
 // non-conflict).
 func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
-		// PREPARING and SWAPPING both count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]) so a mutation arriving
-		// during the PREP barrier or post-PREP swap window blocks the
-		// same as during STARTED.
+		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
 			continue
 		}
@@ -358,10 +352,7 @@ func (p *ReindexProvider) CheckClassMutation(className string, existingTasks []*
 // the caller knows which tenants would be affected.
 func (p *ReindexProvider) CheckTenantMutation(className string, tenants []string, existingTasks []*distributedtask.Task) error {
 	for _, task := range existingTasks {
-		// PREPARING and SWAPPING both count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]) so a mutation arriving
-		// during the PREP barrier or post-PREP swap window blocks the
-		// same as during STARTED.
+		// Same in-flight semantics as CheckConflict.
 		if !task.Status.IsActive() {
 			continue
 		}

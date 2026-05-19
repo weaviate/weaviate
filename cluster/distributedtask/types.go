@@ -85,8 +85,7 @@ type PostCompletionAckRecorder interface {
 	// transition: the Manager FSM transitions only when every expected
 	// PrepCompleteAck has landed with success=true. Any success=false
 	// flips the task to FAILED immediately so no node fires its atomic
-	// swap. See docs/proposals/prep_swap_barrier.md for the load-bearing
-	// barrier invariant.
+	// swap (the load-bearing barrier invariant).
 	//
 	// Idempotent at the FSM layer (first ack per (task, node) wins);
 	// safe to retry from the scheduler's wake/tick loop on transient
@@ -308,7 +307,7 @@ type UnitAwareProvider interface {
 	//     full PREP + OVERLAY + SWAP cycle inline.
 	//   - NeedsPrepBarrier=true (semantic migrations): runs PREP only.
 	//     The swap is deferred to OnSwapRequested after the cluster-wide
-	//     barrier lifts. See docs/proposals/prep_swap_barrier.md.
+	//     barrier lifts.
 	//
 	// Returns a non-nil error iff at least one local unit's body failed.
 	// For barrier tasks the error feeds RecordPrepCompleteAck (failure
@@ -499,8 +498,7 @@ type Task struct {
 	Payload []byte `json:"payload"`
 
 	// NeedsPrepBarrier indicates that this task uses the two-phase
-	// RAFT-coordinated swap barrier (per
-	// docs/proposals/prep_swap_barrier.md):
+	// RAFT-coordinated swap barrier:
 	//
 	//   - true → AllUnitsTerminal transitions STARTED → PREPARING.
 	//     Each node's scheduler fires its PREP body and emits a
@@ -516,7 +514,7 @@ type Task struct {
 	//
 	// Set at AddTask time from the provider's task-creation path. The
 	// FSM treats this as immutable for the task's lifetime.
-	NeedsPrepBarrier bool `json:"needsPrepBarrier,omitempty"`
+	NeedsPrepBarrier bool `json:"needsPrepBarrier"`
 
 	// Status is the current status of the task.
 	Status TaskStatus `json:"status"`
@@ -546,7 +544,7 @@ type Task struct {
 	// landing with Success=true (the load-bearing barrier invariant —
 	// no node fires its atomic swap until every other node has
 	// completed PREP). Any node reporting Success=false flips the task
-	// to FAILED. See docs/proposals/prep_swap_barrier.md.
+	// to FAILED.
 	//
 	// Nil for tasks whose provider does not opt into the PREP barrier
 	// (format-only migrations, shard repair, etc.) — those tasks
