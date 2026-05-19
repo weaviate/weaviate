@@ -712,7 +712,7 @@ func (p *ReindexProvider) failUnit(
 	errMsg string,
 ) {
 	logger := p.logger.WithField("taskID", task.ID).WithField("unit", unitID)
-	logger.Error("reindex provider: unit failed: " + errMsg)
+	logger.Errorf("reindex provider: unit failed: %s", errMsg)
 
 	const maxAttempts = 3
 	backoff := 200 * time.Millisecond
@@ -1255,7 +1255,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	}
 
 	if !IsSemanticMigration(payload.MigrationType) {
-		logger.Info("reindex provider: OnGroupCompleted (format-only, no-op)")
+		logger.Info("reindex provider: group-completion (format-only, no-op)")
 		return nil
 	}
 
@@ -1268,7 +1268,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	className := entschema.ClassName(payload.Collection)
 	idx := p.db.GetIndex(className)
 	if idx == nil {
-		logger.Error("reindex provider: OnGroupCompleted: collection not found")
+		logger.Error("reindex provider: group-completion — collection not found")
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
@@ -1417,7 +1417,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	className := entschema.ClassName(payload.Collection)
 	idx := p.db.GetIndex(className)
 	if idx == nil {
-		logger.Error("reindex provider: OnSwapRequested: collection not found")
+		logger.Error("reindex provider: swap-requested — collection not found")
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
@@ -1520,7 +1520,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	p.mu.Unlock()
 
 	logger := p.logger.WithField("taskID", task.ID).WithField("status", task.Status)
-	logger.Info("reindex provider: OnTaskCompleted")
+	logger.Info("reindex provider: task-completion")
 
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// FAILED / CANCELLED / STARTED / FINISHED: do not flip the schema.
