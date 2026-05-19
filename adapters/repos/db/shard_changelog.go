@@ -79,6 +79,8 @@ func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, err
 	pending := s.replicationMap.keys()
 	s.writeBarrierMux.Unlock()
 
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		if err := ctx.Err(); err != nil {
 			return 0, err
@@ -100,7 +102,7 @@ func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, err
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
-		case <-time.After(5 * time.Millisecond):
+		case <-ticker.C:
 		}
 	}
 }

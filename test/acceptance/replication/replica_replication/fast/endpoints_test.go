@@ -83,7 +83,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	var id strfmt.UUID
 	t.Run("get collection sharding state", func(t *testing.T) {
 		shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().WithCollection(&paragraphClass.Class), nil)
-		require.Nil(t, err, "failed to get sharding state for collection %s: %s", paragraphClass.Class, err)
+		require.Nil(t, err, "failed to get sharding state for collection %s: %v", paragraphClass.Class, err)
 		require.NotNil(t, shardingState)
 		require.NotNil(t, shardingState.Payload)
 		require.NotNil(t, shardingState.Payload.ShardingState)
@@ -99,7 +99,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	t.Run("get collection and shard sharding state", func(t *testing.T) {
 		shard := getRequest(t, paragraphClass.Class).Shard
 		shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
-		require.Nil(t, err, "failed to get sharding state for collection %s and shard %s: %s", paragraphClass.Class, *shard, err)
+		require.Nil(t, err, "failed to get sharding state for collection %s and shard %s: %v", paragraphClass.Class, *shard, err)
 		require.NotNil(t, shardingState)
 		require.NotNil(t, shardingState.Payload)
 		require.NotNil(t, shardingState.Payload.ShardingState)
