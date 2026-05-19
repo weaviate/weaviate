@@ -22,6 +22,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
+// Bucket-suffix naming convention: all reindex-track sidecar buckets carry a
+// `__` (double-underscore) prefix on their per-strategy suffix
+// (`__retokenize_ingest`, `__rangeable_reindex`, …). Origin is internal to this
+// track — no pre-existing `__` convention in lsmkv. Kept double-underscore so
+// the sidecars are visually distinct from canonical bucket names (which use
+// single-underscore separators inside helpers.Bucket*FromPropNameLSM) and
+// reserved namespace for any future user-defined property whose name happens
+// to collide with a suffix base.
+
 // MigrationStrategy encapsulates the parts that differ per migration type
 // (e.g., Map→Blockmax, Set→RoaringSet). The lifecycle logic (state machine,
 // merge/swap/tidy, object iteration, progress tracking) lives in
