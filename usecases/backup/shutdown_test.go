@@ -58,7 +58,7 @@ func TestHandler_WaitDrainsInflightGoroutines(t *testing.T) {
 	m.Shutdown()
 
 	start := time.Now()
-	m.Wait(50 * time.Millisecond)
+	m.wait(50 * time.Millisecond)
 	assert.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond)
 	select {
 	case <-m.drained:
@@ -68,7 +68,7 @@ func TestHandler_WaitDrainsInflightGoroutines(t *testing.T) {
 
 	close(released)
 	start = time.Now()
-	m.Wait(5 * time.Second)
+	m.wait(5 * time.Second)
 	assert.Less(t, time.Since(start), 1*time.Second)
 	select {
 	case <-m.drained:
@@ -119,7 +119,7 @@ func TestScheduler_ShutdownIdempotentAndDrains(t *testing.T) {
 	assert.ErrorIs(t, shutdownCtx.Err(), context.Canceled)
 
 	start := time.Now()
-	s.Wait(50 * time.Millisecond)
+	s.wait(50 * time.Millisecond)
 	assert.GreaterOrEqual(t, time.Since(start), 50*time.Millisecond)
 	select {
 	case <-s.drained:
@@ -129,7 +129,7 @@ func TestScheduler_ShutdownIdempotentAndDrains(t *testing.T) {
 
 	close(released)
 	start = time.Now()
-	s.Wait(5 * time.Second)
+	s.wait(5 * time.Second)
 	assert.Less(t, time.Since(start), 1*time.Second)
 	select {
 	case <-s.drained:
