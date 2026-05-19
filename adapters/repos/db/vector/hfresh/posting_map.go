@@ -17,53 +17,88 @@ import (
 	"encoding/binary"
 	"iter"
 	"slices"
-	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 // PostingMetadata holds the list of vector IDs associated with a posting.
-// Any read or modification to the vectors slice must be protected by the mutex.
 type PostingMetadata struct {
-	sync.RWMutex
+	postingID uint64
+	owner     *PostingMap
 	PackedPostingMetadata
+}
+
+func (p *PostingMetadata) RLock() {
+	if p.owner != nil {
+		p.owner.locks.RLock(p.postingID)
+	}
+}
+
+func (p *PostingMetadata) RUnlock() {
+	if p.owner != nil {
+		p.owner.locks.RUnlock(p.postingID)
+	}
+}
+
+type postingMapSlot struct {
+	metadata atomic.Pointer[PostingMetadata]
 }
 
 // PostingMap manages various information about postings.
 type PostingMap struct {
-	data   *xsync.Map[uint64, *PostingMetadata]
+	data   *common.GroupedPagedArray[postingMapSlot]
 	bucket *PostingMapStore
+	locks  *common.ShardedRWLocks
+	count  atomic.Uint64
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket) *PostingMap {
 	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
 
 	return &PostingMap{
-		data:   xsync.NewMap[uint64, *PostingMetadata](),
+		data:   common.NewGroupedPagedArray[postingMapSlot](16*1024, 64*1024), // 1 billion posting IDs with 64k per page
 		bucket: b,
+		locks:  common.NewShardedRWLocks(512),
 	}
 }
 
 // Size returns the total number of postings in the map.
 func (v *PostingMap) Size() int {
-	return v.data.Size()
+	return int(v.count.Load())
 }
 
 // Iter returns an iterator over all postings in the map.
 func (v *PostingMap) Iter() iter.Seq2[uint64, *PostingMetadata] {
-	return v.data.AllRelaxed()
+	return func(yield func(uint64, *PostingMetadata) bool) {
+		for postingID, slot := range v.data.IterAllocated() {
+			metadata := slot.metadata.Load()
+			if metadata == nil {
+				continue
+			}
+
+			if !yield(postingID, metadata) {
+				return
+			}
+		}
+	}
 }
 
 // Get returns the vector IDs associated with this posting.
 func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadata, error) {
-	m, ok := v.data.Load(postingID)
+	slot, ok := v.getSlot(postingID)
 	if !ok {
 		return nil, ErrPostingNotFound
 	}
 
-	return m, nil
+	metadata := slot.metadata.Load()
+	if metadata == nil {
+		return nil, ErrPostingNotFound
+	}
+
+	return metadata, nil
 }
 
 // CountVectors returns the number of vector IDs in the posting with the given ID.
@@ -87,10 +122,10 @@ func (v *PostingMap) CountVectors(ctx context.Context, postingID uint64) (uint32
 
 // CountAllVectors returns the total number of vector IDs across all postings,
 // including deleted vectors that have not yet been cleaned up.
-// This is used for metrics and does not need to be exact, so it iterates over the in-memory cache without locking.
+// This is used for metrics and does not need to be exact.
 func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
 	var total uint64
-	for _, m := range v.data.AllRelaxed() {
+	for _, m := range v.Iter() {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
@@ -114,7 +149,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		if err != nil {
 			return err
 		}
-		v.data.Delete(postingID)
+		v.deleteSlot(postingID)
 		return nil
 	}
 
@@ -130,6 +165,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 	}
 	if err == nil && bytes.Equal(pm, existing) {
 		// no change, skip the update
+		v.setSlot(postingID, pm)
 		return nil
 	}
 
@@ -139,22 +175,7 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 		return err
 	}
 
-	// update the in-memory cache, if the posting metadata already exists,
-	// update it in-place to avoid unnecessary allocations
-	v.data.Compute(postingID, func(oldValue *PostingMetadata, loaded bool) (newValue *PostingMetadata, op xsync.ComputeOp) {
-		if !loaded {
-			return &PostingMetadata{PackedPostingMetadata: pm}, xsync.UpdateOp
-		}
-
-		oldValue.Lock()
-		if !bytes.Equal(oldValue.PackedPostingMetadata, pm) {
-			oldValue.PackedPostingMetadata = pm
-		}
-		oldValue.Unlock()
-
-		// we modified the internal pointer of the existing value, so we don't need to update the map
-		return oldValue, xsync.CancelOp
-	})
+	v.setSlot(postingID, pm)
 
 	return nil
 }
@@ -165,33 +186,81 @@ func (v *PostingMap) SetVectorIDs(ctx context.Context, postingID uint64, posting
 // It assumes the posting has been locked for writing by the caller.
 // It is safe to read the cache concurrently.
 func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vectorID uint64) (uint32, error) {
-	m, err := v.Get(ctx, postingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
-		return 0, err
-	}
+	v.locks.Lock(postingID)
+	defer v.locks.Unlock(postingID)
 
+	slot := v.ensureSlot(postingID)
+	m := slot.metadata.Load()
 	if m != nil {
-		m.Lock()
 		m.PackedPostingMetadata = m.AddVector(vectorID)
 		count := m.Count()
-		m.Unlock()
-		return uint32(count), nil
-	} else {
-		m = &PostingMetadata{
-			PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}),
-		}
-		count := m.Count()
-		v.data.Store(postingID, m)
 		return uint32(count), nil
 	}
+
+	m = &PostingMetadata{
+		postingID:             postingID,
+		owner:                 v,
+		PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}),
+	}
+	count := m.Count()
+	slot.metadata.Store(m)
+	v.count.Add(1)
+	return uint32(count), nil
 }
 
 // Restore loads all postings from disk into memory. It should be called during startup to populate the in-memory cache.
 func (v *PostingMap) Restore(ctx context.Context) error {
 	return v.bucket.Iter(ctx, func(u uint64, ppm PackedPostingMetadata) error {
-		v.data.Store(u, &PostingMetadata{PackedPostingMetadata: ppm})
+		v.setSlot(u, ppm)
 		return nil
 	})
+}
+
+func (v *PostingMap) getSlot(postingID uint64) (*postingMapSlot, bool) {
+	page, slot := v.data.GetPageFor(postingID)
+	if page == nil {
+		return nil, false
+	}
+	return &page[slot], true
+}
+
+func (v *PostingMap) ensureSlot(postingID uint64) *postingMapSlot {
+	page, slot := v.data.EnsurePageFor(postingID)
+	return &page[slot]
+}
+
+func (v *PostingMap) setSlot(postingID uint64, metadata PackedPostingMetadata) {
+	v.locks.Lock(postingID)
+	defer v.locks.Unlock(postingID)
+
+	slot := v.ensureSlot(postingID)
+	current := slot.metadata.Load()
+	if current != nil && bytes.Equal(current.PackedPostingMetadata, metadata) {
+		return
+	}
+
+	next := &PostingMetadata{
+		postingID:             postingID,
+		owner:                 v,
+		PackedPostingMetadata: metadata,
+	}
+	if current == nil {
+		v.count.Add(1)
+	}
+	slot.metadata.Store(next)
+}
+
+func (v *PostingMap) deleteSlot(postingID uint64) {
+	v.locks.Lock(postingID)
+	defer v.locks.Unlock(postingID)
+
+	slot, ok := v.getSlot(postingID)
+	if !ok {
+		return
+	}
+	if slot.metadata.Swap(nil) != nil {
+		v.count.Add(^uint64(0))
+	}
 }
 
 // PostingMapStore is a persistent store for vector IDs.
