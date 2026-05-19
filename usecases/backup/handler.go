@@ -13,7 +13,6 @@ package backup
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"sync"
@@ -28,8 +27,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
-
-var errHandlerShuttingDown = errors.New("node is shutting down, backup/restore not accepted")
 
 // Version of backup structure
 const (
@@ -211,7 +208,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	m.shutdownMu.RLock()
 	defer m.shutdownMu.RUnlock()
 	if m.closed {
-		ret.Err = errHandlerShuttingDown.Error()
+		ret.Err = errShuttingDown.Error()
 		return ret
 	}
 

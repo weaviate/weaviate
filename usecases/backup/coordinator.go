@@ -489,8 +489,12 @@ func (c *coordinator) commit(ctx context.Context,
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}
-	// Abort on backup failure OR on shutdown (restore otherwise tolerates partial failure).
-	if shutdownTriggered || (!toleratePartialFailure && nFailures > 0) {
+	// Abort on backup failure OR on shutdown (restore otherwise tolerates partial
+	// failure). ctx.Err() catches the race where shutdownCtx was cancelled during
+	// commitAll itself: every Commit fails, node2Host empties, the polling loop
+	// never enters, and shutdownTriggered would otherwise stay false — leaving
+	// participants that already received the commit without an abort.
+	if shutdownTriggered || ctx.Err() != nil || (!toleratePartialFailure && nFailures > 0) {
 		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
 		// Bounded fresh ctx so a hanging participant can't block the drain.
 		abortCtx, abortCancel := context.WithTimeout(context.Background(), _ShutdownAbortTimeout)
@@ -533,7 +537,13 @@ func (c *coordinator) commit(ctx context.Context,
 						},
 					}
 
-					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path, false); err == nil {
+					// Fresh ctx: ctx may be the cancelled shutdownCtx, but a
+					// participant that finished before shutdown still has a valid
+					// per-node descriptor we want to aggregate.
+					metaCtx, metaCancel := context.WithTimeout(context.Background(), c.timeoutQueryStatus)
+					meta, err := nodeStore.Meta(metaCtx, req.ID, req.Bucket, req.Path, false)
+					metaCancel()
+					if err == nil {
 						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 						totalPreCompressionSize += meta.PreCompressionSizeBytes
 						c.log.WithFields(logrus.Fields{

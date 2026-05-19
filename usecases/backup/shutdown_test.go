@@ -76,15 +76,20 @@ func TestHandler_WaitDrainsInflightGoroutines(t *testing.T) {
 	}
 }
 
-// OnCanCommit rejects after Handler.Shutdown.
+// OnCanCommit rejects after Handler.Shutdown for both backup and restore.
 func TestHandler_OnCanCommitRejectsAfterShutdown(t *testing.T) {
 	t.Parallel()
-	m := createManager(nil, nil, nil, nil)
-	m.Shutdown()
+	for _, op := range []Op{OpCreate, OpRestore} {
+		t.Run(string(op), func(t *testing.T) {
+			t.Parallel()
+			m := createManager(nil, nil, nil, nil)
+			m.Shutdown()
 
-	req := &Request{Method: OpCreate, ID: "x", Backend: "s3"}
-	resp := m.OnCanCommit(context.Background(), req)
-	assert.Contains(t, resp.Err, errHandlerShuttingDown.Error())
+			req := &Request{Method: op, ID: "x", Backend: "s3"}
+			resp := m.OnCanCommit(context.Background(), req)
+			assert.Contains(t, resp.Err, errShuttingDown.Error())
+		})
+	}
 }
 
 // Scheduler.Shutdown is idempotent; Wait blocks until both coordinators drain.
