@@ -30,6 +30,40 @@ import (
 
 var logger, _ = test.NewNullLogger()
 
+// newTestBucketWithFlushCycle creates a bucket with a started flush cycle
+// and registers teardown via t.Cleanup immediately after each resource is
+// created. This guarantees the cyclemanager goroutine and bucket are
+// shut down even if a later require fails - which is critical inside a
+// synctest bubble, where a leaked goroutine would mask the original
+// failure as a synctest leak/deadlock.
+func newTestBucketWithFlushCycle(t *testing.T, opts ...BucketOption) *Bucket {
+	t.Helper()
+
+	dirName := t.TempDir()
+
+	flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
+	flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
+	flushCycle.Start()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		require.Nil(t, flushCycle.StopAndWait(ctx))
+	})
+
+	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
+		cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+		opts...,
+	)
+	require.Nil(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		require.Nil(t, bucket.Shutdown(ctx))
+	})
+
+	return bucket
+}
+
 // This test ensures that the WAL threshold is being adhered to, and that a
 // flush to segment followed by a switch to a new WAL is being performed
 // once the threshold is reached
@@ -52,20 +86,12 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 	}
 
 	synctest.Test(t, func(t *testing.T) {
-		dirName := t.TempDir()
-
-		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-		flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
-		flushCycle.Start()
-
-		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+		bucket := newTestBucketWithFlushCycle(t,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(1024*1024*1024),
 			WithWalThreshold(walThreshold),
 			WithMinWalThreshold(0), // small enough to not affect this test
 		)
-		require.Nil(t, err)
 
 		bucket.flushLock.RLock()
 		initialWalFile := bucket.active.commitlogWalPath()
@@ -100,12 +126,6 @@ func TestWriteAheadLogThreshold_Replace(t *testing.T) {
 		require.Truef(t, isSizeWithinTolerance(t, uint64(sizeBeforeSwitch), walThreshold, tolerance),
 			"WAL size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
 			sizeBeforeSwitch, walThreshold, tolerance*100)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		require.Nil(t, bucket.Shutdown(ctx))
-		require.Nil(t, flushCycle.StopAndWait(ctx))
 	})
 }
 
@@ -132,19 +152,11 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	}
 
 	synctest.Test(t, func(t *testing.T) {
-		dirName := t.TempDir()
-
-		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-		flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
-		flushCycle.Start()
-
-		bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+		bucket := newTestBucketWithFlushCycle(t,
 			WithStrategy(StrategyReplace),
 			WithMemtableThreshold(memtableThreshold),
 			WithMinWalThreshold(0),
 		)
-		require.Nil(t, err)
 
 		bucket.flushLock.RLock()
 		initialPath := bucket.active.Path()
@@ -178,12 +190,6 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 		require.Truef(t, isSizeWithinTolerance(t, sizeBeforeFlush, memtableThreshold, tolerance),
 			"Memtable size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
 			sizeBeforeFlush, memtableThreshold, tolerance*100)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-
-		require.Nil(t, bucket.Shutdown(ctx))
-		require.Nil(t, flushCycle.StopAndWait(ctx))
 	})
 }
 
@@ -191,158 +197,98 @@ func isSizeWithinTolerance(t *testing.T, detectedSize uint64, threshold uint64, 
 	return detectedSize > 0 && float64(detectedSize) <= float64(threshold)*(tolerance+1)
 }
 
+func assertSegmentCount(t *testing.T, bucket *Bucket, expectedFn func(t *testing.T, count int)) {
+	t.Helper()
+
+	segments, release := bucket.disk.getConsistentViewOfSegments()
+	defer release()
+
+	expectedFn(t, len(segments))
+}
+
 func TestMemtableFlushesIfDirty(t *testing.T) {
 	t.Run("an empty memtable is not flushed", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			dirName := t.TempDir()
-
-			flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-			flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
-			flushCycle.Start()
-
-			bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+			bucket := newTestBucketWithFlushCycle(t,
 				WithStrategy(StrategyReplace),
 				WithMemtableThreshold(1e12), // large enough to not affect this test
 				WithWalThreshold(1e12),      // large enough to not affect this test
 				WithMinWalThreshold(0),      // small enough to not affect this test
 				WithDirtyThreshold(10*time.Millisecond),
 			)
-			require.Nil(t, err)
 
-			// assert no segments exist initially
-			func() {
-				segments, release := bucket.disk.getConsistentViewOfSegments()
-				defer release()
-
-				assert.Equal(t, 0, len(segments))
-			}()
+			assertSegmentCount(t, bucket, func(t *testing.T, count int) {
+				assert.Equal(t, 0, count)
+			})
 
 			// wait (virtual) until past dirty threshold and let flush cycle fire
 			time.Sleep(200 * time.Millisecond)
 			synctest.Wait()
 
-			// assert no segments exist even after passing the dirty threshold
-			func() {
-				segments, release := bucket.disk.getConsistentViewOfSegments()
-				defer release()
-
-				assert.Equal(t, 0, len(segments))
-			}()
-
-			// shutdown bucket (must happen inside the bubble so spawned goroutines exit)
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			defer cancel()
-			require.Nil(t, bucket.Shutdown(ctx))
-			require.Nil(t, flushCycle.StopAndWait(ctx))
+			assertSegmentCount(t, bucket, func(t *testing.T, count int) {
+				assert.Equal(t, 0, count)
+			})
 		})
 	})
 
 	t.Run("a dirty memtable is flushed once dirty period has passed with single write", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			dirName := t.TempDir()
-
-			flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-			flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
-			flushCycle.Start()
-
-			bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+			bucket := newTestBucketWithFlushCycle(t,
 				WithStrategy(StrategyReplace),
 				WithMemtableThreshold(1e12), // large enough to not affect this test
 				WithWalThreshold(1e12),      // large enough to not affect this test
 				WithMinWalThreshold(0),      // small enough to not affect this test
 				WithDirtyThreshold(50*time.Millisecond),
 			)
-			require.Nil(t, err)
 
-			// import something to make it dirty
 			require.Nil(t, bucket.Put([]byte("some-key"), []byte("some-value")))
 
-			// assert no segments exist initially
-			func() {
-				segments, release := bucket.disk.getConsistentViewOfSegments()
-				defer release()
-
-				assert.Equal(t, 0, len(segments))
-			}()
+			assertSegmentCount(t, bucket, func(t *testing.T, count int) {
+				assert.Equal(t, 0, count)
+			})
 
 			// wait (virtual) until past dirty threshold and let flush cycle fire
 			time.Sleep(200 * time.Millisecond)
 			synctest.Wait()
 
-			// assert that a flush has occurred (and one segment exists)
-			func() {
-				segments, release := bucket.disk.getConsistentViewOfSegments()
-				defer release()
-
-				assert.Equal(t, 1, len(segments))
-			}()
-
-			// shutdown bucket
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			defer cancel()
-			require.Nil(t, bucket.Shutdown(ctx))
-			require.Nil(t, flushCycle.StopAndWait(ctx))
+			assertSegmentCount(t, bucket, func(t *testing.T, count int) {
+				assert.Equal(t, 1, count)
+			})
 		})
 	})
 
 	t.Run("a dirty memtable is flushed once dirty period has passed with ongoing writes", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			dirName := t.TempDir()
-
-			flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
-			flushCycle := cyclemanager.NewManager("flush", cyclemanager.MemtableFlushCycleTicker(), flushCallbacks.CycleCallback, logger)
-			flushCycle.Start()
-
-			bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
-				cyclemanager.NewCallbackGroupNoop(), flushCallbacks,
+			bucket := newTestBucketWithFlushCycle(t,
 				WithStrategy(StrategyReplace),
 				WithMemtableThreshold(1e12), // large enough to not affect this test
 				WithWalThreshold(1e12),      // large enough to not affect this test
 				WithMinWalThreshold(0),      // small enough to not affect this test
 				WithDirtyThreshold(50*time.Millisecond),
 			)
-			require.Nil(t, err)
 
-			// import something to make it dirty
 			require.Nil(t, bucket.Put([]byte("some-key"), []byte("some-value")))
 
-			// assert no segments exist initially
-			func() {
-				segments, release := bucket.disk.getConsistentViewOfSegments()
-				defer release()
-
-				assert.Equal(t, 0, len(segments))
-			}()
+			assertSegmentCount(t, bucket, func(t *testing.T, count int) {
+				assert.Equal(t, 0, count)
+			})
 
 			// keep importing crossing the dirty threshold (300ms of virtual time)
 			rounds := 12
 			data := make([]byte, rounds*4)
-			_, err = rand.Read(data)
+			_, err := rand.Read(data)
 			require.Nil(t, err)
 
 			for i := 0; i < rounds; i++ {
 				key := data[(i * 4) : (i+1)*4]
-				bucket.Put(key, []byte("value"))
+				require.Nil(t, bucket.Put(key, []byte("value")))
 				time.Sleep(25 * time.Millisecond)
 			}
 			synctest.Wait()
 
-			// assert that flush has occurred in the meantime
-			func() {
-				segments, release := bucket.disk.getConsistentViewOfSegments()
-				defer release()
-
-				// at least 2 segments should be created already
-				assert.GreaterOrEqual(t, len(segments), 2)
-			}()
-
-			// shutdown bucket
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			defer cancel()
-			require.Nil(t, bucket.Shutdown(ctx))
-			require.Nil(t, flushCycle.StopAndWait(ctx))
+			assertSegmentCount(t, bucket, func(t *testing.T, count int) {
+				assert.GreaterOrEqual(t, count, 2)
+			})
 		})
 	})
 }
