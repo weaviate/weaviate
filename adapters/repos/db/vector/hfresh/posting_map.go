@@ -26,21 +26,7 @@ import (
 
 // PostingMetadata holds the list of vector IDs associated with a posting.
 type PostingMetadata struct {
-	postingID uint64
-	owner     *PostingMap
 	PackedPostingMetadata
-}
-
-func (p *PostingMetadata) RLock() {
-	if p.owner != nil {
-		p.owner.locks.RLock(p.postingID)
-	}
-}
-
-func (p *PostingMetadata) RUnlock() {
-	if p.owner != nil {
-		p.owner.locks.RUnlock(p.postingID)
-	}
 }
 
 type postingMapSlot struct {
@@ -68,6 +54,14 @@ func NewPostingMap(bucket *lsmkv.Bucket) *PostingMap {
 // Size returns the total number of postings in the map.
 func (v *PostingMap) Size() int {
 	return int(v.count.Load())
+}
+
+func (v *PostingMap) rLock(postingID uint64) {
+	v.locks.RLock(postingID)
+}
+
+func (v *PostingMap) rUnlock(postingID uint64) {
+	v.locks.RUnlock(postingID)
 }
 
 // Iter returns an iterator over all postings in the map.
@@ -113,9 +107,9 @@ func (v *PostingMap) CountVectors(ctx context.Context, postingID uint64) (uint32
 		return 0, nil
 	}
 
-	m.RLock()
+	v.rLock(postingID)
 	size := uint32(m.Count())
-	m.RUnlock()
+	v.rUnlock(postingID)
 
 	return size, nil
 }
@@ -125,14 +119,14 @@ func (v *PostingMap) CountVectors(ctx context.Context, postingID uint64) (uint32
 // This is used for metrics and does not need to be exact.
 func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
 	var total uint64
-	for _, m := range v.Iter() {
+	for postingID, m := range v.Iter() {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
 
-		m.RLock()
+		v.rLock(postingID)
 		count := m.Count()
-		m.RUnlock()
+		v.rUnlock(postingID)
 
 		total += uint64(count)
 	}
@@ -198,8 +192,6 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 	}
 
 	m = &PostingMetadata{
-		postingID:             postingID,
-		owner:                 v,
 		PackedPostingMetadata: NewPackedPostingMetadata([]uint64{vectorID}),
 	}
 	count := m.Count()
@@ -240,8 +232,6 @@ func (v *PostingMap) setSlot(postingID uint64, metadata PackedPostingMetadata) {
 	}
 
 	next := &PostingMetadata{
-		postingID:             postingID,
-		owner:                 v,
 		PackedPostingMetadata: metadata,
 	}
 	if current == nil {
