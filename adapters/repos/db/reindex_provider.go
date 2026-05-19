@@ -1128,24 +1128,28 @@ func (p *ReindexProvider) runPerUnitPhase(
 			return
 		}
 		if len(res.Errs) > 0 {
-			aggMu.Lock()
-			agg.Errs = append(agg.Errs, res.Errs...)
-			if res.SawContextCanceled {
-				agg.SawContextCanceled = true
-			}
-			aggMu.Unlock()
+			func() {
+				aggMu.Lock()
+				defer aggMu.Unlock()
+				agg.Errs = append(agg.Errs, res.Errs...)
+				if res.SawContextCanceled {
+					agg.SawContextCanceled = true
+				}
+			}()
 			return
 		}
 
 		phase := runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
-		aggMu.Lock()
-		if len(phase.Errs) > 0 {
-			agg.Errs = append(agg.Errs, phase.Errs...)
-		}
-		if phase.SawContextCanceled {
-			agg.SawContextCanceled = true
-		}
-		aggMu.Unlock()
+		func() {
+			aggMu.Lock()
+			defer aggMu.Unlock()
+			if len(phase.Errs) > 0 {
+				agg.Errs = append(agg.Errs, phase.Errs...)
+			}
+			if phase.SawContextCanceled {
+				agg.SawContextCanceled = true
+			}
+		}()
 	}
 
 	if parallel {
