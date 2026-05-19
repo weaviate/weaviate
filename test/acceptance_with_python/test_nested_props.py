@@ -1,6 +1,6 @@
 """End-to-end tests for nested object property filtering.
 
-One collection (NESTED_PROPS below) has three nested root paths defined side
+One collection (COLLECTION_PROPS below) has three nested root paths defined side
 by side, so we can probe the filter pipeline at three depths:
 
     L0:        cars[]                       — OBJECT_ARRAY at the root
@@ -70,7 +70,10 @@ _COUNTRY_INNER = [
     Property(name="garages", data_type=DataType.OBJECT_ARRAY, nested_properties=_GARAGES_PROPS),
 ]
 
-NESTED_PROPS: List[Property] = [
+COLLECTION_PROPS: List[Property] = [
+    # Flat (non-nested) doc-level field, used by the mixed-flat-and-nested
+    # filter scenario. Other scenarios just leave it unset.
+    Property(name="category", data_type=DataType.TEXT, tokenization=Tokenization.FIELD),
     Property(name="cars", data_type=DataType.OBJECT_ARRAY, nested_properties=_CARS_PROPS),
     Property(name="country", data_type=DataType.OBJECT, nested_properties=_COUNTRY_INNER),
     Property(name="countries", data_type=DataType.OBJECT_ARRAY, nested_properties=_COUNTRY_INNER),
@@ -189,7 +192,7 @@ def omit_fields(doc: Dict[str, Any], *paths: str) -> Dict[str, Any]:
 def make_collection(collection_factory: CollectionFactory):
     """Create the standard nested-properties collection used by every test."""
     return collection_factory(
-        properties=NESTED_PROPS,
+        properties=COLLECTION_PROPS,
         vector_config=Configure.Vectors.self_provided(),
     )
 
@@ -3122,3 +3125,1340 @@ def test_comparison_operators_under_countries_array(collection_factory: Collecti
             toyota_and_honda_across_countries_id,
         ],
     )
+
+
+# ===========================================================================
+# Scenario: ContainsAll combined with a scalar leaf inside a correlated AND
+# ===========================================================================
+#
+# Filter: `cars.model_codes contains_all [a, b] AND cars.color = red`
+#
+# Both predicates correlate per car at the cars LCA — the doc matches when
+# ∃ a single car whose model_codes contains both values AND whose color is
+# red. Splitting the predicates across different cars must NOT match.
+
+
+def test_contains_all_with_equal_in_and_at_root_cars(collection_factory: CollectionFactory) -> None:
+    """L0 — ContainsAll on model_codes + Equal on color, correlated per car."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"cars": [
+        make_car(model_codes=["CAM-2020", "HYB-PRO"], color="red"),
+    ]})
+    contains_only_id = collection.data.insert({"cars": [
+        make_car(model_codes=["CAM-2020", "HYB-PRO"], color="blue"),
+    ]})
+    equal_only_id = collection.data.insert({"cars": [
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ]})
+    split_across_cars_id = collection.data.insert({"cars": [
+        make_car(model_codes=["CAM-2020", "HYB-PRO"], color="blue"),
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ]})
+    empty_cars_id = collection.data.insert({"cars": []})
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("cars.model_codes").contains_all(["CAM-2020", "HYB-PRO"]),
+        Filter.by_property("cars.color").equal("red"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "single car has both codes and color=red → match"
+    assert contains_only_id not in ids, "car has both codes but color=blue → no match"
+    assert equal_only_id not in ids, "car has color=red but only one listed code → no match"
+    assert split_across_cars_id not in ids, (
+        "one car has codes, another car has color — same-element rule fails → no match"
+    )
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+
+
+def test_contains_all_with_equal_in_and_under_country_object(collection_factory: CollectionFactory) -> None:
+    """L2_object — ContainsAll + Equal correlated per car inside country.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020", "HYB-PRO"], color="red"),
+    ])])})
+    contains_only_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020", "HYB-PRO"], color="blue"),
+    ])])})
+    equal_only_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])})
+    split_across_cars_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020", "HYB-PRO"], color="blue"),
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])})
+    empty_cars_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[])])})
+    split_across_garages_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[
+                make_car(model_codes=["CAM-2020", "HYB-PRO"], color="blue"),
+            ]),
+            make_garage(city="Rotterdam", cars=[
+                make_car(model_codes=["CAM-2020"], color="red"),
+            ]),
+        ]),
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[
+                make_car(model_codes=["CAM-2020", "HYB-PRO"], color="red"),
+            ]),
+            make_garage(city="Rotterdam", cars=[
+                make_car(model_codes=["OTHER"], color="green"),
+            ]),
+        ]),
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("country.garages.cars.model_codes").contains_all(["CAM-2020", "HYB-PRO"]),
+        Filter.by_property("country.garages.cars.color").equal("red"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "single car satisfies both → match"
+    assert contains_only_id not in ids, "color wrong → no match"
+    assert equal_only_id not in ids, "missing one code → no match"
+    assert split_across_cars_id not in ids, "leaves split across cars in same garage → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert split_across_garages_id not in ids, (
+        "codes-match car in Amsterdam, color-match car in Rotterdam — "
+        "no single car satisfies both → no match"
+    )
+    assert match_via_one_garage_id in ids, (
+        "Amsterdam's car satisfies both; Rotterdam unrelated → match"
+    )
+
+
+def test_contains_all_with_equal_in_and_under_countries_array(collection_factory: CollectionFactory) -> None:
+    """L2_array — ContainsAll + Equal correlated per car inside countries.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020", "HYB-PRO"], color="red"),
+    ])])]})
+    contains_only_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020", "HYB-PRO"], color="blue"),
+    ])])]})
+    equal_only_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])]})
+    split_across_cars_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020", "HYB-PRO"], color="blue"),
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])]})
+    empty_cars_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[])])]})
+    split_across_garages_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[
+                make_car(model_codes=["CAM-2020", "HYB-PRO"], color="blue"),
+            ]),
+            make_garage(city="Rotterdam", cars=[
+                make_car(model_codes=["CAM-2020"], color="red"),
+            ]),
+        ])],
+    })
+    split_across_countries_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[
+                make_car(model_codes=["CAM-2020", "HYB-PRO"], color="blue"),
+            ])]),
+            make_country(name="Germany", garages=[make_garage(cars=[
+                make_car(model_codes=["CAM-2020"], color="red"),
+            ])]),
+        ],
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[
+                make_car(model_codes=["CAM-2020", "HYB-PRO"], color="red"),
+            ]),
+            make_garage(city="Rotterdam", cars=[
+                make_car(model_codes=["OTHER"], color="green"),
+            ]),
+        ])],
+    })
+    match_via_one_country_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[
+                make_car(model_codes=["CAM-2020", "HYB-PRO"], color="red"),
+            ])]),
+            make_country(name="Germany", garages=[make_garage(cars=[
+                make_car(model_codes=["OTHER"], color="green"),
+            ])]),
+        ],
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("countries.garages.cars.model_codes").contains_all(["CAM-2020", "HYB-PRO"]),
+        Filter.by_property("countries.garages.cars.color").equal("red"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "single car satisfies both → match"
+    assert contains_only_id not in ids, "color wrong → no match"
+    assert equal_only_id not in ids, "missing one code → no match"
+    assert split_across_cars_id not in ids, "leaves split across cars in same garage → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert split_across_garages_id not in ids, "leaves split across two garages → no match"
+    assert split_across_countries_id not in ids, "leaves split across two countries → no match"
+    assert match_via_one_garage_id in ids, (
+        "Amsterdam's car satisfies both; Rotterdam unrelated → match"
+    )
+    assert match_via_one_country_id in ids, (
+        "Netherlands' car satisfies both; Germany unrelated → match"
+    )
+
+
+# ===========================================================================
+# Scenario: ContainsAny combined with a scalar leaf inside a correlated AND
+# ===========================================================================
+#
+# Filter: `cars.model_codes contains_any [a, b] AND cars.color = red`
+#
+# Both predicates correlate per car at the cars LCA — the doc matches when
+# ∃ a single car whose model_codes contains at least one listed value AND
+# whose color is red. Splitting across cars must not match.
+
+
+def test_contains_any_with_equal_in_and_at_root_cars(collection_factory: CollectionFactory) -> None:
+    """L0 — ContainsAny on model_codes + Equal on color, correlated per car."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"cars": [
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ]})
+    contains_only_id = collection.data.insert({"cars": [
+        make_car(model_codes=["CAM-2020"], color="blue"),
+    ]})
+    equal_only_id = collection.data.insert({"cars": [
+        make_car(model_codes=["OUTSIDE"], color="red"),
+    ]})
+    split_across_cars_id = collection.data.insert({"cars": [
+        make_car(model_codes=["CAM-2020"], color="blue"),
+        make_car(model_codes=["OUTSIDE"], color="red"),
+    ]})
+    empty_cars_id = collection.data.insert({"cars": []})
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("cars.model_codes").contains_any(["CAM-2020", "HYB-PRO"]),
+        Filter.by_property("cars.color").equal("red"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "single car has a listed code and color=red → match"
+    assert contains_only_id not in ids, "car has listed code but color=blue → no match"
+    assert equal_only_id not in ids, "car has color=red but no listed code → no match"
+    assert split_across_cars_id not in ids, (
+        "one car has listed code, another has color — same-element fails → no match"
+    )
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+
+
+def test_contains_any_with_equal_in_and_under_country_object(collection_factory: CollectionFactory) -> None:
+    """L2_object — ContainsAny + Equal correlated per car inside country.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])})
+    contains_only_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="blue"),
+    ])])})
+    equal_only_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["OUTSIDE"], color="red"),
+    ])])})
+    split_across_cars_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="blue"),
+        make_car(model_codes=["OUTSIDE"], color="red"),
+    ])])})
+    empty_cars_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[])])})
+    split_across_garages_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model_codes=["CAM-2020"], color="blue")]),
+            make_garage(city="Rotterdam", cars=[make_car(model_codes=["OUTSIDE"], color="red")]),
+        ]),
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model_codes=["CAM-2020"], color="red")]),
+            make_garage(city="Rotterdam", cars=[make_car(model_codes=["OUTSIDE"], color="green")]),
+        ]),
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("country.garages.cars.model_codes").contains_any(["CAM-2020", "HYB-PRO"]),
+        Filter.by_property("country.garages.cars.color").equal("red"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "single car satisfies both → match"
+    assert contains_only_id not in ids, "color wrong → no match"
+    assert equal_only_id not in ids, "no listed code → no match"
+    assert split_across_cars_id not in ids, "leaves split across cars in same garage → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert split_across_garages_id not in ids, (
+        "code-match car in Amsterdam, color-match car in Rotterdam → no match"
+    )
+    assert match_via_one_garage_id in ids, (
+        "Amsterdam's car satisfies both; Rotterdam unrelated → match"
+    )
+
+
+def test_contains_any_with_equal_in_and_under_countries_array(collection_factory: CollectionFactory) -> None:
+    """L2_array — ContainsAny + Equal correlated per car inside countries.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])]})
+    contains_only_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="blue"),
+    ])])]})
+    equal_only_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["OUTSIDE"], color="red"),
+    ])])]})
+    split_across_cars_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="blue"),
+        make_car(model_codes=["OUTSIDE"], color="red"),
+    ])])]})
+    empty_cars_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[])])]})
+    split_across_garages_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model_codes=["CAM-2020"], color="blue")]),
+            make_garage(city="Rotterdam", cars=[make_car(model_codes=["OUTSIDE"], color="red")]),
+        ])],
+    })
+    split_across_countries_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[
+                make_car(model_codes=["CAM-2020"], color="blue"),
+            ])]),
+            make_country(name="Germany", garages=[make_garage(cars=[
+                make_car(model_codes=["OUTSIDE"], color="red"),
+            ])]),
+        ],
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model_codes=["CAM-2020"], color="red")]),
+            make_garage(city="Rotterdam", cars=[make_car(model_codes=["OUTSIDE"], color="green")]),
+        ])],
+    })
+    match_via_one_country_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[
+                make_car(model_codes=["CAM-2020"], color="red"),
+            ])]),
+            make_country(name="Germany", garages=[make_garage(cars=[
+                make_car(model_codes=["OUTSIDE"], color="green"),
+            ])]),
+        ],
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("countries.garages.cars.model_codes").contains_any(["CAM-2020", "HYB-PRO"]),
+        Filter.by_property("countries.garages.cars.color").equal("red"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "single car satisfies both → match"
+    assert contains_only_id not in ids, "color wrong → no match"
+    assert equal_only_id not in ids, "no listed code → no match"
+    assert split_across_cars_id not in ids, "leaves split across cars in same garage → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert split_across_garages_id not in ids, "leaves split across two garages → no match"
+    assert split_across_countries_id not in ids, "leaves split across two countries → no match"
+    assert match_via_one_garage_id in ids, "Amsterdam's car satisfies both → match"
+    assert match_via_one_country_id in ids, "Netherlands' car satisfies both → match"
+
+
+# ===========================================================================
+# Scenario: ContainsNone combined with a scalar leaf inside a correlated AND
+# ===========================================================================
+#
+# Filter: `cars.model_codes contains_none [a, b] AND cars.color = red`
+#
+# Both predicates correlate per car at the cars LCA. ContainsNone is
+# per-tag-element existential, so it requires the SAME car to own at
+# least one tag outside the listed values AND satisfy color=red.
+
+
+def test_contains_none_with_equal_in_and_at_root_cars(collection_factory: CollectionFactory) -> None:
+    """L0 — ContainsNone + Equal correlated per car."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"cars": [
+        make_car(model_codes=["OUTSIDE"], color="red"),
+    ]})
+    outside_tag_but_wrong_color_id = collection.data.insert({"cars": [
+        make_car(model_codes=["OUTSIDE"], color="blue"),
+    ]})
+    all_in_list_but_color_match_id = collection.data.insert({"cars": [
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ]})
+    split_across_cars_id = collection.data.insert({"cars": [
+        make_car(model_codes=["OUTSIDE"], color="blue"),
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ]})
+    empty_cars_id = collection.data.insert({"cars": []})
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("cars.model_codes").contains_none(["CAM-2020", "HYB-PRO"]),
+        Filter.by_property("cars.color").equal("red"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "single car has outside tag and color=red → match"
+    assert outside_tag_but_wrong_color_id not in ids, "outside tag but color=blue → no match"
+    assert all_in_list_but_color_match_id not in ids, "color=red but no outside tag → no match"
+    assert split_across_cars_id not in ids, (
+        "outside tag on one car, color on another — same-element fails → no match"
+    )
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+
+
+def test_contains_none_with_equal_in_and_under_country_object(collection_factory: CollectionFactory) -> None:
+    """L2_object — ContainsNone + Equal correlated per car inside country.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["OUTSIDE"], color="red"),
+    ])])})
+    outside_tag_but_wrong_color_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["OUTSIDE"], color="blue"),
+    ])])})
+    all_in_list_but_color_match_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])})
+    split_across_cars_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["OUTSIDE"], color="blue"),
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])})
+    empty_cars_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[])])})
+    split_across_garages_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model_codes=["OUTSIDE"], color="blue")]),
+            make_garage(city="Rotterdam", cars=[make_car(model_codes=["CAM-2020"], color="red")]),
+        ]),
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model_codes=["OUTSIDE"], color="red")]),
+            make_garage(city="Rotterdam", cars=[make_car(model_codes=["CAM-2020"], color="green")]),
+        ]),
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("country.garages.cars.model_codes").contains_none(["CAM-2020", "HYB-PRO"]),
+        Filter.by_property("country.garages.cars.color").equal("red"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "single car has outside tag and color=red → match"
+    assert outside_tag_but_wrong_color_id not in ids, "color wrong → no match"
+    assert all_in_list_but_color_match_id not in ids, "no outside tag → no match"
+    assert split_across_cars_id not in ids, "leaves split across cars in same garage → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert split_across_garages_id not in ids, (
+        "outside-tag car in Amsterdam, color-match car in Rotterdam → no match"
+    )
+    assert match_via_one_garage_id in ids, (
+        "Amsterdam's car satisfies both; Rotterdam unrelated → match"
+    )
+
+
+def test_contains_none_with_equal_in_and_under_countries_array(collection_factory: CollectionFactory) -> None:
+    """L2_array — ContainsNone + Equal correlated per car inside countries.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["OUTSIDE"], color="red"),
+    ])])]})
+    outside_tag_but_wrong_color_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["OUTSIDE"], color="blue"),
+    ])])]})
+    all_in_list_but_color_match_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])]})
+    split_across_cars_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model_codes=["OUTSIDE"], color="blue"),
+        make_car(model_codes=["CAM-2020"], color="red"),
+    ])])]})
+    empty_cars_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[])])]})
+    split_across_garages_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model_codes=["OUTSIDE"], color="blue")]),
+            make_garage(city="Rotterdam", cars=[make_car(model_codes=["CAM-2020"], color="red")]),
+        ])],
+    })
+    split_across_countries_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[
+                make_car(model_codes=["OUTSIDE"], color="blue"),
+            ])]),
+            make_country(name="Germany", garages=[make_garage(cars=[
+                make_car(model_codes=["CAM-2020"], color="red"),
+            ])]),
+        ],
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model_codes=["OUTSIDE"], color="red")]),
+            make_garage(city="Rotterdam", cars=[make_car(model_codes=["CAM-2020"], color="green")]),
+        ])],
+    })
+    match_via_one_country_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[
+                make_car(model_codes=["OUTSIDE"], color="red"),
+            ])]),
+            make_country(name="Germany", garages=[make_garage(cars=[
+                make_car(model_codes=["CAM-2020"], color="green"),
+            ])]),
+        ],
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("countries.garages.cars.model_codes").contains_none(["CAM-2020", "HYB-PRO"]),
+        Filter.by_property("countries.garages.cars.color").equal("red"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "single car satisfies both → match"
+    assert outside_tag_but_wrong_color_id not in ids, "color wrong → no match"
+    assert all_in_list_but_color_match_id not in ids, "no outside tag → no match"
+    assert split_across_cars_id not in ids, "leaves split across cars in same garage → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert split_across_garages_id not in ids, "leaves split across two garages → no match"
+    assert split_across_countries_id not in ids, "leaves split across two countries → no match"
+    assert match_via_one_garage_id in ids, "Amsterdam's car satisfies both → match"
+    assert match_via_one_country_id in ids, "Netherlands' car satisfies both → match"
+
+
+# ===========================================================================
+# Scenario: mixed flat + nested predicates inside a correlated AND
+# ===========================================================================
+#
+# Filter: `category = "premium" AND cars.make = "Toyota"`
+#
+# `category` is a flat doc-level text property; `cars.make` is a nested
+# leaf. The flat predicate evaluates at the doc level; the nested
+# predicate evaluates existentially per car. The AND combines them
+# at docID level: a doc matches when the flat predicate is satisfied
+# AND ∃ a car satisfying the nested predicate.
+
+
+def test_flat_and_nested_in_and_at_root_cars(collection_factory: CollectionFactory) -> None:
+    """L0 — category (flat) + cars.make (nested) in AND."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({
+        "category": "premium",
+        "cars": [make_car(make="Toyota")],
+    })
+    flat_only_id = collection.data.insert({
+        "category": "premium",
+        "cars": [make_car(make="Honda")],
+    })
+    nested_only_id = collection.data.insert({
+        "category": "economy",
+        "cars": [make_car(make="Toyota")],
+    })
+    neither_id = collection.data.insert({
+        "category": "economy",
+        "cars": [make_car(make="Honda")],
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("category").equal("premium"),
+        Filter.by_property("cars.make").equal("Toyota"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "flat=premium AND ∃ Toyota → match"
+    assert flat_only_id not in ids, "flat ok but no Toyota → no match"
+    assert nested_only_id not in ids, "Toyota present but flat wrong → no match"
+    assert neither_id not in ids, "neither predicate satisfied → no match"
+
+
+def test_flat_and_nested_in_and_under_country_object(collection_factory: CollectionFactory) -> None:
+    """L2_object — category (flat) + country.garages.cars.make (nested) in AND."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({
+        "category": "premium",
+        "country": make_country(garages=[make_garage(cars=[make_car(make="Toyota")])]),
+    })
+    flat_only_id = collection.data.insert({
+        "category": "premium",
+        "country": make_country(garages=[make_garage(cars=[make_car(make="Honda")])]),
+    })
+    nested_only_id = collection.data.insert({
+        "category": "economy",
+        "country": make_country(garages=[make_garage(cars=[make_car(make="Toyota")])]),
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "category": "premium",
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(make="Toyota")]),
+            make_garage(city="Rotterdam", cars=[make_car(make="Ford")]),
+        ]),
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("category").equal("premium"),
+        Filter.by_property("country.garages.cars.make").equal("Toyota"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "flat=premium AND ∃ Toyota → match"
+    assert flat_only_id not in ids, "flat ok but no Toyota → no match"
+    assert nested_only_id not in ids, "Toyota present but flat wrong → no match"
+    assert match_via_one_garage_id in ids, (
+        "flat=premium AND Amsterdam has Toyota; Rotterdam unrelated → match"
+    )
+
+
+def test_flat_and_nested_in_and_under_countries_array(collection_factory: CollectionFactory) -> None:
+    """L2_array — category (flat) + countries.garages.cars.make (nested) in AND."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({
+        "category": "premium",
+        "countries": [make_country(garages=[make_garage(cars=[make_car(make="Toyota")])])],
+    })
+    flat_only_id = collection.data.insert({
+        "category": "premium",
+        "countries": [make_country(garages=[make_garage(cars=[make_car(make="Honda")])])],
+    })
+    nested_only_id = collection.data.insert({
+        "category": "economy",
+        "countries": [make_country(garages=[make_garage(cars=[make_car(make="Toyota")])])],
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "category": "premium",
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(make="Toyota")]),
+            make_garage(city="Rotterdam", cars=[make_car(make="Ford")]),
+        ])],
+    })
+    match_via_one_country_id = collection.data.insert({
+        "category": "premium",
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[make_car(make="Toyota")])]),
+            make_country(name="Germany", garages=[make_garage(cars=[make_car(make="Ford")])]),
+        ],
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.all_of([
+        Filter.by_property("category").equal("premium"),
+        Filter.by_property("countries.garages.cars.make").equal("Toyota"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "flat=premium AND ∃ Toyota → match"
+    assert flat_only_id not in ids, "flat ok but no Toyota → no match"
+    assert nested_only_id not in ids, "Toyota present but flat wrong → no match"
+    assert match_via_one_garage_id in ids, (
+        "flat=premium AND Amsterdam has Toyota; Rotterdam unrelated → match"
+    )
+    assert match_via_one_country_id in ids, (
+        "flat=premium AND Netherlands has Toyota; Germany unrelated → match"
+    )
+
+
+# ===========================================================================
+# Scenario: flat OR nested
+# ===========================================================================
+#
+# Filter: `category = "premium" OR cars.make = "Toyota"`
+#
+# The OR is composed across heterogeneous predicates: a flat doc-level
+# equal and a nested per-car existential. The doc matches when EITHER
+# the flat predicate is satisfied OR ∃ a car satisfying the nested
+# predicate.
+
+
+def test_flat_or_nested_at_root_cars(collection_factory: CollectionFactory) -> None:
+    """L0 — category (flat) OR cars.make (nested) — match via either side."""
+    collection = make_collection(collection_factory)
+
+    match_via_flat_id = collection.data.insert({
+        "category": "premium",
+        "cars": [make_car(make="Honda")],
+    })
+    match_via_nested_id = collection.data.insert({
+        "category": "economy",
+        "cars": [make_car(make="Toyota")],
+    })
+    match_via_both_id = collection.data.insert({
+        "category": "premium",
+        "cars": [make_car(make="Toyota")],
+    })
+    no_match_id = collection.data.insert({
+        "category": "economy",
+        "cars": [make_car(make="Honda")],
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.any_of([
+        Filter.by_property("category").equal("premium"),
+        Filter.by_property("cars.make").equal("Toyota"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_via_flat_id in ids, "flat=premium (nested doesn't match) → match"
+    assert match_via_nested_id in ids, "∃ Toyota (flat doesn't match) → match"
+    assert match_via_both_id in ids, "both sides match → match"
+    assert no_match_id not in ids, "neither side matches → no match"
+
+
+def test_flat_or_nested_under_country_object(collection_factory: CollectionFactory) -> None:
+    """L2_object — flat OR nested with nested path under single-object root."""
+    collection = make_collection(collection_factory)
+
+    match_via_flat_id = collection.data.insert({
+        "category": "premium",
+        "country": make_country(garages=[make_garage(cars=[make_car(make="Honda")])]),
+    })
+    match_via_nested_id = collection.data.insert({
+        "category": "economy",
+        "country": make_country(garages=[make_garage(cars=[make_car(make="Toyota")])]),
+    })
+    no_match_id = collection.data.insert({
+        "category": "economy",
+        "country": make_country(garages=[make_garage(cars=[make_car(make="Honda")])]),
+    })
+    match_via_nested_in_one_garage_id = collection.data.insert({
+        "category": "economy",
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(make="Toyota")]),
+            make_garage(city="Rotterdam", cars=[make_car(make="Honda")]),
+        ]),
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.any_of([
+        Filter.by_property("category").equal("premium"),
+        Filter.by_property("country.garages.cars.make").equal("Toyota"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_via_flat_id in ids, "flat=premium → match"
+    assert match_via_nested_id in ids, "∃ Toyota → match"
+    assert no_match_id not in ids, "neither side matches → no match"
+    assert match_via_nested_in_one_garage_id in ids, (
+        "Amsterdam has Toyota; Rotterdam unrelated → nested matches → match"
+    )
+
+
+def test_flat_or_nested_under_countries_array(collection_factory: CollectionFactory) -> None:
+    """L2_array — flat OR nested with nested path under countries[]."""
+    collection = make_collection(collection_factory)
+
+    match_via_flat_id = collection.data.insert({
+        "category": "premium",
+        "countries": [make_country(garages=[make_garage(cars=[make_car(make="Honda")])])],
+    })
+    match_via_nested_id = collection.data.insert({
+        "category": "economy",
+        "countries": [make_country(garages=[make_garage(cars=[make_car(make="Toyota")])])],
+    })
+    no_match_id = collection.data.insert({
+        "category": "economy",
+        "countries": [make_country(garages=[make_garage(cars=[make_car(make="Honda")])])],
+    })
+    match_via_nested_in_one_garage_id = collection.data.insert({
+        "category": "economy",
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(make="Toyota")]),
+            make_garage(city="Rotterdam", cars=[make_car(make="Honda")]),
+        ])],
+    })
+    match_via_nested_in_one_country_id = collection.data.insert({
+        "category": "economy",
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[make_car(make="Toyota")])]),
+            make_country(name="Germany", garages=[make_garage(cars=[make_car(make="Honda")])]),
+        ],
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.any_of([
+        Filter.by_property("category").equal("premium"),
+        Filter.by_property("countries.garages.cars.make").equal("Toyota"),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert match_via_flat_id in ids, "flat=premium → match"
+    assert match_via_nested_id in ids, "∃ Toyota → match"
+    assert no_match_id not in ids, "neither side matches → no match"
+    assert match_via_nested_in_one_garage_id in ids, (
+        "Amsterdam has Toyota → nested matches → match"
+    )
+    assert match_via_nested_in_one_country_id in ids, (
+        "Netherlands has Toyota → nested matches → match"
+    )
+
+
+# ===========================================================================
+# Scenario: OR of two mixed-flat-and-nested ANDs (deeper boolean tree)
+# ===========================================================================
+#
+# Filter: `(category = "premium" AND cars.make = "Toyota")
+#       OR (category = "economy" AND cars.make = "Honda")`
+#
+# Each AND group correlates: doc-level flat predicate AND per-car nested
+# existential. The OR combines the two groups at docID level. A doc with
+# category="premium" and a Honda car (only) matches NEITHER group — the
+# first group's nested fails, the second group's flat fails.
+
+
+def test_or_of_mixed_correlated_ands_at_root_cars(collection_factory: CollectionFactory) -> None:
+    """L0 — OR of two mixed-flat-and-nested AND groups."""
+    collection = make_collection(collection_factory)
+
+    premium_toyota_id = collection.data.insert({
+        "category": "premium",
+        "cars": [make_car(make="Toyota")],
+    })
+    economy_honda_id = collection.data.insert({
+        "category": "economy",
+        "cars": [make_car(make="Honda")],
+    })
+    premium_honda_id = collection.data.insert({
+        "category": "premium",
+        "cars": [make_car(make="Honda")],
+    })
+    economy_toyota_id = collection.data.insert({
+        "category": "economy",
+        "cars": [make_car(make="Toyota")],
+    })
+    premium_both_cars_id = collection.data.insert({
+        "category": "premium",
+        "cars": [make_car(make="Toyota"), make_car(make="Honda")],
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.any_of([
+        Filter.all_of([
+            Filter.by_property("category").equal("premium"),
+            Filter.by_property("cars.make").equal("Toyota"),
+        ]),
+        Filter.all_of([
+            Filter.by_property("category").equal("economy"),
+            Filter.by_property("cars.make").equal("Honda"),
+        ]),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert premium_toyota_id in ids, "satisfies group 1 (premium + Toyota) → match"
+    assert economy_honda_id in ids, "satisfies group 2 (economy + Honda) → match"
+    assert premium_honda_id not in ids, (
+        "group 1's flat ok but no Toyota; group 2's flat wrong — no match"
+    )
+    assert economy_toyota_id not in ids, (
+        "group 2's flat ok but no Honda; group 1's flat wrong — no match"
+    )
+    assert premium_both_cars_id in ids, "satisfies group 1 via the Toyota car → match"
+
+
+def test_or_of_mixed_correlated_ands_under_country_object(collection_factory: CollectionFactory) -> None:
+    """L2_object — OR of two mixed-flat-and-nested AND groups inside country.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    premium_toyota_id = collection.data.insert({
+        "category": "premium",
+        "country": make_country(garages=[make_garage(cars=[make_car(make="Toyota")])]),
+    })
+    economy_honda_id = collection.data.insert({
+        "category": "economy",
+        "country": make_country(garages=[make_garage(cars=[make_car(make="Honda")])]),
+    })
+    premium_honda_id = collection.data.insert({
+        "category": "premium",
+        "country": make_country(garages=[make_garage(cars=[make_car(make="Honda")])]),
+    })
+    premium_toyota_via_one_garage_id = collection.data.insert({
+        "category": "premium",
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(make="Toyota")]),
+            make_garage(city="Rotterdam", cars=[make_car(make="Ford")]),
+        ]),
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.any_of([
+        Filter.all_of([
+            Filter.by_property("category").equal("premium"),
+            Filter.by_property("country.garages.cars.make").equal("Toyota"),
+        ]),
+        Filter.all_of([
+            Filter.by_property("category").equal("economy"),
+            Filter.by_property("country.garages.cars.make").equal("Honda"),
+        ]),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert premium_toyota_id in ids, "satisfies group 1 → match"
+    assert economy_honda_id in ids, "satisfies group 2 → match"
+    assert premium_honda_id not in ids, "neither group fully satisfied → no match"
+    assert premium_toyota_via_one_garage_id in ids, (
+        "Amsterdam has Toyota → group 1 → match (Rotterdam unrelated)"
+    )
+
+
+def test_or_of_mixed_correlated_ands_under_countries_array(collection_factory: CollectionFactory) -> None:
+    """L2_array — OR of two mixed-flat-and-nested AND groups inside countries.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    premium_toyota_id = collection.data.insert({
+        "category": "premium",
+        "countries": [make_country(garages=[make_garage(cars=[make_car(make="Toyota")])])],
+    })
+    economy_honda_id = collection.data.insert({
+        "category": "economy",
+        "countries": [make_country(garages=[make_garage(cars=[make_car(make="Honda")])])],
+    })
+    premium_honda_id = collection.data.insert({
+        "category": "premium",
+        "countries": [make_country(garages=[make_garage(cars=[make_car(make="Honda")])])],
+    })
+    premium_toyota_via_one_garage_id = collection.data.insert({
+        "category": "premium",
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(make="Toyota")]),
+            make_garage(city="Rotterdam", cars=[make_car(make="Ford")]),
+        ])],
+    })
+    premium_toyota_via_one_country_id = collection.data.insert({
+        "category": "premium",
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[make_car(make="Toyota")])]),
+            make_country(name="Germany", garages=[make_garage(cars=[make_car(make="Ford")])]),
+        ],
+    })
+
+    result = collection.query.fetch_objects(filters=Filter.any_of([
+        Filter.all_of([
+            Filter.by_property("category").equal("premium"),
+            Filter.by_property("countries.garages.cars.make").equal("Toyota"),
+        ]),
+        Filter.all_of([
+            Filter.by_property("category").equal("economy"),
+            Filter.by_property("countries.garages.cars.make").equal("Honda"),
+        ]),
+    ])).objects
+    ids = {o.uuid for o in result}
+    assert premium_toyota_id in ids, "satisfies group 1 → match"
+    assert economy_honda_id in ids, "satisfies group 2 → match"
+    assert premium_honda_id not in ids, "neither group fully satisfied → no match"
+    assert premium_toyota_via_one_garage_id in ids, (
+        "Amsterdam has Toyota → group 1 → match"
+    )
+    assert premium_toyota_via_one_country_id in ids, (
+        "Netherlands has Toyota → group 1 → match"
+    )
+
+
+# ===========================================================================
+# Scenario: multi-token query value in Contains
+# ===========================================================================
+#
+# Filter: `cars.tags contains_any ["family hybrid"]`
+#
+# `tags` is a WORD-tokenized text[] property. A multi-token query value
+# tokenizes to ["family", "hybrid"] and is treated as an AND across the
+# tokens. The matching rule is tighter than per-car: both tokens must
+# appear in the SAME tag entry (one element of the text[] array), not
+# just somewhere within the same car's tags. Splitting tokens across
+# separate tag entries on one car does NOT match. Splitting across
+# cars or higher levels also does not match.
+
+
+def test_contains_any_multi_token_at_root_cars(collection_factory: CollectionFactory) -> None:
+    """L0 — cars.tags contains_any ['family hybrid']."""
+    collection = make_collection(collection_factory)
+
+    match_via_one_tag_id = collection.data.insert({"cars": [
+        make_car(tags=["family hybrid car"]),
+    ]})
+    tokens_split_across_tags_id = collection.data.insert({"cars": [
+        make_car(tags=["family sedan", "hybrid model"]),
+    ]})
+    single_token_missing_id = collection.data.insert({"cars": [
+        make_car(tags=["family car"]),
+    ]})
+    split_across_cars_id = collection.data.insert({"cars": [
+        make_car(tags=["family car"]),
+        make_car(tags=["hybrid model"]),
+    ]})
+    empty_tags_id = collection.data.insert({"cars": [
+        make_car(tags=[]),
+    ]})
+    empty_cars_id = collection.data.insert({"cars": []})
+
+    result = collection.query.fetch_objects(
+        filters=Filter.by_property("cars.tags").contains_any(["family hybrid"]),
+    ).objects
+    ids = {o.uuid for o in result}
+    assert match_via_one_tag_id in ids, (
+        "one tag 'family hybrid car' contains both tokens → match"
+    )
+    assert tokens_split_across_tags_id not in ids, (
+        "tokens in separate tag entries on the same car — same-tag-entry rule → no match"
+    )
+    assert single_token_missing_id not in ids, "only 'family' token present → no match"
+    assert split_across_cars_id not in ids, (
+        "tokens split across separate cars → no match"
+    )
+    assert empty_tags_id not in ids, "no tag tokens at all → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+
+
+def test_contains_any_multi_token_under_country_object(collection_factory: CollectionFactory) -> None:
+    """L2_object — multi-token Contains inside country.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(tags=["family hybrid car"]),
+    ])])})
+    tokens_split_across_tags_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(tags=["family sedan", "hybrid model"]),
+    ])])})
+    single_token_missing_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(tags=["family car"]),
+    ])])})
+    split_across_cars_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(tags=["family car"]),
+        make_car(tags=["hybrid model"]),
+    ])])})
+    split_across_garages_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(tags=["family car"])]),
+            make_garage(city="Rotterdam", cars=[make_car(tags=["hybrid model"])]),
+        ]),
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(tags=["family hybrid car"])]),
+            make_garage(city="Rotterdam", cars=[make_car(tags=["other"])]),
+        ]),
+    })
+
+    result = collection.query.fetch_objects(
+        filters=Filter.by_property("country.garages.cars.tags").contains_any(["family hybrid"]),
+    ).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "one car owns both tokens in one tag → match"
+    assert tokens_split_across_tags_id not in ids, (
+        "tokens in separate tag entries on the same car — same-tag-entry rule → no match"
+    )
+    assert single_token_missing_id not in ids, "only one token → no match"
+    assert split_across_cars_id not in ids, "tokens split across cars in same garage → no match"
+    assert split_across_garages_id not in ids, "tokens split across two garages → no match"
+    assert match_via_one_garage_id in ids, (
+        "Amsterdam's car owns both tokens in one tag; Rotterdam unrelated → match"
+    )
+
+
+def test_contains_any_multi_token_under_countries_array(collection_factory: CollectionFactory) -> None:
+    """L2_array — multi-token Contains inside countries.garages.cars."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(tags=["family hybrid car"]),
+    ])])]})
+    tokens_split_across_tags_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(tags=["family sedan", "hybrid model"]),
+    ])])]})
+    single_token_missing_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(tags=["family car"]),
+    ])])]})
+    split_across_cars_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(tags=["family car"]),
+        make_car(tags=["hybrid model"]),
+    ])])]})
+    split_across_garages_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(tags=["family car"])]),
+            make_garage(city="Rotterdam", cars=[make_car(tags=["hybrid model"])]),
+        ])],
+    })
+    split_across_countries_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[
+                make_car(tags=["family car"]),
+            ])]),
+            make_country(name="Germany", garages=[make_garage(cars=[
+                make_car(tags=["hybrid model"]),
+            ])]),
+        ],
+    })
+    match_via_one_garage_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(tags=["family hybrid car"])]),
+            make_garage(city="Rotterdam", cars=[make_car(tags=["other"])]),
+        ])],
+    })
+    match_via_one_country_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[
+                make_car(tags=["family hybrid car"]),
+            ])]),
+            make_country(name="Germany", garages=[make_garage(cars=[
+                make_car(tags=["other"]),
+            ])]),
+        ],
+    })
+
+    result = collection.query.fetch_objects(
+        filters=Filter.by_property("countries.garages.cars.tags").contains_any(["family hybrid"]),
+    ).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "one car owns both tokens in one tag → match"
+    assert tokens_split_across_tags_id not in ids, (
+        "tokens in separate tag entries on the same car — same-tag-entry rule → no match"
+    )
+    assert single_token_missing_id not in ids, "only one token → no match"
+    assert split_across_cars_id not in ids, "tokens split across cars in same garage → no match"
+    assert split_across_garages_id not in ids, "tokens split across two garages → no match"
+    assert split_across_countries_id not in ids, "tokens split across two countries → no match"
+    assert match_via_one_garage_id in ids, "Amsterdam's car owns both tokens → match"
+    assert match_via_one_country_id in ids, "Netherlands' car owns both tokens → match"
+
+
+# ===========================================================================
+# Scenario: NotEqual on a nested leaf — existential per-element
+# ===========================================================================
+#
+# Filter: `cars.make != "Toyota"`
+#
+# Existential per-element at the cars LCA: the doc matches when ∃ a car
+# whose make is not Toyota. A doc with no cars at all is vacuous → no
+# match. A doc with both a Toyota AND a Honda matches (∃ the Honda).
+
+
+def test_not_equal_at_root_cars(collection_factory: CollectionFactory) -> None:
+    """L0 — cars.make != Toyota."""
+    collection = make_collection(collection_factory)
+
+    single_toyota_id = collection.data.insert({"cars": [
+        make_car(make="Toyota"),
+    ]})
+    single_honda_id = collection.data.insert({"cars": [
+        make_car(make="Honda"),
+    ]})
+    mixed_toyota_and_honda_id = collection.data.insert({"cars": [
+        make_car(make="Toyota"),
+        make_car(make="Honda"),
+    ]})
+    multiple_non_toyota_id = collection.data.insert({"cars": [
+        make_car(make="Honda"),
+        make_car(make="Ford"),
+    ]})
+    empty_cars_id = collection.data.insert({"cars": []})
+
+    result = collection.query.fetch_objects(
+        filters=Filter.by_property("cars.make").not_equal("Toyota"),
+    ).objects
+    ids = {o.uuid for o in result}
+
+    assert single_toyota_id not in ids, "only car is Toyota → no car ≠ Toyota → no match"
+    assert single_honda_id in ids, "∃ Honda ≠ Toyota → match"
+    assert mixed_toyota_and_honda_id in ids, (
+        "∃ Honda ≠ Toyota (Toyota also present but irrelevant under existential) → match"
+    )
+    assert multiple_non_toyota_id in ids, "∃ non-Toyota car → match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+
+
+def test_not_equal_under_country_object(collection_factory: CollectionFactory) -> None:
+    """L2_object — country.garages.cars.make != Toyota."""
+    collection = make_collection(collection_factory)
+
+    single_toyota_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(make="Toyota"),
+    ])])})
+    single_honda_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(make="Honda"),
+    ])])})
+    mixed_toyota_and_honda_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(make="Toyota"),
+        make_car(make="Honda"),
+    ])])})
+    multiple_non_toyota_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(make="Honda"),
+        make_car(make="Ford"),
+    ])])})
+    empty_cars_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[])])})
+    mixed_across_garages_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(make="Toyota")]),
+            make_garage(city="Rotterdam", cars=[make_car(make="Honda")]),
+        ]),
+    })
+
+    result = collection.query.fetch_objects(
+        filters=Filter.by_property("country.garages.cars.make").not_equal("Toyota"),
+    ).objects
+    ids = {o.uuid for o in result}
+
+    assert single_toyota_id not in ids, "only car is Toyota → no match"
+    assert single_honda_id in ids, "∃ Honda → match"
+    assert mixed_toyota_and_honda_id in ids, "∃ Honda → match"
+    assert multiple_non_toyota_id in ids, "∃ non-Toyota → match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert mixed_across_garages_id in ids, (
+        "Rotterdam's car is Honda ≠ Toyota → match (existential spans garages)"
+    )
+
+
+def test_not_equal_under_countries_array(collection_factory: CollectionFactory) -> None:
+    """L2_array — countries.garages.cars.make != Toyota."""
+    collection = make_collection(collection_factory)
+
+    single_toyota_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(make="Toyota"),
+    ])])]})
+    single_honda_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(make="Honda"),
+    ])])]})
+    mixed_toyota_and_honda_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(make="Toyota"),
+        make_car(make="Honda"),
+    ])])]})
+    multiple_non_toyota_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(make="Honda"),
+        make_car(make="Ford"),
+    ])])]})
+    empty_cars_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[])])]})
+    mixed_across_garages_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(make="Toyota")]),
+            make_garage(city="Rotterdam", cars=[make_car(make="Honda")]),
+        ])],
+    })
+    mixed_across_countries_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[make_car(make="Toyota")])]),
+            make_country(name="Germany", garages=[make_garage(cars=[make_car(make="Honda")])]),
+        ],
+    })
+
+    result = collection.query.fetch_objects(
+        filters=Filter.by_property("countries.garages.cars.make").not_equal("Toyota"),
+    ).objects
+    ids = {o.uuid for o in result}
+
+    assert single_toyota_id not in ids, "only car is Toyota → no match"
+    assert single_honda_id in ids, "∃ Honda → match"
+    assert mixed_toyota_and_honda_id in ids, "∃ Honda → match"
+    assert multiple_non_toyota_id in ids, "∃ non-Toyota → match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert mixed_across_garages_id in ids, (
+        "Rotterdam's car is Honda ≠ Toyota → match"
+    )
+    assert mixed_across_countries_id in ids, (
+        "Germany's car is Honda ≠ Toyota → match"
+    )
+
+
+# ===========================================================================
+# Scenario: Like with wildcard on a WORD-tokenized text leaf
+# ===========================================================================
+#
+# Filter: `cars.model like "Hyb*"`
+#
+# `model` is a WORD-tokenized text property — "Camry Hybrid" indexes as
+# tokens ["camry", "hybrid"]. The Like pattern matches against tokens
+# independently, so `Hyb*` matches the "hybrid" token regardless of its
+# position in the original value. This is the WORD-tokenization
+# discriminator: under FIELD tokenization the whole value would be a
+# single token and "Camry Hybrid" would not match "Hyb*" (the value
+# doesn't start with "Hyb").
+#
+# Like inherits existential per-car semantics — ∃ a car whose model has
+# any token matching the pattern.
+
+
+def test_like_word_tokenized_at_root_cars(collection_factory: CollectionFactory) -> None:
+    """L0 — cars.model like 'Hyb*' with WORD-tokenized model."""
+    collection = make_collection(collection_factory)
+
+    match_via_second_token_id = collection.data.insert({"cars": [
+        make_car(model="Camry Hybrid"),
+    ]})
+    match_via_first_token_id = collection.data.insert({"cars": [
+        make_car(model="Hybrid Sedan"),
+    ]})
+    no_matching_token_id = collection.data.insert({"cars": [
+        make_car(model="Camry"),
+    ]})
+    unrelated_id = collection.data.insert({"cars": [
+        make_car(model="Civic LX"),
+    ]})
+    empty_cars_id = collection.data.insert({"cars": []})
+
+    result = collection.query.fetch_objects(
+        filters=Filter.by_property("cars.model").like("Hyb*"),
+    ).objects
+    ids = {o.uuid for o in result}
+    assert match_via_second_token_id in ids, (
+        "model='Camry Hybrid' — token 'hybrid' matches 'Hyb*' → match "
+        "(WORD-tokenization discriminator vs FIELD)"
+    )
+    assert match_via_first_token_id in ids, "model='Hybrid Sedan' → match"
+    assert no_matching_token_id not in ids, "model='Camry' — no Hyb* token → no match"
+    assert unrelated_id not in ids, "model='Civic LX' → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+
+
+def test_like_word_tokenized_under_country_object(collection_factory: CollectionFactory) -> None:
+    """L2_object — country.garages.cars.model like 'Hyb*'."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model="Camry Hybrid"),
+    ])])})
+    no_match_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[
+        make_car(model="Civic LX"),
+    ])])})
+    empty_cars_id = collection.data.insert({"country": make_country(garages=[make_garage(cars=[])])})
+    match_via_one_garage_id = collection.data.insert({
+        "country": make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model="Camry Hybrid")]),
+            make_garage(city="Rotterdam", cars=[make_car(model="Civic LX")]),
+        ]),
+    })
+
+    result = collection.query.fetch_objects(
+        filters=Filter.by_property("country.garages.cars.model").like("Hyb*"),
+    ).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "∃ car with Hybrid token → match"
+    assert no_match_id not in ids, "no car has Hybrid token → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert match_via_one_garage_id in ids, (
+        "Amsterdam's car has Hybrid token; Rotterdam unrelated → match"
+    )
+
+
+def test_like_word_tokenized_under_countries_array(collection_factory: CollectionFactory) -> None:
+    """L2_array — countries.garages.cars.model like 'Hyb*'."""
+    collection = make_collection(collection_factory)
+
+    match_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model="Camry Hybrid"),
+    ])])]})
+    no_match_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[
+        make_car(model="Civic LX"),
+    ])])]})
+    empty_cars_id = collection.data.insert({"countries": [make_country(garages=[make_garage(cars=[])])]})
+    match_via_one_garage_id = collection.data.insert({
+        "countries": [make_country(garages=[
+            make_garage(city="Amsterdam", cars=[make_car(model="Camry Hybrid")]),
+            make_garage(city="Rotterdam", cars=[make_car(model="Civic LX")]),
+        ])],
+    })
+    match_via_one_country_id = collection.data.insert({
+        "countries": [
+            make_country(name="Netherlands", garages=[make_garage(cars=[make_car(model="Camry Hybrid")])]),
+            make_country(name="Germany", garages=[make_garage(cars=[make_car(model="Civic LX")])]),
+        ],
+    })
+
+    result = collection.query.fetch_objects(
+        filters=Filter.by_property("countries.garages.cars.model").like("Hyb*"),
+    ).objects
+    ids = {o.uuid for o in result}
+    assert match_id in ids, "∃ car with Hybrid token → match"
+    assert no_match_id not in ids, "no car has Hybrid token → no match"
+    assert empty_cars_id not in ids, "empty cars[] is vacuous → no match"
+    assert match_via_one_garage_id in ids, (
+        "Amsterdam's car has Hybrid token → match"
+    )
+    assert match_via_one_country_id in ids, (
+        "Netherlands' car has Hybrid token → match"
+    )
+
