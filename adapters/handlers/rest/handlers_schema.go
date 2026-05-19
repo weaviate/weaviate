@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -66,6 +67,7 @@ type reindexSubmitLockProvider interface {
 
 type schemaHandlers struct {
 	manager             *schemaUC.Manager
+	namespacesEnabled   bool
 	metricRequestsTotal restApiRequestsTotal
 	reindexTaskLister   reindexInFlightChecker
 	reindexSubmitLocks  reindexSubmitLockProvider
@@ -94,13 +96,26 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ObjectClass.Class)
-	return schema.NewSchemaObjectsCreateOK().WithPayload(params.ObjectClass)
+	return schema.NewSchemaObjectsCreateOK().WithPayload(namespacing.StripClassResponse(principal, params.ObjectClass))
 }
 
 func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	// Realign Body.Class with the qualified path so immutable-field
+	// validation passes on a stripped GET → PUT round-trip.
+	if params.ObjectClass != nil {
+		qualifiedPath, err := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
+		if err != nil {
+			s.metricRequestsTotal.logError(params.ClassName, err)
+			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+		params.ObjectClass.Class = qualifiedPath
+	}
+
 	err := s.manager.UpdateClass(ctx, principal, params.ClassName,
 		params.ObjectClass)
 	if err != nil {
@@ -120,7 +135,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewSchemaObjectsUpdateOK().WithPayload(params.ObjectClass)
+	return schema.NewSchemaObjectsUpdateOK().WithPayload(namespacing.StripClassResponse(principal, params.ObjectClass))
 }
 
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
@@ -149,7 +164,7 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewSchemaObjectsGetOK().WithPayload(class)
+	return schema.NewSchemaObjectsGetOK().WithPayload(namespacing.StripClassResponse(principal, class))
 }
 
 func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, principal *models.Principal) middleware.Responder {
@@ -187,7 +202,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewSchemaObjectsPropertiesAddOK().WithPayload(params.Body)
+	return schema.NewSchemaObjectsPropertiesAddOK().WithPayload(namespacing.StripPropertyResponse(principal, params.Body))
 }
 
 func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPropertiesDeleteParams,
@@ -360,6 +375,15 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	}
 
 	payload := dbSchema.Objects
+	if principal != nil && principal.Namespace != "" && payload != nil && len(payload.Classes) > 0 {
+		stripped := make([]*models.Class, len(payload.Classes))
+		for i, c := range payload.Classes {
+			stripped[i] = namespacing.StripClassResponse(principal, c)
+		}
+		copyPayload := *payload
+		copyPayload.Classes = stripped
+		payload = &copyPayload
+	}
 
 	s.metricRequestsTotal.logOk("")
 	return schema.NewSchemaDumpOK().WithPayload(payload)
@@ -563,9 +587,10 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, namespacesEnabled bool, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider) {
 	h := &schemaHandlers{
 		manager:             manager,
+		namespacesEnabled:   namespacesEnabled,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,

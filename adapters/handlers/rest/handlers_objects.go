@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -116,6 +117,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(className)
 	return objects.NewObjectsCreateOK().WithPayload(object)
 }
@@ -219,6 +221,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(getClassName(object))
 	return objects.NewObjectsClassGetOK().WithPayload(object)
 }
@@ -265,6 +268,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		if ok {
 			list[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
+		namespacing.StripObjectResponseClass(principal, list[i])
 	}
 
 	h.metricRequestsTotal.logOk("")
@@ -322,6 +326,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		if ok {
 			resultSet[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
+		namespacing.StripObjectResponseClass(principal, resultSet[i])
 	}
 
 	h.metricRequestsTotal.logOk(req.Class)
@@ -374,6 +379,11 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	// Realign Body.Class with the raw path class so a stripped GET → PUT
+	// round-trip works regardless of which form the caller's body carries.
+	if params.Body != nil {
+		params.Body.Class = params.ClassName
+	}
 	className := getClassName(params.Body)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
@@ -406,6 +416,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(className)
 	return objects.NewObjectsClassPutOK().WithPayload(object)
 }

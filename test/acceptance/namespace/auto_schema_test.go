@@ -45,10 +45,10 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		}, user1Key)
 		require.NoError(t, err)
 
-		// Namespaced principal sees the qualified class on read-back.
+		// Namespaced principal sees the short class on read-back (response stripping).
 		got, err := helper.GetObjectAuth(t, class, id, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, class, got.Class)
 		assert.Equal(t, "Inception", got.Properties.(map[string]any)["title"])
 
 		// Admin's raw schema view confirms a single-qualified class exists.
@@ -85,7 +85,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 
 		got, err := helper.GetObjectAuth(t, class, id, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, class, got.Class)
 		props := got.Properties.(map[string]any)
 		assert.Equal(t, "Tenet", props["title"])
 		assert.NotNil(t, props["runtime"])
@@ -173,7 +173,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 
 		got, err := helper.GetObjectAuthWithTenant(t, class, id, "tenantA", user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, class, got.Class)
 		assert.Equal(t, "tenantA", got.Tenant)
 	})
 
@@ -191,10 +191,10 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 
 		got1, err := helper.GetObjectAuthWithTenant(t, class, id1, "tenantB", user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got1.Class)
+		assert.Equal(t, class, got1.Class)
 		got2, err := helper.GetObjectAuthWithTenant(t, class, id2, "tenantC", user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got2.Class)
+		assert.Equal(t, class, got2.Class)
 	})
 
 	t.Run("auto-activate cold tenant on insert", func(t *testing.T) {
@@ -223,7 +223,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 
 		got, err := helper.GetObjectAuthWithTenant(t, class, id, "tenantD", user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, class, got.Class)
 	})
 
 	t.Run("global principal auto-create rejected with 403", func(t *testing.T) {
