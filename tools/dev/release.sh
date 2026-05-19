@@ -29,9 +29,9 @@
 #   bash tools/dev/release.sh reset      <version>         # delete state file
 #   bash tools/dev/release.sh reset-step <version> <step>  # wipe one step from state
 #
-# Read-only helpers (any CWD; pass clone path explicitly):
-#   bash tools/dev/release.sh journals   <weaviate-clone-path>
-#   bash tools/dev/release.sh candidates <weaviate-clone-path>
+# Read-only helpers (run from inside a weaviate clone, or pass clone path):
+#   bash tools/dev/release.sh journals   [clone-path]
+#   bash tools/dev/release.sh candidates [clone-path]
 #
 # Verification (any CWD; uses GitHub + Docker Hub — no clone needed):
 #   bash tools/dev/release.sh verify <stage> <version>
@@ -39,6 +39,17 @@
 
 set -euo pipefail
 shopt -s nullglob
+
+# Loud-fail safety net. `set -e` can otherwise abort silently — especially on
+# `[[ ]] && cmd` short-circuits that bubble out of helper functions. Direct
+# `exit N` calls from validation errors do not run ERR (they run EXIT), so
+# this only fires on unintended aborts. $LINENO and $BASH_COMMAND are captured
+# at trap-fire time and passed as args so they reflect the failing line, not
+# the trap handler's body.
+_err_trap() {
+  printf "ERROR: release.sh aborted (exit %d) at line %d: %s\n" "$1" "$2" "$3" >&2
+}
+trap '_err_trap "$?" "$LINENO" "$BASH_COMMAND"' ERR
 
 REPO="weaviate/weaviate"
 STATE_DIR="_local/release"
@@ -254,11 +265,14 @@ COMMANDS
                                   Requires a journal file (i.e. an earlier run
                                   with --journal).
 
-  journals   <clone-path>         List in-progress and completed releases found
-                                  in <clone-path>/_local/release/.
+  journals   [clone-path]         List in-progress and completed releases found
+                                  in <clone-path>/_local/release/. Defaults to
+                                  the git toplevel of $PWD.
 
-  candidates <clone-path>         Show the expected next patch for each active
-                                  stable/vX.Y branch.
+  candidates [clone-path]         Show the expected next patch for each active
+                                  stable/vX.Y branch (top 3 by version, plus
+                                  the current stable/vX.Y branch if HEAD is on
+                                  one). Defaults to the git toplevel of $PWD.
 
   verify     <stage> <ver>        Sanity-check GitHub state at a given stage.
                                   Stages: prepare | merge | finalize | publish
@@ -437,6 +451,7 @@ _infer_pr_meta() {
 _infer_qa_issue() {
   qa_issue_number=$(gh_qa_issue_number "$VERSION" all)
   [[ -n "$qa_issue_number" ]] && qa_issue_url=$(qa_issue_url_for "$qa_issue_number")
+  return 0  # see comment at end of cmd_status: terminal [[ ]] && cmd short-circuits leak under set -e
 }
 
 # Sets qa_e2e, qa_chaos, qa_e2e_url, qa_chaos_url from the "Central CI View" board.
@@ -627,9 +642,25 @@ cmd_status() {
   echo "═══════════════════════════════════════════════════════════"
 }
 
+# Resolve <clone-path> arg. With no arg, defaults to the toplevel of the git
+# repo containing $PWD. With an arg, normalizes to that repo's toplevel too,
+# so callers passing a subdirectory still get path concatenations right
+# (notably cmd_journals' "${CLONE}/_local/release"). Fails fast with a
+# helpful error if the path isn't a git working tree.
+resolve_clone_path() {
+  local START="${1:-$PWD}"
+  local TOPLEVEL
+  if ! TOPLEVEL=$(git -C "$START" rev-parse --show-toplevel 2>/dev/null); then
+    echo "ERROR: '$START' is not inside a git working tree." >&2
+    echo "       Run from inside a weaviate clone, or pass <clone-path>." >&2
+    exit 1
+  fi
+  printf '%s\n' "$TOPLEVEL"
+}
+
 cmd_journals() {
-  [[ -n "${1:-}" ]] || { echo "Usage: $0 journals <weaviate-clone-path>" >&2; exit 1; }
-  local JDIR="${1}/_local/release"
+  local CLONE; CLONE=$(resolve_clone_path "${1:-}")
+  local JDIR="${CLONE}/_local/release"
   if [[ ! -d "$JDIR" ]]; then echo "No release in progress."; return; fi
   local JOURNALS; JOURNALS=$(find "$JDIR" -maxdepth 1 -name 'v*.json' -type f | sort)
   if [[ -z "$JOURNALS" ]]; then echo "No release in progress."; return; fi
@@ -645,22 +676,42 @@ cmd_journals() {
 }
 
 cmd_candidates() {
-  [[ -n "${1:-}" ]] || { echo "Usage: $0 candidates <weaviate-clone-path>" >&2; exit 1; }
-  local CLONE="$1"
+  local CLONE; CLONE=$(resolve_clone_path "${1:-}")
   local TOP_MINORS; TOP_MINORS=$(git -C "$CLONE" branch -r --list 'origin/stable/v*' \
       | sed 's|.*origin/stable/v||' | sort -V | tail -3)
+
+  # Driven by the largest *remote* minor — captured before mixing in CUR_XY
+  # so an older current branch can't drag the "next new minor" backwards.
+  local largest_xy; largest_xy=$(echo "$TOP_MINORS" | tail -1)
+
+  # If HEAD is on stable/vX.Y, include its next-patch row even when outside
+  # the top-3 remote minors; mark it for the reader.
+  local CUR_BRANCH CUR_XY=""
+  CUR_BRANCH=$(git -C "$CLONE" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  if [[ "$CUR_BRANCH" =~ ^stable/v([0-9]+)\.([0-9]+)$ ]]; then
+    CUR_XY="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+  fi
+
+  local ALL_MINORS
+  ALL_MINORS=$(printf '%s\n%s\n' "$TOP_MINORS" "$CUR_XY" \
+    | grep -v '^$' | sort -V -u)
+
   while IFS= read -r xy; do
     [[ -z "$xy" ]] && continue
     # Ignore pre-release tags (v1.36.14-rc.1) when computing the next patch number —
     # they confuse ${latest##*.} arithmetic and aren't release tags anyway.
+    # `|| true` keeps `set -euo pipefail` from aborting when grep finds no
+    # release tag (e.g. a freshly-cut stable/vX.Y branch with no patches yet).
     local latest; latest=$(git -C "$CLONE" tag --list "v${xy}.*" --sort=-v:refname \
-        | grep -E "^v${xy//./\\.}\.[0-9]+$" | head -1)
+        | grep -E "^v${xy//./\\.}\.[0-9]+$" | head -1 || true)
     if [[ -n "$latest" ]]; then
-      printf "v%s.%d  next patch on %s (latest: %s)\n" \
-        "$xy" "$(( ${latest##*.} + 1 ))" "$xy" "$latest"
+      local marker=""
+      [[ "$xy" == "$CUR_XY" ]] && marker="  (current branch)"
+      printf "v%s.%d  next patch on %s (latest: %s)%s\n" \
+        "$xy" "$(( ${latest##*.} + 1 ))" "$xy" "$latest" "$marker"
     fi
-  done <<< "$TOP_MINORS"
-  local largest_xy; largest_xy=$(echo "$TOP_MINORS" | tail -1)
+  done <<< "$ALL_MINORS"
+
   if [[ -n "$largest_xy" ]]; then
     local major=${largest_xy%%.*}
     local next_minor=$(( ${largest_xy##*.} + 1 ))
