@@ -480,7 +480,10 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	for targetVector, targetCfg := range updated {
 		if index, ok := s.GetVectorIndex(targetVector); ok {
 			wg.Add(1)
-			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
+			var once sync.Once
+			done := func() { once.Do(wg.Done) }
+			if err = index.UpdateUserConfig(targetCfg, done); err != nil {
+				done()
 				s.index.logger.WithFields(logrus.Fields{
 					"action":        "update_vector_index_config",
 					"shard_id":      s.ID(),
