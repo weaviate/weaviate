@@ -206,7 +206,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	// suppressed.
 	tasksByNamespace, err := s.listTasks(ctx)
 	if err != nil {
-		s.logger.WithError(err).Warn("initial distributed task listing failed; bootstrap deferred to first successful tick")
+		s.logger.Warnf("initial distributed task listing failed; bootstrap deferred to first successful tick: %v", err)
 	} else {
 		s.bootstrapProviders(tasksByNamespace)
 	}
@@ -343,8 +343,8 @@ func (s *Scheduler) cleanupStaleTasks(namespace string, provider Provider, start
 		}
 
 		if err := provider.CleanupTask(taskDesc); err != nil {
-			s.loggerWithTask(namespace, taskDesc).WithError(err).
-				Error("failed to clean up local distributed task state")
+			s.loggerWithTask(namespace, taskDesc).
+				Errorf("failed to clean up local distributed task state: %v", err)
 			continue
 		}
 
@@ -357,8 +357,8 @@ func (s *Scheduler) startActiveTasks(namespace string, provider Provider, starte
 	for desc, task := range startedTasks {
 		handle, err := provider.StartTask(task)
 		if err != nil {
-			s.loggerWithTask(namespace, desc).WithError(err).
-				Error("failed to start distributed task during bootstrap")
+			s.loggerWithTask(namespace, desc).
+				Errorf("failed to start distributed task during bootstrap: %v", err)
 			continue
 		}
 
@@ -417,7 +417,7 @@ func (s *Scheduler) tick() {
 	tasksByNamespace, err := s.listTasks(context.Background())
 	if err != nil {
 		s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-			l.WithError(err).Error("failed to list distributed tasks")
+			l.Errorf("failed to list distributed tasks: %v", err)
 		})
 		return
 	}
@@ -466,8 +466,8 @@ func (s *Scheduler) tick() {
 			handle, err := provider.StartTask(activeTask)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-					s.loggerWithTask(namespace, activeTask.TaskDescriptor).WithError(err).
-						Error("failed to start distributed task")
+					s.loggerWithTask(namespace, activeTask.TaskDescriptor).
+						Errorf("failed to start distributed task: %v", err)
 				})
 				continue
 			}
@@ -554,8 +554,8 @@ func (s *Scheduler) tick() {
 							context.Background(), namespace, task.ID, task.Version,
 							s.localNode, success, joined,
 						); err != nil {
-							s.loggerWithTask(namespace, desc).WithError(err).
-								Warn("failed to record distributed task prep-complete ack; will retry on next tick or wake")
+							s.loggerWithTask(namespace, desc).
+								Warnf("failed to record distributed task prep-complete ack; will retry on next tick or wake: %v", err)
 						} else {
 							s.preparationAckEmitted[desc] = true
 							if task.PreparationCompletionAcks == nil {
@@ -647,8 +647,8 @@ func (s *Scheduler) tick() {
 					); err != nil {
 						// Leave postCompletionAckEmitted unset for retry on
 						// next tick/wake; FSM-side ack is idempotent.
-						s.loggerWithTask(namespace, desc).WithError(err).
-							Warn("failed to record distributed task post-completion ack; will retry on next tick or wake")
+						s.loggerWithTask(namespace, desc).
+							Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", err)
 					} else {
 						s.postCompletionAckEmitted[desc] = true
 						// Reflect the ack on the per-tick local clone so the
@@ -716,8 +716,8 @@ func (s *Scheduler) tick() {
 				if err := s.taskFinalizer.MarkDistributedTaskFinalized(
 					context.Background(), namespace, task.ID, task.Version,
 				); err != nil {
-					s.loggerWithTask(namespace, desc).WithError(err).
-						Warn("failed to mark distributed task finalized; will retry on next tick or wake")
+					s.loggerWithTask(namespace, desc).
+						Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", err)
 					// OnTaskCompleted is idempotent (provider re-fires safely).
 					if providerIsUnitAware {
 						s.completedCallbackFired[desc] = false
@@ -739,8 +739,8 @@ func (s *Scheduler) tick() {
 			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-					s.loggerWithTask(namespace, task.TaskDescriptor).WithError(err).
-						Error("failed to clean up distributed task")
+					s.loggerWithTask(namespace, task.TaskDescriptor).
+						Errorf("failed to clean up distributed task: %v", err)
 				})
 				continue
 			}
@@ -764,8 +764,8 @@ func (s *Scheduler) tick() {
 
 			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-					s.loggerWithTask(namespace, desc).WithError(err).
-						Error("failed to clean up local distributed task state")
+					s.loggerWithTask(namespace, desc).
+						Errorf("failed to clean up local distributed task state: %v", err)
 				})
 			}
 		}

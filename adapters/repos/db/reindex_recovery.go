@@ -132,8 +132,8 @@ func DiscoverInFlightReindexTasks(
 
 				tasks, err := buildRecoveryTasks(rec, shardName, generation, logger, schemaManager)
 				if err != nil {
-					logger.WithField("migrationDir", migDir).WithError(err).
-						Warn("reindex recovery: skipping migration; cannot build tasks")
+					logger.WithField("migrationDir", migDir).
+						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
 					continue
 				}
 				recovered = append(recovered, RecoveredReindex{
@@ -189,14 +189,14 @@ func loadReindexRecoveryRecord(migDir string, logger logrus.FieldLogger) (reinde
 	data, err := os.ReadFile(payloadPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.WithField("path", payloadPath).WithError(err).
-				Warn("reindex recovery: failed to read payload.mig")
+			logger.WithField("path", payloadPath).
+				Warnf("reindex recovery: failed to read payload.mig: %v", err)
 		}
 		return rec, false
 	}
 	if err := json.Unmarshal(data, &rec); err != nil {
-		logger.WithField("path", payloadPath).WithError(err).
-			Warn("reindex recovery: malformed payload.mig; skipping")
+		logger.WithField("path", payloadPath).
+			Warnf("reindex recovery: malformed payload.mig; skipping: %v", err)
 		return rec, false
 	}
 	return rec, true
@@ -403,7 +403,7 @@ func (r *shardReindexerV3RecoveryOnly) RunAfterLsmInit(ctx context.Context, shar
 	for _, t := range r.tasks {
 		if err := t.OnAfterLsmInit(ctx, shard); err != nil {
 			r.logger.WithField("task", t.Name()).WithField("shard", shard.Name()).
-				WithError(err).Error("reindex recovery: OnAfterLsmInit failed")
+				Errorf("reindex recovery: after-LSM-init failed: %v", err)
 		}
 	}
 	return nil

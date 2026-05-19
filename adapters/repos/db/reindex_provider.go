@@ -96,6 +96,28 @@ type ReindexProvider struct {
 	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
 }
 
+// phaseUnitResolution holds the per-unit setup work that every per-shard
+// phase callback needs before running. Skip=true → caller silently moves
+// on; non-empty Errs → setup failed, caller MUST NOT proceed; Rehydrate=true
+// → tasks were just instantiated from disk and need RunReindexOnlyOnShard
+// before any phase work.
+type phaseUnitResolution struct {
+	Shard              ShardLike
+	UnitTasks          []*ShardReindexTaskGeneric
+	Rehydrate          bool
+	Errs               []string
+	SawContextCanceled bool
+	Skip               bool
+}
+
+// phaseResult is the aggregated outcome of a per-unit phase callback:
+// per-task error strings + the shutdown-cancellation signal the scheduler
+// needs for transient-vs-permanent ack routing.
+type phaseResult struct {
+	Errs               []string
+	SawContextCanceled bool
+}
+
 // NewReindexProvider creates a new ReindexProvider. The concurrency function
 // is called at task start time to determine how many shards to reindex in
 // parallel (typically backed by a runtime.DynamicValue). serverCtx should
@@ -282,7 +304,7 @@ func (p *ReindexProvider) processOneUnit(
 	if err := recorder.UpdateDistributedTaskUnitProgress(
 		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, 0.0,
 	); err != nil {
-		logger.WithError(err).Error("reindex provider: failed to report initial progress")
+		logger.Errorf("reindex provider: failed to report initial progress: %v", err)
 		return
 	}
 
@@ -371,9 +393,8 @@ func (p *ReindexProvider) processOneUnit(
 			if err := recorder.UpdateDistributedTaskUnitProgress(
 				ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, progress,
 			); err != nil {
-				logger.WithError(err).
-					WithField("progress", progress).
-					Debug("reindex provider: failed to report progress (will retry on next tick)")
+				logger.WithField("progress", progress).
+					Debugf("reindex provider: failed to report progress (will retry on next tick): %v", err)
 			}
 		})
 	}
@@ -426,7 +447,7 @@ func (p *ReindexProvider) processOneUnit(
 	if err := recorder.RecordDistributedTaskUnitCompletion(
 		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID,
 	); err != nil {
-		logger.WithError(err).Error("reindex provider: failed to record completion")
+		logger.Errorf("reindex provider: failed to record completion: %v", err)
 	}
 }
 
@@ -884,11 +905,10 @@ func (p *ReindexProvider) persistRecoveryRecord(
 	return nil
 }
 
-// resolveUnitForPhase prepares (shard, unitTasks) for a per-shard phase
-// callback, rehydrating from disk on cache miss. skip=true means the
-// caller should silently move on (failed unit, no on-disk state).
-// rehydrate=true means RunReindexOnlyOnShard must fire per task before
-// any phase work, to register OnAfterLsmInit double-write callbacks.
+// resolveUnitForPhase prepares the per-unit (shard, unitTasks) every phase
+// callback needs, rehydrating from disk on cache miss. Returns a
+// [phaseUnitResolution] capturing both the success path (Shard + UnitTasks)
+// and the three not-proceeding paths (Skip, setup-Errs, ContextCanceled).
 func (p *ReindexProvider) resolveUnitForPhase(
 	ctx context.Context,
 	task *distributedtask.Task,
@@ -896,47 +916,55 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	unitID string,
 	idx *Index,
 	logger logrus.FieldLogger,
-) (shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool, errs []string, sawContextCanceled bool, skip bool) {
+) phaseUnitResolution {
 	unit := task.Units[unitID]
 	if unit != nil && unit.Status == distributedtask.UnitStatusFailed {
 		logger.WithField("unit", unitID).Warn("reindex provider: skipping failed unit")
-		return nil, nil, false, nil, false, true
+		return phaseUnitResolution{Skip: true}
 	}
 
 	shardName := payload.UnitToShard[unitID]
 	resolvedShard, err := lookupShardByName(idx, shardName)
 	if err != nil {
-		logger.WithField("unit", unitID).WithField("shard", shardName).WithError(err).
-			Error("reindex provider: resolveUnitForPhase: shard lookup failed")
-		return nil, nil, false, []string{fmt.Sprintf("unit %s shard %s lookup: %v", unitID, shardName, err)}, false, false
+		logger.WithField("unit", unitID).WithField("shard", shardName).
+			Errorf("reindex provider: resolveUnitForPhase: shard lookup failed: %v", err)
+		return phaseUnitResolution{
+			Errs: []string{fmt.Sprintf("unit %s shard %s lookup: %v", unitID, shardName, err)},
+		}
 	}
 
 	p.mu.Lock()
 	cached := p.reindexTasks[task.TaskDescriptor][unitID]
 	p.mu.Unlock()
 	if len(cached) > 0 {
-		return resolvedShard, cached, false, nil, false, false
+		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
 	}
 
 	// Cache miss — instantiate from disk.
 	concreteShard, unwrapErr := unwrapShard(ctx, resolvedShard)
 	if unwrapErr != nil {
-		logger.WithField("unit", unitID).WithError(unwrapErr).
-			Error("reindex provider: resolveUnitForPhase: unwrap shard for rehydrate")
-		return nil, nil, false, []string{fmt.Sprintf("unit %s unwrap shard: %v", unitID, unwrapErr)}, errors.Is(unwrapErr, context.Canceled), false
+		logger.WithField("unit", unitID).
+			Errorf("reindex provider: resolveUnitForPhase: unwrap shard for rehydrate: %v", unwrapErr)
+		return phaseUnitResolution{
+			Errs:               []string{fmt.Sprintf("unit %s unwrap shard: %v", unitID, unwrapErr)},
+			SawContextCanceled: errors.Is(unwrapErr, context.Canceled),
+		}
 	}
 	fresh, err := p.createReindexTasks(payload, concreteShard.pathLSM(), true)
 	if err != nil {
-		logger.WithField("unit", unitID).WithError(err).
-			Error("reindex provider: resolveUnitForPhase: creating reindex tasks")
-		return nil, nil, false, []string{fmt.Sprintf("unit %s create tasks: %v", unitID, err)}, errors.Is(err, context.Canceled), false
+		logger.WithField("unit", unitID).
+			Errorf("reindex provider: resolveUnitForPhase: creating reindex tasks: %v", err)
+		return phaseUnitResolution{
+			Errs:               []string{fmt.Sprintf("unit %s create tasks: %v", unitID, err)},
+			SawContextCanceled: errors.Is(err, context.Canceled),
+		}
 	}
 	if len(fresh) == 0 {
 		// Nothing on disk: prior FinalizeCompletedMigrations or end-of-swap
 		// trim already cleaned this unit up. Phase callbacks have no work.
 		logger.WithField("unit", unitID).
 			Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (post-restart of already-finalized migration); skipping")
-		return nil, nil, false, nil, false, true
+		return phaseUnitResolution{Skip: true}
 	}
 
 	// Cache the rehydrated tasks so the SWAP callback's lookup hits after
@@ -950,12 +978,13 @@ func (p *ReindexProvider) resolveUnitForPhase(
 
 	logger.WithField("unit", unitID).
 		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node likely restarted); cached for subsequent phase callbacks")
-	return resolvedShard, fresh, true, nil, false, false
+	return phaseUnitResolution{Shard: resolvedShard, UnitTasks: fresh, Rehydrate: true}
 }
 
 // runShardPrepPhase runs the disk-I/O PREP phase for one unit on one shard.
-// Best-effort across tasks: one task failing doesn't abort the rest, but if
-// any task fails prepOK=false and the caller MUST skip OVERLAY+SWAP.
+// Best-effort across tasks: one task failing doesn't abort the rest. The
+// returned ok=true iff every task on this shard reached merged.mig; on
+// false the caller MUST skip OVERLAY+SWAP.
 func (p *ReindexProvider) runShardPrepPhase(
 	ctx context.Context,
 	unitID string,
@@ -963,32 +992,32 @@ func (p *ReindexProvider) runShardPrepPhase(
 	unitTasks []*ShardReindexTaskGeneric,
 	rehydrate bool,
 	logger logrus.FieldLogger,
-) (prepOK bool, errs []string, sawContextCanceled bool) {
-	prepOK = true
+) (ok bool, out phaseResult) {
+	ok = true
 	for _, reindexTask := range unitTasks {
 		if rehydrate {
 			if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 					Errorf("reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)
-				errs = append(errs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
+				out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
 				if errors.Is(err, context.Canceled) {
-					sawContextCanceled = true
+					out.SawContextCanceled = true
 				}
-				prepOK = false
+				ok = false
 				continue
 			}
 		}
 		if err := reindexTask.RunPrepareOnShard(ctx, shard); err != nil {
 			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 				Errorf("reindex provider: shard prep — prep failed; swap will not run for this task: %v", err)
-			errs = append(errs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
+			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
-				sawContextCanceled = true
+				out.SawContextCanceled = true
 			}
-			prepOK = false
+			ok = false
 		}
 	}
-	return prepOK, errs, sawContextCanceled
+	return ok, out
 }
 
 // runShardSwapPhase runs OVERLAY SET + atomic per-task SWAP + defensive
@@ -1004,8 +1033,8 @@ func (p *ReindexProvider) runShardSwapPhase(
 	shard ShardLike,
 	unitTasks []*ShardReindexTaskGeneric,
 	logger logrus.FieldLogger,
-) (allSwapped bool, errs []string, sawContextCanceled bool) {
-	allSwapped = true
+) (out phaseResult) {
+	allSwapped := true
 	anySwapped := false
 
 	// Overlay-before-swap: queries observing the SWAPPING window need the
@@ -1021,9 +1050,9 @@ func (p *ReindexProvider) runShardSwapPhase(
 		if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
 			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
 				Errorf("reindex provider: shard swap — swap failed; migration is half-applied on this shard: %v", err)
-			errs = append(errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
+			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s swap: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
-				sawContextCanceled = true
+				out.SawContextCanceled = true
 			}
 			allSwapped = false
 		} else {
@@ -1045,7 +1074,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Error("reindex provider: swap INCOMPLETE for this shard — at least one task's RunSwapOnShard returned an error; the cluster-wide post-completion ack will report this as a failure")
 	}
-	return allSwapped, errs, sawContextCanceled
+	return out
 }
 
 // runPerUnitPhase is the shared outer loop for OnGroupCompleted and
@@ -1060,44 +1089,43 @@ func (p *ReindexProvider) runPerUnitPhase(
 	idx *Index,
 	logger logrus.FieldLogger,
 	callbackName string,
-	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) (errs []string, sawContextCanceled bool),
+	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
 	ctx := p.serverCtx
-	var unitErrs []string
-	var sawContextCanceled bool
+	var agg phaseResult
 	for _, unitID := range localGroupUnitIDs {
-		shard, unitTasks, rehydrate, setupErrs, setupCC, skip := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
-		if skip {
+		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
+		if res.Skip {
 			continue
 		}
-		if len(setupErrs) > 0 {
-			unitErrs = append(unitErrs, setupErrs...)
-			if setupCC {
-				sawContextCanceled = true
+		if len(res.Errs) > 0 {
+			agg.Errs = append(agg.Errs, res.Errs...)
+			if res.SawContextCanceled {
+				agg.SawContextCanceled = true
 			}
 			continue
 		}
 
-		phaseErrs, phaseCC := runPhase(unitID, shard, unitTasks, rehydrate)
-		if len(phaseErrs) > 0 {
-			unitErrs = append(unitErrs, phaseErrs...)
+		phase := runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
+		if len(phase.Errs) > 0 {
+			agg.Errs = append(agg.Errs, phase.Errs...)
 		}
-		if phaseCC {
-			sawContextCanceled = true
+		if phase.SawContextCanceled {
+			agg.SawContextCanceled = true
 		}
 	}
-	if len(unitErrs) == 0 {
+	if len(agg.Errs) == 0 {
 		return nil
 	}
 	// %w-wrap context.Canceled so the scheduler's errors.Is check routes
 	// shutdown-induced failures to the transient (recovery) branch instead
 	// of acking a permanent failure that would flip the task to FAILED.
-	if sawContextCanceled {
+	if agg.SawContextCanceled {
 		return fmt.Errorf("%s: %d unit(s) failed: %s: %w",
-			callbackName, len(unitErrs), strings.Join(unitErrs, "; "), context.Canceled)
+			callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "), context.Canceled)
 	}
 	return fmt.Errorf("%s: %d unit(s) failed: %s",
-		callbackName, len(unitErrs), strings.Join(unitErrs, "; "))
+		callbackName, len(agg.Errs), strings.Join(agg.Errs, "; "))
 }
 
 // OnGroupCompleted fires after all units in a group reach terminal state.
@@ -1130,13 +1158,13 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// on.
 	if task.Status.IsTerminal() {
 		logger.WithField("status", task.Status).
-			Debug("reindex provider: OnGroupCompleted: skipping replay on past-terminal task")
+			Debug("reindex provider: group-completion: skipping replay on past-terminal task")
 		return nil
 	}
 
 	payload, err := p.loadPayload(task)
 	if err != nil {
-		logger.WithError(err).Error("reindex provider: OnGroupCompleted: failed to load payload")
+		logger.Errorf("reindex provider: group-completion: failed to load payload: %v", err)
 		return fmt.Errorf("load payload: %w", err)
 	}
 
@@ -1180,7 +1208,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"OnGroupCompleted",
-		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) ([]string, bool) {
+		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
 }
@@ -1198,17 +1226,15 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	unitTasks []*ShardReindexTaskGeneric,
 	rehydrate bool,
 	logger logrus.FieldLogger,
-) (errs []string, sawContextCanceled bool) {
-	prepOK, prepErrs, prepCC := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
-	if len(prepErrs) > 0 {
-		errs = append(errs, prepErrs...)
-	}
-	if prepCC {
-		sawContextCanceled = true
+) (out phaseResult) {
+	prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
+	out.Errs = append(out.Errs, prep.Errs...)
+	if prep.SawContextCanceled {
+		out.SawContextCanceled = true
 	}
 
 	if task.NeedsPreparationBarrier {
-		return errs, sawContextCanceled
+		return out
 	}
 
 	if !prepOK {
@@ -1217,18 +1243,16 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 			Warn("reindex provider: prep phase incomplete; skipping overlay set + atomic swap for this shard")
 		logger.WithField("unit", unitID).WithField("shard", shardName).
 			Error("reindex provider: swap INCOMPLETE for this shard — prep phase failed; the cluster-wide post-completion ack will report this as a failure")
-		return errs, sawContextCanceled
+		return out
 	}
 
 	shardName := payload.UnitToShard[unitID]
-	_, swapErrs, swapCC := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
-	if len(swapErrs) > 0 {
-		errs = append(errs, swapErrs...)
+	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
+	out.Errs = append(out.Errs, swap.Errs...)
+	if swap.SawContextCanceled {
+		out.SawContextCanceled = true
 	}
-	if swapCC {
-		sawContextCanceled = true
-	}
-	return errs, sawContextCanceled
+	return out
 }
 
 // OnSwapRequested runs OVERLAY+SWAP for NeedsPreparationBarrier=true tasks. The
@@ -1241,7 +1265,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 
 	if task.Status.IsTerminal() {
 		logger.WithField("status", task.Status).
-			Debug("reindex provider: OnSwapRequested: skipping replay on past-terminal task")
+			Debug("reindex provider: swap-requested: skipping replay on past-terminal task")
 		return nil
 	}
 
@@ -1269,7 +1293,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"OnSwapRequested",
-		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) ([]string, bool) {
+		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
 }
@@ -1285,32 +1309,28 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	unitTasks []*ShardReindexTaskGeneric,
 	rehydrate bool,
 	logger logrus.FieldLogger,
-) (errs []string, sawContextCanceled bool) {
+) (out phaseResult) {
 	if rehydrate {
-		prepOK, prepErrs, prepCC := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
-		if len(prepErrs) > 0 {
-			errs = append(errs, prepErrs...)
-		}
-		if prepCC {
-			sawContextCanceled = true
+		prepOK, prep := p.runShardPrepPhase(ctx, unitID, shard, unitTasks, rehydrate, logger)
+		out.Errs = append(out.Errs, prep.Errs...)
+		if prep.SawContextCanceled {
+			out.SawContextCanceled = true
 		}
 		if !prepOK {
 			shardName := payload.UnitToShard[unitID]
 			logger.WithField("unit", unitID).WithField("shard", shardName).
-				Warn("reindex provider: OnSwapRequested: rehydrate prep-sentinel check failed; skipping overlay+swap for this shard")
-			return errs, sawContextCanceled
+				Warn("reindex provider: swap-requested: rehydrate prep-sentinel check failed; skipping overlay+swap for this shard")
+			return out
 		}
 	}
 
 	shardName := payload.UnitToShard[unitID]
-	_, swapErrs, swapCC := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
-	if len(swapErrs) > 0 {
-		errs = append(errs, swapErrs...)
+	swap := p.runShardSwapPhase(ctx, payload, unitID, shardName, shard, unitTasks, logger)
+	out.Errs = append(out.Errs, swap.Errs...)
+	if swap.SawContextCanceled {
+		out.SawContextCanceled = true
 	}
-	if swapCC {
-		sawContextCanceled = true
-	}
-	return errs, sawContextCanceled
+	return out
 }
 
 // OnTaskCompleted is the cluster-wide cutover for semantic migrations:
@@ -1339,7 +1359,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 	if payloadErr != nil {
-		logger.WithError(payloadErr).Error("reindex provider: OnTaskCompleted: failed to load payload; schema flip will not run")
+		logger.Errorf("reindex provider: task-completion: failed to load payload; schema flip will not run: %v", payloadErr)
 		return
 	}
 	if !IsSemanticMigration(payload.MigrationType) {
@@ -1351,7 +1371,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	// scheduler tick fires OnTaskCompleted).
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
-		logger.WithError(err).Error("reindex provider: OnTaskCompleted: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state)")
+		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
 		// Leave the overlay in place: buckets are NEW-tokenized but the
 		// schema is still pre-flip on this node — the overlay keeps queries
 		// aligned until either a retry lands or TokenizationFor self-clears.
@@ -1367,8 +1387,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 				// TokenizationFor self-clears on the next query.
 				concreteShard, err := unwrapShard(ctx, sh)
 				if err != nil {
-					logger.WithField("shard", shardName).WithError(err).
-						Warn("reindex provider: tokenization overlay clear skipped (unwrap failed); relying on TokenizationFor self-clear")
+					logger.WithField("shard", shardName).
+						Warnf("reindex provider: tokenization overlay clear skipped (unwrap failed); relying on TokenizationFor self-clear: %v", err)
 					return nil
 				}
 				for _, propName := range payload.Properties {
