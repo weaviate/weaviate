@@ -147,8 +147,11 @@ func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
 }
 
 // TestCheckConflict_RejectsParallelOnSameProp pins the
-// parallel-migration bug (#54): two different migration types on the
-// same property must be rejected.
+// parallel-migration bug (weaviate/0-weaviate-issues#54): two different
+// migration types on the same property must be rejected throughout the
+// in-flight window — STARTED, PREPARING, or SWAPPING — because each of
+// these states leaves on-disk migration state that a parallel migration
+// would race on.
 func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 	provider := &ReindexProvider{}
 
@@ -166,19 +169,26 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 	}
 	existPayload, _ := json.Marshal(existP)
 
-	existing := []*distributedtask.Task{
-		{
-			TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
-			Status:         distributedtask.TaskStatusStarted,
-			Payload:        existPayload,
-		},
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			existing := []*distributedtask.Task{
+				{
+					TaskDescriptor: distributedtask.TaskDescriptor{ID: "T1", Version: 1},
+					Status:         status,
+					Payload:        existPayload,
+				},
+			}
+			err := provider.CheckConflict(newPayload, existing)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "conflicts")
+			require.Contains(t, err.Error(), "enable-filterable")
+			require.Contains(t, err.Error(), "enable-rangeable")
+		})
 	}
-
-	err := provider.CheckConflict(newPayload, existing)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "conflicts")
-	require.Contains(t, err.Error(), "enable-filterable")
-	require.Contains(t, err.Error(), "enable-rangeable")
 }
 
 // TestCheckConflict_IgnoresNonStartedTasks pins that FINISHED / FAILED
@@ -366,6 +376,7 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 
 	for _, status := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
 	} {
 		t.Run(string(status), func(t *testing.T) {
@@ -557,6 +568,7 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 
 	for _, status := range []distributedtask.TaskStatus{
 		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
 		distributedtask.TaskStatusSwapping,
 	} {
 		t.Run(string(status), func(t *testing.T) {
@@ -622,17 +634,24 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 		Properties:    []string{"name"},
 	})
 
-	tasks := []*distributedtask.Task{{
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_tenant", Version: 1},
-		Status:         distributedtask.TaskStatusStarted,
-		Payload:        payload,
-	}}
-
-	err := provider.CheckTenantMutation("C", []string{"t1", "t2"}, tasks)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "T_tenant")
-	require.Contains(t, err.Error(), "[t1 t2]",
-		"error must name the tenants being mutated so the operator knows the blast radius")
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+	} {
+		t.Run(string(status), func(t *testing.T) {
+			tasks := []*distributedtask.Task{{
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_tenant", Version: 1},
+				Status:         status,
+				Payload:        payload,
+			}}
+			err := provider.CheckTenantMutation("C", []string{"t1", "t2"}, tasks)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "T_tenant")
+			require.Contains(t, err.Error(), "[t1 t2]",
+				"error must name the tenants being mutated so the operator knows the blast radius")
+		})
+	}
 }
 
 func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
