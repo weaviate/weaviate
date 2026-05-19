@@ -37,16 +37,6 @@ func (h *HFresh) doAnalyze(ctx context.Context, postingID uint64) error {
 		return nil
 	}
 
-	// load the posting metadata
-	_, err := h.PostingMap.Get(ctx, postingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
-		return errors.Wrapf(err, "failed to get posting %d for analyze operation", postingID)
-	}
-	// if the posting has been removed, split or merge have updated the posting map and persisted it.
-	if errors.Is(err, ErrPostingNotFound) {
-		return nil
-	}
-
 	// load the posting and update the posting metadata on-disk and in-memory
 	p, err := h.PostingStore.Get(ctx, postingID)
 	if err != nil {

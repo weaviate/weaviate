@@ -90,8 +90,14 @@ func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size int) erro
 			}
 		}
 
-		if err := p.store.Delete(ctx, postingID); err != nil {
+		persistedSize, err := p.store.Get(ctx, postingID)
+		if err != nil && !errors.Is(err, ErrPostingNotFound) {
 			return err
+		}
+		if err == nil && persistedSize > 0 {
+			if err := p.store.Delete(ctx, postingID); err != nil {
+				return err
+			}
 		}
 
 		p.metrics.SetPostings(int(p.count.Load()))
@@ -110,7 +116,14 @@ func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size int) erro
 	atomic.StoreUint32(&page[slot], uint32(size))
 	p.totalSize.Add(uint64(int64(size) - int64(oldSize)))
 
-	if err := p.store.Set(ctx, postingID, uint32(size)); err != nil {
+	persistedSize, err := p.store.Get(ctx, postingID)
+	if err != nil && !errors.Is(err, ErrPostingNotFound) {
+		return err
+	}
+	if errors.Is(err, ErrPostingNotFound) || persistedSize != uint32(size) {
+		err = p.store.Set(ctx, postingID, uint32(size))
+	}
+	if err != nil {
 		return err
 	}
 
