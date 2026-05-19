@@ -285,18 +285,19 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	var originalAlias string
+	if req.Collection, originalAlias, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
 		return nil, err
 	}
 
 	parser := NewParser(
 		req.Uses_127Api,
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
-		s.aliasGetter(),
 	)
 	replier := NewReplier(
 		req.Uses_127Api,
 		parser.generative,
+		principal,
 		s.logger,
 	)
 
@@ -304,6 +305,9 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	if err != nil {
 		return nil, err
 	}
+	// Resolve returns the qualified alias used for lookup; strip back to
+	// the caller's short form for the reply. Empty for non-alias requests.
+	searchParams.Alias = namespacing.StripOwnNS(principal, originalAlias)
 
 	if err := s.validateClassAndProperty(searchParams); err != nil {
 		return nil, err
@@ -358,17 +362,6 @@ func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *model
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}
 		return class, nil
-	}
-}
-
-type aliasGetter func(string) string
-
-func (s *Service) aliasGetter() aliasGetter {
-	return func(name string) string {
-		if cls := s.schemaManager.ResolveAlias(name); cls != "" {
-			return name // name is an alias
-		}
-		return ""
 	}
 }
 

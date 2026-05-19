@@ -1327,7 +1327,7 @@ func TestGRPCReply(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		replier := NewReplier(false, fakeGenerativeParams{}, nil)
+		replier := NewReplier(false, fakeGenerativeParams{}, nil, nil)
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, scheme)
 			if tt.hasError {
@@ -1371,4 +1371,87 @@ func (f fakeGenerativeParams) ReturnDebugForSingle() bool {
 
 func (f fakeGenerativeParams) ReturnDebugForGrouped() bool {
 	return false
+}
+
+// TestTargetCollectionStripping: alias wins if set, else className stripped
+// to the caller's namespace; globals/nil principals pass through raw.
+func TestTargetCollectionStripping(t *testing.T) {
+	namespaced := &models.Principal{Username: "u", Namespace: "customer1"}
+	global := &models.Principal{Username: "admin", IsGlobalOperator: true}
+
+	scheme := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{Class: "customer1:Movies"},
+				{Class: "Movies"},
+			},
+		},
+	}
+
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		className string
+		alias     string // pre-stripped upstream
+		want      string
+	}{
+		{
+			name:      "namespaced caller, no alias: class stripped to short form",
+			principal: namespaced,
+			className: "customer1:Movies",
+			alias:     "",
+			want:      "Movies",
+		},
+		{
+			name:      "namespaced caller, alias set: alias echoed verbatim",
+			principal: namespaced,
+			className: "customer1:Movies",
+			alias:     "Films",
+			want:      "Films",
+		},
+		{
+			name:      "global caller, no alias: raw qualified class echoed",
+			principal: global,
+			className: "customer1:Movies",
+			alias:     "",
+			want:      "customer1:Movies",
+		},
+		{
+			name:      "global caller, alias set: alias echoed verbatim",
+			principal: global,
+			className: "customer1:Movies",
+			alias:     "customer1:Films",
+			want:      "customer1:Films",
+		},
+		{
+			name:      "nil principal, no alias: passthrough",
+			principal: nil,
+			className: "Movies",
+			alias:     "",
+			want:      "Movies",
+		},
+		{
+			name:      "namespaced caller, foreign-NS class: prefix preserved",
+			principal: namespaced,
+			className: "customer2:Movies",
+			alias:     "",
+			want:      "customer2:Movies",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			replier := NewReplier(false, fakeGenerativeParams{}, tc.principal, nil)
+			got, err := replier.extractPropertiesAnswer(
+				scheme,
+				map[string]interface{}{},
+				search.SelectProperties{}, // no properties → no schema walk needed
+				tc.className,
+				tc.alias,
+				additional.Properties{},
+			)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.Equal(t, tc.want, got.TargetCollection)
+		})
+	}
 }
