@@ -352,6 +352,56 @@ func TestAuthzNamespaces(t *testing.T) {
 		assert.Equal(t, ns2+":Music", seenAlias[ns2+":Songs"], "admin sees ns2 alias raw")
 	})
 
+	t.Run("own-info strips username and lets wildcard permission resources pass through", func(t *testing.T) {
+		// Role creation rejects qualified resource paths for now
+		const role = "own-info-strip"
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: String(role),
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+				helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection("*").WithAlias("*").Permission(),
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
+		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
+
+		info := helper.GetInfoForOwnUser(t, user1Key)
+		require.NotNil(t, info.Username)
+		assert.Equal(t, "u1", *info.Username, "namespaced caller's username must be stripped")
+
+		// Find the assigned role on the principal and assert wildcard
+		// permissions pass through unchanged (StripOwnNS is a no-op on `*`).
+		var found *models.Role
+		for _, r := range info.Roles {
+			if r.Name != nil && *r.Name == role {
+				found = r
+				break
+			}
+		}
+		require.NotNil(t, found, "role must be present on own-info response")
+		require.NotEmpty(t, found.Permissions)
+		sawCollectionsStar := false
+		sawAliasesStar := false
+		for _, p := range found.Permissions {
+			if p.Collections != nil && p.Collections.Collection != nil && *p.Collections.Collection == "*" {
+				sawCollectionsStar = true
+			}
+			if p.Aliases != nil && p.Aliases.Collection != nil && *p.Aliases.Collection == "*" &&
+				p.Aliases.Alias != nil && *p.Aliases.Alias == "*" {
+				sawAliasesStar = true
+			}
+		}
+		assert.True(t, sawCollectionsStar, "wildcard collection must pass through unchanged")
+		assert.True(t, sawAliasesStar, "wildcard alias must pass through unchanged")
+	})
+
+	t.Run("own-info: global admin sees raw username", func(t *testing.T) {
+		info := helper.GetInfoForOwnUser(t, adminKey)
+		require.NotNil(t, info.Username)
+		assert.Equal(t, adminUser, *info.Username)
+	})
+
 	t.Run("role with namespace-qualified resource path is rejected at create time", func(t *testing.T) {
 		const role = "qualified-path-role"
 		_, err := helper.Client(t).Authz.CreateRole(
