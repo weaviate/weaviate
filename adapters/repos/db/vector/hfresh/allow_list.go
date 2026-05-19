@@ -58,24 +58,23 @@ func (i *AllowListIterator) Stop() {
 
 func (i *AllowListIterator) Next() (uint64, bool) {
 	id, metadata, ok := i.next()
+	al, isOurType := i.allowList.(*allowList)
 
-	// Cache the metadata if allowList is our concrete type
-	if al, isOurType := i.allowList.(*allowList); isOurType && metadata != nil {
-		al.cacheMetadata(id, metadata)
-	}
-
-	for ok && !i.allowList.Contains(id) {
+	for ok && !i.contains(id, metadata, al, isOurType) {
 		id, metadata, ok = i.next()
-		// Cache the metadata for each iteration
-		if al, isOurType := i.allowList.(*allowList); isOurType && metadata != nil {
-			al.cacheMetadata(id, metadata)
-		}
 	}
 	if !ok {
 		return id, ok
 	}
 
-	return id, i.allowList.Contains(id)
+	return id, i.contains(id, metadata, al, isOurType)
+}
+
+func (i *AllowListIterator) contains(id uint64, metadata *PostingMetadata, al *allowList, isOurType bool) bool {
+	if isOurType && metadata != nil {
+		return al.containsPosting(id, metadata)
+	}
+	return i.allowList.Contains(id)
 }
 
 type allowList struct {
@@ -84,14 +83,6 @@ type allowList struct {
 	h                *HFresh
 	wrappedIdVisited *visited.SparseSet
 	idVisited        *visited.SparseSet
-	// Cache to store PostingMetadata from iterator to avoid expensive Get calls
-	cachedMetadata *PostingMetadata
-	cachedID       uint64
-}
-
-func (a *allowList) cacheMetadata(id uint64, metadata *PostingMetadata) {
-	a.cachedID = id
-	a.cachedMetadata = metadata
 }
 
 func (a *allowList) Contains(id uint64) bool {
@@ -99,20 +90,15 @@ func (a *allowList) Contains(id uint64) bool {
 		return true
 	}
 
-	var p *PostingMetadata
-	var err error
-
-	// Use cached metadata if available for this id
-	if a.cachedID == id && a.cachedMetadata != nil {
-		p = a.cachedMetadata
-	} else {
-		// Fall back to expensive Get only if not cached
-		p, err = a.h.PostingMap.Get(a.ctx, id)
-		if err != nil {
-			return false
-		}
+	p, err := a.h.PostingMap.Get(a.ctx, id)
+	if err != nil {
+		return false
 	}
 
+	return a.containsPosting(id, p)
+}
+
+func (a *allowList) containsPosting(id uint64, p *PostingMetadata) bool {
 	a.h.PostingMap.rLock(id)
 	defer a.h.PostingMap.rUnlock(id)
 
