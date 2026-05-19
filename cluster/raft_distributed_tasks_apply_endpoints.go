@@ -58,15 +58,13 @@ func (s *Raft) AddDistributedTaskWithGroups(
 
 // AddDistributedTaskWithBarrier is the PREP-barrier-aware counterpart
 // to AddDistributedTask. When needsPrepBarrier=true the task uses the
-// two-phase RAFT-coordinated swap from
-// docs/proposals/prep_swap_barrier.md: AllUnitsTerminal routes to
+// two-phase RAFT-coordinated swap: AllUnitsTerminal routes to
 // PREPARING (not SWAPPING directly), and each node's PREP completion
 // must ack before any node fires its atomic swap.
 //
 // AddDistributedTask is equivalent to AddDistributedTaskWithBarrier(...,
-// false) — preserves the pre-barrier behavior for callers that don't
-// need cluster-wide swap coordination (format-only migrations, debug-
-// originated tasks).
+// false) for callers that don't need cluster-wide swap coordination
+// (format-only migrations, debug-originated tasks).
 func (s *Raft) AddDistributedTaskWithBarrier(
 	ctx context.Context, namespace, taskID string,
 	taskPayload any, unitIDs []string, needsPrepBarrier bool,
@@ -202,8 +200,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 // on each node fires this after its local PREP body has returned, so
 // the cluster has durable evidence of which nodes' prep work
 // succeeded before the PREPARING → SWAPPING transition is committed.
-// This is the load-bearing barrier from
-// docs/proposals/prep_swap_barrier.md.
+// This is the load-bearing barrier.
 //
 // See [distributedtask.PostCompletionAckRecorder].
 func (s *Raft) RecordDistributedTaskPrepCompleteAck(

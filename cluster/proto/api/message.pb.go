@@ -91,7 +91,7 @@ const (
 	// landing with success=true (the load-bearing barrier
 	// invariant — no node fires its atomic swap until every other
 	// node has completed PREP). Any success=false flips the task
-	// to FAILED. See docs/proposals/prep_swap_barrier.md.
+	// to FAILED.
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREP_COMPLETE_ACK ApplyRequest_Type = 308
 )
 
@@ -1358,14 +1358,11 @@ type AddDistributedTaskRequest struct {
 	// RecordPrepCompleteAck; the FSM gates the PREPARING → SWAPPING
 	// transition on all expected acks landing successfully.
 	//
-	// Set by the provider's task-creation path (e.g. for the reindex
-	// provider, true for semantic migrations like change-tokenization /
-	// enable-filterable / enable-searchable; false for format-only
-	// migrations like repair-* and enable-rangeable). See
-	// docs/proposals/prep_swap_barrier.md.
-	//
-	// Default false preserves the pre-barrier behavior (STARTED →
-	// SWAPPING directly) for all existing callers.
+	// Set by the provider's task-creation path: true for semantic
+	// migrations (change-tokenization, enable-filterable,
+	// enable-searchable) that require cross-replica swap coordination;
+	// false for format-only migrations (repair-*, enable-rangeable)
+	// that route STARTED → SWAPPING directly without a PREP barrier.
 	NeedsPrepBarrier bool `protobuf:"varint,8,opt,name=needs_prep_barrier,json=needsPrepBarrier,proto3" json:"needs_prep_barrier,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -2254,8 +2251,7 @@ func (x *RecordDistributedTaskPostCompletionAckRequest) GetAckedAtUnixMillis() i
 // every expected PrepCompleteAck landing with success=true. Any
 // node reporting success=false flips the task to FAILED
 // immediately — no node proceeds to the atomic swap (the
-// load-bearing barrier invariant from
-// docs/proposals/prep_swap_barrier.md).
+// load-bearing barrier invariant).
 //
 // Idempotent: the FSM keeps the first ack per (task, node) —
 // duplicate acks (from retries on the scheduler's wake/tick loop)

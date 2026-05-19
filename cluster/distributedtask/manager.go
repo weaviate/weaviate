@@ -378,7 +378,7 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// All units COMPLETED with no failures — hand off to the
 			// scheduler for post-completion callbacks.
 			//
-			// Routing decision (per docs/proposals/prep_swap_barrier.md):
+			// Routing decision:
 			//   - NeedsPrepBarrier=true (semantic migrations) → PREPARING.
 			//     Each node's scheduler fires its PREP body and emits a
 			//     RecordPrepCompleteAck. The FSM (in RecordPrepCompleteAck)
@@ -522,8 +522,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 // local OnGroupCompleted's PREP body has returned for every local
 // group, so the cluster has durable evidence of which nodes' prep work
 // succeeded before the cluster-wide PREPARING → SWAPPING transition is
-// committed — the load-bearing barrier invariant from
-// docs/proposals/prep_swap_barrier.md.
+// committed — the load-bearing barrier invariant.
 //
 // FSM transitions on apply:
 //

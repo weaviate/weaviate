@@ -65,10 +65,8 @@ type Scheduler struct {
 	// groupCallbackFired tracks per-(task, group) whether the SWAP-phase
 	// callback has fired on THIS scheduler instance. For barrier tasks
 	// the callback is OnSwapRequested; for non-barrier tasks it's
-	// OnGroupCompleted (carrying the full PREP+SWAP body — pre-barrier
-	// behavior preserved). Renamed semantically by docs/proposals/
-	// prep_swap_barrier.md from "the only callback fired" to "the swap
-	// callback"; the parallel prepCallbackFired tracks the prep phase
+	// OnGroupCompleted (which then carries the full PREP+SWAP body
+	// inline). The parallel prepCallbackFired tracks the PREP phase
 	// for barrier tasks.
 	groupCallbackFired map[TaskDescriptor]map[string]bool
 
@@ -94,8 +92,8 @@ type Scheduler struct {
 	// prepAckEmitted tracks per-task whether THIS node has already
 	// published its PREP-phase ack (RecordPrepCompleteAck) via the ack
 	// recorder. Same lifecycle as postCompletionAckEmitted but for the
-	// upstream PREP barrier (per docs/proposals/prep_swap_barrier.md).
-	// Empty for non-barrier tasks (no PREP phase, no ack).
+	// upstream PREP barrier. Empty for non-barrier tasks (no PREP
+	// phase, no ack).
 	prepAckEmitted map[TaskDescriptor]bool
 
 	// postCompletionGroupErrors aggregates per-group SWAP-callback errors
@@ -558,7 +556,7 @@ func (s *Scheduler) tick() {
 				// on each scheduler tick after the FSM transitions
 				// STARTED → PREPARING. The atomic swap is deferred to
 				// PHASE B after the cluster-wide PrepCompleteAck
-				// barrier lifts. See docs/proposals/prep_swap_barrier.md.
+				// barrier lifts.
 				if task.NeedsPrepBarrier && task.Status == TaskStatusPreparing {
 					for _, groupID := range task.Groups() {
 						if s.prepCallbackFired[desc] != nil && s.prepCallbackFired[desc][groupID] {

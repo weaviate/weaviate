@@ -12,7 +12,7 @@
 package reindex_multinode
 
 // End-to-end acceptance test for the two-phase RAFT swap barrier
-// (NeedsPrepBarrier=true, see docs/proposals/prep_swap_barrier.md).
+// (NeedsPrepBarrier=true).
 //
 // Reproduces the topology that exposed the cross-replica stagger window
 // in weaviate/0-weaviate-issues#225:

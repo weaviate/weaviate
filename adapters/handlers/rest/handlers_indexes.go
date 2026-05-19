@@ -552,7 +552,6 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Format-only migrations (repair-*, enable-rangeable) keep
 	// NeedsPrepBarrier=false: they flip metadata only inside
 	// RunSwapOnShard per shard, with no cross-replica state to align.
-	// See docs/proposals/prep_swap_barrier.md.
 	if isMT && semantic {
 		unitSpecs := buildUnitSpecs(shardOwnership)
 		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(

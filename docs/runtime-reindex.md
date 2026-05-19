@@ -42,8 +42,7 @@ The whole feature is built on top of three substrates:
 - The **Distributed Task Manager (DTM)** ([`cluster/distributedtask/`](../cluster/distributedtask/))
   — RAFT-backed task state, per-unit assignment, group barriers,
   per-node `PREPARING` and `SWAPPING` coordination states, two-phase
-  PrepComplete + PostCompletion ack barriers (see
-  [docs/proposals/prep_swap_barrier.md](./proposals/prep_swap_barrier.md)).
+  PrepComplete + PostCompletion ack barriers (§6.3).
 - The **schema FSM mutation guard** — rejects external mutations on
   classes / properties / tenants while a reindex is in flight, so the
   bucket↔schema invariant cannot be broken by a concurrent
@@ -144,12 +143,9 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
   single replica* has finished its piece of the reindex work; the
   per-shard swap and cluster-wide schema flip are still ahead.
 - **`TaskStatus`** — per-task aggregate. The transition sequence
-  depends on whether the task opts into the two-phase RAFT PREP
-  barrier (`NeedsPrepBarrier`, set automatically for semantic
-  migrations by the submit handler — see
-  [docs/proposals/prep_swap_barrier.md](./proposals/prep_swap_barrier.md)
-  for the full design and weaviate/0-weaviate-issues#225 for the
-  cross-replica stagger bug it closes):
+  depends on whether the task opts into the PREP barrier
+  (`NeedsPrepBarrier`, set automatically for semantic migrations by
+  the submit handler; full mechanics in §6.3):
   - **Semantic migrations** (`change-tokenization`,
     `enable-searchable`, `enable-filterable`):
     `STARTED → PREPARING → SWAPPING → FINISHED`.
@@ -352,20 +348,18 @@ mechanisms:
    reads. The overlay is cleared from `OnTaskCompleted` after the
    schema flip lands. See §10.
 2. **Two-phase ack barrier (the cross-node handshake).** For semantic
-   migrations under the two-phase RAFT swap barrier (see
-   [docs/proposals/prep_swap_barrier.md](./proposals/prep_swap_barrier.md)):
-   each node submits `RecordPrepCompleteAck(Success=bool)` after its
-   local PREP returns, then `RecordPostCompletionAck(Success=bool)`
+   migrations each node submits `RecordPrepCompleteAck(Success=bool)`
+   after its local PREP returns, then `RecordPostCompletionAck(Success=bool)`
    after its local SWAP returns. The FSM gates `PREPARING → SWAPPING`
    on every node's PrepCompleteAck (success on all), then gates
    `SWAPPING → FINISHED` on every node's PostCompletionAck (success
    on all). Any `Success=false` on either ack flips the task to
    `FAILED`, which makes `OnTaskCompleted` skip the cluster-wide
    schema flip. So the schema never moves to NEW unless every node
-   has successfully prepared AND swapped. Format-only migrations use
-   the single-phase variant — `SWAPPING → FINISHED` is gated on
-   PostCompletionAck only (no PrepCompleteAck barrier because there
-   is no cross-replica state alignment to bound). See §6.3.
+   has successfully prepared AND swapped. Format-only migrations skip
+   the PrepCompleteAck barrier (no cross-replica tokenization
+   alignment to bound) and gate `SWAPPING → FINISHED` on
+   PostCompletionAck only. See §6.3.
 
 ### Why PREP runs inside PREPARING (not earlier)
 
@@ -768,10 +762,7 @@ Sequence in `MakeAppState`:
 
 ### 6.3 The two-phase ack barrier (PREPARING + SWAPPING)
 
-The post-completion barrier is split into two phases. See
-[docs/proposals/prep_swap_barrier.md](./proposals/prep_swap_barrier.md)
-for the full design and weaviate/0-weaviate-issues#225 for the
-cross-replica stagger bug it closes.
+The post-completion barrier is split into two phases.
 
 **Semantic migrations (NeedsPrepBarrier=true):**
 
@@ -807,14 +798,13 @@ PostCompletionAck barrier only.
   rehydrate branch; if the per-shard work succeeds the second time,
   the ack lands and the task completes normally.
 
-**Cross-replica window:** Under the two-phase barrier the time during
-which different nodes' buckets are in mixed-tokenization state
-(some swapped, some not) is bounded by RAFT propagation latency
-between PHASE B firing on the fastest-node and PHASE B firing on the
-slowest-node — tens of milliseconds regardless of PREP duration.
-A single-phase path (no barrier) would bound the same window by
-per-node PREP duration variance instead, which scales with bucket
-size and reaches minutes at billion-scale.
+**Cross-replica window:** The time during which different nodes'
+buckets are in mixed-tokenization state (some swapped, some not) is
+bounded by RAFT propagation latency between PHASE B firing on the
+fastest-node and PHASE B firing on the slowest-node — tens of
+milliseconds regardless of PREP duration. Decoupling SWAP from PREP
+across nodes is the reason this window stays bounded even when PREP
+runs minutes per shard at billion-scale.
 
 Acks idempotent (first ack per `(task, node)` wins); rehydrate over
 restart (the scheduler re-fires on the next tick); silent on already-

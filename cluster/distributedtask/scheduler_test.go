@@ -1450,7 +1450,7 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 
 // TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked pins the
 // load-bearing invariant for the two-phase RAFT swap barrier recovery
-// flow (NeedsPrepBarrier=true, see docs/proposals/prep_swap_barrier.md):
+// flow (NeedsPrepBarrier=true):
 //
 // PREPARING and SWAPPING tasks are non-terminal — they MUST NOT be
 // pre-marked at bootstrap. If they were, the scheduler tick would skip
