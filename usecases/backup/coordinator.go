@@ -52,6 +52,9 @@ const (
 	_MaxNumberConns         = 16
 	_ShutdownPutMetaTimeout = 30 * time.Second
 	_ShutdownAbortTimeout   = 10 * time.Second
+	// _ShutdownDrainTimeout bounds Scheduler.Drain / Handler.Drain. Covers
+	// the worst-case inner chain (abort + final PutMeta) plus a safety margin.
+	_ShutdownDrainTimeout = _ShutdownAbortTimeout + _ShutdownPutMetaTimeout + 5*time.Second
 )
 
 type nodeMap map[string]*backup.NodeDescriptor
