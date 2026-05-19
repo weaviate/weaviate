@@ -1492,7 +1492,7 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 		CompletedTaskTTL:   24 * time.Hour,
 		TickInterval:       30 * time.Second,
 		CompletionRecorder: nil,
-		TasksLister:        nil,
+		TaskLister:         nil,
 		TaskCleaner:        nil,
 	})
 
