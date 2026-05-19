@@ -397,10 +397,10 @@ func TestQueryHybridWithSimpleFilter(t *testing.T) {
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
-		Filters: map[string]any{
-			"path":      []string{"status"},
-			"operator":  "Equal",
-			"valueText": "published",
+		Filters: &search.Filter{
+			Path:     []string{"status"},
+			Operator: "Equal",
+			Value:    "published",
 		},
 	}, 3)
 
@@ -421,10 +421,10 @@ func TestQueryHybridWithNumericFilter(t *testing.T) {
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
-		Filters: map[string]any{
-			"path":     []string{"year"},
-			"operator": "GreaterThanEqual",
-			"valueInt": 2020,
+		Filters: &search.Filter{
+			Path:     []string{"year"},
+			Operator: "GreaterThanEqual",
+			Value:    2020,
 		},
 	}, 3)
 
@@ -446,10 +446,10 @@ func TestQueryHybridWithDateFilter(t *testing.T) {
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
-		Filters: map[string]any{
-			"path":      []string{"publishDate"},
-			"operator":  "GreaterThanEqual",
-			"valueDate": "2021-01-01T00:00:00Z",
+		Filters: &search.Filter{
+			Path:     []string{"publishDate"},
+			Operator: "GreaterThanEqual",
+			Value:    "2021-01-01T00:00:00Z",
 		},
 	}, 2)
 
@@ -472,19 +472,11 @@ func TestQueryHybridWithComplexAndFilter(t *testing.T) {
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
-		Filters: map[string]any{
-			"operator": "And",
-			"operands": []map[string]any{
-				{
-					"path":      []string{"status"},
-					"operator":  "Equal",
-					"valueText": "published",
-				},
-				{
-					"path":     []string{"year"},
-					"operator": "GreaterThanEqual",
-					"valueInt": 2020,
-				},
+		Filters: &search.Filter{
+			Operator: "And",
+			Operands: []search.Filter{
+				{Path: []string{"status"}, Operator: "Equal", Value: "published"},
+				{Path: []string{"year"}, Operator: "GreaterThanEqual", Value: 2020},
 			},
 		},
 	}, 3)
@@ -509,19 +501,11 @@ func TestQueryHybridWithOrFilter(t *testing.T) {
 		CollectionName: cls.Class,
 		Query:          "learning",
 		Alpha:          &alpha,
-		Filters: map[string]any{
-			"operator": "Or",
-			"operands": []map[string]any{
-				{
-					"path":      []string{"author"},
-					"operator":  "Equal",
-					"valueText": authorJohnDoe,
-				},
-				{
-					"path":      []string{"author"},
-					"operator":  "Equal",
-					"valueText": authorJaneSmith,
-				},
+		Filters: &search.Filter{
+			Operator: "Or",
+			Operands: []search.Filter{
+				{Path: []string{"author"}, Operator: "Equal", Value: authorJohnDoe},
+				{Path: []string{"author"}, Operator: "Equal", Value: authorJaneSmith},
 			},
 		},
 	}, 3)
@@ -622,19 +606,11 @@ func TestQueryHybridComplexQuery(t *testing.T) {
 		TargetProperties: []string{"title", "contents"},
 		ReturnProperties: []string{"title", "year"},
 		ReturnMetadata:   []string{"id", "score"},
-		Filters: map[string]any{
-			"operator": "And",
-			"operands": []map[string]any{
-				{
-					"path":      []string{"status"},
-					"operator":  "Equal",
-					"valueText": "published",
-				},
-				{
-					"path":     []string{"year"},
-					"operator": "GreaterThanEqual",
-					"valueInt": 2020,
-				},
+		Filters: &search.Filter{
+			Operator: "And",
+			Operands: []search.Filter{
+				{Path: []string{"status"}, Operator: "Equal", Value: "published"},
+				{Path: []string{"year"}, Operator: "GreaterThanEqual", Value: 2020},
 			},
 		},
 	}, 3)
@@ -771,10 +747,10 @@ func TestQueryHybridEmptyResults(t *testing.T) {
 		CollectionName: cls.Class,
 		Query:          "test",
 		Alpha:          &alpha,
-		Filters: map[string]any{
-			"path":     []string{"year"},
-			"operator": "Equal",
-			"valueInt": 9999, // No article from year 9999
+		Filters: &search.Filter{
+			Path:     []string{"year"},
+			Operator: "Equal",
+			Value:    9999, // No article from year 9999
 		},
 	})
 

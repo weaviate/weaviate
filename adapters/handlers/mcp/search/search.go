@@ -18,23 +18,32 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type WeaviateSearcher struct {
 	auth.Auth
 
-	traverser traverser
-	logger    logrus.FieldLogger
+	traverser    traverser
+	schemaReader schemaReader
+	logger       logrus.FieldLogger
 }
 
 type traverser interface {
 	GetClass(ctx context.Context, principal *models.Principal, params dto.GetParams) ([]any, error)
 }
 
-func NewWeaviateSearcher(auth *auth.Auth, traverser traverser, logger logrus.FieldLogger) *WeaviateSearcher {
+// schemaReader provides the collection schema used to resolve filter value
+// types against declared property data types.
+type schemaReader interface {
+	GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error)
+}
+
+func NewWeaviateSearcher(auth *auth.Auth, traverser traverser, schemaReader schemaReader, logger logrus.FieldLogger) *WeaviateSearcher {
 	return &WeaviateSearcher{
-		traverser: traverser,
-		Auth:      *auth,
-		logger:    logger,
+		traverser:    traverser,
+		schemaReader: schemaReader,
+		Auth:         *auth,
+		logger:       logger,
 	}
 }
