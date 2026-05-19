@@ -83,10 +83,10 @@ func TestAsLimitExceeded(t *testing.T) {
 
 func TestFromBodyJSON(t *testing.T) {
 	tests := []struct {
-		name    string
-		body    string
-		want    *LimitExceededError
-		wantOK  bool
+		name   string
+		body   string
+		want   *LimitExceededError
+		wantOK bool
 	}{
 		{
 			name:   "usage-limit body parses",
