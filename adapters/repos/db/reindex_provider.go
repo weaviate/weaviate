@@ -1082,6 +1082,32 @@ func (p *ReindexProvider) runShardSwapPhase(
 // runPhase on each, and aggregates errors with context.Canceled wrap
 // semantics that the scheduler's transient-vs-permanent ack routing
 // depends on.
+//
+// When parallel=true the runPhase callbacks fire concurrently across
+// units. Used by the SWAP path to keep the per-replica user-observable
+// cutover window bounded by max(per-shard runtimeSwap) rather than
+// Σ(per-shard runtimeSwap) — without parallelism, each shard's inline
+// post-pointer-flip work (oldBucket.Shutdown drain, dir rename, trim)
+// serializes the NEXT shard's pointer flip, which makes the partial-
+// results window grow linearly in shard count and is the regression
+// surfaced by TestLiveQueriesDuringChangeTokenization on container
+// disk. Per-shard state in runPhase is structurally disjoint:
+//   - separate per-shard LSM store / bucket pointers (Shard.store).
+//   - separate per-shard sentinel tracker (.migrations/<dir>/*.mig).
+//   - separate per-shard tokenization overlay (Shard.TokenizationFor).
+//   - separate ShardReindexTaskGeneric instance per (task, unit) with
+//     its own callbackDisableFuncs guarded by callbackDisableFuncsMu.
+//
+// Provider-level shared state (p.payloads, p.runningHandles,
+// p.reindexTasks) is already mutex-protected via p.mu in
+// resolveUnitForPhase and its peers, so concurrent calls are safe.
+//
+// When parallel=false the loop is sequential (legacy behavior). Used
+// by the PREP path where heavy IO (FlushAndSwitch, ShutdownBucket,
+// PrependSegmentsFromBucket) per shard would compound under
+// parallelism — and where the latency doesn't affect the user-
+// observable query-consistency window because queries during PREP
+// still see the OLD tokenization.
 func (p *ReindexProvider) runPerUnitPhase(
 	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
@@ -1089,31 +1115,56 @@ func (p *ReindexProvider) runPerUnitPhase(
 	idx *Index,
 	logger logrus.FieldLogger,
 	callbackName string,
+	parallel bool,
 	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
 	ctx := p.serverCtx
 	var agg phaseResult
-	for _, unitID := range localGroupUnitIDs {
+	var aggMu sync.Mutex
+
+	runOne := func(unitID string) {
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
 		if res.Skip {
-			continue
+			return
 		}
 		if len(res.Errs) > 0 {
+			aggMu.Lock()
 			agg.Errs = append(agg.Errs, res.Errs...)
 			if res.SawContextCanceled {
 				agg.SawContextCanceled = true
 			}
-			continue
+			aggMu.Unlock()
+			return
 		}
 
 		phase := runPhase(unitID, res.Shard, res.UnitTasks, res.Rehydrate)
+		aggMu.Lock()
 		if len(phase.Errs) > 0 {
 			agg.Errs = append(agg.Errs, phase.Errs...)
 		}
 		if phase.SawContextCanceled {
 			agg.SawContextCanceled = true
 		}
+		aggMu.Unlock()
 	}
+
+	if parallel {
+		var wg sync.WaitGroup
+		for _, unitID := range localGroupUnitIDs {
+			unitID := unitID
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				runOne(unitID)
+			}, logger)
+		}
+		wg.Wait()
+	} else {
+		for _, unitID := range localGroupUnitIDs {
+			runOne(unitID)
+		}
+	}
+
 	if len(agg.Errs) == 0 {
 		return nil
 	}
@@ -1206,8 +1257,12 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// billion-scale to RAFT propagation latency rather than per-node
 	// PREP duration.
 	ctx := p.serverCtx
+	// PREP path runs heavy IO per shard (FlushAndSwitch, ShutdownBucket,
+	// PrependSegmentsFromBucket). Sequential to avoid compounding IO
+	// contention; query consistency is not at stake here because queries
+	// during PREP still see OLD tokenization.
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
-		"group-completion",
+		"group-completion", false,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
@@ -1291,8 +1346,15 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 	}
 
 	ctx := p.serverCtx
+	// SWAP path runs the in-memory pointer flip first (the user-observable
+	// event) and then per-shard post-flip work (Shutdown drain, dir
+	// rename, sentinel writes, trim). Parallel across this node's units
+	// so the post-flip work on shard A does NOT serialize the pointer
+	// flip on shard B — without this the per-replica cutover window
+	// grows linearly in shard count. Per-shard state is structurally
+	// disjoint (see runPerUnitPhase godoc).
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
-		"swap-requested",
+		"swap-requested", true,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
