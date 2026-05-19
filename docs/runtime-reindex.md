@@ -806,6 +806,20 @@ milliseconds regardless of PREP duration. Decoupling SWAP from PREP
 across nodes is the reason this window stays bounded even when PREP
 runs minutes per shard at billion-scale.
 
+**Why two phases instead of one** — the empirical anchor: at 1M-object
+scale on a 3-node × RF=1 × 5-shard cluster, QA observed a ~1-second
+total in-flight window with a 248 ms within-window mixed-state
+captured between two probe samples on adjacent shards (see
+weaviate/0-weaviate-issues#225). At that scale the per-node PREP
+duration variance dominates: with no barrier, the cross-replica
+mixed-state window scales with PREP duration (minutes at
+billion-scale); with the barrier, it scales with RAFT propagation
+(milliseconds). The cost is one extra cluster-wide RAFT roundtrip per
+semantic migration. Without this anchor, future maintainers reading
+the FSM table see "two RAFT-coordinated phases" and may propose
+collapsing it back to one — the bug it closes is not visually
+obvious from the code alone.
+
 Acks idempotent (first ack per `(task, node)` wins); rehydrate over
 restart (the scheduler re-fires on the next tick); silent on already-
 terminal tasks (a late-arriving ack from a slow follower must not
