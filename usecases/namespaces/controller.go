@@ -319,6 +319,12 @@ func (c *Controller) Snapshot() ([]byte, error) {
 // are tolerated. Entries with empty State are normalized to
 // [cmd.NamespaceStateActive]; entries with an unknown State return an
 // error so a future binary's snapshot is not silently mis-classified.
+//
+// Restore enforces the same len(HomeNodes)==1 invariant as Create/Update:
+// entries without a HomeNode are rejected outright rather than loaded into
+// a broken state where downstream placement would fail lazily. Namespaces
+// are a new-cluster-only POC, so a snapshot lacking HomeNodes is a
+// migration error, not something to paper over.
 func (c *Controller) Restore(snapshot []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -334,6 +340,11 @@ func (c *Controller) Restore(snapshot []byte) error {
 		return err
 	}
 	for name, ns := range restored {
+		if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
+			return fmt.Errorf("namespace %q in snapshot is missing home_node; "+
+				"namespaces require a single home_node and have no migration path "+
+				"from pre-home_node snapshots", name)
+		}
 		if ns.State == "" {
 			ns.State = cmd.NamespaceStateActive
 			continue

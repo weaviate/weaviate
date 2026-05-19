@@ -162,7 +162,10 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 	// Reject explicit desiredCount != 1 before ParseClass replaces the
 	// raw map, so we can tell "user asked for 3" from "default = NodeCount".
-	if h.config.Namespaces.Enabled && !schema.MultiTenancyEnabled(cls) {
+	// No MT gate: validateCanAddClass already rejects any class that combines
+	// ShardingConfig with MultiTenancyConfig, so MT classes never reach this
+	// check with a non-empty ShardingConfig.
+	if h.config.Namespaces.Enabled {
 		if err := rejectExplicitMultiShardOnNamespacedClass(cls.ShardingConfig); err != nil {
 			return nil, 0, err
 		}

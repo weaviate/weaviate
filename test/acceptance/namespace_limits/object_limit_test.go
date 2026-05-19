@@ -110,6 +110,13 @@ func TestObjectLimitFromNonHomeNode(t *testing.T) {
 		homeNode = "weaviate-1"
 	)
 
+	// Guard against a future helper change that would silently make the
+	// test client bind to the home node and turn this into a local-write
+	// test. setup_test.go calls helper.SetupClient(GetWeaviate().URI()),
+	// which is weaviate-0; assert that name doesn't match the home_node.
+	require.NotEqual(t, homeNode, sharedCompose.GetWeaviate().Name(),
+		"test invariant: the client must enter on a node other than home_node so writes are forwarded")
+
 	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
 

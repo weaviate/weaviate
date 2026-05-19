@@ -482,6 +482,10 @@ func TestUpdateNamespace_OK(t *testing.T) {
 	authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
 	raft.On("StorageCandidates").Return([]string{"node-1", "node-2"})
 	raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}).Return(0, nil)
+	// Handler reads back State from the controller after a successful
+	// update rather than hardcoding active.
+	raft.On("GetNamespaces", "customer1").Return(
+		[]cmd.Namespace{{Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive}}, nil)
 
 	hn := "node-2"
 	res := h.updateNamespace(nsops.UpdateNamespaceParams{
@@ -493,6 +497,43 @@ func TestUpdateNamespace_OK(t *testing.T) {
 	require.NotNil(t, parsed.Payload)
 	assert.Equal(t, "customer1", parsed.Payload.Name)
 	assert.Equal(t, "node-2", parsed.Payload.HomeNode)
+	assert.Equal(t, string(cmd.NamespaceStateActive), parsed.Payload.State)
+}
+
+// TestUpdateNamespace_OK_StateReadFailureLeavesStateEmpty asserts the
+// read-back failure path: when GetNamespaces errors or returns nothing
+// after a successful update, the handler still returns 200 with the
+// caller-supplied HomeNode and an empty State (rather than guessing).
+func TestUpdateNamespace_OK_StateReadFailureLeavesStateEmpty(t *testing.T) {
+	cases := []struct {
+		name      string
+		getResult []cmd.Namespace
+		getErr    error
+	}{
+		{name: "GetNamespaces error", getErr: errors.New("read boom")},
+		{name: "GetNamespaces returns nothing (raced with delete)", getResult: []cmd.Namespace{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, authz, raft := newHandler(t)
+			principal := &models.Principal{}
+			authz.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Namespaces("customer1")[0]).Return(nil)
+			raft.On("StorageCandidates").Return([]string{"node-1", "node-2"})
+			raft.On("UpdateNamespace", mock.Anything, cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}).Return(0, nil)
+			raft.On("GetNamespaces", "customer1").Return(tc.getResult, tc.getErr)
+
+			hn := "node-2"
+			res := h.updateNamespace(nsops.UpdateNamespaceParams{
+				NamespaceID: "customer1", HTTPRequest: req,
+				Body: &models.NamespaceUpdateRequest{HomeNode: &hn},
+			}, principal)
+			parsed, ok := res.(*nsops.UpdateNamespaceOK)
+			require.True(t, ok, "expected 200, got %T", res)
+			require.NotNil(t, parsed.Payload)
+			assert.Equal(t, "node-2", parsed.Payload.HomeNode)
+			assert.Empty(t, parsed.Payload.State)
+		})
+	}
 }
 
 // -----------------------------------------------------------------------------

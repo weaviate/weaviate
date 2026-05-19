@@ -324,7 +324,11 @@ func TestAddClass_NamespacePlacementErrors(t *testing.T) {
 }
 
 // TestAddClass_RejectsExplicitDesiredCount asserts an explicit
-// desiredCount != 1 is rejected before the propose runs.
+// desiredCount != 1 is rejected before the propose runs on non-MT
+// classes. MT classes can't reach this check because an upstream
+// validator already rejects any ShardingConfig combined with a
+// MultiTenancyConfig — covered separately by
+// TestAddClass_MTRejectsShardingConfig.
 func TestAddClass_RejectsExplicitDesiredCount(t *testing.T) {
 	t.Parallel()
 
@@ -361,6 +365,33 @@ func TestAddClass_RejectsExplicitDesiredCount(t *testing.T) {
 			sm.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
 		})
 	}
+}
+
+// TestAddClass_MTRejectsShardingConfig locks in the existing constraint
+// that MT classes cannot carry a ShardingConfig at all. This is what
+// makes the desiredCount reject above safe to run uniformly: any MT class
+// with a shardingConfig is rejected up-front before
+// rejectExplicitMultiShardOnNamespacedClass would even be reached.
+func TestAddClass_MTRejectsShardingConfig(t *testing.T) {
+	t.Parallel()
+	handler, sm := newTestHandlerWithNamespaces(t, true)
+	sm.storageCandidates = []string{"node-1", "node-2", "node-3"}
+	handler.namespacesExister = fakeNamespacesExister{byName: map[string]cmd.Namespace{
+		"customer1": {Name: "customer1", HomeNodes: []string{"node-2"}, State: cmd.NamespaceStateActive},
+	}}
+	sm.On("QueryCollectionsCount", mock.Anything).Return(0, nil).Maybe()
+
+	class := &models.Class{
+		Class:              "Movies",
+		Vectorizer:         "model1",
+		VectorIndexConfig:  map[string]interface{}{},
+		ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		ShardingConfig:     map[string]interface{}{"desiredCount": 3},
+	}
+	_, _, err := handler.AddClass(context.Background(), namespacedPrincipal("customer1"), class)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot have both shardingConfig and multiTenancyConfig")
 }
 
 // TestAddClass_AcceptsExplicitDesiredCountOne accepts the only compatible

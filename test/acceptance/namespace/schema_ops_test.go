@@ -354,13 +354,17 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 }
 
 // TestNamespaces_ShardsStatus exercises GET /v1/schema/<class>/shards on a
-// namespaced class. The single shard is pinned to home_node, so the
-// request hops the /indices/<ns>:<class>/shards/<sh>/status route whenever
-// home_node differs from the node the test client talks to.
+// namespaced class. The namespace is pinned to a node that is provably not
+// the test client's entry (helper.SetupClient binds to GetWeaviate(),
+// i.e. weaviate-0), so the shard always lives remote and the request hops
+// the /indices/<ns>:<class>/shards/<sh>/status route every run.
 func TestNamespaces_ShardsStatus(t *testing.T) {
-	const ns1 = "customer1"
+	const (
+		ns1      = "shardsstatusns"
+		homeNode = "weaviate-2"
+	)
 
-	helper.CreateNamespace(t, ns1, adminKey)
+	helper.CreateNamespaceWithHomeNode(t, ns1, homeNode, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns1, adminKey) })
 
 	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
@@ -387,7 +391,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 
 	t.Run("namespaced user gets shard by short name", func(t *testing.T) {
 		helper.CreateClassAuth(t, makeClass("Movies"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
 		shards, err := getShards(t, "Movies", user1Key)
 		require.NoError(t, err)
@@ -399,9 +403,9 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 
 	t.Run("global admin gets shard by qualified name", func(t *testing.T) {
 		helper.CreateClassAuth(t, makeClass("Shows"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Shows", adminKey)
 
-		shards, err := getShards(t, "customer1:Shows", adminKey)
+		shards, err := getShards(t, ns1+":Shows", adminKey)
 		require.NoError(t, err)
 		require.Len(t, shards, 1)
 		for _, s := range shards {
@@ -411,9 +415,9 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 
 	t.Run("namespaced user gets shard via alias", func(t *testing.T) {
 		helper.CreateClassAuth(t, makeClass("Concerts"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+		defer helper.DeleteClassAuth(t, ns1+":Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
 
 		// retryOnAliasLag absorbs the brief window where the alias entry has
 		// been applied on the leader but the follower has not yet replicated

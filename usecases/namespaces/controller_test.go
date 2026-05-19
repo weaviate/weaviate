@@ -303,9 +303,11 @@ func TestController_IsActiveAndListDeleting(t *testing.T) {
 }
 
 func TestController_RestoreNormalizesEmptyState(t *testing.T) {
-	// Snapshots without a State field must restore as active.
+	// Snapshots without a State field must restore as active. HomeNodes
+	// is required (see TestController_Restore/"missing HomeNodes...") so
+	// the snapshot still carries one.
 	c := newTestController(t)
-	snap := []byte(`{"customer1":{"Name":"customer1","Restrictions":{}}}`)
+	snap := []byte(`{"customer1":{"Name":"customer1","HomeNodes":["node-1"]}}`)
 	require.NoError(t, c.Restore(snap))
 
 	assert.True(t, c.IsActive("customer1"))
@@ -321,8 +323,8 @@ func TestController_RestoreNormalizesEmptyState(t *testing.T) {
 func TestController_RestoreRestoresKnownStates(t *testing.T) {
 	c := newTestController(t)
 	snap := []byte(`{
-		"customer1":{"Name":"customer1","State":"active","Restrictions":{}},
-		"customer2":{"Name":"customer2","State":"deleting","Restrictions":{}}
+		"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"active"},
+		"customer2":{"Name":"customer2","HomeNodes":["node-1"],"State":"deleting"}
 	}`)
 	require.NoError(t, c.Restore(snap))
 
@@ -333,7 +335,10 @@ func TestController_RestoreRestoresKnownStates(t *testing.T) {
 
 func TestController_RestoreRejectsUnknownState(t *testing.T) {
 	c := newTestController(t)
-	snap := []byte(`{"customer1":{"Name":"customer1","State":"suspended","Restrictions":{}}}`)
+	// HomeNodes is required by Restore; include it so this case actually
+	// exercises the unknown-state rejection rather than the
+	// missing-HomeNodes one.
+	snap := []byte(`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"suspended"}}`)
 	err := c.Restore(snap)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown state")
@@ -445,14 +450,28 @@ func TestController_Restore(t *testing.T) {
 		},
 		{
 			// Snapshots that carry unknown fields (e.g. a future `state`
-			// field on Namespace) must still restore cleanly.
+			// field on Namespace) must still restore cleanly. HomeNodes is
+			// required — see "missing HomeNodes" below.
 			name:      "unknown fields are tolerated",
-			snap:      []byte(`{"customer1":{"Name":"customer1","Restrictions":{},"FutureField":"ignored"}}`),
+			snap:      []byte(`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"FutureField":"ignored"}}`),
 			wantNames: []string{"customer1"},
 		},
 		{
 			name:    "malformed JSON returns an error",
 			snap:    []byte("not-json"),
+			wantErr: true,
+		},
+		{
+			// Pre-home_node snapshots have no migration path; rather than
+			// loading a broken entry that would fail at first placement
+			// attempt, Restore rejects up front.
+			name:    "missing HomeNodes is rejected",
+			snap:    []byte(`{"customer1":{"Name":"customer1","State":"active"}}`),
+			wantErr: true,
+		},
+		{
+			name:    "empty HomeNodes entry is rejected",
+			snap:    []byte(`{"customer1":{"Name":"customer1","HomeNodes":[""],"State":"active"}}`),
 			wantErr: true,
 		},
 	}

@@ -199,9 +199,17 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 		}
 	}
 
+	// Read State from the controller rather than hardcoding active: keeps
+	// the response correct if future state transitions broaden what Update
+	// can return into. Leave empty on read failure / concurrent delete.
+	var state string
+	if got, err := h.raft.GetNamespaces(name); err == nil && len(got) == 1 {
+		state = string(got[0].State)
+	}
 	return nsops.NewUpdateNamespaceOK().WithPayload(&models.Namespace{
 		Name:     name,
 		HomeNode: homeNode,
+		State:    state,
 	})
 }
 
