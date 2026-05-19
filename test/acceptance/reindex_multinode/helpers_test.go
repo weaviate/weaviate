@@ -163,15 +163,16 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 				continue
 			}
 			if task.Status == "FAILED" {
-				t.Fatalf("reindex task failed before reaching FINALIZING: %s", task.Error)
+				t.Fatalf("reindex task failed before reaching coordination phase: %s", task.Error)
 			}
-			if task.Status == "FINALIZING" || task.Status == "FINISHED" {
-				// FINISHED here means the FINALIZING window was so
-				// short we missed it — the rolling restart will
-				// already be too late. Return the observed status so
-				// the test caller can re-tune dataset size / poll
-				// cadence rather than silently passing on a stale
-				// repro.
+			// New two-phase barrier (per weaviate/0-weaviate-issues#225 design):
+			// PREPARING is the per-node PREP coordination phase; SWAPPING is
+			// the post-barrier per-node swap phase. FINISHED here means
+			// either window was so short we missed it — the rolling restart
+			// will already be too late. Return the observed status so the
+			// test caller can re-tune dataset size / poll cadence rather
+			// than silently passing on a stale repro.
+			if task.Status == "PREPARING" || task.Status == "SWAPPING" || task.Status == "FINISHED" {
 				observed = task.Status
 				return true
 			}

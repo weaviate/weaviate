@@ -109,6 +109,7 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS = 305;
     TYPE_DISTRIBUTED_TASK_MARK_FINALIZED = 306;
     TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK = 307;
+    TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK = 308;
   }
   Type type = 1;
   string class = 2;
@@ -223,6 +224,7 @@ message AddDistributedTaskRequest {
   int64 submitted_at_unix_millis = 5;
   repeated string unit_ids = 6;
   repeated UnitSpec unit_specs = 7;
+  bool needs_preparation_barrier = 8;
 }
 
 // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
@@ -288,7 +290,7 @@ message UpdateDistributedTaskUnitProgressRequest {
   int64 updated_at_unix_millis = 7;
 }
 
-// MarkTaskFinalizedRequest transitions a task from FINALIZING to
+// MarkTaskFinalizedRequest transitions a task from SWAPPING to
 // FINISHED. The scheduler issues this from OnTaskCompleted once
 // every post-task callback (per-node swap, cluster-wide schema flip)
 // has succeeded, so callers polling for FINISHED can trust the
@@ -304,10 +306,11 @@ message MarkTaskFinalizedRequest {
 }
 
 // RecordDistributedTaskPostCompletionAckRequest captures one node's
-// post-completion result for a task: i.e. did its OnGroupCompleted run
-// every local unit's swap/finalize phase to success? Emitted by every
-// node that has local units, after its OnGroupCompleted callbacks have
-// returned, before the cluster-wide MarkTaskFinalized commit lands.
+// SWAP-phase callback result (OnGroupCompleted for non-barrier tasks,
+// OnSwapRequested for barrier tasks) — i.e. did every local unit's
+// swap/finalize phase succeed? Emitted by every node that has local
+// units, after the SWAP callback returns, before the cluster-wide
+// MarkTaskFinalized commit lands.
 //
 // The scheduler gates MarkTaskFinalized on having an ack from every
 // node with local units in the task. If any ack reports success=false,
@@ -324,6 +327,16 @@ message MarkTaskFinalizedRequest {
 // cluster-wide schema flip commit while one replica's bucket pointer
 // never moved.
 message RecordDistributedTaskPostCompletionAckRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string node_id = 4;
+  bool success = 5;
+  string error = 6;
+  int64 acked_at_unix_millis = 7;
+}
+
+message RecordDistributedTaskPreparationCompleteAckRequest {
   string namespace = 1;
   string id = 2;
   uint64 version = 3;

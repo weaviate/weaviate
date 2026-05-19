@@ -789,7 +789,7 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 	defer func(started time.Time) {
 		logger = logger.WithField("took", time.Since(started))
 		if err != nil {
-			logger.WithError(err).Error("finished with error")
+			logger.Errorf("finished with error: %v", err)
 		} else {
 			logger.Info("finished")
 		}
@@ -1006,7 +1006,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Sha
 	defer func(started time.Time) {
 		logger = logger.WithField("took", time.Since(started))
 		if err != nil {
-			logger.WithError(err).Error("finished with error")
+			logger.Errorf("finished with error: %v", err)
 		} else {
 			logger.Info("finished")
 		}
@@ -1167,7 +1167,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	defer func(started time.Time) {
 		logger = logger.WithField("took", time.Since(started))
 		if err != nil {
-			logger.WithError(err).Error("finished with error")
+			logger.Errorf("finished with error: %v", err)
 		} else {
 			logger.Info("finished")
 		}
@@ -1832,7 +1832,7 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 ) {
 	concrete, err := unwrapShard(context.Background(), shard)
 	if err != nil {
-		logger.WithError(err).Warn("runtime swap: trim: failed to unwrap shard; skipping cleanup")
+		logger.Warnf("runtime swap: trim: failed to unwrap shard; skipping cleanup: %v", err)
 		return
 	}
 	lsmPath := concrete.pathLSM()
@@ -1856,7 +1856,7 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 	// bucket name. The current gen's ingest dir is intentionally kept.
 	entries, err := os.ReadDir(lsmPath)
 	if err != nil {
-		logger.WithError(err).Warn("runtime swap: trim: failed to read LSM dir; skipping cleanup")
+		logger.Warnf("runtime swap: trim: failed to read LSM dir; skipping cleanup: %v", err)
 	} else {
 		for _, propName := range props {
 			mainBucket := t.strategy.SourceBucketName(propName)
@@ -1898,7 +1898,7 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 	migEntries, err := os.ReadDir(migsDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.WithError(err).Warn("runtime swap: trim: failed to read .migrations dir; skipping cleanup")
+			logger.Warnf("runtime swap: trim: failed to read .migrations dir; skipping cleanup: %v", err)
 		}
 		return
 	}
@@ -1922,8 +1922,8 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 
 func (t *ShardReindexTaskGeneric) removeAllSafe(logger logrus.FieldLogger, path string) {
 	if err := os.RemoveAll(path); err != nil {
-		logger.WithField("path", path).WithError(err).
-			Warn("runtime swap: trim: failed to remove obsolete dir; next-restart finalize will sweep")
+		logger.WithField("path", path).
+			Warnf("runtime swap: trim: failed to remove obsolete dir; next-restart finalize will sweep: %v", err)
 	}
 }
 

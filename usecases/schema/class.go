@@ -524,14 +524,21 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // h.schemaManager.UpdateProperty directly) so the MutationGuard
 // applies to external mutations.
 //
-// Same replication contract as [UpdatePropertyInternal]: synchronously
-// awaits RAFT commit + local FSM apply before returning a nil error.
+// Returns only after the local FSM has applied the update. The reindex
+// provider's OnTaskCompleted clears the per-shard tokenization overlay
+// immediately after this returns; without the local-apply wait the
+// overlay would be cleared while this node's schema reader still has
+// the OLD tokenization, opening a query-side misalignment window
+// between local-apply and RAFT-commit on slow followers.
 func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
 	fields ...string,
 ) error {
 	setPropertyDefaults(prop)
-	_, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, prop, fields...)
-	return err
+	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, prop, fields...)
+	if err != nil {
+		return err
+	}
+	return h.schemaReader.WaitForUpdate(ctx, version)
 }
 
 func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {

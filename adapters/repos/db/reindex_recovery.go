@@ -57,40 +57,19 @@ type RecoveredReindex struct {
 }
 
 // DiscoverInFlightReindexTasks walks every shard's
-// <root>/<index>/<shard>/lsm/.migrations/<migrationDir>/ directory at
-// startup and reconstructs [ShardReindexTaskGeneric] instances for the
-// narrow recovery window where the reindex iteration is terminal but
-// the swap has not yet completed.
+// .migrations/<migrationDir>/ at startup and reconstructs
+// [ShardReindexTaskGeneric] instances for the recovery window where the
+// reindex iteration is terminal but the swap has not yet completed.
 //
-//   - The persisted recovery record (payload.mig) is written by
-//     [ReindexProvider.persistRecoveryRecord] before the first reindex
-//     iteration runs on a unit. It captures the typed task payload —
-//     migration type, target tokenization, bucket strategy, properties,
-//     UnitToShard mapping — plus the cluster-wide task descriptor. The
-//     sentinel files consulted alongside it are:
+// Reads payload.mig (the typed task payload persisted by
+// persistRecoveryRecord before the iteration ran) and consults the
+// sentinel files: started.mig (iteration started), reindexed.mig
+// (iteration terminal), merged.mig (PREP complete), swapped.mig
+// (in-memory swap complete), tidied.mig (swap fully tidied; no
+// recovery needed).
 //
-//     started.mig    — set by the reindex iteration on first run
-//     reindexed.mig  — set when iteration is terminal (per-shard); the
-//     unit transitions to COMPLETED in RAFT around
-//     the same time. If this is missing, the DTM
-//     scheduler will call StartTask post-restart and
-//     re-register callbacks itself, so recovery must
-//     NOT register a second instance.
-//     tidied.mig     — set after the runtime swap; the migration is
-//     fully done and only directory renames remain
-//     (handled by [FinalizeCompletedMigrations]).
-//
-//   - Per-shard task instances use selectedShardsByCollection scoped to
-//     exactly the shard whose directory the record was found in. That
-//     keeps callback registration / deregistration per-instance so the
-//     callbackDisableFuncs slice in one shard's task instance can never
-//     remove another shard's callback when [runtimeSwap] runs.
-//
-// Returns a flat slice; deduplication across migration directories that
-// belong to the same task (e.g. searchable + filterable for one
-// change-tokenization unit) is the caller's responsibility — usually
-// they want both registered with the reindexer and grouped under the
-// same (TaskDescriptor, UnitID) entry in ReindexProvider's cache.
+// Returns a flat slice; deduplication across sibling migration dirs
+// belonging to the same task is the caller's job.
 func DiscoverInFlightReindexTasks(
 	rootPath string,
 	logger logrus.FieldLogger,
@@ -153,8 +132,8 @@ func DiscoverInFlightReindexTasks(
 
 				tasks, err := buildRecoveryTasks(rec, shardName, generation, logger, schemaManager)
 				if err != nil {
-					logger.WithField("migrationDir", migDir).WithError(err).
-						Warn("reindex recovery: skipping migration; cannot build tasks")
+					logger.WithField("migrationDir", migDir).
+						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
 					continue
 				}
 				recovered = append(recovered, RecoveredReindex{
@@ -210,14 +189,14 @@ func loadReindexRecoveryRecord(migDir string, logger logrus.FieldLogger) (reinde
 	data, err := os.ReadFile(payloadPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.WithField("path", payloadPath).WithError(err).
-				Warn("reindex recovery: failed to read payload.mig")
+			logger.WithField("path", payloadPath).
+				Warnf("reindex recovery: failed to read payload.mig: %v", err)
 		}
 		return rec, false
 	}
 	if err := json.Unmarshal(data, &rec); err != nil {
-		logger.WithField("path", payloadPath).WithError(err).
-			Warn("reindex recovery: malformed payload.mig; skipping")
+		logger.WithField("path", payloadPath).
+			Warnf("reindex recovery: malformed payload.mig; skipping: %v", err)
 		return rec, false
 	}
 	return rec, true
@@ -424,7 +403,7 @@ func (r *shardReindexerV3RecoveryOnly) RunAfterLsmInit(ctx context.Context, shar
 	for _, t := range r.tasks {
 		if err := t.OnAfterLsmInit(ctx, shard); err != nil {
 			r.logger.WithField("task", t.Name()).WithField("shard", shard.Name()).
-				WithError(err).Error("reindex recovery: OnAfterLsmInit failed")
+				Errorf("reindex recovery: after-LSM-init failed: %v", err)
 		}
 	}
 	return nil

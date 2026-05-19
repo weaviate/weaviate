@@ -42,7 +42,7 @@ func TestOnGroupCompleted_TerminalStatusShortCircuit(t *testing.T) {
 		shortCircuit bool
 	}{
 		{distributedtask.TaskStatusStarted, false},
-		{distributedtask.TaskStatusFinalizing, false},
+		{distributedtask.TaskStatusSwapping, false},
 		{distributedtask.TaskStatusFinished, true},
 		{distributedtask.TaskStatusFailed, true},
 		{distributedtask.TaskStatusCancelled, true},
@@ -68,7 +68,7 @@ func TestOnGroupCompleted_TerminalStatusShortCircuit(t *testing.T) {
 				// loose check so the log message can evolve.
 				var sawSkip bool
 				for _, entry := range hook.AllEntries() {
-					if entry.Message == "reindex provider: OnGroupCompleted: skipping replay on past-terminal task" {
+					if entry.Message == "reindex provider: group-completion: skipping replay on past-terminal task" {
 						sawSkip = true
 						break
 					}
