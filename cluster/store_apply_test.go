@@ -250,12 +250,9 @@ func TestStore_Apply_CatchingUp(t *testing.T) {
 }
 
 func TestStore_Apply_ReloadDB(t *testing.T) {
-	// runFirstApplyTriggeringReload performs the shared phase-1 setup both
-	// sub-tests below need: a store seeded with lastAppliedIndexToDB=100,
-	// then an Apply at index 150 that should trigger the DB-reload path and
-	// reset lastAppliedIndexToDB to 0. Returns the harness so callers can
-	// either assert mock expectations (sub-test 1) or drive a second apply
-	// to verify the reload doesn't re-trigger (sub-test 2).
+	// runFirstApplyTriggeringReload: shared phase-1 setup. Seeds the store
+	// with lastAppliedIndexToDB=100, then applies at index 150 to trigger
+	// the DB-reload path (which resets lastAppliedIndexToDB to 0).
 	runFirstApplyTriggeringReload := func(t *testing.T) (MockStore, *raft.Log) {
 		t.Helper()
 		ms, log := setupApplyTest(t)
@@ -530,13 +527,8 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	return mockStore, log
 }
 
-// setupCascadeTestStore constructs a MockStore wired up for the DELETE_CLASS
-// cascade tests below. It builds the standard mock harness (metrics,
-// snapshotStore, mock expectations for indexer/parser/replicationFSM) and
-// returns the harness plus the ready-to-apply ADD_CLASS and DELETE_CLASS
-// raft.Logs for `className`. Callers can then either nil out the wired
-// distributed-task manager (NilCascadeIsSafe) or register a CollectionExtractor
-// and add tasks (CascadesToDistributedTasks) before driving the apply pair.
+// setupCascadeTestStore returns a MockStore plus ready-to-apply ADD_CLASS
+// and DELETE_CLASS logs for `className`, shared by the cascade tests below.
 func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Log, *raft.Log) {
 	t.Helper()
 	ms := NewMockStore(t, "Node-1", 0)
@@ -576,8 +568,7 @@ func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Lo
 	return &ms, addLog, deleteLog
 }
 
-// applyOrFail runs the given Apply log and t.Fatalf's if the result is not
-// a clean Response with nil Error. Test helper for the cascade tests below.
+// applyOrFail runs Apply and t.Fatalf's on non-Response or non-nil Error.
 func applyOrFail(t *testing.T, ms *MockStore, log *raft.Log, label string) {
 	t.Helper()
 	r, ok := ms.store.Apply(log).(Response)
@@ -586,37 +577,25 @@ func applyOrFail(t *testing.T, ms *MockStore, log *raft.Log, label string) {
 	}
 }
 
-// TestStore_Apply_DeleteClass_NilCascadeIsSafe verifies the nil-safe guard in
-// SchemaManager: if no distributed-task manager has been wired (bootstrap,
-// partial-harness tests), a DELETE_CLASS apply must still succeed without
-// panicking. QA Claude review flag on PR #11345 (nit 2): the production wiring
-// happens in NewFSM so the nil branch is hard to exercise end-to-end; this
-// test explicitly nils the field after MockStore is constructed and re-issues
-// the apply path.
+// TestStore_Apply_DeleteClass_NilCascadeIsSafe — DELETE_CLASS must not
+// panic when no distributed-task manager is wired (bootstrap / partial
+// harness shape).
 func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
 	ms, addLog, deleteLog := setupCascadeTestStore(t, "Bareback")
 
-	// Override the wired manager with nil — this is the shape a bootstrapping
-	// or harness-only node has before NewFSM runs the SetDistributedTaskManager
-	// line. The schema manager's DELETE_CLASS path must remain panic-free.
 	ms.store.schemaManager.SetDistributedTaskManager(nil)
 
 	applyOrFail(t, ms, addLog, "add-class")
 	applyOrFail(t, ms, deleteLog, "delete-class with nil cascade")
 }
 
-// TestStore_Apply_DeleteClass_CascadesToDistributedTasks verifies the
-// regression guarded by weaviate/0-weaviate-issues#231: when a class is
-// dropped via DELETE_CLASS, distributed-task records bound to that
-// class via a registered CollectionExtractor are removed alongside the
-// schema-level delete, so a subsequent CREATE_CLASS with the same name
-// does not inherit the prior incarnation's task status.
+// TestStore_Apply_DeleteClass_CascadesToDistributedTasks pins
+// weaviate/0-weaviate-issues#231: DELETE_CLASS removes distributed-task
+// records bound to the dropped class so a subsequent same-name
+// CREATE_CLASS does not inherit the prior incarnation's task status.
 func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 	ms, addLog, deleteLog := setupCascadeTestStore(t, "Foo")
 
-	// Register a collection extractor for the namespace that owns our
-	// fake tasks. JSON-encoded payload with a "collection" field is
-	// the same shape the production reindex provider will adopt.
 	ms.store.distributedTasksManager.RegisterCollectionExtractor(
 		"test-namespace",
 		func(payload []byte) (string, bool) {
@@ -630,14 +609,9 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 		},
 	)
 
-	// Add two tasks bound to "Foo" + one bound to "Bar" via Raft (so
-	// the same code path production uses lands them in the manager).
-	// Each goes through ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, whose
-	// SubCommand is JSON-encoded (see Manager.AddTask). Indexes are
-	// monotonic across the whole test (1=add-class, 2..4=add-task,
-	// 5=delete-class) because Store.Apply reads l.Index for Response.Version,
-	// lastAppliedIndex, metrics, and the catchingUp/schemaOnly decisions —
-	// non-monotonic indexes produce unrealistic FSM state in the test.
+	// Raft indexes must be monotonic across the whole test: 1=add-class,
+	// 2..4=add-task, 5=delete-class. Store.Apply reads l.Index for
+	// version/metrics/catchingUp checks.
 	addTaskAtIndex := func(t *testing.T, idx uint64, id string, collection string) {
 		t.Helper()
 		payloadBytes, err := json.Marshal(map[string]string{"collection": collection})
@@ -661,13 +635,12 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 		}
 	}
 
-	applyOrFail(t, ms, addLog, "add-class") // Index=1 from setupCascadeTestStore
+	applyOrFail(t, ms, addLog, "add-class")
 
 	addTaskAtIndex(t, 2, "foo-1", "Foo")
 	addTaskAtIndex(t, 3, "foo-2", "Foo")
 	addTaskAtIndex(t, 4, "bar-1", "Bar")
 
-	// Sanity check pre-delete: three tasks should be in the manager.
 	preTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
 	if err != nil {
 		t.Fatalf("list pre: %v", err)
@@ -676,10 +649,7 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 		t.Fatalf("pre-delete task count: got %d want %d", got, want)
 	}
 
-	// Override the default deleteLog.Index (2 from setupCascadeTestStore) so
-	// the full sequence is monotonic: 1, 2, 3, 4, 5.
-	deleteLog.Index = 5
-	// Apply DELETE_CLASS for "Foo" and verify the cascade fired.
+	deleteLog.Index = 5 // keep the index sequence monotonic
 	applyOrFail(t, ms, deleteLog, "delete-class")
 
 	postTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
@@ -687,7 +657,6 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 		t.Fatalf("list post: %v", err)
 	}
 
-	// Both Foo tasks should be gone; bar-1 should survive untouched.
 	survivors := make([]string, 0)
 	for _, ts := range postTasks["test-namespace"] {
 		survivors = append(survivors, ts.ID)
