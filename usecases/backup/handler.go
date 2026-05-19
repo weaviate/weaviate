@@ -144,11 +144,9 @@ func (m *Handler) Shutdown() {
 
 // Drain blocks until participant goroutines exit or the package-internal
 // timeout elapses. Call after Shutdown.
-func (m *Handler) Drain() { m.Wait(_ShutdownDrainTimeout) }
+func (m *Handler) Drain() { m.wait(_ShutdownDrainTimeout) }
 
-// Wait blocks until participant goroutines exit or the timeout elapses. Prefer
-// Drain in production; Wait exists for tests that need a smaller timeout.
-func (m *Handler) Wait(timeout time.Duration) {
+func (m *Handler) wait(timeout time.Duration) {
 	select {
 	case <-m.drained:
 	case <-time.After(timeout):

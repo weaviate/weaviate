@@ -117,11 +117,9 @@ func (s *Scheduler) Shutdown() {
 
 // Drain blocks until the shutdown drain completes or the package-internal
 // timeout elapses. Call after Shutdown.
-func (s *Scheduler) Drain() { s.Wait(_ShutdownDrainTimeout) }
+func (s *Scheduler) Drain() { s.wait(_ShutdownDrainTimeout) }
 
-// Wait blocks until the drain completes or the timeout elapses. Prefer Drain
-// in production; Wait exists for tests that need a smaller timeout.
-func (s *Scheduler) Wait(timeout time.Duration) {
+func (s *Scheduler) wait(timeout time.Duration) {
 	select {
 	case <-s.drained:
 	case <-time.After(timeout):
