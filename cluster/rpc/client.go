@@ -120,7 +120,7 @@ type Client struct {
 	// Cached gRPC ClientConn per peer RAFT address — the
 	// WaitForAppliedIndex fan-out hits every peer, so dial-per-call would
 	// dominate cost.
-	peerConnsMu sync.Mutex
+	peerConnsMu sync.RWMutex
 	peerConns   map[string]*grpc.ClientConn
 
 	// sentryEnabled will configure the RPC client to set spans and captures traces using sentry SDK
@@ -265,10 +265,14 @@ func (cl *Client) Close() {
 
 // getPeerConn is keyed per peer so peer dials don't serialise.
 func (cl *Client) getPeerConn(peerRaftAddr string) (*grpc.ClientConn, error) {
-	cl.peerConnsMu.Lock()
-	defer cl.peerConnsMu.Unlock()
-
-	if conn, ok := cl.peerConns[peerRaftAddr]; ok && conn != nil {
+	var conn *grpc.ClientConn
+	var ok bool
+	func() {
+		cl.peerConnsMu.RLock()
+		defer cl.peerConnsMu.RUnlock()
+		conn, ok = cl.peerConns[peerRaftAddr]
+	}()
+	if ok && conn != nil {
 		return conn, nil
 	}
 
@@ -287,11 +291,23 @@ func (cl *Client) getPeerConn(peerRaftAddr string) (*grpc.ClientConn, error) {
 		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
 	}
 
-	conn, err := grpc.NewClient(addr, options...)
+	conn, err = grpc.NewClient(addr, options...)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 
+	cl.peerConnsMu.Lock()
+	defer cl.peerConnsMu.Unlock()
+	if existing, exists := cl.peerConns[peerRaftAddr]; exists && existing != nil {
+		// Another goroutine beat us to it, so close the connection we just created and use the existing one.
+		if err := conn.Close(); err != nil {
+			cl.logger.WithFields(logrus.Fields{
+				"error":     err,
+				"peer_addr": peerRaftAddr,
+			}).Warn("error closing redundant gRPC connection")
+		}
+		return existing, nil
+	}
 	cl.peerConns[peerRaftAddr] = conn
 	return conn, nil
 }
