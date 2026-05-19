@@ -257,10 +257,10 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "UpdateMe", Description: "v1"}, user1Key)
 		defer helper.DeleteClassAuth(t, "customer1:UpdateMe", adminKey)
 
-		// GET returns the qualified class; modify the description and PUT
-		// with the short name in the path.
-		got := helper.GetClassAuth(t, "customer1:UpdateMe", adminKey)
-		require.Equal(t, "customer1:UpdateMe", got.Class)
+		// GET as the namespaced caller returns the stripped (short) class
+		// name; round-trip the same short name through both URL and body.
+		got := helper.GetClassAuth(t, "UpdateMe", user1Key)
+		require.Equal(t, "UpdateMe", got.Class)
 		got.Description = "v2"
 
 		helper.UpdateClassAuth(t, "UpdateMe", got, user1Key)
@@ -277,7 +277,9 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		defer helper.DeleteClassAuth(t, "customer2:SharedUpdate", adminKey)
 
 		// user1's short-name update must only touch customer1:SharedUpdate.
-		toUpdate := helper.GetClassAuth(t, "customer1:SharedUpdate", adminKey)
+		// GET as the namespaced caller so the round-tripped body carries
+		// the stripped short class name.
+		toUpdate := helper.GetClassAuth(t, "SharedUpdate", user1Key)
 		toUpdate.Description = "v2"
 		helper.UpdateClassAuth(t, "SharedUpdate", toUpdate, user1Key)
 
