@@ -30,8 +30,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-var errHandlerShuttingDown = errors.New("node is shutting down, backup/restore not accepted")
-
 // classifyCanCommitErr maps a free-form canCommit error to a
 // [CanCommitErrorKind]. nil err returns the empty kind so callers can keep
 // using empty-string semantics when nothing went wrong.
@@ -329,7 +327,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	m.shutdownMu.RLock()
 	defer m.shutdownMu.RUnlock()
 	if m.closed {
-		ret.Err = errHandlerShuttingDown.Error()
+		ret.Err = errShuttingDown.Error()
 		return ret
 	}
 
