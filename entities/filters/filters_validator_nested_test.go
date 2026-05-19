@@ -386,6 +386,26 @@ func TestValidateNestedIsNull(t *testing.T) {
 			propName: "nested.missing",
 			wantErr:  `"missing" not found`,
 		},
+		// path tries to descend past a scalar leaf — intermediate must be
+		// object or object[]. IsNull does not relax the navigation checks.
+		{
+			name:     "path past scalar leaf rejected",
+			propName: "nested.name.foo",
+			wantErr:  `sub-property "name" must be object or object[]`,
+		},
+		// [N] on a non-array sub-property is rejected even under IsNull.
+		{
+			name:     "[N] on non-array sub-property rejected",
+			propName: "nested.name[0]",
+			wantErr:  `sub-property "name" is of type "text" — [N] indexing requires an array type`,
+		},
+		// [N] on a non-array root is rejected even under IsNull (nested is
+		// single OBJECT, not OBJECT_ARRAY).
+		{
+			name:     "[N] on non-array root rejected",
+			propName: "nested[0]",
+			wantErr:  `property "nested" is of type "object" — [N] indexing requires an array type`,
+		},
 	}
 
 	for _, tt := range tests {

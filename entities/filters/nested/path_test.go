@@ -15,6 +15,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func TestParseSegmentIndex(t *testing.T) {
@@ -176,4 +180,157 @@ func TestRootPropName(t *testing.T) {
 			assert.Equal(t, tt.want, RootPropName(tt.path))
 		})
 	}
+}
+
+// testSchemaClass builds a class with a representative nested schema for
+// ResolveLeaf tests:
+//
+//	carsCollection {
+//	    cars       object[]    // root array
+//	      .make    text        // scalar leaf
+//	      .tires   object[]    // intermediate array
+//	        .width int         // deep scalar leaf
+//	        .brand text
+//	    country    object      // root single-object
+//	      .name    text        // scalar leaf
+//	      .tags    text[]      // scalar array leaf
+//	      .garages object[]    // intermediate array under single-object root
+//	        .city  text
+//	}
+func testSchemaClass() *models.Class {
+	tiresProps := []*models.NestedProperty{
+		{Name: "width", DataType: schema.DataTypeInt.PropString()},
+		{Name: "brand", DataType: schema.DataTypeText.PropString()},
+	}
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString()},
+		{Name: "tires", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: tiresProps},
+	}
+	garagesProps := []*models.NestedProperty{
+		{Name: "city", DataType: schema.DataTypeText.PropString()},
+	}
+	countryProps := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString()},
+		{Name: "tags", DataType: schema.DataTypeTextArray.PropString()},
+		{Name: "garages", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: garagesProps},
+	}
+	return &models.Class{
+		Class: "TestClass",
+		Properties: []*models.Property{
+			{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: countryProps},
+		},
+	}
+}
+
+func TestResolveLeaf(t *testing.T) {
+	class := testSchemaClass()
+
+	t.Run("happy paths return the expected leaf", func(t *testing.T) {
+		cases := []struct {
+			path     string
+			leafName string
+			leafDT   schema.DataType
+		}{
+			{"cars.make", "make", schema.DataTypeText},
+			{"cars[0].make", "make", schema.DataTypeText},
+			{"cars.tires.width", "width", schema.DataTypeInt},
+			{"cars[0].tires[1].width", "width", schema.DataTypeInt},
+			{"country.name", "name", schema.DataTypeText},
+			{"country.tags", "tags", schema.DataTypeTextArray},
+			{"country.garages.city", "city", schema.DataTypeText},
+			// Object-typed leaves are returned without error — the rejection
+			// rule for non-IsNull filters lives in the caller, not here.
+			{"cars.tires", "tires", schema.DataTypeObjectArray},
+			{"country.garages", "garages", schema.DataTypeObjectArray},
+		}
+		for _, tc := range cases {
+			t.Run(tc.path, func(t *testing.T) {
+				leaf, err := ResolveLeaf(class, tc.path)
+				require.NoError(t, err)
+				require.NotNil(t, leaf)
+				assert.Equal(t, tc.leafName, leaf.Name)
+				assert.Equal(t, string(tc.leafDT), leaf.DataType[0])
+			})
+		}
+	})
+
+	t.Run("root property does not exist on the class", func(t *testing.T) {
+		_, err := ResolveLeaf(class, "missingroot.foo")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "missingroot")
+	})
+
+	t.Run("path has no sub-property segments", func(t *testing.T) {
+		_, err := ResolveLeaf(class, "cars")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no sub-property segments")
+	})
+
+	t.Run("sub-property not found", func(t *testing.T) {
+		_, err := ResolveLeaf(class, "cars.nonexistent")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `nested path "cars.nonexistent"`)
+		assert.Contains(t, err.Error(), `sub-property "nonexistent" not found`)
+	})
+
+	t.Run("path tries to descend past a scalar leaf", func(t *testing.T) {
+		_, err := ResolveLeaf(class, "cars.make.foo")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `nested path "cars.make.foo"`)
+		assert.Contains(t, err.Error(), `sub-property "make" must be object or object[]`)
+	})
+
+	t.Run("[N] on root requires array type", func(t *testing.T) {
+		// country is a single OBJECT, not OBJECT_ARRAY.
+		_, err := ResolveLeaf(class, "country[0].name")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `property "country"`)
+		assert.Contains(t, err.Error(), "[N] indexing requires an array type")
+	})
+
+	t.Run("[N] on intermediate sub-property requires array type", func(t *testing.T) {
+		// country.name is text — [N] not valid.
+		_, err := ResolveLeaf(class, "country.name[0]")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `sub-property "name"`)
+		assert.Contains(t, err.Error(), "[N] indexing requires an array type")
+	})
+
+	t.Run("[N] on intermediate object[] is valid", func(t *testing.T) {
+		leaf, err := ResolveLeaf(class, "country.garages[0].city")
+		require.NoError(t, err)
+		assert.Equal(t, "city", leaf.Name)
+	})
+}
+
+func TestResolveLeafFromRoot(t *testing.T) {
+	class := testSchemaClass()
+	carsProp := class.Properties[0]    // cars
+	countryProp := class.Properties[1] // country
+
+	t.Run("uses the supplied root prop without re-looking-up", func(t *testing.T) {
+		leaf, err := ResolveLeafFromRoot(carsProp, "cars.make")
+		require.NoError(t, err)
+		assert.Equal(t, "make", leaf.Name)
+	})
+
+	t.Run("same path-shape checks apply", func(t *testing.T) {
+		_, err := ResolveLeafFromRoot(carsProp, "cars.make.foo")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must be object or object[]")
+	})
+
+	t.Run("[N] on non-array root reported via supplied root prop", func(t *testing.T) {
+		_, err := ResolveLeafFromRoot(countryProp, "country[0].name")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `property "country"`)
+		assert.Contains(t, err.Error(), "[N] indexing requires an array type")
+	})
+
+	t.Run("path with no sub-property segments", func(t *testing.T) {
+		_, err := ResolveLeafFromRoot(carsProp, "cars")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no sub-property segments")
+	})
 }

@@ -35,7 +35,7 @@ func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 		return s.buildNestedIsNullPair(filter, prop.Name, cleanRelPath, arrayIndices, class)
 	}
 
-	leaf, err := findNestedLeaf(cleanRelSegs, prop.NestedProperties)
+	leaf, err := filnested.FindLeaf(cleanRelSegs, prop.NestedProperties)
 	if err != nil {
 		return nil, fmt.Errorf("nested path %q: %w", path, err)
 	}
@@ -51,22 +51,6 @@ func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 	}
 
 	return s.buildNestedFilterPair(filter, prop.Name, path, cleanRelPath, arrayIndices, leaf, class)
-}
-
-// findNestedLeaf walks segments through nestedProps to locate the leaf
-// NestedProperty. Returns an error if any segment is not found.
-func findNestedLeaf(segments []string, props []*models.NestedProperty) (*models.NestedProperty, error) {
-	for i, seg := range segments {
-		found := filnested.FindNestedProp(props, seg)
-		if found == nil {
-			return nil, fmt.Errorf("sub-property %q not found", seg)
-		}
-		if i == len(segments)-1 {
-			return found, nil
-		}
-		props = found.NestedProperties
-	}
-	return nil, fmt.Errorf("empty path")
 }
 
 // buildNestedFilterPair encodes the filter value for the given leaf type and
