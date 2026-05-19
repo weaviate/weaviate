@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -590,7 +591,7 @@ func (ac *additionalCheck) isAdditional(parentName, name string) bool {
 			name == "distance" || name == "id" || name == "vector" || name == "vectors" ||
 			name == "creationTimeUnix" || name == "lastUpdateTimeUnix" ||
 			name == "score" || name == "explainScore" || name == "isConsistent" ||
-			name == "group" || name == "queryProfile" {
+			name == "group" || name == "queryProfile" || name == "highlight" {
 			return true
 		}
 		if ac.isModuleAdditional(name) {
@@ -695,6 +696,10 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						}
 						if additionalProperty == "explainScore" {
 							additionalProps.ExplainScore = true
+							continue
+						}
+						if additionalProperty == "highlight" {
+							additionalProps.Highlight = extractHighlightParams(s.Arguments)
 							continue
 						}
 						if additionalProperty == "queryProfile" {
@@ -817,6 +822,69 @@ func getModuleParams(moduleParams map[string]interface{}) map[string]interface{}
 		return map[string]interface{}{}
 	}
 	return moduleParams
+}
+
+func extractHighlightParams(args []*ast.Argument) *additional.HighlightProperties {
+	out := additional.DefaultHighlightProperties()
+
+	for _, arg := range args {
+		switch arg.Name.Value {
+		case "properties":
+			out.Properties = extractHighlightStringList(arg.Value)
+		case "fragmentCount":
+			if value, ok := extractHighlightInt(arg.Value); ok && value > 0 {
+				out.FragmentCount = value
+			}
+		case "fragmentSize":
+			if value, ok := extractHighlightInt(arg.Value); ok && value > 0 {
+				out.FragmentSize = value
+			}
+		case "preTag":
+			if value, ok := extractHighlightString(arg.Value); ok {
+				out.PreTag = value
+			}
+		case "postTag":
+			if value, ok := extractHighlightString(arg.Value); ok {
+				out.PostTag = value
+			}
+		}
+	}
+
+	return out
+}
+
+func extractHighlightString(value ast.Value) (string, bool) {
+	if value, ok := value.(*ast.StringValue); ok {
+		return value.Value, true
+	}
+	return "", false
+}
+
+func extractHighlightInt(value ast.Value) (int, bool) {
+	if value, ok := value.(*ast.IntValue); ok {
+		parsed, err := strconv.Atoi(value.Value)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+func extractHighlightStringList(value ast.Value) []string {
+	switch value := value.(type) {
+	case *ast.StringValue:
+		return []string{value.Value}
+	case *ast.ListValue:
+		out := make([]string, 0, len(value.Values))
+		for _, item := range value.Values {
+			if item, ok := item.(*ast.StringValue); ok {
+				out = append(out, item.Value)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func extractInlineFragment(class string, fragment *ast.InlineFragment,

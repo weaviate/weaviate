@@ -434,6 +434,44 @@ func TestExtractAdditionalFields(t *testing.T) {
 			},
 		},
 		{
+			name:  "with _additional highlight",
+			query: `{ Get { SomeAction { _additional { highlight(properties: ["description"], fragmentCount: 2, fragmentSize: 40, preTag: "<mark>", postTag: "</mark>") { property fragments } } } } }`,
+			expectedParams: dto.GetParams{
+				ClassName: "SomeAction",
+				AdditionalProperties: additional.Properties{
+					Highlight: &additional.HighlightProperties{
+						Properties:    []string{"description"},
+						FragmentCount: 2,
+						FragmentSize:  40,
+						PreTag:        "<mark>",
+						PostTag:       "</mark>",
+					},
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_additional": map[string]interface{}{
+						"highlight": []additional.Highlight{
+							{
+								Property:  "description",
+								Fragments: []string{"a <mark>keyword</mark> fragment"},
+							},
+						},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_additional": map[string]interface{}{
+					"highlight": []interface{}{
+						map[string]interface{}{
+							"property":  "description",
+							"fragments": []interface{}{"a <mark>keyword</mark> fragment"},
+						},
+					},
+				},
+			},
+		},
+		{
 			name:  "with _additional creationTimeUnix",
 			query: "{ Get { SomeAction { _additional { creationTimeUnix } } } }",
 			expectedParams: dto.GetParams{

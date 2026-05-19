@@ -557,6 +557,10 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			additionalProperties["explainScore"] = res.ExplainScore
 		}
 
+		if params.AdditionalProperties.Highlight != nil {
+			additionalProperties["highlight"] = e.extractHighlights(res.Schema, params)
+		}
+
 		if params.AdditionalProperties.Vector {
 			additionalProperties["vector"] = res.Vector
 		}

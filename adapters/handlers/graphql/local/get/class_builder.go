@@ -187,6 +187,7 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
+	additionalProperties["highlight"] = b.additionalHighlightField(class)
 	additionalProperties["queryProfile"] = b.additionalQueryProfileField()
 	additionalProperties["group"] = b.additionalGroupField(classProperties, class)
 	if replicationEnabled(class) {
@@ -282,6 +283,40 @@ func (b *classBuilder) additionalScoreField() *graphql.Field {
 func (b *classBuilder) additionalExplainScoreField() *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.String,
+	}
+}
+
+func (b *classBuilder) additionalHighlightField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalHighlight", class.Class),
+			Fields: graphql.Fields{
+				"property":  &graphql.Field{Type: graphql.String},
+				"fragments": &graphql.Field{Type: graphql.NewList(graphql.String)},
+			},
+		})),
+		Args: graphql.FieldConfigArgument{
+			"properties": &graphql.ArgumentConfig{
+				Description: "The properties to highlight. Defaults to the BM25 or hybrid search properties.",
+				Type:        graphql.NewList(graphql.String),
+			},
+			"fragmentCount": &graphql.ArgumentConfig{
+				Description: "The maximum number of fragments to return per property.",
+				Type:        graphql.Int,
+			},
+			"fragmentSize": &graphql.ArgumentConfig{
+				Description: "The maximum fragment size in characters.",
+				Type:        graphql.Int,
+			},
+			"preTag": &graphql.ArgumentConfig{
+				Description: "The tag inserted before a highlighted match.",
+				Type:        graphql.String,
+			},
+			"postTag": &graphql.ArgumentConfig{
+				Description: "The tag inserted after a highlighted match.",
+				Type:        graphql.String,
+			},
+		},
 	}
 }
 
