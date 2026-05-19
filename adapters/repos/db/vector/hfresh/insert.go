@@ -202,7 +202,7 @@ func (h *HFresh) append(ctx context.Context, vector Vector, centroidID uint64, r
 	}
 
 	// update the posting membership and size caches
-	_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID(), vector.Version())
+	_, err = h.PostingMap.FastAddVectorID(ctx, centroidID, vector.ID())
 	if err != nil {
 		h.postingLocks.Unlock(centroidID)
 		return false, err

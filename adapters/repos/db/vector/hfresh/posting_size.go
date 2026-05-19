@@ -38,19 +38,6 @@ func NewPostingSizes(bucket *lsmkv.Bucket, metrics *Metrics) *PostingSizes {
 	}
 }
 
-// Increment increases the size of the posting by 1 and returns the new size.
-// It also persists the new size in the underlying store.
-func (p *PostingSizes) Increment(ctx context.Context, postingID uint64) (uint32, error) {
-	newSize := p.FastIncrement(postingID)
-
-	err := p.store.Set(ctx, postingID, newSize)
-	if err != nil {
-		return 0, errors.Wrapf(err, "failed to set size for posting %d", postingID)
-	}
-
-	return newSize, nil
-}
-
 // FastIncrement increases the size of the posting in memory and returns the new size.
 // The store is updated asynchronously by an analyze, split, or merge operation.
 func (p *PostingSizes) FastIncrement(postingID uint64) uint32 {
