@@ -25,9 +25,10 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// recordingAuthorizer captures the resources passed to Authorize so the test
-// can prove that authz runs against the post-resolution (qualified) class
-// name. Always allows access.
+// recordingAuthorizer captures the resources and verbs passed to Authorize.
+// Always allows access. Used to prove that GetTenants does not gate on
+// CollectionsData (which would be the wrong permission) — only the
+// tool-level mcp domain check.
 type recordingAuthorizer struct {
 	gotResources []string
 }
@@ -46,7 +47,7 @@ func (r *recordingAuthorizer) FilterAuthorizedResources(ctx context.Context, pri
 }
 
 // recordingTenantsReader captures the class name passed to GetConsistentTenants
-// so the test can prove resolution flowed through.
+// so the test can assert the user-supplied name flows through unmodified.
 type recordingTenantsReader struct {
 	gotClass string
 }
@@ -60,65 +61,31 @@ func (s *recordingTenantsReader) GetConsistentTenants(ctx context.Context, princ
 	return nil, nil
 }
 
-// TestGetTenants_NamespaceResolution proves that authz and the downstream
-// schemaReader call both see the resolved (qualified) class name, not the
-// raw user input. The pre-fix behaviour authorized against the unqualified
-// name and was denied for narrowed namespaced principals on NS-enabled
-// clusters; this test locks the fix in.
-func TestGetTenants_NamespaceResolution(t *testing.T) {
-	aliases := map[string]string{
-		"customer1:Films": "customer1:Movies",
-	}
-
+// TestGetTenants_PassThrough proves the MCP handler delegates to
+// GetConsistentTenants without rewriting the class name and without an
+// extra CollectionsData (read_data) authz gate. Namespace qualification,
+// alias resolution, and per-tenant ShardsMetadata RBAC happen inside
+// GetConsistentTenants; the acceptance test covers the end-to-end behaviour.
+func TestGetTenants_PassThrough(t *testing.T) {
 	cases := []struct {
-		name              string
-		principal         *models.Principal
-		namespacesEnabled bool
-		args              GetTenantsArgs
-		wantErrSubstr     string
-		wantClass         string
+		name      string
+		principal *models.Principal
+		args      GetTenantsArgs
 	}{
 		{
-			name:              "namespaced principal, short name resolves",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              GetTenantsArgs{CollectionName: "Movies"},
-			wantClass:         "customer1:Movies",
+			name:      "namespaced principal, short input",
+			principal: &models.Principal{Namespace: "customer1"},
+			args:      GetTenantsArgs{CollectionName: "Movies"},
 		},
 		{
-			name:              "namespaced principal, alias resolves to qualified target",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              GetTenantsArgs{CollectionName: "Films"},
-			wantClass:         "customer1:Movies",
+			name:      "namespaced principal, alias input",
+			principal: &models.Principal{Namespace: "customer1"},
+			args:      GetTenantsArgs{CollectionName: "Films"},
 		},
 		{
-			name:              "namespaced principal, own-namespace qualified is rejected",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              GetTenantsArgs{CollectionName: "customer1:Movies"},
-			wantErrSubstr:     "is not a valid class name",
-		},
-		{
-			name:              "namespaced principal, foreign-namespace qualified is rejected",
-			principal:         &models.Principal{Namespace: "customer1"},
-			namespacesEnabled: true,
-			args:              GetTenantsArgs{CollectionName: "customer2:Movies"},
-			wantErrSubstr:     "is not a valid class name",
-		},
-		{
-			name:              "global principal, qualified name passes through",
-			principal:         &models.Principal{},
-			namespacesEnabled: true,
-			args:              GetTenantsArgs{CollectionName: "customer1:Movies"},
-			wantClass:         "customer1:Movies",
-		},
-		{
-			name:              "namespaces disabled, name flows through untouched",
-			principal:         nil,
-			namespacesEnabled: false,
-			args:              GetTenantsArgs{CollectionName: "Global"},
-			wantClass:         "Global",
+			name:      "global principal, qualified input",
+			principal: &models.Principal{},
+			args:      GetTenantsArgs{CollectionName: "customer1:Movies"},
 		},
 	}
 
@@ -134,38 +101,24 @@ func TestGetTenants_NamespaceResolution(t *testing.T) {
 			r := NewWeaviateReader(
 				authHandler,
 				reader,
-				stubSchemaManager{aliases: aliases},
-				tc.namespacesEnabled,
+				stubSchemaManager{},
+				true,
 				stubObjectsManager{},
 				logger,
 			)
 
 			_, err := r.GetTenants(context.Background(), bearerReq(), tc.args)
-
-			if tc.wantErrSubstr != "" {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.wantErrSubstr)
-				return
-			}
 			require.NoError(t, err)
 
-			assert.Equal(t, tc.wantClass, reader.gotClass,
-				"GetConsistentTenants must receive the resolved class name")
+			assert.Equal(t, tc.args.CollectionName, reader.gotClass,
+				"the raw user-supplied class name must flow through to GetConsistentTenants")
 
-			// The collection-data Authorize call must see the resolved class
-			// in some resource path. Search rather than indexing into a
-			// specific call so the test doesn't bind to the exact verb/order.
-			require.NotEmpty(t, authz.gotResources)
-			found := false
+			// Only the mcp-domain check should run; no CollectionsData
+			// (data/collections/.../shards/.../objects/...) resource.
 			for _, res := range authz.gotResources {
-				if strings.Contains(res, tc.wantClass) {
-					found = true
-					break
-				}
+				assert.False(t, strings.Contains(res, "data/collections/"),
+					"GetTenants must not gate on CollectionsData; got %q", res)
 			}
-			assert.True(t, found,
-				"authorizer must see the resolved class %q in some resource path; got %v",
-				tc.wantClass, authz.gotResources)
 		})
 	}
 }

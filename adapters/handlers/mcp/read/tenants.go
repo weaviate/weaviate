@@ -18,31 +18,24 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (r *WeaviateReader) GetTenants(ctx context.Context, req mcp.CallToolRequest, args GetTenantsArgs) (*GetTenantsResp, error) {
-	// Authorize the request: first check MCP-level permission, then collection-level data permission
-	principal, err := r.Authorize(ctx, req, authorization.READ)
-	if err != nil {
-		return nil, err
-	}
-
-	resolved, _, err := namespacing.Resolve(principal, r.schemaManager, r.namespacesEnabled, args.CollectionName)
-	if err != nil {
-		return nil, err
-	}
-	args.CollectionName = resolved
-
 	log := r.logger.WithFields(logrus.Fields{
 		"tool":       "weaviate-tenants-list",
 		"collection": args.CollectionName,
 	})
 	log.Debug("listing tenants")
 
-	if err := r.AuthorizeCollectionData(ctx, principal, authorization.READ, args.CollectionName, ""); err != nil {
+	// Tool-level authz only. GetConsistentTenants resolves the class name and
+	// applies per-tenant RBAC via its ShardsMetadata filter, so an additional
+	// CollectionsData pre-check here would both double-resolve the name and
+	// gate on the wrong permission (read_data vs. read_tenants).
+	principal, err := r.Authorize(ctx, req, authorization.READ)
+	if err != nil {
 		return nil, err
 	}
+
 	tenants, err := r.schemaReader.GetConsistentTenants(ctx, principal, args.CollectionName, true, nil)
 	if err != nil {
 		log.Warnf("failed to get tenants: %v", err)
