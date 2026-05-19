@@ -471,6 +471,69 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	return err
 }
 
+// UpdatePropertyInternal updates a single property via the UpdateProperty RAFT
+// command, bypassing the property immutability validation that UpdateClass
+// enforces. This is intended for internal migrations that need to change
+// property-level indexing fields (e.g., IndexRangeFilters) after building new
+// indexes at runtime.
+//
+// Replication contract: this call synchronously awaits RAFT replication and
+// local FSM apply before returning a nil error. The path is:
+//
+//	h.schemaManager.UpdateProperty (cluster/raft_apply_endpoints.go:113)
+//	  → Raft.Execute (cluster/raft_apply_endpoints.go:296)
+//	      // leader:   Store.Execute (cluster/store_apply.go:27) which calls
+//	      //           raft.Apply(...) and blocks on fut.Error() + fut.Response()
+//	      // follower: cl.Apply (cluster/rpc/client.go:194) forwards to the
+//	      //           leader via gRPC and waits for the leader's response
+//
+// hashicorp/raft's ApplyFuture resolves only after the entry has been
+// committed (quorum-acknowledged) AND applied to the local FSM. A nil error
+// therefore implies the update is durable across a leader failover. Callers
+// such as reindex strategies' OnMigrationComplete rely on this guarantee to
+// flip schema flags (e.g. IndexFilterable=true) after a bucket swap without
+// risking a silent loss of the schema change.
+// UpdatePropertyInternal updates a single property via the UpdateProperty RAFT
+// path. When `fields` is non-empty, the FSM merges ONLY the listed property
+// fields onto the existing property; the rest are kept from the current class
+// state. This closes the TOCTOU race where two reindex strategies that touch
+// disjoint fields could clobber each other on RAFT apply. An empty `fields`
+// preserves the legacy "replace every field" semantics, matching the public
+// schema-update path.
+//
+// See cluster/proto/api.PropertyField* for the field tag constants.
+func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, prop *models.Property,
+	fields ...string,
+) error {
+	setPropertyDefaults(prop)
+	_, err := h.schemaManager.UpdateProperty(ctx, className, prop, fields...)
+	return err
+}
+
+// UpdatePropertyInternalFromMigration is the migration-completion
+// variant of [UpdatePropertyInternal]. It routes the RAFT command
+// through [SchemaManager.UpdatePropertyFromMigration], which sets the
+// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
+// FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
+// for this single update.
+//
+// Used by the reindex provider's
+// [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
+// OnTaskCompleted dispatch. Public-API callers (REST / gRPC handlers)
+// must continue to call [UpdatePropertyInternal] (or
+// h.schemaManager.UpdateProperty directly) so the MutationGuard
+// applies to external mutations.
+//
+// Same replication contract as [UpdatePropertyInternal]: synchronously
+// awaits RAFT commit + local FSM apply before returning a nil error.
+func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
+	fields ...string,
+) error {
+	setPropertyDefaults(prop)
+	_, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, prop, fields...)
+	return err
+}
+
 func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	if class.ShardingConfig != nil && schema.MultiTenancyEnabled(class) {
 		return fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
@@ -806,8 +869,13 @@ func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
 		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
 	}
-	// force the default in case it was not set, as empty bool == false
-	class.InvertedIndexConfig.UsingBlockMaxWAND = config.DefaultUsingBlockMaxWAND
+	// Set the default only when not already true. This ensures that:
+	//  - New classes get the default (config.DefaultUsingBlockMaxWAND).
+	//  - Migrated classes that set UsingBlockMaxWAND=true explicitly are
+	//    not reverted back to false when the default is false.
+	if !class.InvertedIndexConfig.UsingBlockMaxWAND {
+		class.InvertedIndexConfig.UsingBlockMaxWAND = config.DefaultUsingBlockMaxWAND
+	}
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
 		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds

@@ -26,9 +26,9 @@ import (
 	distributedtaskUC "github.com/weaviate/weaviate/usecases/distributedtask"
 )
 
-func setupDistributedTasksHandlers(api *operations.WeaviateAPI, authorizer authorization.Authorizer, tasksLister distributedtask.TasksLister) {
+func setupDistributedTasksHandlers(api *operations.WeaviateAPI, authorizer authorization.Authorizer, taskLister distributedtask.TaskLister) {
 	h := distributedTasksHandlers{
-		handler: distributedtaskUC.NewHandler(authorizer, tasksLister),
+		handler: distributedtaskUC.NewHandler(authorizer, taskLister),
 	}
 
 	api.DistributedTasksDistributedTasksGetHandler = distributed_tasks.DistributedTasksGetHandlerFunc(h.getTasks)

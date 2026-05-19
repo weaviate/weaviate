@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -57,6 +58,33 @@ func (s *Raft) Open(ctx context.Context, db schema.Indexer) error {
 func (s *Raft) Close(ctx context.Context) (err error) {
 	s.log.Info("shutting down raft sub-system ...")
 	return s.store.Close(ctx)
+}
+
+// SetDistributedTaskSchedulerNotifier installs the wake-up notifier on
+// the underlying distributed task FSM Manager. Called once at startup
+// from MakeAppState, after both Raft and the Scheduler exist. See
+// [distributedtask.SchedulerNotifier] for the contract.
+func (s *Raft) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
+	s.store.SetDistributedTaskSchedulerNotifier(notifier)
+}
+
+// SetDistributedTaskConflictDetectors installs the per-namespace
+// conflict-detection hooks on the underlying distributed task FSM
+// Manager. Called once at startup from MakeAppState, after the
+// providers are registered. See [distributedtask.ConflictDetector] for
+// the FSM-determinism contract.
+func (s *Raft) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
+	s.store.SetDistributedTaskConflictDetectors(detectors)
+}
+
+// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
+// schema-mutation detectors consulted from the schema FSM's
+// UpdateProperty apply path. Called once at startup from MakeAppState,
+// after the providers are registered. See
+// [distributedtask.SchemaMutationDetector] for the contract and
+// motivating failure mode.
+func (s *Raft) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
+	s.store.SetDistributedTaskSchemaMutationDetectors(detectors)
 }
 
 func (s *Raft) Ready() bool {

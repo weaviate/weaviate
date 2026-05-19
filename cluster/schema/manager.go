@@ -42,12 +42,85 @@ type replicationFSM interface {
 	SetUnCancellable(id uint64) error
 }
 
+// MutationGuard is consulted at RAFT-apply time for cross-FSM
+// conflicts before a destructive schema mutation is merged. The
+// implementation lives in the package that owns the in-flight state
+// the schema mutation would race against (today: the distributed-task
+// FSM Manager, which knows about in-flight reindex migrations).
+//
+// The failure family it prevents is "bucket↔schema inversion": a
+// schema mutation (DELETE searchable, UPDATE tokenization, DELETE
+// class, DELETE/UPDATE tenants) lands while a reindex migration on
+// the same surface is mid-flight, leaving the FSM-consistent schema
+// pointing at bucket state the migration is in the middle of
+// rewriting. The original reproduction is documented at
+// https://github.com/weaviate/0-weaviate-issues/issues/218; see
+// [cluster/distributedtask.SchemaMutationDetector] for the in-FSM
+// detection logic.
+//
+// FSM-determinism contract: implementations MUST be pure functions of
+// their arguments + RAFT-replicated FSM state. They must not read
+// mutable process state — different nodes applying the same log entry
+// must reach the same accept/reject decision.
+//
+// Callsites collapse to a single conventional call shape per
+// [SchemaManager] method: the entire per-callsite rationale lives in
+// the per-method godoc below, so the call sites carry only a one-line
+// pointer back here.
+type MutationGuard interface {
+	// CheckPropertyUpdate returns nil if the property mutation is safe
+	// to apply, or a non-nil error describing the conflict. Called
+	// under the schema manager's apply path; must not block on IO.
+	//
+	// Bypass: the migration completion path
+	// ([adapters/repos/db/reindex_provider.flipSemanticMigrationSchema]
+	// → [Raft.UpdatePropertyFromMigration]) sets
+	// [api.UpdatePropertyRequest.FromInFlightMigration]=true on its own
+	// scheduled schema flip. Callers MUST skip the guard for that
+	// shape; otherwise the same protection that blocks external
+	// mutations during FINALIZING would also reject the migration's
+	// own flip (which fires while the task is still FINALIZING, not
+	// yet FINISHED).
+	CheckPropertyUpdate(className, propertyName string) error
+
+	// CheckClassMutation returns nil if a class-wide destructive
+	// mutation (DeleteClass, etc.) is safe to apply, or a non-nil
+	// error describing the conflict. Stricter than CheckPropertyUpdate
+	// — any in-flight reindex on the class blocks the mutation,
+	// because dropping the class destroys every property's bucket
+	// state and the working dirs the in-flight migration depends on
+	// (class-wide blast radius).
+	CheckClassMutation(className string) error
+
+	// CheckTenantMutation returns nil if a tenant-level mutation is
+	// safe to apply, or a non-nil error describing the conflict.
+	// Used at DeleteTenants and at UpdateTenants when the transition
+	// would make tenant shards locally unavailable.
+	//
+	// Asymmetric semantics: transitions TOWARD locally-available
+	// (ACTIVE / HOT / ONLOADING / UNFREEZING) are NOT a conflict —
+	// they make data more available, not less. Callers that issue
+	// UpdateTenants MUST filter the tenant list through
+	// [tenantsTransitioningAwayFromActive] before invoking, so only
+	// tenants whose shards would actually become unavailable hit the
+	// guard.
+	CheckTenantMutation(className string, tenants []string) error
+}
+
 type SchemaManager struct {
 	schema         *schema
 	db             Indexer
 	parser         Parser
 	log            *logrus.Logger
 	replicationFSM replicationFSM
+	// mutationGuard is consulted by [SchemaManager.UpdateProperty]
+	// before the merge applies. nil-safe — no guard installed means
+	// no extra rejection (legacy behavior, used by tests that
+	// exercise the schema apply in isolation). Set once at startup
+	// via [SchemaManager.SetMutationGuard]; concurrent setter/reader
+	// races are not contended in practice (setter runs once during
+	// FSM bootstrap before any apply).
+	mutationGuard MutationGuard
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -57,6 +130,51 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 		parser: parser,
 		log:    log,
 	}
+}
+
+// SetMutationGuard installs the [MutationGuard] consulted by
+// [SchemaManager.UpdateProperty] before merging a property update.
+// Pass nil to remove the guard. Safe to call once at startup after
+// both this manager and the guard's backing FSM exist (today: the
+// distributed-task FSM Manager, wired in cluster/store.go's NewFSM).
+//
+// Subsequent calls overwrite the previous registration. The setter
+// itself is not synchronized — it must run during single-threaded
+// FSM bootstrap, before any apply path can read the field.
+func (s *SchemaManager) SetMutationGuard(g MutationGuard) {
+	s.mutationGuard = g
+}
+
+// tenantsTransitioningAwayFromActive returns the names of tenants in
+// the UpdateTenants payload that would transition AWAY from
+// locally-available state (INACTIVE / OFFLOADED / FROZEN /
+// transitional aliases). Returns an empty slice if every tenant is
+// transitioning to a locally-available state (ACTIVE / HOT /
+// ONLOADING / UNFREEZING) — in that case no MutationGuard check
+// fires, matching the "transitions toward available are safe"
+// semantics.
+//
+// Used by [SchemaManager.UpdateTenants] to narrow the guard
+// invocation to tenants whose data would actually become locally
+// unavailable mid-reindex (the only case where the bucket↔schema
+// inversion family of bugs is reachable).
+func tenantsTransitioningAwayFromActive(tenants []*command.Tenant) []string {
+	if len(tenants) == 0 {
+		return nil
+	}
+	var affected []string
+	for _, t := range tenants {
+		switch t.GetStatus() {
+		case models.TenantActivityStatusINACTIVE,
+			models.TenantActivityStatusOFFLOADED,
+			models.TenantActivityStatusOFFLOADING,
+			models.TenantActivityStatusFROZEN,
+			models.TenantActivityStatusFREEZING,
+			models.TenantActivityStatusCOLD:
+			affected = append(affected, t.GetName())
+		}
+	}
+	return affected
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
@@ -336,6 +454,13 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
+	// Cross-FSM mutation guard — see [MutationGuard.CheckClassMutation].
+	if s.mutationGuard != nil {
+		if err := s.mutationGuard.CheckClassMutation(cmd.Class); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+	}
+
 	var hasFrozen bool
 	tenants, err := s.schema.getTenants(cmd.Class, nil)
 	if err != nil {
@@ -398,10 +523,22 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		return fmt.Errorf("%w: empty property", ErrBadRequest)
 	}
 
+	// Cross-FSM mutation guard — see [MutationGuard.CheckPropertyUpdate].
+	// FromInFlightMigration=true bypasses the guard for the migration's
+	// own scheduled schema flip; see the bypass clause in that godoc.
+	if s.mutationGuard != nil && !req.FromInFlightMigration {
+		if err := s.mutationGuard.CheckPropertyUpdate(cmd.Class, req.Property.Name); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
+	}
+
 	return s.apply(
 		applyOp{
-			op:                   cmd.GetType().String(),
-			updateSchema:         func() error { return s.schema.updateProperty(cmd.Class, cmd.Version, req.Property) },
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				_, err := s.schema.updateProperty(cmd.Class, cmd.Version, req.Property, req.FieldsToUpdate)
+				return err
+			},
 			updateStore:          func() error { return s.db.UpdateProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
@@ -491,6 +628,19 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
+	// Cross-FSM mutation guard — see [MutationGuard.CheckTenantMutation].
+	// Per the asymmetric-semantics clause in that godoc, narrow to
+	// tenants whose transition would make shards locally unavailable
+	// before invoking; transitions toward available are skipped.
+	if s.mutationGuard != nil {
+		affectedTenants := tenantsTransitioningAwayFromActive(req.GetTenants())
+		if len(affectedTenants) > 0 {
+			if err := s.mutationGuard.CheckTenantMutation(cmd.Class, affectedTenants); err != nil {
+				return fmt.Errorf("%w: %w", ErrBadRequest, err)
+			}
+		}
+	}
+
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
@@ -509,6 +659,15 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 	req := &command.DeleteTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Cross-FSM mutation guard — see [MutationGuard.CheckTenantMutation].
+	// Deleting tenants destroys their shard state unconditionally, so
+	// no toward-available filtering applies here (cf. UpdateTenants).
+	if s.mutationGuard != nil && len(req.Tenants) > 0 {
+		if err := s.mutationGuard.CheckTenantMutation(cmd.Class, req.Tenants); err != nil {
+			return fmt.Errorf("%w: %w", ErrBadRequest, err)
+		}
 	}
 
 	tenants, err := s.schema.getTenants(cmd.Class, req.Tenants)

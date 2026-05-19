@@ -382,6 +382,74 @@ func (_c *MockShardLike_CompareDigests_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
+// AnalyzeObjectForMigrationWithOverlay provides a mock function with given fields: _a0, _a1
+func (_m *MockShardLike) AnalyzeObjectForMigrationWithOverlay(_a0 *storobj.Object, _a1 map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error) {
+	ret := _m.Called(_a0, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AnalyzeObjectForMigrationWithOverlay")
+	}
+
+	var r0 []inverted.Property
+	var r1 []inverted.NilProperty
+	var r2 error
+	if rf, ok := ret.Get(0).(func(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)); ok {
+		return rf(_a0, _a1)
+	}
+	if rf, ok := ret.Get(0).(func(*storobj.Object, map[string]inverted.PropertyOverlay) []inverted.Property); ok {
+		r0 = rf(_a0, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]inverted.Property)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(*storobj.Object, map[string]inverted.PropertyOverlay) []inverted.NilProperty); ok {
+		r1 = rf(_a0, _a1)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).([]inverted.NilProperty)
+		}
+	}
+
+	if rf, ok := ret.Get(2).(func(*storobj.Object, map[string]inverted.PropertyOverlay) error); ok {
+		r2 = rf(_a0, _a1)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AnalyzeObjectForMigrationWithOverlay'
+type MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call struct {
+	*mock.Call
+}
+
+// AnalyzeObjectForMigrationWithOverlay is a helper method to define mock.On call
+//   - _a0 *storobj.Object
+//   - _a1 map[string]inverted.PropertyOverlay
+func (_e *MockShardLike_Expecter) AnalyzeObjectForMigrationWithOverlay(_a0 interface{}, _a1 interface{}) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
+	return &MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call{Call: _e.mock.On("AnalyzeObjectForMigrationWithOverlay", _a0, _a1)}
+}
+
+func (_c *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call) Run(run func(_a0 *storobj.Object, _a1 map[string]inverted.PropertyOverlay)) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(*storobj.Object), args[1].(map[string]inverted.PropertyOverlay))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call) Return(_a0 []inverted.Property, _a1 []inverted.NilProperty, _a2 error) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call) RunAndReturn(run func(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ConvertQueue provides a mock function with given fields: targetVector
 func (_m *MockShardLike) ConvertQueue(targetVector string) error {
 	ret := _m.Called(targetVector)

@@ -16,14 +16,69 @@ import (
 	"time"
 )
 
-// TasksLister is an interface for listing distributed tasks in the cluster.
-type TasksLister interface {
+// TaskLister is an interface for listing distributed tasks in the cluster.
+type TaskLister interface {
 	ListDistributedTasks(ctx context.Context) (map[string][]*Task, error)
+}
+
+// SchedulerNotifier is implemented by the [Scheduler] and consumed by the
+// [Manager] to request an immediate scheduling cycle after a task-state
+// change applies via Raft. Without this hook the scheduler only reacts on
+// its periodic tick (default 1 minute, see
+// DefaultDistributedTasksSchedulerTickInterval), so a barrier opening from
+// the last unit's terminal transition is staggered across nodes by up to
+// one tick interval. Wake() is non-blocking and may be called from
+// performance-sensitive RAFT-apply paths; implementations must coalesce
+// rapid-fire calls and never block the caller.
+type SchedulerNotifier interface {
+	Wake()
 }
 
 // TaskCleaner is an interface for issuing a request to clean up a distributed task.
 type TaskCleaner interface {
 	CleanUpDistributedTask(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+}
+
+// TaskFinalizer is an interface for issuing a request to transition a task
+// from [TaskStatusFinalizing] to [TaskStatusFinished]. The [Scheduler] calls
+// this from its tick after [Provider.OnTaskCompleted] returns successfully so
+// the FSM-level FINISHED state lines up with "every post-completion callback
+// committed cluster-wide" (not just "every unit terminal"). Idempotent at the
+// FSM layer — every node's scheduler issues this independently after its
+// local OnTaskCompleted returns; only the first commit actually flips the
+// status. See the FINALIZING godoc on [TaskStatusFinalizing] for the
+// underlying race this discipline fixes.
+type TaskFinalizer interface {
+	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
+}
+
+// PostCompletionAckRecorder is the RAFT-apply hook the [Scheduler] uses
+// to publish one node's OnGroupCompleted result (success or failure)
+// after its callbacks have returned for every local group in a task.
+// The scheduler gates [TaskFinalizer.MarkDistributedTaskFinalized] on
+// having an ack from every node that has local units in the task, and
+// transitions the task to FAILED if any ack reports failure — which
+// makes [UnitAwareProvider.OnTaskCompleted] skip the cluster-wide
+// schema flip on that path.
+//
+// The recorded state is stored on the [Task] (see [Task.PostCompletionAcks])
+// and survives RAFT snapshot/restore so a node restart during the
+// FINALIZING window does not lose the cluster's collected acks.
+//
+// Crash-safety contract: without this hook, a node whose RunSwapOnShard
+// silently failed could still let the cluster-wide schema flip commit,
+// leaving that replica serving wrong-tokenization data with no operator
+// signal. The recorder closes that gap by gating MarkTaskFinalized on
+// every per-node ack landing.
+type PostCompletionAckRecorder interface {
+	RecordDistributedTaskPostCompletionAck(
+		ctx context.Context,
+		namespace, taskID string,
+		taskVersion uint64,
+		nodeID string,
+		success bool,
+		errMsg string,
+	) error
 }
 
 // TaskCompletionRecorder is an interface for recording the completion of a distributed task.
@@ -63,6 +118,143 @@ type Provider interface {
 	StartTask(task *Task) (TaskHandle, error)
 }
 
+// ConflictDetector is an optional interface providers implement so the
+// [Manager.AddTask] RAFT-apply path can reject a new task whose payload
+// conflicts with an already-running task in the same namespace.
+//
+// Motivation: the REST handler holds a per-(collection, property)
+// in-memory lock and runs [checkReindexConflict] before submitting,
+// which closes the same-node race. But two parallel PUT
+// /indexes/{prop} requests served by *different* nodes both pass the
+// per-node lock + check (neither has called AddDistributedTask yet at
+// the moment they each query the cluster task list) and both submit a
+// RAFT task. At that point two reindex migrations race on shared
+// on-disk state for the property and one of them ends up FAILED —
+// the multi-node face of https://github.com/weaviate/weaviate/issues/10675 (issue tracked as
+// "parallel-migration bug #54").
+//
+// Putting the conflict check inside [Manager.AddTask] under m.mu makes
+// it RAFT-deterministic: every node consults the same FSM-stored task
+// list at apply time and rejects the duplicate identically, returning
+// the conflict error to the originating client.
+//
+// FSM-determinism contract: CheckConflict MUST be a pure function of
+// (newPayload, existingTasks). It must not read mutable process state
+// (clocks, network, schema, RNG) — different nodes applying the same
+// log entry must reach the same accept/reject decision.
+type ConflictDetector interface {
+	Provider
+
+	// CheckConflict is called under [Manager.mu] before a new task is
+	// appended to the FSM-stored task list. existingTasks is the full
+	// namespace-scoped task list at apply time. Return a non-nil error
+	// to reject the new task; the error propagates back to the
+	// AddDistributedTask caller.
+	CheckConflict(newPayload []byte, existingTasks []*Task) error
+}
+
+// SchemaMutationDetector is an optional interface providers implement so
+// the schema FSM's UpdateProperty apply path can reject external schema
+// mutations that would race with one of the provider's in-flight tasks.
+//
+// Motivating failure mode: a `change-tokenization` reindex spawns
+// separate per-shard sub-tasks for the searchable and filterable
+// indexes. A DELETE `/index/searchable` arriving mid-flight applies
+// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
+// `searchable_retokenize_<prop>_<gen>/` working dir under the still-
+// running sub-task. That sub-unit FAILs; the sibling filterable
+// sub-unit keeps going and commits its local bucket swap; the
+// per-shard ack barrier sees mixed acks → task FAILED →
+// `flipSemanticMigrationSchema` skipped → schema stays at OLD
+// tokenization while the filterable bucket on disk now holds
+// NEW-tokenized data. Bucket↔schema inversion — same family as the
+// ack-barrier failure mode but triggered by an external schema
+// mutation instead of a crash.
+//
+// Putting the check inside the schema FSM's UpdateProperty apply makes
+// it RAFT-deterministic: every node sees the same distributed-task FSM
+// snapshot at the same applyIndex and reaches the same accept/reject
+// decision. Symmetric to [ConflictDetector] (which protects in-flight
+// tasks from new conflicting tasks); this protects them from out-of-band
+// schema mutations during their flight.
+//
+// FSM-determinism contract: CheckPropertyUpdate MUST be a pure function
+// of (className, propertyName, existingTasks). It must not read mutable
+// process state (clocks, network, schema, RNG) — different nodes
+// applying the same log entry must reach the same accept/reject
+// decision.
+type SchemaMutationDetector interface {
+	Provider
+
+	// CheckPropertyUpdate is called under [Manager.mu] from the
+	// schema FSM's UpdateProperty apply path. existingTasks is the
+	// full namespace-scoped task list at apply time. Return a
+	// non-nil error to reject the property update; the error
+	// propagates back to the UpdateProperty caller.
+	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
+
+	// CheckClassMutation is called under [Manager.mu] from the
+	// schema FSM's DeleteClass (and similar class-wide destructive)
+	// apply path. existingTasks is the full namespace-scoped task
+	// list at apply time. Return a non-nil error to reject the
+	// mutation; the error propagates back to the caller.
+	//
+	// Stricter than CheckPropertyUpdate: any reindex on the class
+	// (any property) in STARTED or FINALIZING is a conflict, because
+	// dropping the class destroys every property's bucket state at
+	// once, including the in-flight migration's working dirs.
+	CheckClassMutation(className string, existingTasks []*Task) error
+
+	// CheckTenantMutation is called under [Manager.mu] from the
+	// schema FSM's DeleteTenants / UpdateTenants apply paths when a
+	// transition would make one or more tenants' shards locally
+	// unavailable (DeleteTenants, or UpdateTenants toward OFFLOADED
+	// / FROZEN / OFFLOADING / FREEZING). existingTasks is the full
+	// namespace-scoped task list at apply time. Return a non-nil
+	// error to reject the mutation.
+	//
+	// Today's reindex tasks are class-scoped (their payload names a
+	// collection but not a specific tenant — they apply to whatever
+	// shards exist), so the conservative implementation is "block
+	// every tenant mutation on a class with any in-flight reindex".
+	// A future per-tenant reindex payload could narrow this.
+	CheckTenantMutation(className string, tenants []string, existingTasks []*Task) error
+}
+
+// RecoveryAwareProvider is an optional interface providers implement to
+// participate in post-restart callback retry. The Scheduler's bootstrap
+// pre-mark (which normally suppresses replay of callbacks that fired
+// pre-restart) calls into this hook for every terminal task; if the
+// provider reports the local-side callback as NOT yet durably complete,
+// the scheduler skips the pre-mark for that task so the next tick
+// re-fires OnGroupCompleted and the provider's recovery path can
+// finish the half-applied work.
+//
+// Motivating scenario (RollingRestartMidMigration): a node's
+// OnGroupCompleted started running, completed swap for 2 of 3 local
+// shards, then context-cancelled mid-shutdown of the 3rd shard's
+// reindex bucket because the rolling restart began. The task is
+// FINISHED in RAFT (the unit-completion was recorded before
+// OnGroupCompleted fired), so without this hook the bootstrap pre-mark
+// silently suppresses the retry and the 3rd shard stays at the old
+// tokenization forever — per-replica divergence (#10675 family).
+type RecoveryAwareProvider interface {
+	Provider
+
+	// LocalCallbacksDone returns true iff this provider has verified,
+	// from durable local state, that OnGroupCompleted (and any
+	// follow-up local recovery) has completed successfully for every
+	// unit assigned to localNode. Returning false means "the
+	// bootstrap pre-mark should NOT suppress callback replay for
+	// this task — let OnGroupCompleted re-fire on next tick so the
+	// provider can finish recovery."
+	//
+	// Called from [Scheduler.preMarkTerminalCallbacksLocked] under
+	// s.mu, ONCE per terminal task at bootstrap. Implementations
+	// should treat this as a cheap on-disk check.
+	LocalCallbacksDone(task *Task, localNode string) bool
+}
+
 // UnitAwareProvider fires per-group callbacks as groups complete (mid-flight),
 // then a global OnTaskCompleted when the task reaches terminal state.
 //
@@ -78,7 +270,19 @@ type Provider interface {
 //  2. OnTaskCompleted — fires once on every node after ALL units terminal
 type UnitAwareProvider interface {
 	Provider
-	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string)
+	// OnGroupCompleted fires when all units in a group reach terminal state.
+	// localGroupUnitIDs contains ONLY units assigned to THIS node, not all units
+	// in the group. If a node has no units in the group, this callback does not
+	// fire on that node.
+	//
+	// Returns a non-nil error iff at least one local unit's
+	// post-completion work (e.g. the reindex provider's RunSwapOnShard)
+	// failed. The [Scheduler] aggregates errors across this task's
+	// groups for THIS NODE and publishes them via
+	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck];
+	// any reported failure transitions the task to FAILED in the FSM,
+	// which makes OnTaskCompleted skip the cluster-wide schema flip.
+	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
 	OnTaskCompleted(task *Task)
 }
 
@@ -123,7 +327,22 @@ type TaskStatus string
 const (
 	// TaskStatusStarted means that the task is still running on some of the nodes.
 	TaskStatusStarted TaskStatus = "STARTED"
-	// TaskStatusFinished means that the task was successfully executed by all nodes.
+	// TaskStatusFinalizing means every unit has reached a terminal state and
+	// the scheduler is running the task's post-completion callbacks
+	// (per-node OnGroupCompleted swap + cluster-wide OnTaskCompleted
+	// schema flip for semantic migrations). The task is NOT yet safe to
+	// act upon from the API surface: callers polling for "fully done"
+	// must wait for [TaskStatusFinished]. Format-only journeys (no
+	// post-completion callback work) pass through this state in
+	// essentially zero time. The state was introduced to fix the
+	// schema-flip-lag race where a task could be FINISHED at the FSM
+	// layer before every node's post-completion callback had committed
+	// its bucket-pointer flip.
+	TaskStatusFinalizing TaskStatus = "FINALIZING"
+	// TaskStatusFinished means that the task was successfully executed by
+	// all nodes AND every post-completion callback (per-node swap +
+	// cluster-wide schema flip) has run. Callers polling for "fully done"
+	// should wait for this status — never for [TaskStatusFinalizing].
 	TaskStatusFinished TaskStatus = "FINISHED"
 	// TaskStatusCancelled means that the task was cancelled by user.
 	TaskStatusCancelled TaskStatus = "CANCELLED"
@@ -134,6 +353,23 @@ const (
 
 func (t TaskStatus) String() string {
 	return string(t)
+}
+
+// IsTerminal reports whether this status is a terminal state. A task in
+// a terminal state is not transitioning further: it has reached
+// [TaskStatusFinished], [TaskStatusFailed], or [TaskStatusCancelled]
+// and the scheduler will not invoke any more per-unit or per-task
+// callbacks for it via the normal in-flight path. Recovery replays on
+// startup can still observe terminal tasks — providers that own
+// destructive side-effects (per-shard swaps, file moves) should
+// short-circuit on terminal status to avoid running them again.
+func (t TaskStatus) IsTerminal() bool {
+	switch t {
+	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 // TaskDescriptor is a struct identifying a task execution under a certain task namespace.
@@ -177,6 +413,43 @@ type Task struct {
 
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
+
+	// PostCompletionAcks records per-node confirmations that the node's
+	// OnGroupCompleted callbacks completed (success or failure) for
+	// every local unit it owned. Keys are node IDs. The map is populated
+	// only after the task transitions to FINALIZING and only by the
+	// [Scheduler] tick on each node firing
+	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck]
+	// once OnGroupCompleted has returned. The scheduler gates
+	// [TaskFinalizer.MarkDistributedTaskFinalized] on having an ack
+	// from every node with local units (see
+	// [Task.MissingPostCompletionAckNodes]); if any ack is
+	// [PostCompletionAck.Success]==false the FSM transitions the task
+	// to FAILED instead.
+	//
+	// Nil for tasks created before this field was added (backward-compat
+	// with older RAFT snapshots) and for tasks whose provider does not
+	// implement [UnitAwareProvider] (no OnGroupCompleted to ack).
+	PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
+}
+
+// PostCompletionAck records one node's OnGroupCompleted result for a
+// task. Persisted on the [Task] under the per-node-ID key of
+// [Task.PostCompletionAcks] and survives RAFT snapshot/restore so the
+// cluster-wide ack barrier is durable across restarts.
+type PostCompletionAck struct {
+	// Success is true iff the node's OnGroupCompleted (i.e. the per-shard
+	// runtime swap / finalize) returned no error for every local unit.
+	Success bool `json:"success"`
+	// Error captures the aggregated error message when Success==false.
+	// Empty when Success==true.
+	Error string `json:"error,omitempty"`
+	// AckedAt is the wall-clock time the ack was applied on the FSM
+	// (set on the apply path, not from the scheduler). Useful for
+	// forensics — the gap between AllUnitsTerminal's FinishedAt and the
+	// last AckedAt is the FINALIZING window's wall-clock duration on
+	// this cluster.
+	AckedAt time.Time `json:"ackedAt"`
 }
 
 func (t *Task) Clone() *Task {
@@ -186,6 +459,12 @@ func (t *Task) Clone() *Task {
 		for k, v := range t.Units {
 			uCopy := *v
 			clone.Units[k] = &uCopy
+		}
+	}
+	if t.PostCompletionAcks != nil {
+		clone.PostCompletionAcks = make(map[string]PostCompletionAck, len(t.PostCompletionAcks))
+		for k, v := range t.PostCompletionAcks {
+			clone.PostCompletionAcks[k] = v
 		}
 	}
 	return &clone
@@ -267,6 +546,65 @@ func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
 			continue
 		}
 		if u.NodeID == "" || u.NodeID == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
+// NodesWithLocalUnits returns the set of node IDs that own at least one
+// unit assigned to them in this task. Used by the [Scheduler] tick to
+// compute the ack-barrier predicate: every such node must record a
+// post-completion ack before the task can transition FINALIZING →
+// FINISHED. Units with empty NodeID (still PENDING / never claimed) are
+// skipped — they cannot have a node-side OnGroupCompleted result yet.
+//
+// Returned slice is unsorted; callers that need determinism must sort
+// it themselves.
+func (t *Task) NodesWithLocalUnits() []string {
+	seen := map[string]struct{}{}
+	for _, u := range t.Units {
+		if u.NodeID == "" {
+			continue
+		}
+		seen[u.NodeID] = struct{}{}
+	}
+	nodes := make([]string, 0, len(seen))
+	for n := range seen {
+		nodes = append(nodes, n)
+	}
+	return nodes
+}
+
+// MissingPostCompletionAckNodes returns the node IDs that have local
+// units in this task but have NOT yet recorded a post-completion ack.
+// The scheduler uses this as the gating predicate for
+// [TaskFinalizer.MarkDistributedTaskFinalized] — the FINALIZING →
+// FINISHED transition must wait until this returns empty, so a node
+// whose RunSwapOnShard silently failed cannot let the cluster-wide
+// schema flip commit before its ack is recorded as a failure (which
+// transitions the task to FAILED and skips the flip).
+//
+// Returns nil when all expected nodes have acked. Returned slice is
+// unsorted.
+func (t *Task) MissingPostCompletionAckNodes() []string {
+	var missing []string
+	for _, node := range t.NodesWithLocalUnits() {
+		if _, ok := t.PostCompletionAcks[node]; !ok {
+			missing = append(missing, node)
+		}
+	}
+	return missing
+}
+
+// AnyPostCompletionAckFailed returns true iff any node has recorded a
+// post-completion ack with [PostCompletionAck.Success]==false. The
+// FSM uses this on the apply path to flip the task to FAILED — once
+// any node reports failure, the schema flip must be skipped and the
+// task must not progress to FINISHED.
+func (t *Task) AnyPostCompletionAckFailed() bool {
+	for _, ack := range t.PostCompletionAcks {
+		if !ack.Success {
 			return true
 		}
 	}

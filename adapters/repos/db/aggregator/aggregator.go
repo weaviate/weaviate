@@ -42,21 +42,30 @@ type vectorIndexMulti interface {
 }
 
 type Aggregator struct {
-	logger                 logrus.FieldLogger
-	store                  *lsmkv.Store
-	params                 aggregation.Params
-	getSchema              schemaUC.SchemaGetter
-	classSearcher          inverted.ClassSearcher // to support ref-filters
-	vectorIndex            vectorIndex
-	stopwordProvider       *stopwords.Provider
-	shardVersion           uint16
-	propLenTracker         *inverted.JsonShardMetaData
-	isFallbackToSearchable inverted.IsFallbackToSearchable
-	tenant                 string
-	nestedCrossRefLimit    int64
-	bitmapFactory          *roaringset.BitmapFactory
-	modules                *modules.Provider
-	defaultLimit           int64
+	logger                  logrus.FieldLogger
+	store                   *lsmkv.Store
+	params                  aggregation.Params
+	getSchema               schemaUC.SchemaGetter
+	classSearcher           inverted.ClassSearcher // to support ref-filters
+	vectorIndex             vectorIndex
+	stopwordProvider        *stopwords.Provider
+	shardVersion            uint16
+	propLenTracker          *inverted.JsonShardMetaData
+	isFallbackToSearchable  inverted.IsFallbackToSearchable
+	isRangeableLocallyReady inverted.IsRangeableLocallyReady
+	tenant                  string
+	nestedCrossRefLimit     int64
+	bitmapFactory           *roaringset.BitmapFactory
+	modules                 *modules.Provider
+	defaultLimit            int64
+	// tokResolver, when non-nil, is propagated to inverted.Searcher /
+	// inverted.BM25Searcher built by this aggregator so query input
+	// gets analyzed under the per-shard tokenization overlay during
+	// the FINALIZING window of a change-tokenization migration. Nil
+	// means "no overlay configured" — query input is tokenized against
+	// prop.Tokenization directly (tests and callers with no in-flight
+	// migration).
+	tokResolver inverted.TokenizationResolver
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -65,26 +74,30 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
 	propLenTracker *inverted.JsonShardMetaData,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
+	isRangeableLocallyReady inverted.IsRangeableLocallyReady,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
 	modules *modules.Provider, defaultLimit int64,
+	tokResolver inverted.TokenizationResolver,
 ) *Aggregator {
 	return &Aggregator{
-		logger:                 logger,
-		store:                  store,
-		params:                 params,
-		getSchema:              getSchema,
-		classSearcher:          classSearcher,
-		stopwordProvider:       stopwordProvider,
-		shardVersion:           shardVersion,
-		vectorIndex:            vectorIndex,
-		propLenTracker:         propLenTracker,
-		isFallbackToSearchable: isFallbackToSearchable,
-		tenant:                 tenant,
-		nestedCrossRefLimit:    nestedCrossRefLimit,
-		bitmapFactory:          bitmapFactory,
-		modules:                modules,
-		defaultLimit:           defaultLimit,
+		logger:                  logger,
+		store:                   store,
+		params:                  params,
+		getSchema:               getSchema,
+		classSearcher:           classSearcher,
+		stopwordProvider:        stopwordProvider,
+		shardVersion:            shardVersion,
+		vectorIndex:             vectorIndex,
+		propLenTracker:          propLenTracker,
+		isFallbackToSearchable:  isFallbackToSearchable,
+		isRangeableLocallyReady: isRangeableLocallyReady,
+		tenant:                  tenant,
+		nestedCrossRefLimit:     nestedCrossRefLimit,
+		bitmapFactory:           bitmapFactory,
+		modules:                 modules,
+		defaultLimit:            defaultLimit,
+		tokResolver:             tokResolver,
 	}
 }
 
