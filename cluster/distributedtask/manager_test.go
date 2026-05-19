@@ -1387,7 +1387,6 @@ func TestManager_CheckTenantMutation_DispatchToDetectors(t *testing.T) {
 	})
 }
 
-
 // addBarrierTaskWithUnits is the barrier-mode counterpart to
 // addTaskWithUnits — same shape, but the task opts into the PrepComplete
 // barrier so AllUnitsTerminal routes STARTED → PREPARING (instead of
