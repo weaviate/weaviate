@@ -494,7 +494,7 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		} else {
 			// dont lazy load segments on config update
 			if err = s.initTargetVector(ctx, targetVector, targetCfg, false); err != nil {
-				err = fmt.Errorf("creating new vector index: %w, %s", err, targetVector)
+				err = fmt.Errorf("creating new vector index for %s: %w", targetVector, err)
 				s.index.logger.WithFields(logrus.Fields{
 					"action":        "init_target_vector",
 					"shard_id":      s.ID(),
