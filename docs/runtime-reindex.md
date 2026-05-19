@@ -384,7 +384,7 @@ Two reasons it can't move earlier into the STARTED phase:
 The role `PREPARING` plays is twofold: (a) signaling that every unit
 is terminal, so every node has the right on-disk state to start its
 local PREP; and (b) gating the cross-replica SWAP barrier — only
-after every node has acked `PrepComplete` does any node proceed to
+after every node has acked `PreparationCompleteAck` does any node proceed to
 PHASE B (`OnSwapRequested`). This is what bounds the cross-replica
 stagger window to RAFT propagation latency instead of per-node PREP
 duration variance. The synchronize-or-fail-cleanly invariant lives
