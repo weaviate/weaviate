@@ -258,12 +258,12 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	}
 
 	newTask := &Task{
-		Namespace:        r.Namespace,
-		TaskDescriptor:   TaskDescriptor{ID: r.Id, Version: seqNum},
-		Payload:          r.Payload,
-		NeedsPrepBarrier: r.NeedsPrepBarrier,
-		Status:           TaskStatusStarted,
-		StartedAt:        time.UnixMilli(r.SubmittedAtUnixMillis),
+		Namespace:               r.Namespace,
+		TaskDescriptor:          TaskDescriptor{ID: r.Id, Version: seqNum},
+		Payload:                 r.Payload,
+		NeedsPreparationBarrier: r.NeedsPreparationBarrier,
+		Status:                  TaskStatusStarted,
+		StartedAt:               time.UnixMilli(r.SubmittedAtUnixMillis),
 	}
 
 	if len(r.UnitSpecs) > 0 {
@@ -375,33 +375,15 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			// FAILED tasks).
 			task.Status = TaskStatusFailed
 		} else {
-			// All units COMPLETED with no failures — hand off to the
-			// scheduler for post-completion callbacks.
-			//
-			// Routing decision:
-			//   - NeedsPrepBarrier=true (semantic migrations) → PREPARING.
-			//     Each node's scheduler fires its PREP body and emits a
-			//     RecordPrepCompleteAck. The FSM (in RecordPrepCompleteAck)
-			//     atomically transitions PREPARING → SWAPPING only when
-			//     every expected ack lands with Success=true.
-			//   - NeedsPrepBarrier=false (format-only / debug / etc.) →
-			//     SWAPPING directly, preserving the pre-barrier behavior.
-			//     The scheduler fires the per-node swap immediately and
-			//     emits a RecordPostCompletionAck; the FSM gates the
-			//     SWAPPING → FINISHED transition (via MarkTaskFinalized)
-			//     on those acks. Same wire shape as today.
-			if task.NeedsPrepBarrier {
+			// Barrier tasks go through PREPARING; others jump to SWAPPING.
+			if task.NeedsPreparationBarrier {
 				task.Status = TaskStatusPreparing
 			} else {
 				task.Status = TaskStatusSwapping
 			}
 		}
-		// FinishedAt records when units completed, regardless of which
-		// status path we took. For the SWAPPING path this is intentional:
-		// completed-task TTL counts from "all units done," not from when
-		// the callbacks finished committing. The cleanup predicate in
-		// [Scheduler.tick] excludes SWAPPING explicitly so a task whose
-		// FinishedAt is already past TTL won't be cleaned mid-swap.
+		// FinishedAt = when units completed. Scheduler's TTL cleanup excludes
+		// SWAPPING so a stale FinishedAt won't clean a task mid-swap.
 		task.FinishedAt = finishedAt
 	}
 
@@ -414,36 +396,11 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 	return nil
 }
 
-// RecordPostCompletionAck records one node's OnGroupCompleted result on
-// the task. The [Scheduler] tick on each node fires this command after
-// its local OnGroupCompleted has returned for every local group, so the
-// cluster has durable evidence of which nodes' post-completion work
-// succeeded before the task is allowed to transition SWAPPING →
-// FINISHED — the load-bearing invariant that prevents a per-node swap
-// failure from leaving the cluster-wide schema flipped past a node
-// whose local bucket pointer never moved.
-//
-// FSM transitions on apply:
-//
-//   - Ack arrives for an idempotently-already-acked (task, node): no-op,
-//     the first ack wins.
-//   - Ack arrives for a task no longer in a state that can use it
-//     (FAILED / FINISHED / CANCELLED): no-op. A late-arriving ack from
-//     a slow follower after the leader has already failed the task is
-//     expected and not an error.
-//   - Ack with Success==false arrives while the task is SWAPPING:
-//     records the ack AND transitions the task to FAILED. The cluster-
-//     wide schema flip (in [UnitAwareProvider.OnTaskCompleted]) is
-//     skipped on FAILED, so a node whose RunSwapOnShard silently failed
-//     cannot let the schema commit while one replica is broken.
-//   - Ack with Success==true arrives while the task is STARTED or
-//     SWAPPING: records the ack and leaves the status alone (the
-//     scheduler issues MarkTaskFinalized once every expected ack has
-//     landed).
-//
-// Idempotent: every node's scheduler may re-fire this on tick / wake
-// retries until the apply commits. The first ack per (task, node) sticks;
-// later acks for the same node are silently discarded.
+// RecordPostCompletionAck records one node's SWAP-phase ack on the task.
+// Gates SWAPPING → FINISHED on every expected ack landing successfully;
+// any Success=false flips to FAILED, which skips the cluster-wide schema
+// flip in OnTaskCompleted. Idempotent: first ack per (task, node) wins;
+// late acks against terminal states are silently dropped.
 func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 	var r api.RecordDistributedTaskPostCompletionAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -461,16 +418,11 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		return err
 	}
 
-	// Once the task has moved past the post-completion barrier (FAILED /
-	// FINISHED / CANCELLED), drop the ack: the cluster has already
-	// decided the task's outcome. This MUST be silent (no error) — every
-	// node's scheduler may emit this command in parallel and the
-	// stragglers must not produce noisy apply failures.
 	switch task.Status {
 	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled:
+		// Past the barrier — silently drop straggler acks.
 		return nil
 	case TaskStatusStarted, TaskStatusSwapping:
-		// Normal paths.
 	default:
 		return wrapPermanent(ErrTaskNotInFinalizingState,
 			fmt.Sprintf("task %s/%s/%d cannot record post-completion ack from status %s",
@@ -481,9 +433,7 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		task.PostCompletionAcks = map[string]PostCompletionAck{}
 	}
 	if _, present := task.PostCompletionAcks[r.NodeId]; present {
-		// Idempotent: the first ack per (task, node) wins. A retry from
-		// the scheduler (because the apply RPC errored on the wire) lands
-		// here once the original commit propagated.
+		// First ack per (task, node) wins; later retries are no-ops.
 		return nil
 	}
 
@@ -493,49 +443,38 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
 	}
 
-	// Any failure → the task fails immediately. Subsequent acks for the
-	// same task are still recorded (forensic value), but the status is
-	// locked to FAILED until cleanup.
+	// Any failure flips the task to FAILED immediately; later acks are
+	// still recorded for forensic value. FinishedAt is not updated —
+	// "when did the work end" should remain the AllUnitsTerminal moment.
 	if !r.Success && task.Status == TaskStatusSwapping {
 		task.Status = TaskStatusFailed
-		// Preserve the first per-unit error message if one was already
-		// set (defensive — RecordUnitCompletion would already have moved
-		// the task to FAILED in that case). Append the post-completion
-		// failure for forensic clarity.
 		ackErr := fmt.Sprintf("post-completion swap failed on node %s: %s", r.NodeId, r.Error)
 		if task.Error != "" {
 			task.Error = task.Error + "; " + ackErr
 		} else {
 			task.Error = ackErr
 		}
-		// FinishedAt was set when AllUnitsTerminal landed; keep that —
-		// the user-meaningful "when did the work end" timestamp is when
-		// the units finished, not when we noticed the swap failure.
 	}
 
 	m.notifySchedulerWithLock()
 	return nil
 }
 
-// RecordPrepCompleteAck records one node's PREP-phase result on the
-// task. The [Scheduler] tick on each node fires this command after its
-// local OnGroupCompleted's PREP body has returned for every local
-// group, so the cluster has durable evidence of which nodes' prep work
-// succeeded before the cluster-wide PREPARING → SWAPPING transition is
-// committed — the load-bearing barrier invariant.
+// RecordPreparationCompleteAck records one node's PREP-phase ack on the task.
+// Gates PREPARING → SWAPPING on every expected ack landing successfully;
+// any Success=false flips the task to FAILED, holding the barrier so no
+// node proceeds to the atomic swap. Idempotent: first ack per (task,
+// node) wins; late acks against terminal states are silently dropped.
 //
-// FSM transitions on apply:
+// Specifically:
 //
 //   - Ack arrives for an idempotently-already-acked (task, node): no-op,
 //     the first ack wins.
 //   - Ack arrives for a task no longer in a state that can use it
 //     (FAILED / FINISHED / CANCELLED, or SWAPPING/FINISHED after the
-//     barrier has already lifted): no-op. Late-arriving acks from slow
-//     followers must not produce noisy apply failures.
+//     barrier has already lifted): no-op.
 //   - Ack with Success==false arrives while the task is PREPARING:
-//     records the ack AND transitions the task to FAILED. No node
-//     proceeds to the atomic swap (the barrier holds — this is the
-//     primary safety property of the PREP barrier).
+//     records the ack AND transitions the task to FAILED.
 //   - Ack with Success==true arrives while the task is STARTED or
 //     PREPARING: records the ack. If every expected node (i.e. every
 //     node that owns at least one local unit on this task) has now
@@ -549,10 +488,10 @@ func (m *Manager) RecordPostCompletionAck(c *api.ApplyRequest) error {
 //
 // FSM-determinism: the PREPARING → SWAPPING transition is computed
 // purely from the task's Units → NodeID map (which is RAFT-replicated
-// and identical on every node) plus the PrepCompletionAcks state — so
+// and identical on every node) plus the PreparationCompletionAcks state — so
 // every node's Manager arrives at the transition on the same apply.
-func (m *Manager) RecordPrepCompleteAck(c *api.ApplyRequest) error {
-	var r api.RecordDistributedTaskPrepCompleteAckRequest
+func (m *Manager) RecordPreparationCompleteAck(c *api.ApplyRequest) error {
+	var r api.RecordDistributedTaskPreparationCompleteAckRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
 		return fmt.Errorf("unmarshal record prep-complete ack request: %w", err)
 	}
@@ -568,34 +507,28 @@ func (m *Manager) RecordPrepCompleteAck(c *api.ApplyRequest) error {
 		return err
 	}
 
-	// Once the task has moved past the PREP barrier (SWAPPING / FINISHED
-	// / FAILED / CANCELLED), drop the ack: the cluster has already
-	// decided the barrier outcome. SWAPPING is reachable iff the
-	// barrier lifted successfully, so a late PrepAck against SWAPPING
-	// is a slow-follower retry that the FSM has nothing to do with.
 	switch task.Status {
 	case TaskStatusFailed, TaskStatusFinished, TaskStatusCancelled, TaskStatusSwapping:
+		// Past the barrier — silently drop the late ack.
 		return nil
 	case TaskStatusStarted, TaskStatusPreparing:
-		// Normal paths. (STARTED accepted defensively: an early ack
-		// race between AllUnitsTerminal's STARTED → PREPARING
-		// transition and the scheduler's PrepAck emission should not
-		// cause a noisy apply failure.)
+		// STARTED accepted defensively to absorb the AllUnitsTerminal-vs-
+		// PrepAck emission race.
 	default:
 		return wrapPermanent(ErrTaskNotInFinalizingState,
 			fmt.Sprintf("task %s/%s/%d cannot record prep-complete ack from status %s",
 				r.Namespace, r.Id, task.Version, task.Status))
 	}
 
-	if task.PrepCompletionAcks == nil {
-		task.PrepCompletionAcks = map[string]PostCompletionAck{}
+	if task.PreparationCompletionAcks == nil {
+		task.PreparationCompletionAcks = map[string]PostCompletionAck{}
 	}
-	if _, present := task.PrepCompletionAcks[r.NodeId]; present {
+	if _, present := task.PreparationCompletionAcks[r.NodeId]; present {
 		// Idempotent: the first ack per (task, node) wins.
 		return nil
 	}
 
-	task.PrepCompletionAcks[r.NodeId] = PostCompletionAck{
+	task.PreparationCompletionAcks[r.NodeId] = PostCompletionAck{
 		Success: r.Success,
 		Error:   r.Error,
 		AckedAt: time.UnixMilli(r.AckedAtUnixMillis),
@@ -619,7 +552,7 @@ func (m *Manager) RecordPrepCompleteAck(c *api.ApplyRequest) error {
 	// Success path: if every expected ack has landed successfully,
 	// transition PREPARING → SWAPPING. This is the moment the barrier
 	// lifts cluster-wide.
-	if r.Success && task.Status == TaskStatusPreparing && allExpectedPrepAcksLanded(task) {
+	if r.Success && task.Status == TaskStatusPreparing && allExpectedPreparationAcksLanded(task) {
 		task.Status = TaskStatusSwapping
 	}
 
@@ -627,19 +560,11 @@ func (m *Manager) RecordPrepCompleteAck(c *api.ApplyRequest) error {
 	return nil
 }
 
-// allExpectedPrepAcksLanded returns true iff every node owning at
-// least one local unit on the task has recorded a PrepCompletionAck
-// with Success=true. Called under [Manager.mu]; pure transform of
-// task state.
-//
-// Note: a unit without a NodeID (PENDING + unclaimed) is NOT expected
-// to produce a PrepAck (no node is running it). PrepCompleteAck only
-// fires after the PREP work runs, which only happens on a node that
-// claimed the unit via the per-unit progress flow. By the time the
-// task transitions to PREPARING, every unit must be terminal (which
-// implies NodeID is set on every unit), so the expected-node set is
-// fully determined from task.Units.
-func allExpectedPrepAcksLanded(task *Task) bool {
+// allExpectedPreparationAcksLanded returns true iff every node owning at least
+// one unit on the task has recorded a successful PrepCompletionAck. Pure
+// transform; caller holds [Manager.mu]. By the time the task is in
+// PREPARING, every unit is terminal so the expected set is fully known.
+func allExpectedPreparationAcksLanded(task *Task) bool {
 	expected := map[string]struct{}{}
 	for _, u := range task.Units {
 		if u.NodeID != "" {
@@ -647,7 +572,7 @@ func allExpectedPrepAcksLanded(task *Task) bool {
 		}
 	}
 	for node := range expected {
-		ack, ok := task.PrepCompletionAcks[node]
+		ack, ok := task.PreparationCompletionAcks[node]
 		if !ok || !ack.Success {
 			return false
 		}

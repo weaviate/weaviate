@@ -458,9 +458,9 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.RecordPostCompletionAck(&cmd)
 		}
-	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREP_COMPLETE_ACK:
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK:
 		f = func() {
-			ret.Error = st.distributedTasksManager.RecordPrepCompleteAck(&cmd)
+			ret.Error = st.distributedTasksManager.RecordPreparationCompleteAck(&cmd)
 		}
 
 	default:

@@ -537,21 +537,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 
-	// Submit the task. For MT semantic migrations, use grouped units so that
-	// OnGroupCompleted fires per-tenant (giving per-tenant barrier semantics).
-	//
-	// Semantic migrations also opt into the two-phase RAFT PREP barrier
-	// (NeedsPrepBarrier=true): PHASE A (PREP) runs on every node in
-	// parallel; PHASE B (OVERLAY+SWAP) only fires after every node has
-	// acked PrepComplete via RAFT. The cross-replica stagger window
-	// between the slowest and fastest PREP completion is therefore
-	// bounded by RAFT propagation latency (~10s of ms) rather than by
-	// per-node PREP duration (which can reach minutes at billion-scale
-	// on large clusters).
-	//
-	// Format-only migrations (repair-*, enable-rangeable) keep
-	// NeedsPrepBarrier=false: they flip metadata only inside
-	// RunSwapOnShard per shard, with no cross-replica state to align.
+	// Semantic migrations opt into the two-phase RAFT PREP barrier;
+	// MT semantic migrations also group by tenant for per-tenant barriers.
 	if isMT && semantic {
 		unitSpecs := buildUnitSpecs(shardOwnership)
 		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
@@ -1031,28 +1018,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Status = "pending"
 		}
 		surfaceSyntheticFields = true
-	case distributedtask.TaskStatusPreparing:
-		// Units are all terminal; per-node PREP (FlushAndSwitch +
-		// PrependSegmentsFromBucket) is running on every node, gated by
-		// the cluster-wide PrepCompleteAck barrier. From the user's
-		// perspective this is "indexing at 100%": all units are done and
-		// we're now in the cross-replica PREP barrier window before the
-		// atomic swap can run. Once every node's PREP ack lands, the FSM
-		// transitions PREPARING -> SWAPPING and the SWAPPING branch
-		// below takes over.
-		idx.Status = "indexing"
-		idx.Progress = 1.0
-		surfaceSyntheticFields = true
-	case distributedtask.TaskStatusSwapping:
-		// Units are all terminal AND (for barrier tasks) every node's PREP
-		// has acked. The post-completion callbacks (per-node atomic swap
-		// + cluster-wide schema flip) have not yet committed cluster-wide.
-		// From the user's perspective this is "indexing at 100%": the work
-		// is done, we're waiting on the FINISHED transition. Once every
-		// node's PostCompletionAck lands and the cluster schema flip
-		// committed via OnTaskCompleted, the task moves to FINISHED and
-		// the FINISHED branch below (or the "ready" override after flagOn
-		// flips) takes over.
+	case distributedtask.TaskStatusPreparing, distributedtask.TaskStatusSwapping:
+		// Units done; cross-replica PREP barrier or per-node swap still in
+		// flight. Surface as "indexing at 100%" until FINISHED + flagOn.
 		idx.Status = "indexing"
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
@@ -1232,19 +1200,10 @@ func errorResponse(msg string) *models.ErrorResponse {
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
 
-// countStartedTasksForCollection counts in-flight reindex tasks whose
-// payload targets the given collection. Unparseable payloads are
-// skipped (checkReindexConflict refuses the new submit when those
-// exist, so we don't need to double-count them here).
-//
-// PREPARING and SWAPPING both count as in-flight (via
-// [distributedtask.TaskStatus.IsActive]): callers use this to throttle
-// parallel submits, and a task whose units are all done but whose
-// post-completion callbacks (per-node PREP, cluster-wide PrepCompleteAck
-// barrier, per-node swap, cluster-wide schema flip) have not yet
-// committed still holds the .migrations/ tracker dirs and the reindex
-// bucket lifecycle. Treating either as "free" would let a new submit
-// race the PREPARING-or-SWAPPING-to-FINISHED window.
+// countStartedTasksForCollection counts in-flight reindex tasks for a
+// collection. Counts every non-terminal status (STARTED/PREPARING/SWAPPING
+// via IsActive) because PREPARING/SWAPPING still hold tracker dirs and
+// reindex buckets.
 func countStartedTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {
@@ -1291,12 +1250,6 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	newProps []string, tasks []*distributedtask.Task,
 ) (string, error) {
 	for _, task := range tasks {
-		// PREPARING and SWAPPING both count as in-flight here for the
-		// same reason as [ReindexProvider.CheckConflict]: the per-node
-		// PREP, cluster-wide PrepCompleteAck barrier, per-node swap, and
-		// cluster-wide schema flip have not yet committed, so a new
-		// migration on overlapping properties could race the pending
-		// flip and corrupt bucket pointers.
 		if !task.Status.IsActive() {
 			continue
 		}

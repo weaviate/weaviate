@@ -107,7 +107,7 @@ func (p *recordingUnitAwareProvider) OnGroupCompleted(task *Task, _ string, _ []
 }
 
 func (p *recordingUnitAwareProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
-	// Recording provider exercises the NeedsPrepBarrier=false path;
+	// Recording provider exercises the NeedsPreparationBarrier=false path;
 	// scheduler never fires this for these tasks. Stub for interface
 	// compliance.
 	return nil
@@ -241,7 +241,7 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPostCompletionAck(
 	}))
 }
 
-func (r *fanoutAckRecorder) RecordDistributedTaskPrepCompleteAck(
+func (r *fanoutAckRecorder) RecordDistributedTaskPreparationCompleteAck(
 	_ context.Context,
 	ns, id string,
 	version uint64,
@@ -249,7 +249,7 @@ func (r *fanoutAckRecorder) RecordDistributedTaskPrepCompleteAck(
 	success bool,
 	errMsg string,
 ) error {
-	return r.manager.RecordPrepCompleteAck(toCmd(r.t, &cmd.RecordDistributedTaskPrepCompleteAckRequest{
+	return r.manager.RecordPreparationCompleteAck(toCmd(r.t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 		Namespace:         ns,
 		Id:                id,
 		Version:           version,

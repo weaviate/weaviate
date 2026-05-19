@@ -12,7 +12,7 @@
 package reindex_multinode
 
 // End-to-end acceptance test for the two-phase RAFT swap barrier
-// (NeedsPrepBarrier=true).
+// (NeedsPreparationBarrier=true).
 //
 // Reproduces the topology that exposed the cross-replica stagger window
 // in weaviate/0-weaviate-issues#225:
@@ -35,7 +35,7 @@ package reindex_multinode
 // captured between probe samples 722 and 723).
 //
 // Post-barrier (this branch): OnGroupCompleted runs PREP only; every
-// node's PrepCompleteAck must land via RAFT before the FSM transitions
+// node's PreparationCompleteAck must land via RAFT before the FSM transitions
 // PREPARING -> SWAPPING and OnSwapRequested fires. The cross-node SWAP
 // window is now bounded by RAFT propagation latency (tens of ms),
 // regardless of PREP duration.
@@ -130,7 +130,7 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 			"across the 5-shard cluster")
 
 	// Submit semantic migration. Step 5 of prep-swap-barrier sets
-	// NeedsPrepBarrier=true on semantic submits via the new
+	// NeedsPreparationBarrier=true on semantic submits via the new
 	// AddDistributedTaskWith{Groups}Barrier(..., semantic) overloads,
 	// so this task goes through PREPARING -> SWAPPING -> FINISHED
 	// instead of the legacy single-callback STARTED -> FINALIZING ->
@@ -193,7 +193,7 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 			"If all three are false, the FSM has silently degenerated to "+
 			"a legacy single-phase path which re-introduces the cross-"+
 			"replica stagger bug — check handlers_indexes.go (submit handler "+
-			"NeedsPrepBarrier wiring) and manager.go (AllUnitsTerminal "+
+			"NeedsPreparationBarrier wiring) and manager.go (AllUnitsTerminal "+
 			"routing to PREPARING).",
 		sawPreparingViaREST, transitions, barrierPrepLogPresent, barrierSwapLogPresent)
 

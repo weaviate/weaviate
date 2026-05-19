@@ -57,7 +57,7 @@ func (s *Raft) AddDistributedTaskWithGroups(
 }
 
 // AddDistributedTaskWithBarrier is the PREP-barrier-aware counterpart
-// to AddDistributedTask. When needsPrepBarrier=true the task uses the
+// to AddDistributedTask. When needsPreparationBarrier=true the task uses the
 // two-phase RAFT-coordinated swap: AllUnitsTerminal routes to
 // PREPARING (not SWAPPING directly), and each node's PREP completion
 // must ack before any node fires its atomic swap.
@@ -67,19 +67,19 @@ func (s *Raft) AddDistributedTaskWithGroups(
 // (format-only migrations, debug-originated tasks).
 func (s *Raft) AddDistributedTaskWithBarrier(
 	ctx context.Context, namespace, taskID string,
-	taskPayload any, unitIDs []string, needsPrepBarrier bool,
+	taskPayload any, unitIDs []string, needsPreparationBarrier bool,
 ) error {
 	payloadBytes, err := json.Marshal(taskPayload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal task payload: %w", err)
 	}
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
-		Namespace:             namespace,
-		Id:                    taskID,
-		Payload:               payloadBytes,
-		SubmittedAtUnixMillis: time.Now().UnixMilli(),
-		UnitIds:               unitIDs,
-		NeedsPrepBarrier:      needsPrepBarrier,
+		Namespace:               namespace,
+		Id:                      taskID,
+		Payload:                 payloadBytes,
+		SubmittedAtUnixMillis:   time.Now().UnixMilli(),
+		UnitIds:                 unitIDs,
+		NeedsPreparationBarrier: needsPreparationBarrier,
 	})
 }
 
@@ -90,7 +90,7 @@ func (s *Raft) AddDistributedTaskWithBarrier(
 // unit IDs.
 func (s *Raft) AddDistributedTaskWithGroupsBarrier(
 	ctx context.Context, namespace, taskID string,
-	taskPayload any, unitSpecs []distributedtask.UnitSpec, needsPrepBarrier bool,
+	taskPayload any, unitSpecs []distributedtask.UnitSpec, needsPreparationBarrier bool,
 ) error {
 	payloadBytes, err := json.Marshal(taskPayload)
 	if err != nil {
@@ -101,12 +101,12 @@ func (s *Raft) AddDistributedTaskWithGroupsBarrier(
 		protoSpecs[i] = &cmd.UnitSpec{Id: spec.ID, GroupId: spec.GroupID}
 	}
 	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, &cmd.AddDistributedTaskRequest{
-		Namespace:             namespace,
-		Id:                    taskID,
-		Payload:               payloadBytes,
-		SubmittedAtUnixMillis: time.Now().UnixMilli(),
-		UnitSpecs:             protoSpecs,
-		NeedsPrepBarrier:      needsPrepBarrier,
+		Namespace:               namespace,
+		Id:                      taskID,
+		Payload:                 payloadBytes,
+		SubmittedAtUnixMillis:   time.Now().UnixMilli(),
+		UnitSpecs:               protoSpecs,
+		NeedsPreparationBarrier: needsPreparationBarrier,
 	})
 }
 
@@ -195,7 +195,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 		})
 }
 
-// RecordDistributedTaskPrepCompleteAck commits one node's
+// RecordDistributedTaskPreparationCompleteAck commits one node's
 // OnGroupCompleted PREP-phase result to the FSM. The scheduler tick
 // on each node fires this after its local PREP body has returned, so
 // the cluster has durable evidence of which nodes' prep work
@@ -203,7 +203,7 @@ func (s *Raft) RecordDistributedTaskPostCompletionAck(
 // This is the load-bearing barrier.
 //
 // See [distributedtask.PostCompletionAckRecorder].
-func (s *Raft) RecordDistributedTaskPrepCompleteAck(
+func (s *Raft) RecordDistributedTaskPreparationCompleteAck(
 	ctx context.Context,
 	namespace, taskID string,
 	taskVersion uint64,
@@ -211,8 +211,8 @@ func (s *Raft) RecordDistributedTaskPrepCompleteAck(
 	success bool,
 	errMsg string,
 ) error {
-	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREP_COMPLETE_ACK,
-		&cmd.RecordDistributedTaskPrepCompleteAckRequest{
+	return s.applyDistributedTaskCommand(ctx, cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK,
+		&cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 			Namespace:         namespace,
 			Id:                taskID,
 			Version:           taskVersion,

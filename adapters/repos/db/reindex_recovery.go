@@ -57,84 +57,19 @@ type RecoveredReindex struct {
 }
 
 // DiscoverInFlightReindexTasks walks every shard's
-// <root>/<index>/<shard>/lsm/.migrations/<migrationDir>/ directory at
-// startup and reconstructs [ShardReindexTaskGeneric] instances for the
-// recovery window where the reindex iteration is terminal but the swap
-// has not yet completed.
+// .migrations/<migrationDir>/ at startup and reconstructs
+// [ShardReindexTaskGeneric] instances for the recovery window where the
+// reindex iteration is terminal but the swap has not yet completed.
 //
-//   - The persisted recovery record (payload.mig) is written by
-//     [ReindexProvider.persistRecoveryRecord] before the first reindex
-//     iteration runs on a unit. It captures the typed task payload —
-//     migration type, target tokenization, bucket strategy, properties,
-//     UnitToShard mapping — plus the cluster-wide task descriptor. The
-//     sentinel files consulted alongside it are:
+// Reads payload.mig (the typed task payload persisted by
+// persistRecoveryRecord before the iteration ran) and consults the
+// sentinel files: started.mig (iteration started), reindexed.mig
+// (iteration terminal), merged.mig (PREP complete), swapped.mig
+// (in-memory swap complete), tidied.mig (swap fully tidied; no
+// recovery needed).
 //
-//     started.mig    — set by the reindex iteration on first run
-//     reindexed.mig  — set when iteration is terminal (per-shard); the
-//     unit transitions to COMPLETED in RAFT around
-//     the same time. If this is missing, the DTM
-//     scheduler will call StartTask post-restart and
-//     re-register callbacks itself, so recovery must
-//     NOT register a second instance.
-//     merged.mig     — set at end of PREP (RunPrepareOnShard's
-//     PrependSegmentsFromBucket loop). Recovery target.
-//     swapped.mig    — set at end of in-memory atomic swap
-//     (runtimeSwap's SwapBucketPointer loop). Recovery
-//     target — runtimeSwap dispatches to tidy backups.
-//     tidied.mig     — set after the runtime swap; the migration is
-//     fully done and only directory renames remain
-//     (handled by [FinalizeCompletedMigrations]).
-//
-// Recovery surface under the two-phase RAFT swap barrier
-// (NeedsPrepBarrier=true): the on-disk sentinel sequence is identical
-// to the non-barrier
-// single-callback flow (started -> reindexed -> merged -> swapped
-// -> tidied), so the discovery layer needs no per-status branching.
-// The crash windows enumerated below all converge through the same
-// reindexed.mig && !tidied.mig recovery window:
-//
-//   - **STARTED crash window**: reindexed.mig absent. NOT a recovery
-//     target here — the DTM scheduler will call StartTask on the next
-//     tick and re-register callbacks via processOneUnit. Discovery
-//     correctly skips.
-//
-//   - **PREPARING crash window (PREP in flight)**: reindexed.mig
-//     present, merged.mig absent. Discovery picks it up; scheduler
-//     re-fires OnGroupCompleted (PHASE A under barrier) on the next
-//     tick; RunPrepareOnShard short-circuits on already-merged tasks
-//     and completes the rest.
-//
-//   - **PREP-DONE-BARRIER-WAITING crash window (between local PREP
-//     and PrepCompleteAck landing OR between PrepCompleteAck and
-//     SWAPPING transition cluster-wide)**: reindexed.mig + merged.mig
-//     present, swapped.mig absent. Discovery picks it up; cluster FSM
-//     is at PREPARING or SWAPPING; scheduler re-fires the appropriate
-//     PHASE A or PHASE B callback; both are idempotent against
-//     merged.mig.
-//
-//   - **SWAPPING crash window (between SWAPPING-transition and local
-//     SWAP completing)**: reindexed.mig + merged.mig present, swapped
-//     present-or-absent, tidied.mig absent. Discovery picks it up;
-//     scheduler re-fires OnSwapRequested; RunSwapOnShard's sentinel-
-//     aware dispatch picks the right resume branch (recoverRuntime
-//     SwapBuckets / runtimeSwap / tidyBackupBuckets).
-//
-//   - **TIDY-PENDING crash window (between markSwapped and
-//     markTidied)**: swapped.mig present, tidied.mig absent.
-//     Discovery picks it up; OnSwapRequested -> RunSwapOnShard's
-//     IsSwapped branch fires tidyBackupBuckets + finalize.
-//
-//   - Per-shard task instances use selectedShardsByCollection scoped to
-//     exactly the shard whose directory the record was found in. That
-//     keeps callback registration / deregistration per-instance so the
-//     callbackDisableFuncs slice in one shard's task instance can never
-//     remove another shard's callback when [runtimeSwap] runs.
-//
-// Returns a flat slice; deduplication across migration directories that
-// belong to the same task (e.g. searchable + filterable for one
-// change-tokenization unit) is the caller's responsibility — usually
-// they want both registered with the reindexer and grouped under the
-// same (TaskDescriptor, UnitID) entry in ReindexProvider's cache.
+// Returns a flat slice; deduplication across sibling migration dirs
+// belonging to the same task is the caller's job.
 func DiscoverInFlightReindexTasks(
 	rootPath string,
 	logger logrus.FieldLogger,

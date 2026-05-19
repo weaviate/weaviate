@@ -109,14 +109,7 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS = 305;
     TYPE_DISTRIBUTED_TASK_MARK_FINALIZED = 306;
     TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK = 307;
-    // RecordPrepCompleteAck: emitted by each node after its
-    // OnGroupCompleted's PREP phase returns. Cluster gates the
-    // PREPARING → SWAPPING transition on all expected PrepAcks
-    // landing with success=true (the load-bearing barrier
-    // invariant — no node fires its atomic swap until every other
-    // node has completed PREP). Any success=false flips the task
-    // to FAILED.
-    TYPE_DISTRIBUTED_TASK_RECORD_PREP_COMPLETE_ACK = 308;
+    TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK = 308;
   }
   Type type = 1;
   string class = 2;
@@ -231,18 +224,7 @@ message AddDistributedTaskRequest {
   int64 submitted_at_unix_millis = 5;
   repeated string unit_ids = 6;
   repeated UnitSpec unit_specs = 7;
-  // When true, the task uses the PREP barrier: AllUnitsTerminal
-  // transitions the task STARTED → PREPARING (NOT directly to SWAPPING).
-  // Each node's scheduler fires the PREP body, then emits a
-  // RecordPrepCompleteAck; the FSM gates the PREPARING → SWAPPING
-  // transition on all expected acks landing successfully.
-  //
-  // Set by the provider's task-creation path: true for semantic
-  // migrations (change-tokenization, enable-filterable,
-  // enable-searchable) that require cross-replica swap coordination;
-  // false for format-only migrations (repair-*, enable-rangeable)
-  // that route STARTED → SWAPPING directly without a PREP barrier.
-  bool needs_prep_barrier = 8;
+  bool needs_preparation_barrier = 8;
 }
 
 // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
@@ -353,29 +335,7 @@ message RecordDistributedTaskPostCompletionAckRequest {
   int64 acked_at_unix_millis = 7;
 }
 
-// RecordDistributedTaskPrepCompleteAckRequest captures one node's
-// PREP-phase result for a task: did its OnGroupCompleted PREP body
-// (FlushAndSwitch + PrependSegmentsFromBucket + ShutdownBucket per
-// per-property migration sub-task) complete successfully? Emitted
-// by every node that has local units, after its PREP phase has
-// returned, BEFORE the cluster-wide PREPARING → SWAPPING transition.
-//
-// The Manager FSM gates the PREPARING → SWAPPING transition on
-// every expected PrepCompleteAck landing with success=true. Any
-// node reporting success=false flips the task to FAILED
-// immediately — no node proceeds to the atomic swap (the
-// load-bearing barrier invariant).
-//
-// Idempotent: the FSM keeps the first ack per (task, node) —
-// duplicate acks (from retries on the scheduler's wake/tick loop)
-// are no-ops.
-//
-// Wire-shape identical to RecordDistributedTaskPostCompletionAckRequest
-// (intentionally — they serve the same per-node ack pattern, just
-// gating different transitions); kept as a separate message type
-// for FSM-dispatch clarity and so the per-phase ack tables on the
-// Task can be reasoned about independently.
-message RecordDistributedTaskPrepCompleteAckRequest {
+message RecordDistributedTaskPreparationCompleteAckRequest {
   string namespace = 1;
   string id = 2;
   uint64 version = 3;

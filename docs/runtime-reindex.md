@@ -144,14 +144,14 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
   per-shard swap and cluster-wide schema flip are still ahead.
 - **`TaskStatus`** — per-task aggregate. The transition sequence
   depends on whether the task opts into the PREP barrier
-  (`NeedsPrepBarrier`, set automatically for semantic migrations by
+  (`NeedsPreparationBarrier`, set automatically for semantic migrations by
   the submit handler; full mechanics in §6.3):
   - **Semantic migrations** (`change-tokenization`,
     `enable-searchable`, `enable-filterable`):
     `STARTED → PREPARING → SWAPPING → FINISHED`.
     `PREPARING` and `SWAPPING` are both reached only after every
     unit across the cluster is at terminal status. The FSM gates
-    `PREPARING → SWAPPING` on every node's `PrepCompleteAck`
+    `PREPARING → SWAPPING` on every node's `PreparationCompleteAck`
     landing successfully, and gates `SWAPPING → FINISHED` on
     every node's `PostCompletionAck` landing successfully.
   - **Format-only migrations** (`enable-rangeable`, `repair-*`,
@@ -217,9 +217,9 @@ preceding a transition on the per-task field. Annotations
         │    1. PREP (background): FlushAndSwitch + Prepend             │
         │      (disk-I/O proportional to bucket size — minutes at       │
         │       billion-scale; this is what the barrier closes)         │
-        │   RecordPrepCompleteAck(success bool) — RAFT (per node)       │
+        │   RecordPreparationCompleteAck(success bool) — RAFT (per node)       │
         └──────────────────────────────────┬─────────────────────────────┘
-                  Every node's PrepCompleteAck landed (success on all)
+                  Every node's PreparationCompleteAck landed (success on all)
                                            │   FSM gates the transition
                                   ┌────────▼────────┐
                                   │ SWAPPING        │ ← TaskStatus
@@ -239,7 +239,7 @@ preceding a transition on the per-task field. Annotations
         │                                                                │
         │  (Format-only path: Provider.OnGroupCompleted runs the       │
         │   inline PREP+OVERLAY+SWAP body in a single callback; no      │
-        │   PrepCompleteAck barrier; SWAPPING fires directly from       │
+        │   PreparationCompleteAck barrier; SWAPPING fires directly from       │
         │   AllUnitsTerminal.)                                          │
         └──────────────────────────────────┬─────────────────────────────┘
               Every node's PostCompletionAck landed (success on all)
@@ -287,12 +287,12 @@ What goes through RAFT (cluster-wide commits):
 - The transition `STARTED → PREPARING` (semantic) or
   `STARTED → SWAPPING` (format-only) — happens once the cluster-wide
   `AllUnitsTerminal` predicate becomes true on the Manager's FSM
-  state. Routing depends on `Task.NeedsPrepBarrier`.
-- `RecordPrepCompleteAck` — one per node, with `Success=bool`.
+  state. Routing depends on `Task.NeedsPreparationBarrier`.
+- `RecordPreparationCompleteAck` — one per node, with `Success=bool`.
   Semantic-migration path only — fires after each node's local PREP
   body (`OnGroupCompleted`) returns.
 - The transition `PREPARING → SWAPPING` — committed inside
-  `RecordPrepCompleteAck`'s apply once every expected ack has landed
+  `RecordPreparationCompleteAck`'s apply once every expected ack has landed
   with `Success=true`.
 - `RecordPostCompletionAck` — one per node, with `Success=bool`.
   Fires after each node's local SWAP body (`OnSwapRequested` for
@@ -348,16 +348,16 @@ mechanisms:
    reads. The overlay is cleared from `OnTaskCompleted` after the
    schema flip lands. See §10.
 2. **Two-phase ack barrier (the cross-node handshake).** For semantic
-   migrations each node submits `RecordPrepCompleteAck(Success=bool)`
+   migrations each node submits `RecordPreparationCompleteAck(Success=bool)`
    after its local PREP returns, then `RecordPostCompletionAck(Success=bool)`
    after its local SWAP returns. The FSM gates `PREPARING → SWAPPING`
-   on every node's PrepCompleteAck (success on all), then gates
+   on every node's PreparationCompleteAck (success on all), then gates
    `SWAPPING → FINISHED` on every node's PostCompletionAck (success
    on all). Any `Success=false` on either ack flips the task to
    `FAILED`, which makes `OnTaskCompleted` skip the cluster-wide
    schema flip. So the schema never moves to NEW unless every node
    has successfully prepared AND swapped. Format-only migrations skip
-   the PrepCompleteAck barrier (no cross-replica tokenization
+   the PreparationCompleteAck barrier (no cross-replica tokenization
    alignment to bound) and gate `SWAPPING → FINISHED` on
    PostCompletionAck only. See §6.3.
 
@@ -430,7 +430,7 @@ semantic migrations and **Journey 2** for format-only ones, plus
 Key types & contracts:
 
 - **`Manager`** — the RAFT FSM. Owns task state, applies `AddTask`,
-  `RecordUnitProgress`, `RecordUnitCompletion`, `RecordPrepCompleteAck`,
+  `RecordUnitProgress`, `RecordUnitCompletion`, `RecordPreparationCompleteAck`,
   `RecordPostCompletionAck`, `MarkTaskFinalized`. Every mutation is
   FSM-deterministic.
 - **`Scheduler`** — per-node loop. Polls Manager for current task list,
@@ -456,7 +456,7 @@ Key types & contracts:
   SWAPPING, and STARTED all count as "in flight" for mutation gating.
 - **`TaskStatusPreparing` and `TaskStatusSwapping`** — the post-units,
   pre-FINISHED coordination states that split per-node PREP from
-  per-node SWAP with a cluster-wide PrepCompleteAck barrier in between.
+  per-node SWAP with a cluster-wide PreparationCompleteAck barrier in between.
   Semantic migrations transit STARTED → PREPARING → SWAPPING →
   FINISHED; format-only migrations skip PREPARING and transit STARTED
   → SWAPPING → FINISHED. The task is NOT safe to act on from the API
@@ -470,11 +470,11 @@ Key types & contracts:
   window to RAFT propagation latency (tens of ms) instead of per-node
   PREP duration variance (which scales with bucket size and reaches
   minutes at billion-scale).
-- **Two-phase ack barrier** — `RecordPrepCompleteAck` (semantic only)
+- **Two-phase ack barrier** — `RecordPreparationCompleteAck` (semantic only)
   + `RecordPostCompletionAck` (all paths). Every node's scheduler
   records its phase outcome (success or error) on the task before the
   cluster is allowed to advance: PREPARING → SWAPPING is gated on
-  every PrepCompleteAck landing with Success=true; SWAPPING →
+  every PreparationCompleteAck landing with Success=true; SWAPPING →
   FINISHED is gated on every PostCompletionAck landing with
   Success=true. A `Success=false` on EITHER ack flips the task to
   `FAILED`, which makes `OnTaskCompleted` skip the cluster-wide
@@ -764,13 +764,13 @@ Sequence in `MakeAppState`:
 
 The post-completion barrier is split into two phases.
 
-**Semantic migrations (NeedsPrepBarrier=true):**
+**Semantic migrations (NeedsPreparationBarrier=true):**
 
 1. `OnGroupCompleted` (PHASE A) runs PREP per local shard. Returns a
    non-nil error iff any task in the group failed to merge. The
-   scheduler emits `RecordPrepCompleteAck(Success=bool)` per node.
+   scheduler emits `RecordPreparationCompleteAck(Success=bool)` per node.
 2. FSM transitions `PREPARING → SWAPPING` only when every expected
-   PrepCompleteAck has landed with `Success=true`. The transition is
+   PreparationCompleteAck has landed with `Success=true`. The transition is
    committed inside the FSM apply path (atomic) so no node can
    advance to SWAPPING before every node has finished PREP.
 3. `OnSwapRequested` (PHASE B) runs OVERLAY+SWAP per local shard.
@@ -780,7 +780,7 @@ The post-completion barrier is split into two phases.
    PostCompletionAck has landed with `Success=true`.
 5. `OnTaskCompleted` fires → cluster-wide schema flip commits.
 
-**Format-only migrations (NeedsPrepBarrier=false):** PHASE A is
+**Format-only migrations (NeedsPreparationBarrier=false):** PHASE A is
 skipped; the FSM goes `STARTED → SWAPPING` directly. `OnGroupCompleted`
 runs the inline PREP+OVERLAY+SWAP body and the scheduler emits
 `RecordPostCompletionAck`. SWAPPING → FINISHED is gated on the
@@ -871,7 +871,7 @@ pointer flip (microseconds).
 Under the two-phase barrier (semantic migrations), PREP and OVERLAY
 SET + ATOMIC SWAP fire from two different scheduler callbacks
 (`OnGroupCompleted` for PREP, `OnSwapRequested` for OVERLAY+SWAP) with
-the cluster-wide `RecordPrepCompleteAck` barrier in between. The
+the cluster-wide `RecordPreparationCompleteAck` barrier in between. The
 phase ordering on a single node is preserved; the barrier additionally
 bounds the cross-node skew between fastest-node SWAP and slowest-node
 SWAP to RAFT propagation latency instead of per-node PREP duration
@@ -1220,7 +1220,7 @@ while running v1.38 Preview.
 **DTM**
 
 - [`cluster/distributedtask/doc.go`](../cluster/distributedtask/doc.go) — package-level architecture + the four "journey" shapes.
-- [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPrepBarrier`, `TaskStatus.IsActive()` / `IsCoordinationPhase()` helpers.
+- [`cluster/distributedtask/types.go`](../cluster/distributedtask/types.go) — `Task`, `Unit`, `UnitSpec`, `TaskStatusPreparing`, `TaskStatusSwapping`, `NeedsPreparationBarrier`, `TaskStatus.IsActive()` / `IsCoordinationPhase()` helpers.
 - [`cluster/distributedtask/manager.go`](../cluster/distributedtask/manager.go) — FSM. `RecordPostCompletionAck`, `MarkTaskFinalized` godocs are essential reading.
 - [`cluster/distributedtask/scheduler.go`](../cluster/distributedtask/scheduler.go) — per-node loop, callback dispatch.
 - [`cluster/distributedtask/errors.go`](../cluster/distributedtask/errors.go) — permanent-rejection sentinels + gRPC wire encoding.

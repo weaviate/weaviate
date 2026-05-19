@@ -239,7 +239,7 @@ func (p *ShardNoopProvider) GetFinalizedGroups(desc TaskDescriptor) map[string][
 }
 
 // OnSwapRequested is a no-op for ShardNoopProvider — this test
-// provider is the canonical NeedsPrepBarrier=false path (format-only
+// provider is the canonical NeedsPreparationBarrier=false path (format-only
 // shape), so the scheduler never fires this for ShardNoopProvider
 // tasks. Implements the interface contract for build cleanliness.
 func (p *ShardNoopProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {

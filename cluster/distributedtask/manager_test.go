@@ -1390,16 +1390,16 @@ func TestManager_CheckTenantMutation_DispatchToDetectors(t *testing.T) {
 // addBarrierTaskWithUnits is the barrier-mode counterpart to
 // addTaskWithUnits — same shape, but the task opts into the PrepComplete
 // barrier so AllUnitsTerminal routes STARTED → PREPARING (instead of
-// straight to SWAPPING) and PrepCompletionAcks become the gate on the
+// straight to SWAPPING) and PreparationCompletionAcks become the gate on the
 // PREPARING → SWAPPING transition.
 func addBarrierTaskWithUnits(t *testing.T, h *testHarness, ns, id string, version uint64, units []string) {
 	t.Helper()
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace:             ns,
-		Id:                    id,
-		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
-		UnitIds:               units,
-		NeedsPrepBarrier:      true,
+		Namespace:               ns,
+		Id:                      id,
+		SubmittedAtUnixMillis:   h.clock.Now().UnixMilli(),
+		UnitIds:                 units,
+		NeedsPreparationBarrier: true,
 	}), version)
 	require.NoError(t, err)
 }
@@ -1408,7 +1408,7 @@ func addBarrierTaskWithUnits(t *testing.T, h *testHarness, ns, id string, versio
 // every unit's progress and recording successful unit completion for
 // every node. Mirrors the body of TestManager_RecordPostCompletionAck_*
 // up to the FINALIZING transition, but here AllUnitsTerminal routes
-// STARTED → PREPARING because NeedsPrepBarrier=true.
+// STARTED → PREPARING because NeedsPreparationBarrier=true.
 func drivePreparing(t *testing.T, h *testHarness, ns, id string, version uint64, nodes []string) {
 	t.Helper()
 	for _, n := range nodes {
@@ -1429,11 +1429,11 @@ func drivePreparing(t *testing.T, h *testHarness, ns, id string, version uint64,
 		"barrier task with all units terminal MUST land in PREPARING (not SWAPPING)")
 }
 
-// TestManager_RecordPrepCompleteAck_Success pins the core PREP barrier
+// TestManager_RecordPreparationCompleteAck_Success pins the core PREP barrier
 // invariant: PREPARING → SWAPPING happens only after EVERY expected
 // node ack lands with Success=true. Until the last ack arrives, the
 // task stays PREPARING (no node fires its atomic swap).
-func TestManager_RecordPrepCompleteAck_Success(t *testing.T) {
+func TestManager_RecordPreparationCompleteAck_Success(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	var version uint64 = 10
 	nodes := []string{"node-1", "node-2", "node-3"}
@@ -1444,7 +1444,7 @@ func TestManager_RecordPrepCompleteAck_Success(t *testing.T) {
 	// lifted yet (load-bearing property; the third node must NOT see
 	// SWAPPING and prematurely fire its OnSwapRequested).
 	for _, n := range nodes[:2] {
-		require.NoError(t, h.manager.RecordPrepCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPrepCompleteAckRequest{
+		require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 			Namespace:         "ns",
 			Id:                "task1",
 			Version:           version,
@@ -1458,7 +1458,7 @@ func TestManager_RecordPrepCompleteAck_Success(t *testing.T) {
 	}
 
 	// Third ack lifts the barrier.
-	require.NoError(t, h.manager.RecordPrepCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPrepCompleteAckRequest{
+	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 		Namespace:         "ns",
 		Id:                "task1",
 		Version:           version,
@@ -1471,21 +1471,21 @@ func TestManager_RecordPrepCompleteAck_Success(t *testing.T) {
 	task := tasks["ns"][0]
 	require.Equal(t, TaskStatusSwapping, task.Status,
 		"PREPARING → SWAPPING fires the moment the last expected ack lands")
-	require.Len(t, task.PrepCompletionAcks, 3)
+	require.Len(t, task.PreparationCompletionAcks, 3)
 	for _, n := range nodes {
-		ack, ok := task.PrepCompletionAcks[n]
+		ack, ok := task.PreparationCompletionAcks[n]
 		require.True(t, ok, "PrepAck for %s must be recorded", n)
 		require.True(t, ack.Success)
 		require.False(t, ack.AckedAt.IsZero(), "AckedAt must be set on apply")
 	}
 }
 
-// TestManager_RecordPrepCompleteAck_FailureTransitionsToFailed pins
+// TestManager_RecordPreparationCompleteAck_FailureTransitionsToFailed pins
 // the primary safety property of the PREP barrier: a single Success=false
 // ack immediately flips PREPARING → FAILED, so no node proceeds to
 // the atomic swap. Without this the barrier degenerates to a no-op:
 // one node's PREP failure would still let every other node swap.
-func TestManager_RecordPrepCompleteAck_FailureTransitionsToFailed(t *testing.T) {
+func TestManager_RecordPreparationCompleteAck_FailureTransitionsToFailed(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	var version uint64 = 10
 	nodes := []string{"node-1", "node-2"}
@@ -1493,7 +1493,7 @@ func TestManager_RecordPrepCompleteAck_FailureTransitionsToFailed(t *testing.T) 
 	drivePreparing(t, h, "ns", "task1", version, nodes)
 
 	// node-1 acks success.
-	require.NoError(t, h.manager.RecordPrepCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPrepCompleteAckRequest{
+	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 		Namespace:         "ns",
 		Id:                "task1",
 		Version:           version,
@@ -1507,7 +1507,7 @@ func TestManager_RecordPrepCompleteAck_FailureTransitionsToFailed(t *testing.T) 
 
 	// node-2 acks failure — apply must flip the task to FAILED
 	// immediately, even though node-1 succeeded.
-	require.NoError(t, h.manager.RecordPrepCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPrepCompleteAckRequest{
+	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 		Namespace:         "ns",
 		Id:                "task1",
 		Version:           version,
@@ -1525,18 +1525,18 @@ func TestManager_RecordPrepCompleteAck_FailureTransitionsToFailed(t *testing.T) 
 	require.Contains(t, task.Error, "synthetic prep failure")
 }
 
-// TestManager_RecordPrepCompleteAck_Idempotent pins the duplicate-ack
+// TestManager_RecordPreparationCompleteAck_Idempotent pins the duplicate-ack
 // contract: the first ack per (task, node) wins; subsequent acks for
 // the same node are silently no-op'd. The scheduler's wake/tick retries
 // must not be able to oscillate task status under apply-RPC flakes.
-func TestManager_RecordPrepCompleteAck_Idempotent(t *testing.T) {
+func TestManager_RecordPreparationCompleteAck_Idempotent(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	var version uint64 = 10
 	addBarrierTaskWithUnits(t, h, "ns", "task1", version, []string{"u-node-1"})
 	drivePreparing(t, h, "ns", "task1", version, []string{"node-1"})
 
 	// First ack: success → barrier lifts (single-node).
-	require.NoError(t, h.manager.RecordPrepCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPrepCompleteAckRequest{
+	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 		Namespace:         "ns",
 		Id:                "task1",
 		Version:           version,
@@ -1545,13 +1545,13 @@ func TestManager_RecordPrepCompleteAck_Idempotent(t *testing.T) {
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
 	})))
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
-	require.True(t, tasks["ns"][0].PrepCompletionAcks["node-1"].Success)
+	require.True(t, tasks["ns"][0].PreparationCompletionAcks["node-1"].Success)
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
 
 	// Duplicate ack with Success=false: must be silently dropped.
 	// If the duplicate took effect it would flip Success→false in the
 	// recorded ack AND flip SWAPPING → FAILED, both of which are wrong.
-	require.NoError(t, h.manager.RecordPrepCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPrepCompleteAckRequest{
+	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 		Namespace:         "ns",
 		Id:                "task1",
 		Version:           version,
@@ -1561,18 +1561,18 @@ func TestManager_RecordPrepCompleteAck_Idempotent(t *testing.T) {
 		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
 	})))
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
-	require.True(t, tasks["ns"][0].PrepCompletionAcks["node-1"].Success,
+	require.True(t, tasks["ns"][0].PreparationCompletionAcks["node-1"].Success,
 		"duplicate ack must not flip recorded success → failure")
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status,
 		"duplicate ack must not flip SWAPPING → FAILED")
 }
 
-// TestManager_RecordPrepCompleteAck_AckOrderCommutativity pins that
+// TestManager_RecordPreparationCompleteAck_AckOrderCommutativity pins that
 // ack-arrival-order is irrelevant: the same set of acks produces the
 // same end state regardless of which node's apply lands first. The
 // barrier-lift transition is a pure function of (Units, PrepAcks),
 // not of the apply order.
-func TestManager_RecordPrepCompleteAck_AckOrderCommutativity(t *testing.T) {
+func TestManager_RecordPreparationCompleteAck_AckOrderCommutativity(t *testing.T) {
 	for _, perm := range [][]string{
 		{"node-1", "node-2", "node-3"},
 		{"node-3", "node-1", "node-2"},
@@ -1587,7 +1587,7 @@ func TestManager_RecordPrepCompleteAck_AckOrderCommutativity(t *testing.T) {
 			drivePreparing(t, h, "ns", "task1", version, nodes)
 
 			for _, n := range perm {
-				require.NoError(t, h.manager.RecordPrepCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPrepCompleteAckRequest{
+				require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
 					Namespace:         "ns",
 					Id:                "task1",
 					Version:           version,
@@ -1601,7 +1601,7 @@ func TestManager_RecordPrepCompleteAck_AckOrderCommutativity(t *testing.T) {
 			task := tasks["ns"][0]
 			require.Equal(t, TaskStatusSwapping, task.Status,
 				"end state must be SWAPPING regardless of ack-arrival order")
-			require.Len(t, task.PrepCompletionAcks, 3)
+			require.Len(t, task.PreparationCompletionAcks, 3)
 		})
 	}
 }

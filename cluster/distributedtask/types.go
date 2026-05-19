@@ -80,17 +80,11 @@ type PostCompletionAckRecorder interface {
 		errMsg string,
 	) error
 
-	// RecordDistributedTaskPrepCompleteAck commits one node's PREP-phase
-	// result via RAFT. Gates the cluster-wide PREPARING → SWAPPING
-	// transition: the Manager FSM transitions only when every expected
-	// PrepCompleteAck has landed with success=true. Any success=false
-	// flips the task to FAILED immediately so no node fires its atomic
-	// swap (the load-bearing barrier invariant).
-	//
-	// Idempotent at the FSM layer (first ack per (task, node) wins);
-	// safe to retry from the scheduler's wake/tick loop on transient
-	// apply failures.
-	RecordDistributedTaskPrepCompleteAck(
+	// RecordDistributedTaskPreparationCompleteAck commits one node's PREP result via
+	// RAFT and gates the cluster-wide PREPARING → SWAPPING transition. Any
+	// success=false flips the task to FAILED so no node fires its swap.
+	// Idempotent: first ack per (task, node) wins.
+	RecordDistributedTaskPreparationCompleteAck(
 		ctx context.Context,
 		namespace, taskID string,
 		taskVersion uint64,
@@ -212,17 +206,10 @@ type SchemaMutationDetector interface {
 	// propagates back to the UpdateProperty caller.
 	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
 
-	// CheckClassMutation is called under [Manager.mu] from the
-	// schema FSM's DeleteClass (and similar class-wide destructive)
-	// apply path. existingTasks is the full namespace-scoped task
-	// list at apply time. Return a non-nil error to reject the
-	// mutation; the error propagates back to the caller.
-	//
-	// Stricter than CheckPropertyUpdate: any reindex on the class
-	// (any property) in any non-terminal state (STARTED, PREPARING,
-	// or SWAPPING) is a conflict, because dropping the class destroys
-	// every property's bucket state at once, including the in-flight
-	// migration's working dirs.
+	// CheckClassMutation is called under [Manager.mu] from the schema FSM's
+	// destructive class-wide apply paths (DeleteClass etc.). Stricter than
+	// CheckPropertyUpdate: any in-flight reindex on the class is a conflict,
+	// because dropping the class wipes every in-flight migration's working dirs.
 	CheckClassMutation(className string, existingTasks []*Task) error
 
 	// CheckTenantMutation is called under [Manager.mu] from the
@@ -286,48 +273,22 @@ type RecoveryAwareProvider interface {
 //     even while the task is still STARTED
 //
 // Callback phases:
-//  1. OnGroupCompleted — per group, fires as each group's units all reach terminal.
-//     For PREP-barrier tasks (NeedsPrepBarrier=true), this hook runs ONLY
-//     the PREP body (FlushAndSwitch / Prepend / Shutdown of reindex
-//     buckets); the atomic swap is deferred to OnSwapRequested after the
-//     cluster-wide barrier lifts.
-//  2. OnSwapRequested — per group, fires after the FSM transitions
-//     PREPARING → SWAPPING (i.e. after every node's PREP ack has landed
-//     successfully). PREP-barrier tasks only.
+//  1. OnGroupCompleted — fires per group as each group's units reach terminal.
+//     PREP-only for barrier tasks; PREP+OVERLAY+SWAP inline otherwise.
+//  2. OnSwapRequested — fires after the cluster-wide PREPARING → SWAPPING
+//     transition. Barrier tasks only; carries OVERLAY+SWAP.
 //  3. OnTaskCompleted — fires once on every node after ALL units terminal.
 type UnitAwareProvider interface {
 	Provider
 	// OnGroupCompleted fires when all units in a group reach terminal state.
-	// localGroupUnitIDs contains ONLY units assigned to THIS node, not all units
-	// in the group. If a node has no units in the group, this callback does not
-	// fire on that node.
-	//
-	// Behavior depends on Task.NeedsPrepBarrier:
-	//   - NeedsPrepBarrier=false (format-only / debug / etc.): runs the
-	//     full PREP + OVERLAY + SWAP cycle inline.
-	//   - NeedsPrepBarrier=true (semantic migrations): runs PREP only.
-	//     The swap is deferred to OnSwapRequested after the cluster-wide
-	//     barrier lifts.
-	//
-	// Returns a non-nil error iff at least one local unit's body failed.
-	// For barrier tasks the error feeds RecordPrepCompleteAck (failure
-	// → FAILED, barrier holds, no swap); for non-barrier tasks it feeds
-	// RecordPostCompletionAck (failure → FAILED, schema flip skipped).
+	// localGroupUnitIDs contains ONLY units on this node; no-op for nodes
+	// without local units in the group. Non-nil errors feed
+	// RecordPreparationCompleteAck (barrier tasks) or RecordPostCompletionAck.
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
 
 	// OnSwapRequested fires after the cluster-wide PREP barrier lifts
-	// (FSM transitioned PREPARING → SWAPPING). Runs the atomic swap +
-	// per-strategy OnMigrationComplete per local shard. Only invoked
-	// for tasks with NeedsPrepBarrier=true.
-	//
-	// localGroupUnitIDs has the same semantics as OnGroupCompleted's.
-	// Returns a non-nil error iff at least one local unit's swap
-	// failed; the error feeds RecordPostCompletionAck (failure →
-	// FAILED, cluster-wide schema flip skipped).
-	//
-	// Implementations that don't use the PREP barrier may panic or
-	// return an error if this method is called — the [Scheduler]
-	// guarantees it only fires for barrier tasks.
+	// (PREPARING → SWAPPING). Barrier tasks only. Non-nil errors feed
+	// RecordPostCompletionAck (failure → FAILED, schema flip skipped).
 	OnSwapRequested(task *Task, groupID string, localGroupUnitIDs []string) error
 
 	OnTaskCompleted(task *Task)
@@ -377,41 +338,23 @@ const (
 	// ([UnitStatusCompleted] or [UnitStatusFailed]).
 	TaskStatusStarted TaskStatus = "STARTED"
 
-	// TaskStatusPreparing means every unit has reached a terminal status
-	// AND the task uses the PREP barrier (semantic migrations such as
-	// change-tokenization, enable-filterable, enable-searchable). Each
-	// node is running the heavy-disk-I/O "prep" portion of its
-	// post-completion callback (FlushAndSwitch + PrependSegmentsFromBucket
-	// + ShutdownBucket per per-property migration task). The task
-	// transitions to [TaskStatusSwapping] only after every node's
-	// [PostCompletionAckRecorder.RecordDistributedTaskPrepCompleteAck]
-	// has landed with Success=true. Any node reporting Success=false
-	// flips the task to [TaskStatusFailed] immediately so no node
-	// proceeds to the atomic swap (the load-bearing barrier invariant).
-	//
-	// Tasks that do NOT use the PREP barrier (format-only migrations,
-	// shard repair, etc.) skip this status and transition directly
-	// STARTED → SWAPPING.
+	// TaskStatusPreparing means every unit terminal AND the task uses the
+	// PREP barrier (semantic migrations). Each node is running PREP; the
+	// task transitions to SWAPPING only after every node's PreparationCompleteAck
+	// lands successfully — any failure flips the task to FAILED. Non-barrier
+	// tasks skip this status entirely.
 	TaskStatusPreparing TaskStatus = "PREPARING"
 
-	// TaskStatusSwapping means every node has finished its prep (or the
-	// task is a format-only one that skipped PREP barrier) and the
-	// scheduler is firing each node's per-shard atomic swap
-	// ([SwapBucketPointer] in lsmkv + per-strategy OnMigrationComplete).
-	// The cross-replica stagger window in this phase is bounded by
-	// RAFT-propagation latency from the PREPARING→SWAPPING transition
-	// commit to each node's next scheduler tick — typically sub-second.
-	// The task transitions to [TaskStatusFinished] only after every
-	// node's [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck]
-	// has landed with Success=true (the existing post-completion ack,
-	// now meaning specifically "swap complete"). Callers polling for
-	// "fully done" must wait for [TaskStatusFinished] — not SWAPPING.
+	// TaskStatusSwapping means every node is firing its per-shard atomic
+	// swap. The cross-replica stagger window in this phase is bounded by
+	// RAFT propagation latency (sub-second), not PREP duration. The task
+	// transitions to FINISHED only after every node's PostCompletionAck
+	// lands successfully.
 	TaskStatusSwapping TaskStatus = "SWAPPING"
 
-	// TaskStatusFinished means that the task was successfully executed
-	// by all nodes AND every per-node post-completion callback
-	// (per-node swap + cluster-wide schema flip) has run. Callers
-	// polling for "fully done" should wait for this status.
+	// TaskStatusFinished means the task succeeded on every node AND every
+	// per-node post-completion callback has run. Wait for this — not
+	// SWAPPING — when polling for "fully done".
 	TaskStatusFinished TaskStatus = "FINISHED"
 
 	// TaskStatusCancelled means that the task was cancelled by user.
@@ -443,11 +386,8 @@ func (t TaskStatus) IsTerminal() bool {
 	}
 }
 
-// IsActive reports whether this status is a non-terminal in-flight
-// state — STARTED, PREPARING, or SWAPPING. Useful for "is this task
-// still being worked on?" checks (e.g. conflict detection, schema
-// MutationGuard) that need a single predicate covering every
-// non-terminal state.
+// IsActive is true for non-terminal in-flight states (STARTED, PREPARING,
+// SWAPPING) — used by conflict detection and the schema MutationGuard.
 func (t TaskStatus) IsActive() bool {
 	switch t {
 	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
@@ -457,11 +397,8 @@ func (t TaskStatus) IsActive() bool {
 	}
 }
 
-// IsCoordinationPhase reports whether this status is one of the two
-// post-units, pre-finished phases (PREPARING or SWAPPING) — the
-// scheduler-coordinated post-completion callback states. Used in
-// callback-firing predicates that need to know "this task is past
-// STARTED but not yet terminal".
+// IsCoordinationPhase is true for the post-units, pre-terminal phases
+// (PREPARING, SWAPPING) — i.e. the scheduler-driven callback states.
 func (t TaskStatus) IsCoordinationPhase() bool {
 	switch t {
 	case TaskStatusPreparing, TaskStatusSwapping:
@@ -497,24 +434,11 @@ type Task struct {
 	// Payload is arbitrary data that is needed to execute a task of Namespace.
 	Payload []byte `json:"payload"`
 
-	// NeedsPrepBarrier indicates that this task uses the two-phase
-	// RAFT-coordinated swap barrier:
-	//
-	//   - true → AllUnitsTerminal transitions STARTED → PREPARING.
-	//     Each node's scheduler fires its PREP body and emits a
-	//     RecordPrepCompleteAck. The Manager FSM transitions
-	//     PREPARING → SWAPPING only when every expected ack lands
-	//     with Success=true (the load-bearing barrier invariant —
-	//     no node fires its atomic swap until every other node has
-	//     completed PREP).
-	//   - false → AllUnitsTerminal transitions STARTED → SWAPPING
-	//     directly (pre-barrier behavior, preserved for format-only
-	//     migrations and any non-reindex provider that does not need
-	//     cluster-wide swap coordination).
-	//
-	// Set at AddTask time from the provider's task-creation path. The
-	// FSM treats this as immutable for the task's lifetime.
-	NeedsPrepBarrier bool `json:"needsPrepBarrier"`
+	// NeedsPreparationBarrier opts the task into the two-phase RAFT swap barrier:
+	// AllUnitsTerminal transitions to PREPARING (not SWAPPING), and the
+	// FSM gates PREPARING → SWAPPING on every node's PreparationCompleteAck.
+	// Set at AddTask time; immutable thereafter.
+	NeedsPreparationBarrier bool `json:"needsPreparationBarrier"`
 
 	// Status is the current status of the task.
 	Status TaskStatus `json:"status"`
@@ -532,24 +456,11 @@ type Task struct {
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
 
-	// PrepCompletionAcks records per-node confirmations that the node's
-	// PREP phase (the first half of the split OnGroupCompleted —
-	// FlushAndSwitch + PrependSegmentsFromBucket + ShutdownBucket per
-	// per-property migration sub-task) completed successfully. Keys are
-	// node IDs. Populated only after the task transitions to PREPARING
-	// and only by the [Scheduler] tick firing
-	// [PostCompletionAckRecorder.RecordDistributedTaskPrepCompleteAck]
-	// once the local PREP has returned. The Manager FSM gates the
-	// PREPARING → SWAPPING transition on every expected PrepCompleteAck
-	// landing with Success=true (the load-bearing barrier invariant —
-	// no node fires its atomic swap until every other node has
-	// completed PREP). Any node reporting Success=false flips the task
-	// to FAILED.
-	//
-	// Nil for tasks whose provider does not opt into the PREP barrier
-	// (format-only migrations, shard repair, etc.) — those tasks
-	// transition STARTED → SWAPPING directly.
-	PrepCompletionAcks map[string]PostCompletionAck `json:"prepCompletionAcks,omitempty"`
+	// PreparationCompletionAcks records per-node PREP-phase confirmations during
+	// PREPARING. The FSM gates PREPARING → SWAPPING on every expected ack
+	// landing with Success=true; any Success=false flips to FAILED. Nil
+	// for tasks that don't opt into the PREP barrier.
+	PreparationCompletionAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
 
 	// PostCompletionAcks records per-node confirmations that the node's
 	// SWAP phase (the second half of the split OnGroupCompleted —
