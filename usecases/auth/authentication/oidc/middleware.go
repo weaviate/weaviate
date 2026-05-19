@@ -167,6 +167,11 @@ func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Prin
 		return nil, errors.New(500, "oidc: %v", err)
 	}
 
+	// Validate scopes from token against configured scopes
+	if err := c.validateScopes(claims, scopes); err != nil {
+		return nil, err
+	}
+
 	username, err := c.extractUsername(claims)
 	if err != nil {
 		return nil, errors.New(500, "oidc: %v", err)
@@ -298,6 +303,41 @@ func (c *Client) extractClaims(token *oidc.IDToken) (map[string]interface{}, err
 	}
 
 	return claims, nil
+}
+
+func (c *Client) validateScopes(claims map[string]interface{}, requiredScopes []string) error {
+	if len(requiredScopes) == 0 {
+		return nil
+	}
+
+	// Extract scope claim from token (standard "scope" or "scp")
+	tokenScope := ""
+	if s, ok := claims["scope"].(string); ok {
+		tokenScope = s
+	} else if s, ok := claims["scp"].(string); ok {
+		tokenScope = s
+	}
+
+	if tokenScope == "" {
+		return errors.New(401, "unauthorized: token has no scope claim")
+	}
+
+	// Check that all required scopes are present in the token
+	tokenScopes := strings.Split(tokenScope, " ")
+	for _, required := range requiredScopes {
+		found := false
+		for _, s := range tokenScopes {
+			if s == required {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return errors.New(401, "unauthorized: token missing required scope '%s'", required)
+		}
+	}
+
+	return nil
 }
 
 func (c *Client) extractUsername(claims map[string]interface{}) (string, error) {
