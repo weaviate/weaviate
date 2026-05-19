@@ -67,7 +67,6 @@ type reindexSubmitLockProvider interface {
 
 type schemaHandlers struct {
 	manager             *schemaUC.Manager
-	namespacesEnabled   bool
 	metricRequestsTotal restApiRequestsTotal
 	reindexTaskLister   reindexInFlightChecker
 	reindexSubmitLocks  reindexSubmitLockProvider
@@ -103,19 +102,6 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-
-	// Realign Body.Class with the qualified path so immutable-field
-	// validation passes on a stripped GET → PUT round-trip.
-	if params.ObjectClass != nil {
-		qualifiedPath, err := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
-		if err != nil {
-			s.metricRequestsTotal.logError(params.ClassName, err)
-			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-		params.ObjectClass.Class = qualifiedPath
-	}
-
 	err := s.manager.UpdateClass(ctx, principal, params.ClassName,
 		params.ObjectClass)
 	if err != nil {
@@ -587,10 +573,9 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, namespacesEnabled bool, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider) {
 	h := &schemaHandlers{
 		manager:             manager,
-		namespacesEnabled:   namespacesEnabled,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,

@@ -379,11 +379,6 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	// Realign Body.Class with the raw path class so a stripped GET → PUT
-	// round-trip works regardless of which form the caller's body carries.
-	if params.Body != nil {
-		params.Body.Class = params.ClassName
-	}
 	className := getClassName(params.Body)
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
