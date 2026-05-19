@@ -13,6 +13,7 @@ package namespace_limits
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -37,14 +38,18 @@ func insertItem(t *testing.T, class, key string, i int) error {
 	return helper.CreateObjectAuth(t, obj, key)
 }
 
-// fillUntilQuota inserts until the chokepoint returns 429, then checks the
-// USAGE_LIMIT_EXCEEDED payload. The loop tolerates a brief overshoot above
-// objectCap: CountAsync excludes the memtable, so writes between two flush
-// cycles are invisible to the cap check. maxInserts bounds the overshoot.
+// fillUntilQuota inserts until the chokepoint returns 429. Bounded by
+// wall time, not insert count: the cap only fires after a memtable
+// flush, so on fast CI a fixed insert budget can finish before the
+// 2s PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS window elapses.
 func fillUntilQuota(t *testing.T, class, key string) {
 	t.Helper()
-	const maxInserts = 200
-	for i := 0; i < maxInserts; i++ {
+	const fillBudget = 30 * time.Second
+	deadline := time.Now().Add(fillBudget)
+	for i := 0; ; i++ {
+		if time.Now().After(deadline) {
+			t.Fatalf("object cap %d did not fire within %s (after %d inserts)", objectCap, fillBudget, i)
+		}
 		err := insertItem(t, class, key, i)
 		if err == nil {
 			continue
@@ -57,7 +62,6 @@ func fillUntilQuota(t *testing.T, class, key string) {
 		assert.EqualValues(t, objectCap, tmr.Payload.Value)
 		return
 	}
-	t.Fatalf("object cap %d did not fire within %d inserts", objectCap, maxInserts)
 }
 
 // TestObjectLimitEnforcedPerNamespace pins two namespaces to the same node
@@ -168,6 +172,10 @@ func TestUpdatesAtQuotaRejected(t *testing.T) {
 		helper.CreateAuth(userKey),
 	)
 	require.Error(t, err, "update at quota must be rejected")
-	require.True(t, isQuotaExceeded(err),
-		"expected 429 USAGE_LIMIT_EXCEEDED on update at quota, got %T: %v", err, err)
+	var tmr *objects.ObjectsClassPutTooManyRequests
+	require.ErrorAs(t, err, &tmr, "expected 429 USAGE_LIMIT_EXCEEDED, got %T: %v", err, err)
+	require.NotNil(t, tmr.Payload)
+	assert.Equal(t, "USAGE_LIMIT_EXCEEDED", tmr.Payload.ErrorCode)
+	assert.Equal(t, "objects", tmr.Payload.Limit)
+	assert.EqualValues(t, objectCap, tmr.Payload.Value)
 }

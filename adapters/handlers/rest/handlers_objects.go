@@ -386,6 +386,10 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		principal, params.ClassName, params.ID, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return objects.NewObjectsClassPutTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))

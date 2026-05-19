@@ -17,7 +17,6 @@ package namespace_limits
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"strconv"
 	"testing"
@@ -97,12 +96,4 @@ func createNamespacedUser(t *testing.T, userID, ns string) string {
 	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
 
 	return apikey
-}
-
-// isQuotaExceeded reports whether err is an HTTP 429 from any go-swagger
-// client method (their typed error structs expose Code()).
-func isQuotaExceeded(err error) bool {
-	type coder interface{ Code() int }
-	var c coder
-	return errors.As(err, &c) && c.Code() == http.StatusTooManyRequests
 }

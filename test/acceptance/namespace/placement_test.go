@@ -61,10 +61,16 @@ func TestNamespaces_CollectionPinsToHomeNode(t *testing.T) {
 	helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, userKey)
 	t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":Movies", adminKey) })
 
-	home, other := homeNodeShards(t, ns+":Movies", homeNode, adminKey)
-	require.Len(t, home, 1, "expected exactly one shard on home_node %q", homeNode)
-	assert.Equal(t, ns+":Movies", home[0].Class)
-	assert.Zero(t, other, "no shards expected outside home_node")
+	// CreateClassAuth returns once the leader has applied; the admin's
+	// follower may not yet reflect the new shard in /nodes. Poll briefly.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		home, other := homeNodeShards(t, ns+":Movies", homeNode, adminKey)
+		if !assert.Len(c, home, 1, "expected exactly one shard on home_node %q", homeNode) {
+			return
+		}
+		assert.Equal(c, ns+":Movies", home[0].Class)
+		assert.Zero(c, other, "no shards expected outside home_node")
+	}, 30*time.Second, 500*time.Millisecond, "collection shard never landed on home_node %q", homeNode)
 }
 
 // TestNamespaces_TenantPinsToHomeNode covers tenant placement on a
@@ -95,12 +101,19 @@ func TestNamespaces_TenantPinsToHomeNode(t *testing.T) {
 	helper.CreateTenantsAuth(t, "Books", tenants, userKey)
 
 	t.Run("create pins all tenants to home_node", func(t *testing.T) {
-		home, other := homeNodeShards(t, ns+":Books", homeNode, adminKey)
-		require.Len(t, home, len(tenants), "expected one shard per tenant on home_node %q", homeNode)
-		for _, s := range home {
-			assert.Equal(t, ns+":Books", s.Class)
-		}
-		assert.Zero(t, other, "no tenant shards expected outside home_node")
+		// CreateTenantsAuth returns once the leader has applied; the admin's
+		// follower may not yet reflect the new shards in /nodes. Poll until
+		// the expected count is visible.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			home, other := homeNodeShards(t, ns+":Books", homeNode, adminKey)
+			if !assert.Len(c, home, len(tenants), "expected one shard per tenant on home_node %q", homeNode) {
+				return
+			}
+			for _, s := range home {
+				assert.Equal(c, ns+":Books", s.Class)
+			}
+			assert.Zero(c, other, "no tenant shards expected outside home_node")
+		}, 30*time.Second, 500*time.Millisecond, "tenant shards never landed on home_node %q", homeNode)
 	})
 
 	t.Run("unfreeze restores tenant to home_node", func(t *testing.T) {

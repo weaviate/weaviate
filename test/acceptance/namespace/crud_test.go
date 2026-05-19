@@ -133,9 +133,14 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 	assert.Equal(t, nodeB, helper.GetNamespace(t, ns, adminKey).HomeNode)
 
 	t.Run("existing shard stays on original home_node", func(t *testing.T) {
-		home, other := homeNodeShards(t, ns+":ClassA", nodeA, adminKey)
-		require.Len(t, home, 1)
-		assert.Zero(t, other, "ClassA shard must not have moved off %s", nodeA)
+		// CreateClass / UpdateNamespace block on leader apply but the
+		// admin's follower can be briefly behind on /nodes; poll until
+		// the original shard is visible on nodeA.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			home, other := homeNodeShards(t, ns+":ClassA", nodeA, adminKey)
+			assert.Len(c, home, 1)
+			assert.Zero(c, other, "ClassA shard must not have moved off %s", nodeA)
+		}, 30*time.Second, 500*time.Millisecond, "ClassA shard never settled on %s", nodeA)
 	})
 
 	t.Run("new shard lands on updated home_node", func(t *testing.T) {
