@@ -285,8 +285,8 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	var originalAlias string
-	if req.Collection, originalAlias, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	var qualifiedAlias string
+	if req.Collection, qualifiedAlias, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
 		return nil, err
 	}
 
@@ -305,9 +305,9 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	if err != nil {
 		return nil, err
 	}
-	// Resolve returns the qualified alias used for lookup; strip back to
-	// the caller's short form for the reply. Empty for non-alias requests.
-	searchParams.Alias = namespacing.StripOwnNS(principal, originalAlias)
+	// Strip back to the caller's short form for the reply. Empty for
+	// non-alias requests.
+	searchParams.Alias = namespacing.StripOwnNS(principal, qualifiedAlias)
 
 	if err := s.validateClassAndProperty(searchParams); err != nil {
 		return nil, err

@@ -68,11 +68,11 @@ func qualify(principal *models.Principal, name string) string {
 //  4. Look the (possibly qualified) name up as an alias via the existing
 //     in-memory resolver; if it matches an alias, return the alias target.
 //
-// Returns (class, originalAlias, err). originalAlias is the qualified alias
-// name used for lookup when an alias was hit (i.e. namespace-prefixed for
-// namespaced principals, raw for global principals), "" otherwise — used by
-// the objects layer to preserve existing alias-aware flows.
-func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bool, name string) (class, originalAlias string, err error) {
+// Returns (class, qualifiedAlias, err). qualifiedAlias is the
+// namespace-prefixed alias used for lookup when an alias was hit (raw for
+// global principals), "" otherwise — used by the objects layer to preserve
+// existing alias-aware flows.
+func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bool, name string) (class, qualifiedAlias string, err error) {
 	if err := ValidateNamespacePrefix(principal, namespacesEnabled, name, "class"); err != nil {
 		return "", "", err
 	}
