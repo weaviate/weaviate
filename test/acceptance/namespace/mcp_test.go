@@ -90,7 +90,7 @@ func TestNamespaces_MCP(t *testing.T) {
 	t.Run("namespaced principal, tenants-list with short input", func(t *testing.T) {
 		const mtShort = "Theaters"
 		setupMTClassInNs1(t, mtShort, user1Key)
-		require.NoError(t, addTenantsAuth(t, "customer1:"+mtShort,
+		require.NoError(t, addTenantsAuth(t, mtShort,
 			[]*models.Tenant{{Name: "t1", ActivityStatus: models.TenantActivityStatusHOT}}, user1Key))
 
 		var tenantsResp *read.GetTenantsResp

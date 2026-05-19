@@ -74,7 +74,7 @@ func newReader(t *testing.T, principal *models.Principal, namespacesEnabled bool
 	composer := func(token string, _ []string) (*models.Principal, error) {
 		return principal, nil
 	}
-	authHandler := auth.NewAuthFromComponents(false, composer, &authorization.DummyAuthorizer{})
+	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{})
 	logger, _ := test.NewNullLogger()
 	return NewWeaviateReader(
 		authHandler,

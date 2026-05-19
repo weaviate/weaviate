@@ -31,12 +31,6 @@ import (
 )
 
 func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (*QueryHybridResp, error) {
-	log := s.logger.WithFields(logrus.Fields{
-		"tool":       "weaviate-query-hybrid",
-		"collection": args.CollectionName,
-	})
-	log.Debug("executing hybrid query")
-
 	// Authorize the request: first check MCP-level permission, then collection-level data permission
 	principal, err := s.Authorize(ctx, req, authorization.READ)
 	if err != nil {
@@ -48,6 +42,12 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		return nil, err
 	}
 	args.CollectionName = resolved
+
+	log := s.logger.WithFields(logrus.Fields{
+		"tool":       "weaviate-query-hybrid",
+		"collection": args.CollectionName,
+	})
+	log.Debug("executing hybrid query")
 
 	if err := s.AuthorizeCollectionData(ctx, principal, authorization.READ, args.CollectionName, args.TenantName); err != nil {
 		return nil, err

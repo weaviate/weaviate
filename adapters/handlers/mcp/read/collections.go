@@ -23,12 +23,6 @@ import (
 )
 
 func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallToolRequest, args GetCollectionConfigArgs) (*GetCollectionConfigResp, error) {
-	log := r.logger.WithFields(logrus.Fields{
-		"tool":       "weaviate-collections-get-config",
-		"collection": args.CollectionName,
-	})
-	log.Debug("getting collection config")
-
 	// Authorize the request
 	principal, err := r.Authorize(ctx, req, authorization.READ)
 	if err != nil {
@@ -45,6 +39,12 @@ func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallTo
 		}
 		args.CollectionName = resolved
 	}
+
+	log := r.logger.WithFields(logrus.Fields{
+		"tool":       "weaviate-collections-get-config",
+		"collection": args.CollectionName,
+	})
+	log.Debug("getting collection config")
 
 	res, err := r.schemaReader.GetConsistentSchema(ctx, principal, true)
 	if err != nil {

@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -29,22 +28,7 @@ type Auth struct {
 	authorizer           authorization.Authorizer
 }
 
-func NewAuth(state *state.State) *Auth {
-	return &Auth{
-		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
-		authComposer: composer.New(
-			state.ServerConfig.Config.Authentication,
-			state.APIKey,
-			state.OIDC,
-		),
-		authorizer: state.Authorizer,
-	}
-}
-
-// NewAuthFromComponents builds an Auth directly from its dependencies. Used by
-// MCP handler tests to inject a fake authComposer and authorizer without
-// standing up a full *state.State.
-func NewAuthFromComponents(allowAnonymousAccess bool, authComposer composer.TokenFunc, authorizer authorization.Authorizer) *Auth {
+func NewAuth(allowAnonymousAccess bool, authComposer composer.TokenFunc, authorizer authorization.Authorizer) *Auth {
 	return &Auth{
 		allowAnonymousAccess: allowAnonymousAccess,
 		authComposer:         authComposer,

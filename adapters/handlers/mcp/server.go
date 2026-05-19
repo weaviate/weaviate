@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/read"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -42,7 +43,15 @@ type MCPServer struct {
 }
 
 func NewMCPServer(state *state.State, objectsManager *objects.Manager) *MCPServer {
-	authHandler := auth.NewAuth(state)
+	authHandler := auth.NewAuth(
+		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
+		composer.New(
+			state.ServerConfig.Config.Authentication,
+			state.APIKey,
+			state.OIDC,
+		),
+		state.Authorizer,
+	)
 	logger := state.Logger.WithField("component", "mcp")
 
 	writeAccessEnabled := func() bool {
