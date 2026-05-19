@@ -168,11 +168,12 @@ func (s *Raft) MarkDistributedTaskFinalized(ctx context.Context, namespace, task
 	})
 }
 
-// RecordDistributedTaskPostCompletionAck commits one node's
-// OnGroupCompleted SWAP-phase result to the FSM. The scheduler tick on
-// each node fires this after its local SWAP body has returned so the
-// cluster has durable evidence of which nodes' post-completion work
-// succeeded before MarkDistributedTaskFinalized is allowed to land.
+// RecordDistributedTaskPostCompletionAck commits one node's SWAP-phase
+// callback result to the FSM (OnGroupCompleted for non-barrier tasks,
+// OnSwapRequested for barrier tasks). The scheduler tick on each node
+// fires this after its local SWAP body has returned so the cluster has
+// durable evidence of which nodes' post-completion work succeeded
+// before MarkDistributedTaskFinalized is allowed to land.
 //
 // See [distributedtask.PostCompletionAckRecorder].
 func (s *Raft) RecordDistributedTaskPostCompletionAck(

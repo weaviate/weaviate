@@ -62,11 +62,13 @@ type Scheduler struct {
 
 	completedCallbackFired map[TaskDescriptor]bool
 
-	// {group,prep}CallbackFired and {post,prep}AckEmitted / {post,prep}CompletionGroupErrors
-	// are per-scheduler-instance state for the two-phase callback firing and
-	// ack emission. Prep* entries are populated only for barrier tasks; in
-	// either case they are rebuilt on restart and the recovery path re-fires
-	// the callback so the cluster never loses the barrier.
+	// groupCallbackFired/preparationCallbackFired and
+	// postCompletionAckEmitted/preparationAckEmitted /
+	// postCompletionGroupErrors/preparationCompletionGroupErrors are
+	// per-scheduler-instance state for the two-phase callback firing and
+	// ack emission. preparation* entries are populated only for barrier
+	// tasks; in either case they are rebuilt on restart and the recovery
+	// path re-fires the callback so the cluster never loses the barrier.
 	groupCallbackFired               map[TaskDescriptor]map[string]bool
 	preparationCallbackFired         map[TaskDescriptor]map[string]bool
 	postCompletionAckEmitted         map[TaskDescriptor]bool
@@ -535,7 +537,7 @@ func (s *Scheduler) tick() {
 							delete(s.preparationCallbackFired[desc], groupID)
 							s.loggerWithTask(namespace, desc).
 								WithField("groupID", groupID).
-								Info("OnGroupCompleted (PREP phase) aborted by graceful shutdown; recovery on next boot will re-fire and emit the prep-complete ack")
+								Info("PREP phase aborted by graceful shutdown; recovery on next boot will re-fire and emit the prep-complete ack")
 							continue
 						}
 						if s.preparationCompletionGroupErrors[desc] == nil {

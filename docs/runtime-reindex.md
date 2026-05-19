@@ -42,7 +42,7 @@ The whole feature is built on top of three substrates:
 - The **Distributed Task Manager (DTM)** ([`cluster/distributedtask/`](../cluster/distributedtask/))
   — RAFT-backed task state, per-unit assignment, group barriers,
   per-node `PREPARING` and `SWAPPING` coordination states, two-phase
-  PrepComplete + PostCompletion ack barriers (§6.3).
+  PreparationComplete + PostCompletion ack barriers (§6.3).
 - The **schema FSM mutation guard** — rejects external mutations on
   classes / properties / tenants while a reindex is in flight, so the
   bucket↔schema invariant cannot be broken by a concurrent

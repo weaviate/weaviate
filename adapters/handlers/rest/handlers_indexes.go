@@ -532,7 +532,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 					"property":       propertyName,
 					"migration_type": migrationType,
 					"index_type":     indexTypeForCleanup,
-				}).Error(fmt.Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %w; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err))
+				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
 			}
 		}
 	}
@@ -683,7 +683,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"collection": collection,
 				"property":   propertyName,
 				"index_type": indexType,
-			}).Error(fmt.Errorf("cancel: timed out waiting for local reindex goroutine to drain (%w); skipping inline cleanup — next submit will retry", drainErr))
+			}).Errorf("cancel: timed out waiting for local reindex goroutine to drain (%v); skipping inline cleanup — next submit will retry", drainErr)
 		} else {
 			h.appState.Logger.WithFields(logrus.Fields{
 				"taskID":     target.ID,
@@ -702,7 +702,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 					"collection": collection,
 					"property":   propertyName,
 					"index_type": indexType,
-				}).Error(fmt.Errorf("cancel: cleaning partial reindex state on disk: %w; next submit's defense-in-depth cleanup will retry", err))
+				}).Errorf("cancel: cleaning partial reindex state on disk: %v; next submit's defense-in-depth cleanup will retry", err)
 			} else {
 				h.appState.Logger.WithFields(logrus.Fields{
 					"taskID":     target.ID,
@@ -960,7 +960,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 				"migration_type": payload.MigrationType,
 				"task_id":        task.ID,
 				"collection":     collection,
-			}).Error(fmt.Errorf("mergeReindexStatus: unknown migration type %q; index status may be stale", payload.MigrationType))
+			}).Errorf("reindex status: unknown migration type %q; index status may be stale", payload.MigrationType)
 		}
 		if !targets {
 			continue

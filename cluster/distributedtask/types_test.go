@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -44,4 +45,41 @@ func TestTaskStatus_IsTerminal(t *testing.T) {
 				"%q.IsTerminal() should be %v", tc.status, tc.terminal)
 		})
 	}
+}
+
+// TestTask_Clone_DeepCopiesAckMaps pins that Clone() deep-copies every
+// map field on Task, including PreparationCompletionAcks added in #11328.
+// Regression guard: the scheduler tick mutates the local clone's ack
+// maps to reflect FSM transitions in the same tick (see scheduler.go
+// PHASE A.5 / Phase 1.5); if Clone aliased the map, those writes would
+// bleed into the FSM-stored Task and break determinism / safety.
+func TestTask_Clone_DeepCopiesAckMaps(t *testing.T) {
+	now := time.UnixMilli(1_700_000_000_000)
+	orig := &Task{
+		Units: map[string]*Unit{
+			"u-1": {ID: "u-1", NodeID: "node-1", Status: UnitStatusCompleted},
+		},
+		PostCompletionAcks: map[string]PostCompletionAck{
+			"node-1": {Success: true, AckedAt: now},
+		},
+		PreparationCompletionAcks: map[string]PostCompletionAck{
+			"node-1": {Success: true, AckedAt: now},
+		},
+	}
+
+	clone := orig.Clone()
+
+	// Mutate every map on the clone.
+	clone.Units["u-1"].Status = UnitStatusFailed
+	clone.PostCompletionAcks["node-1"] = PostCompletionAck{Success: false, Error: "swap"}
+	clone.PostCompletionAcks["node-2"] = PostCompletionAck{Success: true}
+	clone.PreparationCompletionAcks["node-1"] = PostCompletionAck{Success: false, Error: "prep"}
+	clone.PreparationCompletionAcks["node-2"] = PostCompletionAck{Success: true}
+
+	// Original must be untouched on EVERY map.
+	assert.Equal(t, UnitStatusCompleted, orig.Units["u-1"].Status, "Units value-level deep copy")
+	assert.True(t, orig.PostCompletionAcks["node-1"].Success, "PostCompletionAcks must not alias clone")
+	assert.NotContains(t, orig.PostCompletionAcks, "node-2", "PostCompletionAcks must not alias clone")
+	assert.True(t, orig.PreparationCompletionAcks["node-1"].Success, "PreparationCompletionAcks must not alias clone")
+	assert.NotContains(t, orig.PreparationCompletionAcks, "node-2", "PreparationCompletionAcks must not alias clone")
 }

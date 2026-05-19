@@ -1207,7 +1207,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// PREP duration.
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
-		"OnGroupCompleted",
+		"group-completion",
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
@@ -1292,7 +1292,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
-		"OnSwapRequested",
+		"swap-requested",
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onSwapRequestedRunPhaseForUnit(ctx, payload, unitID, shard, unitTasks, rehydrate, logger)
 		})
@@ -1414,10 +1414,9 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 	if len(payload.Properties) == 0 {
 		// Reserved for a future whole-collection rebuild. No targeted
 		// guidance possible; the generic operator runbook applies.
-		logger.Error(
-			fmt.Errorf(
-				"reindex provider: %s on %s FAILED with empty Properties; manual repair guidance not available — inspect /v1/tasks and consider rebuild on every affected inverted index",
-				payload.MigrationType, payload.Collection))
+		logger.Errorf(
+			"reindex provider: %s on %s FAILED with empty Properties; manual repair guidance not available — inspect /v1/tasks and consider rebuild on every affected inverted index",
+			payload.MigrationType, payload.Collection)
 		return
 	}
 	for _, propName := range payload.Properties {
@@ -1660,7 +1659,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 
 	default:
 		// IsSemanticMigration above gates this; reaching here is a programming error.
-		return fmt.Errorf("unexpected semantic migration type %q in OnTaskCompleted", payload.MigrationType)
+		return fmt.Errorf("unexpected semantic migration type %q in task-completion", payload.MigrationType)
 	}
 }
 

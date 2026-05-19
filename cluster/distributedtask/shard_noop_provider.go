@@ -210,7 +210,7 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 
 	p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitIDs", localGroupUnitIDs).
-		Info("shard-noop provider: OnGroupCompleted fired")
+		Info("shard-noop provider: group-completion fired")
 	return nil
 }
 
@@ -279,7 +279,7 @@ func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
 	}
 
 	p.logger.WithField("taskID", task.ID).WithField("status", task.Status).
-		Info("shard-noop provider: OnTaskCompleted fired")
+		Info("shard-noop provider: task-completion fired")
 }
 
 func (p *ShardNoopProvider) IsTaskCompleted(desc TaskDescriptor) bool {

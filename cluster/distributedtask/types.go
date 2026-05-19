@@ -515,6 +515,12 @@ func (t *Task) Clone() *Task {
 			clone.PostCompletionAcks[k] = v
 		}
 	}
+	if t.PreparationCompletionAcks != nil {
+		clone.PreparationCompletionAcks = make(map[string]PostCompletionAck, len(t.PreparationCompletionAcks))
+		for k, v := range t.PreparationCompletionAcks {
+			clone.PreparationCompletionAcks[k] = v
+		}
+	}
 	return &clone
 }
 
