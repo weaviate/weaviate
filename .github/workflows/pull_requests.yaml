@@ -771,7 +771,7 @@ jobs:
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Acceptance-Reindex-Tests:
-    name: acceptance reindex (${{ matrix.name }})
+    name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
     strategy:
       fail-fast: false
