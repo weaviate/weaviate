@@ -99,8 +99,8 @@ func (a *allowList) Contains(id uint64) bool {
 }
 
 func (a *allowList) containsPosting(id uint64, p *PostingMetadata) bool {
-	a.h.PostingMap.rLock(id)
-	defer a.h.PostingMap.rUnlock(id)
+	a.h.PostingMap.RLock(id)
+	defer a.h.PostingMap.RUnlock(id)
 
 	for vectorID := range p.Iter() {
 		if !a.wrappedIdVisited.Visited(vectorID) && a.AllowList.Contains(vectorID) {

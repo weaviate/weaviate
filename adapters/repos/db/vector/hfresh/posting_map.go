@@ -56,11 +56,11 @@ func (v *PostingMap) Size() int {
 	return int(v.count.Load())
 }
 
-func (v *PostingMap) rLock(postingID uint64) {
+func (v *PostingMap) RLock(postingID uint64) {
 	v.locks.RLock(postingID)
 }
 
-func (v *PostingMap) rUnlock(postingID uint64) {
+func (v *PostingMap) RUnlock(postingID uint64) {
 	v.locks.RUnlock(postingID)
 }
 
@@ -93,45 +93,6 @@ func (v *PostingMap) Get(ctx context.Context, postingID uint64) (*PostingMetadat
 	}
 
 	return metadata, nil
-}
-
-// CountVectors returns the number of vector IDs in the posting with the given ID.
-// If the posting does not exist, it returns 0.
-func (v *PostingMap) CountVectors(ctx context.Context, postingID uint64) (uint32, error) {
-	m, err := v.Get(ctx, postingID)
-	if err != nil && !errors.Is(err, ErrPostingNotFound) {
-		return 0, err
-	}
-
-	if m == nil {
-		return 0, nil
-	}
-
-	v.rLock(postingID)
-	size := uint32(m.Count())
-	v.rUnlock(postingID)
-
-	return size, nil
-}
-
-// CountAllVectors returns the total number of vector IDs across all postings,
-// including deleted vectors that have not yet been cleaned up.
-// This is used for metrics and does not need to be exact.
-func (v *PostingMap) CountAllVectors(ctx context.Context) (uint64, error) {
-	var total uint64
-	for postingID, m := range v.Iter() {
-		if err := ctx.Err(); err != nil {
-			return 0, err
-		}
-
-		v.rLock(postingID)
-		count := m.Count()
-		v.rUnlock(postingID)
-
-		total += uint64(count)
-	}
-
-	return total, nil
 }
 
 // SetVectorIDs sets the vector IDs for the posting with the given ID in-memory and persists them to disk.

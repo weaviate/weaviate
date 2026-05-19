@@ -168,9 +168,9 @@ func (h *HFresh) restorePostingSizesFromPostingMap(ctx context.Context) error {
 			return err
 		}
 
-		h.PostingMap.rLock(postingID)
+		h.PostingMap.RLock(postingID)
 		size := metadata.Count()
-		h.PostingMap.rUnlock(postingID)
+		h.PostingMap.RUnlock(postingID)
 
 		if err := h.PostingSizes.Set(ctx, postingID, int(size)); err != nil {
 			return errors.Wrapf(err, "restore posting size for posting %d", postingID)

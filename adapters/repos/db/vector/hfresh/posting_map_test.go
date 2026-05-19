@@ -469,9 +469,7 @@ func TestPostingMetadataStore(t *testing.T) {
 			i++
 		}
 
-		count, err := store.CountVectors(ctx, 42)
-		require.NoError(t, err)
-		require.EqualValues(t, 10, count)
+		require.EqualValues(t, 10, m.Count())
 
 		m, err = store.Get(ctx, 42)
 		require.NoError(t, err)
@@ -480,13 +478,6 @@ func TestPostingMetadataStore(t *testing.T) {
 			require.Equal(t, id, posting[i].ID())
 			i++
 		}
-	})
-
-	t.Run("CountVectorIDs on non-existing posting", func(t *testing.T) {
-		store := makePostingMetadataStore(t)
-		count, err := store.CountVectors(ctx, 42)
-		require.NoError(t, err)
-		require.EqualValues(t, 0, count)
 	})
 
 	t.Run("FastAddVectorID", func(t *testing.T) {
@@ -507,7 +498,7 @@ func TestPostingMetadataStore(t *testing.T) {
 		require.Equal(t, uint64(200), id)
 	})
 
-	t.Run("CountAllVectors with multiple postings", func(t *testing.T) {
+	t.Run("Iter with multiple postings", func(t *testing.T) {
 		store := makePostingMetadataStore(t)
 
 		posting1 := Posting(makeVectors(t, 5, 16))
@@ -518,8 +509,10 @@ func TestPostingMetadataStore(t *testing.T) {
 		err = store.SetVectorIDs(ctx, 43, posting2)
 		require.NoError(t, err)
 
-		count, err := store.CountAllVectors(ctx)
-		require.NoError(t, err)
+		var count uint64
+		for _, metadata := range store.Iter() {
+			count += uint64(metadata.Count())
+		}
 		require.EqualValues(t, 10, count)
 	})
 }
