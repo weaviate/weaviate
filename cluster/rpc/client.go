@@ -117,12 +117,6 @@ type Client struct {
 	// default maximum can still get through
 	rpcMessageMaxSize int
 
-	// Cached gRPC ClientConn per peer RAFT address — the
-	// WaitForAppliedIndex fan-out hits every peer, so dial-per-call would
-	// dominate cost.
-	peerConnsMu sync.RWMutex
-	peerConns   map[string]*grpc.ClientConn
-
 	// sentryEnabled will configure the RPC client to set spans and captures traces using sentry SDK
 	sentryEnabled bool
 
@@ -137,7 +131,6 @@ func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool, 
 		rpcMessageMaxSize: rpcMessageMaxSize,
 		sentryEnabled:     sentryEnabled,
 		logger:            logger,
-		peerConns:         make(map[string]*grpc.ClientConn),
 	}
 }
 
@@ -229,87 +222,19 @@ func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.Que
 	return resp, fromRPCError(err)
 }
 
-func (cl *Client) WaitForAppliedIndex(ctx context.Context, peerRaftAddr string, req *cmd.WaitForAppliedIndexRequest) (*cmd.WaitForAppliedIndexResponse, error) {
-	conn, err := cl.getPeerConn(peerRaftAddr)
-	if err != nil {
-		return nil, err
-	}
-	return cmd.NewClusterServiceClient(conn).WaitForAppliedIndex(ctx, req)
-}
-
 // Close the client and allocated resources
 func (cl *Client) Close() {
-	if cl.leaderRpcConn != nil {
-		if err := cl.leaderRpcConn.Close(); err != nil {
-			cl.logger.WithFields(
-				logrus.Fields{
-					"error":       err,
-					"leader_addr": cl.leaderRaftAddr,
-				},
-			).Warn("error closing the leader gRPC connection")
-		}
+	if cl.leaderRpcConn == nil {
+		return
 	}
-
-	cl.peerConnsMu.Lock()
-	defer cl.peerConnsMu.Unlock()
-	for addr, conn := range cl.peerConns {
-		if err := conn.Close(); err != nil {
-			cl.logger.WithFields(logrus.Fields{
-				"error":     err,
-				"peer_addr": addr,
-			}).Warn("error closing peer gRPC connection")
-		}
-		delete(cl.peerConns, addr)
+	if err := cl.leaderRpcConn.Close(); err != nil {
+		cl.logger.WithFields(
+			logrus.Fields{
+				"error":       err,
+				"leader_addr": cl.leaderRaftAddr,
+			},
+		).Warn("error closing the leader gRPC connection")
 	}
-}
-
-// getPeerConn is keyed per peer so peer dials don't serialise.
-func (cl *Client) getPeerConn(peerRaftAddr string) (*grpc.ClientConn, error) {
-	var conn *grpc.ClientConn
-	var ok bool
-	func() {
-		cl.peerConnsMu.RLock()
-		defer cl.peerConnsMu.RUnlock()
-		conn, ok = cl.peerConns[peerRaftAddr]
-	}()
-	if ok && conn != nil {
-		return conn, nil
-	}
-
-	addr, err := cl.addrResolver.Address(peerRaftAddr)
-	if err != nil {
-		return nil, fmt.Errorf("resolve address: %w", err)
-	}
-
-	options := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(serviceConfig),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cl.rpcMessageMaxSize)),
-	}
-
-	if cl.sentryEnabled {
-		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
-	}
-
-	conn, err = grpc.NewClient(addr, options...)
-	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
-	}
-
-	cl.peerConnsMu.Lock()
-	defer cl.peerConnsMu.Unlock()
-	if existing, exists := cl.peerConns[peerRaftAddr]; exists && existing != nil {
-		// Another goroutine beat us to it, so close the connection we just created and use the existing one.
-		if err := conn.Close(); err != nil {
-			cl.logger.WithFields(logrus.Fields{
-				"error":     err,
-				"peer_addr": peerRaftAddr,
-			}).Warn("error closing redundant gRPC connection")
-		}
-		return existing, nil
-	}
-	cl.peerConns[peerRaftAddr] = conn
-	return conn, nil
 }
 
 // getConn either returns the cached connection in the client to the leader or will instantiate a new one towards

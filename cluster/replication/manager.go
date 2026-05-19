@@ -12,21 +12,26 @@
 package replication
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -36,10 +41,16 @@ type Manager struct {
 	replicationFSM *ShardReplicationFSM
 	schemaReader   schema.SchemaReader
 	nodeSelector   cluster.NodeSelector
+	logger         logrus.FieldLogger
 
 	// Bumped on every op-state-mutating apply so per-write WaitForUpdate
 	// catches stale-FSM coords up before they build routing. nil ok in tests.
 	bumpReplicationVersion func(class string, raftIndex uint64)
+
+	// localNodeID is embedded in node-reached-state broadcasts so peers
+	// know who reported.
+	localNodeID       string
+	submitNodeReached func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error
 }
 
 func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelector, reg prometheus.Registerer) *Manager {
@@ -51,6 +62,10 @@ func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelec
 	}
 }
 
+func (m *Manager) SetLogger(logger logrus.FieldLogger) {
+	m.logger = logger
+}
+
 func (m *Manager) SetReplicationVersionBumper(fn func(class string, raftIndex uint64)) {
 	m.bumpReplicationVersion = fn
 }
@@ -60,6 +75,47 @@ func (m *Manager) bump(class string, raftIndex uint64) {
 		return
 	}
 	m.bumpReplicationVersion(class, raftIndex)
+}
+
+func (m *Manager) SetNodeReachedStateSubmitter(
+	localNodeID string,
+	submit func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error,
+) {
+	m.localNodeID = localNodeID
+	m.submitNodeReached = submit
+}
+
+// broadcastNodeReachedState submits a node-reached-state command async so
+// the FSM apply that triggered it can't block on RAFT. Bounded backoff;
+// idempotent on receipt (monotonic per peer).
+func (m *Manager) broadcastNodeReachedState(opID uint64, state cmd.ShardReplicationState) {
+	if m.submitNodeReached == nil || m.localNodeID == "" {
+		return
+	}
+	logger := m.logger
+	if logger == nil {
+		logger = logrus.New()
+	}
+	enterrors.GoWrapper(func() {
+		req := &cmd.ReplicationNodeReachedStateRequest{
+			Version: cmd.ReplicationCommandVersionV0,
+			Id:      opID,
+			NodeId:  m.localNodeID,
+			State:   state,
+		}
+		bo := backoff.NewExponentialBackOff()
+		bo.MaxElapsedTime = 30 * time.Second
+		err := backoff.Retry(func() error {
+			return m.submitNodeReached(context.Background(), req)
+		}, bo)
+		if err != nil {
+			logger.WithFields(logrus.Fields{
+				"op_id":   opID,
+				"node_id": m.localNodeID,
+				"state":   state,
+			}).Error(fmt.Errorf("broadcast node-reached-state exhausted retries: %w", err))
+		}
+	}, logger)
 }
 
 func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
@@ -145,13 +201,22 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	if err := m.replicationFSM.UpdateReplicationOpStatus(req, c.Version); err != nil {
+	if err := m.replicationFSM.UpdateReplicationOpStatus(req); err != nil {
 		return err
 	}
 	if class, ok := m.opCollectionByID(req.Id); ok {
 		m.bump(class, c.Version)
 	}
+	m.broadcastNodeReachedState(req.Id, req.State)
 	return nil
+}
+
+func (m *Manager) NodeReachedState(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationNodeReachedStateRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+	return m.replicationFSM.NodeReachedState(req)
 }
 
 func (m *Manager) StoreSchemaVersion(c *cmd.ApplyRequest) error {

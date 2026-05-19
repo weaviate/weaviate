@@ -149,7 +149,7 @@ func (s *Raft) ReplicationReplicateReplica(ctx context.Context, uuid strfmt.UUID
 	return nil
 }
 
-func (s *Raft) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) (uint64, error) {
+func (s *Raft) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) error {
 	req := &api.ReplicationUpdateOpStateRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Id:      id,
@@ -158,17 +158,31 @@ func (s *Raft) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, 
 
 	subCommand, err := json.Marshal(req)
 	if err != nil {
-		return 0, fmt.Errorf("marshal request: %w", err)
+		return fmt.Errorf("marshal request: %w", err)
 	}
 	command := &api.ApplyRequest{
 		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE,
 		SubCommand: subCommand,
 	}
-	ver, err := s.Execute(ctx, command)
-	if err != nil {
-		return 0, err
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
 	}
-	return ver, nil
+	return nil
+}
+
+func (s *Raft) SubmitNodeReachedState(ctx context.Context, req *api.ReplicationNodeReachedStateRequest) error {
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Raft) ReplicationRegisterError(ctx context.Context, id uint64, errorToRegister string) error {

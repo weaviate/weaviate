@@ -53,7 +53,7 @@ func driveToState(t *testing.T, fsm *ShardReplicationFSM, opID uint64, state api
 		Version: api.ReplicationCommandVersionV0,
 		Id:      opID,
 		State:   state,
-	}, 0)
+	})
 	require.NoError(t, err)
 }
 

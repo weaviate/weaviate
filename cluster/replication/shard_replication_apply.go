@@ -118,11 +118,7 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	return nil
 }
 
-// UpdateReplicationOpStatus applies a state transition. raftIndex is the
-// apply index of this call; it lands in LastStateChangeVersion so the
-// source-side fence has a per-op catch-up target. Tests driving the FSM
-// directly may pass 0.
-func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdateOpStateRequest, raftIndex uint64) error {
+func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdateOpStateRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
@@ -141,12 +137,35 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
 	status.ChangeState(c.State)
-	if raftIndex > status.LastStateChangeVersion {
-		status.LastStateChangeVersion = raftIndex
-	}
 	s.statusById[op.ID] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
+	return nil
+}
 
+// NodeReachedState records (c.NodeId → c.State) for op c.Id. Monotonic per
+// peer via StateRank — safe against re-broadcasts from log replay.
+func (s *ShardReplicationFSM) NodeReachedState(c *api.ReplicationNodeReachedStateRequest) error {
+	s.opsLock.Lock()
+	status, ok := s.statusById[c.Id]
+	if !ok {
+		s.opsLock.Unlock()
+		// Stale broadcast for an op that's been pruned — silent no-op.
+		return nil
+	}
+	if status.PerNodeState == nil {
+		status.PerNodeState = make(map[string]api.ShardReplicationState)
+	}
+	changed := false
+	if api.StateRank(c.State) > api.StateRank(status.PerNodeState[c.NodeId]) {
+		status.PerNodeState[c.NodeId] = c.State
+		s.statusById[c.Id] = status
+		changed = true
+	}
+	s.opsLock.Unlock()
+
+	if changed {
+		s.signalPerNodeStateChange()
+	}
 	return nil
 }
 

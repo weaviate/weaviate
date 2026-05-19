@@ -80,6 +80,11 @@ type ShardReplicationFSM struct {
 	statusById map[uint64]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
+
+	// Close-and-replace wake signal for AllPeersAtLeast waiters; see
+	// cluster/store.go::appliedNotify for the pattern.
+	perNodeStateNotifyMu sync.Mutex
+	perNodeStateNotify   chan struct{}
 }
 
 func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
@@ -93,6 +98,7 @@ func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 		opsBySourceFQDN:         make(map[shardFQDN][]ShardReplicationOp),
 		opsById:                 make(map[uint64]ShardReplicationOp),
 		statusById:              make(map[uint64]ShardReplicationOpStatus),
+		perNodeStateNotify:      make(chan struct{}),
 	}
 
 	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
@@ -383,7 +389,9 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 // driving the coordinator's waitForFSMCatchUp + retry. Rules per op where
 // localNode is the source of (collection, shard):
 //
-//   - DEHYDRATING: reject; catchUpIndex = LastStateChangeVersion.
+//   - DEHYDRATING: reject; catchUpIndex = 0 (caller falls back to its own
+//     raftAppliedIndex — strictly conservative, equivalent to "catch up to
+//     where the source is now").
 //   - INTEGRATING|READY && schemaVersion < AddReplicaVersion: reject;
 //     catchUpIndex = AddReplicaVersion. The coord's routing predates the
 //     target's add, so its PREPARE excludes the new target.
@@ -408,11 +416,9 @@ func (s *ShardReplicationFSM) IsLocalShardWritable(localNode, collection, shard 
 		}
 		switch opState.GetCurrentState() {
 		case api.DEHYDRATING:
-			// MOVE-only by construction: source is being removed.
+			// MOVE-only by construction: source is being removed. catchUpIndex
+			// stays 0; the DB-layer wrapper falls back to raftAppliedIndex().
 			allowed = false
-			if opState.LastStateChangeVersion > catchUpIndex {
-				catchUpIndex = opState.LastStateChangeVersion
-			}
 		case api.INTEGRATING, api.READY:
 			if opState.AddReplicaVersion != 0 && schemaVersion < opState.AddReplicaVersion {
 				allowed = false
@@ -469,4 +475,38 @@ func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, col
 		}
 	}
 	return readOk, writeOk
+}
+
+// AllPeersAtLeast reports whether every peer has PerNodeState[peer] >= target.
+// Missing peers count as not satisfied.
+func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, peers []string, target api.ShardReplicationState) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	st, ok := s.statusById[opID]
+	if !ok {
+		return false
+	}
+	floor := api.StateRank(target)
+	for _, peer := range peers {
+		if api.StateRank(st.PerNodeState[peer]) < floor {
+			return false
+		}
+	}
+	return true
+}
+
+// PerNodeStateNotify returns the current wake channel. Snapshot it BEFORE
+// AllPeersAtLeast so an update between check and select can't be missed.
+func (s *ShardReplicationFSM) PerNodeStateNotify() <-chan struct{} {
+	s.perNodeStateNotifyMu.Lock()
+	defer s.perNodeStateNotifyMu.Unlock()
+	return s.perNodeStateNotify
+}
+
+// signalPerNodeStateChange wakes waiters; over-signalling is safe.
+func (s *ShardReplicationFSM) signalPerNodeStateChange() {
+	s.perNodeStateNotifyMu.Lock()
+	close(s.perNodeStateNotify)
+	s.perNodeStateNotify = make(chan struct{})
+	s.perNodeStateNotifyMu.Unlock()
 }

@@ -96,6 +96,33 @@ func isCCLAlreadyGone(err error) bool {
 // errOpCancelled is an error indicating that the operation was cancelled.
 var errOpCancelled = errors.New("operation cancelled")
 
+// waitForAllNodesAtLeast blocks until every current RAFT voting peer has
+// reported PerNodeState[peer] >= target. Snapshots the notify channel
+// BEFORE the check so a broadcast that lands between check and select
+// can't be missed.
+func (c *CopyOpConsumer) waitForAllNodesAtLeast(
+	ctx context.Context, opID uint64, target api.ShardReplicationState,
+) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		notify := c.leaderClient.ReplicationPerNodeStateNotify()
+		peers, err := c.leaderClient.ReplicationPeers()
+		if err != nil {
+			return fmt.Errorf("failed to get replication peers: %w", err)
+		}
+		if c.leaderClient.ReplicationAllPeersAtLeast(opID, peers, target) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-notify:
+		}
+	}
+}
+
 // CopyOpConsumer is an implementation of the OpConsumer interface that processes replication operations
 // by executing copy operations from a source shard to a target shard. It uses a ReplicaCopier to actually
 // carry out the copy operation. Moreover, it supports configurable backoff, timeout and concurrency limits.
@@ -418,13 +445,10 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 		if err := c.checkCancelled(logger, op); err != nil {
 			return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 		}
-		// ver pins the next handler's WaitForUpdateAllNodes to this apply index.
-		ver, err := c.leaderClient.ReplicationUpdateReplicaOpStatus(ctx, op.Op.ID, nextState)
-		if err != nil {
+		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(ctx, op.Op.ID, nextState); err != nil {
 			logger.WithError(err).Errorf("failed to update replica status to '%s'", nextState)
 			return api.ShardReplicationState(""), fmt.Errorf("failed to update replica status to '%s': %w", nextState, err)
 		}
-		op.Status.LastStateChangeVersion = ver
 		return nextState, nil
 	}, c.backoffPolicy)
 	if err != nil {
@@ -698,13 +722,10 @@ func (c *CopyOpConsumer) processIntegratingOp(ctx context.Context, op ShardRepli
 	shard := op.Op.SourceShard.ShardId
 
 	// Wait for INTEGRATING to converge — until then the target is a counted
-	// write replica only where the transition has applied. Zero on
-	// snapshot-recovered ops; skip the wait.
-	if op.Status.LastStateChangeVersion > 0 {
-		if err := c.leaderClient.WaitForUpdateAllNodes(ctx, op.Status.LastStateChangeVersion); err != nil {
-			logger.WithError(err).Error("failure waiting for INTEGRATING op-state to converge across nodes")
-			return api.ShardReplicationState(""), err
-		}
+	// write replica only where the transition has applied.
+	if err := c.waitForAllNodesAtLeast(ctx, op.Op.ID, api.INTEGRATING); err != nil {
+		logger.WithError(err).Error("failure waiting for INTEGRATING op-state to converge across nodes")
+		return api.ShardReplicationState(""), err
 	}
 
 	// Capped drain shrinks the gap before the final seal. "Log gone" on retry
@@ -779,11 +800,9 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	if slices.Contains(nodes, op.Op.SourceShard.NodeId) {
 		// Wait for DEHYDRATING to converge so the source-side fence is active
 		// everywhere before we remove the source.
-		if op.Status.LastStateChangeVersion > 0 {
-			if err := c.leaderClient.WaitForUpdateAllNodes(ctx, op.Status.LastStateChangeVersion); err != nil {
-				logger.WithError(err).Error("failure waiting for DEHYDRATING op-state to converge across nodes")
-				return api.ShardReplicationState(""), err
-			}
+		if err := c.waitForAllNodesAtLeast(ctx, op.Op.ID, api.DEHYDRATING); err != nil {
+			logger.WithError(err).Error("failure waiting for DEHYDRATING op-state to converge across nodes")
+			return api.ShardReplicationState(""), err
 		}
 
 		if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, coll, shard, src); err != nil {

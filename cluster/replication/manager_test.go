@@ -1322,7 +1322,7 @@ func TestReplicationFSM_HasOngoingReplication(t *testing.T) {
 				Id:      0,
 				Version: 0,
 				State:   tt.status,
-			}, 0)
+			})
 
 			for _, param := range tt.hasOngoingReplicationParams {
 				actual := manager.GetReplicationFSM().HasOngoingReplication(param.collection, param.shard, param.replica)

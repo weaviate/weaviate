@@ -13,8 +13,6 @@ package cluster
 
 import (
 	"context"
-	"fmt"
-	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -22,7 +20,6 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/schema"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -42,7 +39,6 @@ type client interface {
 	Query(ctx context.Context, leaderAddr string, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 	Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error)
 	Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error)
-	WaitForAppliedIndex(ctx context.Context, peerRaftAddr string, req *cmd.WaitForAppliedIndexRequest) (*cmd.WaitForAppliedIndexResponse, error)
 }
 
 func NewRaft(selector cluster.NodeSelector, store *Store, client client) *Raft {
@@ -79,59 +75,32 @@ func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return s.store.WaitForAppliedIndex(ctx, schemaVersion)
 }
 
+// AppliedIndex is the DB layer's fallback catchUp index for fence
+// rejections that don't carry a per-op RAFT index.
 func (s *Raft) AppliedIndex() uint64 {
 	return s.store.lastAppliedIndex.Load()
 }
 
-func (s *Raft) WaitForAppliedIndex(ctx context.Context, version uint64) (uint64, error) {
-	if err := s.store.WaitForAppliedIndex(ctx, version); err != nil {
-		return s.store.lastAppliedIndex.Load(), err
-	}
-	return s.store.lastAppliedIndex.Load(), nil
-}
-
-// WaitForUpdateAllNodes blocks until every RAFT peer (including local) has
-// applied version. Local is included so the caller's own stale FSM can't
-// build stale routing for parallel writes routed here.
-func (s *Raft) WaitForUpdateAllNodes(ctx context.Context, version uint64) error {
+// ReplicationPeers scopes the consumer's convergence check to current cluster
+// membership — peers removed via membership change drop out naturally.
+func (s *Raft) ReplicationPeers() ([]string, error) {
 	servers, err := s.store.Servers()
 	if err != nil {
-		return fmt.Errorf("list servers for wait-all-nodes: %w", err)
+		return nil, err
 	}
-
-	localID := s.store.cfg.NodeID
-	type result struct {
-		peer string
-		err  error
-	}
-	resultsCh := make(chan result, len(servers))
-
-	var wg sync.WaitGroup
+	peers := make([]string, 0, len(servers))
 	for _, srv := range servers {
-		srvID := string(srv.ID)
-		peerAddr := string(srv.Address)
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			var callErr error
-			if srvID == localID {
-				_, callErr = s.WaitForAppliedIndex(ctx, version)
-			} else {
-				_, callErr = s.cl.WaitForAppliedIndex(ctx, peerAddr, &cmd.WaitForAppliedIndexRequest{Version: version})
-			}
-			resultsCh <- result{peer: srvID, err: callErr}
-		}, s.log)
+		peers = append(peers, string(srv.ID))
 	}
-	wg.Wait()
-	close(resultsCh)
+	return peers, nil
+}
 
-	var firstErr error
-	for r := range resultsCh {
-		if r.err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("peer %q wait for index %d: %w", r.peer, version, r.err)
-		}
-	}
-	return firstErr
+func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, peers []string, target cmd.ShardReplicationState) bool {
+	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, peers, target)
+}
+
+func (s *Raft) ReplicationPerNodeStateNotify() <-chan struct{} {
+	return s.store.replicationManager.GetReplicationFSM().PerNodeStateNotify()
 }
 
 func (s *Raft) NodeSelector() cluster.NodeSelector {

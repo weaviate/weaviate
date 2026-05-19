@@ -67,16 +67,16 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			Times(1)
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-			Return(uint64(0), nil)
+			Return(nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
-			Return(uint64(0), nil)
+			Return(nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
-			Return(uint64(0), nil)
+			Return(nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
-			Return(uint64(0), nil)
+			Return(nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(opId)).
 			Return(uint64(0), nil)
@@ -221,7 +221,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			Times(1)
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-			Return(uint64(0), nil)
+			Return(nil)
 		mockReplicaCopier.EXPECT().
 			CopyReplicaFiles(
 				mock.Anything,
@@ -364,16 +364,16 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				Times(1)
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
-				Return(uint64(0), nil)
+				Return(nil)
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
-				Return(uint64(0), nil)
+				Return(nil)
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.INTEGRATING).
-				Return(uint64(0), nil)
+				Return(nil)
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
-				Return(uint64(0), nil)
+				Return(nil)
 			mockReplicaCopier.EXPECT().
 				CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
@@ -665,16 +665,16 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					Times(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.HYDRATING).
-					Return(uint64(0), nil)
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.FINALIZING).
-					Return(uint64(0), nil)
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.INTEGRATING).
-					Return(uint64(0), nil)
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.READY).
-					Return(uint64(0), nil)
+					Return(nil)
 				mockReplicaCopier.EXPECT().
 					CopyReplicaFiles(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
 					Return(nil)
@@ -1136,10 +1136,10 @@ func TestConsumerOpDuplication(t *testing.T) {
 		Return(api.READY, nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.INTEGRATING).
-		Return(uint64(0), nil)
+		Return(nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
-		Return(uint64(0), nil)
+		Return(nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)
@@ -1273,10 +1273,10 @@ func TestConsumerOpSkip(t *testing.T) {
 		Return(nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.INTEGRATING).
-		Return(uint64(0), nil)
+		Return(nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
-		Return(uint64(0), nil)
+		Return(nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)
@@ -1444,21 +1444,27 @@ func TestConsumerCopyIntegratingState(t *testing.T) {
 			},
 		}), "node1", true, false)
 
-	const (
-		opId               = uint64(77)
-		stateChangeVersion = uint64(42)
-	)
+	const opId = uint64(77)
 
 	mockFSMUpdater.EXPECT().
 		ReplicationGetReplicaOpStatus(mock.Anything, opId).
 		Return(api.INTEGRATING, nil).
 		Times(1)
-	// The crux: the handler must wait for the FINALIZING->INTEGRATING
-	// transition to converge across every node before sealing the log.
+	// The crux: the handler waits locally for every voting peer to report
+	// PerNodeState[peer] >= INTEGRATING before sealing the log. Stubbed:
+	// peer list is empty so AllPeersAtLeast returns true immediately.
 	mockFSMUpdater.EXPECT().
-		WaitForUpdateAllNodes(mock.Anything, stateChangeVersion).
-		Return(nil).
-		Times(1)
+		ReplicationPerNodeStateNotify().
+		Return(closedChan()).
+		Maybe()
+	mockFSMUpdater.EXPECT().
+		ReplicationPeers().
+		Return([]string{}, nil).
+		Maybe()
+	mockFSMUpdater.EXPECT().
+		ReplicationAllPeersAtLeast(opId, mock.Anything, api.INTEGRATING).
+		Return(true).
+		Maybe()
 	mockReplicaCopier.EXPECT().
 		SnapshotChangeLogLSN(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
 		Return(uint64(9), nil).
@@ -1483,7 +1489,7 @@ func TestConsumerCopyIntegratingState(t *testing.T) {
 		Times(1)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, opId, api.READY).
-		Return(uint64(0), nil).
+		Return(nil).
 		Times(1)
 
 	var completionWg sync.WaitGroup
@@ -1517,7 +1523,6 @@ func TestConsumerCopyIntegratingState(t *testing.T) {
 
 	op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.INTEGRATING)
-	status.LastStateChangeVersion = stateChangeVersion
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 
 	waitChan := make(chan struct{})
@@ -1536,6 +1541,14 @@ func TestConsumerCopyIntegratingState(t *testing.T) {
 	require.NoError(t, err, "expected consumer to stop without error")
 	mockFSMUpdater.AssertExpectations(t)
 	mockReplicaCopier.AssertExpectations(t)
+}
+
+// closedChan returns a pre-closed channel — the AllPeersAtLeast wait will
+// either be satisfied immediately (skipping the select) or wake instantly.
+func closedChan() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
 }
 
 // TestConsumerCopyIntegratingRetryAfterSeal: a retry after a prior seal
@@ -1562,9 +1575,10 @@ func TestConsumerCopyIntegratingRetryAfterSeal(t *testing.T) {
 		ReplicationGetReplicaOpStatus(mock.Anything, opId).
 		Return(api.INTEGRATING, nil).
 		Times(1)
-	mockFSMUpdater.EXPECT().
-		WaitForUpdateAllNodes(mock.Anything, mock.Anything).
-		Return(nil)
+	// Local convergence stubbed satisfied immediately.
+	mockFSMUpdater.EXPECT().ReplicationPerNodeStateNotify().Return(closedChan()).Maybe()
+	mockFSMUpdater.EXPECT().ReplicationPeers().Return([]string{}, nil).Maybe()
+	mockFSMUpdater.EXPECT().ReplicationAllPeersAtLeast(opId, mock.Anything, api.INTEGRATING).Return(true).Maybe()
 	// The source already sealed the log on a prior attempt: the capped-drain
 	// snapshot reports it gone. The handler must NOT re-issue finalize/stop.
 	mockReplicaCopier.EXPECT().
@@ -1581,7 +1595,7 @@ func TestConsumerCopyIntegratingRetryAfterSeal(t *testing.T) {
 		Times(1)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, opId, api.READY).
-		Return(uint64(0), nil).
+		Return(nil).
 		Times(1)
 
 	var completionWg sync.WaitGroup
@@ -1615,7 +1629,6 @@ func TestConsumerCopyIntegratingRetryAfterSeal(t *testing.T) {
 
 	op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.INTEGRATING)
-	status.LastStateChangeVersion = 42
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 
 	waitChan := make(chan struct{})
@@ -1646,5 +1659,8 @@ func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpda
 	m.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-	fsm.EXPECT().WaitForUpdateAllNodes(mock.Anything, mock.Anything).Return(nil).Maybe()
+	// PerNodeState convergence wait: satisfied immediately by default.
+	fsm.EXPECT().ReplicationPeers().Return([]string{}, nil).Maybe()
+	fsm.EXPECT().ReplicationPerNodeStateNotify().Return(closedChan()).Maybe()
+	fsm.EXPECT().ReplicationAllPeersAtLeast(mock.Anything, mock.Anything, mock.Anything).Return(true).Maybe()
 }

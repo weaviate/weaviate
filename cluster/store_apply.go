@@ -374,6 +374,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE:
+		f = func() {
+			ret.Error = st.replicationManager.NodeReachedState(&cmd)
+		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:
 		f = func() {
 			ret.Error = st.replicationManager.CancelReplication(&cmd)

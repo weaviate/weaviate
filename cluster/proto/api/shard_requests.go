@@ -76,6 +76,38 @@ type ReplicationUpdateOpStateRequest struct {
 
 type ReplicationUpdateOpStateResponse struct{}
 
+// ReplicationNodeReachedStateRequest reports that NodeId has applied State
+// for op Id; recorded into op.PerNodeState on every peer for local
+// convergence checks.
+type ReplicationNodeReachedStateRequest struct {
+	Version int
+	Id      uint64
+	NodeId  string
+	State   ShardReplicationState
+}
+
+// StateRank orders states along the happy-path lifecycle so monotonic and
+// "at least X" comparisons work. CANCELLED ranks below every happy-path
+// state — it never satisfies a convergence check.
+func StateRank(s ShardReplicationState) int {
+	switch s {
+	case REGISTERED:
+		return 1
+	case HYDRATING:
+		return 2
+	case FINALIZING:
+		return 3
+	case INTEGRATING:
+		return 4
+	case DEHYDRATING:
+		return 5
+	case READY:
+		return 6
+	default:
+		return 0
+	}
+}
+
 type ReplicationRegisterErrorRequest struct {
 	Version int
 
