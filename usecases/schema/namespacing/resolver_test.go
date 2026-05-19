@@ -379,6 +379,289 @@ func TestResolve_RejectsInvalidNamespacePrefix(t *testing.T) {
 	}
 }
 
+var (
+	namespacedPrincipal  = &models.Principal{Username: "u", Namespace: "customer1"}
+	globalPrincipal      = &models.Principal{Username: "admin", IsGlobalOperator: true}
+	noNamespacePrincipal = &models.Principal{Username: "u"}
+)
+
+// fullyNestedClass returns a class with every namespace-strippable surface
+// covered: own-NS class name, properties with own-NS / foreign / mixed /
+// primitive DataType, and recursive NestedProperties.
+func fullyNestedClass() *models.Class {
+	return &models.Class{
+		Class: "customer1:Movies",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+			{Name: "director", DataType: []string{"customer1:Person"}},
+			{Name: "foreign", DataType: []string{"customer2:Person"}},
+			{Name: "multi", DataType: []string{"customer1:Person", "customer2:Person", "text"}},
+			{
+				Name: "details", DataType: []string{"object"},
+				NestedProperties: []*models.NestedProperty{
+					{Name: "studio", DataType: []string{"customer1:Studio"}},
+					{
+						Name: "deep", DataType: []string{"object"},
+						NestedProperties: []*models.NestedProperty{
+							{Name: "city", DataType: []string{"customer1:City"}},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func fullyNestedClassStripped() *models.Class {
+	return &models.Class{
+		Class: "Movies",
+		Properties: []*models.Property{
+			{Name: "title", DataType: []string{"text"}},
+			{Name: "director", DataType: []string{"Person"}},
+			{Name: "foreign", DataType: []string{"customer2:Person"}},
+			{Name: "multi", DataType: []string{"Person", "customer2:Person", "text"}},
+			{
+				Name: "details", DataType: []string{"object"},
+				NestedProperties: []*models.NestedProperty{
+					{Name: "studio", DataType: []string{"Studio"}},
+					{
+						Name: "deep", DataType: []string{"object"},
+						NestedProperties: []*models.NestedProperty{
+							{Name: "city", DataType: []string{"City"}},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestStripClassResponse(t *testing.T) {
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        *models.Class
+		want      *models.Class
+		wantSame  bool // result should be the same pointer as in (pass-through path)
+	}{
+		{
+			name:      "namespaced principal strips class + recursive datatypes; foreign prefix preserved",
+			principal: namespacedPrincipal,
+			in:        fullyNestedClass(),
+			want:      fullyNestedClassStripped(),
+		},
+		{
+			name:      "class without own prefix returns short-named copy",
+			principal: namespacedPrincipal,
+			in:        &models.Class{Class: "Movies"},
+			want:      &models.Class{Class: "Movies"},
+		},
+		{
+			name:      "global principal passes through",
+			principal: globalPrincipal,
+			in:        &models.Class{Class: "customer1:Movies"},
+			want:      &models.Class{Class: "customer1:Movies"},
+			wantSame:  true,
+		},
+		{
+			name:      "nil principal passes through",
+			principal: nil,
+			in:        &models.Class{Class: "customer1:Movies"},
+			want:      &models.Class{Class: "customer1:Movies"},
+			wantSame:  true,
+		},
+		{
+			name:      "empty namespace passes through",
+			principal: noNamespacePrincipal,
+			in:        &models.Class{Class: "customer1:Movies"},
+			want:      &models.Class{Class: "customer1:Movies"},
+			wantSame:  true,
+		},
+		{
+			name:      "nil src returns nil",
+			principal: namespacedPrincipal,
+			in:        nil,
+			want:      nil,
+			wantSame:  true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Snapshot input to verify it is not mutated.
+			snapshot := tc.in
+			got := StripClassResponse(tc.principal, tc.in)
+			assert.Equal(t, tc.want, got)
+			if tc.wantSame {
+				assert.Same(t, tc.in, got)
+			} else if tc.in != nil {
+				assert.NotSame(t, tc.in, got)
+			}
+			// Input must not have been mutated.
+			assert.Equal(t, snapshot, tc.in)
+		})
+	}
+}
+
+func TestStripPropertyResponse(t *testing.T) {
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        *models.Property
+		want      *models.Property
+		wantSame  bool
+	}{
+		{
+			name:      "namespaced principal strips datatypes recursively",
+			principal: namespacedPrincipal,
+			in: &models.Property{
+				Name:     "owner",
+				DataType: []string{"customer1:Person", "customer2:Person", "text"},
+				NestedProperties: []*models.NestedProperty{
+					{Name: "deep", DataType: []string{"customer1:Studio"}},
+				},
+			},
+			want: &models.Property{
+				Name:     "owner",
+				DataType: []string{"Person", "customer2:Person", "text"},
+				NestedProperties: []*models.NestedProperty{
+					{Name: "deep", DataType: []string{"Studio"}},
+				},
+			},
+		},
+		{
+			name:      "global principal passes through",
+			principal: globalPrincipal,
+			in:        &models.Property{Name: "p", DataType: []string{"customer1:Person"}},
+			want:      &models.Property{Name: "p", DataType: []string{"customer1:Person"}},
+			wantSame:  true,
+		},
+		{
+			name:      "nil principal passes through",
+			principal: nil,
+			in:        &models.Property{Name: "p", DataType: []string{"customer1:Person"}},
+			want:      &models.Property{Name: "p", DataType: []string{"customer1:Person"}},
+			wantSame:  true,
+		},
+		{
+			name:      "nil src returns nil",
+			principal: namespacedPrincipal,
+			in:        nil,
+			want:      nil,
+			wantSame:  true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			snapshot := tc.in
+			got := StripPropertyResponse(tc.principal, tc.in)
+			assert.Equal(t, tc.want, got)
+			if tc.wantSame {
+				assert.Same(t, tc.in, got)
+			} else if tc.in != nil {
+				assert.NotSame(t, tc.in, got)
+			}
+			assert.Equal(t, snapshot, tc.in)
+		})
+	}
+}
+
+func TestStripAliasResponse(t *testing.T) {
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        *models.Alias
+		want      *models.Alias
+		wantSame  bool
+	}{
+		{
+			name:      "namespaced principal strips alias and class",
+			principal: namespacedPrincipal,
+			in:        &models.Alias{Alias: "customer1:Films", Class: "customer1:Movies"},
+			want:      &models.Alias{Alias: "Films", Class: "Movies"},
+		},
+		{
+			name:      "foreign prefix preserved on both fields",
+			principal: namespacedPrincipal,
+			in:        &models.Alias{Alias: "customer2:Films", Class: "customer2:Movies"},
+			want:      &models.Alias{Alias: "customer2:Films", Class: "customer2:Movies"},
+		},
+		{
+			name:      "global principal passes through",
+			principal: globalPrincipal,
+			in:        &models.Alias{Alias: "customer1:Films", Class: "customer1:Movies"},
+			want:      &models.Alias{Alias: "customer1:Films", Class: "customer1:Movies"},
+			wantSame:  true,
+		},
+		{
+			name:      "nil src returns nil",
+			principal: namespacedPrincipal,
+			in:        nil,
+			want:      nil,
+			wantSame:  true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			snapshot := tc.in
+			got := StripAliasResponse(tc.principal, tc.in)
+			assert.Equal(t, tc.want, got)
+			if tc.wantSame {
+				assert.Same(t, tc.in, got)
+			} else if tc.in != nil {
+				assert.NotSame(t, tc.in, got)
+			}
+			assert.Equal(t, snapshot, tc.in)
+		})
+	}
+}
+
+func TestStripObjectResponseClass(t *testing.T) {
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        *models.Object
+		want      string // expected obj.Class after the call ("" when in == nil)
+	}{
+		{
+			name:      "in-place strip of own prefix",
+			principal: namespacedPrincipal,
+			in:        &models.Object{Class: "customer1:Movies"},
+			want:      "Movies",
+		},
+		{
+			name:      "foreign prefix left intact",
+			principal: namespacedPrincipal,
+			in:        &models.Object{Class: "customer2:Movies"},
+			want:      "customer2:Movies",
+		},
+		{
+			name:      "global principal no-op",
+			principal: globalPrincipal,
+			in:        &models.Object{Class: "customer1:Movies"},
+			want:      "customer1:Movies",
+		},
+		{
+			name:      "nil principal no-op",
+			principal: nil,
+			in:        &models.Object{Class: "customer1:Movies"},
+			want:      "customer1:Movies",
+		},
+		{
+			name:      "nil obj no-op",
+			principal: namespacedPrincipal,
+			in:        nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			StripObjectResponseClass(tc.principal, tc.in)
+			if tc.in != nil {
+				assert.Equal(t, tc.want, tc.in.Class)
+			}
+		})
+	}
+}
+
 func TestStripOwnNS(t *testing.T) {
 	cases := []struct {
 		testName  string
