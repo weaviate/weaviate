@@ -481,12 +481,23 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		if index, ok := s.GetVectorIndex(targetVector); ok {
 			wg.Add(1)
 			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
+				s.index.logger.WithFields(logrus.Fields{
+					"action":        "update_vector_index_config",
+					"shard_id":      s.ID(),
+					"target_vector": targetVector,
+				}).Errorf("failed to update vector index config: %v", err)
 				break
 			}
 		} else {
 			// dont lazy load segments on config update
 			if err = s.initTargetVector(ctx, targetVector, targetCfg, false); err != nil {
-				return fmt.Errorf("creating new vector index: %w", err)
+				err = fmt.Errorf("creating new vector index: %w, %s", err, targetVector)
+				s.index.logger.WithFields(logrus.Fields{
+					"action":        "init_target_vector",
+					"shard_id":      s.ID(),
+					"target_vector": targetVector,
+				}).Errorf("failed to init target vector index: %v", err)
+				break
 			}
 		}
 	}

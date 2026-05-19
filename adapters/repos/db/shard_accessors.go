@@ -87,8 +87,8 @@ func (s *Shard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, boo
 	return queue, ok
 }
 
-// GetVectorIndex retrieves a vector index queue associated with the targetVector.
-// Empty targetVector is treated as a request to access a queue for the legacy vector index.
+// GetVectorIndex retrieves a vector index associated with the targetVector.
+// Empty targetVector is treated as a request to access the legacy vector index.
 func (s *Shard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
 	s.vectorIndexMu.RLock()
 	defer s.vectorIndexMu.RUnlock()
