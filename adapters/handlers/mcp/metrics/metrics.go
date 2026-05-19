@@ -25,9 +25,10 @@ import (
 
 // Auth failure reasons reported via ObserveAuthFailure.
 const (
-	AuthReasonMissingToken = "missing_token"
-	AuthReasonInvalidToken = "invalid_token"
-	AuthReasonForbidden    = "forbidden"
+	AuthReasonMissingToken    = "missing_token"
+	AuthReasonInvalidToken    = "invalid_token"
+	AuthReasonForbidden       = "forbidden"
+	AuthReasonUnauthenticated = "unauthenticated"
 )
 
 // Tool call statuses reported on tool_calls_total / tool_call_duration_seconds.
@@ -51,16 +52,28 @@ type MCPMetrics struct {
 	toolCallsInflight *prometheus.GaugeVec
 	authFailures      *prometheus.CounterVec
 	toolsListed       *prometheus.CounterVec
-	writeAccess       prometheus.Gauge
 }
 
 // New constructs an MCPMetrics. If reg is nil, returns nil and the receiver
 // methods become no-ops.
-func New(reg prometheus.Registerer) *MCPMetrics {
+//
+// writeAccessEnabled is polled at scrape time to back the
+// weaviate_mcp_write_access_enabled gauge, so the exported value always
+// reflects the live runtime flag rather than a last-observed snapshot.
+func New(reg prometheus.Registerer, writeAccessEnabled func() bool) *MCPMetrics {
 	if reg == nil {
 		return nil
 	}
 	r := promauto.With(reg)
+	r.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "weaviate_mcp_write_access_enabled",
+		Help: "Current state of the runtime MCP_SERVER_WRITE_ACCESS_ENABLED flag (1 if enabled, 0 otherwise).",
+	}, func() float64 {
+		if writeAccessEnabled != nil && writeAccessEnabled() {
+			return 1
+		}
+		return 0
+	})
 	return &MCPMetrics{
 		toolCalls: r.NewCounterVec(prometheus.CounterOpts{
 			Name: "weaviate_mcp_tool_calls_total",
@@ -83,10 +96,6 @@ func New(reg prometheus.Registerer) *MCPMetrics {
 			Name: "weaviate_mcp_tools_listed_total",
 			Help: "Total number of tools/list requests served, labeled by whether write access was enabled at the time.",
 		}, []string{"write_access"}),
-		writeAccess: r.NewGauge(prometheus.GaugeOpts{
-			Name: "weaviate_mcp_write_access_enabled",
-			Help: "Current state of the runtime MCP_SERVER_WRITE_ACCESS_ENABLED flag (1 if enabled, 0 otherwise).",
-		}),
 	}
 }
 
@@ -110,19 +119,6 @@ func (m *MCPMetrics) ObserveListed(writeAccessEnabled bool) {
 		label = "enabled"
 	}
 	m.toolsListed.WithLabelValues(label).Inc()
-}
-
-// SetWriteAccessEnabled updates the write_access_enabled gauge. Safe on a nil
-// receiver.
-func (m *MCPMetrics) SetWriteAccessEnabled(enabled bool) {
-	if m == nil {
-		return
-	}
-	if enabled {
-		m.writeAccess.Set(1)
-	} else {
-		m.writeAccess.Set(0)
-	}
 }
 
 // Instrument wraps a typed structured tool handler so we can record call
