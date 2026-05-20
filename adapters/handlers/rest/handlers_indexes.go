@@ -532,24 +532,24 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 					"property":       propertyName,
 					"migration_type": migrationType,
 					"index_type":     indexTypeForCleanup,
-				}).Error(fmt.Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %w; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err))
+				}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed: %v; the new task may short-circuit on the stale state and report a false success — operator inspection recommended", err)
 			}
 		}
 	}
 
-	// Submit the task. For MT semantic migrations, use grouped units so that
-	// OnGroupCompleted fires per-tenant (giving per-tenant barrier semantics).
+	// Semantic migrations opt into the two-phase RAFT PREP barrier;
+	// MT semantic migrations also group by tenant for per-tenant barriers.
 	if isMT && semantic {
 		unitSpecs := buildUnitSpecs(shardOwnership)
-		if err := h.appState.ClusterService.AddDistributedTaskWithGroups(
-			ctx, db.ReindexNamespace, taskID, payload, unitSpecs,
+		if err := h.appState.ClusterService.AddDistributedTaskWithGroupsBarrier(
+			ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
 		); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
 				errorResponse(fmt.Sprintf("submitting task: %v", err)))
 		}
 	} else {
-		if err := h.appState.ClusterService.AddDistributedTask(
-			ctx, db.ReindexNamespace, taskID, payload, unitIDs,
+		if err := h.appState.ClusterService.AddDistributedTaskWithBarrier(
+			ctx, db.ReindexNamespace, taskID, payload, unitIDs, semantic,
 		); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
 				errorResponse(fmt.Sprintf("submitting task: %v", err)))
@@ -683,7 +683,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"collection": collection,
 				"property":   propertyName,
 				"index_type": indexType,
-			}).Error(fmt.Errorf("cancel: timed out waiting for local reindex goroutine to drain (%w); skipping inline cleanup — next submit will retry", drainErr))
+			}).Errorf("cancel: timed out waiting for local reindex goroutine to drain (%v); skipping inline cleanup — next submit will retry", drainErr)
 		} else {
 			h.appState.Logger.WithFields(logrus.Fields{
 				"taskID":     target.ID,
@@ -702,7 +702,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 					"collection": collection,
 					"property":   propertyName,
 					"index_type": indexType,
-				}).Error(fmt.Errorf("cancel: cleaning partial reindex state on disk: %w; next submit's defense-in-depth cleanup will retry", err))
+				}).Errorf("cancel: cleaning partial reindex state on disk: %v; next submit's defense-in-depth cleanup will retry", err)
 			} else {
 				h.appState.Logger.WithFields(logrus.Fields{
 					"taskID":     target.ID,
@@ -862,7 +862,7 @@ type parsedReindexTask struct {
 //
 // FINISHED tasks are kept in the slice (they were dropped here historically,
 // but mergeReindexStatus now uses them to surface a brief "indexing@100%"
-// finalizing-window entry while OnGroupCompleted's swap propagates to the
+// SWAPPING-window entry while OnGroupCompleted's swap propagates to the
 // schema — without that, the GET response goes empty for a few ms between
 // FINISHED and the schema flip, which renders as "None" in the UI).
 func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
@@ -902,15 +902,12 @@ func parseReindexTasks(tasks []*distributedtask.Task) []parsedReindexTask {
 //
 // Property matching is uniform across all migration types: every branch
 // requires payload.Properties to be non-empty and to contain propName.
-// Previously the repair-* branches treated an empty Properties list as
-// "match all properties" (via the now-removed propertyMatches helper),
-// while every other branch treated it as "match nothing" — so a single
-// repair-searchable payload with an empty list would fan out a synthetic
-// "indexing" entry to every searchable property in the collection. The
-// current REST handler always populates Properties with exactly one
-// entry, so the empty-means-all branch was unreachable from the API and
-// only reachable via direct cluster payload authoring; we now reject
-// empty Properties consistently.
+// The REST handler always populates Properties with exactly one entry;
+// rejecting an empty list consistently guards against direct cluster
+// payload authoring fanning out a synthetic "indexing" entry to every
+// property in the collection (a hazard that would otherwise be specific
+// to the repair-* migration types if they accepted an empty list as
+// "match all").
 //
 // The logger is used to flag unknown migration types: a future ReindexType
 // added without updating this switch would otherwise silently report "ready"
@@ -963,7 +960,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 				"migration_type": payload.MigrationType,
 				"task_id":        task.ID,
 				"collection":     collection,
-			}).Error(fmt.Errorf("mergeReindexStatus: unknown migration type %q; index status may be stale", payload.MigrationType))
+			}).Errorf("reindex status: unknown migration type %q; index status may be stale", payload.MigrationType)
 		}
 		if !targets {
 			continue
@@ -995,7 +992,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 	//
 	// The rule is: a side-effect field is surfaced only when the status
 	// switch below changes idx.Status away from "ready" (i.e., we are
-	// actually painting an in-flight or finalizing-window signal). When the
+	// actually painting an in-flight or SWAPPING-window signal). When the
 	// status stays "ready", we keep idx in its base state.
 	surfaceSyntheticFields := false
 
@@ -1021,14 +1018,9 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 			idx.Status = "pending"
 		}
 		surfaceSyntheticFields = true
-	case distributedtask.TaskStatusFinalizing:
-		// Units are all terminal but the post-completion callbacks (swap +
-		// schema flip) have not yet committed cluster-wide. From the user's
-		// perspective this is "indexing at 100%": the work is done, we're
-		// waiting on the FINISHED transition. Once
-		// [distributedtask.Manager.MarkTaskFinalized] commits, the task
-		// moves to FINISHED and the FINISHED branch below (or the "ready"
-		// override after flagOn flips) takes over.
+	case distributedtask.TaskStatusPreparing, distributedtask.TaskStatusSwapping:
+		// Units done; cross-replica PREP barrier or per-node swap still in
+		// flight. Surface as "indexing at 100%" until FINISHED + flagOn.
 		idx.Status = "indexing"
 		idx.Progress = 1.0
 		surfaceSyntheticFields = true
@@ -1036,10 +1028,11 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		// The DTM declares a task FINISHED once every unit is terminal, but
 		// for semantic migrations (enable-*, change-tokenization) the actual
 		// schema flag flip happens later, inside OnGroupCompleted's swap
-		// phase. That window — from "task FINISHED" to "schema flag flipped
-		// on this node" — used to leave the GET response with no synthetic
-		// entry at all and no base "ready" entry (because the flag is still
-		// off), so the UI saw an empty `indexes` array and rendered "None".
+		// phase. Without a synthetic entry, that window — from "task
+		// FINISHED" to "schema flag flipped on this node" — would leave the
+		// GET response with no synthetic entry at all and no base "ready"
+		// entry (because the flag is still off), so the UI would see an
+		// empty `indexes` array and render "None".
 		// Treat it as "indexing@100%" until the schema catches up; once
 		// flagOn flips true, the base case "ready" override takes precedence
 		// and this branch is effectively ignored.
@@ -1110,11 +1103,13 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 func taskStatusPriority(task *distributedtask.Task) int {
 	switch task.Status {
 	case distributedtask.TaskStatusStarted,
-		distributedtask.TaskStatusFinalizing:
-		// FINALIZING ranks alongside STARTED: from the user's perspective
-		// the task is still running (the schema flip has not yet
-		// committed). Surface its synthetic "indexing@100%" entry instead
-		// of an older FAILED attempt's terminal entry.
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping:
+		// PREPARING and SWAPPING rank alongside STARTED: from the user's
+		// perspective the task is still running (PREP barrier or swap
+		// pending; schema flip has not yet committed). Surface their
+		// synthetic "indexing@100%" entry instead of an older FAILED
+		// attempt's terminal entry.
 		return 2
 	case distributedtask.TaskStatusFailed,
 		distributedtask.TaskStatusCancelled,
@@ -1205,22 +1200,14 @@ func errorResponse(msg string) *models.ErrorResponse {
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
 
-// countStartedTasksForCollection counts in-flight reindex tasks whose
-// payload targets the given collection. Unparseable payloads are
-// skipped (checkReindexConflict refuses the new submit when those
-// exist, so we don't need to double-count them here).
-//
-// FINALIZING counts as in-flight: callers use this to throttle parallel
-// submits, and a task whose units are all done but whose post-completion
-// callbacks (per-node swap, cluster-wide schema flip) have not yet
-// committed still holds the .migrations/ tracker dirs and the reindex
-// bucket lifecycle. Treating it as "free" would let a new submit race
-// the FINALIZING-to-FINISHED window.
+// countStartedTasksForCollection counts in-flight reindex tasks for a
+// collection. Counts every non-terminal status (STARTED/PREPARING/SWAPPING
+// via IsActive) because PREPARING/SWAPPING still hold tracker dirs and
+// reindex buckets.
 func countStartedTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {
-		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+		if !task.Status.IsActive() {
 			continue
 		}
 		var payload db.ReindexTaskPayload
@@ -1263,13 +1250,7 @@ func checkReindexConflict(collection string, newType db.ReindexMigrationType,
 	newProps []string, tasks []*distributedtask.Task,
 ) (string, error) {
 	for _, task := range tasks {
-		// FINALIZING counts as in-flight here for the same reason as
-		// [ReindexProvider.CheckConflict]: the per-node swap and
-		// cluster-wide schema flip have not yet committed, so a new
-		// migration on overlapping properties could race the pending
-		// flip and corrupt bucket pointers.
-		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+		if !task.Status.IsActive() {
 			continue
 		}
 

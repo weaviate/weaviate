@@ -49,14 +49,14 @@ type TaskCleaner interface {
 }
 
 // TaskFinalizer is an interface for issuing a request to transition a task
-// from [TaskStatusFinalizing] to [TaskStatusFinished]. The [Scheduler] calls
+// from [TaskStatusSwapping] to [TaskStatusFinished]. The [Scheduler] calls
 // this from its tick after [Provider.OnTaskCompleted] returns successfully so
 // the FSM-level FINISHED state lines up with "every post-completion callback
 // committed cluster-wide" (not just "every unit terminal"). Idempotent at the
 // FSM layer — every node's scheduler issues this independently after its
 // local OnTaskCompleted returns; only the first commit actually flips the
-// status. See the FINALIZING godoc on [TaskStatusFinalizing] for the
-// underlying race this discipline fixes.
+// status. See the godoc on [TaskStatusSwapping] for the underlying race
+// this discipline fixes.
 type TaskFinalizer interface {
 	MarkDistributedTaskFinalized(ctx context.Context, namespace, taskID string, taskVersion uint64) error
 }
@@ -72,7 +72,7 @@ type TaskFinalizer interface {
 //
 // The recorded state is stored on the [Task] (see [Task.PostCompletionAcks])
 // and survives RAFT snapshot/restore so a node restart during the
-// FINALIZING window does not lose the cluster's collected acks.
+// SWAPPING window does not lose the cluster's collected acks.
 //
 // Crash-safety contract: without this hook, a node whose RunSwapOnShard
 // silently failed could still let the cluster-wide schema flip commit,
@@ -81,6 +81,19 @@ type TaskFinalizer interface {
 // every per-node ack landing.
 type PostCompletionAckRecorder interface {
 	RecordDistributedTaskPostCompletionAck(
+		ctx context.Context,
+		namespace, taskID string,
+		taskVersion uint64,
+		nodeID string,
+		success bool,
+		errMsg string,
+	) error
+
+	// RecordDistributedTaskPreparationCompleteAck commits one node's PREP result via
+	// RAFT and gates the cluster-wide PREPARING → SWAPPING transition. Any
+	// success=false flips the task to FAILED so no node fires its swap.
+	// Idempotent: first ack per (task, node) wins.
+	RecordDistributedTaskPreparationCompleteAck(
 		ctx context.Context,
 		namespace, taskID string,
 		taskVersion uint64,
@@ -202,16 +215,10 @@ type SchemaMutationDetector interface {
 	// propagates back to the UpdateProperty caller.
 	CheckPropertyUpdate(className, propertyName string, existingTasks []*Task) error
 
-	// CheckClassMutation is called under [Manager.mu] from the
-	// schema FSM's DeleteClass (and similar class-wide destructive)
-	// apply path. existingTasks is the full namespace-scoped task
-	// list at apply time. Return a non-nil error to reject the
-	// mutation; the error propagates back to the caller.
-	//
-	// Stricter than CheckPropertyUpdate: any reindex on the class
-	// (any property) in STARTED or FINALIZING is a conflict, because
-	// dropping the class destroys every property's bucket state at
-	// once, including the in-flight migration's working dirs.
+	// CheckClassMutation is called under [Manager.mu] from the schema FSM's
+	// destructive class-wide apply paths (DeleteClass etc.). Stricter than
+	// CheckPropertyUpdate: any in-flight reindex on the class is a conflict,
+	// because dropping the class wipes every in-flight migration's working dirs.
 	CheckClassMutation(className string, existingTasks []*Task) error
 
 	// CheckTenantMutation is called under [Manager.mu] from the
@@ -275,23 +282,24 @@ type RecoveryAwareProvider interface {
 //     even while the task is still STARTED
 //
 // Callback phases:
-//  1. OnGroupCompleted — per group, fires as each group's units all reach terminal
-//  2. OnTaskCompleted — fires once on every node after ALL units terminal
+//  1. OnGroupCompleted — fires per group as each group's units reach terminal.
+//     PREP-only for barrier tasks; PREP+OVERLAY+SWAP inline otherwise.
+//  2. OnSwapRequested — fires after the cluster-wide PREPARING → SWAPPING
+//     transition. Barrier tasks only; carries OVERLAY+SWAP.
+//  3. OnTaskCompleted — fires once on every node after ALL units terminal.
 type UnitAwareProvider interface {
 	Provider
 	// OnGroupCompleted fires when all units in a group reach terminal state.
-	// localGroupUnitIDs contains ONLY units assigned to THIS node, not all units
-	// in the group. If a node has no units in the group, this callback does not
-	// fire on that node.
-	//
-	// Returns a non-nil error iff at least one local unit's
-	// post-completion work (e.g. the reindex provider's RunSwapOnShard)
-	// failed. The [Scheduler] aggregates errors across this task's
-	// groups for THIS NODE and publishes them via
-	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck];
-	// any reported failure transitions the task to FAILED in the FSM,
-	// which makes OnTaskCompleted skip the cluster-wide schema flip.
+	// localGroupUnitIDs contains ONLY units on this node; no-op for nodes
+	// without local units in the group. Non-nil errors feed
+	// RecordPreparationCompleteAck (barrier tasks) or RecordPostCompletionAck.
 	OnGroupCompleted(task *Task, groupID string, localGroupUnitIDs []string) error
+
+	// OnSwapRequested fires after the cluster-wide PREP barrier lifts
+	// (PREPARING → SWAPPING). Barrier tasks only. Non-nil errors feed
+	// RecordPostCompletionAck (failure → FAILED, schema flip skipped).
+	OnSwapRequested(task *Task, groupID string, localGroupUnitIDs []string) error
+
 	OnTaskCompleted(task *Task)
 }
 
@@ -334,29 +342,35 @@ type UnitSpec struct {
 type TaskStatus string
 
 const (
-	// TaskStatusStarted means that the task is still running on some of the nodes.
+	// TaskStatusStarted means that the task is still running on some of
+	// the nodes — at least one unit has not yet reached a terminal status
+	// ([UnitStatusCompleted] or [UnitStatusFailed]).
 	TaskStatusStarted TaskStatus = "STARTED"
-	// TaskStatusFinalizing means every unit has reached a terminal state and
-	// the scheduler is running the task's post-completion callbacks
-	// (per-node OnGroupCompleted swap + cluster-wide OnTaskCompleted
-	// schema flip for semantic migrations). The task is NOT yet safe to
-	// act upon from the API surface: callers polling for "fully done"
-	// must wait for [TaskStatusFinished]. Format-only journeys (no
-	// post-completion callback work) pass through this state in
-	// essentially zero time. The state was introduced to fix the
-	// schema-flip-lag race where a task could be FINISHED at the FSM
-	// layer before every node's post-completion callback had committed
-	// its bucket-pointer flip.
-	TaskStatusFinalizing TaskStatus = "FINALIZING"
-	// TaskStatusFinished means that the task was successfully executed by
-	// all nodes AND every post-completion callback (per-node swap +
-	// cluster-wide schema flip) has run. Callers polling for "fully done"
-	// should wait for this status — never for [TaskStatusFinalizing].
+
+	// TaskStatusPreparing means every unit terminal AND the task uses the
+	// PREP barrier (semantic migrations). Each node is running PREP; the
+	// task transitions to SWAPPING only after every node's PreparationCompleteAck
+	// lands successfully — any failure flips the task to FAILED. Non-barrier
+	// tasks skip this status entirely.
+	TaskStatusPreparing TaskStatus = "PREPARING"
+
+	// TaskStatusSwapping means every node is firing its per-shard atomic
+	// swap. The cross-replica stagger window in this phase is bounded by
+	// RAFT propagation latency (sub-second), not PREP duration. The task
+	// transitions to FINISHED only after every node's PostCompletionAck
+	// lands successfully.
+	TaskStatusSwapping TaskStatus = "SWAPPING"
+
+	// TaskStatusFinished means the task succeeded on every node AND every
+	// per-node post-completion callback has run. Wait for this — not
+	// SWAPPING — when polling for "fully done".
 	TaskStatusFinished TaskStatus = "FINISHED"
+
 	// TaskStatusCancelled means that the task was cancelled by user.
 	TaskStatusCancelled TaskStatus = "CANCELLED"
-	// TaskStatusFailed means that one of the nodes got a non-retryable error and all other nodes
-	// terminated the execution.
+
+	// TaskStatusFailed means that one of the nodes got a non-retryable
+	// error and all other nodes terminated the execution.
 	TaskStatusFailed TaskStatus = "FAILED"
 )
 
@@ -375,6 +389,28 @@ func (t TaskStatus) String() string {
 func (t TaskStatus) IsTerminal() bool {
 	switch t {
 	case TaskStatusFinished, TaskStatusFailed, TaskStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsActive is true for non-terminal in-flight states (STARTED, PREPARING,
+// SWAPPING) — used by conflict detection and the schema MutationGuard.
+func (t TaskStatus) IsActive() bool {
+	switch t {
+	case TaskStatusStarted, TaskStatusPreparing, TaskStatusSwapping:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsCoordinationPhase is true for the post-units, pre-terminal phases
+// (PREPARING, SWAPPING) — i.e. the scheduler-driven callback states.
+func (t TaskStatus) IsCoordinationPhase() bool {
+	switch t {
+	case TaskStatusPreparing, TaskStatusSwapping:
 		return true
 	default:
 		return false
@@ -407,6 +443,12 @@ type Task struct {
 	// Payload is arbitrary data that is needed to execute a task of Namespace.
 	Payload []byte `json:"payload"`
 
+	// NeedsPreparationBarrier opts the task into the two-phase RAFT swap barrier:
+	// AllUnitsTerminal transitions to PREPARING (not SWAPPING), and the
+	// FSM gates PREPARING → SWAPPING on every node's PreparationCompleteAck.
+	// Set at AddTask time; immutable thereafter.
+	NeedsPreparationBarrier bool `json:"needsPreparationBarrier"`
+
 	// Status is the current status of the task.
 	Status TaskStatus `json:"status"`
 
@@ -423,22 +465,28 @@ type Task struct {
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
 
+	// PreparationCompletionAcks records per-node PREP-phase confirmations during
+	// PREPARING. The FSM gates PREPARING → SWAPPING on every expected ack
+	// landing with Success=true; any Success=false flips to FAILED. Nil
+	// for tasks that don't opt into the PREP barrier.
+	PreparationCompletionAcks map[string]PostCompletionAck `json:"preparationCompletionAcks,omitempty"`
+
 	// PostCompletionAcks records per-node confirmations that the node's
-	// OnGroupCompleted callbacks completed (success or failure) for
-	// every local unit it owned. Keys are node IDs. The map is populated
-	// only after the task transitions to FINALIZING and only by the
-	// [Scheduler] tick on each node firing
+	// SWAP phase (the second half of the split OnGroupCompleted —
+	// per-shard SwapBucketPointer tight loop + post-atomic tidy +
+	// per-strategy OnMigrationComplete) completed successfully. Keys are
+	// node IDs. Populated only after the task transitions to SWAPPING
+	// and only by the [Scheduler] tick firing
 	// [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck]
-	// once OnGroupCompleted has returned. The scheduler gates
-	// [TaskFinalizer.MarkDistributedTaskFinalized] on having an ack
-	// from every node with local units (see
-	// [Task.MissingPostCompletionAckNodes]); if any ack is
+	// once the local SWAP has returned. The Manager FSM gates the
+	// SWAPPING → FINISHED transition (via
+	// [TaskFinalizer.MarkDistributedTaskFinalized]) on having an ack
+	// from every node with local units; if any ack is
 	// [PostCompletionAck.Success]==false the FSM transitions the task
 	// to FAILED instead.
 	//
-	// Nil for tasks created before this field was added (backward-compat
-	// with older RAFT snapshots) and for tasks whose provider does not
-	// implement [UnitAwareProvider] (no OnGroupCompleted to ack).
+	// Nil for tasks whose provider does not implement [UnitAwareProvider]
+	// (no OnGroupCompleted to ack).
 	PostCompletionAcks map[string]PostCompletionAck `json:"postCompletionAcks,omitempty"`
 }
 
@@ -456,8 +504,8 @@ type PostCompletionAck struct {
 	// AckedAt is the wall-clock time the ack was applied on the FSM
 	// (set on the apply path, not from the scheduler). Useful for
 	// forensics — the gap between AllUnitsTerminal's FinishedAt and the
-	// last AckedAt is the FINALIZING window's wall-clock duration on
-	// this cluster.
+	// last AckedAt is the SWAPPING window's wall-clock duration on this
+	// cluster.
 	AckedAt time.Time `json:"ackedAt"`
 }
 
@@ -474,6 +522,12 @@ func (t *Task) Clone() *Task {
 		clone.PostCompletionAcks = make(map[string]PostCompletionAck, len(t.PostCompletionAcks))
 		for k, v := range t.PostCompletionAcks {
 			clone.PostCompletionAcks[k] = v
+		}
+	}
+	if t.PreparationCompletionAcks != nil {
+		clone.PreparationCompletionAcks = make(map[string]PostCompletionAck, len(t.PreparationCompletionAcks))
+		for k, v := range t.PreparationCompletionAcks {
+			clone.PreparationCompletionAcks[k] = v
 		}
 	}
 	return &clone
@@ -564,7 +618,7 @@ func (t *Task) NodeHasNonTerminalUnits(nodeID string) bool {
 // NodesWithLocalUnits returns the set of node IDs that own at least one
 // unit assigned to them in this task. Used by the [Scheduler] tick to
 // compute the ack-barrier predicate: every such node must record a
-// post-completion ack before the task can transition FINALIZING →
+// post-completion ack before the task can transition SWAPPING →
 // FINISHED. Units with empty NodeID (still PENDING / never claimed) are
 // skipped — they cannot have a node-side OnGroupCompleted result yet.
 //
@@ -588,7 +642,7 @@ func (t *Task) NodesWithLocalUnits() []string {
 // MissingPostCompletionAckNodes returns the node IDs that have local
 // units in this task but have NOT yet recorded a post-completion ack.
 // The scheduler uses this as the gating predicate for
-// [TaskFinalizer.MarkDistributedTaskFinalized] — the FINALIZING →
+// [TaskFinalizer.MarkDistributedTaskFinalized] — the SWAPPING →
 // FINISHED transition must wait until this returns empty, so a node
 // whose RunSwapOnShard silently failed cannot let the cluster-wide
 // schema flip commit before its ack is recorded as a failure (which

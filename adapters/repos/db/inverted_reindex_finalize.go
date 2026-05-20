@@ -417,8 +417,8 @@ func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus
 			path := filepath.Join(lsmPath, main+suff+genTail)
 			if fileExists(path) {
 				if err := os.RemoveAll(path); err != nil {
-					logger.WithField("path", path).WithError(err).
-						Warn("reindex finalize: failed to remove stale older-gen sidecar dir")
+					logger.WithField("path", path).
+						Warnf("reindex finalize: failed to remove stale older-gen sidecar dir: %v", err)
 				}
 			}
 		}
@@ -492,8 +492,8 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 		// Remove backup dir.
 		if fileExists(backupDir) {
 			if err := os.RemoveAll(backupDir); err != nil {
-				logger.WithError(err).WithField("dir", backupDir).
-					Error("finalize: failed to remove backup dir")
+				logger.WithField("dir", backupDir).
+					Errorf("finalize: failed to remove backup dir: %v", err)
 				continue
 			}
 			logger.WithField("dir", backupDir).Debug("finalize: removed backup dir")
@@ -506,8 +506,8 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 				os.RemoveAll(mainDir)
 			}
 			if err := os.Rename(ingestDir, mainDir); err != nil {
-				logger.WithError(err).WithField("from", ingestDir).WithField("to", mainDir).
-					Error("finalize: failed to rename ingest dir")
+				logger.WithField("from", ingestDir).WithField("to", mainDir).
+					Errorf("finalize: failed to rename ingest dir: %v", err)
 				continue
 			}
 			logger.WithField("from", ingestDir).WithField("to", mainDir).
