@@ -1247,7 +1247,7 @@ func legacyCompressionUnchanged(updated schemaConfig.VectorIndexConfig, initial 
 	if err != nil || initialParsed == nil {
 		return false
 	}
-	return stringSlicesEqual(
+	return slices.Equal(
 		compressionsFromIndexConfig(updated),
 		compressionsFromIndexConfig(initialParsed),
 	)
@@ -1270,22 +1270,10 @@ func namedCompressionUnchanged(updated schemaConfig.VectorIndexConfig, name stri
 	if err != nil || initialParsed == nil {
 		return false
 	}
-	return stringSlicesEqual(
+	return slices.Equal(
 		compressionsFromIndexConfig(updated),
 		compressionsFromIndexConfig(initialParsed),
 	)
-}
-
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // validateAllowedCompression rejects a class whose explicit compression
@@ -1424,17 +1412,6 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 	}
 
 	return nil
-}
-
-// validateVectorIndexType combines the correctness check with the
-// restriction allow-list check. Kept for callers that don't need the
-// grandfather-on-tighten split (e.g. tests, future callers). Callers
-// from class-create/update should use the split pair below.
-func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
-	if err := h.validateVectorIndexTypeBasic(vectorIndexType); err != nil {
-		return err
-	}
-	return h.validateVectorIndexTypeAllowList(vectorIndexType)
 }
 
 // validateVectorIndexTypeBasic enforces the per-type correctness rules:

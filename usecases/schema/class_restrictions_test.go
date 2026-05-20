@@ -27,6 +27,23 @@ import (
 	"github.com/weaviate/weaviate/usecases/restrictions"
 )
 
+// validateVectorIndexTypeBasicAndAllow runs both halves of the
+// vector-index-type validation in the same order as the production
+// validateVectorSettingsAgainst flow at usecases/schema/class.go: the
+// basic per-type check first (async-indexing required for dynamic,
+// experimental flag for hfresh, known type name), then the
+// operator-configured allow-list. Lives in the test file because
+// production callers ALWAYS go through validateVectorSettingsAgainst
+// which interleaves the two checks with grandfather-on-tighten
+// behaviour — there's no production code path that wants the merged
+// helper.
+func validateVectorIndexTypeBasicAndAllow(h *Handler, vectorIndexType string) error {
+	if err := h.validateVectorIndexTypeBasic(vectorIndexType); err != nil {
+		return err
+	}
+	return h.validateVectorIndexTypeAllowList(vectorIndexType)
+}
+
 // TestValidateVectorIndexType_AllowList covers the allow-list gate on
 // validateVectorIndexType. The function's pre-existing per-type
 // validation (async-indexing required for dynamic, experimental flag
@@ -81,7 +98,7 @@ func TestValidateVectorIndexType_AllowList(t *testing.T) {
 				handler.config.Restrictions.AllowedVectorIndexTypes = runtime.NewDynamicValue(tt.allow)
 			}
 
-			err := handler.validateVectorIndexType(tt.indexType)
+			err := validateVectorIndexTypeBasicAndAllow(handler, tt.indexType)
 			if !tt.wantErr {
 				assert.NoError(t, err)
 				return
@@ -114,11 +131,11 @@ func TestValidateVectorIndexType_RuntimeOverrideNormalization(t *testing.T) {
 	handler.config.Restrictions.AllowedVectorIndexTypes = dv
 
 	// "hnsw" must be accepted: the accessor lowercases the entries.
-	require.NoError(t, handler.validateVectorIndexType(vectorindex.VectorIndexTypeHNSW))
-	require.NoError(t, handler.validateVectorIndexType(vectorindex.VectorIndexTypeFLAT))
+	require.NoError(t, validateVectorIndexTypeBasicAndAllow(handler, vectorindex.VectorIndexTypeHNSW))
+	require.NoError(t, validateVectorIndexTypeBasicAndAllow(handler, vectorindex.VectorIndexTypeFLAT))
 
 	// "hfresh" not in the (normalized) list — rejected.
-	err := handler.validateVectorIndexType(vectorindex.VectorIndexTypeHFresh)
+	err := validateVectorIndexTypeBasicAndAllow(handler, vectorindex.VectorIndexTypeHFresh)
 	require.Error(t, err)
 	v, ok := restrictions.AsViolation(err)
 	require.True(t, ok)
@@ -239,7 +256,7 @@ func TestValidateVectorIndexType_AllowListUsesOperatorTemplate(t *testing.T) {
 		"Invalid config: {value} is not allowed for {restriction} (allowed: {allowed})",
 	)
 
-	err := handler.validateVectorIndexType(vectorindex.VectorIndexTypeHNSW)
+	err := validateVectorIndexTypeBasicAndAllow(handler, vectorindex.VectorIndexTypeHNSW)
 	require.Error(t, err)
 	v, ok := restrictions.AsViolation(err)
 	require.True(t, ok)
