@@ -102,16 +102,46 @@ func TestNoteWipedJoinerProgress(t *testing.T) {
 		assert.Equal(t, uint64(0), st.catchUpTarget.Load())
 	})
 
-	t.Run("single-entry backlog edge: degrades to no recovery", func(t *testing.T) {
+	t.Run("legacy fallback: single-entry backlog without callback degrades to no recovery", func(t *testing.T) {
+		// When Config.RaftBootstrapComplete is nil, detection falls back to
+		// the old backlog-size heuristic which misses the idle-cluster corner
+		// case. Kept only for legacy callers; production wires the callback.
 		st := &Store{}
 		st.startedEmpty.Store(true)
 
-		// The only committed entry is the first command itself: there is no
-		// earlier entry to reveal the backlog, so it is treated as a fresh
-		// entry. Documented edge - degrades to today's behaviour.
 		so, sw := st.noteWipedJoinerProgress(3, 3)
 		assert.False(t, so)
 		assert.False(t, sw)
+	})
+
+	t.Run("deterministic detection: wiped joiner caught even with no backlog", func(t *testing.T) {
+		// The idle-cluster corner case: a wiped node rejoins a cluster that
+		// has exactly one schema command, so logIndex == raftLastIndex on the
+		// first Apply. Without RaftBootstrapComplete the legacy heuristic
+		// misses this; with the callback wired, the bootstrap window is the
+		// deterministic signal.
+		st := &Store{cfg: Config{RaftBootstrapComplete: func() bool { return false }}}
+		st.startedEmpty.Store(true)
+
+		so, sw := st.noteWipedJoinerProgress(3, 3)
+		assert.True(t, so, "wiped joiner must replay schema-only")
+		assert.True(t, sw, "the catch-up watcher must start")
+		assert.Equal(t, uint64(3), st.catchUpTarget.Load())
+	})
+
+	t.Run("deterministic detection: fresh bootstrap skipped even with backlog-shaped indices", func(t *testing.T) {
+		// A fresh-bootstrap node's first Apply happens AFTER
+		// MarkRaftBootstrapComplete fires — the callback returns true. Even
+		// if some quirk made logIndex < raftLastIndex, this must be skipped
+		// (it's a runtime AddClass, not a wiped-joiner replay).
+		st := &Store{cfg: Config{RaftBootstrapComplete: func() bool { return true }}}
+		st.startedEmpty.Store(true)
+
+		so, sw := st.noteWipedJoinerProgress(3, 100)
+		assert.False(t, so)
+		assert.False(t, sw)
+		assert.Equal(t, uint64(0), st.catchUpTarget.Load())
+		assert.True(t, st.catchUpDecided.Load(), "the decision is still locked")
 	})
 
 	t.Run("node with prior state is excluded", func(t *testing.T) {

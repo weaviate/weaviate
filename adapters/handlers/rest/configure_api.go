@@ -677,6 +677,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicaMovementEnabled:          appState.ServerConfig.Config.ReplicaMovementEnabled,
 		ReplicaMovementMinimumAsyncWait: appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait,
 		DrainSleep:                      appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		// Deterministic wiped-joiner signal: noteWipedJoinerProgress
+		// uses this to distinguish a wiped node catching up
+		// (callback returns false during catch-up) from a runtime
+		// apply on a fresh-bootstrapped node (callback returns true).
+		RaftBootstrapComplete: appState.DB.RaftBootstrapComplete,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
