@@ -148,24 +148,40 @@ func FindLeaf(segments []string, props []*models.NestedProperty) (*models.Nested
 	if len(segments) == 0 {
 		return nil, fmt.Errorf("empty nested path")
 	}
-	for i, seg := range segments {
-		np := FindNestedProp(props, seg)
+	var np *models.NestedProperty
+	for _, seg := range segments {
+		np = FindNestedProp(props, seg)
 		if np == nil {
 			return nil, fmt.Errorf("sub-property %q not found", seg)
 		}
-		if i == len(segments)-1 {
-			return np, nil
-		}
 		props = np.NestedProperties
 	}
-	return nil, fmt.Errorf("empty nested path")
+	return np, nil
 }
 
-// IsNestedPath reports whether path uses nested-path syntax. The separator
-// character is internal to this package — callers should treat the check
-// as opaque.
-func IsNestedPath(path string) bool {
-	return strings.Contains(path, pathSep)
+// IsNestedPath reports whether path is a nested-property filter path on
+// the given class — i.e. it has nested-path syntax AND its root segment
+// is an object/object[] property. The separator character is internal to
+// this package; callers should treat the check as opaque.
+//
+// A path that contains the separator but whose root is a flat property
+// (or doesn't exist on the class) is NOT a nested path — those should
+// fall through to the flat-property code path so they surface the right
+// "no such property" or "not a nested property" error instead of an
+// off-target "sub-property not found".
+func IsNestedPath(class *models.Class, path string) bool {
+	if !strings.Contains(path, pathSep) {
+		return false
+	}
+	if class == nil {
+		return false
+	}
+	rootProp, err := schema.GetPropertyByName(class, RootPropName(path))
+	if err != nil || rootProp == nil || len(rootProp.DataType) == 0 {
+		return false
+	}
+	rootDT := schema.DataType(rootProp.DataType[0])
+	return rootDT == schema.DataTypeObject || rootDT == schema.DataTypeObjectArray
 }
 
 // ResolveLeaf walks a full nested filter path (dotted, optionally with [N]
@@ -195,6 +211,9 @@ func ResolveLeaf(class *models.Class, path string) (*models.NestedProperty, erro
 // root property. Used by callers that have looked the root property up
 // themselves (e.g. the filter validator).
 func ResolveLeafFromRoot(rootProp *models.Property, path string) (*models.NestedProperty, error) {
+	if rootProp == nil || len(rootProp.DataType) == 0 {
+		return nil, fmt.Errorf("ResolveLeafFromRoot: root property is nil or has no datatype (path %q)", path)
+	}
 	pathSegs := ParseSegments(path)
 	if pathSegs[0].HasIndex {
 		rootDT := schema.DataType(rootProp.DataType[0])

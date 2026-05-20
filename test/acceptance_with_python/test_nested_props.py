@@ -571,8 +571,9 @@ def test_same_element_and_under_countries_array(collection_factory: CollectionFa
 #
 # `cars[N].make = X` must match only docs where the car at position N has
 # make=X. A matching car at a different position must NOT make the doc match.
-# The variant skips L2_object because that root has no array of cars to pin —
-# cars[] only exists inside the country path on the array-rooted variants.
+# Coverage spans every variant: L0 (root cars[]), L1 (country.cars[]),
+# L2_object (country.garages[].cars[] under a single-OBJECT country root),
+# and L2_array (countries[].garages[].cars[]).
 
 
 def test_arr_n_pin_at_root_cars(collection_factory: CollectionFactory) -> None:

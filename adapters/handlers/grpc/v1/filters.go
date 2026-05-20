@@ -272,7 +272,7 @@ func extractDataTypeProperty(authorizedGetClass classGetterWithAuthzFunc, operat
 		// doesn't need to know them. ResolveLeaf produces the same path-
 		// navigation error messages the validator would emit, so callers
 		// don't need to wrap or rephrase them here.
-		if nested.IsNestedPath(propToCheck) {
+		if nested.IsNestedPath(class, propToCheck) {
 			leaf, err := nested.ResolveLeaf(class, propToCheck)
 			if err != nil {
 				return dataType, err

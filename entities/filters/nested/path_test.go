@@ -223,6 +223,51 @@ func testSchemaClass() *models.Class {
 	}
 }
 
+func TestIsNestedPath(t *testing.T) {
+	// Class with a nested OBJECT_ARRAY (cars), a nested OBJECT (country),
+	// and a flat text leaf at the top level (title).
+	carsProps := []*models.NestedProperty{
+		{Name: "make", DataType: schema.DataTypeText.PropString()},
+	}
+	countryProps := []*models.NestedProperty{
+		{Name: "name", DataType: schema.DataTypeText.PropString()},
+	}
+	class := &models.Class{
+		Class: "TestClass",
+		Properties: []*models.Property{
+			{Name: "cars", DataType: schema.DataTypeObjectArray.PropString(), NestedProperties: carsProps},
+			{Name: "country", DataType: schema.DataTypeObject.PropString(), NestedProperties: countryProps},
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+		},
+	}
+
+	cases := []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"dotted path on OBJECT_ARRAY root", "cars.make", true},
+		{"dotted path on OBJECT root", "country.name", true},
+		{"indexed dotted path on OBJECT_ARRAY root", "cars[0].make", true},
+		{"deeper dotted path", "cars.tires.width", true},
+
+		{"no dot — flat property name", "title", false},
+		{"no dot — nested root only (legitimately not nested-path)", "cars", false},
+		{"dotted path on flat text property — must not be classified as nested", "title.foo", false},
+		{"dotted path with non-existent root — falls through to flat handling", "nonexistent.foo", false},
+		{"empty string", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IsNestedPath(class, tc.path))
+		})
+	}
+
+	t.Run("nil class returns false", func(t *testing.T) {
+		assert.False(t, IsNestedPath(nil, "cars.make"))
+	})
+}
+
 func TestResolveLeaf(t *testing.T) {
 	class := testSchemaClass()
 
