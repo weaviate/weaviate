@@ -322,6 +322,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
 		Clock:            clockwork.NewRealClock(),
 		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
+		Logger:           cfg.Logger,
 	})
 
 	// Cross-FSM guard: the schema FSM's UpdateProperty apply path

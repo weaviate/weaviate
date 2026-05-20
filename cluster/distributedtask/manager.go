@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -62,6 +63,8 @@ type Manager struct {
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
+
+	logger *logrus.Logger
 
 	// notifier is signalled after every state-changing apply
 	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
@@ -200,11 +203,18 @@ type ManagerParameters struct {
 	Clock clockwork.Clock
 
 	CompletedTaskTTL time.Duration
+
+	// Logger is used for low-volume diagnostic lines (Debug-level
+	// only). nil-safe — falls back to logrus.StandardLogger().
+	Logger *logrus.Logger
 }
 
 func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
+	}
+	if params.Logger == nil {
+		params.Logger = logrus.StandardLogger()
 	}
 
 	return &Manager{
@@ -212,7 +222,8 @@ func NewManager(params ManagerParameters) *Manager {
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
-		clock: params.Clock,
+		clock:  params.Clock,
+		logger: params.Logger,
 	}
 }
 
@@ -664,6 +675,16 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	u.NodeID = r.NodeId
 	if r.Progress > u.Progress {
 		u.Progress = r.Progress
+	} else if r.Progress < u.Progress {
+		// Sender-side regression: surface so future emitter bugs don't
+		// hide behind the receiver clamp. Debug-only — under steady-state
+		// monotonic senders this branch is unreachable.
+		m.logger.WithField("namespace", r.Namespace).
+			WithField("task_id", r.Id).
+			WithField("unit_id", r.UnitId).
+			WithField("stored_progress", u.Progress).
+			WithField("requested_progress", r.Progress).
+			Debug("distributedtask: clamping unit-progress regression (sender bug)")
 	}
 	u.UpdatedAt = time.UnixMilli(r.UpdatedAtUnixMillis)
 
