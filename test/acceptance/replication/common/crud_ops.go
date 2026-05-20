@@ -33,9 +33,13 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-// StopNodeAt stops the node container at the given index.
+// StopNodeAt stops the container at the given DockerCompose index.
 //
-// NOTE: the index is 0-based, so stopping the first node requires index=0.
+// NOTE: index is the 0-based DockerCompose container position (as used
+// by compose.ContainerAt/StopAt), NOT a logical Weaviate node number.
+// Non-Weaviate services (MinIO, contextionary, etc.) precede the
+// Weaviate nodes in the compose order, so index=0 is usually not the
+// first Weaviate node — use compose.GetWeaviate*() helpers to resolve.
 func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	<-time.After(1 * time.Second)
 	if err := compose.StopAt(ctx, index, nil); err != nil {
@@ -47,9 +51,9 @@ func StopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose
 }
 
 // StopNodeAtWithTimeout is StopNodeAt with an explicit graceful-shutdown
-// timeout (timeout=0 = SIGKILL).
-//
-// NOTE: the index is 0-based, so stopping the first node requires index=0.
+// timeout (timeout=0 = SIGKILL). See StopNodeAt's NOTE about index
+// semantics — it is the DockerCompose container position, not a
+// logical Weaviate node number.
 func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int, timeout time.Duration) {
 	<-time.After(1 * time.Second)
 	if err := compose.StopAt(ctx, index, &timeout); err != nil {
@@ -61,9 +65,10 @@ func StopNodeAtWithTimeout(ctx context.Context, t *testing.T, compose *docker.Do
 }
 
 // WipeNodeDataAt simulates a data-loss event by deleting the persistence
-// directory contents inside the container at the given (0-based) index,
-// then SIGKILL-stops the container. The caller restarts via StartNodeAt
-// to bring the node back up with an empty data dir.
+// directory contents inside the container at the given DockerCompose
+// index (see StopNodeAt's NOTE on index semantics), then SIGKILL-stops
+// the container. The caller restarts via StartNodeAt to bring the node
+// back up with an empty data dir.
 //
 // The wipe is two-pronged: (1) `find /data -mindepth 1 -delete` inside
 // the live container removes everything under /data — including
@@ -83,9 +88,9 @@ func WipeNodeDataAt(ctx context.Context, t *testing.T, compose *docker.DockerCom
 	StopNodeAtWithTimeout(ctx, t, compose, index, 0)
 }
 
-// startNodeAt starts the node container at the given index.
-//
-// NOTE: the index is 0-based, so starting the first node requires index=0.
+// StartNodeAt starts the container at the given DockerCompose index.
+// See StopNodeAt's NOTE on index semantics — it is the DockerCompose
+// container position, not a logical Weaviate node number.
 func StartNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	t.Helper()
 	if err := compose.StartAt(ctx, index); err != nil {
