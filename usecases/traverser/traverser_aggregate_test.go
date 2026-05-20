@@ -329,6 +329,51 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, &agg, res)
 	})
+
+	t.Run("with hybrid search and multiple target vectors", func(t *testing.T) {
+		params := aggregation.Params{
+			ClassName: "MyClassNamedVectors",
+			Properties: []aggregation.ParamProperty{
+				{
+					Name:        "number",
+					Aggregators: []aggregation.Aggregator{aggregation.SumAggregator},
+				},
+			},
+			IncludeMetaCount: true,
+			Hybrid: &searchparams.HybridSearch{
+				Type:          "hybrid",
+				Alpha:         0.5,
+				Query:         "some query",
+				Vector:        []float32{1, 2, 3},
+				TargetVectors: []string{"title_vec", "body_vec"},
+			},
+		}
+
+		expectedParams := params
+		expectedParams.TargetVector = "title_vec"
+
+		agg := aggregation.Result{
+			Groups: []aggregation.Group{
+				{
+					Properties: map[string]aggregation.Property{
+						"number": {
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]interface{}{
+								"sum": 200,
+							},
+						},
+					},
+				},
+			},
+		}
+
+		vectorRepo.On("Aggregate", expectedParams).Return(&agg, nil).Once()
+		res, err := traverser.Aggregate(context.Background(), principal, &params)
+		require.NoError(t, err)
+		assert.Equal(t, "title_vec", params.TargetVector)
+		assert.Equal(t, []string{"title_vec", "body_vec"}, params.Hybrid.TargetVectors)
+		assert.Equal(t, &agg, res)
+	})
 }
 
 var aggregateTestSchema = schema.Schema{
@@ -360,6 +405,29 @@ var aggregateTestSchema = schema.Schema{
 					{
 						Name:     "a ref",
 						DataType: []string{"AnotherClass"},
+					},
+				},
+			},
+			{
+				Class: "MyClassNamedVectors",
+				Properties: []*models.Property{
+					{
+						Name:     "number",
+						DataType: []string{string(schema.DataTypeInt)},
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					"title_vec": {
+						Vectorizer: map[string]interface{}{
+							"none": map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
+					},
+					"body_vec": {
+						Vectorizer: map[string]interface{}{
+							"none": map[string]interface{}{},
+						},
+						VectorIndexType: "hnsw",
 					},
 				},
 			},
