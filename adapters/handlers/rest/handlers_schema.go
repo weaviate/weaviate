@@ -250,9 +250,9 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 // checkReindexConflictForPropertyMutation is the REST-handler
 // pre-flight for the mutation guard. Returns a non-empty conflict
 // reason iff a reindex migration on (className, propertyName) is in
-// STARTED or FINALIZING — same epistemics as the schema FSM's
-// MutationGuard at apply time, just earlier in the request lifecycle
-// for operator UX.
+// any non-terminal state (STARTED, PREPARING, or SWAPPING) — same
+// epistemics as the schema FSM's MutationGuard at apply time, just
+// earlier in the request lifecycle for operator UX.
 //
 // Per-node, in-memory: two REST handlers on different nodes can both
 // observe "no conflict" and both forward to RAFT — that's expected,
@@ -274,8 +274,12 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		return ""
 	}
 	for _, task := range tasksByNamespace[db.ReindexNamespace] {
-		if task.Status != distributedtask.TaskStatusStarted &&
-			task.Status != distributedtask.TaskStatusFinalizing {
+		// PREPARING and SWAPPING count as in-flight (via
+		// [distributedtask.TaskStatus.IsActive]) — see the godoc on
+		// [checkReindexConflict] for the full reasoning. Mutating the
+		// property during either phase would race the in-flight per-
+		// shard bucket-pointer flip.
+		if !task.Status.IsActive() {
 			continue
 		}
 		var payload db.ReindexTaskPayload

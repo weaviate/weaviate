@@ -47,7 +47,7 @@ type ShardLister interface {
 //
 // MaxConcurrency controls how many units are processed in parallel on each
 // node. When > 1, processUnits fans out with a [ConcurrencyLimiter] instead
-// of sequential iteration. Default 0 = sequential (existing behavior).
+// of sequential iteration. Default 0 = sequential.
 type ShardNoopProviderPayload struct {
 	FailUnitID        string            `json:"failUnitId,omitempty"`
 	Collection        string            `json:"collection,omitempty"`
@@ -210,7 +210,7 @@ func (p *ShardNoopProvider) OnGroupCompleted(task *Task, groupID string, localGr
 
 	p.logger.WithField("taskID", task.ID).WithField("groupID", groupID).
 		WithField("localGroupUnitIDs", localGroupUnitIDs).
-		Info("shard-noop provider: OnGroupCompleted fired")
+		Info("shard-noop provider: group-completion fired")
 	return nil
 }
 
@@ -236,6 +236,14 @@ func (p *ShardNoopProvider) GetFinalizedGroups(desc TaskDescriptor) map[string][
 		result[g] = append([]string{}, ids...)
 	}
 	return result
+}
+
+// OnSwapRequested is a no-op for ShardNoopProvider — this test
+// provider is the canonical NeedsPreparationBarrier=false path (format-only
+// shape), so the scheduler never fires this for ShardNoopProvider
+// tasks. Implements the interface contract for build cleanliness.
+func (p *ShardNoopProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
+	return nil
 }
 
 func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
@@ -271,7 +279,7 @@ func (p *ShardNoopProvider) OnTaskCompleted(task *Task) {
 	}
 
 	p.logger.WithField("taskID", task.ID).WithField("status", task.Status).
-		Info("shard-noop provider: OnTaskCompleted fired")
+		Info("shard-noop provider: task-completion fired")
 }
 
 func (p *ShardNoopProvider) IsTaskCompleted(desc TaskDescriptor) bool {
