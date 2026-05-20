@@ -122,7 +122,7 @@ func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 		// method on it is a routing bug (the caller should have skipped
 		// it via Loaded()/IsRecovering() or the replication FSM read
 		// filter); make the crash unambiguous in logs. See
-		// docs/self-recovery.md ("Known limitations").
+		// docs/self-recovery.md ("Limitations").
 		if enterrors.IsShardRecovering(err) {
 			panic(fmt.Sprintf("shard %q is recovering from a peer; this code path must not touch a recovering shard: %v",
 				l.shardOpts.name, err))
