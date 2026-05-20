@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/jonboulle/clockwork"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -62,6 +63,8 @@ type Manager struct {
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
+
+	logger logrus.FieldLogger
 
 	// notifier is signalled after every state-changing apply
 	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
@@ -200,6 +203,8 @@ type ManagerParameters struct {
 	Clock clockwork.Clock
 
 	CompletedTaskTTL time.Duration
+
+	Logger logrus.FieldLogger
 }
 
 func NewManager(params ManagerParameters) *Manager {
@@ -212,7 +217,8 @@ func NewManager(params ManagerParameters) *Manager {
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
-		clock: params.Clock,
+		clock:  params.Clock,
+		logger: params.Logger,
 	}
 }
 
@@ -634,6 +640,10 @@ func (m *Manager) MarkTaskFinalized(c *api.ApplyRequest) error {
 // unassigned unit sets its NodeID, claiming it for that node. After assignment, updates from
 // other nodes are rejected. Progress updates to terminal units are silently ignored (no error)
 // because in-flight Raft commands may arrive after a unit has already completed.
+//
+// Stored Progress is monotonic per task version; only NodeID and UpdatedAt are applied when
+// the requested Progress regresses. Receiver-side defence against sender-side miscomputation.
+// See weaviate/0-weaviate-issues#232.
 func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	var r api.UpdateDistributedTaskUnitProgressRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
@@ -658,7 +668,19 @@ func (m *Manager) UpdateUnitProgress(c *api.ApplyRequest) error {
 	}
 
 	u.NodeID = r.NodeId
-	u.Progress = r.Progress
+	if r.Progress > u.Progress {
+		u.Progress = r.Progress
+	} else if r.Progress < u.Progress {
+		// Sender-side regression: surface so future emitter bugs don't
+		// hide behind the receiver clamp. Debug-only — under steady-state
+		// monotonic senders this branch is unreachable.
+		m.logger.WithField("namespace", r.Namespace).
+			WithField("task_id", r.Id).
+			WithField("unit_id", r.UnitId).
+			WithField("stored_progress", u.Progress).
+			WithField("requested_progress", r.Progress).
+			Debug("distributedtask: clamping unit-progress regression (sender bug)")
+	}
 	u.UpdatedAt = time.UnixMilli(r.UpdatedAtUnixMillis)
 
 	wasPending := u.Status == UnitStatusPending

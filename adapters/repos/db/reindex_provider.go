@@ -123,6 +123,24 @@ type phaseResult struct {
 // parallel (typically backed by a runtime.DynamicValue). serverCtx should
 // be a process-shutdown context so the OnGroupCompleted swap phase can
 // abort cleanly on graceful shutdown.
+// composeProgressEnvelope maps a single sub-task's 0-1 progress into
+// the unit-wide envelope: each of N sub-tasks owns 1/N of [0, 1].
+// Capped at 0.99 to leave headroom for the final 1.0 written by
+// RecordDistributedTaskUnitCompletion. With N=1 this is a no-op clamp.
+func composeProgressEnvelope(taskIdx, totalTasks int, progress float32) float32 {
+	if totalTasks <= 0 {
+		return 0
+	}
+	envelope := (float32(taskIdx) + progress) / float32(totalTasks)
+	if envelope > 0.99 {
+		envelope = 0.99
+	}
+	if envelope < 0 {
+		envelope = 0
+	}
+	return envelope
+}
+
 func NewReindexProvider(
 	db *DB,
 	schemaManager *schema.Manager,
@@ -379,21 +397,22 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// Hook up live progress reporting. The recorder above this layer is
-	// already throttled (see StartTask), so the iteration loop can call the
-	// callback freely — only one update per throttle window reaches RAFT.
-	// Errors from UpdateDistributedTaskUnitProgress are logged but do NOT
-	// fail the unit: a transient RAFT hiccup that drops one progress tick
-	// must not abort the underlying migration.
-	for _, reindexTask := range tasks {
+	// Compose per-task progress into a single per-unit envelope so the
+	// operator sees a monotonic 0→1 climb across N tasks instead of N
+	// independent 0→0.99 ramps that look like regressions on the same
+	// /v1/tasks field. weaviate/0-weaviate-issues#232 Finding 1.
+	totalTasks := len(tasks)
+	for idx, reindexTask := range tasks {
 		// Capture per-iteration; the closure may outlive this stack frame
 		// because the callback fires from inside the reindex loop.
 		taskRef := reindexTask
+		taskIdx := idx
 		taskRef.SetProgressCallback(func(progress float32) {
+			envelope := composeProgressEnvelope(taskIdx, totalTasks, progress)
 			if err := recorder.UpdateDistributedTaskUnitProgress(
-				ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, progress,
+				ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID, envelope,
 			); err != nil {
-				logger.WithField("progress", progress).
+				logger.WithField("progress", envelope).
 					Debugf("reindex provider: failed to report progress (will retry on next tick): %v", err)
 			}
 		})

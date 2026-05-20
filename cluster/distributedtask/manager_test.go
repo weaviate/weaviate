@@ -818,6 +818,154 @@ func TestManager_UpdateUnitProgress_InvalidValues(t *testing.T) {
 	})
 }
 
+// Pins receiver-side monotonic clamp on Unit.Progress with NodeID+UpdatedAt still
+// flowing through on regressions. See weaviate/0-weaviate-issues#232.
+func TestManager_UpdateUnitProgress_MonotonicityGuard(t *testing.T) {
+	getUnit := func(t *testing.T, h *testHarness, ns, id, unitID string) *Unit {
+		t.Helper()
+		tasks, err := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Contains(t, tasks, ns)
+		require.NotEmpty(t, tasks[ns])
+		task := tasks[ns][0]
+		require.NotNil(t, task.Units)
+		u, ok := task.Units[unitID]
+		require.True(t, ok, "unit %s should exist", unitID)
+		return u
+	}
+
+	t.Run("smaller progress is clamped but UpdatedAt still advances", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
+
+		updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.51)
+		first := getUnit(t, h, "ns", "task1", "su-1")
+		require.Equal(t, float32(0.51), first.Progress)
+		require.Equal(t, "node-1", first.NodeID)
+		firstUpdatedAt := first.UpdatedAt
+
+		h.clock.Advance(time.Second)
+
+		err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+			Namespace:           "ns",
+			Id:                  "task1",
+			Version:             version,
+			NodeId:              "node-1",
+			UnitId:              "su-1",
+			Progress:            0.48,
+			UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.NoError(t, err)
+
+		got := getUnit(t, h, "ns", "task1", "su-1")
+		assert.Equal(t, float32(0.51), got.Progress, "progress must be clamped to monotonic floor")
+		assert.Equal(t, "node-1", got.NodeID)
+		assert.True(t, got.UpdatedAt.After(firstUpdatedAt), "UpdatedAt must still advance on regression")
+	})
+
+	t.Run("monotonic-up sequence accepted in order", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
+
+		for _, p := range []float32{0.0, 0.1, 0.25, 0.5, 0.9, 1.0} {
+			updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", p)
+			got := getUnit(t, h, "ns", "task1", "su-1")
+			assert.Equal(t, p, got.Progress)
+		}
+	})
+
+	t.Run("equal progress is a no-op for the Progress field", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
+
+		updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.42)
+		before := getUnit(t, h, "ns", "task1", "su-1")
+		require.Equal(t, float32(0.42), before.Progress)
+		beforeUpdatedAt := before.UpdatedAt
+
+		h.clock.Advance(time.Second)
+
+		err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+			Namespace:           "ns",
+			Id:                  "task1",
+			Version:             version,
+			NodeId:              "node-1",
+			UnitId:              "su-1",
+			Progress:            0.42,
+			UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.NoError(t, err)
+
+		got := getUnit(t, h, "ns", "task1", "su-1")
+		assert.Equal(t, float32(0.42), got.Progress)
+		assert.True(t, got.UpdatedAt.After(beforeUpdatedAt))
+	})
+
+	t.Run("interleaved regression in long sequence preserves max", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
+
+		seq := []struct {
+			send float32
+			want float32
+		}{
+			{0.10, 0.10},
+			{0.30, 0.30},
+			{0.51, 0.51},
+			{0.48, 0.51},
+			{0.52, 0.52},
+			{0.50, 0.52},
+			{0.75, 0.75},
+			{1.00, 1.00},
+		}
+		for _, step := range seq {
+			updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", step.send)
+			got := getUnit(t, h, "ns", "task1", "su-1")
+			assert.Equal(t, step.want, got.Progress, "after send=%v", step.send)
+		}
+	})
+
+	t.Run("regression to 0.0 from a positive floor is clamped", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
+
+		updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.6)
+		updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.0)
+
+		got := getUnit(t, h, "ns", "task1", "su-1")
+		assert.Equal(t, float32(0.6), got.Progress, "0.0 must be clamped against 0.6 floor")
+	})
+
+	t.Run("invalid range still rejected even when smaller than floor", func(t *testing.T) {
+		// Range validation runs before the monotonicity clamp, so a bad input
+		// surfaces as an error even when clamping would have silently swallowed it.
+		h := newTestHarness(t).init(t)
+		var version uint64 = 10
+		addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
+
+		updateProgress(t, h, "ns", "task1", version, "node-1", "su-1", 0.7)
+
+		err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+			Namespace:           "ns",
+			Id:                  "task1",
+			Version:             version,
+			NodeId:              "node-1",
+			UnitId:              "su-1",
+			Progress:            -0.5,
+			UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+		}))
+		require.ErrorContains(t, err, "between 0.0 and 1.0")
+
+		got := getUnit(t, h, "ns", "task1", "su-1")
+		assert.Equal(t, float32(0.7), got.Progress)
+	})
+}
+
 func TestManager_SnapshotRestore_WithUnits(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	var version uint64 = 10
