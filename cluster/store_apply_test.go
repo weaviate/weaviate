@@ -544,7 +544,8 @@ func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Lo
 	ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
 	ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	ms.parser.On("ParseClass", mock.Anything).Return(nil)
-	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
+	// Optional: skipped on schemaOnly catchup-replay (updateStore branch).
+	ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil).Maybe()
 
 	cls := &models.Class{Class: className}
 	state := &sharding.State{
@@ -658,5 +659,68 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 	}
 	if len(survivors) != 1 || survivors[0] != "bar-1" {
 		t.Fatalf("post-delete survivors: got %v want [bar-1]", survivors)
+	}
+}
+
+// Pins the schemaOnly=true catchup-replay path: a node restarting and
+// replaying its RAFT log past lastAppliedIndexToDB hits updateSchema
+// only, with updateStore skipped (cluster/store_apply.go:108). If the
+// cascade lived in updateStore (as it did pre-ff3a199a39), DELETE_CLASS
+// on replay would NOT remove tasks that earlier TYPE_DISTRIBUTED_TASK_ADD
+// applies re-created — the exact resurrection shape QA Claude flagged
+// on weaviate/weaviate#11345.
+func TestStore_Apply_DeleteClass_CascadesOnSchemaOnlyReplay(t *testing.T) {
+	ms, addLog, deleteLog := setupCascadeTestStore(t, "Foo")
+
+	ms.store.distributedTasksManager.RegisterCollectionExtractor(
+		"test-namespace",
+		func(payload []byte) (string, bool) {
+			var p struct {
+				Collection string `json:"collection"`
+			}
+			if err := json.Unmarshal(payload, &p); err != nil {
+				return "", false
+			}
+			return p.Collection, p.Collection != ""
+		},
+	)
+
+	// Apply ADD_CLASS + ADD_TASK at low indexes, then set
+	// lastAppliedIndexToDB above them and apply DELETE_CLASS at an
+	// index ≤ lastAppliedIndexToDB. That forces catchingUp=true and
+	// schemaOnly=true on the DELETE_CLASS apply.
+	applyOrFail(t, ms, addLog, "add-class")
+
+	payloadBytes, err := json.Marshal(map[string]string{"collection": "Foo"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	addTaskLog := &raft.Log{
+		Index: 2,
+		Type:  raft.LogCommand,
+		Data: cmdAsBytes("", api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD,
+			&api.AddDistributedTaskRequest{
+				Namespace:             "test-namespace",
+				Id:                    "foo-1",
+				Payload:               payloadBytes,
+				SubmittedAtUnixMillis: 1,
+				UnitIds:               []string{"u-foo-1"},
+			}, nil),
+	}
+	applyOrFail(t, ms, addTaskLog, "add-task")
+
+	// Force schemaOnly=true: any DELETE_CLASS apply with Index ≤
+	// lastAppliedIndexToDB triggers the catchup branch.
+	ms.store.lastAppliedIndexToDB.Store(100)
+	deleteLog.Index = 50
+
+	applyOrFail(t, ms, deleteLog, "delete-class on catchup replay")
+
+	postTasks, err := ms.store.distributedTasksManager.ListDistributedTasks(context.Background())
+	if err != nil {
+		t.Fatalf("list post: %v", err)
+	}
+	if got := len(postTasks["test-namespace"]); got != 0 {
+		t.Fatalf("post-replay-delete: got %d tasks, want 0 (cascade must fire even on schemaOnly apply)", got)
 	}
 }
