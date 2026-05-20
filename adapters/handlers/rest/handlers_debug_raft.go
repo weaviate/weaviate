@@ -20,10 +20,12 @@ import (
 
 // setupRaftDebugHandlers registers admin endpoints used to make RAFT
 // behaviour observable / scriptable from tests. Currently a single
-// endpoint that forces an immediate snapshot — needed by the
+// endpoint that forces an immediate snapshot — used by the
 // SELF_RECOVERY acceptance tests so a wiped node's rejoin is
-// guaranteed to go through InstallSnapshot → Restore (not the
-// log-replay path, which does not trigger the recovery hook).
+// guaranteed to go through InstallSnapshot → Restore. Both the
+// snapshot/Restore and log-replay rejoin paths can trigger
+// self-recovery; this endpoint just lets tests pick which path
+// deterministically rather than waiting on snapshot-threshold timing.
 func setupRaftDebugHandlers(appState *state.State, raft *cluster.Raft) {
 	logger := appState.Logger.WithField("handler", "raft_debug")
 
