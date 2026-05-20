@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -94,7 +95,7 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ObjectClass.Class)
-	return schema.NewSchemaObjectsCreateOK().WithPayload(params.ObjectClass)
+	return schema.NewSchemaObjectsCreateOK().WithPayload(namespacing.StripClassResponse(principal, params.ObjectClass))
 }
 
 func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
@@ -120,7 +121,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewSchemaObjectsUpdateOK().WithPayload(params.ObjectClass)
+	return schema.NewSchemaObjectsUpdateOK().WithPayload(namespacing.StripClassResponse(principal, params.ObjectClass))
 }
 
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
@@ -149,7 +150,7 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewSchemaObjectsGetOK().WithPayload(class)
+	return schema.NewSchemaObjectsGetOK().WithPayload(namespacing.StripClassResponse(principal, class))
 }
 
 func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, principal *models.Principal) middleware.Responder {
@@ -187,7 +188,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewSchemaObjectsPropertiesAddOK().WithPayload(params.Body)
+	return schema.NewSchemaObjectsPropertiesAddOK().WithPayload(namespacing.StripPropertyResponse(principal, params.Body))
 }
 
 func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPropertiesDeleteParams,
@@ -360,6 +361,15 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	}
 
 	payload := dbSchema.Objects
+	if principal != nil && principal.Namespace != "" && payload != nil && len(payload.Classes) > 0 {
+		stripped := make([]*models.Class, len(payload.Classes))
+		for i, c := range payload.Classes {
+			stripped[i] = namespacing.StripClassResponse(principal, c)
+		}
+		copyPayload := *payload
+		copyPayload.Classes = stripped
+		payload = &copyPayload
+	}
 
 	s.metricRequestsTotal.logOk("")
 	return schema.NewSchemaDumpOK().WithPayload(payload)

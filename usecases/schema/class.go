@@ -442,6 +442,20 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	// Namespaced callers send the stripped (short) class name in the body
+	// after a GET. Qualify it and require it to match the path so a
+	// mismatch surfaces explicitly instead of being silently overwritten.
+	if updated != nil && principal != nil && principal.Namespace != "" {
+		qualifiedBody, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, updated.Class)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+		if qualifiedBody != className {
+			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, namespacing.StripOwnNamespace(principal, className))
+		}
+		updated.Class = qualifiedBody
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil || updated == nil {
 		return err
 	}

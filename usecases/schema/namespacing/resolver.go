@@ -68,11 +68,11 @@ func qualify(principal *models.Principal, name string) string {
 //  4. Look the (possibly qualified) name up as an alias via the existing
 //     in-memory resolver; if it matches an alias, return the alias target.
 //
-// Returns (class, originalAlias, err). originalAlias is the qualified alias
-// name used for lookup when an alias was hit (i.e. namespace-prefixed for
-// namespaced principals, raw for global principals), "" otherwise — used by
-// the objects layer to preserve existing alias-aware flows.
-func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bool, name string) (class, originalAlias string, err error) {
+// Returns (class, qualifiedAlias, err). qualifiedAlias is the
+// namespace-prefixed alias used for lookup when an alias was hit (raw for
+// global principals), "" otherwise — used by the objects layer to preserve
+// existing alias-aware flows.
+func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bool, name string) (class, qualifiedAlias string, err error) {
 	if err := ValidateNamespacePrefix(principal, namespacesEnabled, name, "class"); err != nil {
 		return "", "", err
 	}
@@ -105,15 +105,106 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 	return qualified, nil
 }
 
-// StripOwnNS removes the principal's own namespace prefix from name when
-// present. Returns name unchanged when principal.Namespace is empty (global
-// principal; also the case on NS-disabled clusters, where principals never
-// carry a namespace) or when the prefix does not match (foreign prefix or
-// short input). A foreign prefix is left intact so downstream
+// StripOwnNamespace removes the principal's own namespace prefix from name
+// when present. Returns name unchanged when principal.Namespace is empty
+// (global principal; also the case on NS-disabled clusters, where principals
+// never carry a namespace) or when the prefix does not match (foreign prefix
+// or short input). A foreign prefix is left intact so downstream
 // ValidateClassName fails closed on the embedded ":".
-func StripOwnNS(principal *models.Principal, name string) string {
+func StripOwnNamespace(principal *models.Principal, name string) string {
 	if principal == nil || principal.Namespace == "" {
 		return name
 	}
 	return strings.TrimPrefix(name, principal.Namespace+schema.NamespaceSeparator)
+}
+
+// StripClassResponse returns a shallow copy of src with the top-level Class
+// name and every property/nested-property DataType entry stripped of the
+// principal's own namespace prefix. Returns src unchanged when the principal
+// has no namespace, so global callers (and NS-disabled clusters) get a
+// pass-through. The input is never mutated: callers can safely pass cached
+// schema pointers without affecting concurrent readers.
+func StripClassResponse(principal *models.Principal, src *models.Class) *models.Class {
+	if src == nil || principal == nil || principal.Namespace == "" {
+		return src
+	}
+	out := *src
+	out.Class = StripOwnNamespace(principal, src.Class)
+	if len(src.Properties) > 0 {
+		out.Properties = make([]*models.Property, len(src.Properties))
+		for i, p := range src.Properties {
+			out.Properties[i] = StripPropertyResponse(principal, p)
+		}
+	}
+	return &out
+}
+
+// StripPropertyResponse returns a shallow copy of src with every DataType
+// entry and nested-property DataType entry stripped of the principal's own
+// namespace prefix. Primitive types (text, int, …) never carry a namespace
+// prefix, so StripOwnNamespace is a no-op on them. The input is never mutated.
+func StripPropertyResponse(principal *models.Principal, src *models.Property) *models.Property {
+	if src == nil || principal == nil || principal.Namespace == "" {
+		return src
+	}
+	out := *src
+	out.DataType = stripDataTypes(principal, src.DataType)
+	if len(src.NestedProperties) > 0 {
+		out.NestedProperties = make([]*models.NestedProperty, len(src.NestedProperties))
+		for i, np := range src.NestedProperties {
+			out.NestedProperties[i] = stripNestedPropertyResponse(principal, np)
+		}
+	}
+	return &out
+}
+
+func stripNestedPropertyResponse(principal *models.Principal, src *models.NestedProperty) *models.NestedProperty {
+	if src == nil {
+		return nil
+	}
+	out := *src
+	out.DataType = stripDataTypes(principal, src.DataType)
+	if len(src.NestedProperties) > 0 {
+		out.NestedProperties = make([]*models.NestedProperty, len(src.NestedProperties))
+		for i, np := range src.NestedProperties {
+			out.NestedProperties[i] = stripNestedPropertyResponse(principal, np)
+		}
+	}
+	return &out
+}
+
+func stripDataTypes(principal *models.Principal, src []string) []string {
+	if len(src) == 0 {
+		return src
+	}
+	out := make([]string, len(src))
+	for i, dt := range src {
+		out[i] = StripOwnNamespace(principal, dt)
+	}
+	return out
+}
+
+// StripAliasResponse returns a shallow copy of src with both Alias and Class
+// stripped of the principal's own namespace prefix. The input is never
+// mutated: callers can safely pass cached schema pointers without affecting
+// concurrent readers.
+func StripAliasResponse(principal *models.Principal, src *models.Alias) *models.Alias {
+	if src == nil || principal == nil || principal.Namespace == "" {
+		return src
+	}
+	out := *src
+	out.Alias = StripOwnNamespace(principal, src.Alias)
+	out.Class = StripOwnNamespace(principal, src.Class)
+	return &out
+}
+
+// StripObjectResponseClass mutates obj.Class in place to remove the
+// principal's own namespace prefix. Objects flow per-request from the
+// objects manager — there are no shared pointers to protect — so in-place
+// mutation is safe.
+func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
+	if obj == nil || principal == nil || principal.Namespace == "" {
+		return
+	}
+	obj.Class = StripOwnNamespace(principal, obj.Class)
 }

@@ -2782,7 +2782,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 	}
 
-	parser := NewParser(false, getClass, getAlias)
+	parser := NewParser(false, getClass)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
@@ -2807,10 +2807,6 @@ func getClass(name string) (*models.Class, error) {
 		return nil, fmt.Errorf("class %s not found", name)
 	}
 	return class, nil
-}
-
-func getAlias(name string) string {
-	return ""
 }
 
 func sortNamedVecs(vecs []string) {

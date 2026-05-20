@@ -503,7 +503,7 @@ func prettyPermissionsResources(principal *models.Principal, perm *models.Permis
 		return ""
 	}
 
-	strip := func(s string) string { return namespacing.StripOwnNS(principal, s) }
+	strip := func(s string) string { return namespacing.StripOwnNamespace(principal, s) }
 
 	if perm.Backups != nil {
 		s := fmt.Sprintf("Domain: %s,", authorization.BackupsDomain)
