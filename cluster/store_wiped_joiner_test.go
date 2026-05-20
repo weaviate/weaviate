@@ -17,68 +17,53 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestNoteWipedJoinerProgress covers the schemaOnly + catchUpTarget
-// state machine. The wiped-joiner decision itself is made deterministically
-// at Store.Open from filesystem state (wipedJoinerCandidate); this function
-// only maintains catchUpTarget as new AppendEntries arrive and reports
-// whether the entry must be applied schema-only.
-func TestNoteWipedJoinerProgress(t *testing.T) {
-	t.Run("candidate: schema-only across the backlog, target tracks log tip", func(t *testing.T) {
+// TestMarkWipedJoinerCatchUp covers how the wiped-joiner catch-up
+// boundary is captured on each Apply by extending lastAppliedIndexToDB.
+// The decision (candidate vs not) is made at Store.Open from filesystem
+// state; this function only maintains the high-water mark so the
+// existing Apply-deferred dbReloadRequired trigger fires at the right
+// time.
+func TestMarkWipedJoinerCatchUp(t *testing.T) {
+	t.Run("candidate: lastAppliedIndexToDB tracks the highest raftLastIndex", func(t *testing.T) {
 		st := &Store{}
 		st.wipedJoinerCandidate.Store(true)
 
-		schemaOnly := st.noteWipedJoinerProgress(3, 10)
-		assert.True(t, schemaOnly, "candidate entries must apply schema-only")
-		assert.Equal(t, uint64(10), st.catchUpTarget.Load())
+		st.markWipedJoinerCatchUp(10)
+		assert.Equal(t, uint64(10), st.lastAppliedIndexToDB.Load())
 
-		// More entries in the backlog: still schema-only; target stays at the
-		// highest seen tip.
-		for idx := uint64(4); idx <= 10; idx++ {
-			assert.True(t, st.noteWipedJoinerProgress(idx, 10))
-		}
-		assert.Equal(t, uint64(10), st.catchUpTarget.Load())
+		// Same value: no change.
+		st.markWipedJoinerCatchUp(10)
+		assert.Equal(t, uint64(10), st.lastAppliedIndexToDB.Load())
 
-		// Once the watcher has run the reload, later (runtime) entries apply
-		// normally: never schema-only.
-		st.wipedJoinerReloaded.Store(true)
-		assert.False(t, st.noteWipedJoinerProgress(11, 11),
-			"runtime entries after catch-up apply normally")
+		// Higher value: extends.
+		st.markWipedJoinerCatchUp(20)
+		assert.Equal(t, uint64(20), st.lastAppliedIndexToDB.Load())
+
+		// Lower value (e.g. an older AppendEntries replay): never shrinks.
+		st.markWipedJoinerCatchUp(15)
+		assert.Equal(t, uint64(20), st.lastAppliedIndexToDB.Load(),
+			"the high-water mark is monotonic during catch-up")
 	})
 
-	t.Run("candidate: backlog delivered in multiple chunks extends the target", func(t *testing.T) {
+	t.Run("not a candidate: lastAppliedIndexToDB untouched", func(t *testing.T) {
 		st := &Store{}
-		st.wipedJoinerCandidate.Store(true)
+		// Pre-seed a value so we can detect any unwanted overwrite.
+		st.lastAppliedIndexToDB.Store(7)
 
-		assert.True(t, st.noteWipedJoinerProgress(3, 5))
-		assert.Equal(t, uint64(5), st.catchUpTarget.Load())
-
-		// Second chunk: tip jumps to 12.
-		assert.True(t, st.noteWipedJoinerProgress(4, 12))
-		assert.Equal(t, uint64(12), st.catchUpTarget.Load())
-
-		// A later entry with a smaller raftLastIndex must NOT shrink the
-		// target (the high-water mark is monotonic during catch-up).
-		assert.True(t, st.noteWipedJoinerProgress(5, 11))
-		assert.Equal(t, uint64(12), st.catchUpTarget.Load())
+		st.markWipedJoinerCatchUp(100)
+		assert.Equal(t, uint64(7), st.lastAppliedIndexToDB.Load(),
+			"non-candidate must not touch lastAppliedIndexToDB")
 	})
 
-	t.Run("not a candidate: never schema-only", func(t *testing.T) {
-		st := &Store{}
-		// wipedJoinerCandidate is false (default); intact-data restart or
-		// snapshot-restored node.
-
-		assert.False(t, st.noteWipedJoinerProgress(3, 100))
-		assert.Equal(t, uint64(0), st.catchUpTarget.Load(),
-			"non-candidate must not touch catchUpTarget")
-	})
-
-	t.Run("reloaded: candidate + reloaded → no longer schema-only", func(t *testing.T) {
+	t.Run("reloaded: candidate + reloaded → lastAppliedIndexToDB untouched", func(t *testing.T) {
 		st := &Store{}
 		st.wipedJoinerCandidate.Store(true)
 		st.wipedJoinerReloaded.Store(true)
+		st.lastAppliedIndexToDB.Store(5)
 
-		assert.False(t, st.noteWipedJoinerProgress(3, 100),
-			"once reloadDBFromSchema has run, future Applies are normal")
+		st.markWipedJoinerCatchUp(100)
+		assert.Equal(t, uint64(5), st.lastAppliedIndexToDB.Load(),
+			"once reloadDBFromSchema has run, future Applies must not extend the target")
 	})
 }
 
