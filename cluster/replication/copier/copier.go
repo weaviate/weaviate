@@ -475,14 +475,20 @@ func (c *Copier) PromoteRecoveryFolder(collectionName, shardName string) error {
 	return nil
 }
 
-// dirExists is (true, nil) when present, (false, nil) on ENOENT, and
-// (false, err) for any other stat failure.
+// dirExists is (true, nil) when path is a directory, (false, nil) on
+// ENOENT, and (false, err) for any other stat failure or when path
+// exists but is not a directory (caller should surface the error
+// rather than silently treat a stray file as a present shard dir).
 func dirExists(path string) (bool, error) {
-	if _, err := os.Stat(path); err != nil {
+	fi, err := os.Stat(path)
+	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, nil
 		}
 		return false, err
+	}
+	if !fi.IsDir() {
+		return false, fmt.Errorf("expected directory at %q, found %s", path, fi.Mode().String())
 	}
 	return true, nil
 }
