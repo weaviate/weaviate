@@ -68,16 +68,21 @@ func assertReindexCompleteAndConsistent(
 	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID,
 		reindexhelpers.WithTimeout(awaitTimeout))
 
-	// Tokenization must have flipped to "field" on every replica.
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		got := tryGetPropertyTokenization(restURIOf(compose, nodeIdx), className, "path")
-		assert.Equalf(t, "field", got,
-			"node %d: tokenization should have flipped to field, got %q", nodeIdx, got)
-	}
+	// Schema reflection of the FINISHED flip is per-replica eventual:
+	// AwaitReindexFinished sees the FSM state, but each replica's
+	// in-memory schema cache catches up via the schema-update callback
+	// on its own clock.
+	require.Eventually(t, func() bool {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			if tryGetPropertyTokenization(restURIOf(compose, nodeIdx), className, "path") != "field" {
+				return false
+			}
+		}
+		return true
+	}, 30*time.Second, 500*time.Millisecond,
+		"tokenization should flip to field on every replica post-restart")
 
-	// Every replica must serve the same count for an exact-match query
-	// on a path value. Under FIELD tokenization, every path-bucket
-	// matches reindexRestartDataset/5 records exactly.
+	// Under FIELD tokenization each path-bucket matches dataset/5 exactly.
 	const expected = reindexRestartDataset / 5
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 		got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", "alpha-path")
@@ -129,8 +134,10 @@ func TestMultiNode_GracefulLeaderRestartDuringReindex(t *testing.T) {
 			t.Log("gracefully stopping node 1 (RAFT leader)")
 			require.NoError(t, compose.StopAt(ctx, 0, nil))
 			require.NoError(t, compose.StartAt(ctx, 0))
+			// Probe via the actual "path" property — runBM25QueryOnNode
+			// hardcodes "text" which doesn't exist on this class.
 			require.Eventually(t, func() bool {
-				_, err := runBM25QueryOnNode(t, restURIOf(compose, 1), "LeaderRestartDuringReindex", "path")
+				_, err := equalCount(restURIOf(compose, 1), "LeaderRestartDuringReindex", "path", "alpha-path")
 				return err == nil
 			}, 60*time.Second, 1*time.Second, "node 1 should be ready after restart")
 		})
