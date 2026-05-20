@@ -25,6 +25,14 @@ import (
 // this is the single place to change if the separator ever changes.
 const pathSep = "."
 
+// indexOpen / indexClose delimit an arr[N] index suffix inside a path
+// segment (e.g. "cars[0]"). All bracket parsing in this package uses
+// these constants so callers don't hard-code the characters.
+const (
+	indexOpen  = "["
+	indexClose = "]"
+)
+
 // SplitPath splits a dot-notation nested path into its property name segments.
 // The inverse of JoinPath.
 //
@@ -110,10 +118,10 @@ func RootPropName(path string) string {
 // "tags[2]" → ("tags", 2, true); "tags" → ("tags", 0, false).
 func parseSegmentIndex(seg string) (clean string, index int, hasIndex bool) {
 	// The closing bracket must be the very last character.
-	if len(seg) == 0 || seg[len(seg)-1] != ']' {
+	if !strings.HasSuffix(seg, indexClose) {
 		return seg, 0, false
 	}
-	start := strings.Index(seg, "[")
+	start := strings.Index(seg, indexOpen)
 	if start < 0 {
 		return seg, 0, false
 	}
@@ -157,6 +165,19 @@ func FindLeaf(segments []string, props []*models.NestedProperty) (*models.Nested
 		props = np.NestedProperties
 	}
 	return np, nil
+}
+
+// HasNestedSyntax reports whether path uses nested-property syntax — a
+// dotted name like "cars.make" or an indexed name like "cars[0]" or
+// "cars[1].tags". Purely syntactic; performs no schema lookup. Use
+// IsNestedPath for the full schema-aware check.
+//
+// Useful at ingress layers (REST/GraphQL/gRPC) that need to route a
+// path string to the nested filter pipeline before a schema is in scope.
+// Keeps the syntactic conventions (the separator character, the index
+// bracket character) localized in this package.
+func HasNestedSyntax(path string) bool {
+	return strings.ContainsAny(path, pathSep+indexOpen)
 }
 
 // IsNestedPath reports whether path is a nested-property filter path on
