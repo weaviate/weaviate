@@ -82,14 +82,18 @@ func assertReindexCompleteAndConsistent(
 	}, 30*time.Second, 500*time.Millisecond,
 		"tokenization should flip to field on every replica post-restart")
 
-	// Under FIELD tokenization each path-bucket matches dataset/5 exactly.
+	// Under FIELD tokenization each path-bucket matches dataset/5
+	// exactly. Probe all 5 to catch a per-bucket regression (e.g. 4/5
+	// intact, 1 corrupted would still pass a single-bucket check).
 	const expected = reindexRestartDataset / 5
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", "alpha-path")
-		require.NoErrorf(t, err, "node %d: post-restart count query failed", nodeIdx)
-		assert.Equalf(t, expected, got,
-			"node %d: post-restart count mismatch (expected %d, got %d)",
-			nodeIdx, expected, got)
+	for _, bucket := range []string{"alpha-path", "beta-path", "gamma-path", "delta-path", "epsilon-path"} {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", bucket)
+			require.NoErrorf(t, err, "node %d bucket %q: post-restart count query failed", nodeIdx, bucket)
+			assert.Equalf(t, expected, got,
+				"node %d bucket %q: post-restart count mismatch (expected %d, got %d)",
+				nodeIdx, bucket, expected, got)
+		}
 	}
 }
 
@@ -135,13 +139,15 @@ func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
 func TestMultiNode_GracefulLeaderRestartDuringReindex(t *testing.T) {
 	runRestartDuringReindex(t, "LeaderRestartDuringReindex", 360*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
-			stopStart(ctx, t, compose, 0, nil)
-			// Probe via the actual "path" property — runBM25QueryOnNode
-			// hardcodes "text" which doesn't exist on this class.
+			// Resolve the actual leader at restart time — node 1 is
+			// only the leader by initial-election convention.
+			leaderIdx := raftLeaderIndex(t, compose)
+			t.Logf("gracefully stopping leader (node %d)", leaderIdx+1)
+			stopStart(ctx, t, compose, leaderIdx, nil)
 			require.Eventually(t, func() bool {
 				_, err := equalCount(restURIOf(compose, 1), "LeaderRestartDuringReindex", "path", "alpha-path")
 				return err == nil
-			}, 60*time.Second, 1*time.Second, "node 1 should be ready after restart")
+			}, 60*time.Second, 1*time.Second, "cluster should be ready after leader restart")
 		})
 }
 

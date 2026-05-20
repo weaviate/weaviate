@@ -236,6 +236,48 @@ func awaitReindexMidFlight(t *testing.T, restURI, taskID string, minProgress flo
 		taskID, minProgress, timeout)
 }
 
+// raftLeaderIndex returns the 0-based docker node index of the RAFT
+// leader (weaviate-0 → 0, weaviate-1 → 1, weaviate-2 → 2). Queries
+// /v1/cluster/statistics on node 1 — `leaderId` is the same across
+// all nodes in steady state.
+func raftLeaderIndex(t *testing.T, compose *docker.DockerCompose) int {
+	t.Helper()
+	var leaderName string
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/cluster/statistics", restURIOf(compose, 1)))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false
+		}
+		var stats models.ClusterStatisticsResponse
+		if err := json.Unmarshal(body, &stats); err != nil {
+			return false
+		}
+		for _, s := range stats.Statistics {
+			if s.LeaderID == nil {
+				continue
+			}
+			if name, ok := s.LeaderID.(string); ok && name != "" {
+				leaderName = name
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 200*time.Millisecond, "/v1/cluster/statistics should report a leader")
+	// Node names are docker.Weaviate{0,1,2}.
+	for idx, name := range []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2} {
+		if name == leaderName {
+			return idx
+		}
+	}
+	t.Fatalf("leader name %q does not match any of weaviate-{0,1,2}", leaderName)
+	return -1
+}
+
 // runBM25QueryOnNode executes a BM25 query against a specific node and returns object IDs.
 func runBM25QueryOnNode(t *testing.T, restURI, className, query string) ([]string, error) {
 	t.Helper()
