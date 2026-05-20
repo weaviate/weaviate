@@ -129,6 +129,21 @@ func importObjects(t *testing.T, restURI, className string, texts []string) {
 	}
 }
 
+// httpGetJSON GETs url and JSON-decodes into out. Returns false on any
+// step's error so it composes cleanly inside require.Eventually polls.
+func httpGetJSON(url string, out any) bool {
+	resp, err := http.Get(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(body, out) == nil
+}
+
 // awaitReindexReachedFinalizing polls /v1/tasks until the reindex task
 // transitions into FINALIZING — i.e. every unit has completed its
 // reindex iteration on every node and the cluster is about to fire the
@@ -145,17 +160,8 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 	t.Helper()
 	var observed string
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
-		}
 		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
+		if !httpGetJSON(fmt.Sprintf("http://%s/v1/tasks", restURI), &tasks) {
 			return false
 		}
 		for _, task := range tasks["reindex"] {
@@ -189,17 +195,8 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 func awaitReindexMidFlight(t *testing.T, restURI, taskID string, minProgress float32, timeout time.Duration) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
-		}
 		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
+		if !httpGetJSON(fmt.Sprintf("http://%s/v1/tasks", restURI), &tasks) {
 			return false
 		}
 		for _, task := range tasks["reindex"] {
@@ -236,17 +233,8 @@ func raftLeaderIndex(t *testing.T, compose *docker.DockerCompose) int {
 	t.Helper()
 	var leaderName string
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/cluster/statistics", restURIOf(compose, 1)))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
-		}
 		var stats models.ClusterStatisticsResponse
-		if err := json.Unmarshal(body, &stats); err != nil {
+		if !httpGetJSON(fmt.Sprintf("http://%s/v1/cluster/statistics", restURIOf(compose, 1)), &stats) {
 			return false
 		}
 		for _, s := range stats.Statistics {
