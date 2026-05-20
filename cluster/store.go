@@ -341,10 +341,23 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
 func (st *Store) ID() string    { return st.cfg.NodeID }
 
-// lastIndex returns the last index in stable storage,
-// either from the last log or from the last snapshot.
-// this method work as a protection from applying anything was applied to the db
-// by checking either raft or max(snapshot, log store) instead the db will catchup
+// ForceSnapshot triggers an immediate RAFT snapshot on the local
+// node, bypassing the periodic interval/threshold cadence. Used by
+// the /debug/raft/snapshot admin endpoint to make tests deterministic
+// (in particular, to guarantee a wiped node's rejoin goes through
+// InstallSnapshot → Restore → reloadDBFromSchema and the
+// SELF_RECOVERY hook fires).
+func (st *Store) ForceSnapshot() error {
+	if st.raft == nil {
+		return fmt.Errorf("raft not initialised")
+	}
+	return st.raft.Snapshot().Error()
+}
+
+// lastIndex returns the last index in stable storage, either from the
+// last log or from the last snapshot. It works as a protection from
+// re-applying entries that were already applied to the DB: by checking
+// raft or max(snapshot, log store), the DB catches up to the right point.
 func (st *Store) lastIndex() uint64 {
 	if st.raft != nil {
 		return st.raft.AppliedIndex()

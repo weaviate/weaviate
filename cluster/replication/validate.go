@@ -26,8 +26,15 @@ var (
 	ErrShardNotFound = errors.New("shard not found")
 )
 
+// validateSchemaReader narrows schema.SchemaReader to what this
+// validator needs, so tests can stub it.
+type validateSchemaReader interface {
+	ClassInfo(class string) schema.ClassInfo
+	ShardReplicas(class, shard string) (nodes []string, err error)
+}
+
 // ValidateReplicationReplicateShard validates that c is valid given the current state of the schema read using schemaReader
-func ValidateReplicationReplicateShard(schemaReader schema.SchemaReader, c *api.ReplicationReplicateShardRequest) error {
+func ValidateReplicationReplicateShard(schemaReader validateSchemaReader, c *api.ReplicationReplicateShardRequest) error {
 	if c.Uuid == "" {
 		return fmt.Errorf("uuid is required: %w", ErrBadRequest)
 	}
@@ -60,8 +67,16 @@ func ValidateReplicationReplicateShard(schemaReader schema.SchemaReader, c *api.
 	if !foundSource {
 		return fmt.Errorf("could not find shard %s for collection %s on source node %s: %w", c.SourceShard, c.SourceCollection, c.SourceNode, ErrNodeNotFound)
 	}
+	if c.TransferType == api.SELF_RECOVERY.String() {
+		// SELF_RECOVERY: target must already be a replica (we're
+		// re-hydrating); otherwise it's an upstream logic error.
+		if !foundTarget {
+			return fmt.Errorf("self-recovery for shard %s of collection %s requires target node %s to already be a replica: %w", c.SourceShard, c.SourceCollection, c.TargetNode, ErrNodeNotFound)
+		}
+		return nil
+	}
 	if foundTarget {
-		return fmt.Errorf("shard %s already exist for collection %s on target node %s: %w", c.SourceShard, c.SourceCollection, c.SourceNode, ErrAlreadyExists)
+		return fmt.Errorf("shard %s already exists for collection %s on target node %s: %w", c.SourceShard, c.SourceCollection, c.TargetNode, ErrAlreadyExists)
 	}
 	return nil
 }

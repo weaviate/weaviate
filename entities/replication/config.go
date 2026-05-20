@@ -57,4 +57,10 @@ type GlobalConfig struct {
 	DeletionStrategy string `json:"deletion_strategy" yaml:"deletion_strategy"`
 
 	ReplicationGRPCEnabled *runtime.DynamicValue[bool] `json:"replication_grpc_enabled" yaml:"replication_grpc_enabled"`
+
+	// SELF_RECOVERY env-only, read at startup. Enabled gates orchestrator
+	// wiring in MakeAppState; Concurrency sets the worker-pool size once
+	// at first Submit. Neither is hot-reloadable.
+	SelfRecoveryEnabled     bool `json:"self_recovery_enabled" yaml:"self_recovery_enabled"`
+	SelfRecoveryConcurrency int  `json:"self_recovery_concurrency" yaml:"self_recovery_concurrency"`
 }

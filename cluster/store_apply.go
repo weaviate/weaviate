@@ -102,6 +102,7 @@ func (st *Store) Apply(l *raft.Log) any {
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
+
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
 	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters

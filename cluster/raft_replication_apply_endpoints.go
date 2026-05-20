@@ -27,12 +27,17 @@ import (
 )
 
 func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) (opsUUIDs []strfmt.UUID, err error) {
-	// while not strictly necessary, scaling while there are ongoing replications is disallowed
+	// while not strictly necessary, scaling while there are ongoing replications is disallowed.
+	// SELF_RECOVERY ops are excluded: they don't change membership and a recovering node
+	// must not block scale-out.
 	ops, err := s.GetReplicationDetailsByCollection(ctx, scalePlan.Collection)
 	if err != nil && !errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 		return nil, fmt.Errorf("get replication details for %q: %w", scalePlan.Collection, err)
 	}
 	for _, op := range ops {
+		if op.TransferType == api.SELF_RECOVERY.String() {
+			continue
+		}
 		if api.ShardReplicationState(op.Status.State) != api.CANCELLED && api.ShardReplicationState(op.Status.State) != api.READY {
 			return nil, fmt.Errorf("cannot scale while there are ongoing replications for collection %q", scalePlan.Collection)
 		}
@@ -118,6 +123,21 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 	}
 
 	return opsUUIDs, nil
+}
+
+// RegisterSelfRecovery registers a SELF_RECOVERY replication op,
+// bypassing ApplyReplicationScalePlan (which changes membership and is
+// blocked by the ongoing-replications guard).
+func (s *Raft) RegisterSelfRecovery(ctx context.Context, sourceNode, collection, shard, targetNode string) (strfmt.UUID, error) {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return "", fmt.Errorf("create uuid for self-recovery op: %w", err)
+	}
+	opUUID := strfmt.UUID(id.String())
+	if err := s.ReplicationReplicateReplica(ctx, opUUID, sourceNode, collection, shard, targetNode, api.SELF_RECOVERY.String()); err != nil {
+		return "", fmt.Errorf("register self-recovery for shard %q of collection %q from %q: %w", shard, collection, sourceNode, err)
+	}
+	return opUUID, nil
 }
 
 func (s *Raft) ReplicationReplicateReplica(ctx context.Context, uuid strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error {
