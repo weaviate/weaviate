@@ -2979,6 +2979,63 @@ func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
 	}
 }
 
+func Test_SetClassDefaults_DefaultVectorIndexType_NamedVectors(t *testing.T) {
+	t.Parallel()
+	globalCfg := replication.GlobalConfig{MinimumFactor: 1}
+
+	tests := []struct {
+		name              string
+		defaultIndexType  string
+		vectorIndexType   string
+		expectedIndexType string
+	}{
+		{
+			name:              "no env, no vector type => hnsw default",
+			defaultIndexType:  "",
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to hfresh, no vector type => hfresh",
+			defaultIndexType:  vectorindex.VectorIndexTypeHFresh,
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeHFresh,
+		},
+		{
+			name:              "env set to flat, no vector type => flat",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeFLAT,
+		},
+		{
+			name:              "env set to flat, vector explicitly hnsw => hnsw preserved",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			vectorIndexType:   vectorindex.VectorIndexTypeHNSW,
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t, &fakeDB{})
+			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
+
+			class := &models.Class{
+				VectorConfig: map[string]models.VectorConfig{
+					"my_vector": {
+						VectorIndexType: tt.vectorIndexType,
+						Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+					},
+				},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			err := handler.setClassDefaults(class, globalCfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedIndexType, class.VectorConfig["my_vector"].VectorIndexType)
+		})
+	}
+}
+
 func Test_GetConsistentClass_WithAlias(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

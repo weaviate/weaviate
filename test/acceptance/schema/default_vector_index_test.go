@@ -47,6 +47,26 @@ func TestDefaultVectorIndexEmpty(t *testing.T) {
 		got := helper.GetClass(t, cls.Class)
 		require.Equal(t, "hnsw", got.VectorIndexType)
 	})
+
+	t.Run("no env defaults to hnsw for named vectors", func(t *testing.T) {
+		cls := &models.Class{
+			Class: "NamedVectorDefault",
+			VectorConfig: map[string]models.VectorConfig{
+				"my_vector": {
+					Vectorizer: map[string]interface{}{
+						"none": map[string]interface{}{},
+					},
+				},
+			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		helper.DeleteClass(t, cls.Class)
+		helper.CreateClass(t, cls)
+
+		got := helper.GetClass(t, cls.Class)
+		require.Equal(t, "hnsw", got.VectorConfig["my_vector"].VectorIndexType)
+	})
 }
 
 func TestDefaultVectorIndexHfresh(t *testing.T) {
@@ -74,5 +94,25 @@ func TestDefaultVectorIndexHfresh(t *testing.T) {
 
 		got := helper.GetClass(t, cls.Class)
 		require.Equal(t, "hfresh", got.VectorIndexType)
+	})
+
+	t.Run("env set to hfresh defaults to hfresh for named vectors", func(t *testing.T) {
+		cls := &models.Class{
+			Class: "NamedVectorHfresh",
+			VectorConfig: map[string]models.VectorConfig{
+				"my_vector": {
+					Vectorizer: map[string]interface{}{
+						"none": map[string]interface{}{},
+					},
+				},
+			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		helper.DeleteClass(t, cls.Class)
+		helper.CreateClass(t, cls)
+
+		got := helper.GetClass(t, cls.Class)
+		require.Equal(t, "hfresh", got.VectorConfig["my_vector"].VectorIndexType)
 	})
 }
