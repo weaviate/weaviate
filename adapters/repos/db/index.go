@@ -633,6 +633,14 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 		return nil
 	}
 
+	// Defence-in-depth: a recovering shard must only be loaded after
+	// PromoteRecoveryFolder runs (via the orchestrator or consumer).
+	// Calling Load here would clear the block and let the inner
+	// LazyLoadShard.Load materialise an empty <shard>/ dir mid-copy.
+	if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
+		return nil
+	}
+
 	if l, ok := shard.(loadableShard); ok {
 		return l.Load(context.Background())
 	}
