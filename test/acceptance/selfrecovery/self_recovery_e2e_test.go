@@ -78,12 +78,13 @@ func TestSelfRecoveryEndToEnd(t *testing.T) {
 		// Required to expose the /replication/* observability API
 		// (without it, list/details endpoints return 501).
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		// SELF_RECOVERY only triggers from the snapshot-Restore path
-		// (see docs/self-recovery.md "Limitations"). Trim trailing
-		// logs so the leader has to send InstallSnapshot to a
-		// far-behind joiner. The test then POSTs to
-		// /debug/raft/snapshot before wipe to deterministically
-		// produce a snapshot — no timing dependency.
+		// This test deterministically exercises the snapshot/Restore
+		// rejoin path (the log-replay rejoin path is covered by
+		// self_recovery_logreplay_test.go). Trim trailing logs so the
+		// leader sends InstallSnapshot to a far-behind joiner; the
+		// test then POSTs /debug/raft/snapshot before wipe to
+		// guarantee a snapshot exists rather than relying on the
+		// default RAFT_SNAPSHOT_THRESHOLD being crossed.
 		WithWeaviateEnv("RAFT_TRAILING_LOGS", "1").
 		WithWeaviateWithDebugPort(). // /debug/raft/snapshot lives on the profiling port
 		// Tmpfs at /data so WipeNodeDataAt's stop+start really
