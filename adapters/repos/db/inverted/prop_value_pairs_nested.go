@@ -59,8 +59,15 @@ type arrayIndices []filnested.ArrayIndex
 // fetchNestedDocIDs resolves a value filter on a nested property, returning
 // docID-only results. It fetches raw positions, applies any arr[N] index
 // constraints, then strips position bits to extract plain docIDs.
-func (pv *propValuePair) fetchNestedDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	positions, err := pv.fetchNestedPositions(ctx, s, limit)
+//
+// No limit parameter: the underlying position bitmap holds (root|leaf|docID)
+// entries, so a cursor cardinality limit applied during the bucket read would
+// short-circuit on position count rather than docID count and return fewer
+// docs than the caller asked for. Limits are enforced at the docID-bitmap
+// layer by the iterator clamp (DocIDsLimited → LimitedIterator,
+// Objects → objectsByDocID).
+func (pv *propValuePair) fetchNestedDocIDs(ctx context.Context, s *Searcher) (*docBitmap, error) {
+	positions, err := pv.fetchNestedPositions(ctx, s)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +278,7 @@ func (pv *propValuePair) fetchContainsChildBitmap(ctx context.Context, s *Search
 			}
 		}()
 		for _, gc := range child.children {
-			dbm, err := gc.fetchNestedPositions(ctx, s, 0)
+			dbm, err := gc.fetchNestedPositions(ctx, s)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -292,7 +299,7 @@ func (pv *propValuePair) fetchContainsChildBitmap(ctx context.Context, s *Search
 		succeeded = true
 		return anded, cleanup, nil
 	}
-	dbm, err := child.fetchNestedPositions(ctx, s, 0)
+	dbm, err := child.fetchNestedPositions(ctx, s)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -336,6 +343,12 @@ func (pv *propValuePair) isNullOperandLCA() (string, error) {
 // to docIDs — callers that need docIDs use fetchNestedDocIDs instead; the
 // correlated resolution path (resolveNestedSubtree) uses this directly.
 //
+// No limit parameter: positions (root|leaf|docID) don't map 1:1 to docs, so a
+// cursor-level limit would short-circuit on position cardinality and produce
+// wrong results once any matching doc contributes multiple positions. The
+// bucket read is always unlimited; docID-count limits apply post-MaskRootLeaf
+// at the iterator boundary.
+//
 // NotEqual returns a denylist position bitmap from readFromBucket. We
 // materialize the positive bitmap here at the leaf's natural LCA: positions
 // where the property is indexed AND-NOT the denylist set. This yields the
@@ -344,8 +357,8 @@ func (pv *propValuePair) isNullOperandLCA() (string, error) {
 // level (existential per-element). Lazy: the universe is only loaded when
 // isDenyList is set. Rangeable indices (future) that return positive
 // bitmaps directly skip the materialization.
-func (pv *propValuePair) fetchNestedPositions(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	raw, err := pv.readFromBucket(ctx, s, limit)
+func (pv *propValuePair) fetchNestedPositions(ctx context.Context, s *Searcher) (*docBitmap, error) {
+	raw, err := pv.readFromBucket(ctx, s, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -451,6 +464,12 @@ func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap,
 // intermediate arr[N] constraints with unconstrained conditions at the same
 // level in filter validation. Until that lands, unconstrained items in that
 // shape are silently dropped during plan construction.
+//
+// No user limit reaches this path: leaf reads go through fetchNestedPositions
+// which has no limit parameter — positions don't map 1:1 to docs, so the
+// bucket cursor would short-circuit on position cardinality and produce
+// wrong results. The user limit applies post-MaskRootLeaf at the iterator
+// clamp (objectsByDocID / LimitedIterator) in the outer caller.
 func (pv *propValuePair) resolveNestedSubtree(ctx context.Context, s *Searcher) (*docBitmap, error) {
 	if pv.operator == filters.OperatorOr || pv.operator == filters.OperatorNot ||
 		pv.operator == filters.ContainsAny {
@@ -562,6 +581,12 @@ func (pv *propValuePair) resolveNestedSubtreeGroup(ctx context.Context, s *Searc
 // recursive plan + executor. Used directly by resolveMultiGroupRootDocIDAnd
 // to combine groups via CrossLeafCopresenceAll before stripping to docIDs,
 // and indirectly by resolveNestedSubtreeGroup which strips immediately.
+//
+// Invariant: callers must apply MaskRootLeaf to the returned bitmap before
+// it reaches any docID-counting code (cardinality checks, iterator clamps,
+// sort). Raw positions are (root|leaf|docID) tuples; treating their
+// cardinality as a doc count yields wrong results once a single doc
+// contributes multiple positions.
 func (pv *propValuePair) resolveGroupRaw(ctx context.Context, s *Searcher, children []*propValuePair) (*sroar.Bitmap, func(), error) {
 	plan, executor, releases, err := pv.buildRecGroupExecutor(ctx, s, children)
 	if err != nil {

@@ -22461,3 +22461,94 @@ func TestNestedFilteringIntraSubArrayOrCrossSubArrayAnd3Levels(t *testing.T) {
 		)
 	})
 }
+
+// TestNestedFilteringLimitRespectedOnRangeScan is a regression test for the
+// cursor early-exit bug on nested filter reads (Copilot review #10974).
+//
+// Before fetchNestedDocIDs / fetchNestedPositions dropped their limit
+// parameters, the bucket cursor for nested range / LIKE / Equal-via-
+// RoaringSet scans short-circuited when the raw position bitmap's
+// GetCardinality reached the user limit — but positions (root|leaf|docID)
+// don't map 1:1 to docs, so a single doc with multiple matching nested
+// elements could exhaust the position quota before later matching docs
+// were read. Result: queries like "cars.year > 2010 LIMIT 5" returned far
+// fewer than 5 docs even though many more matched.
+//
+// After the fix the nested fetch is always unlimited at the bucket-read
+// layer; the iterator clamp (objectsByDocID for Search, LimitedIterator
+// for FindUUIDs) applies the user limit at the docID layer instead.
+//
+// Fixture: 10 docs, each with 5 cars all at the same year (year unique per
+// doc, in [2011..2020]). The range scan for "cars.year > 2010" reads keys
+// in ascending order; with the bug, reading key=2011 alone produces 5
+// positions (from doc1's 5 cars), which exceeds limit=5 and stops the
+// cursor — leaving docs 2..10 unread and returning just 1 doc to the
+// caller. With the fix, all 10 keys are read, the resolver returns all
+// 10 matching docs, and the iterator clamps to exactly the requested 5.
+func TestNestedFilteringLimitRespectedOnRangeScan(t *testing.T) {
+	const nestedClass = "NestedLimitRangeRegression"
+	vTrue := true
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: []*models.NestedProperty{
+				{
+					Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "year", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			}},
+		},
+	}
+
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	const totalDocs = 10
+	const carsPerDoc = 5
+	matchingIDs := make(map[strfmt.UUID]bool, totalDocs)
+	for i := 1; i <= totalDocs; i++ {
+		id := uuid(i)
+		matchingIDs[id] = true
+		year := 2010 + i // 2011..2020, unique per doc
+		// All cars in the same doc share the same year so the doc contributes
+		// carsPerDoc (=5) positions to a single key, exceeding the limit on
+		// the first key the cursor reads.
+		cars := make([]any, carsPerDoc)
+		for j := range cars {
+			cars[j] = map[string]any{"year": year}
+		}
+		require.NoError(t, db.PutObject(ctx, &models.Object{
+			Class: nestedClass, ID: id,
+			Properties: map[string]any{
+				"doc": map[string]any{"cars": cars},
+			},
+		}, nil, nil, nil, nil, 0))
+	}
+
+	filter := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorGreaterThan,
+		Value:    &filters.Value{Type: schema.DataTypeInt, Value: 2010},
+		On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName("doc.cars.year")},
+	}}
+
+	const limit = 5
+	res, err := db.Search(ctx, dto.GetParams{
+		ClassName:  nestedClass,
+		Pagination: &filters.Pagination{Limit: limit},
+		Filters:    filter,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, res, limit, "limit must be honored exactly (got %d, expected %d)", len(res), limit)
+	for _, r := range res {
+		assert.True(t, matchingIDs[r.ID], "unexpected doc id %s in result", r.ID)
+	}
+}
