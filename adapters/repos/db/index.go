@@ -705,13 +705,20 @@ func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string
 	if !enterrors.IsStartupDBLoad(ctx) {
 		return false
 	}
-	dir := shardPath(i.path(), shardName)
-	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
-		return false
-	}
-
 	collection := i.Config.ClassName.String()
 	logFields := logrus.Fields{"collection": collection, "shard": shardName}
+
+	dir := shardPath(i.path(), shardName)
+	if _, err := os.Stat(dir); err == nil {
+		return false // dir exists; normal init owns it
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		// EACCES, EIO, ELOOP, etc. Falling back to normal init is the
+		// safe default, but a silent skip makes startup failures
+		// hard to diagnose — surface the underlying FS error.
+		i.logger.WithError(err).WithFields(logFields).
+			Warn("self-recovery: stat on shard dir failed; falling back to normal shard init")
+		return false
+	}
 
 	// An in-flight COPY/MOVE/SELF_RECOVERY op already owns the dir;
 	// submitting another would clobber it on rename.
