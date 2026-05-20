@@ -234,7 +234,7 @@ func (h *batchObjectHandlers) objectsDeleteResponse(principal *models.Principal,
 
 	response := &models.BatchDeleteResponse{
 		Match: &models.BatchDeleteResponseMatch{
-			Class: namespacing.StripOwnNS(principal, input.Match.Class),
+			Class: namespacing.StripOwnNamespace(principal, input.Match.Class),
 			Where: input.Match.Where,
 		},
 		DeletionTimeUnixMilli: &deletionTimeUnixMilli,

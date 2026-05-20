@@ -662,7 +662,7 @@ func TestStripObjectResponseClass(t *testing.T) {
 	}
 }
 
-func TestStripOwnNS(t *testing.T) {
+func TestStripOwnNamespace(t *testing.T) {
 	cases := []struct {
 		testName  string
 		principal *models.Principal
@@ -720,7 +720,7 @@ func TestStripOwnNS(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
-			got := StripOwnNS(tc.principal, tc.input)
+			got := StripOwnNamespace(tc.principal, tc.input)
 			assert.Equal(t, tc.want, got)
 		})
 	}

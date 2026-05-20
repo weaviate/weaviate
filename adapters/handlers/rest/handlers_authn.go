@@ -79,7 +79,7 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 		"user":      principal.Username,
 	}).Info("own info requested")
 
-	username := namespacing.StripOwnNS(principal, principal.Username)
+	username := namespacing.StripOwnNamespace(principal, principal.Username)
 	return users.NewGetOwnInfoOK().WithPayload(&models.UserOwnInfo{
 		Groups:   principal.Groups,
 		Roles:    stripRolesForCaller(principal, roles),
@@ -127,33 +127,33 @@ func stripPermissionForCaller(principal *models.Principal, p *models.Permission)
 	}
 	out := *p
 	if p.Collections != nil && p.Collections.Collection != nil {
-		stripped := namespacing.StripOwnNS(principal, *p.Collections.Collection)
+		stripped := namespacing.StripOwnNamespace(principal, *p.Collections.Collection)
 		out.Collections = &models.PermissionCollections{Collection: &stripped}
 	}
 	if p.Data != nil && p.Data.Collection != nil {
-		stripped := namespacing.StripOwnNS(principal, *p.Data.Collection)
+		stripped := namespacing.StripOwnNamespace(principal, *p.Data.Collection)
 		fresh := *p.Data
 		fresh.Collection = &stripped
 		out.Data = &fresh
 	}
 	if p.Nodes != nil && p.Nodes.Collection != nil {
-		stripped := namespacing.StripOwnNS(principal, *p.Nodes.Collection)
+		stripped := namespacing.StripOwnNamespace(principal, *p.Nodes.Collection)
 		fresh := *p.Nodes
 		fresh.Collection = &stripped
 		out.Nodes = &fresh
 	}
 	if p.Tenants != nil && p.Tenants.Collection != nil {
-		stripped := namespacing.StripOwnNS(principal, *p.Tenants.Collection)
+		stripped := namespacing.StripOwnNamespace(principal, *p.Tenants.Collection)
 		fresh := *p.Tenants
 		fresh.Collection = &stripped
 		out.Tenants = &fresh
 	}
 	if p.Backups != nil && p.Backups.Collection != nil {
-		stripped := namespacing.StripOwnNS(principal, *p.Backups.Collection)
+		stripped := namespacing.StripOwnNamespace(principal, *p.Backups.Collection)
 		out.Backups = &models.PermissionBackups{Collection: &stripped}
 	}
 	if p.Replicate != nil && p.Replicate.Collection != nil {
-		stripped := namespacing.StripOwnNS(principal, *p.Replicate.Collection)
+		stripped := namespacing.StripOwnNamespace(principal, *p.Replicate.Collection)
 		fresh := *p.Replicate
 		fresh.Collection = &stripped
 		out.Replicate = &fresh
@@ -162,12 +162,12 @@ func stripPermissionForCaller(principal *models.Principal, p *models.Permission)
 		aliases := *p.Aliases
 		changed := false
 		if p.Aliases.Collection != nil {
-			stripped := namespacing.StripOwnNS(principal, *p.Aliases.Collection)
+			stripped := namespacing.StripOwnNamespace(principal, *p.Aliases.Collection)
 			aliases.Collection = &stripped
 			changed = true
 		}
 		if p.Aliases.Alias != nil {
-			stripped := namespacing.StripOwnNS(principal, *p.Aliases.Alias)
+			stripped := namespacing.StripOwnNamespace(principal, *p.Aliases.Alias)
 			aliases.Alias = &stripped
 			changed = true
 		}

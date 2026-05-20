@@ -536,7 +536,7 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 	if err != nil {
 		return nil, err
 	}
-	props.TargetCollection = namespacing.StripOwnNS(r.principal, className)
+	props.TargetCollection = namespacing.StripOwnNamespace(r.principal, className)
 	return props, nil
 }
 

@@ -105,13 +105,13 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 	return qualified, nil
 }
 
-// StripOwnNS removes the principal's own namespace prefix from name when
-// present. Returns name unchanged when principal.Namespace is empty (global
-// principal; also the case on NS-disabled clusters, where principals never
-// carry a namespace) or when the prefix does not match (foreign prefix or
-// short input). A foreign prefix is left intact so downstream
+// StripOwnNamespace removes the principal's own namespace prefix from name
+// when present. Returns name unchanged when principal.Namespace is empty
+// (global principal; also the case on NS-disabled clusters, where principals
+// never carry a namespace) or when the prefix does not match (foreign prefix
+// or short input). A foreign prefix is left intact so downstream
 // ValidateClassName fails closed on the embedded ":".
-func StripOwnNS(principal *models.Principal, name string) string {
+func StripOwnNamespace(principal *models.Principal, name string) string {
 	if principal == nil || principal.Namespace == "" {
 		return name
 	}
@@ -129,7 +129,7 @@ func StripClassResponse(principal *models.Principal, src *models.Class) *models.
 		return src
 	}
 	out := *src
-	out.Class = StripOwnNS(principal, src.Class)
+	out.Class = StripOwnNamespace(principal, src.Class)
 	if len(src.Properties) > 0 {
 		out.Properties = make([]*models.Property, len(src.Properties))
 		for i, p := range src.Properties {
@@ -142,7 +142,7 @@ func StripClassResponse(principal *models.Principal, src *models.Class) *models.
 // StripPropertyResponse returns a shallow copy of src with every DataType
 // entry and nested-property DataType entry stripped of the principal's own
 // namespace prefix. Primitive types (text, int, …) never carry a namespace
-// prefix, so StripOwnNS is a no-op on them. The input is never mutated.
+// prefix, so StripOwnNamespace is a no-op on them. The input is never mutated.
 func StripPropertyResponse(principal *models.Principal, src *models.Property) *models.Property {
 	if src == nil || principal == nil || principal.Namespace == "" {
 		return src
@@ -179,7 +179,7 @@ func stripDataTypes(principal *models.Principal, src []string) []string {
 	}
 	out := make([]string, len(src))
 	for i, dt := range src {
-		out[i] = StripOwnNS(principal, dt)
+		out[i] = StripOwnNamespace(principal, dt)
 	}
 	return out
 }
@@ -193,8 +193,8 @@ func StripAliasResponse(principal *models.Principal, src *models.Alias) *models.
 		return src
 	}
 	out := *src
-	out.Alias = StripOwnNS(principal, src.Alias)
-	out.Class = StripOwnNS(principal, src.Class)
+	out.Alias = StripOwnNamespace(principal, src.Alias)
+	out.Class = StripOwnNamespace(principal, src.Class)
 	return &out
 }
 
@@ -206,5 +206,5 @@ func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
 	if obj == nil || principal == nil || principal.Namespace == "" {
 		return
 	}
-	obj.Class = StripOwnNS(principal, obj.Class)
+	obj.Class = StripOwnNamespace(principal, obj.Class)
 }

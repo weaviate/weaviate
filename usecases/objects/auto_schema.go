@@ -118,7 +118,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		if schemaClass == nil {
 			// it returns the newly created class and version
-			schemaClass, schemaVersion, err = m.createClass(ctx, principal, namespacing.StripOwnNS(principal, object.Class), properties)
+			schemaClass, schemaVersion, err = m.createClass(ctx, principal, namespacing.StripOwnNamespace(principal, object.Class), properties)
 			if err != nil {
 				return 0, fmt.Errorf("auto-schema: create collection: %w", err)
 			}
@@ -129,7 +129,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
 				var err error
 				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
-					principal, namespacing.StripOwnNS(principal, schemaClass.Class), true, newProperties...)
+					principal, namespacing.StripOwnNamespace(principal, schemaClass.Class), true, newProperties...)
 				if err != nil {
 					return 0, fmt.Errorf("auto-schema: update collection: %w", err)
 				}
@@ -571,7 +571,7 @@ func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Pr
 		return 0, fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	version, err := m.schemaManager.AddTenants(ctx, principal, namespacing.StripOwnNS(principal, class), tenants)
+	version, err := m.schemaManager.AddTenants(ctx, principal, namespacing.StripOwnNamespace(principal, class), tenants)
 	if err != nil {
 		return 0, err
 	}

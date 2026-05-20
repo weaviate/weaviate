@@ -372,7 +372,7 @@ func TestAuthzNamespaces(t *testing.T) {
 		assert.Equal(t, "u1", *info.Username, "namespaced caller's username must be stripped")
 
 		// Find the assigned role on the principal and assert wildcard
-		// permissions pass through unchanged (StripOwnNS is a no-op on `*`).
+		// permissions pass through unchanged (StripOwnNamespace is a no-op on `*`).
 		var found *models.Role
 		for _, r := range info.Roles {
 			if r.Name != nil && *r.Name == role {
