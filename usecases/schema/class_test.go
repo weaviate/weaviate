@@ -181,6 +181,33 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
 	})
 
+	t.Run("with property name ending in reserved index suffix", func(t *testing.T) {
+		suffixes := []string{
+			"foo_searchable",
+			"foo_rangeable",
+			"foo_temp",
+			"foo__meta_count",
+			"foo_propertyLength",
+			"foo_nullState",
+		}
+		for _, propName := range suffixes {
+			t.Run(propName, func(t *testing.T) {
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				class := &models.Class{
+					Class: "NewClass",
+					Properties: []*models.Property{
+						{DataType: []string{"text"}, Name: propName},
+					},
+					Vectorizer:        "none",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				}
+				_, _, err := handler.AddClass(ctx, nil, class)
+				require.ErrorContains(t, err, "reserved for internal indices")
+				fakeSchemaManager.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
+			})
+		}
+	})
+
 	t.Run("with default params", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 		class := models.Class{

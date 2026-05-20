@@ -61,37 +61,37 @@ func testNumericalFilters(host string) func(t *testing.T) {
 				Vectorizer: "none",
 				Properties: []*models.Property{
 					{
-						Name:              "int_filterable",
+						Name:              "filterable_int",
 						DataType:          schema.DataTypeInt.PropString(),
 						IndexFilterable:   &vTrue,
 						IndexRangeFilters: &vFalse,
 					},
 					{
-						Name:              "int_rangeable",
+						Name:              "rangeable_int",
 						DataType:          schema.DataTypeInt.PropString(),
 						IndexFilterable:   &vFalse,
 						IndexRangeFilters: &vTrue,
 					},
 					{
-						Name:              "number_filterable",
+						Name:              "filterable_number",
 						DataType:          schema.DataTypeNumber.PropString(),
 						IndexFilterable:   &vTrue,
 						IndexRangeFilters: &vFalse,
 					},
 					{
-						Name:              "number_rangeable",
+						Name:              "rangeable_number",
 						DataType:          schema.DataTypeNumber.PropString(),
 						IndexFilterable:   &vFalse,
 						IndexRangeFilters: &vTrue,
 					},
 					{
-						Name:              "date_filterable",
+						Name:              "filterable_date",
 						DataType:          schema.DataTypeDate.PropString(),
 						IndexFilterable:   &vTrue,
 						IndexRangeFilters: &vFalse,
 					},
 					{
-						Name:              "date_rangeable",
+						Name:              "rangeable_date",
 						DataType:          schema.DataTypeDate.PropString(),
 						IndexFilterable:   &vFalse,
 						IndexRangeFilters: &vTrue,
@@ -135,12 +135,12 @@ func testNumericalFilters(host string) func(t *testing.T) {
 						Class: className,
 						ID:    strfmt.UUID(uuid_.String()),
 						Properties: map[string]interface{}{
-							"int_filterable":    randInts[randId],
-							"int_rangeable":     randInts[randId],
-							"number_filterable": randNumbers[randId],
-							"number_rangeable":  randNumbers[randId],
-							"date_filterable":   randDates[randId],
-							"date_rangeable":    randDates[randId],
+							"filterable_int":    randInts[randId],
+							"rangeable_int":     randInts[randId],
+							"filterable_number": randNumbers[randId],
+							"rangeable_number":  randNumbers[randId],
+							"filterable_date":   randDates[randId],
+							"rangeable_date":    randDates[randId],
 							"delete":            toDelete,
 						},
 					})
@@ -310,13 +310,13 @@ func testNumericalFilters(host string) func(t *testing.T) {
 			t.Run("equal int", func(t *testing.T) {
 				int1, int2 := randInts[randId1], randInts[randId2]
 
-				filterableUuids1 := equalInt("int_filterable", int1)
-				rangeableUuids1 := equalInt("int_rangeable", int1)
+				filterableUuids1 := equalInt("filterable_int", int1)
+				rangeableUuids1 := equalInt("rangeable_int", int1)
 				assert.GreaterOrEqual(t, len(filterableUuids1), 1)
 				assert.ElementsMatch(t, filterableUuids1, rangeableUuids1)
 
-				filterableUuids2 := equalInt("int_filterable", int2)
-				rangeableUuids2 := equalInt("int_rangeable", int2)
+				filterableUuids2 := equalInt("filterable_int", int2)
+				rangeableUuids2 := equalInt("rangeable_int", int2)
 				assert.GreaterOrEqual(t, len(filterableUuids2), 1)
 				assert.ElementsMatch(t, filterableUuids2, rangeableUuids2)
 			})
@@ -324,13 +324,13 @@ func testNumericalFilters(host string) func(t *testing.T) {
 			t.Run("equal number", func(t *testing.T) {
 				number1, number2 := randNumbers[randId1], randNumbers[randId2]
 
-				filterableUuids1 := equalNumber("number_filterable", number1)
-				rangeableUuids1 := equalNumber("number_rangeable", number1)
+				filterableUuids1 := equalNumber("filterable_number", number1)
+				rangeableUuids1 := equalNumber("rangeable_number", number1)
 				assert.GreaterOrEqual(t, len(filterableUuids1), 1)
 				assert.ElementsMatch(t, filterableUuids1, rangeableUuids1)
 
-				filterableUuids2 := equalNumber("number_filterable", number2)
-				rangeableUuids2 := equalNumber("number_rangeable", number2)
+				filterableUuids2 := equalNumber("filterable_number", number2)
+				rangeableUuids2 := equalNumber("rangeable_number", number2)
 				assert.GreaterOrEqual(t, len(filterableUuids2), 1)
 				assert.ElementsMatch(t, filterableUuids2, rangeableUuids2)
 			})
@@ -338,13 +338,13 @@ func testNumericalFilters(host string) func(t *testing.T) {
 			t.Run("equal date", func(t *testing.T) {
 				date1, date2 := randDates[randId1], randDates[randId2]
 
-				filterableUuids1 := equalDate("date_filterable", date1)
-				rangeableUuids1 := equalDate("date_rangeable", date1)
+				filterableUuids1 := equalDate("filterable_date", date1)
+				rangeableUuids1 := equalDate("rangeable_date", date1)
 				assert.GreaterOrEqual(t, len(filterableUuids1), 1)
 				assert.ElementsMatch(t, filterableUuids1, rangeableUuids1)
 
-				filterableUuids2 := equalDate("date_filterable", date2)
-				rangeableUuids2 := equalDate("date_rangeable", date2)
+				filterableUuids2 := equalDate("filterable_date", date2)
+				rangeableUuids2 := equalDate("rangeable_date", date2)
 				assert.GreaterOrEqual(t, len(filterableUuids2), 1)
 				assert.ElementsMatch(t, filterableUuids2, rangeableUuids2)
 			})
@@ -355,8 +355,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					int1, int2 = int2, int1
 				}
 
-				filterableUuids := unionInt("int_filterable", int1, int2)
-				rangeableUuids := unionInt("int_rangeable", int1, int2)
+				filterableUuids := unionInt("filterable_int", int1, int2)
+				rangeableUuids := unionInt("rangeable_int", int1, int2)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -367,8 +367,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					number1, number2 = number2, number1
 				}
 
-				filterableUuids := unionNumber("number_filterable", number1, number2)
-				rangeableUuids := unionNumber("number_rangeable", number1, number2)
+				filterableUuids := unionNumber("filterable_number", number1, number2)
+				rangeableUuids := unionNumber("rangeable_number", number1, number2)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -379,8 +379,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					date1, date2 = date2, date1
 				}
 
-				filterableUuids := unionDate("date_filterable", date1, date2)
-				rangeableUuids := unionDate("date_rangeable", date1, date2)
+				filterableUuids := unionDate("filterable_date", date1, date2)
+				rangeableUuids := unionDate("rangeable_date", date1, date2)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -391,8 +391,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					int1, int2 = int2, int1
 				}
 
-				filterableUuids := intersectionInt("int_filterable", int1, int2)
-				rangeableUuids := intersectionInt("int_rangeable", int1, int2)
+				filterableUuids := intersectionInt("filterable_int", int1, int2)
+				rangeableUuids := intersectionInt("rangeable_int", int1, int2)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -403,8 +403,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					number1, number2 = number2, number1
 				}
 
-				filterableUuids := intersectionNumber("number_filterable", number1, number2)
-				rangeableUuids := intersectionNumber("number_rangeable", number1, number2)
+				filterableUuids := intersectionNumber("filterable_number", number1, number2)
+				rangeableUuids := intersectionNumber("rangeable_number", number1, number2)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -415,8 +415,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					date1, date2 = date2, date1
 				}
 
-				filterableUuids := intersectionDate("date_filterable", date1, date2)
-				rangeableUuids := intersectionDate("date_rangeable", date1, date2)
+				filterableUuids := intersectionDate("filterable_date", date1, date2)
+				rangeableUuids := intersectionDate("rangeable_date", date1, date2)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
