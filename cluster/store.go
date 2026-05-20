@@ -452,24 +452,13 @@ func (st *Store) watchWipedJoinerCatchUp() {
 	)
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
-	var (
-		stableSince time.Time
-		// sawOpen flips true the first time we observe open=true. Until
-		// then we tolerate open=false (Store.Open's defer hasn't fired
-		// yet); after, an open=false means shutdown and we exit.
-		sawOpen bool
-	)
+	var stableSince time.Time
 	for range ticker.C {
-		if st.wipedJoinerReloaded.Load() {
+		if st.wipedJoinerReloaded.Load() || !st.open.Load() {
+			// Reloaded by Restore or this watcher's last run, OR the
+			// store has been closed. Either way, we're done.
 			return
 		}
-		if !st.open.Load() {
-			if sawOpen {
-				return
-			}
-			continue
-		}
-		sawOpen = true
 		if st.raft == nil {
 			stableSince = time.Time{}
 			continue
@@ -506,7 +495,18 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if st.open.Load() { // store already opened
 		return nil
 	}
-	defer func() { st.open.Store(err == nil) }()
+	// Set open=true on success AND spawn the wiped-joiner watcher
+	// atomically. Spawning earlier would race the open flag (the
+	// watcher's first poll could land before open=true and bail). The
+	// watcher is only meaningful on the success path; on failure
+	// (err != nil) open=false and no goroutine is spawned.
+	defer func() {
+		opened := err == nil
+		st.open.Store(opened)
+		if opened && st.wipedJoinerCandidate.Load() {
+			enterrors.GoWrapper(st.watchWipedJoinerCatchUp, st.log)
+		}
+	}()
 
 	if err := st.init(); err != nil {
 		return fmt.Errorf("initialize raft store: %w", err)
@@ -566,7 +566,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// heuristic on first Apply (which missed the idle-cluster case).
 	if !hadState && st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
 		st.wipedJoinerCandidate.Store(true)
-		enterrors.GoWrapper(st.watchWipedJoinerCatchUp, st.log)
+		// The watcher itself is spawned by Open's success-path defer
+		// (above) so it can only ever observe open=true on its first
+		// poll — no race against the open atomic.
 	}
 
 	st.log.WithFields(logrus.Fields{
