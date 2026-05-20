@@ -190,9 +190,12 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 }
 
 // Fails the test if the migration ends before reaching STARTED + at
-// least one IN_PROGRESS unit with progress >= minProgress
-// (weaviate/0-weaviate-issues#239 anti-vacuous-pass).
-func awaitReindexMidFlight(t *testing.T, restURI, taskID string, minProgress float32, timeout time.Duration) {
+// least one IN_PROGRESS unit (weaviate/0-weaviate-issues#239
+// anti-vacuous-pass). Status IN_PROGRESS — not a numeric Progress
+// floor — is the signal: the DTM ThrottledRecorder (3 s window) means
+// fast units may only emit one progress=0 update before COMPLETED, so
+// asserting on a non-zero floor flakes on fast CI runners.
+func awaitReindexMidFlight(t *testing.T, restURI, taskID string, timeout time.Duration) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		var tasks models.DistributedTasks
@@ -208,16 +211,14 @@ func awaitReindexMidFlight(t *testing.T, restURI, taskID string, minProgress flo
 			}
 			if task.Status == "FINISHED" || task.Status == "PREPARING" || task.Status == "SWAPPING" {
 				t.Fatalf("reindex task %s reached %s before mid-flight check — "+
-					"dataset too small or progress threshold too high. "+
-					"Caller asked for a mid-reindex restart but the migration "+
-					"already left STARTED. Bump totalObjects or lower minProgress.",
+					"dataset too small for the iteration window. Bump totalObjects.",
 					taskID, task.Status)
 			}
 			if task.Status != "STARTED" {
 				return false
 			}
 			for _, u := range task.Units {
-				if u.Status == "IN_PROGRESS" && u.Progress >= minProgress {
+				if u.Status == "IN_PROGRESS" {
 					return true
 				}
 			}
@@ -225,8 +226,8 @@ func awaitReindexMidFlight(t *testing.T, restURI, taskID string, minProgress flo
 		}
 		return false
 	}, timeout, 200*time.Millisecond,
-		"reindex task %s should reach STARTED + unit.progress>=%v within %s",
-		taskID, minProgress, timeout)
+		"reindex task %s should have at least one IN_PROGRESS unit within %s",
+		taskID, timeout)
 }
 
 func raftLeaderIndex(t *testing.T, compose *docker.DockerCompose) int {

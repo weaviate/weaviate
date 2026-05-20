@@ -23,12 +23,8 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-const (
-	// 50k change-tokenization gives ~25-40 s STARTED on a 3-node cluster.
-	reindexRestartDataset = 50_000
-	// Past "just started" (units can sit at 0 briefly) but well before completion.
-	reindexRestartProgressFloor = 0.1
-)
+// 50k change-tokenization gives a multi-second STARTED window on a 3-node cluster.
+const reindexRestartDataset = 50_000
 
 func setupRestartDuringReindex(
 	ctx context.Context, t *testing.T, className string,
@@ -104,8 +100,7 @@ func runRestartDuringReindex(
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
-	awaitReindexMidFlight(t, restURIOf(compose, 1), taskID,
-		reindexRestartProgressFloor, 60*time.Second)
+	awaitReindexMidFlight(t, restURIOf(compose, 1), taskID, 60*time.Second)
 	restartFn(ctx, t, compose)
 	assertReindexCompleteAndConsistent(t, compose, className, taskID, awaitTimeout)
 }
