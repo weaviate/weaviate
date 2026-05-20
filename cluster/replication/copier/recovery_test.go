@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -147,5 +148,27 @@ func TestPromoteRecoveryFolder(t *testing.T) {
 	t.Run("errors_when_both_dirs_missing", func(t *testing.T) {
 		err := c.PromoteRecoveryFolder(collection, shard)
 		require.Error(t, err)
+	})
+
+	t.Run("errors_when_path_is_a_file_not_a_directory", func(t *testing.T) {
+		// Operator mistake / filesystem corruption: a regular file
+		// sits where the live shard dir should be. dirExists must
+		// surface this rather than silently treat the file as a
+		// present shard dir (which would erase the recovery dir).
+		parent := filepath.Dir(livePath)
+		require.NoError(t, os.MkdirAll(parent, 0o755))
+		require.NoError(t, os.WriteFile(livePath, []byte("oops"), 0o644))
+		require.NoError(t, os.MkdirAll(recoveryPath, 0o755))
+		require.NoError(t, os.WriteFile(path.Join(recoveryPath, "marker"), []byte("recovery"), 0o644))
+
+		err := c.PromoteRecoveryFolder(collection, shard)
+		require.Error(t, err, "must error when a non-dir occupies the live path")
+
+		// Recovery dir must NOT be erased on this error path.
+		_, statErr := os.Stat(path.Join(recoveryPath, "marker"))
+		require.NoError(t, statErr, "recovery dir must be left intact on stat error")
+
+		require.NoError(t, os.Remove(livePath))
+		require.NoError(t, os.RemoveAll(recoveryPath))
 	})
 }
