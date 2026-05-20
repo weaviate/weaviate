@@ -687,10 +687,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		AuthNConfig:                 appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
-		// Registered BEFORE RAFT replay so the DELETE_CLASS cascade
-		// fires on catchup-replay applies too. Late post-construction
-		// registration would miss tasks resurrected by replay.
-		// weaviate/0-weaviate-issues#231.
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
 			db.ReindexNamespace: db.ExtractReindexTaskCollection,
 		},
@@ -1036,9 +1032,6 @@ func initReindexAndDistributedTasks(
 		}
 	}
 	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
-	// CollectionExtractors are registered at FSM construction time via
-	// [cluster.Config.DistributedTaskCollectionExtractors] so they're
-	// in place before RAFT replay can fire DELETE_CLASS applies.
 }
 
 func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {
