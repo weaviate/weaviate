@@ -205,16 +205,19 @@ func (c *Copier) localShardName(srcShard, override string) string {
 
 // rewriteRelPathToLocalShard rewrites the shard segment of a
 // source-relative path (e.g. "coll/shard/.../file") to the local
-// destination shard. No-op when srcShard == localShard.
+// destination shard. No-op when srcShard == localShard. Wire-protocol
+// paths from the file-replication gRPC service are slash-separated
+// regardless of the source's OS, so split/join on '/' explicitly
+// rather than filepath.Separator. The caller re-joins with
+// filepath.Join when materialising the result on the local FS.
 func (c *Copier) rewriteRelPathToLocalShard(srcRelPath, srcShard, localShard string) string {
 	if localShard == srcShard {
 		return srcRelPath
 	}
-	sep := string(filepath.Separator)
-	parts := strings.SplitN(srcRelPath, sep, 3)
+	parts := strings.SplitN(srcRelPath, "/", 3)
 	if len(parts) >= 2 && parts[1] == srcShard {
 		parts[1] = localShard
-		return strings.Join(parts, sep)
+		return strings.Join(parts, "/")
 	}
 	return srcRelPath
 }
