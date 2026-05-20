@@ -186,6 +186,15 @@ type Config struct {
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
 	DrainSleep time.Duration
+
+	// RaftBootstrapComplete reports whether the cluster has finished its
+	// initial RAFT bootstrap window. Used by noteWipedJoinerProgress to
+	// distinguish a wiped node catching up via log replay (callback
+	// returns false during catch-up because MarkRaftBootstrapComplete has
+	// not fired yet) from a runtime apply on a node that bootstrapped
+	// fresh (callback returns true). Nil-safe: when nil, the detector
+	// falls back to its previous backlog-size heuristic.
+	RaftBootstrapComplete func() bool
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -404,16 +413,19 @@ func (st *Store) raftLastIndex() uint64 {
 // (no per-entry DB write, so no shard folder is created) and whether the
 // caller should now start the catch-up watcher (watchWipedJoinerCatchUp).
 //
-// A node that started this process with no durable RAFT state
-// (st.startedEmpty) and no prior DB index (lastAppliedIndexToDB == 0) is
-// either a fresh bootstrap or a wiped node rejoining an existing cluster via
-// log replay. Only the latter has a committed backlog to catch up: it is
-// detected on the first applied command by the RAFT log already extending
-// past that entry. The decision is locked on that first command (via
-// catchUpDecided) so a later runtime catch-up — e.g. after a partition —
-// cannot be misread as a wiped-node rejoin. A snapshot-restored node has
-// lastAppliedIndexToDB != 0 and is therefore excluded here: it already does
-// its DB load via Store.Restore.
+// Detection is deterministic on three filesystem/process signals:
+//
+//   - st.startedEmpty:        node began the process with no durable RAFT state.
+//   - lastAppliedIndexToDB==0: no prior DB writes (snapshot-restored nodes
+//     have already populated this and are excluded — they do their DB load via
+//     Store.Restore directly).
+//   - !RaftBootstrapComplete: bootstrap window hasn't ended. A fresh-bootstrap
+//     node will already have flipped RaftBootstrapComplete to true by the time
+//     the user issues the first AddClass, so its first Apply is excluded here
+//     and runs through the normal (non-schemaOnly) path. A wiped joiner catches
+//     up BEFORE MarkRaftBootstrapComplete fires, so its first Apply is
+//     recognised. (Falls back to the older "logIndex < raftLastIndex" heuristic
+//     when the callback is nil, e.g. in legacy code paths and unit tests.)
 //
 // The one-shot DB load itself is NOT triggered from here: the catch-up
 // target is a RAFT log index that may be a configuration entry past the
@@ -426,8 +438,28 @@ func (st *Store) noteWipedJoinerProgress(logIndex, raftLastIndex uint64) (schema
 	}
 	if !st.catchUpDecided.Load() {
 		st.catchUpDecided.Store(true)
-		if logIndex < raftLastIndex {
-			st.catchUpTarget.Store(raftLastIndex)
+		wipedJoiner := false
+		if st.cfg.RaftBootstrapComplete != nil {
+			// Deterministic: a wiped joiner is still inside the bootstrap
+			// window when its first Apply runs; a fresh-bootstrap node has
+			// already flipped the flag by the time it sees a user command.
+			wipedJoiner = !st.cfg.RaftBootstrapComplete()
+		} else {
+			// Legacy fallback: there is a committed backlog this node hasn't
+			// applied yet. Misses the idle-cluster corner case (logIndex ==
+			// raftLastIndex) — kept only for callers that don't wire the
+			// callback (tests).
+			wipedJoiner = logIndex < raftLastIndex
+		}
+		if wipedJoiner {
+			// Target the current log tip (raftLastIndex), or this entry's
+			// index when no further backlog exists yet — the watcher just
+			// needs *any* non-zero target to engage.
+			target := raftLastIndex
+			if target < logIndex {
+				target = logIndex
+			}
+			st.catchUpTarget.Store(target)
 			startWatcher = true
 		}
 	} else if t := st.catchUpTarget.Load(); t != 0 && raftLastIndex > t {
