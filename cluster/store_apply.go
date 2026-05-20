@@ -97,36 +97,45 @@ func (st *Store) Apply(l *raft.Log) any {
 		panic("error proto un-marshalling log data")
 	}
 
+	// A wiped-joiner candidate extends lastAppliedIndexToDB to the
+	// leader's current tip so the same "catchingUp" + dbReloadRequired
+	// trigger snapshot-restored / intact-data restarts use also handles
+	// log-replay rejoin (no extra trigger or watcher needed).
+	st.markWipedJoinerCatchUp(st.raftLastIndex())
+
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
 	// we check for index !=0 to force apply of the 1st index in both db and schema
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
 
-	// A wiped node rejoining an existing cluster via log replay must replay
-	// schema-only (so no shard folders are created per entry); the catch-up
-	// watcher spawned at Store.Open does a single DB load once caught up.
-	// See noteWipedJoinerProgress / watchWipedJoinerCatchUp.
-	wipedJoinerCatchingUp := st.noteWipedJoinerProgress(l.Index, st.raftLastIndex())
-
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
-	schemaOnly := catchingUp || wipedJoinerCatchingUp || st.cfg.MetadataOnlyVoters
+	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
-		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
-		// that means we're done doing schema only.
-		// we do this at the beginning to handle situation were schema was catching up
-		// and to make sure no matter is the error status we are going to open the db on startup
-		// we reload the db only if we have a previous state and the db is not loaded
-		dbReloadRequired := st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
-		if dbReloadRequired && l.Index != 0 && l.Index >= st.lastAppliedIndexToDB.Load() {
-			st.log.WithFields(logrus.Fields{
-				"log_type":                     l.Type,
-				"log_name":                     l.Type.String(),
-				"log_index":                    l.Index,
-				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
-			}).Info("reloading local DB as RAFT and local DB are now caught up")
-			st.reloadDBFromSchema()
+		// Reload triggers (best-effort, fires at most once each because
+		// reloadDBFromSchema sets dbLoaded=true and wipedJoinerReloaded=true):
+		//   A) intact-data restart — lastAppliedIndexToDB was read from disk
+		//      at Open (>0) and dbLoaded is still false. Replay catches up to
+		//      that boundary; reload swaps schemaOnly → normal.
+		//   B) wiped-joiner — Open marked dbLoaded=true (v1.37 fast path) but
+		//      the candidate flag is set; markWipedJoinerCatchUp seeded
+		//      lastAppliedIndexToDB from raft.LastIndex() on the first Apply.
+		//      Reload at catch-up engages SELF_RECOVERY for missing shard dirs.
+		target := st.lastAppliedIndexToDB.Load()
+		if l.Index != 0 && target > 0 && l.Index >= target {
+			intactRestart := !st.dbLoaded.Load()
+			wipedCatchUp := st.wipedJoinerCandidate.Load() && !st.wipedJoinerReloaded.Load()
+			if intactRestart || wipedCatchUp {
+				st.log.WithFields(logrus.Fields{
+					"log_type":                     l.Type,
+					"log_name":                     l.Type.String(),
+					"log_index":                    l.Index,
+					"last_store_log_applied_index": target,
+					"wiped_joiner_catch_up":        wipedCatchUp,
+				}).Info("reloading local DB as RAFT and local DB are now caught up")
+				st.reloadDBFromSchema()
+			}
 		}
 
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,

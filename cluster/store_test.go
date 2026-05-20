@@ -1421,9 +1421,10 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 
 	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
 	s.schemaManager.SetReplicationFSM(ms.replicationFSM)
-	// The test fixture is not exercising wiped-joiner behavior; pre-flip
-	// the post-reload flag so the candidate-driven schemaOnly window
-	// doesn't suppress the per-entry indexer calls the tests assert on.
+	// Tests use a single-node fresh-disk fixture that would otherwise be
+	// flagged as a wiped-joiner candidate by Store.Open; pre-flipping the
+	// post-reload latch makes markWipedJoinerCatchUp a no-op so Applies
+	// run in normal (not schemaOnly) mode and per-entry indexer calls fire.
 	s.wipedJoinerReloaded.Store(true)
 	ms.store = &s
 	return ms
