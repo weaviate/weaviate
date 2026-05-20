@@ -60,6 +60,10 @@ type Manager struct {
 	// safe — the setter takes m.mu.
 	schemaMutationDetectors map[string]SchemaMutationDetector
 
+	// Per-namespace payload→collection extractors. Absent ⇒ namespace is
+	// not collection-scoped and survives DeleteTasksForCollection.
+	collectionExtractors map[string]CollectionExtractor
+
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
@@ -213,13 +217,57 @@ func NewManager(params ManagerParameters) *Manager {
 	}
 
 	return &Manager{
-		tasks: make(map[string]map[string]*Task),
+		tasks:                make(map[string]map[string]*Task),
+		collectionExtractors: make(map[string]CollectionExtractor),
 
 		completedTaskTTL: params.CompletedTaskTTL,
 
 		clock:  params.Clock,
 		logger: params.Logger,
 	}
+}
+
+// RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
+// cascade. Extractor runs under the Manager lock — must not block or recurse. Last
+// write wins per namespace; nil / empty arguments are silently dropped.
+func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
+	if namespace == "" || extractor == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.collectionExtractors[namespace] = extractor
+}
+
+// DeleteTasksForCollection drops tasks whose payload binds to `collection`. Called
+// from the schema FSM on DELETE_CLASS so a drop+recreate of the same class name
+// starts with a clean task slate. Empty `collection` is rejected (an extractor
+// emitting ("", true) on stray bytes would otherwise wipe the cluster).
+// See weaviate/0-weaviate-issues#231.
+func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
+	if collection == "" {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var removed []TaskDescriptor
+	for namespace, tasksByID := range m.tasks {
+		extractor, ok := m.collectionExtractors[namespace]
+		if !ok || extractor == nil {
+			continue
+		}
+		for taskID, task := range tasksByID {
+			c, ok := extractor(task.Payload)
+			if !ok || c != collection {
+				continue
+			}
+			delete(tasksByID, taskID)
+			removed = append(removed, task.TaskDescriptor)
+		}
+	}
+	return removed
 }
 
 // AddTask registers a new distributed task from a Raft apply. The seqNum becomes the task's
