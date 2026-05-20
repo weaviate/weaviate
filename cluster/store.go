@@ -370,15 +370,6 @@ func (st *Store) lastIndex() uint64 {
 	return max(lastSnapshotIndex(st.snapshotStore), l)
 }
 
-// raftLastIndex returns the index of the last entry in the RAFT log, or 0
-// before the raft node exists.
-func (st *Store) raftLastIndex() uint64 {
-	if st.raft == nil {
-		return 0
-	}
-	return st.raft.LastIndex()
-}
-
 // Open opens this store and marked as such.
 // It constructs a new Raft node using the provided configuration.
 // If there is any old state, such as snapshots, logs, peers, etc., all of those will be restored.
