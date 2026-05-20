@@ -160,6 +160,11 @@ type SelfRecoveryOrchestrator interface {
 	// the next restart). fromBootstrap tags the op so an empty-fallback
 	// during the RAFT bootstrap window is logged/counted less alarmingly.
 	SubmitRecovery(ctx context.Context, collection, shard string, fromBootstrap bool) bool
+	// Close stops accepting new submissions, cancels in-flight workers
+	// via a shutdown ctx, and waits for them to drain — bounded by the
+	// caller's ctx. Returns ctx.Err() on deadline. Idempotent. Called
+	// from DB.Shutdown.
+	Close(ctx context.Context) error
 }
 
 // SetSelfRecoveryOrchestrator must be called before WaitForStartup so
@@ -523,6 +528,16 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 
 func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
+	// Stop the self-recovery worker pool before tearing indexes down so
+	// in-flight LoadLocalShard callbacks complete cleanly (rather than
+	// racing each Index.Shutdown closeLock). The orchestrator's Close
+	// respects ctx.Done so DB.Shutdown's caller-provided deadline bounds
+	// how long we wait for workers to drain.
+	if db.selfRecoveryOrchestrator != nil {
+		if err := db.selfRecoveryOrchestrator.Close(ctx); err != nil {
+			db.logger.WithError(err).Warn("self-recovery: Close did not drain in time; workers may still be running")
+		}
+	}
 	db.bitmapBufPoolClose()
 
 	if !db.AsyncIndexingEnabled {

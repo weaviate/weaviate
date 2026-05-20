@@ -34,6 +34,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -121,15 +122,37 @@ type Orchestrator struct {
 	// when N>>concurrency shards need recovery (e.g. wiped node with
 	// many shards). Concurrency = number of workers; queue capacity
 	// holds the burst.
+	//
+	// closeMu serialises Submit (which sends on workQueue) against
+	// Close (which closes workQueue). closed short-circuits Submit
+	// without needing the lock on the hot path. workerWg tracks live
+	// workers so Close can wait for them to drain. shutdownCtx is
+	// cancelled by Close so workers' long-running operations
+	// (probeAndDecide, registerAndPoll) bail early.
 	poolOnce            sync.Once
 	workQueue           chan submission
 	submitQueueCapacity int // defaultSubmitQueueCapacity unless overridden in tests
+	closeMu             sync.RWMutex
+	closed              atomic.Bool
+	workerWg            sync.WaitGroup
+	shutdownCtx         context.Context
+	shutdownCancel      context.CancelFunc
 
 	// Per-orchestrator RNG, seeded from wall-clock at construction so
 	// different nodes shuffle peer order differently. Guarded by rngMu
 	// because probeAndDecide runs from multiple workers concurrently.
 	rngMu sync.Mutex
 	rng   *rand.Rand
+
+	// shardLocks serialises operations on the same (collection, shard)
+	// across runOne, Restart, and any other state-mutating entry
+	// points. Two concurrent operator /restart requests on the same
+	// shard, and a stale worker racing a new Restart, are the two
+	// hazards this defends. Keyed by "collection/shard"; values are
+	// *sync.Mutex. The map never shrinks (per-shard entries are
+	// effectively permanent for the process lifetime) which is fine
+	// for the cardinalities self-recovery operates on.
+	shardLocks sync.Map
 }
 
 type submission struct {
@@ -187,6 +210,7 @@ func New(cfg Config) *Orchestrator {
 	if logger == nil {
 		logger = logrus.NewEntry(logrus.New())
 	}
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	return &Orchestrator{
 		raft:                   cfg.Raft,
 		schema:                 cfg.Schema,
@@ -208,6 +232,8 @@ func New(cfg Config) *Orchestrator {
 		submitQueueCapacity:    defaultSubmitQueueCapacity,
 		metrics:                GlobalMetrics(),
 		rng:                    rand.New(rand.NewSource(cryptoSeed())),
+		shutdownCtx:            shutdownCtx,
+		shutdownCancel:         shutdownCancel,
 	}
 }
 
@@ -247,6 +273,17 @@ func (o *Orchestrator) Submit(ctx context.Context, ref ShardRef, fromBootstrap b
 		return false
 	}
 	o.poolOnce.Do(o.initPool)
+	// Hold the read lock for the send so Close can't close the channel
+	// underneath us. closed short-circuits without the lock on the hot
+	// path; the lock just covers the rare Close window.
+	if o.closed.Load() {
+		return false
+	}
+	o.closeMu.RLock()
+	defer o.closeMu.RUnlock()
+	if o.closed.Load() {
+		return false
+	}
 	select {
 	case o.workQueue <- submission{ctx: ctx, ref: ref, fromBootstrap: fromBootstrap}:
 		return true
@@ -300,6 +337,12 @@ func (o *Orchestrator) Restart(parentCtx context.Context, ref ShardRef) error {
 				errors.Join(ErrSelfRecoveryShardNotInSchema, err))
 		}
 	}
+	// Serialise with any in-flight worker for the same shard and with
+	// other concurrent Restart calls. Two operators double-clicking
+	// /restart, and a stale worker still in probeAndDecide, will not
+	// race the cancel + erase + resubmit sequence below.
+	unlock := o.lockShard(ref)
+	defer unlock()
 	if o.pathResolver != nil {
 		livePath := o.pathResolver.ShardPath(ref.Collection, ref.Shard)
 		if _, err := os.Stat(livePath); err == nil {
@@ -581,6 +624,14 @@ func (o *Orchestrator) AcceptEmpty(ctx context.Context, ref ShardRef) (string, e
 // shard is left in RECOVERING — operators recover via the
 // /debug/self-recovery/{restart,accept-empty} endpoints.
 func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, fromBootstrap bool) {
+	// Serialise with Restart and other workers on the same shard.
+	unlock := o.lockShard(ref)
+	defer unlock()
+	// Bind the per-op ctx to the orchestrator's shutdown ctx so probes
+	// and FSM polls bail when Close fires.
+	ctx, cancel := mergedCtx(ctx, o.shutdownCtx)
+	defer cancel()
+
 	logger := o.logger.WithFields(logrus.Fields{
 		"event":      "self_recovery.started",
 		"collection": ref.Collection,
@@ -1045,11 +1096,45 @@ func (o *Orchestrator) initPool() {
 	}
 	o.workQueue = make(chan submission, capacity)
 	for i := 0; i < n; i++ {
+		o.workerWg.Add(1)
 		enterrors.GoWrapper(func() {
+			defer o.workerWg.Done()
 			for sub := range o.workQueue {
 				o.runOne(sub.ctx, sub.ref, sub.fromBootstrap)
 			}
 		}, o.logger)
+	}
+}
+
+// Close stops accepting new submissions, cancels the shutdown ctx that
+// in-flight workers respect via runOne, and waits for them to drain —
+// bounded by the caller's ctx. Returns ctx.Err() when the caller's ctx
+// deadline fires before workers finish (the underlying goroutines may
+// still be running; they'll bail at the next cancellation check).
+// Idempotent. Safe to call before the worker pool has been initialised.
+// After Close returns, Submit returns false.
+func (o *Orchestrator) Close(ctx context.Context) error {
+	o.closeMu.Lock()
+	if !o.closed.CompareAndSwap(false, true) {
+		o.closeMu.Unlock()
+		return nil
+	}
+	if o.workQueue != nil {
+		close(o.workQueue)
+	}
+	o.closeMu.Unlock()
+	o.shutdownCancel()
+
+	done := make(chan struct{})
+	go func() {
+		o.workerWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -1062,6 +1147,26 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	case <-t.C:
 		return true
 	}
+}
+
+// mergedCtx returns a context that is cancelled when EITHER parent or
+// sibling is cancelled. Used in runOne to bind the per-op ctx to the
+// orchestrator's shutdown ctx so workers bail when Close fires.
+func mergedCtx(parent, sibling context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(parent)
+	stop := context.AfterFunc(sibling, cancel)
+	return ctx, func() { stop(); cancel() }
+}
+
+// lockShard acquires the per-shard mutex for ref and returns a release
+// closure (use with `defer`). Callers serialised this way: runOne
+// (worker) and Restart (operator endpoint).
+func (o *Orchestrator) lockShard(ref ShardRef) func() {
+	key := ref.Collection + "/" + ref.Shard
+	m, _ := o.shardLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func nextBackoff(current, max time.Duration) time.Duration {

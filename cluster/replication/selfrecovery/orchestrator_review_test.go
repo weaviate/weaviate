@@ -104,6 +104,74 @@ func TestSubmit_QueueFullDropsAndReturnsFalse(t *testing.T) {
 		"SubmitDroppedTotal must count exactly the dropped submits")
 }
 
+// TestClose_DrainsWorkersAndRefusesNewSubmits: Close stops accepting
+// new work and waits for live workers to return. Idempotent.
+func TestClose_DrainsWorkersAndRefusesNewSubmits(t *testing.T) {
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self"}}, &stubNodeSelector{}, nil,
+		stubPathResolver{root: t.TempDir()})
+	o.enabled = true
+
+	// Submit a fast no-op (single replica → handleEmptyFallback path).
+	require.True(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
+
+	closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, o.Close(closeCtx))
+
+	// Post-close: Submit refuses; second Close is a no-op.
+	require.False(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S2"}, false))
+	require.NoError(t, o.Close(context.Background()))
+}
+
+// TestClose_BeforeAnySubmit: closing an orchestrator that never had
+// Submit called (and therefore no worker pool) is safe.
+func TestClose_BeforeAnySubmit(t *testing.T) {
+	o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{}, &stubNodeSelector{}, nil,
+		stubPathResolver{root: t.TempDir()})
+	require.NoError(t, o.Close(context.Background()))
+	require.False(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
+}
+
+// TestClose_CancelsInFlightWork: Close cancels the shutdown ctx so
+// long-running workers (e.g. blocked in a slow probe) observe
+// cancellation and bail.
+func TestClose_CancelsInFlightWork(t *testing.T) {
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+
+	ns := &stubNodeSelector{
+		addrs: map[string]string{"peer1": "10.0.0.1"},
+		ports: map[string]int{"peer1": 50051},
+	}
+	o := New(Config{
+		Raft:         &stubRaft{},
+		Schema:       stubSchema{replicas: []string{"self", "peer1"}},
+		PathResolver: stubPathResolver{root: t.TempDir()},
+		NodeSelector: ns,
+		NodeName:     "self",
+		Enabled:      true,
+		// ClientFactory blocks until released — simulates a slow peer.
+		ClientFactory: func(_ context.Context, _ string) (copier.FileReplicationServiceClient, error) {
+			<-block
+			return nil, errors.New("released")
+		},
+		Logger:       quietLogger(),
+		PollInterval: 10 * time.Millisecond,
+		ProbeTimeout: 10 * time.Second,
+	})
+	require.True(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
+
+	// Close with a short deadline — worker is blocked, Close returns the
+	// deadline error but the shutdown ctx cancellation propagates so the
+	// worker will exit when block is released by the cleanup.
+	closeCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	err := o.Close(closeCtx)
+	require.ErrorIs(t, err, context.DeadlineExceeded,
+		"Close must surface the caller's deadline when workers don't drain in time")
+}
+
 // TestHasInflightReplicationOp covers the M2 guard: only a non-terminal
 // op targeting this node counts.
 func TestHasInflightReplicationOp(t *testing.T) {
@@ -353,6 +421,55 @@ func TestWaitForOpTerminal_VanishedGrace(t *testing.T) {
 	start := time.Now()
 	require.NoError(t, o.waitForOpTerminal(context.Background(), strfmt.UUID("11111111-1111-1111-1111-111111111111")))
 	require.GreaterOrEqual(t, time.Since(start), o.vanishedGracePeriod, "must wait the grace period before returning")
+}
+
+// TestRestart_SerialisedAgainstInFlightWorker: a worker for the same
+// shard already holds the per-shard lock (simulated by manually
+// acquiring it in a peer goroutine). Restart must wait its turn and
+// proceed only after the worker releases. This is the regression
+// guard for F2/F3: without the lock, concurrent Restarts and a stale
+// worker can race the cancel+erase+resubmit sequence.
+func TestRestart_SerialisedAgainstInFlightWorker(t *testing.T) {
+	tmp := t.TempDir()
+	o := newOrchestratorForTest(t, &stubRaft{},
+		stubSchema{replicas: []string{"self", "peer1"}},
+		&stubNodeSelector{}, nil, stubPathResolver{root: tmp})
+	ref := ShardRef{Collection: "C", Shard: "S"}
+
+	workerHolds := make(chan struct{})
+	workerReleases := make(chan struct{})
+	workerDone := make(chan struct{})
+	go func() {
+		defer close(workerDone)
+		unlock := o.lockShard(ref)
+		close(workerHolds)
+		<-workerReleases
+		unlock()
+	}()
+	<-workerHolds
+
+	restartDone := make(chan error, 1)
+	go func() {
+		restartDone <- o.Restart(context.Background(), ref)
+	}()
+
+	// Restart must block while the worker holds the lock.
+	select {
+	case <-restartDone:
+		t.Fatal("Restart returned while a worker still held the shard lock")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(workerReleases)
+	<-workerDone
+
+	// Once the worker releases, Restart proceeds.
+	select {
+	case err := <-restartDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Restart did not return after the worker released the shard lock")
+	}
 }
 
 // TestRestart_TimeoutLeavesRecoveryDir: when an in-flight op never
