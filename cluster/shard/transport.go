@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"go.etcd.io/raft/v3/raftpb"
 )
 
 // ShardAddressProvider implements raft.ServerAddressProvider.
@@ -399,4 +400,17 @@ func readShardKeyHeader(r io.Reader) (string, error) {
 // shardKey creates a composite key for identifying a shard's RAFT cluster.
 func shardKey(className, shardName string) string {
 	return className + "/" + shardName
+}
+
+type Transport interface {
+	Send(groupID uint64, msgs []raftpb.Message)
+	Close() error
+}
+
+// MessageRouter hands an inbound raft message to the Store that owns the
+// group. A transport is node-scoped and multiplexes every group, so it needs
+// this indirection to fan messages out to per-group Stores. Implemented by
+// the Registry.
+type MessageRouter interface {
+	RouteMessage(groupID uint64, msg raftpb.Message) error
 }

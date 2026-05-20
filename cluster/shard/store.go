@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,6 +26,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"go.etcd.io/raft/v3/raftpb"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -524,4 +527,177 @@ func hasLeader(r *raft.Raft) bool {
 type Response struct {
 	Error   error
 	Version uint64
+}
+
+// memTransportInboxSize is generous so that, in practice, tests never hit the
+// drop path. Dropping is still correct (raft re-sends) — the buffer just
+// keeps unrelated tests deterministic.
+const memTransportInboxSize = 1024
+
+// MemNetwork connects a set of MemTransports in-process, with no sockets.
+// Tests build one network, then one MemTransport per node.
+type MemNetwork struct {
+	mu    sync.RWMutex
+	nodes map[uint64]*MemTransport
+}
+
+func NewMemNetwork() *MemNetwork {
+	return &MemNetwork{nodes: make(map[uint64]*MemTransport)}
+}
+
+// NewTransport registers nodeID on the network and starts its delivery
+// goroutine. router receives every message addressed to nodeID.
+func (n *MemNetwork) NewTransport(nodeID uint64, router MessageRouter, logger logrus.FieldLogger) *MemTransport {
+	t := &MemTransport{
+		net:    n,
+		nodeID: nodeID,
+		router: router,
+		log: logger.WithFields(logrus.Fields{
+			"component": "shard_mem_transport",
+			"node":      nodeID,
+		}),
+		inbox: make(chan inboundMsg, memTransportInboxSize),
+		done:  make(chan struct{}),
+	}
+
+	n.mu.Lock()
+	n.nodes[nodeID] = t
+	n.mu.Unlock()
+
+	t.wg.Add(1)
+	enterrors.GoWrapper(t.deliverLoop, t.log)
+	return t
+}
+
+func (n *MemNetwork) transport(nodeID uint64) (*MemTransport, bool) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	t, ok := n.nodes[nodeID]
+	return t, ok
+}
+
+func (n *MemNetwork) remove(nodeID uint64) {
+	n.mu.Lock()
+	delete(n.nodes, nodeID)
+	n.mu.Unlock()
+}
+
+type inboundMsg struct {
+	groupID uint64
+	msg     raftpb.Message
+}
+
+// MemTransport is an in-process Transport — the etcd/raft equivalent of
+// hashicorp's NewInmemTransport. Messages reach the destination node's
+// router over a channel rather than a socket.
+type MemTransport struct {
+	net    *MemNetwork
+	nodeID uint64
+	router MessageRouter
+	log    logrus.FieldLogger
+
+	inbox chan inboundMsg
+
+	closeOnce sync.Once
+	done      chan struct{}
+	wg        sync.WaitGroup
+}
+
+func (t *MemTransport) Send(groupID uint64, msgs []raftpb.Message) {
+	for _, msg := range msgs {
+		dst, ok := t.net.transport(msg.To)
+		if !ok {
+			t.log.WithField("to", msg.To).Warn("dropping message: unknown destination")
+			continue
+		}
+		select {
+		case dst.inbox <- inboundMsg{groupID: groupID, msg: msg}:
+		case <-dst.done:
+			// destination is shutting down; drop — raft tolerates loss.
+		default:
+			t.log.WithField("to", msg.To).Warn("dropping message: destination inbox full")
+		}
+	}
+}
+
+func (t *MemTransport) deliverLoop() {
+	defer t.wg.Done()
+	for {
+		select {
+		case <-t.done:
+			return
+		case in := <-t.inbox:
+			if err := t.router.RouteMessage(in.groupID, in.msg); err != nil {
+				t.log.WithField("group", in.groupID).WithError(err).Warn("route inbound message")
+			}
+		}
+	}
+}
+
+// Close stops the delivery goroutine and unregisters the node. Idempotent.
+// Undelivered inbox messages are discarded — raft re-sends on the next tick.
+func (t *MemTransport) Close() error {
+	t.closeOnce.Do(func() {
+		close(t.done)
+		t.net.remove(t.nodeID)
+	})
+	t.wg.Wait()
+	return nil
+}
+
+// nodeIDMap translates between Weaviate's string node IDs and the uint64 IDs
+// etcd/raft requires. The string -> uint64 direction is a deterministic
+// FNV-1a hash, so it is stable across restarts and needs no persistence; only
+// the uint64 -> string reverse lookup needs state, filled lazily as IDs are
+// registered.
+type nodeIDMap struct {
+	mu       sync.RWMutex
+	toString map[uint64]string
+}
+
+func newNodeIDMap() *nodeIDMap {
+	return &nodeIDMap{toString: make(map[uint64]string)}
+}
+
+// hashNodeID maps a node-ID string to a uint64. etcd/raft reserves 0 as
+// raft.None (no node), so a 0 hash is bumped to 1 — a genuine string that
+// also hashes to 1 is then caught by collision detection in register.
+func hashNodeID(nodeID string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(nodeID))
+	v := h.Sum64()
+	if v == 0 {
+		return 1
+	}
+	return v
+}
+
+// register returns the uint64 ID for nodeID, recording the reverse mapping.
+// Idempotent. Panics on hash collision (two distinct strings -> same uint64):
+// the 2^64 space makes that astronomically unlikely, and it would be an
+// unrecoverable cluster-config bug rather than a runtime condition to handle.
+func (m *nodeIDMap) register(nodeID string) uint64 {
+	id := hashNodeID(nodeID)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if existing, ok := m.toString[id]; ok {
+		if existing != nodeID {
+			panic(fmt.Sprintf("shard: node ID hash collision: %q and %q both hash to %d",
+				existing, nodeID, id))
+		}
+		return id
+	}
+	m.toString[id] = nodeID
+	return id
+}
+
+// stringID returns the node-ID string for a uint64, or false if no such ID
+// has been registered.
+func (m *nodeIDMap) stringID(id uint64) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	s, ok := m.toString[id]
+	return s, ok
 }
