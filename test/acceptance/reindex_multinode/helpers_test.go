@@ -183,6 +183,59 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 	return observed
 }
 
+// awaitReindexMidFlight blocks until at least one IN_PROGRESS unit's
+// progress is >= minProgress on a STARTED task. Fails loudly if the
+// task reaches FINISHED/FAILED before the condition is observed — the
+// caller is asking for a mid-reindex restart scenario, and a vacuous
+// pass (migration completed before the test could restart anything)
+// hides real bugs. See weaviate/0-weaviate-issues#239 for the prior
+// silent-vacuous failure.
+func awaitReindexMidFlight(t *testing.T, restURI, taskID string, minProgress float32, timeout time.Duration) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false
+		}
+		var tasks models.DistributedTasks
+		if err := json.Unmarshal(body, &tasks); err != nil {
+			return false
+		}
+		for _, task := range tasks["reindex"] {
+			if task.ID != taskID {
+				continue
+			}
+			if task.Status == "FAILED" {
+				t.Fatalf("reindex task %s failed before mid-flight check: %s", taskID, task.Error)
+			}
+			if task.Status == "FINISHED" || task.Status == "PREPARING" || task.Status == "SWAPPING" {
+				t.Fatalf("reindex task %s reached %s before mid-flight check — "+
+					"dataset too small or progress threshold too high. "+
+					"Caller asked for a mid-reindex restart but the migration "+
+					"already left STARTED. Bump totalObjects or lower minProgress.",
+					taskID, task.Status)
+			}
+			if task.Status != "STARTED" {
+				return false
+			}
+			for _, u := range task.Units {
+				if u.Status == "IN_PROGRESS" && u.Progress >= minProgress {
+					return true
+				}
+			}
+			return false
+		}
+		return false
+	}, timeout, 200*time.Millisecond,
+		"reindex task %s should reach STARTED + unit.progress>=%v within %s",
+		taskID, minProgress, timeout)
+}
+
 // runBM25QueryOnNode executes a BM25 query against a specific node and returns object IDs.
 func runBM25QueryOnNode(t *testing.T, restURI, className, query string) ([]string, error) {
 	t.Helper()

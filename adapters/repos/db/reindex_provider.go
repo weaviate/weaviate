@@ -413,6 +413,28 @@ func (p *ReindexProvider) processOneUnit(
 		p.mu.Unlock()
 	}
 
+	// weaviate/0-weaviate-issues#239 Mode 2: the re-entry guard at the
+	// top of this function reads the SAME cache OnGroupCompleted does.
+	// A non-completion exit (graceful shutdown, failUnit's RAFT apply
+	// failing mid-leadership-transition) would leave it populated →
+	// guard fires forever after restart.
+	unitCompleted := false
+	if semantic {
+		defer func() {
+			if unitCompleted {
+				return
+			}
+			p.mu.Lock()
+			if m, ok := p.reindexTasks[task.TaskDescriptor]; ok {
+				delete(m, unitID)
+				if len(m) == 0 {
+					delete(p.reindexTasks, task.TaskDescriptor)
+				}
+			}
+			p.mu.Unlock()
+		}()
+	}
+
 	// Persist a recovery record so that a restart mid-flight can rebuild
 	// these same task instances during shard init. Without this, writes
 	// arriving between shard init and OnGroupCompleted's swap go only to
@@ -436,6 +458,13 @@ func (p *ReindexProvider) processOneUnit(
 			runErr = reindexTask.RunOnShard(ctx, shard)
 		}
 		if runErr != nil {
+			// weaviate/0-weaviate-issues#239 Mode 1: failUnit on
+			// context.Canceled would FSM-flip the whole task FAILED for
+			// what is actually an interruptable shutdown.
+			if errors.Is(runErr, context.Canceled) {
+				logger.Infof("reindex provider: unit interrupted by shutdown; will resume after restart: %v", runErr)
+				return
+			}
 			p.failUnit(ctx, task, unitID, recorder,
 				fmt.Sprintf("reindex (%s): %v", reindexTask.Name(), runErr))
 			return
@@ -448,7 +477,9 @@ func (p *ReindexProvider) processOneUnit(
 		ctx, task.Namespace, task.ID, task.Version, p.localNode, unitID,
 	); err != nil {
 		logger.Errorf("reindex provider: failed to record completion: %v", err)
+		return
 	}
+	unitCompleted = true
 }
 
 // maxReindexPropertiesPerTask caps the number of properties in a single

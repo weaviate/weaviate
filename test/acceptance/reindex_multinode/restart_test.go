@@ -20,180 +20,174 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
+// 50k change-tokenization migration spends ~25-40 s in STARTED on a
+// 3-node cluster — wide enough to land the restart inside.
+const reindexRestartDataset = 50_000
+
+// 0.1 is past the "just started" floor (units can sit at 0 for a few
+// ticks) but well before completion.
+const reindexRestartProgressFloor = 0.1
+
+// Change-tokenization is the heaviest shape (2 sub-tasks per shard ×
+// property) — widest STARTED window for the restart-mid-flight checks.
+func setupRestartDuringReindex(
+	ctx context.Context, t *testing.T, className string,
+) (*docker.DockerCompose, func(), string) {
+	t.Helper()
+	compose, cleanup := start3NodeReindexCluster(ctx, t)
+
+	uri := restURIOf(compose, 1)
+	trueVal := true
+	createCollection(t, uri, className, 3, 3, []*models.Property{
+		{
+			Name:            "path",
+			DataType:        []string{"text"},
+			IndexFilterable: &trueVal,
+			Tokenization:    "word",
+		},
+	})
+
+	paths := []string{"alpha-path", "beta-path", "gamma-path", "delta-path", "epsilon-path"}
+	batchImportMultiProp(t, uri, className, reindexRestartDataset, func(i int) map[string]interface{} {
+		return map[string]interface{}{"path": paths[i%len(paths)]}
+	})
+
+	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, "path",
+		`{"searchable":{"tokenization":"field"}}`)
+	t.Logf("submitted change-tokenization task: %s", taskID)
+	return compose, cleanup, taskID
+}
+
+func assertReindexCompleteAndConsistent(
+	t *testing.T, compose *docker.DockerCompose, className, taskID string, awaitTimeout time.Duration,
+) {
+	t.Helper()
+	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID,
+		reindexhelpers.WithTimeout(awaitTimeout))
+
+	// Tokenization must have flipped to "field" on every replica.
+	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+		got := tryGetPropertyTokenization(restURIOf(compose, nodeIdx), className, "path")
+		assert.Equalf(t, "field", got,
+			"node %d: tokenization should have flipped to field, got %q", nodeIdx, got)
+	}
+
+	// Every replica must serve the same count for an exact-match query
+	// on a path value. Under FIELD tokenization, every path-bucket
+	// matches reindexRestartDataset/5 records exactly.
+	const expected = reindexRestartDataset / 5
+	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+		got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", "alpha-path")
+		require.NoErrorf(t, err, "node %d: post-restart count query failed", nodeIdx)
+		assert.Equalf(t, expected, got,
+			"node %d: post-restart count mismatch (expected %d, got %d)",
+			nodeIdx, expected, got)
+	}
+}
+
+// Pins weaviate/0-weaviate-issues#239 Mode 1: graceful follower restart
+// mid-reindex must resume, not mark the task FAILED.
 func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
 	ctx := context.Background()
-	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	compose, cleanup, taskID := setupRestartDuringReindex(ctx, t, "RestartDuringReindex")
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
-	className := "RestartDuringReindex"
-	restURI := compose.GetWeaviateNode(1).URI()
-
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
-	defer deleteCollection(t, restURI, className)
-
-	importObjects(t, restURI, className, testDocuments)
-
-	// Record baselines.
-	baselines := make(map[string][][]string)
-	for _, q := range testBM25Queries {
-		results := queryAllNodes(t, compose, className, q)
-		assertQueryConsistency(t, results)
-		baselines[q] = results
-	}
-
-	// Submit reindex.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
-	t.Logf("submitted reindex task: %s", taskID)
-
-	// Wait briefly then gracefully stop node 3.
-	time.Sleep(2 * time.Second)
-	t.Log("gracefully stopping node 3")
+	awaitReindexMidFlight(t, restURIOf(compose, 1), taskID,
+		reindexRestartProgressFloor, 60*time.Second)
+	t.Log("task is mid-flight; gracefully stopping node 3 (follower)")
 	require.NoError(t, compose.StopAt(ctx, 2, nil))
 
-	// Restart node 3.
 	t.Log("restarting node 3")
 	require.NoError(t, compose.StartAt(ctx, 2))
 
-	// Await FINISHED — scheduler will re-launch units on restarted node.
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
-
-	// Verify queries correct on all nodes.
-	for _, q := range testBM25Queries {
-		results := queryAllNodes(t, compose, className, q)
-		assertQueryConsistency(t, results)
-		assert.ElementsMatch(t, baselines[q][0], results[0],
-			"post-restart query %q results differ", q)
-	}
-
-	// Verify schema update.
-	for i := 1; i <= 3; i++ {
-		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
-		assert.True(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
-			"node %d: UsingBlockMaxWAND should be true", i)
-	}
+	assertReindexCompleteAndConsistent(t, compose, "RestartDuringReindex", taskID,
+		240*time.Second)
 }
 
+// Pins weaviate/0-weaviate-issues#239 Mode 2: graceful RAFT leader
+// restart mid-reindex must resume, not stay STUCK indefinitely.
+func TestMultiNode_GracefulLeaderRestartDuringReindex(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup, taskID := setupRestartDuringReindex(ctx, t, "LeaderRestartDuringReindex")
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+
+	awaitReindexMidFlight(t, restURIOf(compose, 1), taskID,
+		reindexRestartProgressFloor, 60*time.Second)
+	t.Log("task is mid-flight; gracefully stopping node 1 (RAFT leader)")
+	require.NoError(t, compose.StopAt(ctx, 0, nil))
+
+	t.Log("restarting node 1")
+	require.NoError(t, compose.StartAt(ctx, 0))
+
+	// Wait for node 1 to re-form quorum before asking it questions.
+	require.Eventually(t, func() bool {
+		_, err := runBM25QueryOnNode(t, restURIOf(compose, 1), "LeaderRestartDuringReindex", "path")
+		return err == nil
+	}, 60*time.Second, 1*time.Second, "node 1 should be ready after restart")
+
+	// 360 s budget: leader-restart re-elections can absorb a 30 s window
+	// before the resumed iteration even starts, and the work still has
+	// to complete from scratch on the killed leader's local units
+	// (sentinel-aware recovery rebuilds the per-shard tracker state).
+	assertReindexCompleteAndConsistent(t, compose, "LeaderRestartDuringReindex", taskID,
+		360*time.Second)
+}
+
+// Pins weaviate/0-weaviate-issues#239 Mode 3: ungraceful SIGKILL
+// follower mid-reindex must resume via sentinel-aware recovery.
 func TestMultiNode_CrashDuringReindex(t *testing.T) {
 	ctx := context.Background()
-	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	compose, cleanup, taskID := setupRestartDuringReindex(ctx, t, "CrashDuringReindex")
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
-	className := "CrashDuringReindex"
-	restURI := compose.GetWeaviateNode(1).URI()
-
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
-	defer deleteCollection(t, restURI, className)
-
-	importObjects(t, restURI, className, testDocuments)
-
-	// Record baselines.
-	baselines := make(map[string][][]string)
-	for _, q := range testBM25Queries {
-		results := queryAllNodes(t, compose, className, q)
-		assertQueryConsistency(t, results)
-		baselines[q] = results
-	}
-
-	// Submit reindex.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
-	t.Logf("submitted reindex task: %s", taskID)
-
-	// Wait briefly then crash node 3 ungracefully.
-	time.Sleep(2 * time.Second)
+	awaitReindexMidFlight(t, restURIOf(compose, 1), taskID,
+		reindexRestartProgressFloor, 60*time.Second)
 	stopTimeout := 1 * time.Second
-	t.Log("crashing node 3 (ungraceful stop)")
+	t.Log("task is mid-flight; SIGKILL on node 3 (ungraceful)")
 	require.NoError(t, compose.StopAt(ctx, 2, &stopTimeout))
 
-	// Restart node 3.
 	t.Log("restarting node 3")
 	require.NoError(t, compose.StartAt(ctx, 2))
 
-	// Await FINISHED — scheduler will re-launch units on restarted node.
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
-
-	// Verify queries correct on all nodes.
-	for _, q := range testBM25Queries {
-		results := queryAllNodes(t, compose, className, q)
-		assertQueryConsistency(t, results)
-		assert.ElementsMatch(t, baselines[q][0], results[0],
-			"post-crash query %q results differ", q)
-	}
-
-	// Verify schema update.
-	for i := 1; i <= 3; i++ {
-		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
-		assert.True(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
-			"node %d: UsingBlockMaxWAND should be true", i)
-	}
+	assertReindexCompleteAndConsistent(t, compose, "CrashDuringReindex", taskID,
+		240*time.Second)
 }
 
+// Quorum loss + recovery mid-reindex: SIGKILL nodes 2+3, restart both,
+// task must still FINISH.
 func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
 	ctx := context.Background()
-	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	compose, cleanup, taskID := setupRestartDuringReindex(ctx, t, "MajorityCrash")
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
-	className := "MajorityCrash"
-	restURI := compose.GetWeaviateNode(1).URI()
-
-	createCollection(t, restURI, className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-	})
-	defer deleteCollection(t, restURI, className)
-
-	importObjects(t, restURI, className, testDocuments)
-
-	baselines := make(map[string][][]string)
-	for _, q := range testBM25Queries {
-		results := queryAllNodes(t, compose, className, q)
-		assertQueryConsistency(t, results)
-		baselines[q] = results
-	}
-
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
-	t.Logf("submitted reindex task: %s", taskID)
-
-	// Wait then crash majority (nodes 3 then 2).
-	time.Sleep(2 * time.Second)
+	awaitReindexMidFlight(t, restURIOf(compose, 1), taskID,
+		reindexRestartProgressFloor, 60*time.Second)
 	stopTimeout := 1 * time.Second
-	t.Log("crashing node 3")
+	t.Log("task is mid-flight; SIGKILL on node 3 then node 2 (majority lost)")
 	require.NoError(t, compose.StopAt(ctx, 2, &stopTimeout))
-	t.Log("crashing node 2 (majority lost)")
 	require.NoError(t, compose.StopAt(ctx, 1, &stopTimeout))
 
-	// Restore quorum: restart node 2 first (gives 2/3 = majority with node 1).
-	t.Log("restarting node 2")
+	// Restore quorum (node 2 first, gives 2/3 majority with node 1).
+	t.Log("restarting node 2 to restore quorum")
 	require.NoError(t, compose.StartAt(ctx, 1))
-	// Then restart node 3.
 	t.Log("restarting node 3")
 	require.NoError(t, compose.StartAt(ctx, 2))
 
-	// Await FINISHED with longer timeout.
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
-
-	// Verify queries on all nodes.
-	for _, q := range testBM25Queries {
-		results := queryAllNodes(t, compose, className, q)
-		assertQueryConsistency(t, results)
-		assert.ElementsMatch(t, baselines[q][0], results[0],
-			"post-majority-crash query %q results differ", q)
-	}
-
-	for i := 1; i <= 3; i++ {
-		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
-		assert.True(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
-			"node %d: UsingBlockMaxWAND should be true", i)
-	}
+	assertReindexCompleteAndConsistent(t, compose, "MajorityCrash", taskID,
+		360*time.Second)
 }
 
+// TestMultiNode_RollingRestartAfterComplete keeps the previous
+// rolling-restart-AFTER-complete test scope: a completed migration
+// must survive a full rolling restart with no per-replica divergence
+// on the migrated buckets.
 func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
