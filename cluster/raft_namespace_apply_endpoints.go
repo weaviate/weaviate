@@ -24,13 +24,12 @@ import (
 )
 
 // AddNamespace proposes an AddNamespace RAFT command and returns the
-// persisted namespace alongside the apply version. The apply side rejects
-// duplicates with [namespaces.ErrAlreadyExists] and invalid names with
-// [namespaces.ErrBadRequest]. Callers that need a follow-up local read on
-// a non-leader node should pass the returned version to WaitForUpdate.
-//
-// An empty ns.HomeNodes is filled from the cluster's storage candidates
-// before propose.
+// persisted namespace alongside the apply version. An empty ns.HomeNodes
+// is filled from the cluster's storage candidates before propose. The
+// apply side rejects duplicates with [namespaces.ErrAlreadyExists] and
+// invalid names with [namespaces.ErrBadRequest]. Callers that need a
+// follow-up local read on a non-leader node should pass the returned
+// version to WaitForUpdate.
 func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespace, uint64, error) {
 	if len(ns.HomeNodes) == 0 {
 		picked, err := s.nextHomeNode(s.StorageCandidates())
@@ -121,18 +120,13 @@ func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) (uint64, 
 	return s.Execute(ctx, command)
 }
 
-// nextHomeNode returns the next home_node from nodes, rotating across calls.
-// The iterator is constructed lazily with StartRandom so cold starts aren't
-// biased to nodes[0], and rebuilt whenever the candidate set changes from
-// the one the cached iterator was built with — otherwise membership changes
-// (node join/leave) would leave the iterator rotating through a stale set,
-// silently locking out newly added nodes and still picking removed ones.
-//
-// Inputs are sorted before the cache-key comparison: Raft.StorageCandidates
-// returns a sorted slice on the RAFT path but an unsorted memberlist slice
-// on the MetaVoterOnly fallback. Without normalisation the iterator would
-// rebuild on every call whenever the memberlist ordering shifted, throwing
-// away the persisted rotation state.
+// nextHomeNode picks the next home_node from nodes, rotating across calls.
+// Lazy StartRandom avoids biasing cold starts to nodes[0]; the iterator is
+// rebuilt whenever the candidate set changes, otherwise membership churn
+// would leave it rotating through a stale set. Inputs are sorted first
+// because StorageCandidates can hand back an unsorted memberlist slice on
+// the MetaVoterOnly fallback — without normalisation the cache key would
+// flip on every call and discard the rotation state.
 func (s *Raft) nextHomeNode(nodes []string) (string, error) {
 	if len(nodes) == 0 {
 		return "", errors.New("no storage candidates available")

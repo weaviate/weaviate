@@ -117,15 +117,11 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("home_node %q is not a current storage candidate", homeNode)))
 	}
 
-	// No pre-check for existence: the RAFT apply layer is the single source
-	// of truth for uniqueness, so we translate its error sentinels directly.
-	// This avoids a TOCTOU where two concurrent creates both pass a pre-check
-	// and the loser would surface a misleading 500.
-	//
-	// HomeNodes is a slice of one: the REST API exposes a single home_node
-	// and the controller enforces len==1, but the wire format is plural to
-	// avoid a future field migration. Leave HomeNodes nil when no home_node
-	// was supplied — AddNamespace fills it from storage candidates.
+	// No pre-check for existence — the RAFT apply layer owns uniqueness, so
+	// we translate its sentinels directly. A pre-check would TOCTOU under
+	// concurrent creates and surface a misleading 500 on the loser. Leave
+	// HomeNodes nil when no home_node was supplied; AddNamespace fills it
+	// from storage candidates.
 	var homeNodes []string
 	if homeNode != "" {
 		homeNodes = []string{homeNode}
@@ -199,9 +195,9 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 		}
 	}
 
-	// Read State from the controller rather than hardcoding active: keeps
-	// the response correct if future state transitions broaden what Update
-	// can return into. Leave empty on read failure / concurrent delete.
+	// Read State from the controller rather than hardcoding active so the
+	// response stays correct if Update later returns into other states.
+	// Empty on read failure / concurrent delete.
 	var state string
 	if got, err := h.raft.GetNamespaces(name); err == nil && len(got) == 1 {
 		state = string(got[0].State)

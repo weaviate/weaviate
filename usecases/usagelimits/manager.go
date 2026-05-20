@@ -42,10 +42,8 @@ import (
 // during fast bulk imports is documented and accepted; it self-corrects on
 // the next memtable flush.
 //
-// namespace scopes the sum to indices whose class name is qualified by
-// that namespace; an empty namespace sums all indices (NS-disabled
-// clusters, or the global slice on NS-enabled clusters that have no
-// namespaced classes yet).
+// A non-empty namespace scopes the sum to indices in that namespace; empty
+// means sum all (NS-disabled clusters or pre-namespaces classes).
 type ObjectCounter interface {
 	LocalObjectCount(ctx context.Context, namespace string) (int64, error)
 }
@@ -77,15 +75,11 @@ func NewManager(cfg Config, counter ObjectCounter) *Manager {
 	return &Manager{cfg: cfg, counter: counter}
 }
 
-// CheckObjects rejects when (currentObjects + n) would exceed the cap. n is
-// the number of objects this request would add (1 for single writes,
-// len(batch) for batches). className is the (potentially namespace-qualified)
-// class name of the write target; on NS-enabled clusters the cap is applied
-// per namespace, so the namespace prefix is extracted and forwarded to the
-// counter. A plain (non-qualified) class name counts across all classes
-// (NS-disabled, or pre-namespaces classes on an NS-enabled cluster).
-// Whole-batch-rejection is the caller's responsibility — the caller passes
-// len(batch) and rejects the entire request on a non-nil return.
+// CheckObjects rejects when (currentObjects + n) would exceed the cap. n
+// is 1 for single writes, len(batch) for batches. className may be
+// namespace-qualified; the namespace prefix scopes the count per namespace,
+// an unqualified name counts globally. Whole-batch rejection is the
+// caller's responsibility — pass len(batch) and reject on a non-nil return.
 func (m *Manager) CheckObjects(ctx context.Context, n int64, className string) error {
 	if m == nil {
 		return nil

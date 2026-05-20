@@ -181,9 +181,8 @@ type Handler struct {
 	parser      Parser
 	classGetter *ClassGetter
 
-	// namespacesExister resolves a namespace name to its entity (in
-	// particular HomeNode) for placement decisions. nil on NS-disabled
-	// clusters; namespaceCandidates handles the nil case.
+	// namespacesExister resolves a namespace name to its entity (HomeNode)
+	// for placement; unused on NS-disabled clusters.
 	namespacesExister namespaces.Exister
 
 	asyncIndexingEnabled bool

@@ -17,25 +17,16 @@ const (
 	NamespaceLatestCommandPolicyVersion = iota
 )
 
-// Namespace is the cluster-level control-plane entity. HomeNodes pins every
-// namespace-owned shard to its members. State drives the deletion lifecycle
-// (active → deleting → entity removed); empty State restores as
-// NamespaceStateActive.
-//
-// HomeNodes is shaped as a slice to lock in the wire format up front, but
-// the controller currently enforces len(HomeNodes) == 1. Callers should
-// read the singular value via Primary() rather than indexing directly, so
-// a future relaxation to true multi-home-node placement doesn't have to
-// rewrite every reader.
+// Namespace is the cluster-level control-plane entity. HomeNodes pins
+// every namespace-owned shard. The controller enforces len(HomeNodes)==1;
+// read it via Primary() to keep callers stable if that ever relaxes.
 type Namespace struct {
 	Name      string
 	HomeNodes []string
 	State     NamespaceState
 }
 
-// Primary returns this namespace's primary home node. While
-// len(HomeNodes) == 1 is the enforced invariant, this accessor centralises
-// the assumption so callers don't reach into the slice directly.
+// Primary returns the namespace's home node, or "" if unset.
 func (n Namespace) Primary() string {
 	if len(n.HomeNodes) == 0 {
 		return ""
@@ -60,9 +51,8 @@ type AddNamespaceRequest struct {
 	Version   int
 }
 
-// UpdateNamespaceRequest is the RAFT apply payload for changing the
-// namespace's stored HomeNodes. Future placement decisions read the new
-// value; existing live shards are not moved.
+// UpdateNamespaceRequest is the RAFT apply payload for changing
+// HomeNodes. New placements use the new value; live shards are not moved.
 type UpdateNamespaceRequest struct {
 	Namespace Namespace
 	Version   int

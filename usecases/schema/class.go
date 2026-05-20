@@ -160,11 +160,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	// migrate only after validation in completed
 	h.migrateClassSettings(cls)
 
-	// Reject explicit desiredCount != 1 before ParseClass replaces the
-	// raw map, so we can tell "user asked for 3" from "default = NodeCount".
-	// No MT gate: validateCanAddClass already rejects any class that combines
-	// ShardingConfig with MultiTenancyConfig, so MT classes never reach this
-	// check with a non-empty ShardingConfig.
+	// Reject explicit desiredCount != 1 before ParseClass replaces the raw
+	// map — once parsed we can't distinguish user-asked-for-3 from the
+	// NodeCount default.
 	if h.config.Namespaces.Enabled {
 		if err := rejectExplicitMultiShardOnNamespacedClass(cls.ShardingConfig); err != nil {
 			return nil, 0, err
@@ -204,10 +202,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	}
 	shardingCfg := cls.ShardingConfig.(shardingcfg.Config)
 	if h.config.Namespaces.Enabled && !schema.MultiTenancyEnabled(cls) {
-		// Namespaced classes pin to a single home_node; one shard per class
-		// matches the candidate list. Without this cap, DesiredCount stays at
-		// nodeCount (set by the parser) and initPhysical creates duplicate
-		// shards on the same node.
+		// Cap shard count to the candidate list; otherwise the parser's
+		// nodeCount default would have initPhysical place duplicate shards
+		// on the single home_node.
 		shardingCfg.DesiredCount = len(candidates)
 		shardingCfg.DesiredVirtualCount = shardingCfg.DesiredCount * shardingCfg.VirtualPerPhysical
 		shardingCfg.ActualCount = shardingCfg.DesiredCount
@@ -250,9 +247,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 }
 
 // rejectExplicitMultiShardOnNamespacedClass rejects an explicit
-// desiredCount != 1 in the raw request. ParseConfig with nodeCount=1
-// folds default and explicit-1 into the same value; anything else came
-// from the user. Parse errors fall through to parser.ParseClass below.
+// desiredCount != 1. ParseConfig with nodeCount=1 folds default and
+// explicit-1 together; anything else came from the user. Parse errors
+// fall through to parser.ParseClass below.
 func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 	if _, ok := shardingConfig.(map[string]interface{}); !ok {
 		return nil
@@ -267,14 +264,10 @@ func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 	return nil
 }
 
-// namespaceCandidates returns the storage-candidate list to feed into shard
-// placement for qualifiedClass.
-//
-// On NS-disabled clusters it returns the full cluster candidates (today's
-// default-spread behaviour). On NS-enabled clusters it looks up the
-// namespace embedded in the qualified class name and returns a single-node
-// list containing the namespace's home_node, so every shard for that
-// namespace lands on that one node.
+// namespaceCandidates returns the storage-candidate list for placing
+// qualifiedClass's shards. On NS-disabled clusters it returns the full
+// cluster candidates; on NS-enabled clusters it returns
+// [namespace.home_node] so every shard pins to that one node.
 func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
 		return h.schemaManager.StorageCandidates(), nil
@@ -287,8 +280,6 @@ func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if !ok {
 		return nil, fmt.Errorf("namespace %q not found", ns)
 	}
-	// Primary() reads the single enforced HomeNodes entry; the controller
-	// rejects len != 1 on create/update.
 	homeNode := got.Primary()
 	if homeNode == "" {
 		return nil, fmt.Errorf("namespace %q has no home_node; refusing placement", ns)

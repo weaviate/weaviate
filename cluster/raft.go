@@ -35,11 +35,9 @@ type Raft struct {
 	log          *logrus.Logger
 
 	// homeNodeIterator persists across AddNamespace calls so home-node
-	// selection rotates through the cluster instead of biasing to whichever
-	// node the iterator picks first. Constructed lazily on the first call
-	// that needs to allocate a home node, and rebuilt whenever the storage
-	// candidate set changes (e.g. after a node join/leave) so newly added
-	// nodes become eligible and removed nodes drop out.
+	// selection rotates through the cluster. Built lazily and rebuilt
+	// whenever the candidate set changes (node join/leave) so newly added
+	// nodes become eligible and removed ones drop out.
 	homeNodeIteratorMu sync.Mutex
 	homeNodeIterator   *cluster.NodeIterator
 	homeNodeCandidates []string

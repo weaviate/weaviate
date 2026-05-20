@@ -112,15 +112,11 @@ func NewController(logger logrus.FieldLogger) *Controller {
 }
 
 // Create inserts a namespace in the [cmd.NamespaceStateActive] state; the
-// input's State is ignored. Returns [ErrBadRequest] for invalid names or a
-// HomeNodes slice whose length isn't exactly 1, [ErrAlreadyExists] when the
-// name maps to an active namespace, and [ErrNamespaceDeleting] when the
-// name is currently being torn down. The HomeNodes check here is defense
-// in depth; the REST/RAFT request paths populate the slice before propose.
-//
-// The len==1 invariant is what every downstream consumer (placement,
-// object-limit counter, REST response shaping) relies on. Loosening it
-// requires updating those readers in lockstep.
+// input's State is ignored. HomeNodes must contain exactly one non-empty
+// entry — downstream placement and counters rely on that invariant.
+// Returns [ErrBadRequest] for invalid names or HomeNodes,
+// [ErrAlreadyExists] when the name maps to an active namespace, and
+// [ErrNamespaceDeleting] when the name is currently being torn down.
 func (c *Controller) Create(ns cmd.Namespace) error {
 	if err := ValidateName(ns.Name); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
@@ -144,13 +140,11 @@ func (c *Controller) Create(ns cmd.Namespace) error {
 	return nil
 }
 
-// Update overwrites the stored HomeNodes for an existing namespace. Returns
-// [ErrBadRequest] when HomeNodes does not contain exactly one entry,
+// Update overwrites the stored HomeNodes for an existing namespace.
+// HomeNodes must contain exactly one non-empty entry; Name and State are
+// immutable here. Returns [ErrBadRequest] for an invalid HomeNodes,
 // [ErrNotFound] when the namespace does not exist, and
-// [ErrNamespaceDeleting] when the namespace is being torn down (the new
-// home_node would point at a target that has nothing left to place into).
-// Only HomeNodes is mutable through this path; callers cannot use Update
-// to change Name or State.
+// [ErrNamespaceDeleting] when the namespace is being torn down.
 func (c *Controller) Update(ns cmd.Namespace) error {
 	if len(ns.HomeNodes) != 1 || ns.HomeNodes[0] == "" {
 		return fmt.Errorf("%w: home_nodes must contain exactly 1 non-empty entry", ErrBadRequest)
@@ -266,9 +260,8 @@ func (c *Controller) Exists(name string) bool {
 	return ok
 }
 
-// GetNamespace returns the namespace by name. ok is false when the
-// namespace does not exist. ns is a snapshot copy; mutating it does not
-// affect controller state.
+// GetNamespace returns a snapshot copy of the namespace by name. ok is
+// false when the namespace does not exist.
 func (c *Controller) GetNamespace(name string) (ns cmd.Namespace, ok bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -319,12 +312,8 @@ func (c *Controller) Snapshot() ([]byte, error) {
 // are tolerated. Entries with empty State are normalized to
 // [cmd.NamespaceStateActive]; entries with an unknown State return an
 // error so a future binary's snapshot is not silently mis-classified.
-//
-// Restore enforces the same len(HomeNodes)==1 invariant as Create/Update:
-// entries without a HomeNode are rejected outright rather than loaded into
-// a broken state where downstream placement would fail lazily. Namespaces
-// are a new-cluster-only POC, so a snapshot lacking HomeNodes is a
-// migration error, not something to paper over.
+// Entries missing the single HomeNodes entry are also rejected — there is
+// no migration path from a pre-HomeNodes snapshot.
 func (c *Controller) Restore(snapshot []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

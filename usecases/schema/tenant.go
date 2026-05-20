@@ -201,11 +201,9 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		return nil, err
 	}
 
-	// The apply side only consumes ClusterNodes when an UPDATE actually
-	// changes shard placement — i.e. unfreeze. Pinning to [home_node] here
-	// makes the unfreezing tenant land back on the namespace's home_node
-	// instead of being spread across the cluster, while other status
-	// transitions (HOT↔COLD, …) ignore the candidate list and stay no-ops.
+	// ClusterNodes is only consulted on unfreeze. Pinning to [home_node]
+	// makes the unfrozen tenant land back on its namespace's home_node;
+	// HOT↔COLD ignore the list and stay no-ops.
 	candidates, err := h.namespaceCandidates(class)
 	if err != nil {
 		return nil, err

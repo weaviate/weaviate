@@ -152,9 +152,8 @@ type errorListRow struct {
 }
 
 // Marshal emits a JSON string per plain error and an errorListRow per
-// *LimitExceededError so the receiver can read Limit/Value back.
-//
-// A pre-existing node panics on an object row (its Unmarshal asserts
+// *LimitExceededError so the receiver can read Limit/Value back. A
+// pre-existing node panics on an object row (its Unmarshal asserts
 // string), so a forwarded batch hitting MAXIMUM_ALLOWED_OBJECTS_COUNT
 // mid-upgrade will trip an older peer.
 func (e errorListPayload) Marshal(in []error) ([]byte, error) {
