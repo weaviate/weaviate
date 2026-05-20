@@ -115,6 +115,12 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
+	for _, prop := range cls.Properties {
+		if err := schema.ValidateReservedPropertyNameSuffix(prop.Name); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
