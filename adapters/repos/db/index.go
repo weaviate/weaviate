@@ -521,14 +521,20 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		if shard.activityStatus != models.TenantActivityStatusHOT {
 			continue
 		}
-		hotShardNames = append(hotShardNames, shard.name)
 		shardName := shard.name
 
 		// SELF_RECOVERY: if dir is missing and feature is on, hand off
-		// to the orchestrator instead of creating an empty shard.
+		// to the orchestrator instead of creating an empty shard. The
+		// RecoveringShard wrapper installed in i.shards is promoted by
+		// the orchestrator (handleEmptyFallback's onRecoveryComplete)
+		// or by the replication consumer (after op READY); the lazy-
+		// load background pass below must NOT enroll it, otherwise
+		// loadLocalShardIfActive would call wrapper.Load and create an
+		// empty live <shard>/ dir mid-copy, dooming the rename.
 		if i.recoverShardFromPeerIfNeeded(ctx, class, shardName, promMetrics) {
 			continue
 		}
+		hotShardNames = append(hotShardNames, shardName)
 
 		eg.Go(func() error {
 			switch {
