@@ -1126,10 +1126,10 @@ func (o *Orchestrator) Close(ctx context.Context) error {
 	o.shutdownCancel()
 
 	done := make(chan struct{})
-	go func() {
+	enterrors.GoWrapper(func() {
 		o.workerWg.Wait()
 		close(done)
-	}()
+	}, o.logger)
 	select {
 	case <-done:
 		return nil
