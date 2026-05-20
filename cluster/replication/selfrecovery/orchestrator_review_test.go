@@ -133,11 +133,14 @@ func TestClose_BeforeAnySubmit(t *testing.T) {
 	require.False(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
 }
 
-// TestClose_CancelsInFlightWork: Close cancels the shutdown ctx so
-// long-running workers (e.g. blocked in a slow probe) observe
-// cancellation and bail.
-func TestClose_CancelsInFlightWork(t *testing.T) {
+// TestClose_SurfacesDeadlineWhenWorkerStuck: when a worker is
+// genuinely stuck in a non-ctx-aware blocking call, Close honours the
+// caller's deadline by returning ctx.Err() rather than waiting
+// indefinitely. (The shutdown ctx is still cancelled so the worker
+// will exit if/when it ever observes cancellation.)
+func TestClose_SurfacesDeadlineWhenWorkerStuck(t *testing.T) {
 	block := make(chan struct{})
+	probeCalled := make(chan struct{}, 1)
 	t.Cleanup(func() { close(block) })
 
 	ns := &stubNodeSelector{
@@ -151,8 +154,14 @@ func TestClose_CancelsInFlightWork(t *testing.T) {
 		NodeSelector: ns,
 		NodeName:     "self",
 		Enabled:      true,
-		// ClientFactory blocks until released — simulates a slow peer.
+		// ClientFactory signals on first entry, then blocks until
+		// released — simulates a peer probe that ignores ctx and
+		// won't return promptly when shutdownCtx is cancelled.
 		ClientFactory: func(_ context.Context, _ string) (copier.FileReplicationServiceClient, error) {
+			select {
+			case probeCalled <- struct{}{}:
+			default:
+			}
 			<-block
 			return nil, errors.New("released")
 		},
@@ -162,10 +171,17 @@ func TestClose_CancelsInFlightWork(t *testing.T) {
 	})
 	require.True(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
 
-	// Close with a short deadline — worker is blocked, Close returns the
-	// deadline error but the shutdown ctx cancellation propagates so the
-	// worker will exit when block is released by the cleanup.
-	closeCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	// Wait until the worker is genuinely inside the blocking factory
+	// call. Without this, Close races the worker's path from queue-
+	// dequeue → probe-dispatch and may observe a clean exit before the
+	// stuck call is reached.
+	select {
+	case <-probeCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker never reached the blocking ClientFactory")
+	}
+
+	closeCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	err := o.Close(closeCtx)
 	require.ErrorIs(t, err, context.DeadlineExceeded,
