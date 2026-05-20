@@ -30,10 +30,18 @@ import (
 // to use the namespace immediately on return.
 func CreateNamespace(t *testing.T, name, key string) *models.Namespace {
 	t.Helper()
-	resp, err := Client(t).Namespaces.CreateNamespace(
-		namespaces.NewCreateNamespaceParams().WithNamespaceID(name),
-		CreateAuth(key),
-	)
+	return CreateNamespaceWithHomeNode(t, name, "", key)
+}
+
+// CreateNamespaceWithHomeNode creates a namespace pinned to homeNode. When
+// homeNode is empty, the cluster picks one automatically.
+func CreateNamespaceWithHomeNode(t *testing.T, name, homeNode, key string) *models.Namespace {
+	t.Helper()
+	params := namespaces.NewCreateNamespaceParams().WithNamespaceID(name)
+	if homeNode != "" {
+		params = params.WithBody(&models.NamespaceCreateRequest{HomeNode: homeNode})
+	}
+	resp, err := Client(t).Namespaces.CreateNamespace(params, CreateAuth(key))
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Payload)
@@ -46,6 +54,22 @@ func CreateNamespace(t *testing.T, name, key string) *models.Namespace {
 		assert.NoError(c, err)
 	}, 10*time.Second, 50*time.Millisecond, "namespace %q not visible after create", name)
 
+	return resp.Payload
+}
+
+// UpdateNamespace updates the namespace's home_node to the supplied value.
+// Returns the server's view of the namespace after the update.
+func UpdateNamespace(t *testing.T, name, homeNode, key string) *models.Namespace {
+	t.Helper()
+	resp, err := Client(t).Namespaces.UpdateNamespace(
+		namespaces.NewUpdateNamespaceParams().
+			WithNamespaceID(name).
+			WithBody(&models.NamespaceUpdateRequest{HomeNode: &homeNode}),
+		CreateAuth(key),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
 	return resp.Payload
 }
 

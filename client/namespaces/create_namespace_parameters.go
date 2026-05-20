@@ -25,6 +25,8 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // NewCreateNamespaceParams creates a new CreateNamespaceParams object,
@@ -71,6 +73,12 @@ CreateNamespaceParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type CreateNamespaceParams struct {
+
+	/* Body.
+
+	   Optional body. When omitted, `home_node` is picked automatically.
+	*/
+	Body *models.NamespaceCreateRequest
 
 	/* NamespaceID.
 
@@ -131,6 +139,17 @@ func (o *CreateNamespaceParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithBody adds the body to the create namespace params
+func (o *CreateNamespaceParams) WithBody(body *models.NamespaceCreateRequest) *CreateNamespaceParams {
+	o.SetBody(body)
+	return o
+}
+
+// SetBody adds the body to the create namespace params
+func (o *CreateNamespaceParams) SetBody(body *models.NamespaceCreateRequest) {
+	o.Body = body
+}
+
 // WithNamespaceID adds the namespaceID to the create namespace params
 func (o *CreateNamespaceParams) WithNamespaceID(namespaceID string) *CreateNamespaceParams {
 	o.SetNamespaceID(namespaceID)
@@ -149,6 +168,11 @@ func (o *CreateNamespaceParams) WriteToRequest(r runtime.ClientRequest, reg strf
 		return err
 	}
 	var res []error
+	if o.Body != nil {
+		if err := r.SetBodyParam(o.Body); err != nil {
+			return err
+		}
+	}
 
 	// path param namespace_id
 	if err := r.SetPathParam("namespace_id", o.NamespaceID); err != nil {

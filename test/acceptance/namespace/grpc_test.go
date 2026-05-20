@@ -708,26 +708,32 @@ func TestNamespaces_GRPC(t *testing.T) {
 	})
 }
 
-// TestNamespaces_GRPC_MultiShardAggregate spreads a namespaced class across
-// every node in the 3-node cluster and asserts that count(*) fan-out
-// returns the right number. With shards on remote nodes the gRPC entry
-// point cannot answer count locally and must hop the cluster-API
-// /indices/<ns>:<class>/shards/<sh>/objects/_count route.
-func TestNamespaces_GRPC_MultiShardAggregate(t *testing.T) {
-	user1Key, _ := twoNamespaces(t)
+// TestNamespaces_GRPC_RemoteShardAggregate exercises the count(*) fan-out
+// hop when the namespace's home_node differs from the gRPC entry node.
+// The namespace is pinned to a node that is provably not the gRPC entry
+// (GetWeaviate() returns weaviate-0) so the hop is exercised every run.
+func TestNamespaces_GRPC_RemoteShardAggregate(t *testing.T) {
+	const (
+		ns       = "remoteshardns"
+		homeNode = "weaviate-2"
+	)
+	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
+
+	user1Key := createNamespacedUser(t, "u1", ns, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
 
 	grpcClient, conn := newGrpcClient(t)
 	defer conn.Close()
 
-	const class = "MoviesGRPCMultiShard"
+	const class = "MoviesGRPCRemoteShard"
 	helper.CreateClassAuth(t, &models.Class{
 		Class: class,
 		Properties: []*models.Property{
 			{Name: "title", DataType: []string{"text"}},
 		},
-		ShardingConfig: map[string]any{"desiredCount": 3},
 	}, user1Key)
-	t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+	t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":"+class, adminKey) })
 
 	const objCount = 12
 	objects := make([]*pb.BatchObject, 0, objCount)

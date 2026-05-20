@@ -14,18 +14,57 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	clusterUtils "github.com/weaviate/weaviate/usecases/cluster"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
-// AddNamespace proposes an AddNamespace RAFT command and returns the apply
-// version. The apply side rejects duplicates with
-// [namespaces.ErrAlreadyExists] and invalid names with
-// [namespaces.ErrBadRequest]. Callers that need a follow-up local read on
-// a non-leader node should pass the returned version to WaitForUpdate.
-func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
+// AddNamespace proposes an AddNamespace RAFT command and returns the
+// persisted namespace alongside the apply version. An empty ns.HomeNodes
+// is filled from the cluster's storage candidates before propose. The
+// apply side rejects duplicates with [namespaces.ErrAlreadyExists] and
+// invalid names with [namespaces.ErrBadRequest]. Callers that need a
+// follow-up local read on a non-leader node should pass the returned
+// version to WaitForUpdate.
+func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespace, uint64, error) {
+	if len(ns.HomeNodes) == 0 {
+		picked, err := s.nextHomeNode(s.StorageCandidates())
+		if err != nil {
+			return cmd.Namespace{}, 0, fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+		}
+		ns.HomeNodes = []string{picked}
+	}
+
 	req := cmd.AddNamespaceRequest{
+		Namespace: ns,
+		Version:   cmd.NamespaceLatestCommandPolicyVersion,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return cmd.Namespace{}, 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_ADD_NAMESPACE,
+		SubCommand: subCommand,
+	}
+	version, err := s.Execute(ctx, command)
+	if err != nil {
+		return cmd.Namespace{}, 0, err
+	}
+	return ns, version, nil
+}
+
+// UpdateNamespace proposes an UpdateNamespace RAFT command and returns the
+// apply version. The apply side returns [namespaces.ErrNotFound] when the
+// target namespace does not exist, and [namespaces.ErrBadRequest] when
+// HomeNodes does not contain exactly one entry. Only HomeNodes is mutable;
+// existing live shards are not moved.
+func (s *Raft) UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error) {
+	req := cmd.UpdateNamespaceRequest{
 		Namespace: ns,
 		Version:   cmd.NamespaceLatestCommandPolicyVersion,
 	}
@@ -34,7 +73,7 @@ func (s *Raft) AddNamespace(ctx context.Context, ns cmd.Namespace) (uint64, erro
 		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
-		Type:       cmd.ApplyRequest_TYPE_ADD_NAMESPACE,
+		Type:       cmd.ApplyRequest_TYPE_UPDATE_NAMESPACE,
 		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
@@ -79,4 +118,33 @@ func (s *Raft) RemoveNamespaceEntity(ctx context.Context, name string) (uint64, 
 		SubCommand: subCommand,
 	}
 	return s.Execute(ctx, command)
+}
+
+// nextHomeNode picks the next home_node from nodes, rotating across calls.
+// Lazy StartRandom avoids biasing cold starts to nodes[0]; the iterator is
+// rebuilt whenever the candidate set changes, otherwise membership churn
+// would leave it rotating through a stale set. Inputs are sorted first
+// because StorageCandidates can hand back an unsorted memberlist slice on
+// the MetaVoterOnly fallback — without normalisation the cache key would
+// flip on every call and discard the rotation state.
+func (s *Raft) nextHomeNode(nodes []string) (string, error) {
+	if len(nodes) == 0 {
+		return "", errors.New("no storage candidates available")
+	}
+
+	sorted := slices.Clone(nodes)
+	slices.Sort(sorted)
+
+	s.homeNodeIteratorMu.Lock()
+	defer s.homeNodeIteratorMu.Unlock()
+
+	if s.homeNodeIterator == nil || !slices.Equal(s.homeNodeCandidates, sorted) {
+		it, err := clusterUtils.NewNodeIterator(sorted, clusterUtils.StartRandom)
+		if err != nil {
+			return "", err
+		}
+		s.homeNodeIterator = it
+		s.homeNodeCandidates = sorted
+	}
+	return s.homeNodeIterator.Next(), nil
 }

@@ -18,8 +18,8 @@ import (
 
 // newUsageLimitPayload converts a *usagelimits.LimitExceededError into the
 // generated *models.UsageLimitExceededResponse used as the body of every
-// HTTP 429 response in the four affected create endpoints (single object,
-// batch objects, class create, tenant create).
+// HTTP 429 response in the affected write endpoints (single object create
+// and replace, batch objects, class create, tenant create).
 //
 // The structured fields (`errorCode`, `limit`, `value`) are stable wire
 // contract; the `message` is rendered from the operator-overridable

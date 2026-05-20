@@ -20,11 +20,13 @@ import (
 )
 
 type fakeObjectCounter struct {
-	count int64
-	err   error
+	count        int64
+	err          error
+	gotNamespace string
 }
 
-func (f *fakeObjectCounter) LocalObjectCount(_ context.Context) (int64, error) {
+func (f *fakeObjectCounter) LocalObjectCount(_ context.Context, namespace string) (int64, error) {
+	f.gotNamespace = namespace
 	return f.count, f.err
 }
 
@@ -51,7 +53,7 @@ func TestManager_CheckObjects(t *testing.T) {
 				ErrorMessage:    runtime.NewDynamicValue(""),
 			}, &fakeObjectCounter{count: tt.current})
 
-			err := m.CheckObjects(context.Background(), tt.add)
+			err := m.CheckObjects(context.Background(), tt.add, "")
 			limErr, ok := AsLimitExceeded(err)
 			if tt.wantHit {
 				if !ok {
@@ -81,7 +83,7 @@ func TestManager_CheckObjects_LoudOnMisconfig(t *testing.T) {
 		ErrorMessage:    runtime.NewDynamicValue(""),
 	}, nil)
 
-	err := m.CheckObjects(context.Background(), 1)
+	err := m.CheckObjects(context.Background(), 1, "")
 	if err == nil {
 		t.Fatal("expected error when limit set but counter is nil")
 	}
@@ -96,7 +98,7 @@ func TestManager_CheckObjects_CounterError(t *testing.T) {
 		ErrorMessage:    runtime.NewDynamicValue(""),
 	}, &fakeObjectCounter{err: errors.New("disk on fire")})
 
-	err := m.CheckObjects(context.Background(), 1)
+	err := m.CheckObjects(context.Background(), 1, "")
 	if err == nil {
 		t.Fatal("expected counter error to propagate")
 	}
@@ -109,15 +111,46 @@ func TestManager_UnlimitedByDefault(t *testing.T) {
 	// nil DynamicValue → unlimited; nil counter is fine because we never
 	// reach it.
 	m := NewManager(Config{ErrorMessage: runtime.NewDynamicValue("")}, nil)
-	if err := m.CheckObjects(context.Background(), 1_000_000); err != nil {
+	if err := m.CheckObjects(context.Background(), 1_000_000, ""); err != nil {
 		t.Errorf("expected unlimited objects, got %v", err)
 	}
 }
 
 func TestManager_NilManagerIsSafe(t *testing.T) {
 	var m *Manager
-	if err := m.CheckObjects(context.Background(), 1); err != nil {
+	if err := m.CheckObjects(context.Background(), 1, ""); err != nil {
 		t.Errorf("nil manager CheckObjects should be safe, got %v", err)
+	}
+}
+
+func TestManager_CheckObjects_ForwardsNamespace(t *testing.T) {
+	// The cap is applied per-namespace: CheckObjects extracts the namespace
+	// from the qualified class name and forwards it to the counter so the
+	// right slice of indices is summed.
+	tests := []struct {
+		name          string
+		className     string
+		wantNamespace string
+	}{
+		{name: "qualified class name", className: "tenant-a:Movies", wantNamespace: "tenant-a"},
+		{name: "plain class name", className: "Movies", wantNamespace: ""},
+		{name: "empty class name", className: "", wantNamespace: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			counter := &fakeObjectCounter{count: 5}
+			m := NewManager(Config{
+				MaxObjectsCount: runtime.NewDynamicValue(10),
+				ErrorMessage:    runtime.NewDynamicValue(""),
+			}, counter)
+
+			if err := m.CheckObjects(context.Background(), 1, tt.className); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if counter.gotNamespace != tt.wantNamespace {
+				t.Errorf("counter saw namespace %q, want %q", counter.gotNamespace, tt.wantNamespace)
+			}
+		})
 	}
 }
 
@@ -127,7 +160,7 @@ func TestManager_RenderedMessageUsesTemplate(t *testing.T) {
 		ErrorMessage:    runtime.NewDynamicValue("hit limit of {value} {limit}, upgrade at https://x"),
 	}, &fakeObjectCounter{count: 10})
 
-	err := m.CheckObjects(context.Background(), 1)
+	err := m.CheckObjects(context.Background(), 1, "")
 	limErr, ok := AsLimitExceeded(err)
 	if !ok {
 		t.Fatalf("expected limit exceeded, got %v", err)

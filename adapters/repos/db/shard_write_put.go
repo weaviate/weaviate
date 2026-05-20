@@ -35,7 +35,7 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
-	if err := s.index.usageLimits.CheckObjects(ctx, 1); err != nil {
+	if err := s.index.usageLimits.CheckObjects(ctx, 1, s.index.Config.ClassName.String()); err != nil {
 		return err
 	}
 	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()

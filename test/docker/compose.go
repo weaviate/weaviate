@@ -1084,6 +1084,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if d.withWeaviateNamespaces {
 		settings["NAMESPACES_ENABLED"] = "true"
 		settings["DISABLE_GRAPHQL"] = "true"
+		// Namespaces pin each namespace's shards to a single home_node;
+		// the startup invariant rejects RF>1 because the home_node would
+		// silently disagree with the configured replication.
+		settings["REPLICATION_MAXIMUM_FACTOR"] = "1"
 		// Tight cleanup tick for acceptance: deletion tests poll for the
 		// 404 that arrives once the leader has finished tearing down the
 		// namespace's classes, aliases, and users.

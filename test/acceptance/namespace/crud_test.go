@@ -13,7 +13,9 @@ package namespace
 
 import (
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -103,6 +105,88 @@ func TestNamespaces_CreateInvalid_UnprocessableEntity(t *testing.T) {
 			require.True(t, errors.As(err, &unproc), "expected CreateNamespaceUnprocessableEntity for %q, got %T: %v", tt.candidate, err, err)
 		})
 	}
+}
+
+// TestNamespaces_UpdateHomeNode updates a namespace's home_node and asserts
+// (a) Get returns the new value, (b) the existing collection's shard stays
+// on the original node, and (c) a subsequently created collection lands on
+// the new home_node.
+func TestNamespaces_UpdateHomeNode(t *testing.T) {
+	const (
+		ns    = "updatehomenode"
+		nodeA = "weaviate-0"
+		nodeB = "weaviate-2"
+	)
+
+	created := helper.CreateNamespaceWithHomeNode(t, ns, nodeA, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
+	require.Equal(t, nodeA, created.HomeNode)
+
+	userKey := createNamespacedUser(t, "u1", ns, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
+
+	helper.CreateClassAuth(t, &models.Class{Class: "ClassA"}, userKey)
+	t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":ClassA", adminKey) })
+
+	updated := helper.UpdateNamespace(t, ns, nodeB, adminKey)
+	assert.Equal(t, nodeB, updated.HomeNode)
+	assert.Equal(t, nodeB, helper.GetNamespace(t, ns, adminKey).HomeNode)
+
+	t.Run("existing shard stays on original home_node", func(t *testing.T) {
+		// CreateClass / UpdateNamespace block on leader apply but the
+		// admin's follower can be briefly behind on /nodes; poll until
+		// the original shard is visible on nodeA.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			home, other := homeNodeShards(t, ns+":ClassA", nodeA, adminKey)
+			assert.Len(c, home, 1)
+			assert.Zero(c, other, "ClassA shard must not have moved off %s", nodeA)
+		}, 30*time.Second, 500*time.Millisecond, "ClassA shard never settled on %s", nodeA)
+	})
+
+	t.Run("new shard lands on updated home_node", func(t *testing.T) {
+		// GetNamespace routes through the leader and reports the new
+		// home_node immediately, so it can't tell us whether *this*
+		// node's controller has caught up — and that's the one placement
+		// reads from. Probe via class creation (the same code path) with
+		// fresh names per try, dropping any that land on the old node.
+		var probeName string
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			probeName = fmt.Sprintf("ClassB_%d", time.Now().UnixNano())
+			if _, err := helper.CreateClassAuthWithReturn(t, &models.Class{Class: probeName}, userKey); !assert.NoError(c, err) {
+				return
+			}
+			home, other := homeNodeShards(t, ns+":"+probeName, nodeB, adminKey)
+			if len(home) != 1 || other != 0 {
+				helper.DeleteClassAuth(t, ns+":"+probeName, adminKey)
+				assert.Failf(c, "wrong placement", "home=%d other=%d", len(home), other)
+				return
+			}
+		}, 30*time.Second, 500*time.Millisecond, "no class landed on %s after home_node update", nodeB)
+		t.Cleanup(func() {
+			if probeName != "" {
+				helper.DeleteClassAuth(t, ns+":"+probeName, adminKey)
+			}
+		})
+	})
+}
+
+// TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_node with 422.
+func TestNamespaces_UpdateHomeNode_Invalid(t *testing.T) {
+	const name = "updatehomenodeinvalid"
+
+	helper.CreateNamespace(t, name, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, name, adminKey) })
+
+	homeNode := "not-a-real-node"
+	_, err := helper.Client(t).Namespaces.UpdateNamespace(
+		namespaces.NewUpdateNamespaceParams().
+			WithNamespaceID(name).
+			WithBody(&models.NamespaceUpdateRequest{HomeNode: &homeNode}),
+		helper.CreateAuth(adminKey),
+	)
+	require.Error(t, err)
+	var unproc *namespaces.UpdateNamespaceUnprocessableEntity
+	require.True(t, errors.As(err, &unproc), "expected UpdateNamespaceUnprocessableEntity, got %T: %v", err, err)
 }
 
 // namespaceNames extracts the Name field from a slice of *Namespace models,

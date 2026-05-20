@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -32,6 +33,14 @@ type Raft struct {
 	store        *Store
 	cl           client
 	log          *logrus.Logger
+
+	// homeNodeIterator persists across AddNamespace calls so home-node
+	// selection rotates through the cluster. Built lazily and rebuilt
+	// whenever the candidate set changes (node join/leave) so newly added
+	// nodes become eligible and removed ones drop out.
+	homeNodeIteratorMu sync.Mutex
+	homeNodeIterator   *cluster.NodeIterator
+	homeNodeCandidates []string
 }
 
 // client to communicate with remote services

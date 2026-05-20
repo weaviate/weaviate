@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -210,6 +211,7 @@ func NewManager(validator validator,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
+	namespacesExister namespaces.Exister,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -219,6 +221,7 @@ func NewManager(validator validator,
 		schemaConfig,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
+		namespacesExister,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)

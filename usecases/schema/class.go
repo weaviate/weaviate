@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -158,6 +159,16 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	}
 	// migrate only after validation in completed
 	h.migrateClassSettings(cls)
+
+	// Reject explicit desiredCount != 1 before ParseClass replaces the raw
+	// map — once parsed we can't distinguish user-asked-for-3 from the
+	// NodeCount default.
+	if h.config.Namespaces.Enabled {
+		if err := rejectExplicitMultiShardOnNamespacedClass(cls.ShardingConfig); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	if err := h.parser.ParseClass(cls); err != nil {
 		return nil, 0, err
 	}
@@ -185,16 +196,32 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
 	}
 
+	candidates, err := h.namespaceCandidates(cls.Class)
+	if err != nil {
+		return nil, 0, err
+	}
+	shardingCfg := cls.ShardingConfig.(shardingcfg.Config)
+	if h.config.Namespaces.Enabled && !schema.MultiTenancyEnabled(cls) {
+		// Cap shard count to the candidate list; otherwise the parser's
+		// nodeCount default would have initPhysical place duplicate shards
+		// on the single home_node.
+		shardingCfg.DesiredCount = len(candidates)
+		shardingCfg.DesiredVirtualCount = shardingCfg.DesiredCount * shardingCfg.VirtualPerPhysical
+		shardingCfg.ActualCount = shardingCfg.DesiredCount
+		shardingCfg.ActualVirtualCount = shardingCfg.DesiredVirtualCount
+		cls.ShardingConfig = shardingCfg
+	}
+
 	// Per-collection shard cap. Config-time check only — shard count comes
-	// straight from the create request, no live state to consult.
-	// Multi-tenant collections set DesiredCount=0 (shards are created
-	// per-tenant on demand) so the cap is naturally satisfied for those;
-	// the check meaningfully constrains single-tenant configurations only.
+	// straight from the (post-namespace-override) DesiredCount, no live
+	// state to consult. Multi-tenant collections set DesiredCount=0 (shards
+	// are created per-tenant on demand) so the cap is naturally satisfied
+	// for those; the check meaningfully constrains single-tenant
+	// configurations only.
 	if dv := h.config.UsageLimits.MaxShardsPerCollection; dv != nil {
 		shardCap := dv.Get()
 		if shardCap >= 0 {
-			requested := cls.ShardingConfig.(shardingcfg.Config).DesiredCount
-			if requested > shardCap {
+			if shardingCfg.DesiredCount > shardCap {
 				return nil, 0, usagelimits.NewLimitExceededError(
 					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
 			}
@@ -202,8 +229,8 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
-		cls.ShardingConfig.(shardingcfg.Config),
-		h.clusterState.LocalName(), h.schemaManager.StorageCandidates(), cls.ReplicationConfig.Factor,
+		shardingCfg,
+		h.clusterState.LocalName(), candidates, cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "init sharding state")
@@ -217,6 +244,51 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	return cls, version, err
+}
+
+// rejectExplicitMultiShardOnNamespacedClass rejects an explicit
+// desiredCount != 1. ParseConfig with nodeCount=1 folds default and
+// explicit-1 together; anything else came from the user. Parse errors
+// fall through to parser.ParseClass below.
+func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
+	if _, ok := shardingConfig.(map[string]interface{}); !ok {
+		return nil
+	}
+	cfg, err := shardingcfg.ParseConfig(shardingConfig, 1)
+	if err != nil {
+		return nil
+	}
+	if cfg.DesiredCount != 1 {
+		return fmt.Errorf("desiredCount is limited to 1 (got %d)", cfg.DesiredCount)
+	}
+	return nil
+}
+
+// namespaceCandidates returns the storage-candidate list for placing
+// qualifiedClass's shards. On NS-disabled clusters it returns the full
+// cluster candidates; on NS-enabled clusters it returns
+// [namespace.home_node] so every shard pins to that one node.
+func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
+	if !h.config.Namespaces.Enabled {
+		return h.schemaManager.StorageCandidates(), nil
+	}
+	ns := namespacing.NamespaceFromQualified(qualifiedClass)
+	if ns == "" {
+		return nil, fmt.Errorf("expected namespace-qualified class name, got %q", qualifiedClass)
+	}
+	got, ok := h.namespacesExister.GetNamespace(ns)
+	if !ok {
+		return nil, fmt.Errorf("namespace %q not found", ns)
+	}
+	homeNode := got.Primary()
+	if homeNode == "" {
+		return nil, fmt.Errorf("namespace %q has no home_node; refusing placement", ns)
+	}
+	candidates := h.schemaManager.StorageCandidates()
+	if !slices.Contains(candidates, homeNode) {
+		return nil, fmt.Errorf("namespace %q home_node %q is not a current storage candidate", ns, homeNode)
+	}
+	return []string{homeNode}, nil
 }
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {

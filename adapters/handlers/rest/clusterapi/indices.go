@@ -44,7 +44,26 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
+
+// writeUsageLimitExceeded responds with 429 and a JSON body the peer
+// parses back into a *LimitExceededError.
+func writeUsageLimitExceeded(w http.ResponseWriter, le *usagelimits.LimitExceededError) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(struct {
+		ErrorCode string `json:"errorCode"`
+		Limit     string `json:"limit"`
+		Value     int64  `json:"value"`
+		Message   string `json:"message"`
+	}{
+		ErrorCode: usagelimits.ErrorCode,
+		Limit:     string(le.Limit),
+		Value:     le.Value,
+		Message:   le.Error(),
+	})
+}
 
 type indices struct {
 	shards shards
@@ -483,6 +502,10 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 	}
 
 	if err := i.shards.PutObject(r.Context(), index, shard, obj, schemaVersion); err != nil {
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			writeUsageLimitExceeded(w, le)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

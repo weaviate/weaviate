@@ -76,6 +76,7 @@ message ApplyRequest {
     TYPE_DELETE_USERS_IN_NAMESPACE = 91;
     TYPE_CHANGE_NAMESPACE_STATE = 92;
     TYPE_REMOVE_NAMESPACE_ENTITY = 93;
+    TYPE_UPDATE_NAMESPACE = 94;
 
     // originally was rolling back schema before raft
     reserved 99;

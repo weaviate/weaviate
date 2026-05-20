@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -180,6 +181,10 @@ type Handler struct {
 	parser      Parser
 	classGetter *ClassGetter
 
+	// namespacesExister resolves a namespace name to its entity (HomeNode)
+	// for placement; unused on NS-disabled clusters.
+	namespacesExister namespaces.Exister
+
 	asyncIndexingEnabled bool
 }
 
@@ -205,6 +210,7 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser, classGetter *ClassGetter,
+	namespacesExister namespaces.Exister,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -222,6 +228,7 @@ func NewHandler(
 		clusterState:            clusterState,
 		cloud:                   cloud,
 		classGetter:             classGetter,
+		namespacesExister:       namespacesExister,
 
 		asyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}

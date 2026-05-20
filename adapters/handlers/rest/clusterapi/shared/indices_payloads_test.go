@@ -14,6 +14,8 @@ package shared
 import (
 	"encoding/binary"
 	"encoding/json"
+	stderrors "errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -29,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func Test_objectListPayload_Marshal(t *testing.T) {
@@ -644,4 +647,78 @@ func TestVersionedObjectListPayloadV2LargeList(t *testing.T) {
 		assert.Equalf(t, input[idx].Version, got[idx].Version, "version mismatch at index %d", idx)
 		assert.Equalf(t, input[idx].Vector, got[idx].Vector, "vector mismatch at index %d", idx)
 	}
+}
+
+// TestErrorListPayload_RoundTrip covers both row encodings: plain errors
+// round-trip as strings, *LimitExceededError keeps Limit and Value.
+func TestErrorListPayload_RoundTrip(t *testing.T) {
+	le := &usagelimits.LimitExceededError{
+		Limit:           usagelimits.LimitObjects,
+		Value:           10,
+		RenderedMessage: "hit cap",
+	}
+	in := []error{
+		nil,
+		stderrors.New("plain error"),
+		le,
+		fmt.Errorf("wrapped: %w", le),
+	}
+
+	body, err := IndicesPayloads.ErrorList.Marshal(in)
+	require.NoError(t, err)
+
+	got := IndicesPayloads.ErrorList.Unmarshal(body)
+	require.Len(t, got, len(in))
+	assert.Nil(t, got[0], "nil slot must remain nil after round-trip")
+
+	require.Error(t, got[1])
+	assert.Equal(t, "plain error", got[1].Error())
+	var le1 *usagelimits.LimitExceededError
+	assert.False(t, stderrors.As(got[1], &le1), "plain error must not become *LimitExceededError")
+
+	require.Error(t, got[2])
+	var le2 *usagelimits.LimitExceededError
+	require.True(t, stderrors.As(got[2], &le2), "row 2 must be a *LimitExceededError")
+	assert.Equal(t, usagelimits.LimitObjects, le2.Limit)
+	assert.Equal(t, int64(10), le2.Value)
+	assert.Equal(t, "hit cap", le2.RenderedMessage)
+
+	require.Error(t, got[3])
+	var le3 *usagelimits.LimitExceededError
+	require.True(t, stderrors.As(got[3], &le3), "wrapped row must be a *LimitExceededError")
+	assert.Equal(t, int64(10), le3.Value)
+}
+
+// TestErrorListPayload_BackwardsCompat: Unmarshal still reads an
+// all-strings payload (the shape an older node sends).
+func TestErrorListPayload_BackwardsCompat(t *testing.T) {
+	legacy := []byte(`[null, "first error", "second error"]`)
+	got := IndicesPayloads.ErrorList.Unmarshal(legacy)
+
+	require.Len(t, got, 3)
+	assert.Nil(t, got[0])
+	require.Error(t, got[1])
+	assert.Equal(t, "first error", got[1].Error())
+	require.Error(t, got[2])
+	assert.Equal(t, "second error", got[2].Error())
+}
+
+// TestErrorListPayload_MixedShape: string rows and object rows can
+// coexist in one payload.
+func TestErrorListPayload_MixedShape(t *testing.T) {
+	in := []error{
+		stderrors.New("first error"),
+		&usagelimits.LimitExceededError{Limit: usagelimits.LimitObjects, Value: 5, RenderedMessage: "cap hit"},
+		stderrors.New("third error"),
+	}
+	body, err := IndicesPayloads.ErrorList.Marshal(in)
+	require.NoError(t, err)
+
+	got := IndicesPayloads.ErrorList.Unmarshal(body)
+	require.Len(t, got, 3)
+	assert.Equal(t, "first error", got[0].Error())
+	var le *usagelimits.LimitExceededError
+	require.True(t, stderrors.As(got[1], &le))
+	assert.Equal(t, int64(5), le.Value)
+	assert.Equal(t, "third error", got[2].Error())
 }

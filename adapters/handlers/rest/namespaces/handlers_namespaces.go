@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
@@ -34,10 +35,12 @@ import (
 // NamespaceRaftGetter is the subset of cluster.Raft the handlers use. Keeping
 // it narrow makes the unit tests easy to mock.
 type NamespaceRaftGetter interface {
-	AddNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error)
+	AddNamespace(ctx context.Context, ns cmd.Namespace) (cmd.Namespace, uint64, error)
+	UpdateNamespace(ctx context.Context, ns cmd.Namespace) (uint64, error)
 	ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
 	DeleteUsersInNamespace(ctx context.Context, name string) error
 	GetNamespaces(names ...string) ([]cmd.Namespace, error)
+	StorageCandidates() []string
 }
 
 type namespaceHandler struct {
@@ -70,6 +73,7 @@ func SetupHandlers(
 	}
 
 	api.NamespacesCreateNamespaceHandler = nsops.CreateNamespaceHandlerFunc(h.createNamespace)
+	api.NamespacesUpdateNamespaceHandler = nsops.UpdateNamespaceHandlerFunc(h.updateNamespace)
 	api.NamespacesDeleteNamespaceHandler = nsops.DeleteNamespaceHandlerFunc(h.deleteNamespace)
 	api.NamespacesGetNamespaceHandler = nsops.GetNamespaceHandlerFunc(h.getNamespace)
 	api.NamespacesListNamespacesHandler = nsops.ListNamespacesHandlerFunc(h.listNamespaces)
@@ -104,11 +108,26 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	// No pre-check for existence: the RAFT apply layer is the single source
-	// of truth for uniqueness, so we translate its error sentinels directly.
-	// This avoids a TOCTOU where two concurrent creates both pass a pre-check
-	// and the loser would surface a misleading 500.
-	if _, err := h.raft.AddNamespace(ctx, cmd.Namespace{Name: name}); err != nil {
+	homeNode := ""
+	if params.Body != nil {
+		homeNode = params.Body.HomeNode
+	}
+	if homeNode != "" && !slices.Contains(h.raft.StorageCandidates(), homeNode) {
+		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("home_node %q is not a current storage candidate", homeNode)))
+	}
+
+	// No pre-check for existence — the RAFT apply layer owns uniqueness, so
+	// we translate its sentinels directly. A pre-check would TOCTOU under
+	// concurrent creates and surface a misleading 500 on the loser. Leave
+	// HomeNodes nil when no home_node was supplied; AddNamespace fills it
+	// from storage candidates.
+	var homeNodes []string
+	if homeNode != "" {
+		homeNodes = []string{homeNode}
+	}
+	created, _, err := h.raft.AddNamespace(ctx, cmd.Namespace{Name: name, HomeNodes: homeNodes})
+	if err != nil {
 		switch {
 		case errors.Is(err, usecasesNamespaces.ErrAlreadyExists):
 			return nsops.NewCreateNamespaceConflict().WithPayload(
@@ -125,8 +144,68 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 	}
 
 	return nsops.NewCreateNamespaceCreated().WithPayload(&models.Namespace{
-		Name:  name,
-		State: string(cmd.NamespaceStateActive),
+		Name:     name,
+		HomeNode: created.Primary(),
+		State:    string(cmd.NamespaceStateActive),
+	})
+}
+
+func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, principal *models.Principal) middleware.Responder {
+	if !h.enabled {
+		return disabledResponder()
+	}
+
+	ctx := params.HTTPRequest.Context()
+	name := params.NamespaceID
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Namespaces(name)...); err != nil {
+		return nsops.NewUpdateNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := usecasesNamespaces.ValidateName(name); err != nil {
+		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	homeNode := ""
+	if params.Body != nil && params.Body.HomeNode != nil {
+		homeNode = *params.Body.HomeNode
+	}
+	if homeNode == "" {
+		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("home_node is required")))
+	}
+	if !slices.Contains(h.raft.StorageCandidates(), homeNode) {
+		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(
+			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("home_node %q is not a current storage candidate", homeNode)))
+	}
+
+	if _, err := h.raft.UpdateNamespace(ctx, cmd.Namespace{Name: name, HomeNodes: []string{homeNode}}); err != nil {
+		switch {
+		case errors.Is(err, usecasesNamespaces.ErrNotFound):
+			return nsops.NewUpdateNamespaceNotFound().WithPayload(
+				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
+		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
+			return nsops.NewUpdateNamespaceConflict().WithPayload(
+				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q is being deleted; home_node cannot be updated", name)))
+		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
+			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		default:
+			return nsops.NewUpdateNamespaceInternalServerError().WithPayload(
+				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("updating namespace: %w", err)))
+		}
+	}
+
+	// Read State from the controller rather than hardcoding active so the
+	// response stays correct if Update later returns into other states.
+	// Empty on read failure / concurrent delete.
+	var state string
+	if got, err := h.raft.GetNamespaces(name); err == nil && len(got) == 1 {
+		state = string(got[0].State)
+	}
+	return nsops.NewUpdateNamespaceOK().WithPayload(&models.Namespace{
+		Name:     name,
+		HomeNode: homeNode,
+		State:    state,
 	})
 }
 
@@ -157,8 +236,9 @@ func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, princip
 	}
 
 	return nsops.NewGetNamespaceOK().WithPayload(&models.Namespace{
-		Name:  got[0].Name,
-		State: string(got[0].State),
+		Name:     got[0].Name,
+		HomeNode: got[0].Primary(),
+		State:    string(got[0].State),
 	})
 }
 
@@ -237,7 +317,7 @@ func (h *namespaceHandler) listNamespaces(params nsops.ListNamespacesParams, pri
 	out := make([]*models.Namespace, 0, len(allowed))
 	for _, ns := range all {
 		if _, ok := allowedSet[authorization.Namespaces(ns.Name)[0]]; ok {
-			out = append(out, &models.Namespace{Name: ns.Name, State: string(ns.State)})
+			out = append(out, &models.Namespace{Name: ns.Name, HomeNode: ns.Primary(), State: string(ns.State)})
 		}
 	}
 	return nsops.NewListNamespacesOK().WithPayload(out)
