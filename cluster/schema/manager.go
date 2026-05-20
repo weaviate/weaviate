@@ -446,8 +446,17 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { s.schema.deleteClass(cmd.Class); return nil },
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				s.schema.deleteClass(cmd.Class)
+				// Cascade lives in updateSchema (not updateStore) so it
+				// also runs on schemaOnly catchup replay: DTM is in-memory
+				// FSM state, rebuilt from RAFT log on restart, and the
+				// DELETE_CLASS apply MUST drop tasks the replay just
+				// re-added. weaviate/0-weaviate-issues#231.
+				s.cascadeDeleteDistributedTasks(cmd.Class)
+				return nil
+			},
 			updateStore: func() error {
 				if s.replicationFSM == nil {
 					return fmt.Errorf("replication deleter is not set, this should never happen")
@@ -455,32 +464,37 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
 				}
-				// Closes weaviate/0-weaviate-issues#231: without this cascade,
-				// dead task records survive class drop+recreate.
-				if s.distributedTaskManager == nil {
-					s.log.WithField("class", cmd.Class).
-						Debug("distributed-task manager not set; skipping cascade-delete on class delete")
-				} else if removed := s.distributedTaskManager.DeleteTasksForCollection(cmd.Class); len(removed) > 0 {
-					s.log.WithField("class", cmd.Class).
-						WithField("removed_count", len(removed)).
-						Info("cascade-deleted distributed-task records for dropped class")
-					// IsLevelEnabled gates the allocation, not just the emit.
-					if s.log.IsLevelEnabled(logrus.DebugLevel) {
-						ids := make([]string, 0, len(removed))
-						for _, d := range removed {
-							ids = append(ids, fmt.Sprintf("%s/%d", d.ID, d.Version))
-						}
-						s.log.WithField("class", cmd.Class).
-							WithField("removed_tasks", ids).
-							Debug("cascade-deleted distributed-task IDs (full list)")
-					}
-				}
 				return s.db.DeleteClass(cmd.Class, hasFrozen)
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+func (s *SchemaManager) cascadeDeleteDistributedTasks(class string) {
+	if s.distributedTaskManager == nil {
+		s.log.WithField("class", class).
+			Debug("distributed-task manager not set; skipping cascade-delete on class delete")
+		return
+	}
+	removed := s.distributedTaskManager.DeleteTasksForCollection(class)
+	if len(removed) == 0 {
+		return
+	}
+	s.log.WithField("class", class).
+		WithField("removed_count", len(removed)).
+		Info("cascade-deleted distributed-task records for dropped class")
+	// IsLevelEnabled gates the allocation, not just the emit.
+	if s.log.IsLevelEnabled(logrus.DebugLevel) {
+		ids := make([]string, 0, len(removed))
+		for _, d := range removed {
+			ids = append(ids, fmt.Sprintf("%s/%d", d.ID, d.Version))
+		}
+		s.log.WithField("class", class).
+			WithField("removed_tasks", ids).
+			Debug("cascade-deleted distributed-task IDs (full list)")
+	}
 }
 
 func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {

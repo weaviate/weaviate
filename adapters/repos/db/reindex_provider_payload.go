@@ -11,8 +11,24 @@
 
 package db
 
+import "encoding/json"
+
 // ReindexNamespace is the DTM namespace for reindex tasks.
 const ReindexNamespace = "reindex"
+
+// ExtractReindexTaskCollection decodes the class name a reindex task is
+// bound to. Registered on startup via
+// [Raft.RegisterDistributedTaskCollectionExtractor] so that DELETE_CLASS
+// cascades into reindex task GC (weaviate/0-weaviate-issues#231). Lives
+// next to [ReindexTaskPayload] so the payload format and its
+// scoping-decoder evolve together.
+func ExtractReindexTaskCollection(payload []byte) (string, bool) {
+	var p ReindexTaskPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return "", false
+	}
+	return p.Collection, p.Collection != ""
+}
 
 // ReindexMigrationType identifies which migration strategy a reindex task uses.
 type ReindexMigrationType string
