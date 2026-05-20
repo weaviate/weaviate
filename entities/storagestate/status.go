@@ -27,7 +27,7 @@ const (
 	// (SELF_RECOVERY). Cluster reads/writes are filtered to other
 	// replicas via the replication FSM; non-routed data-path access
 	// via LazyLoadShard.mustLoad panics by design. See RecoveringShard
-	// and docs/self-recovery.md ("Known limitations").
+	// and docs/self-recovery.md ("Limitations").
 	StatusRecovering Status = "RECOVERING"
 )
 

@@ -39,7 +39,7 @@ import (
 // than return cleanly — reaching one of those is a routing bug. Callers
 // that iterate shards during the recovery window must skip recovering
 // shards (use the "loaded" shard accessors, or IsRecovering()). See
-// docs/self-recovery.md ("Known limitations").
+// docs/self-recovery.md ("Limitations").
 type RecoveringShard struct {
 	*LazyLoadShard
 }
