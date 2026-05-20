@@ -93,11 +93,15 @@ func assertReindexCompleteAndConsistent(
 	}
 }
 
-// runRestartDuringReindex is the shared scaffold: spin up the cluster,
-// import the dataset, submit the migration, wait until iteration is
-// truly mid-flight, then hand off to restartFn (which does the
-// test-specific stop/start sequence) and verify post-restart
-// completeness + per-replica consistency.
+// stopStart issues a stop(timeout) + start cycle on a single node and
+// asserts both ops succeeded. timeout=nil = graceful SIGTERM; non-nil
+// = SIGKILL after the timeout expires.
+func stopStart(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int, timeout *time.Duration) {
+	t.Helper()
+	require.NoError(t, compose.StopAt(ctx, nodeIdx, timeout))
+	require.NoError(t, compose.StartAt(ctx, nodeIdx))
+}
+
 func runRestartDuringReindex(
 	t *testing.T, className string, awaitTimeout time.Duration,
 	restartFn func(ctx context.Context, t *testing.T, compose *docker.DockerCompose),
@@ -113,27 +117,25 @@ func runRestartDuringReindex(
 	assertReindexCompleteAndConsistent(t, compose, className, taskID, awaitTimeout)
 }
 
+var sigkillFast = 1 * time.Second
+
 // Pins weaviate/0-weaviate-issues#239 Mode 1: graceful follower restart
 // mid-reindex must resume, not mark the task FAILED.
 func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
 	runRestartDuringReindex(t, "RestartDuringReindex", 240*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
-			t.Log("gracefully stopping node 3 (follower)")
-			require.NoError(t, compose.StopAt(ctx, 2, nil))
-			require.NoError(t, compose.StartAt(ctx, 2))
+			stopStart(ctx, t, compose, 2, nil)
 		})
 }
 
 // Pins weaviate/0-weaviate-issues#239 Mode 2: graceful RAFT leader
 // restart mid-reindex must resume, not stay STUCK indefinitely.
+// 360 s budget: leader-restart absorbs ~30 s re-election before the
+// resumed iteration even starts.
 func TestMultiNode_GracefulLeaderRestartDuringReindex(t *testing.T) {
-	// 360 s budget: leader-restart absorbs ~30 s re-election before the
-	// resumed iteration even starts.
 	runRestartDuringReindex(t, "LeaderRestartDuringReindex", 360*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
-			t.Log("gracefully stopping node 1 (RAFT leader)")
-			require.NoError(t, compose.StopAt(ctx, 0, nil))
-			require.NoError(t, compose.StartAt(ctx, 0))
+			stopStart(ctx, t, compose, 0, nil)
 			// Probe via the actual "path" property — runBM25QueryOnNode
 			// hardcodes "text" which doesn't exist on this class.
 			require.Eventually(t, func() bool {
@@ -146,25 +148,20 @@ func TestMultiNode_GracefulLeaderRestartDuringReindex(t *testing.T) {
 // Pins weaviate/0-weaviate-issues#239 Mode 3: ungraceful SIGKILL
 // follower mid-reindex must resume via sentinel-aware recovery.
 func TestMultiNode_CrashDuringReindex(t *testing.T) {
-	stopTimeout := 1 * time.Second
 	runRestartDuringReindex(t, "CrashDuringReindex", 240*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
-			t.Log("SIGKILL node 3 (ungraceful)")
-			require.NoError(t, compose.StopAt(ctx, 2, &stopTimeout))
-			require.NoError(t, compose.StartAt(ctx, 2))
+			stopStart(ctx, t, compose, 2, &sigkillFast)
 		})
 }
 
-// Quorum loss + recovery mid-reindex: SIGKILL nodes 2+3, restart both,
-// task must still FINISH.
+// Quorum loss + recovery: SIGKILL nodes 2+3, restart both, task FINISH.
 func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
-	stopTimeout := 1 * time.Second
 	runRestartDuringReindex(t, "MajorityCrash", 360*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
-			t.Log("SIGKILL nodes 3 + 2 (majority lost)")
-			require.NoError(t, compose.StopAt(ctx, 2, &stopTimeout))
-			require.NoError(t, compose.StopAt(ctx, 1, &stopTimeout))
-			require.NoError(t, compose.StartAt(ctx, 1)) // node 2 first → restores quorum with node 1
+			require.NoError(t, compose.StopAt(ctx, 2, &sigkillFast))
+			require.NoError(t, compose.StopAt(ctx, 1, &sigkillFast))
+			// Node 2 first → restores quorum with node 1 before node 3.
+			require.NoError(t, compose.StartAt(ctx, 1))
 			require.NoError(t, compose.StartAt(ctx, 2))
 		})
 }
