@@ -389,7 +389,7 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 		}
 		return nil
 	}, utils.NewBackoff()); err != nil {
-		db.logger.WithField("action", "get_index").WithField("class", className).Warning(err)
+		db.logger.WithField("action", "get_index").WithField("class", className).Info(err)
 	}
 
 	return index
