@@ -56,12 +56,20 @@ func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallTo
 	if args.CollectionName != "" {
 		for _, class := range res.Objects.Classes {
 			if class.Class == args.CollectionName {
-				return &GetCollectionConfigResp{Collections: []*models.Class{class}}, nil
+				return &GetCollectionConfigResp{Collections: []*models.Class{namespacing.StripClassResponse(principal, class)}}, nil
 			}
 		}
 		return nil, fmt.Errorf("collection %q not found", args.CollectionName)
 	}
 
 	// Return all collections
-	return &GetCollectionConfigResp{Collections: res.Objects.Classes}, nil
+	collections := res.Objects.Classes
+	if principal != nil && principal.Namespace != "" && len(collections) > 0 {
+		stripped := make([]*models.Class, len(collections))
+		for i, c := range collections {
+			stripped[i] = namespacing.StripClassResponse(principal, c)
+		}
+		collections = stripped
+	}
+	return &GetCollectionConfigResp{Collections: collections}, nil
 }

@@ -122,11 +122,11 @@ func TestGetCollectionConfig_NamespaceResolution(t *testing.T) {
 		want              wantResp
 	}{
 		{
-			name:              "namespaced principal, short name resolves",
+			name:              "namespaced principal, short name resolves and response is stripped",
 			principal:         &models.Principal{Namespace: "customer1"},
 			namespacesEnabled: true,
 			args:              GetCollectionConfigArgs{CollectionName: "Movies"},
-			want:              wantResp{classes: []string{"customer1:Movies"}},
+			want:              wantResp{classes: []string{"Movies"}},
 		},
 		{
 			name:              "namespaced principal, own-namespace qualified is rejected",
@@ -157,18 +157,21 @@ func TestGetCollectionConfig_NamespaceResolution(t *testing.T) {
 			want:              wantResp{errSubstr: "not found"},
 		},
 		{
-			name:              "namespaced principal, alias resolves to qualified target",
+			name:              "namespaced principal, alias resolves to qualified target and response is stripped",
 			principal:         &models.Principal{Namespace: "customer1"},
 			namespacesEnabled: true,
 			args:              GetCollectionConfigArgs{CollectionName: "Films"},
-			want:              wantResp{classes: []string{"customer1:Movies"}},
+			want:              wantResp{classes: []string{"Movies"}},
 		},
 		{
-			name:              "list-all branch skips resolution",
+			// Own-NS prefixes are stripped; foreign prefixes survive (RBAC would
+			// have filtered them out upstream — this test wires no RBAC, so the
+			// foreign class still appears qualified).
+			name:              "list-all branch skips resolution and strips own namespace",
 			principal:         &models.Principal{Namespace: "customer1"},
 			namespacesEnabled: true,
 			args:              GetCollectionConfigArgs{},
-			want:              wantResp{classes: []string{"customer1:Movies", "customer2:Movies", "Global"}},
+			want:              wantResp{classes: []string{"Movies", "customer2:Movies", "Global"}},
 		},
 		{
 			name:              "namespaces disabled, short name flows through",

@@ -66,13 +66,14 @@ func TestNamespaces_MCP(t *testing.T) {
 		require.NotNil(t, got)
 		assert.Equal(t, qualNs1, got.Class)
 
-		// get-config (specific)
+		// get-config (specific) — namespaced principals see the short name in the
+		// response; the qualified prefix is stripped before serialization.
 		var cfg *read.GetCollectionConfigResp
 		err = helper.CallToolOnce(t.Context(), t, mcpToolGetConfig,
 			&read.GetCollectionConfigArgs{CollectionName: short}, &cfg, user1Key)
 		require.NoError(t, err)
 		require.Len(t, cfg.Collections, 1)
-		assert.Equal(t, qualNs1, cfg.Collections[0].Class)
+		assert.Equal(t, short, cfg.Collections[0].Class)
 
 		// hybrid (BM25-only to avoid needing a vectorizer)
 		var hybridResp *search.QueryHybridResp
@@ -173,6 +174,8 @@ func TestNamespaces_MCP(t *testing.T) {
 	})
 
 	t.Run("global admin, qualified input succeeds", func(t *testing.T) {
+		// Global principals carry no namespace, so stripping is a no-op and the
+		// qualified name flows through unchanged.
 		var cfg *read.GetCollectionConfigResp
 		err := helper.CallToolOnce(t.Context(), t, mcpToolGetConfig,
 			&read.GetCollectionConfigArgs{CollectionName: qualNs1}, &cfg, adminKey)
