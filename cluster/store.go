@@ -186,15 +186,6 @@ type Config struct {
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
 	DrainSleep time.Duration
-
-	// RaftBootstrapComplete reports whether the cluster has finished its
-	// initial RAFT bootstrap window. Used by noteWipedJoinerProgress to
-	// distinguish a wiped node catching up via log replay (callback
-	// returns false during catch-up because MarkRaftBootstrapComplete has
-	// not fired yet) from a runtime apply on a node that bootstrapped
-	// fresh (callback returns true). Nil-safe: when nil, the detector
-	// falls back to its previous backlog-size heuristic.
-	RaftBootstrapComplete func() bool
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -213,21 +204,28 @@ type Store struct {
 
 	// startedEmpty is set before raft.NewRaft and reports whether this node
 	// began the process with no durable RAFT state (no logs, no snapshot).
-	// It is the signal used to detect a wiped node that rejoins an existing
-	// cluster purely via log replay, so it can self-recover its shard data.
 	// Immutable for the process lifetime once Open has run.
 	startedEmpty atomic.Bool
-	// catchUpTarget is the RAFT log index a wiped log-replay joiner must
-	// reach before its one-shot DB load (reloadDBFromSchema). It is zero
-	// until decided on the first applied command, and stays zero for a fresh
-	// bootstrap (which has nothing to catch up). See Store.Apply.
+	// wipedJoinerCandidate is the deterministic filesystem-derived
+	// signal that drives self-recovery on log-replay rejoin. Set at
+	// Store.Open whenever this process started with no durable state
+	// AND no snapshot to restore from — covers both a wiped node
+	// rejoining an existing cluster AND a fresh bootstrap. The
+	// post-catch-up reload (watchWipedJoinerCatchUp) iterates the
+	// caught-up schema; for a wiped joiner it triggers self-recovery
+	// per missing shard, for a fresh bootstrap the schema is empty so
+	// the reload is a no-op. Either way, by the time the flag flips
+	// (via wipedJoinerReloaded), schemaOnly is correctly turned off
+	// for runtime applies.
+	wipedJoinerCandidate atomic.Bool
+	// catchUpTarget is the highest RAFT log index seen during catch-up.
+	// Maintained by noteWipedJoinerProgress; consumed by
+	// watchWipedJoinerCatchUp to know when applied has caught up.
 	catchUpTarget atomic.Uint64
-	// catchUpDecided locks the wiped-joiner-vs-bootstrap decision to the
-	// first applied command, so a later runtime catch-up (e.g. after a
-	// partition) cannot be misread as a wiped-node rejoin.
-	catchUpDecided atomic.Bool
-	// wipedJoinerReloaded is set once the one-shot DB load for a wiped
-	// log-replay joiner has run, after which entries apply normally.
+	// wipedJoinerReloaded is set once reloadDBFromSchema has run for the
+	// candidate node, after which Apply entries proceed normally
+	// (schemaOnly=false). Also set by Store.Restore so a snapshot-install
+	// path doesn't race the watcher into a double reload.
 	wipedJoinerReloaded atomic.Bool
 
 	// raft implementation from external library
@@ -410,99 +408,80 @@ func (st *Store) raftLastIndex() uint64 {
 // noteWipedJoinerProgress advances the wiped-node log-replay catch-up state
 // for one applied command at logIndex, given the current RAFT log tip
 // raftLastIndex. It returns whether this entry must be applied schema-only
-// (no per-entry DB write, so no shard folder is created) and whether the
-// caller should now start the catch-up watcher (watchWipedJoinerCatchUp).
+// (no per-entry DB write, so no shard folder is created).
 //
-// Detection is deterministic on three filesystem/process signals:
+// The wiped-joiner decision is made deterministically at Store.Open from
+// filesystem state (st.wipedJoinerCandidate); this function does NOT
+// re-decide. It only maintains catchUpTarget — the highest RAFT log index
+// seen during catch-up — which watchWipedJoinerCatchUp polls against to
+// know when applied has caught up. Once watchWipedJoinerCatchUp has run
+// reloadDBFromSchema, wipedJoinerReloaded flips and Apply entries proceed
+// normally (schemaOnly=false).
 //
-//   - st.startedEmpty:        node began the process with no durable RAFT state.
-//   - lastAppliedIndexToDB==0: no prior DB writes (snapshot-restored nodes
-//     have already populated this and are excluded — they do their DB load via
-//     Store.Restore directly).
-//   - !RaftBootstrapComplete: bootstrap window hasn't ended. A fresh-bootstrap
-//     node will already have flipped RaftBootstrapComplete to true by the time
-//     the user issues the first AddClass, so its first Apply is excluded here
-//     and runs through the normal (non-schemaOnly) path. A wiped joiner catches
-//     up BEFORE MarkRaftBootstrapComplete fires, so its first Apply is
-//     recognised. (Falls back to the older "logIndex < raftLastIndex" heuristic
-//     when the callback is nil, e.g. in legacy code paths and unit tests.)
-//
-// The one-shot DB load itself is NOT triggered from here: the catch-up
-// target is a RAFT log index that may be a configuration entry past the
-// last schema command, and Store.Apply is only invoked for command entries.
-// watchWipedJoinerCatchUp waits for raft.AppliedIndex (which advances for
-// every entry type) to reach the target and then runs the load.
-func (st *Store) noteWipedJoinerProgress(logIndex, raftLastIndex uint64) (schemaOnly, startWatcher bool) {
-	if !st.startedEmpty.Load() || st.lastAppliedIndexToDB.Load() != 0 || st.wipedJoinerReloaded.Load() {
-		return false, false
+// The catch-up watcher itself is spawned from Store.Open, not from here,
+// so Apply does not need to start anything.
+func (st *Store) noteWipedJoinerProgress(_, raftLastIndex uint64) (schemaOnly bool) {
+	if !st.wipedJoinerCandidate.Load() || st.wipedJoinerReloaded.Load() {
+		return false
 	}
-	if !st.catchUpDecided.Load() {
-		st.catchUpDecided.Store(true)
-		wipedJoiner := false
-		if st.cfg.RaftBootstrapComplete != nil {
-			// Deterministic: a wiped joiner is still inside the bootstrap
-			// window when its first Apply runs; a fresh-bootstrap node has
-			// already flipped the flag by the time it sees a user command.
-			wipedJoiner = !st.cfg.RaftBootstrapComplete()
-		} else {
-			// Legacy fallback: there is a committed backlog this node hasn't
-			// applied yet. Misses the idle-cluster corner case (logIndex ==
-			// raftLastIndex) — kept only for callers that don't wire the
-			// callback (tests).
-			wipedJoiner = logIndex < raftLastIndex
-		}
-		if wipedJoiner {
-			// Target the current log tip (raftLastIndex), or this entry's
-			// index when no further backlog exists yet — the watcher just
-			// needs *any* non-zero target to engage.
-			target := raftLastIndex
-			if target < logIndex {
-				target = logIndex
-			}
-			st.catchUpTarget.Store(target)
-			startWatcher = true
-		}
-	} else if t := st.catchUpTarget.Load(); t != 0 && raftLastIndex > t {
+	if t := st.catchUpTarget.Load(); raftLastIndex > t {
 		// Keep the target at the current log tip while a backlog delivered
 		// over multiple AppendEntries rounds is still arriving.
 		st.catchUpTarget.Store(raftLastIndex)
 	}
-	// catchUpTarget == 0 ⇒ fresh bootstrap (or a live entry): nothing to
-	// catch up. Otherwise this command is part of the backlog and must be
-	// applied schema-only.
-	return st.catchUpTarget.Load() != 0, startWatcher
+	return true
 }
 
-// watchWipedJoinerCatchUp runs once, in its own goroutine, for a wiped node
-// rejoining via log replay. It waits until the node's RAFT applied index
-// reaches the catch-up target (the backlog tip) and then runs the one-shot
-// DB load (reloadDBFromSchema -> ReloadLocalDB) — the same tagged load pass
-// a snapshot-restored node uses, and where a missing shard folder triggers
-// self-recovery. It is a goroutine rather than inline in Store.Apply because
-// the target may be a configuration entry past the last schema command, and
-// Store.Apply only ever sees command entries.
+// watchWipedJoinerCatchUp runs once in its own goroutine for any node
+// flagged as a wipedJoinerCandidate at Store.Open. It polls until the
+// node's RAFT applied index has caught up to its last seen index and
+// stayed there for a short stability window, then runs the one-shot
+// DB load (reloadDBFromSchema -> ReloadLocalDB).
+//
+// For a wiped joiner the load iterates the now-rebuilt schema and
+// triggers self-recovery per missing shard. For a fresh bootstrap the
+// schema is empty so the load is a no-op. In both cases
+// wipedJoinerReloaded flips and subsequent Applies are no longer
+// schemaOnly. If Store.Restore has already run the load (snapshot
+// install path), the flag is already true and this watcher exits
+// without doing anything.
 func (st *Store) watchWipedJoinerCatchUp() {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	const (
+		tickInterval     = 100 * time.Millisecond
+		stabilityDuratio = 500 * time.Millisecond
+	)
+	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
+	var stableSince time.Time
 	for range ticker.C {
 		if st.wipedJoinerReloaded.Load() || !st.open.Load() {
 			return
 		}
-		target := st.catchUpTarget.Load()
-		if target == 0 || st.raft == nil || st.raft.AppliedIndex() < target {
+		if st.raft == nil {
+			stableSince = time.Time{}
+			continue
+		}
+		applied := st.raft.AppliedIndex()
+		last := st.raft.LastIndex()
+		if applied < last {
+			stableSince = time.Time{}
+			continue
+		}
+		if stableSince.IsZero() {
+			stableSince = time.Now()
+			continue
+		}
+		if time.Since(stableSince) < stabilityDuratio {
 			continue
 		}
 		st.log.WithFields(logrus.Fields{
-			"applied_index":   st.raft.AppliedIndex(),
-			"catch_up_target": target,
-		}).Info("reloading local DB after wiped-node log-replay catch-up")
-		// Run the load BEFORE flipping the flag so any RAFT entries
-		// arriving during the load still see schemaOnly=true via
-		// noteWipedJoinerProgress. A flip-before-load would let new
-		// applies sneak in with schemaOnly=false and contend with the
-		// load's own initAndStoreShards iteration.
+			"applied_index": applied,
+			"last_index":    last,
+		}).Info("reloading local DB after wiped-joiner catch-up")
+		// reloadDBFromSchema sets wipedJoinerReloaded at the end so any
+		// caller (Restore, the dbReloadRequired path in Store.Apply, or
+		// this watcher) flips the flag consistently.
 		st.reloadDBFromSchema()
-		st.wipedJoinerReloaded.Store(true)
 		return
 	}
 }
@@ -563,11 +542,26 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
+	// Wiped-joiner candidate: this process began with no durable RAFT
+	// state AND no snapshot to restore from. Covers both a wiped node
+	// rejoining an existing cluster and a fresh bootstrap; the
+	// post-catch-up reload (spawned just below) iterates the schema
+	// either way — for a wiped joiner it triggers self-recovery per
+	// missing shard, for a fresh bootstrap the schema is empty so the
+	// reload is a no-op. This is the deterministic, filesystem-derived
+	// signal that replaces the older "logIndex < raftLastIndex"
+	// heuristic on first Apply (which missed the idle-cluster case).
+	if !hadState && st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
+		st.wipedJoinerCandidate.Store(true)
+		enterrors.GoWrapper(st.watchWipedJoinerCatchUp, st.log)
+	}
+
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":                st.raft.AppliedIndex(),
 		"raft_last_index":                   st.raft.LastIndex(),
 		"last_store_applied_index_on_start": st.lastAppliedIndexToDB.Load(),
 		"last_snapshot_index":               snapIndex,
+		"wiped_joiner_candidate":            st.wipedJoinerCandidate.Load(),
 	}).Info("raft node constructed")
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
@@ -982,6 +976,10 @@ func (st *Store) reloadDBFromSchema() {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 	}
 	st.dbLoaded.Store(true)
+	// Mark the one-shot DB load as done so noteWipedJoinerProgress
+	// stops returning schemaOnly=true and watchWipedJoinerCatchUp (if
+	// the watcher is racing this call from Restore) exits cleanly.
+	st.wipedJoinerReloaded.Store(true)
 
 	// in this path it means it was called from Apply()
 	// or forced Restore()
