@@ -94,6 +94,17 @@ type ReindexProvider struct {
 	// the double-write callbacks registered via OnAfterLsmInit. Creating new
 	// task instances in OnGroupCompleted would lose those callbacks.
 	reindexTasks map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric
+
+	// activeWorkers tracks units that currently have a per-unit goroutine
+	// inside processOneUnit's iteration body. The re-entry guard reads
+	// this (not the reindexTasks cache) so post-restart recovery — which
+	// seeds reindexTasks via [SeedReindexTaskCache] for OnGroupCompleted's
+	// callback preservation — does NOT short-circuit the resumed unit.
+	// weaviate/0-weaviate-issues#239 Mode 2.
+	//
+	// Guarded by [mu]. Set after the guard, cleared from a defer so any
+	// return path (failure, context.Canceled, panic) releases the slot.
+	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
 }
 
 // phaseUnitResolution holds the per-unit setup work that every per-shard
@@ -144,6 +155,7 @@ func NewReindexProvider(
 		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+		activeWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
 	}
 }
 
@@ -352,31 +364,59 @@ func (p *ReindexProvider) processOneUnit(
 	// not in reindexed state" → swap fails → migration is half-applied
 	// on this replica → #10675-shape per-replica data divergence.
 	//
-	// Skip the work outright instead of re-running the cached task: the
-	// first run's RunReindexOnlyOnShard either is in flight or has
-	// already called RecordDistributedTaskUnitCompletion, and rerunning
-	// OnAfterLsmInit on the same task instance would APPEND to the
-	// task's callbackDisableFuncs list and double every subsequent
-	// double-write callback fire. The FSM-side recorder calls are
-	// idempotent against terminal units (manager.UpdateUnitProgress
-	// silently ignores updates to terminal units), so the second run
-	// has nothing useful to do.
+	// Guard signal is `activeWorkers` (per-unit "a goroutine is inside
+	// the iteration body right now"), NOT the `reindexTasks` cache.
+	// weaviate/0-weaviate-issues#239 Mode 2: post-restart recovery
+	// seeds `reindexTasks` so OnGroupCompleted can reuse the in-flight
+	// task instances with their registered double-write callbacks —
+	// using the cache as the guard signal trapped the resumed unit
+	// forever after a leader restart (the QA c01-leader-postfix repro
+	// + the local TestMultiNode_GracefulLeaderRestartDuringReindex
+	// failure both surfaced this).
 	if semantic {
 		p.mu.Lock()
-		cached := p.reindexTasks[task.TaskDescriptor][unitID]
-		p.mu.Unlock()
-		if len(cached) > 0 {
-			logger.WithField("nTasks", len(cached)).
-				Info("reindex provider: skipping re-entered unit (scheduler relaunched handle before FSM saw prior completion)")
+		if p.activeWorkers[task.TaskDescriptor][unitID] {
+			p.mu.Unlock()
+			logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
 			return
 		}
+		if p.activeWorkers[task.TaskDescriptor] == nil {
+			p.activeWorkers[task.TaskDescriptor] = make(map[string]bool)
+		}
+		p.activeWorkers[task.TaskDescriptor][unitID] = true
+		p.mu.Unlock()
+		defer func() {
+			p.mu.Lock()
+			delete(p.activeWorkers[task.TaskDescriptor], unitID)
+			if len(p.activeWorkers[task.TaskDescriptor]) == 0 {
+				delete(p.activeWorkers, task.TaskDescriptor)
+			}
+			p.mu.Unlock()
+		}()
 	}
 
-	// Create the reindex task(s) for this migration type.
-	tasks, err := p.createReindexTasks(payload, concreteShard.pathLSM(), false)
-	if err != nil {
-		p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", err))
-		return
+	// Use cached task instances when present. Two populating paths land
+	// here: (a) post-restart [SeedReindexTaskCache] for callback-preserving
+	// resume; (b) the FSM-lag re-entry case where the previous worker
+	// cached gen-N tasks before exiting — reusing them avoids the gen-N+1
+	// clobber the old guard existed to prevent.
+	var (
+		tasks  []*ShardReindexTaskGeneric
+		cached bool
+	)
+	if semantic {
+		p.mu.Lock()
+		tasks = p.reindexTasks[task.TaskDescriptor][unitID]
+		p.mu.Unlock()
+		cached = len(tasks) > 0
+	}
+	if !cached {
+		var createErr error
+		tasks, createErr = p.createReindexTasks(payload, concreteShard.pathLSM(), false)
+		if createErr != nil {
+			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
+			return
+		}
 	}
 
 	// Hook up live progress reporting. The recorder above this layer is
@@ -401,36 +441,16 @@ func (p *ReindexProvider) processOneUnit(
 
 	// Cache task instances for semantic migrations so OnGroupCompleted can
 	// call RunSwapOnShard on the same instances (with callbacks registered).
-	// On the re-entry path we already retrieved tasks from the cache, so
-	// this write is a no-op (same map value); guard the nil-map alloc and
-	// write here for the fresh-task path.
-	if semantic {
+	// On the cached-tasks path (post-restart recovery or FSM-lag re-entry)
+	// we already have these instances in the map; only write on the
+	// fresh-tasks path.
+	if semantic && !cached {
 		p.mu.Lock()
 		if p.reindexTasks[task.TaskDescriptor] == nil {
 			p.reindexTasks[task.TaskDescriptor] = make(map[string][]*ShardReindexTaskGeneric)
 		}
 		p.reindexTasks[task.TaskDescriptor][unitID] = tasks
 		p.mu.Unlock()
-	}
-
-	// The re-entry guard at the top reads the SAME cache; a populated
-	// cache on a non-completion exit would trap the unit forever
-	// (weaviate/0-weaviate-issues#239 Mode 2).
-	unitCompleted := false
-	if semantic {
-		defer func() {
-			if unitCompleted {
-				return
-			}
-			p.mu.Lock()
-			if m, ok := p.reindexTasks[task.TaskDescriptor]; ok {
-				delete(m, unitID)
-				if len(m) == 0 {
-					delete(p.reindexTasks, task.TaskDescriptor)
-				}
-			}
-			p.mu.Unlock()
-		}()
 	}
 
 	// Persist a recovery record so that a restart mid-flight can rebuild
@@ -476,7 +496,6 @@ func (p *ReindexProvider) processOneUnit(
 		logger.Errorf("reindex provider: failed to record completion: %v", err)
 		return
 	}
-	unitCompleted = true
 }
 
 // maxReindexPropertiesPerTask caps the number of properties in a single
