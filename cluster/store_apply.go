@@ -105,12 +105,9 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	// A wiped node rejoining an existing cluster via log replay must replay
 	// schema-only (so no shard folders are created per entry); the catch-up
-	// watcher then does a single DB load once caught up. See
-	// noteWipedJoinerProgress / watchWipedJoinerCatchUp.
-	wipedJoinerCatchingUp, startWipedJoinerWatcher := st.noteWipedJoinerProgress(l.Index, st.raftLastIndex())
-	if startWipedJoinerWatcher {
-		enterrors.GoWrapper(st.watchWipedJoinerCatchUp, st.log)
-	}
+	// watcher spawned at Store.Open does a single DB load once caught up.
+	// See noteWipedJoinerProgress / watchWipedJoinerCatchUp.
+	wipedJoinerCatchingUp := st.noteWipedJoinerProgress(l.Index, st.raftLastIndex())
 
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
