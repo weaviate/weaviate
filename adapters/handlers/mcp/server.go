@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/read"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -42,7 +43,15 @@ type MCPServer struct {
 }
 
 func NewMCPServer(state *state.State, objectsManager *objects.Manager) *MCPServer {
-	authHandler := auth.NewAuth(state)
+	authHandler := auth.NewAuth(
+		state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
+		composer.New(
+			state.ServerConfig.Config.Authentication,
+			state.APIKey,
+			state.OIDC,
+		),
+		state.Authorizer,
+	)
 	logger := state.Logger.WithField("component", "mcp")
 
 	writeAccessEnabled := func() bool {
@@ -58,8 +67,8 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager) *MCPServe
 			server.WithRecovery(),
 		),
 		creator:        create.NewWeaviateCreator(authHandler, state.BatchManager, logger, writeAccessEnabled),
-		searcher:       search.NewWeaviateSearcher(authHandler, state.Traverser, logger),
-		reader:         read.NewWeaviateReader(authHandler, state.SchemaManager, objectsManager, logger),
+		searcher:       search.NewWeaviateSearcher(authHandler, state.Traverser, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, logger),
+		reader:         read.NewWeaviateReader(authHandler, state.SchemaManager, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, objectsManager, logger),
 		state:          state,
 		logger:         logger,
 		writeToolNames: map[string]bool{},
