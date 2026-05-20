@@ -460,12 +460,17 @@ func (st *Store) watchWipedJoinerCatchUp() {
 		if target == 0 || st.raft == nil || st.raft.AppliedIndex() < target {
 			continue
 		}
-		st.wipedJoinerReloaded.Store(true)
 		st.log.WithFields(logrus.Fields{
 			"applied_index":   st.raft.AppliedIndex(),
 			"catch_up_target": target,
 		}).Info("reloading local DB after wiped-node log-replay catch-up")
+		// Run the load BEFORE flipping the flag so any RAFT entries
+		// arriving during the load still see schemaOnly=true via
+		// noteWipedJoinerProgress. A flip-before-load would let new
+		// applies sneak in with schemaOnly=false and contend with the
+		// load's own initAndStoreShards iteration.
 		st.reloadDBFromSchema()
+		st.wipedJoinerReloaded.Store(true)
 		return
 	}
 }

@@ -54,6 +54,8 @@ func (f *fakeSelfRecoveryOrch) SubmitRecovery(_ context.Context, _, _ string, fr
 	return f.submitOK
 }
 
+func (f *fakeSelfRecoveryOrch) Close(_ context.Context) error { return nil }
+
 var _ SelfRecoveryOrchestrator = (*fakeSelfRecoveryOrch)(nil)
 
 func newTestIndexForRecovery(t *testing.T, orch SelfRecoveryOrchestrator, raftBootstrapComplete func() bool) *Index {
