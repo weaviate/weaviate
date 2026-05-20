@@ -538,29 +538,25 @@ func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 		problems = append(problems, "ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
 	}
 
-	// Multi-entry list without matching default.
-	if len(allowVector) > 1 {
-		def := ""
-		if c.DefaultVectorIndexType != nil {
-			def = strings.ToLower(strings.TrimSpace(c.DefaultVectorIndexType.Get()))
-		}
-		if def == "" {
-			problems = append(problems, "ALLOWED_VECTOR_INDEX_TYPES lists multiple values; DEFAULT_VECTOR_INDEX must also be set to one of them")
-		} else if !slices.Contains(allowVector, def) {
-			problems = append(problems, fmt.Sprintf("DEFAULT_VECTOR_INDEX=%q is not in ALLOWED_VECTOR_INDEX_TYPES (%s)", def, strings.Join(allowVector, ", ")))
-		}
-	}
-	if len(allowCompression) > 1 {
-		def := ""
-		if c.DefaultQuantization != nil {
-			def = strings.ToLower(strings.TrimSpace(c.DefaultQuantization.Get()))
-		}
-		if def == "" {
-			problems = append(problems, "ALLOWED_COMPRESSION_TYPES lists multiple values; DEFAULT_QUANTIZATION must also be set to one of them")
-		} else if !slices.Contains(allowCompression, def) {
-			problems = append(problems, fmt.Sprintf("DEFAULT_QUANTIZATION=%q is not in ALLOWED_COMPRESSION_TYPES (%s)", def, strings.Join(allowCompression, ", ")))
-		}
-	}
+	// Allow-list ↔ default mismatch (both single-entry and multi-entry
+	// cases). The boot-time validator's reconcileAllowListWithDefault
+	// rejects either:
+	//   - single-entry list whose entry doesn't match an EXPLICIT default
+	//     (the unset-default case seeds the default and isn't a problem),
+	//   - multi-entry list with no default OR a default not in the list.
+	// The runtime hook must mirror both: a runtime push that seeds
+	// ALLOWED_VECTOR_INDEX_TYPES=hfresh while DEFAULT_VECTOR_INDEX=hnsw
+	// is invalid the same way it is at boot, and must fail-safe back to
+	// no-restriction rather than silently leave the cluster in a state
+	// where the default conflicts with the allow-list.
+	problems = append(problems, runtimeMismatchProblems(
+		allowVector, c.DefaultVectorIndexType,
+		"ALLOWED_VECTOR_INDEX_TYPES", "DEFAULT_VECTOR_INDEX",
+	)...)
+	problems = append(problems, runtimeMismatchProblems(
+		allowCompression, c.DefaultQuantization,
+		"ALLOWED_COMPRESSION_TYPES", "DEFAULT_QUANTIZATION",
+	)...)
 
 	if len(problems) == 0 {
 		return nil
@@ -731,6 +727,51 @@ func reconcileAllowListWithDefault(allowList []string, defaultDV *runtime.Dynami
 		_ = defaultDV.SetValue(currentDefault)
 	}
 	return nil
+}
+
+// runtimeMismatchProblems mirrors the boot-time check for "allow-list
+// entry does not match an explicit default" without mutating the
+// default (the runtime hook fails safe by clearing the allow-list
+// instead of seeding defaults — see ValidateRestrictionsRuntime).
+// Returns one problem string per detected mismatch.
+//
+// The boot-time helper [reconcileAllowListWithDefault] returns at the
+// first error and may also write through to the default DynamicValue
+// (single-entry-unset-default seeding). Neither is appropriate for the
+// runtime hook: we want every problem surfaced together so the
+// operator sees the full picture in one log line, and we never seed
+// defaults at runtime — a runtime YAML change that drops the
+// allow-list entry the running default points at should fail loudly
+// rather than silently rewrite the default behind the operator's back.
+func runtimeMismatchProblems(allowList []string, defaultDV *runtime.DynamicValue[string], allowEnv, defaultEnv string) []string {
+	if len(allowList) == 0 {
+		return nil
+	}
+	currentDefault := ""
+	if defaultDV != nil {
+		currentDefault = strings.ToLower(strings.TrimSpace(defaultDV.Get()))
+	}
+	var out []string
+	if len(allowList) > 1 {
+		if currentDefault == "" {
+			out = append(out, fmt.Sprintf("%s lists multiple values (%s); %s must also be set to one of them",
+				allowEnv, strings.Join(allowList, ", "), defaultEnv))
+		} else if !slices.Contains(allowList, currentDefault) {
+			out = append(out, fmt.Sprintf("%s=%q is not in %s (%s)",
+				defaultEnv, currentDefault, allowEnv, strings.Join(allowList, ", ")))
+		}
+		return out
+	}
+	// Single-entry: tolerate an unset default (boot-time seeds it; the
+	// runtime hook leaves the value unchanged because seeding is a
+	// startup-only contract). A mismatched EXPLICIT default is what we
+	// catch here — that's the boot-time invariant the runtime path was
+	// missing.
+	if currentDefault != "" && currentDefault != allowList[0] {
+		out = append(out, fmt.Sprintf("%s=%q does not match the only entry in %s (%q)",
+			defaultEnv, currentDefault, allowEnv, allowList[0]))
+	}
+	return out
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own

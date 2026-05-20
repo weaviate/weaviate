@@ -385,6 +385,67 @@ func TestValidateRestrictionsRuntime(t *testing.T) {
 		require.NoError(t, c.ValidateRestrictionsRuntime(log))
 		assert.Empty(t, c.Restrictions.AllowedVectorIndexTypes.Get())
 	})
+
+	// Single-entry allow-list with an EXPLICIT default that doesn't
+	// match: boot-time validator's reconcileAllowListWithDefault
+	// rejects this, the runtime path used to silently let it through.
+	// The fail-safe is the same as the other invariant violations —
+	// reset both allow-lists, log the problem.
+	t.Run("single-entry vector list with mismatched default resets to empty", func(t *testing.T) {
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{
+			DefaultVectorIndexType: runtime.NewDynamicValue("hnsw"),
+			DefaultQuantization:    runtime.NewDynamicValue(""),
+			Restrictions: RestrictionsConfig{
+				AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"hfresh"}),
+				AllowedCompressionTypes: runtime.NewDynamicValue[[]string](nil),
+			},
+		}
+		require.NoError(t, c.ValidateRestrictionsRuntime(log))
+		assert.Empty(t, c.Restrictions.AllowedVectorIndexTypes.Get(),
+			"single-entry mismatched default should fail-safe to empty")
+		require.NotEmpty(t, hook.AllEntries())
+	})
+
+	t.Run("single-entry compression list with mismatched default resets to empty", func(t *testing.T) {
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{
+			DefaultVectorIndexType: runtime.NewDynamicValue("hnsw"),
+			DefaultQuantization:    runtime.NewDynamicValue("pq"),
+			Restrictions: RestrictionsConfig{
+				AllowedVectorIndexTypes: runtime.NewDynamicValue[[]string](nil),
+				AllowedCompressionTypes: runtime.NewDynamicValue([]string{"rq-8"}),
+			},
+		}
+		require.NoError(t, c.ValidateRestrictionsRuntime(log))
+		assert.Empty(t, c.Restrictions.AllowedCompressionTypes.Get())
+		require.NotEmpty(t, hook.AllEntries())
+	})
+
+	// Single-entry list with an UNSET default is fine at runtime: boot
+	// seeds the default in that case, but the runtime path intentionally
+	// does NOT mutate the default (boot-only seeding contract). The
+	// allow-list stays in effect; downstream readers see the empty
+	// default and fall through whatever the prior default behaviour was.
+	t.Run("single-entry list with unset default is accepted (no seed at runtime)", func(t *testing.T) {
+		log, hook := logrustest.NewNullLogger()
+		c := &Config{
+			DefaultVectorIndexType: runtime.NewDynamicValue(""),
+			DefaultQuantization:    runtime.NewDynamicValue(""),
+			Restrictions: RestrictionsConfig{
+				AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"hfresh"}),
+				AllowedCompressionTypes: runtime.NewDynamicValue[[]string](nil),
+			},
+		}
+		require.NoError(t, c.ValidateRestrictionsRuntime(log))
+		assert.Equal(t, []string{"hfresh"}, c.Restrictions.AllowedVectorIndexTypes.Get())
+		assert.Equal(t, "", c.DefaultVectorIndexType.Get(),
+			"runtime hook must not seed the default — that's boot-time-only behaviour")
+		for _, e := range hook.AllEntries() {
+			assert.NotEqual(t, logrus.ErrorLevel, e.Level,
+				"unset default with single-entry list is valid at runtime: %s", e.Message)
+		}
+	})
 }
 
 func TestValidateRestrictions_DedupsAndNormalizesPersistedList(t *testing.T) {
