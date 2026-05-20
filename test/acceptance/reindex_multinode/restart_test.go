@@ -23,16 +23,13 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-// 50k change-tokenization migration spends ~25-40 s in STARTED on a
-// 3-node cluster — wide enough to land the restart inside.
-const reindexRestartDataset = 50_000
+const (
+	// 50k change-tokenization gives ~25-40 s STARTED on a 3-node cluster.
+	reindexRestartDataset = 50_000
+	// Past "just started" (units can sit at 0 briefly) but well before completion.
+	reindexRestartProgressFloor = 0.1
+)
 
-// 0.1 is past the "just started" floor (units can sit at 0 for a few
-// ticks) but well before completion.
-const reindexRestartProgressFloor = 0.1
-
-// Change-tokenization is the heaviest shape (2 sub-tasks per shard ×
-// property) — widest STARTED window for the restart-mid-flight checks.
 func setupRestartDuringReindex(
 	ctx context.Context, t *testing.T, className string,
 ) (*docker.DockerCompose, func(), string) {
@@ -68,10 +65,7 @@ func assertReindexCompleteAndConsistent(
 	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID,
 		reindexhelpers.WithTimeout(awaitTimeout))
 
-	// Schema reflection of the FINISHED flip is per-replica eventual:
-	// AwaitReindexFinished sees the FSM state, but each replica's
-	// in-memory schema cache catches up via the schema-update callback
-	// on its own clock.
+	// Per-replica schema cache catches up eventually after the FSM flip.
 	require.Eventually(t, func() bool {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
 			if tryGetPropertyTokenization(restURIOf(compose, nodeIdx), className, "path") != "field" {
@@ -82,9 +76,6 @@ func assertReindexCompleteAndConsistent(
 	}, 30*time.Second, 500*time.Millisecond,
 		"tokenization should flip to field on every replica post-restart")
 
-	// Under FIELD tokenization each path-bucket matches dataset/5
-	// exactly. Probe all 5 to catch a per-bucket regression (e.g. 4/5
-	// intact, 1 corrupted would still pass a single-bucket check).
 	const expected = reindexRestartDataset / 5
 	for _, bucket := range []string{"alpha-path", "beta-path", "gamma-path", "delta-path", "epsilon-path"} {
 		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
@@ -97,9 +88,7 @@ func assertReindexCompleteAndConsistent(
 	}
 }
 
-// stopStart issues a stop(timeout) + start cycle on a single node and
-// asserts both ops succeeded. timeout=nil = graceful SIGTERM; non-nil
-// = SIGKILL after the timeout expires.
+// timeout=nil → graceful SIGTERM; non-nil → SIGKILL after expiry.
 func stopStart(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int, timeout *time.Duration) {
 	t.Helper()
 	require.NoError(t, compose.StopAt(ctx, nodeIdx, timeout))
@@ -133,14 +122,11 @@ func TestMultiNode_GracefulRestartDuringReindex(t *testing.T) {
 }
 
 // Pins weaviate/0-weaviate-issues#239 Mode 2: graceful RAFT leader
-// restart mid-reindex must resume, not stay STUCK indefinitely.
-// 360 s budget: leader-restart absorbs ~30 s re-election before the
-// resumed iteration even starts.
+// restart must resume, not stay STUCK indefinitely. 360 s budget
+// absorbs leader re-election before resumed iteration starts.
 func TestMultiNode_GracefulLeaderRestartDuringReindex(t *testing.T) {
 	runRestartDuringReindex(t, "LeaderRestartDuringReindex", 360*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
-			// Resolve the actual leader at restart time — node 1 is
-			// only the leader by initial-election convention.
 			leaderIdx := raftLeaderIndex(t, compose)
 			t.Logf("gracefully stopping leader (node %d)", leaderIdx+1)
 			stopStart(ctx, t, compose, leaderIdx, nil)
@@ -160,7 +146,6 @@ func TestMultiNode_CrashDuringReindex(t *testing.T) {
 		})
 }
 
-// Quorum loss + recovery: SIGKILL nodes 2+3, restart both, task FINISH.
 func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
 	runRestartDuringReindex(t, "MajorityCrash", 360*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
@@ -172,10 +157,6 @@ func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
 		})
 }
 
-// TestMultiNode_RollingRestartAfterComplete keeps the previous
-// rolling-restart-AFTER-complete test scope: a completed migration
-// must survive a full rolling restart with no per-replica divergence
-// on the migrated buckets.
 func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)

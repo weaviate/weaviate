@@ -413,11 +413,9 @@ func (p *ReindexProvider) processOneUnit(
 		p.mu.Unlock()
 	}
 
-	// weaviate/0-weaviate-issues#239 Mode 2: the re-entry guard at the
-	// top of this function reads the SAME cache OnGroupCompleted does.
-	// A non-completion exit (graceful shutdown, failUnit's RAFT apply
-	// failing mid-leadership-transition) would leave it populated →
-	// guard fires forever after restart.
+	// The re-entry guard at the top reads the SAME cache; a populated
+	// cache on a non-completion exit would trap the unit forever
+	// (weaviate/0-weaviate-issues#239 Mode 2).
 	unitCompleted := false
 	if semantic {
 		defer func() {
@@ -458,9 +456,8 @@ func (p *ReindexProvider) processOneUnit(
 			runErr = reindexTask.RunOnShard(ctx, shard)
 		}
 		if runErr != nil {
-			// weaviate/0-weaviate-issues#239 Mode 1: failUnit on
-			// context.Canceled would FSM-flip the whole task FAILED for
-			// what is actually an interruptable shutdown.
+			// weaviate/0-weaviate-issues#239 Mode 1: don't FSM-flip
+			// FAILED on a shutdown signal.
 			if errors.Is(runErr, context.Canceled) {
 				logger.Infof("reindex provider: unit interrupted by shutdown; will resume after restart: %v", runErr)
 				return

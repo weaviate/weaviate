@@ -183,13 +183,9 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 	return observed
 }
 
-// awaitReindexMidFlight blocks until at least one IN_PROGRESS unit's
-// progress is >= minProgress on a STARTED task. Fails loudly if the
-// task reaches FINISHED/FAILED before the condition is observed — the
-// caller is asking for a mid-reindex restart scenario, and a vacuous
-// pass (migration completed before the test could restart anything)
-// hides real bugs. See weaviate/0-weaviate-issues#239 for the prior
-// silent-vacuous failure.
+// Fails the test if the migration ends before reaching STARTED + at
+// least one IN_PROGRESS unit with progress >= minProgress
+// (weaviate/0-weaviate-issues#239 anti-vacuous-pass).
 func awaitReindexMidFlight(t *testing.T, restURI, taskID string, minProgress float32, timeout time.Duration) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -236,10 +232,6 @@ func awaitReindexMidFlight(t *testing.T, restURI, taskID string, minProgress flo
 		taskID, minProgress, timeout)
 }
 
-// raftLeaderIndex returns the 0-based docker node index of the RAFT
-// leader (weaviate-0 → 0, weaviate-1 → 1, weaviate-2 → 2). Queries
-// /v1/cluster/statistics on node 1 — `leaderId` is the same across
-// all nodes in steady state.
 func raftLeaderIndex(t *testing.T, compose *docker.DockerCompose) int {
 	t.Helper()
 	var leaderName string
@@ -268,7 +260,6 @@ func raftLeaderIndex(t *testing.T, compose *docker.DockerCompose) int {
 		}
 		return false
 	}, 30*time.Second, 200*time.Millisecond, "/v1/cluster/statistics should report a leader")
-	// Node names are docker.Weaviate{0,1,2}.
 	for idx, name := range []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2} {
 		if name == leaderName {
 			return idx
