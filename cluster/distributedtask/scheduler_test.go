@@ -602,6 +602,7 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 	h.manager = NewManager(ManagerParameters{
 		Clock:            h.clock,
 		CompletedTaskTTL: h.completedTaskTTL,
+		Logger:           h.logger,
 	})
 
 	h.scheduler = NewScheduler(SchedulerParams{

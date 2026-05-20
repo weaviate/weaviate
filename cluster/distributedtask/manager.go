@@ -64,7 +64,7 @@ type Manager struct {
 
 	clock clockwork.Clock
 
-	logger *logrus.Logger
+	logger logrus.FieldLogger
 
 	// notifier is signalled after every state-changing apply
 	// (AddTask, RecordUnitCompletion, UpdateUnitProgress, CancelTask) so
@@ -204,17 +204,16 @@ type ManagerParameters struct {
 
 	CompletedTaskTTL time.Duration
 
-	// Logger is used for low-volume diagnostic lines (Debug-level
-	// only). nil-safe — falls back to logrus.StandardLogger().
-	Logger *logrus.Logger
+	// Logger is required so the Manager logs through Weaviate's central
+	// log configuration. Passing a detached logger (e.g.
+	// [logrus.StandardLogger]) would bypass operator-configured fields,
+	// levels, and outputs.
+	Logger logrus.FieldLogger
 }
 
 func NewManager(params ManagerParameters) *Manager {
 	if params.Clock == nil {
 		params.Clock = clockwork.NewRealClock()
-	}
-	if params.Logger == nil {
-		params.Logger = logrus.StandardLogger()
 	}
 
 	return &Manager{

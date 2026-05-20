@@ -290,7 +290,7 @@ func newMultiSchedulerHarnessWithAckBarrier(t *testing.T, nodeIDs []string) *mul
 func newMultiSchedulerHarnessWithOptions(t *testing.T, nodeIDs []string, withAckBarrier bool) *multiSchedulerHarness {
 	logger, _ := logrustest.NewNullLogger()
 	clock := clockwork.NewFakeClock()
-	mgr := NewManager(ManagerParameters{Clock: clock, CompletedTaskTTL: 24 * time.Hour})
+	mgr := NewManager(ManagerParameters{Clock: clock, CompletedTaskTTL: 24 * time.Hour, Logger: logger})
 
 	h := &multiSchedulerHarness{
 		t:             t,
