@@ -101,7 +101,7 @@ func NewServer(appState *state.State) *Server {
 		mux.ServeHTTP(w, r) // Route to REST mux (handles HTTP/1.1 or plain HTTP/2)
 	})
 
-	handler = addClusterHandlerMiddleware(handler, appState)
+	handler = addClusterHandlerMiddleware(handler, appState, auth)
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		// Wrap the default mux with Sentry to capture panics, report errors and
 		// measure performance.
@@ -235,13 +235,16 @@ var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
 // addClusterHandlerMiddleware will inject a middleware that will catch all requests matching clusterv1Regexp.
 // If the request match, it will route it to a dedicated http.Handler and skip the next middleware.
 // If the request doesn't match, it will continue to the next handler.
-func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.Handler {
+// The dedicated http.Handler is wrapped with the provided auth so /v1/cluster/* endpoints
+// require basic auth when it is enabled in the cluster auth config.
+func addClusterHandlerMiddleware(next http.Handler, appState *state.State, auth auth) http.Handler {
 	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
 	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
+	authedRaftRouter := auth.handleFunc(raftRouter.ServeHTTP)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case clusterv1Regexp.MatchString(r.URL.Path):
-			raftRouter.ServeHTTP(w, r)
+			authedRaftRouter(w, r)
 		default:
 			next.ServeHTTP(w, r)
 		}
