@@ -697,8 +697,9 @@ function run_acceptance_reindex_multinode() {
 function run_acceptance_reindex_multinode_restart_a() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-restart-a (mid-reindex restarts + post-complete rolling)"
-  # 4 tests:
+  # 5 tests:
   #   TestMultiNode_GracefulRestartDuringReindex
+  #   TestMultiNode_GracefulLeaderRestartDuringReindex
   #   TestMultiNode_CrashDuringReindex
   #   TestMultiNode_MajorityCrashDuringReindex
   #   TestMultiNode_RollingRestartAfterComplete
@@ -708,7 +709,12 @@ function run_acceptance_reindex_multinode_restart_a() {
   # IS the journey), so these cannot be folded onto a shared cluster
   # the way the AJ suite can. The split below balances the wall-clock
   # against -restart-b instead.
-  AOF_GROUP_RUN='TestMultiNode_(GracefulRestartDuringReindex|CrashDuringReindex|MajorityCrashDuringReindex|RollingRestartAfterComplete)' \
+  #
+  # Regex caveat: alternation is by exact name. Earlier the filter
+  # had `GracefulRestartDuringReindex` which did NOT match
+  # `GracefulLeaderRestartDuringReindex` — a false-green CI ran for
+  # multiple commits before this gap was caught.
+  AOF_GROUP_RUN='TestMultiNode_(GracefulRestartDuringReindex|GracefulLeaderRestartDuringReindex|CrashDuringReindex|MajorityCrashDuringReindex|RollingRestartAfterComplete)' \
     run_aof_group "reindex-multinode-restart-a" test/acceptance/reindex_multinode
 }
 
