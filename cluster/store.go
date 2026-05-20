@@ -319,10 +319,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
-	// distributedTasksManager is wired into schemaManager so the schema
-	// FSM can both consult it for property-mutation guarding AND cascade-
-	// delete task records belonging to a dropped class
-	// (weaviate/0-weaviate-issues#231).
+	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
+	// cascade-delete (weaviate/0-weaviate-issues#231).
 	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
 		Clock:            clockwork.NewRealClock(),
 		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,

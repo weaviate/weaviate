@@ -527,8 +527,6 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 	return mockStore, log
 }
 
-// setupCascadeTestStore returns a MockStore plus ready-to-apply ADD_CLASS
-// and DELETE_CLASS logs for `className`, shared by the cascade tests below.
 func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Log, *raft.Log) {
 	t.Helper()
 	ms := NewMockStore(t, "Node-1", 0)
@@ -568,7 +566,6 @@ func setupCascadeTestStore(t *testing.T, className string) (*MockStore, *raft.Lo
 	return &ms, addLog, deleteLog
 }
 
-// applyOrFail runs Apply and t.Fatalf's on non-Response or non-nil Error.
 func applyOrFail(t *testing.T, ms *MockStore, log *raft.Log, label string) {
 	t.Helper()
 	r, ok := ms.store.Apply(log).(Response)
@@ -577,9 +574,8 @@ func applyOrFail(t *testing.T, ms *MockStore, log *raft.Log, label string) {
 	}
 }
 
-// TestStore_Apply_DeleteClass_NilCascadeIsSafe — DELETE_CLASS must not
-// panic when no distributed-task manager is wired (bootstrap / partial
-// harness shape).
+// Pins the nil-cascade contract: a partial harness without a wired
+// distributed-task manager must still apply DELETE_CLASS without panicking.
 func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
 	ms, addLog, deleteLog := setupCascadeTestStore(t, "Bareback")
 
@@ -589,10 +585,9 @@ func TestStore_Apply_DeleteClass_NilCascadeIsSafe(t *testing.T) {
 	applyOrFail(t, ms, deleteLog, "delete-class with nil cascade")
 }
 
-// TestStore_Apply_DeleteClass_CascadesToDistributedTasks pins
-// weaviate/0-weaviate-issues#231: DELETE_CLASS removes distributed-task
-// records bound to the dropped class so a subsequent same-name
-// CREATE_CLASS does not inherit the prior incarnation's task status.
+// Pins weaviate/0-weaviate-issues#231 end-to-end through the FSM apply
+// path: a same-name recreate must not inherit the prior incarnation's
+// task records.
 func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 	ms, addLog, deleteLog := setupCascadeTestStore(t, "Foo")
 
@@ -609,9 +604,9 @@ func TestStore_Apply_DeleteClass_CascadesToDistributedTasks(t *testing.T) {
 		},
 	)
 
-	// Raft indexes must be monotonic across the whole test: 1=add-class,
-	// 2..4=add-task, 5=delete-class. Store.Apply reads l.Index for
-	// version/metrics/catchingUp checks.
+	// Raft indexes must be monotonic across the test (Store.Apply reads
+	// l.Index for version/metrics/catchingUp): 1=add-class, 2..4=add-task,
+	// 5=delete-class.
 	addTaskAtIndex := func(t *testing.T, idx uint64, id string, collection string) {
 		t.Helper()
 		payloadBytes, err := json.Marshal(map[string]string{"collection": collection})

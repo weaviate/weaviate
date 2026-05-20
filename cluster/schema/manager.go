@@ -70,10 +70,8 @@ type MutationGuard interface {
 	CheckTenantMutation(className string, tenants []string) error
 }
 
-// distributedTaskCascadeDeleter is the narrow slice of
-// *cluster/distributedtask.Manager the schema FSM needs on class delete.
-// Kept narrow so schema doesn't depend on the full Manager API and tests
-// can stub it. nil-safe (bootstrap / partial test harnesses).
+// Narrow slice of *cluster/distributedtask.Manager so schema doesn't
+// depend on the full Manager surface and tests can stub it. nil-safe.
 type distributedTaskCascadeDeleter interface {
 	DeleteTasksForCollection(collection string) []distributedtask.TaskDescriptor
 }
@@ -173,11 +171,8 @@ func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
 }
 
-// SetDistributedTaskManager wires the distributed-task Manager into the
-// schema FSM so that [SchemaManager.DeleteClass] can cascade-delete task
-// records belonging to the dropped class. Safe to leave unset — the
-// cascade is a no-op when the manager is nil, preserving the pre-cascade
-// behaviour for bootstrap paths and partial-harness tests.
+// Wires the cascade-delete used by [SchemaManager.DeleteClass]. nil-safe;
+// the cascade is a no-op when unset (bootstrap / partial-harness tests).
 func (s *SchemaManager) SetDistributedTaskManager(m distributedTaskCascadeDeleter) {
 	s.distributedTaskManager = m
 }
@@ -460,15 +455,8 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
 				}
-				// Cascade-delete distributed-task records whose payload is
-				// scoped to this class. Without this, a drop+recreate of a
-				// class with the same name inherits the prior incarnation's
-				// task status (FAILED / FINISHED records survive the schema
-				// delete and the index-status materialisation joins by class
-				// name) — see weaviate/0-weaviate-issues#231. Best-effort:
-				// log + continue on a nil manager (bootstrap, partial-harness
-				// tests) so that a missing wire does not block the schema
-				// delete itself.
+				// Closes weaviate/0-weaviate-issues#231: without this cascade,
+				// dead task records survive class drop+recreate.
 				if s.distributedTaskManager == nil {
 					s.log.WithField("class", cmd.Class).
 						Debug("distributed-task manager not set; skipping cascade-delete on class delete")
@@ -476,11 +464,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 					s.log.WithField("class", cmd.Class).
 						WithField("removed_count", len(removed)).
 						Info("cascade-deleted distributed-task records for dropped class")
-					// Full ID/version list at Debug only — a class that
-					// accumulated many historical tasks would otherwise produce
-					// huge Info-level log lines (and the allocations to build
-					// them) at every DELETE_CLASS apply. IsLevelEnabled gates
-					// the allocation as well as the emit.
+					// IsLevelEnabled gates the allocation, not just the emit.
 					if s.log.IsLevelEnabled(logrus.DebugLevel) {
 						ids := make([]string, 0, len(removed))
 						for _, d := range removed {
