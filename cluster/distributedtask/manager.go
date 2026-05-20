@@ -204,10 +204,6 @@ type ManagerParameters struct {
 
 	CompletedTaskTTL time.Duration
 
-	// Logger is required so the Manager logs through Weaviate's central
-	// log configuration. Passing a detached logger (e.g.
-	// [logrus.StandardLogger]) would bypass operator-configured fields,
-	// levels, and outputs.
 	Logger logrus.FieldLogger
 }
 
