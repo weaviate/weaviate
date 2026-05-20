@@ -452,11 +452,24 @@ func (st *Store) watchWipedJoinerCatchUp() {
 	)
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
-	var stableSince time.Time
+	var (
+		stableSince time.Time
+		// sawOpen flips true the first time we observe open=true. Until
+		// then we tolerate open=false (Store.Open's defer hasn't fired
+		// yet); after, an open=false means shutdown and we exit.
+		sawOpen bool
+	)
 	for range ticker.C {
-		if st.wipedJoinerReloaded.Load() || !st.open.Load() {
+		if st.wipedJoinerReloaded.Load() {
 			return
 		}
+		if !st.open.Load() {
+			if sawOpen {
+				return
+			}
+			continue
+		}
+		sawOpen = true
 		if st.raft == nil {
 			stableSince = time.Time{}
 			continue
