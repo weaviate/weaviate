@@ -163,7 +163,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		var props *pb.PropertiesResult
 		var err error
 
-		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.Alias, searchParams.AdditionalProperties)
+		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -528,18 +528,15 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 	return ret, groupedGenerativeResults, nil
 }
 
-// extractPropertiesAnswer fills the top-level result for one hit. alias is
-// already stripped upstream, so it's echoed as-is; className is stripped here.
-func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className, alias string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+// extractPropertiesAnswer fills the top-level result for one hit.
+// TargetCollection is the resolved class name, stripped of the caller's own
+// namespace prefix.
+func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
 	props, err := r.buildPropertiesResult(scheme, results, properties, className, additionalPropsParams)
 	if err != nil {
 		return nil, err
 	}
-	if alias != "" {
-		props.TargetCollection = alias
-	} else {
-		props.TargetCollection = namespacing.StripOwnNS(r.principal, className)
-	}
+	props.TargetCollection = namespacing.StripOwnNS(r.principal, className)
 	return props, nil
 }
 

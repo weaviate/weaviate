@@ -405,10 +405,10 @@ func TestNamespaces_GRPC(t *testing.T) {
 				return err
 			})
 			assert.Len(t, searchResp.Results, 2)
-			// target_collection echoes the alias the caller actually typed
-			// (short form for the namespaced caller).
-			assert.Equal(t, aliasName, searchResp.Results[0].Properties.TargetCollection)
-			assert.Equal(t, aliasName, searchResp.Results[1].Properties.TargetCollection)
+			// target_collection is the resolved class name, stripped to the
+			// caller's namespace — never the alias the caller typed.
+			assert.Equal(t, class, searchResp.Results[0].Properties.TargetCollection)
+			assert.Equal(t, class, searchResp.Results[1].Properties.TargetCollection)
 
 			aggResp, err := grpcClient.Aggregate(authCtx(key), &pb.AggregateRequest{
 				Collection:   aliasName,

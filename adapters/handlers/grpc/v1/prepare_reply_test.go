@@ -1373,8 +1373,8 @@ func (f fakeGenerativeParams) ReturnDebugForGrouped() bool {
 	return false
 }
 
-// TestTargetCollectionStripping: alias wins if set, else className stripped
-// to the caller's namespace; globals/nil principals pass through raw.
+// TestTargetCollectionStripping: className is stripped to the caller's
+// namespace; global/nil principals pass through raw.
 func TestTargetCollectionStripping(t *testing.T) {
 	namespaced := &models.Principal{Username: "u", Namespace: "customer1"}
 	global := &models.Principal{Username: "admin", IsGlobalOperator: true}
@@ -1392,49 +1392,30 @@ func TestTargetCollectionStripping(t *testing.T) {
 		name      string
 		principal *models.Principal
 		className string
-		alias     string // pre-stripped upstream
 		want      string
 	}{
 		{
-			name:      "namespaced caller, no alias: class stripped to short form",
+			name:      "namespaced caller: class stripped to short form",
 			principal: namespaced,
 			className: "customer1:Movies",
-			alias:     "",
 			want:      "Movies",
 		},
 		{
-			name:      "namespaced caller, alias set: alias echoed verbatim",
-			principal: namespaced,
-			className: "customer1:Movies",
-			alias:     "Films",
-			want:      "Films",
-		},
-		{
-			name:      "global caller, no alias: raw qualified class echoed",
+			name:      "global caller: raw qualified class echoed",
 			principal: global,
 			className: "customer1:Movies",
-			alias:     "",
 			want:      "customer1:Movies",
 		},
 		{
-			name:      "global caller, alias set: alias echoed verbatim",
-			principal: global,
-			className: "customer1:Movies",
-			alias:     "customer1:Films",
-			want:      "customer1:Films",
-		},
-		{
-			name:      "nil principal, no alias: passthrough",
+			name:      "nil principal: passthrough",
 			principal: nil,
 			className: "Movies",
-			alias:     "",
 			want:      "Movies",
 		},
 		{
 			name:      "namespaced caller, foreign-NS class: prefix preserved",
 			principal: namespaced,
 			className: "customer2:Movies",
-			alias:     "",
 			want:      "customer2:Movies",
 		},
 	}
@@ -1446,7 +1427,6 @@ func TestTargetCollectionStripping(t *testing.T) {
 				map[string]interface{}{},
 				search.SelectProperties{}, // no properties → no schema walk needed
 				tc.className,
-				tc.alias,
 				additional.Properties{},
 			)
 			require.NoError(t, err)
