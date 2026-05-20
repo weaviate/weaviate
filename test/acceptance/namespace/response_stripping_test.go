@@ -32,25 +32,94 @@ import (
 func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 	user1Key, user2Key := twoNamespaces(t)
 
-	t.Run("AddClass response strips Class", func(t *testing.T) {
-		// DataType cross-ref stripping cannot be exercised end-to-end on
-		// Phase-1: inline `DataType: ["Target"]` isn't auto-qualified on
-		// the way in, so the cross-ref target doesn't resolve. The strip
-		// mechanics are covered by the namespacing resolver unit tests.
+	t.Run("AddClass response strips Class and cross-ref DataType", func(t *testing.T) {
 		const name = "AddClassStripped"
-		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+name, adminKey) })
+		// Set up referenced classes first so the cross-ref existence
+		// check passes when the new class is created.
+		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{Class: "Books"}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+name, adminKey)
+			helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+			helper.DeleteClassAuth(t, "customer1:Books", adminKey)
+		})
 
 		resp, err := helper.CreateClassAuthWithReturn(t, &models.Class{
 			Class: name,
 			Properties: []*models.Property{
 				{Name: "title", DataType: []string{"text"}},
+				{Name: "watched", DataType: []string{"Movies"}},
+				{Name: "related", DataType: []string{"Movies", "Books"}},
 			},
 		}, user1Key)
 		require.NoError(t, err)
 		assert.Equal(t, name, resp.Payload.Class)
+		require.Len(t, resp.Payload.Properties, 3)
+		assert.Equal(t, []string{"text"}, findProp(resp.Payload, "title").DataType)
+		assert.Equal(t, []string{"Movies"}, findProp(resp.Payload, "watched").DataType)
+		assert.Equal(t, []string{"Movies", "Books"}, findProp(resp.Payload, "related").DataType)
 
-		// Admin sees the raw qualified class via direct GET.
-		assert.Equal(t, "customer1:"+name, helper.GetClassAuth(t, "customer1:"+name, adminKey).Class)
+		// Admin sees the raw qualified class + qualified cross-ref DataTypes
+		// via direct GET.
+		raw := helper.GetClassAuth(t, "customer1:"+name, adminKey)
+		assert.Equal(t, "customer1:"+name, raw.Class)
+		assert.Equal(t, []string{"customer1:Movies"}, findProp(raw, "watched").DataType)
+		assert.Equal(t, []string{"customer1:Movies", "customer1:Books"}, findProp(raw, "related").DataType)
+	})
+
+	t.Run("addClassProperty response strips DataType cross-ref class names", func(t *testing.T) {
+		const host = "Library"
+		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{Class: "Books"}, user1Key)
+		setupClassInNs1(t, host, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+			helper.DeleteClassAuth(t, "customer1:Books", adminKey)
+		})
+
+		single, err := addPropertyAuthWithReturn(t, host,
+			&models.Property{Name: "watched", DataType: []string{"Movies"}}, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Movies"}, single.DataType)
+
+		multi, err := addPropertyAuthWithReturn(t, host,
+			&models.Property{Name: "related", DataType: []string{"Movies", "Books"}}, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Movies", "Books"}, multi.DataType)
+
+		// Admin sees the raw qualified DataTypes via direct GET.
+		raw := helper.GetClassAuth(t, "customer1:"+host, adminKey)
+		assert.Equal(t, []string{"customer1:Movies"}, findProp(raw, "watched").DataType)
+		assert.Equal(t, []string{"customer1:Movies", "customer1:Books"}, findProp(raw, "related").DataType)
+	})
+
+	t.Run("AddClass with already-qualified own-NS DataType rejected", func(t *testing.T) {
+		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user1Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:Movies", adminKey) })
+
+		_, err := helper.CreateClassAuthWithReturn(t, &models.Class{
+			Class: "RejectQualifiedOwn",
+			Properties: []*models.Property{
+				{Name: "watched", DataType: []string{"customer1:Movies"}},
+			},
+		}, user1Key)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a valid class name")
+	})
+
+	t.Run("AddClass with cross-NS DataType rejected", func(t *testing.T) {
+		// customer2:Movies exists, but customer1's caller may not reference it.
+		helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, user2Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer2:Movies", adminKey) })
+
+		_, err := helper.CreateClassAuthWithReturn(t, &models.Class{
+			Class: "RejectCrossNS",
+			Properties: []*models.Property{
+				{Name: "watched", DataType: []string{"customer2:Movies"}},
+			},
+		}, user1Key)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a valid class name")
 	})
 
 	t.Run("schema GET → PUT round-trip on real class path succeeds with stripped body", func(t *testing.T) {

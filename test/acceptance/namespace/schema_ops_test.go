@@ -34,6 +34,18 @@ func addPropertyAuth(t *testing.T, className string, prop *models.Property, key 
 	return err
 }
 
+func addPropertyAuthWithReturn(t *testing.T, className string, prop *models.Property, key string) (*models.Property, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsPropertiesAddParams().
+		WithClassName(className).
+		WithBody(prop)
+	resp, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(params, helper.CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func deletePropertyIndexAuth(t *testing.T, className, propName, indexName, key string) error {
 	t.Helper()
 	params := schema.NewSchemaObjectsPropertiesDeleteParams().
