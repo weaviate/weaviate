@@ -505,6 +505,128 @@ func TestStripClassResponse(t *testing.T) {
 	}
 }
 
+func TestQualifyPropertyDataTypes(t *testing.T) {
+	cases := []struct {
+		name              string
+		principal         *models.Principal
+		namespacesEnabled bool
+		in                []*models.Property
+		want              []*models.Property
+		wantErrSubstr     string
+	}{
+		{
+			name:              "namespaced principal qualifies short cross-ref",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+		},
+		{
+			name:              "multi-target refs all qualified",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "related", DataType: []string{"Movies", "Books"}}},
+			want:              []*models.Property{{Name: "related", DataType: []string{"customer1:Movies", "customer1:Books"}}},
+		},
+		{
+			name:              "primitive DataType passes through",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "title", DataType: []string{"text"}}},
+			want:              []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		},
+		{
+			name:              "nested object DataType passes through",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in: []*models.Property{
+				{Name: "meta", DataType: []string{"object"}},
+				{Name: "metas", DataType: []string{"object[]"}},
+			},
+			want: []*models.Property{
+				{Name: "meta", DataType: []string{"object"}},
+				{Name: "metas", DataType: []string{"object[]"}},
+			},
+		},
+		{
+			name:              "already-qualified own-namespace rejected",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			wantErrSubstr:     "not a valid class name",
+		},
+		{
+			name:              "already-qualified foreign-namespace rejected",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer2:Movies"}}},
+			wantErrSubstr:     "not a valid class name",
+		},
+		{
+			name:              "global principal passes through",
+			principal:         globalPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+		},
+		{
+			name:              "nil principal passes through",
+			principal:         nil,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+		},
+		{
+			name:              "NS disabled passes through",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: false,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+		},
+		{
+			name:              "empty DataType slice and nil property no-op",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in: []*models.Property{
+				nil,
+				{Name: "empty", DataType: []string{}},
+				{Name: "watched", DataType: []string{"Movies"}},
+			},
+			want: []*models.Property{
+				nil,
+				{Name: "empty", DataType: []string{}},
+				{Name: "watched", DataType: []string{"customer1:Movies"}},
+			},
+		},
+		{
+			name:              "mixed primitive and ref in same call",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+				{Name: "watched", DataType: []string{"Movies"}},
+			},
+			want: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+				{Name: "watched", DataType: []string{"customer1:Movies"}},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := QualifyPropertyDataTypes(tc.principal, tc.namespacesEnabled, tc.in)
+			if tc.wantErrSubstr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrSubstr)
+				return
+			}
+			require.NoError(t, err)
+			// Mutation in-place is intentional — assert via the input slice.
+			assert.Equal(t, tc.want, tc.in)
+		})
+	}
+}
+
 func TestStripPropertyResponse(t *testing.T) {
 	cases := []struct {
 		name      string

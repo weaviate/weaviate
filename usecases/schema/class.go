@@ -132,6 +132,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	cls.Class = qualified
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, cls.Properties); err != nil {
+		return nil, 0, err
+	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(cls.Class)...); err != nil {
 		return nil, 0, err
