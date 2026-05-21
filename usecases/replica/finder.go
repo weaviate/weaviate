@@ -16,7 +16,10 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -616,42 +619,70 @@ func (f *Finder) groupShardsByAddr(shardNames []string) (map[string][]string, ma
 // but never abort the fan-out — convergence retries on the next create cycle.
 func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames []string, cutoffMs int64, createdAt time.Time) (successes, failures int) {
 	addrShards, _ := f.groupShardsByAddr(shardNames)
+	var success, failure atomic.Int64
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
+	eg.SetLimit(runtime.GOMAXPROCS(0))
 	for addr, shards := range addrShards {
-		if err := f.client.cl.CreateAsyncCheckpoint(ctx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
-			failures++
-			f.logger.WithFields(logrus.Fields{
-				"action": "async_checkpoint_broadcast",
-				"op":     "create",
-				"class":  f.class,
-				"addr":   addr,
-				"shards": shards,
-			}).WithError(err).
-				Warn("async-checkpoint create rejected by remote replica")
-			continue
-		}
-		successes++
+		addr, shards := addr, shards
+		eg.Go(func() error {
+			if err := f.client.cl.CreateAsyncCheckpoint(egCtx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
+				failure.Add(1)
+				f.logger.WithFields(logrus.Fields{
+					"action": "async_checkpoint_broadcast",
+					"op":     "create",
+					"class":  f.class,
+					"addr":   addr,
+					"shards": shards,
+				}).WithError(err).
+					Warn("async-checkpoint create rejected by remote replica")
+				return nil
+			}
+			success.Add(1)
+			return nil
+		})
 	}
-	return successes, failures
+	if err := eg.Wait(); err != nil {
+		f.logger.WithFields(logrus.Fields{
+			"action": "async_checkpoint_broadcast",
+			"op":     "create",
+			"class":  f.class,
+		}).Warnf("async-checkpoint create fan-out panicked: %v", err)
+	}
+	return int(success.Load()), int(failure.Load())
 }
 
 func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) (successes, failures int) {
 	addrShards, _ := f.groupShardsByAddr(shardNames)
+	var success, failure atomic.Int64
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
+	eg.SetLimit(runtime.GOMAXPROCS(0))
 	for addr, shards := range addrShards {
-		if err := f.client.cl.DeleteAsyncCheckpoint(ctx, addr, f.class, shards); err != nil {
-			failures++
-			f.logger.WithFields(logrus.Fields{
-				"action": "async_checkpoint_broadcast",
-				"op":     "delete",
-				"class":  f.class,
-				"addr":   addr,
-				"shards": shards,
-			}).WithError(err).
-				Warn("async-checkpoint delete rejected by remote replica")
-			continue
-		}
-		successes++
+		addr, shards := addr, shards
+		eg.Go(func() error {
+			if err := f.client.cl.DeleteAsyncCheckpoint(egCtx, addr, f.class, shards); err != nil {
+				failure.Add(1)
+				f.logger.WithFields(logrus.Fields{
+					"action": "async_checkpoint_broadcast",
+					"op":     "delete",
+					"class":  f.class,
+					"addr":   addr,
+					"shards": shards,
+				}).WithError(err).
+					Warn("async-checkpoint delete rejected by remote replica")
+				return nil
+			}
+			success.Add(1)
+			return nil
+		})
 	}
-	return successes, failures
+	if err := eg.Wait(); err != nil {
+		f.logger.WithFields(logrus.Fields{
+			"action": "async_checkpoint_broadcast",
+			"op":     "delete",
+			"class":  f.class,
+		}).Warnf("async-checkpoint delete fan-out panicked: %v", err)
+	}
+	return int(success.Load()), int(failure.Load())
 }
 
 // BroadcastGetAsyncCheckpointStatus omits unreachable nodes from the aggregate; status is routinely retried.
@@ -659,31 +690,48 @@ func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNam
 	addrShards, addrToName := f.groupShardsByAddr(shardNames)
 
 	statuses = make(map[string][]AsyncCheckpointNodeStatus)
+	var success, failure atomic.Int64
+	var mu sync.Mutex
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
+	eg.SetLimit(runtime.GOMAXPROCS(0))
 	for addr, shards := range addrShards {
+		addr, shards := addr, shards
 		nodeName := addrToName[addr]
-		remoteStatuses, err := f.client.cl.GetAsyncCheckpointStatus(ctx, addr, f.class, shards)
-		if err != nil {
-			failures++
-			f.logger.WithFields(logrus.Fields{
-				"action": "async_checkpoint_broadcast",
-				"op":     "status",
-				"class":  f.class,
-				"addr":   addr,
-				"node":   nodeName,
-				"shards": shards,
-			}).WithError(err).
-				Debug("async-checkpoint status: remote replica unavailable")
-			continue
-		}
-		successes++
-		for shardName, s := range remoteStatuses {
-			statuses[shardName] = append(statuses[shardName], AsyncCheckpointNodeStatus{
-				Node:      nodeName,
-				CutoffMs:  s.CutoffMs,
-				CreatedAt: s.CreatedAt,
-				Root:      s.Root,
-			})
-		}
+		eg.Go(func() error {
+			remoteStatuses, err := f.client.cl.GetAsyncCheckpointStatus(egCtx, addr, f.class, shards)
+			if err != nil {
+				failure.Add(1)
+				f.logger.WithFields(logrus.Fields{
+					"action": "async_checkpoint_broadcast",
+					"op":     "status",
+					"class":  f.class,
+					"addr":   addr,
+					"node":   nodeName,
+					"shards": shards,
+				}).WithError(err).
+					Debug("async-checkpoint status: remote replica unavailable")
+				return nil
+			}
+			success.Add(1)
+			mu.Lock()
+			for shardName, s := range remoteStatuses {
+				statuses[shardName] = append(statuses[shardName], AsyncCheckpointNodeStatus{
+					Node:      nodeName,
+					CutoffMs:  s.CutoffMs,
+					CreatedAt: s.CreatedAt,
+					Root:      s.Root,
+				})
+			}
+			mu.Unlock()
+			return nil
+		})
 	}
-	return statuses, successes, failures
+	if err := eg.Wait(); err != nil {
+		f.logger.WithFields(logrus.Fields{
+			"action": "async_checkpoint_broadcast",
+			"op":     "status",
+			"class":  f.class,
+		}).Warnf("async-checkpoint status fan-out panicked: %v", err)
+	}
+	return statuses, int(success.Load()), int(failure.Load())
 }

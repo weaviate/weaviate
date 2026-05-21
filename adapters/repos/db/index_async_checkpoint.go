@@ -15,9 +15,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
@@ -39,27 +42,55 @@ func (i *Index) createAsyncCheckpoint(ctx context.Context, shardName string, cut
 // createAsyncCheckpointShards is best-effort: errors are joined (preserving
 // errors.Is) so REST/gRPC mappers can still classify a sentinel result.
 func (i *Index) createAsyncCheckpointShards(ctx context.Context, shardNames []string, cutoffMs int64, createdAt time.Time) error {
-	var errs []error
+	var (
+		errsMu sync.Mutex
+		errs   []error
+	)
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(_NUMCPU)
 	for _, shardName := range shardNames {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := i.createAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt); err != nil {
-			errs = append(errs, err)
-		}
+		shardName := shardName
+		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := i.createAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt); err != nil {
+				errsMu.Lock()
+				errs = append(errs, err)
+				errsMu.Unlock()
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 	return errors.Join(errs...)
 }
 
 func (i *Index) deleteAsyncCheckpointShards(ctx context.Context, shardNames []string) error {
-	var errs []error
+	var (
+		errsMu sync.Mutex
+		errs   []error
+	)
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(_NUMCPU)
 	for _, shardName := range shardNames {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := i.deleteAsyncCheckpoint(ctx, shardName); err != nil {
-			errs = append(errs, err)
-		}
+		shardName := shardName
+		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := i.deleteAsyncCheckpoint(ctx, shardName); err != nil {
+				errsMu.Lock()
+				errs = append(errs, err)
+				errsMu.Unlock()
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 	return errors.Join(errs...)
 }
@@ -79,31 +110,51 @@ func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) err
 
 // getAsyncCheckpointShardStatus omits shards not loaded here (including
 // unloaded LazyLoadShards) so the aggregator can distinguish "not on this
-// node" from "loaded but inactive" (CutoffMs == 0).
+// node" from "loaded but inactive" (CutoffMs == 0). Per-shard GetShard
+// failures are logged and dropped so one bad shard can't deny status for
+// the rest.
 func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
 	out := make(map[string]replica.AsyncCheckpointShardStatus, len(shardNames))
+	var mu sync.Mutex
+
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(_NUMCPU)
 	for _, shardName := range shardNames {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		shard, release, err := i.GetShard(ctx, shardName)
-		if err != nil {
-			return nil, fmt.Errorf("get shard %q: %w", shardName, err)
-		}
-		if shard == nil {
-			continue
-		}
-		if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.IsAsyncCheckpointHostable() {
-			release()
-			continue
-		}
-		root, cutoffMs, createdAt, _ := shard.AsyncCheckpointRoot(ctx)
-		release()
-		out[shardName] = replica.AsyncCheckpointShardStatus{
-			Root:      root,
-			CutoffMs:  cutoffMs,
-			CreatedAt: createdAt,
-		}
+		shardName := shardName
+		eg.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			shard, release, err := i.GetShard(ctx, shardName)
+			if err != nil {
+				i.logger.WithFields(logrus.Fields{
+					"action": "async_checkpoint_local",
+					"op":     "status",
+					"class":  i.Config.ClassName,
+					"shard":  shardName,
+				}).WithError(err).Debug("get shard failed; skipping")
+				return nil
+			}
+			if shard == nil {
+				return nil
+			}
+			defer release()
+			if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.IsAsyncCheckpointHostable() {
+				return nil
+			}
+			root, cutoffMs, createdAt, _ := shard.AsyncCheckpointRoot(ctx)
+			mu.Lock()
+			out[shardName] = replica.AsyncCheckpointShardStatus{
+				Root:      root,
+				CutoffMs:  cutoffMs,
+				CreatedAt: createdAt,
+			}
+			mu.Unlock()
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -150,20 +201,33 @@ func (i *Index) createAsyncCheckpoints(ctx context.Context, cutoffMs int64, shar
 	targets := i.resolveShardNames(shards)
 	createdAt := time.Now().UTC()
 
-	var localSuccesses, localFailures int
+	var localSuccesses, localFailures atomic.Int64
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(_NUMCPU)
 	for _, shardName := range targets {
-		if err := i.createAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt); err != nil {
-			localFailures++
-			// Debug, not Warn: "shard not loaded here" is expected for fan-out.
-			i.logger.WithFields(logrus.Fields{
-				"action": "async_checkpoint_local",
-				"op":     "create",
-				"class":  i.Config.ClassName,
-				"shard":  shardName,
-			}).WithError(err).Debug("async-checkpoint local create failed")
-			continue
-		}
-		localSuccesses++
+		shardName := shardName
+		eg.Go(func() error {
+			if err := i.createAsyncCheckpoint(egCtx, shardName, cutoffMs, createdAt); err != nil {
+				localFailures.Add(1)
+				// Debug, not Warn: "shard not loaded here" is expected for fan-out.
+				i.logger.WithFields(logrus.Fields{
+					"action": "async_checkpoint_local",
+					"op":     "create",
+					"class":  i.Config.ClassName,
+					"shard":  shardName,
+				}).WithError(err).Debug("async-checkpoint local create failed")
+				return nil
+			}
+			localSuccesses.Add(1)
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		i.logger.WithFields(logrus.Fields{
+			"action": "async_checkpoint_local",
+			"op":     "create",
+			"class":  i.Config.ClassName,
+		}).Warnf("local async-checkpoint create fan-out panicked: %v", err)
 	}
 
 	remoteSuccesses, remoteFailures := broadcaster.BroadcastCreateAsyncCheckpoint(ctx, targets, cutoffMs, createdAt)
@@ -175,8 +239,8 @@ func (i *Index) createAsyncCheckpoints(ctx context.Context, cutoffMs int64, shar
 		"shards":           len(targets),
 		"cutoff_ms":        cutoffMs,
 		"created_at":       createdAt,
-		"local_successes":  localSuccesses,
-		"local_failures":   localFailures,
+		"local_successes":  int(localSuccesses.Load()),
+		"local_failures":   int(localFailures.Load()),
 		"remote_successes": remoteSuccesses,
 		"remote_failures":  remoteFailures,
 	}).Info("async-checkpoint create completed")
@@ -189,19 +253,32 @@ func (i *Index) DeleteAsyncCheckpoints(ctx context.Context, shards []string) err
 
 func (i *Index) deleteAsyncCheckpoints(ctx context.Context, shards []string, broadcaster asyncCheckpointBroadcaster) error {
 	targets := i.resolveShardNames(shards)
-	var localSuccesses, localFailures int
+	var localSuccesses, localFailures atomic.Int64
+	eg, egCtx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+	eg.SetLimit(_NUMCPU)
 	for _, shardName := range targets {
-		if err := i.deleteAsyncCheckpoint(ctx, shardName); err != nil {
-			localFailures++
-			i.logger.WithFields(logrus.Fields{
-				"action": "async_checkpoint_local",
-				"op":     "delete",
-				"class":  i.Config.ClassName,
-				"shard":  shardName,
-			}).WithError(err).Debug("local async-checkpoint delete failed")
-			continue
-		}
-		localSuccesses++
+		shardName := shardName
+		eg.Go(func() error {
+			if err := i.deleteAsyncCheckpoint(egCtx, shardName); err != nil {
+				localFailures.Add(1)
+				i.logger.WithFields(logrus.Fields{
+					"action": "async_checkpoint_local",
+					"op":     "delete",
+					"class":  i.Config.ClassName,
+					"shard":  shardName,
+				}).WithError(err).Debug("local async-checkpoint delete failed")
+				return nil
+			}
+			localSuccesses.Add(1)
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		i.logger.WithFields(logrus.Fields{
+			"action": "async_checkpoint_local",
+			"op":     "delete",
+			"class":  i.Config.ClassName,
+		}).Warnf("local async-checkpoint delete fan-out panicked: %v", err)
 	}
 	remoteSuccesses, remoteFailures := broadcaster.BroadcastDeleteAsyncCheckpoint(ctx, targets)
 	i.logger.WithFields(logrus.Fields{
@@ -209,8 +286,8 @@ func (i *Index) deleteAsyncCheckpoints(ctx context.Context, shards []string, bro
 		"op":               "delete",
 		"class":            i.Config.ClassName,
 		"shards":           len(targets),
-		"local_successes":  localSuccesses,
-		"local_failures":   localFailures,
+		"local_successes":  int(localSuccesses.Load()),
+		"local_failures":   int(localFailures.Load()),
 		"remote_successes": remoteSuccesses,
 		"remote_failures":  remoteFailures,
 	}).Info("async-checkpoint delete completed")
