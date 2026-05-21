@@ -188,9 +188,10 @@ func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap,
 //   - Otherwise: resolve each group to root+docID positions and AND them so all
 //     conditions must land in the same root element.
 //
-// Filters mixing conflicting explicit intermediate arr[N] constraints with
-// unconstrained conditions at the same level are rejected by filter validation
-// before reaching this path.
+// TODO aliszka:nested_filtering reject filters mixing conflicting explicit
+// intermediate arr[N] constraints with unconstrained conditions at the same
+// level in filter validation. Until that lands, unconstrained items in that
+// shape are silently dropped during plan construction.
 func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searcher) (*docBitmap, error) {
 	groups, allRootConstrained := groupChildrenByArrayIndicesKey(pv.children)
 	switch len(groups) {
@@ -413,8 +414,9 @@ func compatibleConstraints(a, b arrayIndices) bool {
 }
 
 // groupChildrenByArrayIndicesKey partitions children into groups where all
-// members have compatible arr[N] constraints (no conflicting explicit indices
-// at any shared RelPath level).
+// members have compatible arr[N] constraints (see compatibleConstraints: only
+// RelPath="" conflicts split groups; intermediate-level conflicts are tolerated
+// and handled via SPLIT-at-LCA in the recursive planner).
 //
 // Conditions without arr[N] constraints (empty arrayIndices) are trivially
 // compatible with everything, so all-unconstrained filters always produce a
