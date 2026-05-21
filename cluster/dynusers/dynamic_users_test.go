@@ -205,6 +205,40 @@ func TestManager_MalformedJSON(t *testing.T) {
 	}
 }
 
+func TestManager_CheckUserIdentifierExists(t *testing.T) {
+	m, _ := newTestManager(t, newNamespacesMock(t))
+
+	_, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+
+	apply := &cmd.ApplyRequest{SubCommand: mustMarshalJSON(t, cmd.CreateUsersRequest{
+		UserId:         "u1",
+		SecureHash:     hash,
+		UserIdentifier: identifier,
+		CreatedAt:      time.Now(),
+	})}
+	require.NoError(t, m.CreateUser(apply))
+
+	query := &cmd.QueryRequest{SubCommand: mustMarshalJSON(t, cmd.QueryUserIdentifierExistsRequest{
+		UserIdentifier: identifier,
+	})}
+	payload, err := m.CheckUserIdentifierExists(query)
+	require.NoError(t, err)
+
+	var response cmd.QueryUserIdentifierExistsResponse
+	require.NoError(t, json.Unmarshal(payload, &response))
+	require.True(t, response.Exists)
+
+	query = &cmd.QueryRequest{SubCommand: mustMarshalJSON(t, cmd.QueryUserIdentifierExistsRequest{
+		UserIdentifier: "u1",
+	})}
+	payload, err = m.CheckUserIdentifierExists(query)
+	require.NoError(t, err)
+
+	require.NoError(t, json.Unmarshal(payload, &response))
+	require.False(t, response.Exists)
+}
+
 func TestManager_DeleteUsersInNamespace(t *testing.T) {
 	seed := func(t *testing.T, m *Manager, id, namespace string) {
 		t.Helper()
