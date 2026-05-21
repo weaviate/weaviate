@@ -44,6 +44,14 @@ type Properties struct {
 	// QueryProfile enables per-shard query profiling data collection and return.
 	QueryProfile bool `json:"queryProfile"`
 
+	// Highlight indicates that highlighted text fragments from keyword (BM25)
+	// search should be returned with each result.
+	Highlight bool `json:"highlight"`
+
+	// QueryVector indicates that the vectorized query should be returned
+	// with each result in the _additional property.
+	QueryVector bool `json:"queryVector"`
+
 	// The User is not interested in returning props, we can skip any costly
 	// operation that isn't required.
 	NoProps bool `json:"noProps"`

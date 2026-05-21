@@ -2906,3 +2906,96 @@ func getFakeModulesProviderWithCustomExtenders(
 func getFakeModulesProvider() ModulesProvider {
 	return &fakeModulesProvider{}
 }
+
+func Test_Explorer_GetClass_QueryVector(t *testing.T) {
+	params := dto.GetParams{
+		ClassName: "BestClass",
+		NearVector: &searchparams.NearVector{
+			Vectors: []models.Vector{[]float32{0.1, 0.2, 0.3}},
+		},
+		Pagination: &filters.Pagination{Limit: 100},
+		AdditionalProperties: additional.Properties{
+			QueryVector: true,
+		},
+	}
+
+	searchResults := []search.Result{
+		{
+			ID: "id1",
+			Schema: map[string]interface{}{
+				"name": "Foo",
+			},
+			Dist: 0.5,
+		},
+	}
+
+	search := &fakeVectorSearcher{}
+	metrics := &fakeMetrics{}
+	log, _ := test.NewNullLogger()
+	explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
+	explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
+			{Class: "BestClass"},
+		}}},
+	})
+	expectedParamsToSearch := params
+	search.
+		On("VectorSearch", expectedParamsToSearch, []models.Vector{[]float32{0.1, 0.2, 0.3}}).
+		Return(searchResults, nil)
+
+	metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 0)
+	res, err := explorer.GetClass(context.Background(), params)
+
+	t.Run("queryVector is returned in _additional", func(t *testing.T) {
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		result := res[0].(map[string]interface{})
+		additional := result["_additional"].(map[string]interface{})
+		assert.Equal(t, []float32{0.1, 0.2, 0.3}, additional["queryVector"])
+	})
+}
+
+func Test_Explorer_GetClass_QueryVector_NotRequested(t *testing.T) {
+	params := dto.GetParams{
+		ClassName: "BestClass",
+		NearVector: &searchparams.NearVector{
+			Vectors: []models.Vector{[]float32{0.1, 0.2, 0.3}},
+		},
+		Pagination: &filters.Pagination{Limit: 100},
+	}
+
+	searchResults := []search.Result{
+		{
+			ID: "id1",
+			Schema: map[string]interface{}{
+				"name": "Foo",
+			},
+			Dist: 0.5,
+		},
+	}
+
+	search := &fakeVectorSearcher{}
+	metrics := &fakeMetrics{}
+	log, _ := test.NewNullLogger()
+	explorer := NewExplorer(search, log, getFakeModulesProvider(), metrics, defaultConfig)
+	explorer.SetSchemaGetter(&fakeSchemaGetter{
+		schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
+			{Class: "BestClass"},
+		}}},
+	})
+	expectedParamsToSearch := params
+	search.
+		On("VectorSearch", expectedParamsToSearch, []models.Vector{[]float32{0.1, 0.2, 0.3}}).
+		Return(searchResults, nil)
+
+	metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 0)
+	res, err := explorer.GetClass(context.Background(), params)
+
+	t.Run("queryVector is not in _additional when not requested", func(t *testing.T) {
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		result := res[0].(map[string]interface{})
+		_, hasAdditional := result["_additional"]
+		assert.False(t, hasAdditional, "_additional should not be present when only queryVector could be added")
+	})
+}

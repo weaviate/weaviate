@@ -185,6 +185,8 @@ func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *m
 	additionalProperties["id"] = b.additionalIDField()
 	additionalProperties["creationTimeUnix"] = b.additionalCreationTimeUnix()
 	additionalProperties["lastUpdateTimeUnix"] = b.additionalLastUpdateTimeUnix()
+	additionalProperties["queryVector"] = b.additionalQueryVectorField()
+	additionalProperties["highlight"] = b.additionalHighlightField(class)
 	additionalProperties["score"] = b.additionalScoreField()
 	additionalProperties["explainScore"] = b.additionalExplainScoreField()
 	additionalProperties["queryProfile"] = b.additionalQueryProfileField()
@@ -265,6 +267,24 @@ func (b *classBuilder) additionalVectorsField(class *models.Class) *graphql.Fiel
 		}
 	}
 	return nil
+}
+
+func (b *classBuilder) additionalQueryVectorField() *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewList(graphql.Float),
+	}
+}
+
+func (b *classBuilder) additionalHighlightField(class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sAdditionalHighlight", class.Class),
+			Fields: graphql.Fields{
+				"property":  &graphql.Field{Type: graphql.String},
+				"fragments": &graphql.Field{Type: graphql.NewList(graphql.String)},
+			},
+		})),
+	}
 }
 
 func (b *classBuilder) additionalCreationTimeUnix() *graphql.Field {

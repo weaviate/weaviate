@@ -543,6 +543,10 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			if params.AdditionalProperties.Distance {
 				additionalProperties["distance"] = res.Dist
 			}
+
+			if params.AdditionalProperties.QueryVector {
+				additionalProperties["queryVector"] = searchVector
+			}
 		}
 
 		if params.AdditionalProperties.ID {
