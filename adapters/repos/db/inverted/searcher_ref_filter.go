@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // a helper tool to extract the uuid beacon for any matching reference
@@ -222,10 +223,19 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair,
 	}
 
 	out := make([]*propValuePair, len(ids)*2)
-	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, ids[0].class, 1.25)
+	// Stored beacons carry the short class name (the references write path
+	// normalizes via crossref.NewLocalhost(shortTarget, ...) for namespace
+	// portability), so the by-ref lookup must build its filter value with
+	// the short class too — otherwise on NS clusters the qualified
+	// elem.ClassName from the nested search produces a beacon that never
+	// matches the inverted-index value and the filter returns no rows.
+	// StripQualification is a no-op when there is no "<ns>:" prefix.
+	shortExample := namespacing.StripQualification(ids[0].class)
+	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, shortExample, 1.25)
 	for i, id := range ids {
+		shortClass := namespacing.StripQualification(id.class)
 		// future-proof way
-		pv, err := r.idToPropValuePairWithValue(bb.ClassAndID(id.class, id.id), hasFilterableIndex, hasSearchableIndex)
+		pv, err := r.idToPropValuePairWithValue(bb.ClassAndID(shortClass, id.id), hasFilterableIndex, hasSearchableIndex)
 		if err != nil {
 			return nil, err
 		}

@@ -332,11 +332,34 @@ func TestNamespaces_References(t *testing.T) {
 			"gRPC ref-resolve should inline the customer1:Animal target via the source namespace; got name=%q", resolvedName)
 	})
 
-	t.Run("gRPC filter-by-ref via SingleTarget reaches the right shard on NS cluster", func(t *testing.T) {
+	t.Run("gRPC filter-by-ref via SingleTarget returns the right row on NS cluster", func(t *testing.T) {
+		// Regression guard: stored ref beacons are short
+		// ("weaviate://localhost/Animal/<id>") because the references write
+		// path normalizes via crossref.NewLocalhost. The by-ref filter must
+		// strip the qualified prefix off the nested-search ClassName before
+		// building its lookup beacon — otherwise the lookup value carries
+		// "customer1:Animal" and never matches the stored short value.
+		// Pre-fix this returned 0 rows; we now assert the actual matching
+		// row is returned, not just that the call doesn't crash.
+		zooTiger, zooLion := newID(), newID()
+		tigerID, lionID := newID(), newID()
+		createIn(t, user1Key, "Animal", tigerID, map[string]any{"name": "filter-tiger"})
+		createIn(t, user1Key, "Animal", lionID, map[string]any{"name": "filter-lion"})
+		createIn(t, user1Key, "Zoo", zooTiger, map[string]any{"name": "zoo-with-tiger"})
+		createIn(t, user1Key, "Zoo", zooLion, map[string]any{"name": "zoo-with-lion"})
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(tigerID))},
+			zooTiger, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(lionID))},
+			zooLion, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
 		grpcClient, conn := newGrpcClient(t)
 		defer conn.Close()
 
-		req := searchReq("Zoo", 10)
+		req := searchReq("Zoo", 100)
 		req.Properties = &pb.PropertiesRequest{NonRefProperties: []string{"name"}}
 		req.Filters = &pb.Filters{
 			Operator: pb.Filters_OPERATOR_EQUAL,
@@ -350,10 +373,27 @@ func TestNamespaces_References(t *testing.T) {
 					},
 				},
 			},
-			TestValue: &pb.Filters_ValueText{ValueText: "tiger"},
+			TestValue: &pb.Filters_ValueText{ValueText: "filter-tiger"},
 		}
-		_, err := grpcClient.Search(authCtx(user1Key), req)
+		resp, err := grpcClient.Search(authCtx(user1Key), req)
 		require.NoError(t, err, "namespaced filter on a ref property should not fail with class-not-found")
+
+		// Other subtests run against the same Zoo class and may leave
+		// behind rows whose hasAnimals refs got modified — assert that the
+		// zoo-with-tiger row IS in the result and the zoo-with-lion row is
+		// NOT, rather than asserting an exact total count.
+		var sawTiger, sawLion bool
+		for _, r := range resp.Results {
+			name := r.Properties.NonRefProps.Fields["name"].GetTextValue()
+			if name == "zoo-with-tiger" {
+				sawTiger = true
+			}
+			if name == "zoo-with-lion" {
+				sawLion = true
+			}
+		}
+		assert.True(t, sawTiger, "by-ref filter on hasAnimals.name=='filter-tiger' should return zoo-with-tiger")
+		assert.False(t, sawLion, "by-ref filter must not return zoos whose ref points to a different animal")
 	})
 
 	t.Run("create object with ref property in Properties payload (NS happy path)", func(t *testing.T) {
@@ -519,6 +559,83 @@ func TestNamespaces_References(t *testing.T) {
 			assert.NotContains(t, beaconStr, "customer1:",
 				"stored multi-target beacon must be short (no namespace prefix in the class segment): %s", beaconStr)
 		}
+	})
+
+	t.Run("gRPC filter-by-ref via MultiTarget returns the right row on NS cluster", func(t *testing.T) {
+		// Same regression guard as SingleTarget above, but on the
+		// MultiTarget branch of the filter parser. The MultiTarget path
+		// receives an explicit TargetCollection from the caller — the
+		// parser qualifies it via parentNS, the by-ref lookup must then
+		// strip back to short to match the stored beacon.
+		//
+		// Self-contained schema (MultiRefAlpha/Beta/Source) because the
+		// shared Zoo/Animal schema doesn't have a multi-target ref. Mirror
+		// the "multi-target ref DataType on NS cluster" subtest above.
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      "MTFilterAlpha",
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      "MTFilterBeta",
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class: "MTFilterSource",
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "linkedTo", DataType: []string{"MTFilterAlpha", "MTFilterBeta"}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:MTFilterSource", adminKey)
+			helper.DeleteClassAuth(t, "customer1:MTFilterAlpha", adminKey)
+			helper.DeleteClassAuth(t, "customer1:MTFilterBeta", adminKey)
+		})
+
+		alphaWanted, alphaOther := newID(), newID()
+		srcMatch, srcMiss := newID(), newID()
+		createIn(t, user1Key, "MTFilterAlpha", alphaWanted, map[string]any{"name": "wanted"})
+		createIn(t, user1Key, "MTFilterAlpha", alphaOther, map[string]any{"name": "ignored"})
+		createIn(t, user1Key, "MTFilterSource", srcMatch, map[string]any{"name": "src-match"})
+		createIn(t, user1Key, "MTFilterSource", srcMiss, map[string]any{"name": "src-miss"})
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/MTFilterAlpha/" + string(alphaWanted))},
+			srcMatch, "MTFilterSource", "linkedTo", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/MTFilterAlpha/" + string(alphaOther))},
+			srcMiss, "MTFilterSource", "linkedTo", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		req := searchReq("MTFilterSource", 100)
+		req.Properties = &pb.PropertiesRequest{NonRefProperties: []string{"name"}}
+		req.Filters = &pb.Filters{
+			Operator: pb.Filters_OPERATOR_EQUAL,
+			Target: &pb.FilterTarget{
+				Target: &pb.FilterTarget_MultiTarget{
+					MultiTarget: &pb.FilterReferenceMultiTarget{
+						On:               "linkedTo",
+						TargetCollection: "MTFilterAlpha", // short — qualifier stitches customer1
+						Target: &pb.FilterTarget{
+							Target: &pb.FilterTarget_Property{Property: "name"},
+						},
+					},
+				},
+			},
+			TestValue: &pb.Filters_ValueText{ValueText: "wanted"},
+		}
+		resp, err := grpcClient.Search(authCtx(user1Key), req)
+		require.NoError(t, err)
+
+		var names []string
+		for _, r := range resp.Results {
+			names = append(names, r.Properties.NonRefProps.Fields["name"].GetTextValue())
+		}
+		require.Len(t, names, 1, "MultiTarget by-ref filter should return exactly one matching source row, got %v", names)
+		assert.Equal(t, "src-match", names[0])
 	})
 
 	t.Run("gRPC filter MultiTarget rejects cross-namespace TargetCollection with 422", func(t *testing.T) {
