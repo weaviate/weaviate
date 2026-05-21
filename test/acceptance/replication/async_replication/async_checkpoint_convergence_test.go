@@ -36,17 +36,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-// AsyncCheckpointConvergenceTestSuite covers the cornerstone claim that the
-// async-checkpoint primitive is meant to underwrite for single-node backups:
-// when a checkpoint converges across replicas, the bounded-hashtree root is
-// bit-identical on every node — so a backup orchestrator can take the
-// snapshot from any single replica instead of coordinating cluster-wide
-// quiescence.
-//
-// The tests drive the cluster-internal REST endpoint at
-// CLUSTER_DATA_BIND_PORT (the same endpoint used by tools/async_checkpoint.sh
-// in production). This is intentionally NOT the user-facing REST API on
-// 8080: those endpoints don't expose checkpoint operations today.
+// AsyncCheckpointConvergenceTestSuite asserts the single-node-backup claim:
+// when a checkpoint converges, the bounded-hashtree root is bit-identical
+// on every replica, so the backup orchestrator can take its snapshot from
+// any single node. Drives the cluster-internal endpoint
+// (CLUSTER_DATA_BIND_PORT) — there is no public REST surface today.
 type AsyncCheckpointConvergenceTestSuite struct {
 	suite.Suite
 }
@@ -59,19 +53,15 @@ func TestAsyncCheckpointConvergenceTestSuite(t *testing.T) {
 	suite.Run(t, new(AsyncCheckpointConvergenceTestSuite))
 }
 
-// asyncCheckpointStatusEntry mirrors the wire format produced by the
-// receiver-side GET /replicas/indices/{class}/async-checkpoint handler.
-// Defined here rather than imported from adapters/handlers because the
-// acceptance-test package is meant to be wire-coupled, not source-coupled.
+// asyncCheckpointStatusEntry is defined locally (not imported) to keep the
+// acceptance test wire-coupled rather than source-coupled.
 type asyncCheckpointStatusEntry struct {
 	Root        []byte `json:"root"`
 	CutoffMs    int64  `json:"cutoff_ms"`
 	CreatedAtMs int64  `json:"created_at_ms"`
 }
 
-// asyncCheckpointCreate POSTs to one node's cluster-internal endpoint and
-// asserts a 200 response. cutoffMs/createdAtMs are caller-supplied so the
-// same createdAt can be pinned across nodes.
+// asyncCheckpointCreate takes caller-supplied createdAtMs so the same value can be pinned across nodes.
 func asyncCheckpointCreate(t *testing.T, clusterURI, className string, shards []string, cutoffMs, createdAtMs int64) {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
@@ -89,8 +79,6 @@ func asyncCheckpointCreate(t *testing.T, clusterURI, className string, shards []
 	}
 }
 
-// asyncCheckpointDelete clears the checkpoint on one node. Idempotent on
-// the server side; we assert 200 to catch unexpected regressions.
 func asyncCheckpointDelete(t *testing.T, clusterURI, className string, shards []string) {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"shards": shards})
@@ -108,9 +96,7 @@ func asyncCheckpointDelete(t *testing.T, clusterURI, className string, shards []
 	}
 }
 
-// asyncCheckpointStatus queries one node and returns the per-shard map.
-// Returns an empty map if the node hosts none of the requested shards
-// (matching the receiver-side contract that omits unloaded entries).
+// asyncCheckpointStatus returns an empty map when the node hosts none of the requested shards.
 func asyncCheckpointStatus(t *testing.T, clusterURI, className string, shards []string) map[string]asyncCheckpointStatusEntry {
 	t.Helper()
 	u, err := url.Parse(asyncCheckpointURL(clusterURI, className))
@@ -135,8 +121,7 @@ func asyncCheckpointStatus(t *testing.T, clusterURI, className string, shards []
 }
 
 func asyncCheckpointURL(clusterURI, className string) string {
-	// clusterURI from docker is in host:port form (no scheme). The cluster
-	// API speaks plain HTTP regardless of the user-facing TLS config.
+	// docker's clusterURI is host:port (no scheme); cluster API speaks plain HTTP.
 	uri := clusterURI
 	if !strings.HasPrefix(uri, "http://") && !strings.HasPrefix(uri, "https://") {
 		uri = "http://" + uri
@@ -144,9 +129,7 @@ func asyncCheckpointURL(clusterURI, className string) string {
 	return fmt.Sprintf("%s/replicas/indices/%s/async-checkpoint", uri, className)
 }
 
-// discoverShards reads the class's shard list off the public REST API. The
-// cluster API doesn't expose a shard-enumeration endpoint, so we use the
-// same path that tools/async_checkpoint.sh uses in production.
+// discoverShards uses the public REST API: the cluster API has no shard-enumeration endpoint.
 func discoverShards(t *testing.T, restURI, className string) []string {
 	t.Helper()
 	uri := restURI
@@ -168,18 +151,10 @@ func discoverShards(t *testing.T, restURI, className string) []string {
 	return out
 }
 
-// TestAsyncCheckpoint_ConvergenceAcrossReplicas is the load-bearing test
-// for the backup-orchestrator use case. It writes objects, creates a
-// checkpoint on every node, waits for hashbeat propagation, and asserts
-// that the per-shard root digest is bit-identical across all 3 nodes —
-// the proof that any one replica can serve as a faithful snapshot.
-//
-// Then it writes additional objects AFTER the cutoff and asserts that the
-// checkpoint root stays stable (frozen-clone invariant — post-cutoff
-// objects must not leak into the bounded tree).
-//
-// Finally it deletes the checkpoint and asserts every node reports
-// inactive.
+// TestAsyncCheckpoint_ConvergenceAcrossReplicas asserts the load-bearing
+// claim for the backup-orchestrator use case: the bounded-tree root is
+// bit-identical across replicas, post-cutoff writes don't move it
+// (frozen-clone invariant), and delete clears every node.
 func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_ConvergenceAcrossReplicas() {
 	t := suite.T()
 	mainCtx := context.Background()
@@ -236,10 +211,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 	require.NotEmpty(t, shards, "class must have at least one shard")
 	t.Logf("class %q hosts %d shard(s): %v", paragraphClass.Class, len(shards), shards)
 
-	// Pick a single createdAt and propagate it unchanged to every node.
-	// This is the convergence tie-breaker contract — every replica must
-	// see the same createdAt or they'll reject one another via the
-	// strict-greater-than guard.
+	// Single createdAt, propagated unchanged: replicas reject one another via the strict-greater-than guard.
 	createdAt := time.Now().UTC()
 	cutoffMs := createdAt.UnixMilli()
 
@@ -250,8 +222,6 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 		}
 	})
 
-	// rootsByShard captures the canonical (first-observed) base64-encoded
-	// root per shard so subsequent post-cutoff writes can be compared.
 	rootsByShard := map[string]string{}
 
 	t.Run("checkpoint root converges across all nodes per shard", func(t *testing.T) {
@@ -261,9 +231,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 				statuses := asyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
 				for shard, entry := range statuses {
 					if entry.CutoffMs == 0 {
-						// Inactive on this node — record as empty so the
-						// "all-nodes-agree" check below catches the
-						// asymmetry.
+						// Record asymmetry so the all-nodes-agree check fails loudly.
 						if perShard[shard] == nil {
 							perShard[shard] = map[string]string{}
 						}
@@ -277,9 +245,6 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 				}
 			}
 
-			// Every shard must have an entry on every node, and every
-			// node's root for that shard must be identical to every
-			// other node's root.
 			for shard, byNode := range perShard {
 				if !assert.Len(ct, byNode, 3, "shard %q must report on all 3 nodes", shard) {
 					return
@@ -312,9 +277,6 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 	})
 
 	t.Run("post-cutoff writes do NOT change the checkpoint root", func(t *testing.T) {
-		// Write more objects AFTER the cutoff. The unbounded hashtree
-		// will absorb them, but the frozen clone must stay unchanged —
-		// otherwise the bounded-snapshot claim is broken.
 		batch := make([]*models.Object, 10)
 		for i := 0; i < 10; i++ {
 			batch[i] = articles.NewParagraph().
@@ -323,10 +285,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 		}
 		common.CreateObjects(t, nodeRESTs[0], batch)
 
-		// Gate on real propagation, not a fixed sleep: once the
-		// post-cutoff objects are readable node-locally, hashbeat has
-		// processed them — a broken frozen-clone invariant would by
-		// then have moved the BOUNDED root.
+		// Gate on real propagation so a broken frozen-clone invariant would have moved the BOUNDED root by now.
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for ni, restURI := range nodeRESTs {
 				for _, obj := range batch {
@@ -340,8 +299,6 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 		}, 90*time.Second, 2*time.Second,
 			"post-cutoff writes never propagated to all replicas")
 
-		// Post-cutoff data is fully replicated now; the BOUNDED root on
-		// every node must still equal the pre-write converged root.
 		for i, cluster := range nodeClusters {
 			statuses := asyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
 			for shard, entry := range statuses {
@@ -361,9 +318,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 			asyncCheckpointDelete(t, cluster, paragraphClass.Class, shards)
 		}
 
-		// Each node must report inactive (CutoffMs == 0) and the
-		// inactive-wire-contract must hold: empty root + zero
-		// created_at_ms.
+		// Inactive wire contract: CutoffMs == 0, empty root, zero created_at_ms.
 		for i, cluster := range nodeClusters {
 			statuses := asyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
 			for shard, entry := range statuses {
@@ -378,10 +333,9 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 	})
 }
 
-// TestAsyncCheckpoint_RestartDropsLocalCheckpoint verifies the documented
-// in-memory durability contract: a node restart drops that node's
-// checkpoint while the other replicas retain theirs. Recreating is the
-// operator's responsibility.
+// TestAsyncCheckpoint_RestartDropsLocalCheckpoint covers the in-memory
+// durability contract: a restart drops only that node's checkpoint;
+// recreate is the operator's responsibility.
 func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDropsLocalCheckpoint() {
 	t := suite.T()
 	mainCtx := context.Background()
@@ -437,9 +391,6 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 		common.StartNodeAt(ctx, t, compose, 3)
 	})
 
-	// Post-restart: node 3 reports inactive (in-memory state dropped).
-	// Nodes 1 and 2 still hold their checkpoints — this is the
-	// documented "operator must re-create after restart" contract.
 	postNode3Cluster := compose.GetWeaviateNode(3).ClusterURI()
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		st := asyncCheckpointStatus(t, postNode3Cluster, paragraphClass.Class, shards)

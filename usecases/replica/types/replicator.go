@@ -50,13 +50,9 @@ type Replicator interface {
 	FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 	CountObjects(ctx context.Context, indexName, shardName string) (int, error)
 
-	// CreateAsyncCheckpoint applies the checkpoint to shardNames in one
-	// call. createdAt is the initiator's value, propagated unchanged.
+	// CreateAsyncCheckpoint: createdAt is the initiator's value, propagated unchanged.
 	CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error
-	// DeleteAsyncCheckpoint clears the active checkpoint on shardNames.
-	// Idempotent.
 	DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error
-	// GetAsyncCheckpointStatus returns per-shard state on this node;
-	// shards not loaded here are omitted from the map.
+	// GetAsyncCheckpointStatus omits shards not loaded on this node from the map.
 	GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error)
 }

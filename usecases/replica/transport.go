@@ -151,8 +151,7 @@ type RClient interface {
 
 	CountObjects(ctx context.Context, host, index, shard string) (int, error)
 
-	// Async-checkpoint RPCs. One request per remote node; createdAt is the
-	// initiator's value, propagated unchanged.
+	// Async-checkpoint RPCs: createdAt is the initiator's value, propagated unchanged.
 	GetAsyncCheckpointStatus(ctx context.Context, host, index string, shardNames []string) (map[string]AsyncCheckpointShardStatus, error)
 	CreateAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string, cutoffMs int64, createdAt time.Time) error
 	DeleteAsyncCheckpoint(ctx context.Context, host, index string, shardNames []string) error

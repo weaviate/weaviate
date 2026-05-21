@@ -709,8 +709,8 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }
 
-// Unloaded → errAsyncReplicationNotActive (matches Shard's "no hashtree"
-// path, so transports map this to REST 412 / gRPC FailedPrecondition).
+// CreateAsyncCheckpoint maps unloaded to ErrAsyncReplicationNotActive so transports
+// return REST 412 / gRPC FailedPrecondition (matching the loaded path).
 func (l *LazyLoadShard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
 	if !l.isLoaded() {
 		return errAsyncReplicationNotActive
@@ -718,7 +718,6 @@ func (l *LazyLoadShard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int6
 	return l.shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
 }
 
-// Unloaded → no-op (an unloaded shard has no active checkpoint to clear).
 func (l *LazyLoadShard) DeleteAsyncCheckpoint(ctx context.Context) error {
 	if !l.isLoaded() {
 		return nil
@@ -726,8 +725,6 @@ func (l *LazyLoadShard) DeleteAsyncCheckpoint(ctx context.Context) error {
 	return l.shard.DeleteAsyncCheckpoint(ctx)
 }
 
-// Unloaded → ok=false. Callers that need to distinguish unloaded from
-// loaded-inactive use IsAsyncCheckpointHostable.
 func (l *LazyLoadShard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
 	if !l.isLoaded() {
 		return hashtree.Digest{}, 0, time.Time{}, false
@@ -735,9 +732,8 @@ func (l *LazyLoadShard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.
 	return l.shard.AsyncCheckpointRoot(ctx)
 }
 
-// IsAsyncCheckpointHostable is true when the shard is loaded and so could
-// hold checkpoint state. Used by Index.GetAsyncCheckpointShardStatus to
-// omit unloaded shards (vs "loaded but inactive").
+// IsAsyncCheckpointHostable lets Index.GetAsyncCheckpointShardStatus
+// distinguish unloaded shards from "loaded but inactive".
 func (l *LazyLoadShard) IsAsyncCheckpointHostable() bool {
 	return l.isLoaded()
 }

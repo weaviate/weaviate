@@ -36,25 +36,17 @@ import (
 )
 
 var (
-	// ErrAsyncCheckpointStale fires when the incoming createdAt isn't
-	// strictly newer than the active one. Maps to HTTP 409 / AlreadyExists.
+	// ErrAsyncCheckpointStale maps to HTTP 409 / AlreadyExists.
 	ErrAsyncCheckpointStale = errors.New("checkpoint createdAt is not newer than the active one")
-
-	// ErrAsyncReplicationNotActive fires when the shard's hashtree isn't
-	// initialised. Maps to HTTP 412 / FailedPrecondition.
+	// ErrAsyncReplicationNotActive maps to HTTP 412 / FailedPrecondition.
 	ErrAsyncReplicationNotActive = errors.New("async replication is not active on this shard")
 )
 
-// AsyncCheckpointMaxShardsPerRequest bounds per-request work on the gRPC
-// transport (REST already has a 64 KiB body cap; gRPC inherits the
-// cluster-wide ~100 MB MaxRecvMsgSize).
 const AsyncCheckpointMaxShardsPerRequest = 10_000
 
-// AsyncCheckpointCreatedAtSkewTolerance bounds how far in the future a
-// checkpoint's createdAt is allowed to be. Without this, a single
-// far-future createdAt would block every later legitimate create via the
-// strict-greater-than tie-breaker. 5 minutes is above plausible NTP drift
-// but catches obvious garbage. Enforced by both the REST and gRPC handlers.
+// AsyncCheckpointCreatedAtSkewTolerance prevents a single far-future createdAt
+// from blocking every later legitimate create via the strict-greater-than
+// tie-breaker. 5 minutes covers plausible NTP drift.
 const AsyncCheckpointCreatedAtSkewTolerance = 5 * time.Minute
 
 type (
@@ -570,9 +562,8 @@ func reconcile(counts []int) int {
 	return median
 }
 
-// AsyncCheckpointNodeStatus is the checkpoint state of one replica for one
-// shard. CutoffMs == 0 + zero Root means no active checkpoint on that
-// replica.
+// AsyncCheckpointNodeStatus is the checkpoint state of one replica for one shard.
+// CutoffMs == 0 + zero Root means no active checkpoint on that replica.
 type AsyncCheckpointNodeStatus struct {
 	Node      string
 	CutoffMs  int64
@@ -580,16 +571,12 @@ type AsyncCheckpointNodeStatus struct {
 	Root      hashtree.Digest
 }
 
-// AsyncCheckpointShardStatus is one node's per-shard checkpoint state.
-// The node name is supplied by the aggregating caller.
 type AsyncCheckpointShardStatus struct {
 	Root      hashtree.Digest
 	CutoffMs  int64
 	CreatedAt time.Time
 }
 
-// remoteReplicaHosts returns host addresses + node names for all non-local
-// replicas of shardName. Unresolvable replicas are skipped.
 func (f *Finder) remoteReplicaHosts(shardName string) (names []string, addrs []string) {
 	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
 	routingPlan, err := f.router.BuildReadRoutingPlan(options)
@@ -598,12 +585,11 @@ func (f *Finder) remoteReplicaHosts(shardName string) (names []string, addrs []s
 	}
 	localAddr, localResolved := f.nodeResolver.NodeHostname(f.nodeName)
 	for _, nodeName := range routingPlan.NodeNames() {
-		// Skip self by name; only fall back to addr compare when local
-		// resolved (NodeHostname returns "" for the local node otherwise).
 		if nodeName == f.nodeName {
 			continue
 		}
 		addr, ok := f.nodeResolver.NodeHostname(nodeName)
+		// NodeHostname can return "" for the local node, so only addr-compare when localResolved.
 		if !ok || (localResolved && addr == localAddr) {
 			continue
 		}
@@ -613,9 +599,6 @@ func (f *Finder) remoteReplicaHosts(shardName string) (names []string, addrs []s
 	return names, addrs
 }
 
-// groupShardsByAddr returns addr→shards and addr→nodeName for every
-// non-local replica of shardNames. Create/Delete callers can ignore the
-// second map.
 func (f *Finder) groupShardsByAddr(shardNames []string) (map[string][]string, map[string]string) {
 	addrShards := make(map[string][]string)
 	addrToName := make(map[string]string)
@@ -629,10 +612,8 @@ func (f *Finder) groupShardsByAddr(shardNames []string) (map[string][]string, ma
 	return addrShards, addrToName
 }
 
-// BroadcastCreateAsyncCheckpoint fans out one create request per remote
-// node (not per shard). Per-node failures are best-effort: logged at Warn,
-// counted, but never abort the fan-out — convergence retries on the next
-// create cycle.
+// BroadcastCreateAsyncCheckpoint is best-effort: failures are counted and logged
+// but never abort the fan-out — convergence retries on the next create cycle.
 func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames []string, cutoffMs int64, createdAt time.Time) (successes, failures int) {
 	addrShards, _ := f.groupShardsByAddr(shardNames)
 	for addr, shards := range addrShards {
@@ -653,8 +634,6 @@ func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames 
 	return successes, failures
 }
 
-// BroadcastDeleteAsyncCheckpoint fans out one delete request per remote
-// node. Idempotent; per-node failures are logged at Warn and counted.
 func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) (successes, failures int) {
 	addrShards, _ := f.groupShardsByAddr(shardNames)
 	for addr, shards := range addrShards {
@@ -675,9 +654,7 @@ func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames 
 	return successes, failures
 }
 
-// BroadcastGetAsyncCheckpointStatus queries one status request per remote
-// node. Unreachable nodes are logged at Debug (status is routinely
-// retried) and omitted from the aggregate.
+// BroadcastGetAsyncCheckpointStatus omits unreachable nodes from the aggregate; status is routinely retried.
 func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNames []string) (statuses map[string][]AsyncCheckpointNodeStatus, successes, failures int) {
 	addrShards, addrToName := f.groupShardsByAddr(shardNames)
 

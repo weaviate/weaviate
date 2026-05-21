@@ -213,10 +213,6 @@ func (db *DB) FindUUIDs(ctx context.Context, indexName, shardName string,
 	return index.IncomingFindUUIDs(ctx, shardName, f, limit)
 }
 
-// CreateAsyncCheckpoint applies the checkpoint to each local shard in
-// shardNames. Empty shardNames expands to "all local shards of className".
-// Best-effort: a per-shard failure does not skip the remaining shards;
-// failures are aggregated (see Index.createAsyncCheckpointShards).
 func (db *DB) CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
@@ -225,8 +221,6 @@ func (db *DB) CreateAsyncCheckpoint(ctx context.Context, className string, shard
 	return index.createAsyncCheckpointShards(ctx, index.resolveShardNames(shardNames), cutoffMs, createdAt)
 }
 
-// DeleteAsyncCheckpoint is idempotent; empty shardNames expands to
-// "all local shards of className". Best-effort across shards.
 func (db *DB) DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
@@ -235,9 +229,6 @@ func (db *DB) DeleteAsyncCheckpoint(ctx context.Context, className string, shard
 	return index.deleteAsyncCheckpointShards(ctx, index.resolveShardNames(shardNames))
 }
 
-// GetAsyncCheckpointStatus reports each requested shard's state on this
-// node; not-loaded shards are omitted (so the aggregator can detect them
-// by entry absence). Empty shardNames expands to "all local shards".
 func (db *DB) GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
@@ -247,8 +238,6 @@ func (db *DB) GetAsyncCheckpointStatus(ctx context.Context, className string, sh
 	return index.GetAsyncCheckpointShardStatus(ctx, targets)
 }
 
-// CreateAsyncCheckpoints — initiator-side entry point. See
-// Index.CreateAsyncCheckpoints.
 func (db *DB) CreateAsyncCheckpoints(ctx context.Context, className string, cutoffMs int64, shards []string) error {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
@@ -257,8 +246,6 @@ func (db *DB) CreateAsyncCheckpoints(ctx context.Context, className string, cuto
 	return index.CreateAsyncCheckpoints(ctx, cutoffMs, shards)
 }
 
-// DeleteAsyncCheckpoints — initiator-side entry point. See
-// Index.DeleteAsyncCheckpoints.
 func (db *DB) DeleteAsyncCheckpoints(ctx context.Context, className string, shards []string) error {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
@@ -267,8 +254,6 @@ func (db *DB) DeleteAsyncCheckpoints(ctx context.Context, className string, shar
 	return index.DeleteAsyncCheckpoints(ctx, shards)
 }
 
-// GetAsyncCheckpointNodeStatuses — aggregator entry point. See
-// Index.GetAsyncCheckpointStatus.
 func (db *DB) GetAsyncCheckpointNodeStatuses(ctx context.Context, className string, shards []string) (map[string][]replica.AsyncCheckpointNodeStatus, error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {

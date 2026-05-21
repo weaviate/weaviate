@@ -530,10 +530,6 @@ func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, s
 	return int(resp.Count), nil
 }
 
-// Async-checkpoint operations. Server-side handlers live in
-// adapters/handlers/rest/clusterapi/grpc/replication_service.go.
-// switchReplicationClient routes between gRPC and REST.
-
 func (c *grpcReplicationClient) CreateAsyncCheckpoint(ctx context.Context,
 	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
 ) error {
@@ -588,12 +584,11 @@ func (c *grpcReplicationClient) GetAsyncCheckpointStatus(ctx context.Context,
 	for shard, s := range resp.GetStatuses() {
 		var root hashtree.Digest
 		if len(s.GetRoot()) > 0 {
-			// Surface length mismatches rather than silently zeroing.
 			if err := root.UnmarshalBinary(s.GetRoot()); err != nil {
 				return nil, fmt.Errorf("decode async-checkpoint root for shard %q: %w", shard, err)
 			}
 		}
-		// Decode 0 back to time.Time{}, not 1970-01-01 (matches the encoder).
+		// Decode 0 back to time.Time{}, not 1970-01-01, so IsZero() is the consumer-side "inactive" check.
 		var createdAt time.Time
 		if ms := s.GetCreatedAtUnixMilli(); ms != 0 {
 			createdAt = time.UnixMilli(ms)

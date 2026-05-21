@@ -71,9 +71,7 @@ set -euo pipefail
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 
-# Informational helpers all go to stderr so functions that compose output
-# via $(...) (e.g. collect_status returning JSON) don't accidentally inherit
-# diagnostic lines as data. err() was already on stderr; align the rest.
+# All helpers go to stderr so $(...) capture (e.g. collect_status JSON) stays clean.
 info()    { echo -e "${CYAN}[info]${RESET} $*" >&2; }
 ok()      { echo -e "${GREEN}[ok]${RESET}   $*" >&2; }
 warn()    { echo -e "${YELLOW}[warn]${RESET} $*" >&2; }
@@ -103,10 +101,9 @@ parse_duration() {
         total=$(( total + BASH_REMATCH[1] * 60 )); remaining="${remaining#*m}"; matched=1
     fi
     if [[ "$remaining" =~ ^([0-9]+)s$ ]]; then
-        # explicit seconds component (90s, or the trailing s of 2h30m15s)
         total=$(( total + BASH_REMATCH[1] )); remaining=""; matched=1
     elif [[ "$matched" -eq 0 && "$remaining" =~ ^([0-9]+)$ ]]; then
-        # bare integer with no unit = seconds (convenience: --in 300)
+        # bare integer = seconds
         total=$(( total + BASH_REMATCH[1] )); remaining=""; matched=1
     fi
     [[ "$matched" -eq 0 || -n "$remaining" ]] && die "--in: cannot parse '$input' (use e.g. 1h, 30m, 2h30m)"
@@ -150,7 +147,6 @@ SHARDS_JSON="[]"
 resolve_shards() {
     if [[ -n "$SHARDS_ARG" ]]; then
         IFS=',' read -ra SHARD_LIST <<< "$SHARDS_ARG"
-        # Operator scoped the request explicitly — send that exact list.
         SHARDS_JSON=$(printf '%s\n' "${SHARD_LIST[@]}" | jq -R . | jq -s .)
     else
         [[ -z "$REST_NODE" ]] && die "--rest is required when --shards is not specified (needed to auto-discover shards)"
@@ -160,8 +156,7 @@ resolve_shards() {
         mapfile -t SHARD_LIST < <(echo "$resp" | jq -r '.[].name')
         [[ "${#SHARD_LIST[@]}" -eq 0 ]] && die "no shards found for class '${CLASS}' via ${REST_NODE}"
         info "Auto-discovered ${#SHARD_LIST[@]} shard(s): ${SHARD_LIST[*]}"
-        # Send an empty list so create/delete apply to whatever shards each
-        # node actually hosts (server expands "empty" to "all local shards").
+        # Empty list = server expands to "all local shards" on each node.
         SHARDS_JSON="[]"
     fi
     for s in "${SHARD_LIST[@]}"; do
@@ -172,20 +167,15 @@ resolve_shards() {
 # -- HTTP helpers ------------------------------------------------------------
 base_url() { echo "http://$1/replicas/indices/${CLASS}/async-checkpoint"; }
 
-# CURL_AUTH carries the BasicAuth args for the cluster-internal API; it stays
-# empty unless --auth / WEAVIATE_CLUSTER_AUTH is set. Every expansion uses the
-# "${CURL_AUTH[@]+...}" guard so an empty array is safe under `set -u`.
+# Every expansion uses "${CURL_AUTH[@]+...}" so an empty array is safe under `set -u`.
 CURL_AUTH=()
 [[ -n "$CLUSTER_AUTH" ]] && CURL_AUTH=(-u "$CLUSTER_AUTH")
 
 # -- timestamp formatting ----------------------------------------------------
-# current_ms - current Unix time in milliseconds.
-# GNU date supports %N (nanoseconds); BSD/macOS date does not. macOS users
-# who install coreutils get `gdate`. The [[ digits ]] guard rejects BSD
-# date's literal "%3N" passthrough and falls through to second resolution.
-# Millisecond precision matters because the server tie-breaker rejects a new
-# checkpoint whose created_at_ms is not strictly newer (HTTP 409); on a
-# second-resolution clock two `create` runs within the same second collide.
+# Millisecond precision matters: the server tie-breaker (HTTP 409) rejects a
+# new checkpoint whose created_at_ms isn't strictly newer; two `create` runs
+# within the same second collide on a second-resolution clock.
+# BSD/macOS `date` lacks %N — the [[ digits ]] guard rejects its literal "%3N" passthrough.
 current_ms() {
     local ms
     ms=$(gdate +%s%3N 2>/dev/null) && [[ "$ms" =~ ^[0-9]+$ ]] && { echo "$ms"; return; }
@@ -204,9 +194,7 @@ format_ms() {
         || echo "${ms}ms"
 }
 
-# -- status display ----------------------------------------------------------
-# print_status_table <aggregated-json>
-# aggregated-json: {"shard": {"node:port": {root, cutoff_ms, created_at_ms}, ...}, ...}
+# print_status_table <aggregated-json>: {"shard":{"node":{root,cutoff_ms,created_at_ms},...},...}
 print_status_table() {
     local data="$1"
     local shards; shards=$(echo "$data" | jq -r 'keys[]' | sort)
@@ -259,20 +247,13 @@ print_status_table() {
     $all_converged && return 0 || return 1
 }
 
-# -- collect_status - aggregated JSON {"shard":{"node":{...},...},...}
-#
-# Captures both the response body and HTTP code from each node so the
-# well-known status codes used by cmd_create / cmd_delete can be annotated
-# the same way here — most importantly 404, which is the rolling-upgrade
-# signal documented in the script header. Older builds without this
-# endpoint were previously reported as bare "could not reach" lines.
+# collect_status - aggregated JSON {"shard":{"node":{...},...},...}
+# Captures the HTTP code per node so annotate_http_code can flag rolling-upgrade 404s.
 collect_status() {
     local aggregate='{}'
     for node in "${NODE_LIST[@]}"; do
         local out body http_code
-        # -w writes "<LF><http_code>" after the body. On a connection
-        # failure curl exits non-zero (and writes "000" via -w); the
-        # `|| out=$'\n000'` keeps set -e happy.
+        # -w writes "<LF><http_code>"; the `|| out=$'\n000'` keeps set -e happy on connect failure.
         out=$(curl -s "${CURL_AUTH[@]+"${CURL_AUTH[@]}"}" -w $'\n%{http_code}' "$(base_url "$node")?${SHARDS_QS#&}") || out=$'\n000'
         http_code="${out##*$'\n'}"
         body="${out%$'\n'*}"
@@ -296,9 +277,7 @@ collect_status() {
 
 # -- commands ----------------------------------------------------------------
 
-# annotate_http_code adds a short hint for well-known status codes so
-# operators can distinguish rolling-upgrade noise from real failures
-# without having to grep the server logs.
+# annotate_http_code adds operator-facing hints for well-known status codes.
 annotate_http_code() {
     case "$1" in
         401) echo " - unauthorized; cluster.auth.basic is enabled - pass --auth user:pass (or set WEAVIATE_CLUSTER_AUTH)" ;;
@@ -409,7 +388,7 @@ cmd_wait() {
             continue
         fi
 
-        # A shard is converged when every queried node has cutoff_ms > 0 and all share the same root
+        # Converged: every node has cutoff_ms > 0 and all share the same root.
         local converged_shards; converged_shards=$(echo "$data" | jq '
             [to_entries[] |
               select(

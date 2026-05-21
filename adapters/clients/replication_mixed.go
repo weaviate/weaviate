@@ -202,10 +202,6 @@ func (s *switchReplicationClient) CountObjects(ctx context.Context, host string,
 	return s.restClient.CountObjects(ctx, host, index, shard)
 }
 
-// Async-checkpoint operations follow the same useGRPC() routing as every
-// other replication call. REST stays available regardless so
-// tools/async_checkpoint.sh can drive the same operations from shell.
-
 func (s *switchReplicationClient) CreateAsyncCheckpoint(ctx context.Context,
 	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
 ) error {

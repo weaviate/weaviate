@@ -417,9 +417,7 @@ func NewMetrics(
 		m.asyncReplicationLocalDeletionsCount.Add(0)
 	}
 
-	// Async checkpoint metrics — label-free for bounded cardinality. Every
-	// per-shard Metrics writes to a single global series via
-	// EnsureRegisteredMetric; per-shard context comes from log lines instead.
+	// Label-free for bounded cardinality; per-shard context comes from logs.
 
 	m.asyncCheckpointCreateCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
 		prometheus.NewCounter(prometheus.CounterOpts{
@@ -950,7 +948,7 @@ func (m *Metrics) AddAsyncReplicationLocalDeletionsCount(n int) {
 	}
 }
 
-// --- Async checkpoint (nil-receiver safe for bare-Shard tests) ---
+// --- Async checkpoint ---
 
 func (m *Metrics) IncAsyncCheckpointCreateCount() {
 	if m == nil || !m.monitoring {
@@ -973,8 +971,7 @@ func (m *Metrics) IncAsyncCheckpointDeleteCount() {
 	m.asyncCheckpointDeleteCount.Inc()
 }
 
-// IncAsyncCheckpointActive fires on inactive→active transitions only
-// (not on replace, which doesn't change the count).
+// IncAsyncCheckpointActive fires on inactive→active transitions only (replace doesn't change the count).
 func (m *Metrics) IncAsyncCheckpointActive() {
 	if m == nil || !m.monitoring {
 		return
@@ -982,7 +979,6 @@ func (m *Metrics) IncAsyncCheckpointActive() {
 	m.asyncCheckpointActive.Inc()
 }
 
-// DecAsyncCheckpointActive fires on active→inactive transitions.
 func (m *Metrics) DecAsyncCheckpointActive() {
 	if m == nil || !m.monitoring {
 		return

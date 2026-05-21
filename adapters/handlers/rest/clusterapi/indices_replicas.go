@@ -92,8 +92,6 @@ var (
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
 	regexCompareDigests = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/compareDigests`)
-	// regxAsyncCheckpoint matches the class-level endpoint
-	// GET/POST/DELETE /replicas/indices/{class}/async-checkpoint (no shard in path).
 	regxAsyncCheckpoint = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)\/async-checkpoint`)
 	regxObjects         = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
@@ -262,10 +260,6 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 		return
 	case regxAsyncCheckpoint.MatchString(path):
-		// The async-checkpoint endpoint is class-level (no shard in the path):
-		// GET    → status for the listed shards
-		// POST   → create or atomically replace the checkpoint
-		// DELETE → remove the active checkpoint (idempotent)
 		switch r.Method {
 		case http.MethodGet:
 			i.getAsyncCheckpointStatus().ServeHTTP(w, r)
@@ -1162,21 +1156,13 @@ func (i *replicatedIndices) Close(ctx context.Context) error {
 	return i.requestQueue.Close(ctx)
 }
 
-// Cap for the JSON body on create/delete (the payload is just a shard list
-// plus two int64s).
 const asyncCheckpointMaxBodyBytes = 64 * 1024
 
-// /async-checkpoint inherits this package's existing AuthN (cluster basic-
-// auth wrapper) and DoS bounds (replicatedIndices request queue + 64 KiB
-// body cap). Rolling upgrades: pre-feature nodes return 404; the broadcast
-// helper in finder.go logs and continues, so convergence resumes once the
-// rollout completes (operators see partial "converged" reports until then).
+// Rolling upgrades: pre-feature nodes return 404; the broadcast helper in finder.go
+// logs and continues, so convergence resumes once rollout completes.
 
-// JSON shapes for the async-checkpoint endpoints. Field names are the wire
-// contract — kept in sync with the HTTP client encoder (replication.go)
-// and tools/async_checkpoint.sh. Root is a raw []byte (base64 on the wire)
-// because hashtree.Digest's pointer-receiver MarshalJSON doesn't fire on
-// non-addressable map values.
+// Root is a raw []byte (base64 on the wire) because hashtree.Digest's
+// pointer-receiver MarshalJSON doesn't fire on non-addressable map values.
 type asyncCheckpointCreateRequest struct {
 	Shards      []string `json:"shards"`
 	CutoffMs    int64    `json:"cutoff_ms"`
@@ -1193,9 +1179,6 @@ type asyncCheckpointStatusEntry struct {
 	CreatedAtMs int64  `json:"created_at_ms"`
 }
 
-// readAsyncCheckpointBody enforces the body-size cap and decodes the JSON
-// payload into out. It returns an HTTP status code so the caller can write a
-// consistent response on validation failure.
 func readAsyncCheckpointBody(w http.ResponseWriter, r *http.Request, out interface{}) (int, error) {
 	defer r.Body.Close()
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, asyncCheckpointMaxBodyBytes))
@@ -1229,8 +1212,6 @@ func (i *replicatedIndices) postAsyncCheckpoint() http.Handler {
 			http.Error(w, err.Error(), status)
 			return
 		}
-		// Empty shards expands to "all shards of this class on this node"
-		// in DB.CreateAsyncCheckpoint. Cap explicit lists here.
 		if len(req.Shards) > replica.AsyncCheckpointMaxShardsPerRequest {
 			http.Error(w, fmt.Sprintf("too many shards in request (%d > %d)",
 				len(req.Shards), replica.AsyncCheckpointMaxShardsPerRequest),
@@ -1247,8 +1228,7 @@ func (i *replicatedIndices) postAsyncCheckpoint() http.Handler {
 		}
 
 		createdAt := time.UnixMilli(req.CreatedAtMs).UTC()
-		// Past-dated values are fine (the tie-breaker handles them); only
-		// reject far-future ones. See replica.AsyncCheckpointCreatedAtSkewTolerance.
+		// Past values are fine (tie-breaker handles them); reject only far-future skew.
 		if skew := time.Until(createdAt); skew > replica.AsyncCheckpointCreatedAtSkewTolerance {
 			http.Error(w,
 				fmt.Sprintf("created_at_ms is too far in the future (%s ahead of this node's clock; tolerance %s)",
@@ -1264,8 +1244,7 @@ func (i *replicatedIndices) postAsyncCheckpoint() http.Handler {
 	})
 }
 
-// asyncCheckpointHTTPStatus maps the well-known checkpoint sentinels to
-// HTTP codes. Kept in sync with asyncCheckpointErrorToGRPC.
+// asyncCheckpointHTTPStatus keeps HTTP status codes in sync with asyncCheckpointErrorToGRPC.
 func asyncCheckpointHTTPStatus(err error) int {
 	switch {
 	case errors.Is(err, replica.ErrAsyncCheckpointStale):
@@ -1330,10 +1309,8 @@ func (i *replicatedIndices) getAsyncCheckpointStatus() http.Handler {
 
 		resp := make(map[string]asyncCheckpointStatusEntry, len(statuses))
 		for shardName, s := range statuses {
-			rootBytes, _ := s.Root.MarshalBinary() // can't fail on a fixed-size Digest
-			// Encode inactive shards as Root="" + created_at_ms=0 rather
-			// than the negative time.Time{}.UnixMilli() value, so clients
-			// can use IsZero() as the "inactive" check.
+			rootBytes, _ := s.Root.MarshalBinary()
+			// Inactive shards: Root=nil + created_at_ms=0, to avoid the negative time.Time{}.UnixMilli() value.
 			createdAtMs := s.CreatedAt.UnixMilli()
 			if s.CutoffMs == 0 {
 				rootBytes = nil

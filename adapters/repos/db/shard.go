@@ -185,18 +185,12 @@ type ShardLike interface {
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
 	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
-	// CreateAsyncCheckpoint clones the unbounded hashtree into a
-	// time-bounded one. createdAt comes from the initiator and is the
-	// strict-greater-than tie-breaker (older/equal proposals are rejected).
-	// Returns an error if async replication isn't active. ctx is honoured
-	// both before and after the per-shard lock acquisition.
+	// CreateAsyncCheckpoint takes createdAt from the initiator as the
+	// strict-greater-than tie-breaker; older/equal proposals are rejected.
 	CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error
-	// DeleteAsyncCheckpoint removes the active checkpoint. Idempotent.
 	DeleteAsyncCheckpoint(ctx context.Context) error
-	// AsyncCheckpointRoot returns the active checkpoint's root, cutoff, and
-	// createdAt. ok=false strictly means inactive (including after a node
-	// restart; the checkpoint is in-memory only) — it never signals ctx
-	// cancellation, so callers needing cancellation must check ctx.Err().
+	// AsyncCheckpointRoot: ok=false strictly means inactive and never
+	// reflects ctx cancellation, so callers must check ctx.Err() separately.
 	AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool)
 
 	Metrics() *Metrics
@@ -263,17 +257,14 @@ type Shard struct {
 	asyncReplicationCancelFunc      context.CancelFunc
 
 	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a
-	// frozen clone taken at create time — post-creation writes do not
-	// propagate to it. createdAt is the convergence tie-breaker, supplied by
-	// the initiator (a foreign clock); activatedAt is this node's local
-	// clock at activation and is used only for the lifetime histogram, so
-	// the metric never depends on clock skew. All in-memory only (NOT
-	// persisted, NOT replicated through RAFT); a node restart drops the
-	// checkpoint and the operator must re-create it.
-	asyncCheckpointHashtree    hashtree.AggregatedHashTree // nil when inactive
-	asyncCheckpointCutoff      int64                       // Unix ms
-	asyncCheckpointCreatedAt   time.Time                   // tie-breaker (initiator clock)
-	asyncCheckpointActivatedAt time.Time                   // local clock; metrics only
+	// frozen clone of s.hashtree taken at create time. All in-memory only
+	// (not persisted, not replicated via RAFT); a restart drops it and the
+	// operator must re-create. activatedAt is local-clock so the lifetime
+	// histogram doesn't depend on cross-node clock skew.
+	asyncCheckpointHashtree    hashtree.AggregatedHashTree
+	asyncCheckpointCutoff      int64
+	asyncCheckpointCreatedAt   time.Time
+	asyncCheckpointActivatedAt time.Time
 
 	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
 	// derived from context.Background() and cancelled by asyncReplicationCancelFunc
