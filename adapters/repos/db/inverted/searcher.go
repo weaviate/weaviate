@@ -42,19 +42,67 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
+// IsRangeableLocallyReady returns true when this shard's local rangeable
+// bucket for the given property is fully populated and safe to query.
+// During an enable-rangeable migration the cluster-wide schema flag
+// `IndexRangeFilters` can flip to true as soon as the first replica
+// completes its swap, but other replicas may still be mid-iteration
+// with an empty PreReindexHook-created rangeable bucket — so a query
+// using the rangeable bucket on those replicas would return partial /
+// zero counts. When this callback returns false, the filter resolver
+// treats the property as if it had no rangeable index for THIS shard
+// only and falls back to the filterable bucket walk (slow but correct).
+// Returns true for properties that have no in-flight migration on disk
+// — i.e. either never migrated (native rangeable from collection
+// creation) or already-completed migrations.
+type IsRangeableLocallyReady func(propName string) bool
+
 type Searcher struct {
-	logger                 logrus.FieldLogger
-	store                  *lsmkv.Store
-	getClass               func(string) *models.Class
-	classSearcher          ClassSearcher // to allow recursive searches on ref-props
-	propIndices            propertyspecific.Indices
-	stopwordProvider       *stopwords.Provider
-	shardVersion           uint16
-	isFallbackToSearchable IsFallbackToSearchable
-	tenant                 string
+	logger                  logrus.FieldLogger
+	store                   *lsmkv.Store
+	getClass                func(string) *models.Class
+	classSearcher           ClassSearcher // to allow recursive searches on ref-props
+	propIndices             propertyspecific.Indices
+	stopwordProvider        *stopwords.Provider
+	shardVersion            uint16
+	isFallbackToSearchable  IsFallbackToSearchable
+	isRangeableLocallyReady IsRangeableLocallyReady
+	tenant                  string
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
+	// tokResolver, when non-nil, overrides prop.Tokenization on query
+	// input analysis. Used by the per-shard tokenization overlay to
+	// keep query tokenization aligned with the bucket content during
+	// the FINALIZING window of a change-tokenization migration. Nil =
+	// use prop.Tokenization directly (tests and callers with no
+	// in-flight migration).
+	tokResolver TokenizationResolver
+}
+
+// WithTokenizationResolver attaches a [TokenizationResolver] used by query
+// input analysis to consult a per-shard tokenization overlay before
+// falling back to the schema-stored `prop.Tokenization`. Returns the
+// receiver for fluent chaining at construction sites.
+//
+// Production callers wire `Shard.TokenizationFor` here so a
+// change-tokenization migration's FINALIZING-window overlay routes
+// query input to the post-swap tokenization. See [TokenizationResolver]
+// for the misalignment this closes.
+//
+// Pass nil (the default) to use the schema-stored value directly.
+func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
+	s.tokResolver = r
+	return s
+}
+
+// hasUsableRangeableIndex combines the schema-level [HasRangeableIndex] check
+// with the runtime [Searcher.isRangeableLocallyReady] gate. Always pair them
+// at query-extraction sites: schema may say the rangeable bucket exists, but
+// a swap-recovery window on this node may have it offline. Folding the two
+// removes the per-call-site reminder.
+func (s *Searcher) hasUsableRangeableIndex(prop *models.Property) bool {
+	return HasRangeableIndex(prop) && s.isRangeableLocallyReady(prop.Name)
 }
 
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
@@ -64,20 +112,30 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
+	isRangeableLocallyReady IsRangeableLocallyReady,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
+	if isRangeableLocallyReady == nil {
+		// Default: always ready. Callers that don't know about the per-shard
+		// rangeable-readiness state (e.g. tests without a migration in
+		// flight, or the brief gap between Searcher construction and the
+		// migration hook being wired) get the historical behavior of
+		// trusting the schema flag verbatim.
+		isRangeableLocallyReady = func(string) bool { return true }
+	}
 	return &Searcher{
-		logger:                 logger,
-		store:                  store,
-		getClass:               getClass,
-		propIndices:            propIndices,
-		classSearcher:          classSearcher,
-		stopwordProvider:       stopwordProvider,
-		shardVersion:           shardVersion,
-		isFallbackToSearchable: isFallbackToSearchable,
-		tenant:                 tenant,
-		nestedCrossRefLimit:    nestedCrossRefLimit,
-		bitmapFactory:          bitmapFactory,
+		logger:                  logger,
+		store:                   store,
+		getClass:                getClass,
+		propIndices:             propIndices,
+		classSearcher:           classSearcher,
+		stopwordProvider:        stopwordProvider,
+		shardVersion:            shardVersion,
+		isFallbackToSearchable:  isFallbackToSearchable,
+		isRangeableLocallyReady: isRangeableLocallyReady,
+		tenant:                  tenant,
+		nestedCrossRefLimit:     nestedCrossRefLimit,
+		bitmapFactory:           bitmapFactory,
 	}
 }
 
@@ -446,7 +504,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
@@ -507,7 +565,7 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndex(prop),
 		hasSearchableIndex: HasSearchableIndex(prop),
-		hasRangeableIndex:  HasRangeableIndex(prop),
+		hasRangeableIndex:  s.hasUsableRangeableIndex(prop),
 		Class:              class,
 	}, nil
 }
@@ -535,7 +593,7 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
@@ -657,6 +715,13 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	var terms []string
 	switch propType {
 	case schema.DataTypeText:
+		// effectiveTok consults the per-shard tokenization overlay (set
+		// during the FINALIZING window of a change-tokenization
+		// migration) before falling back to the schema-stored value.
+		// Both the LIKE wildcard path and the standard analyze path
+		// tokenize query input against effectiveTok so the resulting
+		// terms match the bucket content on this shard.
+		effectiveTok := ResolveTokenization(s.tokResolver, prop.Name, prop.Tokenization)
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
@@ -667,10 +732,10 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 				ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyzer.ASCIIFoldIgnore)
 				text = tokenizer.FoldASCII(text, ignore)
 			}
-			terms = tokenizer.TokenizeWithWildcardsForClass(prop.Tokenization, text, class.Class)
+			terms = tokenizer.TokenizeWithWildcardsForClass(effectiveTok, text, class.Class)
 		} else {
 			var sw tokenizer.StopwordDetector
-			if prop.Tokenization == models.PropertyTokenizationWord {
+			if effectiveTok == models.PropertyTokenizationWord {
 				d, err := s.stopwordProvider.Get(prop)
 				if err != nil {
 					return nil, err
@@ -678,7 +743,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 				sw = d
 			}
 			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
-			result := tokenizer.Analyze(valueString, prop.Tokenization, class.Class, prepared, sw)
+			result := tokenizer.Analyze(valueString, effectiveTok, class.Class, prepared, sw)
 			terms = result.Query
 		}
 	default:
@@ -687,7 +752,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)

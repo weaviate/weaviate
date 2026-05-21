@@ -115,12 +115,12 @@ func TestNamespaces_GRPC(t *testing.T) {
 		// respective qualified class names.
 		got1, err := helper.GetObjectAuth(t, class, id1, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got1.Class)
+		assert.Equal(t, class, got1.Class)
 		assert.Equal(t, "ns1-The Matrix", got1.Properties.(map[string]any)["title"])
 
 		got2, err := helper.GetObjectAuth(t, class, id1, user2Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer2:"+class, got2.Class)
+		assert.Equal(t, class, got2.Class)
 		assert.Equal(t, "ns2-Memento", got2.Properties.(map[string]any)["title"])
 	})
 
@@ -305,6 +305,9 @@ func TestNamespaces_GRPC(t *testing.T) {
 			resp1.Results[1].Properties.NonRefProps.Fields["title"].GetTextValue(),
 		}
 		assert.ElementsMatch(t, []string{"ns1-The Matrix", "ns1-Inception"}, titles1)
+		// target_collection: namespaced caller sees the short class name.
+		assert.Equal(t, class, resp1.Results[0].Properties.TargetCollection)
+		assert.Equal(t, class, resp1.Results[1].Properties.TargetCollection)
 
 		resp2, err := req(user2Key)
 		require.NoError(t, err)
@@ -314,6 +317,8 @@ func TestNamespaces_GRPC(t *testing.T) {
 			resp2.Results[1].Properties.NonRefProps.Fields["title"].GetTextValue(),
 		}
 		assert.ElementsMatch(t, []string{"ns2-Memento", "ns2-Tenet"}, titles2)
+		assert.Equal(t, class, resp2.Results[0].Properties.TargetCollection)
+		assert.Equal(t, class, resp2.Results[1].Properties.TargetCollection)
 	})
 
 	t.Run("Search by filter is namespace-scoped", func(t *testing.T) {
@@ -400,6 +405,10 @@ func TestNamespaces_GRPC(t *testing.T) {
 				return err
 			})
 			assert.Len(t, searchResp.Results, 2)
+			// target_collection is the resolved class name, stripped to the
+			// caller's namespace — never the alias the caller typed.
+			assert.Equal(t, class, searchResp.Results[0].Properties.TargetCollection)
+			assert.Equal(t, class, searchResp.Results[1].Properties.TargetCollection)
 
 			aggResp, err := grpcClient.Aggregate(authCtx(key), &pb.AggregateRequest{
 				Collection:   aliasName,
@@ -450,6 +459,9 @@ func TestNamespaces_GRPC(t *testing.T) {
 		searchResp, err := qualifiedReq()
 		require.NoError(t, err)
 		assert.Len(t, searchResp.Results, 2)
+		// Admin sees the raw qualified class name in target_collection.
+		assert.Equal(t, "customer1:"+class, searchResp.Results[0].Properties.TargetCollection)
+		assert.Equal(t, "customer1:"+class, searchResp.Results[1].Properties.TargetCollection)
 
 		_, err = grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
 			Collection:   class,
@@ -577,12 +589,12 @@ func TestNamespaces_GRPC(t *testing.T) {
 		// Verify the rows landed under their respective qualified class names.
 		got1, err := helper.GetObjectAuth(t, streamClass, streamID1, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+streamClass, got1.Class)
+		assert.Equal(t, streamClass, got1.Class)
 		assert.Equal(t, "ns1-stream", got1.Properties.(map[string]any)["title"])
 
 		got2, err := helper.GetObjectAuth(t, streamClass, streamID1, user2Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer2:"+streamClass, got2.Class)
+		assert.Equal(t, streamClass, got2.Class)
 		assert.Equal(t, "ns2-stream", got2.Properties.(map[string]any)["title"])
 
 		// user2's second UUID exists in ns2 only.
@@ -645,12 +657,12 @@ func TestNamespaces_GRPC(t *testing.T) {
 		// The alias resolved to each namespace's own copy of the class.
 		got1, err := helper.GetObjectAuth(t, streamClass, id1, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+streamClass, got1.Class)
+		assert.Equal(t, streamClass, got1.Class)
 		assert.Equal(t, "ns1-alias-stream", got1.Properties.(map[string]any)["title"])
 
 		got2, err := helper.GetObjectAuth(t, streamClass, id2, user2Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer2:"+streamClass, got2.Class)
+		assert.Equal(t, streamClass, got2.Class)
 		assert.Equal(t, "ns2-alias-stream", got2.Properties.(map[string]any)["title"])
 
 		// And cross-namespace lookups miss — user2 cannot see user1's row.
@@ -708,26 +720,32 @@ func TestNamespaces_GRPC(t *testing.T) {
 	})
 }
 
-// TestNamespaces_GRPC_MultiShardAggregate spreads a namespaced class across
-// every node in the 3-node cluster and asserts that count(*) fan-out
-// returns the right number. With shards on remote nodes the gRPC entry
-// point cannot answer count locally and must hop the cluster-API
-// /indices/<ns>:<class>/shards/<sh>/objects/_count route.
-func TestNamespaces_GRPC_MultiShardAggregate(t *testing.T) {
-	user1Key, _ := twoNamespaces(t)
+// TestNamespaces_GRPC_RemoteShardAggregate exercises the count(*) fan-out
+// hop when the namespace's home_node differs from the gRPC entry node.
+// The namespace is pinned to a node that is provably not the gRPC entry
+// (GetWeaviate() returns weaviate-0) so the hop is exercised every run.
+func TestNamespaces_GRPC_RemoteShardAggregate(t *testing.T) {
+	const (
+		ns       = "remoteshardns"
+		homeNode = "weaviate-2"
+	)
+	helper.CreateNamespaceWithHomeNode(t, ns, homeNode, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
+
+	user1Key := createNamespacedUser(t, "u1", ns, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns+":u1", adminKey) })
 
 	grpcClient, conn := newGrpcClient(t)
 	defer conn.Close()
 
-	const class = "MoviesGRPCMultiShard"
+	const class = "MoviesGRPCRemoteShard"
 	helper.CreateClassAuth(t, &models.Class{
 		Class: class,
 		Properties: []*models.Property{
 			{Name: "title", DataType: []string{"text"}},
 		},
-		ShardingConfig: map[string]any{"desiredCount": 3},
 	}, user1Key)
-	t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+	t.Cleanup(func() { helper.DeleteClassAuth(t, ns+":"+class, adminKey) })
 
 	const objCount = 12
 	objects := make([]*pb.BatchObject, 0, objCount)

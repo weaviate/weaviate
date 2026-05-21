@@ -106,6 +106,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 		// "<namespace>:E2emovies".
 		const (
 			short      = "e2emovies"
+			shortClass = "E2emovies"
 			qualified1 = "customer1:E2emovies"
 			qualified2 = "customer2:E2emovies"
 		)
@@ -114,14 +115,15 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 		id := strfmt.UUID("11111111-2222-3333-4444-555555555555")
 		seedTwo(t, short, id, "The Matrix", "Inception", user1Key, user2Key)
 
+		// Namespaced caller sees the short class name (stripped).
 		got1, err := helper.GetObjectAuth(t, short, id, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, qualified1, got1.Class)
+		assert.Equal(t, shortClass, got1.Class)
 		assert.Equal(t, "The Matrix", got1.Properties.(map[string]any)["title"])
 
 		got2, err := helper.GetObjectAuth(t, short, id, user2Key)
 		require.NoError(t, err)
-		assert.Equal(t, qualified2, got2.Class)
+		assert.Equal(t, shortClass, got2.Class)
 		assert.Equal(t, "Inception", got2.Properties.(map[string]any)["title"])
 
 		// Admin's raw schema view shows both qualified names exist.
@@ -215,7 +217,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Len(t, listResp1.Payload.Objects, 1)
-		assert.Equal(t, "customer1:"+class, listResp1.Payload.Objects[0].Class)
+		assert.Equal(t, class, listResp1.Payload.Objects[0].Class)
 		assert.Equal(t, "list-ns1", listResp1.Payload.Objects[0].Properties.(map[string]any)["title"])
 
 		listResp2, err := helper.Client(t).Objects.ObjectsList(
@@ -224,7 +226,7 @@ func TestNamespaces_ObjectLifecycle(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Len(t, listResp2.Payload.Objects, 1)
-		assert.Equal(t, "customer2:"+class, listResp2.Payload.Objects[0].Class)
+		assert.Equal(t, class, listResp2.Payload.Objects[0].Class)
 		assert.Equal(t, "list-ns2", listResp2.Payload.Objects[0].Properties.(map[string]any)["title"])
 	})
 
@@ -333,12 +335,12 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 
 		got1a, err := helper.GetObjectAuth(t, class, id1, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got1a.Class)
+		assert.Equal(t, class, got1a.Class)
 		assert.Equal(t, "ns1-a", got1a.Properties.(map[string]any)["title"])
 
 		got2b, err := helper.GetObjectAuth(t, class, id2, user2Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer2:"+class, got2b.Class)
+		assert.Equal(t, class, got2b.Class)
 		assert.Equal(t, "ns2-b", got2b.Properties.(map[string]any)["title"])
 	})
 

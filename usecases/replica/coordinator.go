@@ -13,8 +13,8 @@ package replica
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 const (
@@ -133,14 +134,18 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 
 	// handle responses to prepare requests
 	resChan := make(chan Result[string], len(replicas))
+	required := level
 	f := func() {
 		defer close(resChan)
 		actives := make([]Result[string], 0, level) // cache for active replicas
-		broadcastErrors := make([]string, 0, len(replicas)-level)
+		var replicaErrs []error
 		for r := range prepare() {
 			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Warn(r.Err)
-				broadcastErrors = append(broadcastErrors, fmt.Errorf("replica %s; %w", r.Value, r.Err).Error())
+				// Attach the failing replica identifier so the resulting
+				// error remains actionable regardless of whether the
+				// per-replica op wrapped it with host context.
+				replicaErrs = append(replicaErrs, annotateReplicaErr(r.Value, r.Err))
 				continue
 			}
 
@@ -162,8 +167,7 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 			for _, node := range replicas {
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
-			errs := fmt.Sprintf("errors: %s", strings.Join(broadcastErrors, ", "))
-			resChan <- Result[string]{Err: fmt.Errorf("%s; broadcast: %w", errs, ErrReplicas)}
+			resChan <- Result[string]{Err: replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, len(actives), errors.Join(replicaErrs...))}
 		}
 	}
 	enterrors.GoWrapper(f, c.log)
@@ -224,15 +228,16 @@ func (c *coordinator[T, R]) read(
 	onFlatten onFlatten[T, R],
 	batchSize int,
 ) []R {
+	required := level
 	failures := make([]T, 0, level)
 	successes := make([]T, 0, level)
-	var firstError error
+	var replicaErrs []error
 	for x := range ch {
 		var err error
 		var shouldDecreaseLevel bool
 		successes, failures, shouldDecreaseLevel, err = onResult(x, successes, failures)
-		if err != nil && firstError == nil {
-			firstError = err
+		if err != nil {
+			replicaErrs = append(replicaErrs, err)
 		}
 		if shouldDecreaseLevel {
 			level--
@@ -241,11 +246,20 @@ func (c *coordinator[T, R]) read(
 			return onFlatten(batchSize, successes, nil)
 		}
 	}
-	if level > 0 && firstError == nil {
-		firstError = fmt.Errorf("commit: %w", ErrReplicas)
+	var finalErr error
+	if level > 0 {
+		joined := errors.Join(replicaErrs...)
+		// If the upstream failure is already a "not enough replicas" error
+		// (e.g. broadcast aborted and sent its own NotEnoughReplicasError),
+		// surface it directly instead of nesting another wrapper.
+		if errors.Is(joined, replicaerrors.ErrReplicas) {
+			finalErr = joined
+		} else {
+			finalErr = replicaerrors.NewNotEnoughReplicasErrorWithCounts(required, required-level, joined)
+		}
 	}
 	failures = append(failures, successes...)
-	return onFlatten(batchSize, failures, firstError)
+	return onFlatten(batchSize, failures, finalErr)
 }
 
 // Push pushes updates to all replicas of a specific shard
@@ -439,4 +453,14 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 type hostRetry struct {
 	host           string
 	currentBackOff backoff.BackOff
+}
+
+// annotateReplicaErr prefixes err with the replica identifier when
+// replica is non-empty.  It returns err unchanged when no identifier is
+// available so that an empty prefix is never emitted.
+func annotateReplicaErr(replica string, err error) error {
+	if replica == "" {
+		return err
+	}
+	return fmt.Errorf("replica %q: %w", replica, err)
 }

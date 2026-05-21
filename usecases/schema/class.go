@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -166,6 +167,16 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	}
 	// migrate only after validation in completed
 	h.migrateClassSettings(cls)
+
+	// Reject explicit desiredCount != 1 before ParseClass replaces the raw
+	// map — once parsed we can't distinguish user-asked-for-3 from the
+	// NodeCount default.
+	if h.config.Namespaces.Enabled {
+		if err := rejectExplicitMultiShardOnNamespacedClass(cls.ShardingConfig); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	if err := h.parser.ParseClass(cls); err != nil {
 		return nil, 0, err
 	}
@@ -193,16 +204,32 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
 	}
 
+	candidates, err := h.namespaceCandidates(cls.Class)
+	if err != nil {
+		return nil, 0, err
+	}
+	shardingCfg := cls.ShardingConfig.(shardingcfg.Config)
+	if h.config.Namespaces.Enabled && !schema.MultiTenancyEnabled(cls) {
+		// Cap shard count to the candidate list; otherwise the parser's
+		// nodeCount default would have initPhysical place duplicate shards
+		// on the single home_node.
+		shardingCfg.DesiredCount = len(candidates)
+		shardingCfg.DesiredVirtualCount = shardingCfg.DesiredCount * shardingCfg.VirtualPerPhysical
+		shardingCfg.ActualCount = shardingCfg.DesiredCount
+		shardingCfg.ActualVirtualCount = shardingCfg.DesiredVirtualCount
+		cls.ShardingConfig = shardingCfg
+	}
+
 	// Per-collection shard cap. Config-time check only — shard count comes
-	// straight from the create request, no live state to consult.
-	// Multi-tenant collections set DesiredCount=0 (shards are created
-	// per-tenant on demand) so the cap is naturally satisfied for those;
-	// the check meaningfully constrains single-tenant configurations only.
+	// straight from the (post-namespace-override) DesiredCount, no live
+	// state to consult. Multi-tenant collections set DesiredCount=0 (shards
+	// are created per-tenant on demand) so the cap is naturally satisfied
+	// for those; the check meaningfully constrains single-tenant
+	// configurations only.
 	if dv := h.config.UsageLimits.MaxShardsPerCollection; dv != nil {
 		shardCap := dv.Get()
 		if shardCap >= 0 {
-			requested := cls.ShardingConfig.(shardingcfg.Config).DesiredCount
-			if requested > shardCap {
+			if shardingCfg.DesiredCount > shardCap {
 				return nil, 0, usagelimits.NewLimitExceededError(
 					h.errorMessageTemplate(), usagelimits.LimitShards, int64(shardCap))
 			}
@@ -210,8 +237,8 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
-		cls.ShardingConfig.(shardingcfg.Config),
-		h.clusterState.LocalName(), h.schemaManager.StorageCandidates(), cls.ReplicationConfig.Factor,
+		shardingCfg,
+		h.clusterState.LocalName(), candidates, cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
 		return nil, 0, errors.Wrap(err, "init sharding state")
@@ -225,6 +252,51 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	return cls, version, err
+}
+
+// rejectExplicitMultiShardOnNamespacedClass rejects an explicit
+// desiredCount != 1. ParseConfig with nodeCount=1 folds default and
+// explicit-1 together; anything else came from the user. Parse errors
+// fall through to parser.ParseClass below.
+func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
+	if _, ok := shardingConfig.(map[string]interface{}); !ok {
+		return nil
+	}
+	cfg, err := shardingcfg.ParseConfig(shardingConfig, 1)
+	if err != nil {
+		return nil
+	}
+	if cfg.DesiredCount != 1 {
+		return fmt.Errorf("desiredCount is limited to 1 (got %d)", cfg.DesiredCount)
+	}
+	return nil
+}
+
+// namespaceCandidates returns the storage-candidate list for placing
+// qualifiedClass's shards. On NS-disabled clusters it returns the full
+// cluster candidates; on NS-enabled clusters it returns
+// [namespace.home_node] so every shard pins to that one node.
+func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
+	if !h.config.Namespaces.Enabled {
+		return h.schemaManager.StorageCandidates(), nil
+	}
+	ns := namespacing.NamespaceFromQualified(qualifiedClass)
+	if ns == "" {
+		return nil, fmt.Errorf("expected namespace-qualified class name, got %q", qualifiedClass)
+	}
+	got, ok := h.namespacesExister.GetNamespace(ns)
+	if !ok {
+		return nil, fmt.Errorf("namespace %q not found", ns)
+	}
+	homeNode := got.Primary()
+	if homeNode == "" {
+		return nil, fmt.Errorf("namespace %q has no home_node; refusing placement", ns)
+	}
+	candidates := h.schemaManager.StorageCandidates()
+	if !slices.Contains(candidates, homeNode) {
+		return nil, fmt.Errorf("namespace %q home_node %q is not a current storage candidate", ns, homeNode)
+	}
+	return []string{homeNode}, nil
 }
 
 func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
@@ -378,6 +450,20 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	// Namespaced callers send the stripped (short) class name in the body
+	// after a GET. Qualify it and require it to match the path so a
+	// mismatch surfaces explicitly instead of being silently overwritten.
+	if updated != nil && principal != nil && principal.Namespace != "" {
+		qualifiedBody, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, updated.Class)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+		if qualifiedBody != className {
+			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, namespacing.StripOwnNamespace(principal, className))
+		}
+		updated.Class = qualifiedBody
+	}
+
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil || updated == nil {
 		return err
 	}
@@ -477,6 +563,76 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 
 	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
 	return err
+}
+
+// UpdatePropertyInternal updates a single property via the UpdateProperty RAFT
+// command, bypassing the property immutability validation that UpdateClass
+// enforces. This is intended for internal migrations that need to change
+// property-level indexing fields (e.g., IndexRangeFilters) after building new
+// indexes at runtime.
+//
+// Replication contract: this call synchronously awaits RAFT replication and
+// local FSM apply before returning a nil error. The path is:
+//
+//	h.schemaManager.UpdateProperty (cluster/raft_apply_endpoints.go:113)
+//	  → Raft.Execute (cluster/raft_apply_endpoints.go:296)
+//	      // leader:   Store.Execute (cluster/store_apply.go:27) which calls
+//	      //           raft.Apply(...) and blocks on fut.Error() + fut.Response()
+//	      // follower: cl.Apply (cluster/rpc/client.go:194) forwards to the
+//	      //           leader via gRPC and waits for the leader's response
+//
+// hashicorp/raft's ApplyFuture resolves only after the entry has been
+// committed (quorum-acknowledged) AND applied to the local FSM. A nil error
+// therefore implies the update is durable across a leader failover. Callers
+// such as reindex strategies' OnMigrationComplete rely on this guarantee to
+// flip schema flags (e.g. IndexFilterable=true) after a bucket swap without
+// risking a silent loss of the schema change.
+// UpdatePropertyInternal updates a single property via the UpdateProperty RAFT
+// path. When `fields` is non-empty, the FSM merges ONLY the listed property
+// fields onto the existing property; the rest are kept from the current class
+// state. This closes the TOCTOU race where two reindex strategies that touch
+// disjoint fields could clobber each other on RAFT apply. An empty `fields`
+// preserves the legacy "replace every field" semantics, matching the public
+// schema-update path.
+//
+// See cluster/proto/api.PropertyField* for the field tag constants.
+func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, prop *models.Property,
+	fields ...string,
+) error {
+	setPropertyDefaults(prop)
+	_, err := h.schemaManager.UpdateProperty(ctx, className, prop, fields...)
+	return err
+}
+
+// UpdatePropertyInternalFromMigration is the migration-completion
+// variant of [UpdatePropertyInternal]. It routes the RAFT command
+// through [SchemaManager.UpdatePropertyFromMigration], which sets the
+// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
+// FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
+// for this single update.
+//
+// Used by the reindex provider's
+// [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
+// OnTaskCompleted dispatch. Public-API callers (REST / gRPC handlers)
+// must continue to call [UpdatePropertyInternal] (or
+// h.schemaManager.UpdateProperty directly) so the MutationGuard
+// applies to external mutations.
+//
+// Returns only after the local FSM has applied the update. The reindex
+// provider's OnTaskCompleted clears the per-shard tokenization overlay
+// immediately after this returns; without the local-apply wait the
+// overlay would be cleared while this node's schema reader still has
+// the OLD tokenization, opening a query-side misalignment window
+// between local-apply and RAFT-commit on slow followers.
+func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
+	fields ...string,
+) error {
+	setPropertyDefaults(prop)
+	version, err := h.schemaManager.UpdatePropertyFromMigration(ctx, className, prop, fields...)
+	if err != nil {
+		return err
+	}
+	return h.schemaReader.WaitForUpdate(ctx, version)
 }
 
 func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
@@ -814,8 +970,13 @@ func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
 		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
 	}
-	// force the default in case it was not set, as empty bool == false
-	class.InvertedIndexConfig.UsingBlockMaxWAND = config.DefaultUsingBlockMaxWAND
+	// Set the default only when not already true. This ensures that:
+	//  - New classes get the default (config.DefaultUsingBlockMaxWAND).
+	//  - Migrated classes that set UsingBlockMaxWAND=true explicitly are
+	//    not reverted back to false when the default is false.
+	if !class.InvertedIndexConfig.UsingBlockMaxWAND {
+		class.InvertedIndexConfig.UsingBlockMaxWAND = config.DefaultUsingBlockMaxWAND
+	}
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
 		class.InvertedIndexConfig.CleanupIntervalSeconds = config.DefaultCleanupIntervalSeconds

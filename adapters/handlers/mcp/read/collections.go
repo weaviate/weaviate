@@ -19,20 +19,33 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallToolRequest, args GetCollectionConfigArgs) (*GetCollectionConfigResp, error) {
+	// Authorize the request
+	principal, err := r.Authorize(ctx, req, authorization.READ)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve only the specific-name branch: the list-all branch returns
+	// whatever GetConsistentSchema (RBAC-filtered) yields, so there is no
+	// user-supplied name to qualify.
+	if args.CollectionName != "" {
+		resolved, _, err := namespacing.Resolve(principal, r.schemaManager, r.namespacesEnabled, args.CollectionName)
+		if err != nil {
+			return nil, err
+		}
+		args.CollectionName = resolved
+	}
+
 	log := r.logger.WithFields(logrus.Fields{
 		"tool":       "weaviate-collections-get-config",
 		"collection": args.CollectionName,
 	})
 	log.Debug("getting collection config")
 
-	// Authorize the request
-	principal, err := r.Authorize(ctx, req, authorization.READ)
-	if err != nil {
-		return nil, err
-	}
 	res, err := r.schemaReader.GetConsistentSchema(ctx, principal, true)
 	if err != nil {
 		log.Warnf("failed to get schema: %v", err)
@@ -43,12 +56,20 @@ func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallTo
 	if args.CollectionName != "" {
 		for _, class := range res.Objects.Classes {
 			if class.Class == args.CollectionName {
-				return &GetCollectionConfigResp{Collections: []*models.Class{class}}, nil
+				return &GetCollectionConfigResp{Collections: []*models.Class{namespacing.StripClassResponse(principal, class)}}, nil
 			}
 		}
 		return nil, fmt.Errorf("collection %q not found", args.CollectionName)
 	}
 
 	// Return all collections
-	return &GetCollectionConfigResp{Collections: res.Objects.Classes}, nil
+	collections := res.Objects.Classes
+	if principal != nil && principal.Namespace != "" && len(collections) > 0 {
+		stripped := make([]*models.Class, len(collections))
+		for i, c := range collections {
+			stripped[i] = namespacing.StripClassResponse(principal, c)
+		}
+		collections = stripped
+	}
+	return &GetCollectionConfigResp{Collections: collections}, nil
 }

@@ -153,6 +153,7 @@ type Config struct {
 	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults              int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
 	QueryHybridMaximumResults        int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
+	QueryBoostDefaultDepth           int                      `json:"query_boost_default_depth" yaml:"query_boost_default_depth"`
 	QueryNestedCrossReferenceLimit   int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
 	QueryCrossReferenceDepthLimit    int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
 	Contextionary                    Contextionary            `json:"contextionary" yaml:"contextionary"`
@@ -546,9 +547,9 @@ type GRPC struct {
 }
 
 type MCP struct {
-	Enabled            bool   `json:"enabled" yaml:"enabled"`
-	WriteAccessEnabled bool   `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
-	ConfigPath         string `json:"configPath" yaml:"configPath"`
+	Enabled            *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+	WriteAccessEnabled *runtime.DynamicValue[bool] `json:"writeAccessEnabled" yaml:"writeAccessEnabled"`
+	ConfigPath         string                      `json:"configPath" yaml:"configPath"`
 }
 
 type Profiling struct {
@@ -559,9 +560,9 @@ type Profiling struct {
 }
 
 type DistributedTasksConfig struct {
-	Enabled               bool          `json:"enabled" yaml:"enabled"`
-	CompletedTaskTTL      time.Duration `json:"completedTaskTTL" yaml:"completedTaskTTL"`
-	SchedulerTickInterval time.Duration `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
+	CompletedTaskTTL      time.Duration              `json:"completedTaskTTL" yaml:"completedTaskTTL"`
+	SchedulerTickInterval time.Duration              `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
+	ReindexConcurrency    *runtime.DynamicValue[int] `json:"reindexConcurrency" yaml:"reindexConcurrency"`
 }
 
 type Persistence struct {
@@ -574,6 +575,7 @@ type Persistence struct {
 	LSMSegmentsCleanupIntervalSeconds            int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
 	LSMSeparateObjectsCompactions                bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
 	LSMEnableSegmentsChecksumValidation          bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
+	LSMSkipWriteClassNameEnabled                 bool   `json:"lsmSkipClassNameEnabled" yaml:"lsmSkipClassNameEnabled"`
 	LSMCycleManagerRoutinesFactor                int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	IndexRangeableInMemory                       bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 	MinMMapSize                                  int64  `json:"minMMapSize" yaml:"minMMapSize"`
@@ -618,10 +620,6 @@ const (
 
 const (
 	DefaultReindexerGoroutinesFactor = 0.5
-
-	DefaultMapToBlockmaxProcessingDurationSeconds  = 3 * 60
-	DefaultMapToBlockmaxPauseDurationSeconds       = 60
-	DefaultMapToBlockmaxPerObjectDelayMilliseconds = 0
 )
 
 // MetadataServer is experimental.

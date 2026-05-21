@@ -2954,6 +2954,73 @@ func init() {
           }
         }
       },
+      "put": {
+        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Update a namespace",
+        "operationId": "updateNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/NamespaceUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace updated successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "post": {
         "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
         "tags": [
@@ -2968,6 +3035,14 @@ func init() {
             "name": "namespace_id",
             "in": "path",
             "required": true
+          },
+          {
+            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/NamespaceCreateRequest"
+            }
           }
         ],
         "responses": {
@@ -3525,6 +3600,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -5495,6 +5576,135 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
         ]
+      }
+    },
+    "/schema/{className}/indexes": {
+      "get": {
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get index status for all properties of a collection",
+        "operationId": "schema.objects.indexes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index status for all properties.",
+            "schema": {
+              "$ref": "#/definitions/IndexStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found."
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/indexes/{propertyName}": {
+      "put": {
+        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update index configuration for a property (triggers reindex)",
+        "operationId": "schema.objects.indexes.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "409": {
+            "description": "Conflicting reindex task already running.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Distributed tasks not enabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/schema/{className}/properties": {
@@ -8192,6 +8402,148 @@ func init() {
         "oidc"
       ]
     },
+    "IndexStatus": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "description": "BM25 algorithm currently backing this searchable index. 'wand' is the legacy map-based bucket strategy; 'blockmax' is the Block Max WAND inverted strategy. Only populated for ` + "`" + `type=searchable` + "`" + ` entries. Not populated for filterable or rangeable indexes.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
+        "progress": {
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "indexing",
+            "pending",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "targetAlgorithm": {
+          "description": "BM25 algorithm this searchable index is being rebuilt onto. Populated only while an in-flight rebuild is changing the algorithm; mirrors ` + "`" + `targetTokenization` + "`" + ` for the change-tokenization verb. Today the only supported transition is wand -\u003e blockmax.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
+        "targetTokenization": {
+          "type": "string"
+        },
+        "tokenization": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "filterable",
+            "searchable",
+            "rangeable"
+          ]
+        }
+      }
+    },
+    "IndexStatusResponse": {
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyIndexStatus"
+          }
+        }
+      }
+    },
+    "IndexUpdateFilterable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "type": "boolean"
+        },
+        "tokenization": {
+          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateRangeable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
+          "type": "boolean"
+        }
+      }
+    },
+    "IndexUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "filterable": {
+          "$ref": "#/definitions/IndexUpdateFilterable"
+        },
+        "rangeable": {
+          "$ref": "#/definitions/IndexUpdateRangeable"
+        },
+        "searchable": {
+          "$ref": "#/definitions/IndexUpdateSearchable"
+        }
+      }
+    },
+    "IndexUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateSearchable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -\u003e wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
+          "type": "boolean"
+        },
+        "tokenization": {
+          "type": "string"
+        }
+      }
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
@@ -8323,6 +8675,10 @@ func init() {
       "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
       "type": "object",
       "properties": {
+        "home_node": {
+          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
+          "type": "string"
+        },
         "name": {
           "description": "The unique name of the namespace.",
           "type": "string"
@@ -8337,11 +8693,34 @@ func init() {
         }
       }
     },
+    "NamespaceCreateRequest": {
+      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "type": "object",
+      "properties": {
+        "home_node": {
+          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
+          "type": "string"
+        }
+      }
+    },
     "NamespaceListResponse": {
       "description": "Response object containing a list of namespaces.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/Namespace"
+      }
+    },
+    "NamespaceUpdateRequest": {
+      "description": "Update payload for an existing namespace.",
+      "type": "object",
+      "required": [
+        "home_node"
+      ],
+      "properties": {
+        "home_node": {
+          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
+          "type": "string"
+        }
       }
     },
     "NestedProperty": {
@@ -8988,6 +9367,11 @@ func init() {
     "Property": {
       "type": "object",
       "properties": {
+        "bucketGeneration": {
+          "description": "Internal RAFT-replicated counter bumped by semantic runtime-reindex migrations (e.g. change-tokenization, enable-filterable, enable-searchable). Used by the data path to resolve the property's inverted-index bucket name; a single RAFT commit flipping the schema flag AND bumping this counter atomically cuts the cluster from the old bucket to the new one. Defaults to 0. Internal use; clients should not set this.",
+          "type": "integer",
+          "format": "int64"
+        },
         "dataType": {
           "description": "Data type of the property (required). If it starts with a capital (for example Person), may be a reference to another type.",
           "type": "array",
@@ -9058,6 +9442,26 @@ func init() {
             "kagome_ja",
             "gse_ch"
           ]
+        }
+      }
+    },
+    "PropertyIndexStatus": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IndexStatus"
+          }
+        },
+        "name": {
+          "type": "string"
         }
       }
     },
@@ -13418,6 +13822,73 @@ func init() {
           }
         }
       },
+      "put": {
+        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Update a namespace",
+        "operationId": "updateNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/NamespaceUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace updated successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
       "post": {
         "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
         "tags": [
@@ -13432,6 +13903,14 @@ func init() {
             "name": "namespace_id",
             "in": "path",
             "required": true
+          },
+          {
+            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/NamespaceCreateRequest"
+            }
           }
         ],
         "responses": {
@@ -14042,6 +14521,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -16069,6 +16554,135 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
         ]
+      }
+    },
+    "/schema/{className}/indexes": {
+      "get": {
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get index status for all properties of a collection",
+        "operationId": "schema.objects.indexes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index status for all properties.",
+            "schema": {
+              "$ref": "#/definitions/IndexStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found."
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/indexes/{propertyName}": {
+      "put": {
+        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update index configuration for a property (triggers reindex)",
+        "operationId": "schema.objects.indexes.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "409": {
+            "description": "Conflicting reindex task already running.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Distributed tasks not enabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/schema/{className}/properties": {
@@ -18951,6 +19565,148 @@ func init() {
         "oidc"
       ]
     },
+    "IndexStatus": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "description": "BM25 algorithm currently backing this searchable index. 'wand' is the legacy map-based bucket strategy; 'blockmax' is the Block Max WAND inverted strategy. Only populated for ` + "`" + `type=searchable` + "`" + ` entries. Not populated for filterable or rangeable indexes.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
+        "progress": {
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "indexing",
+            "pending",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "targetAlgorithm": {
+          "description": "BM25 algorithm this searchable index is being rebuilt onto. Populated only while an in-flight rebuild is changing the algorithm; mirrors ` + "`" + `targetTokenization` + "`" + ` for the change-tokenization verb. Today the only supported transition is wand -\u003e blockmax.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
+        "targetTokenization": {
+          "type": "string"
+        },
+        "tokenization": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "filterable",
+            "searchable",
+            "rangeable"
+          ]
+        }
+      }
+    },
+    "IndexStatusResponse": {
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyIndexStatus"
+          }
+        }
+      }
+    },
+    "IndexUpdateFilterable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "type": "boolean"
+        },
+        "tokenization": {
+          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateRangeable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
+          "type": "boolean"
+        }
+      }
+    },
+    "IndexUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "filterable": {
+          "$ref": "#/definitions/IndexUpdateFilterable"
+        },
+        "rangeable": {
+          "$ref": "#/definitions/IndexUpdateRangeable"
+        },
+        "searchable": {
+          "$ref": "#/definitions/IndexUpdateSearchable"
+        }
+      }
+    },
+    "IndexUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateSearchable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -\u003e wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
+          "type": "boolean"
+        },
+        "tokenization": {
+          "type": "string"
+        }
+      }
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
@@ -19082,6 +19838,10 @@ func init() {
       "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
       "type": "object",
       "properties": {
+        "home_node": {
+          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
+          "type": "string"
+        },
         "name": {
           "description": "The unique name of the namespace.",
           "type": "string"
@@ -19096,11 +19856,34 @@ func init() {
         }
       }
     },
+    "NamespaceCreateRequest": {
+      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "type": "object",
+      "properties": {
+        "home_node": {
+          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
+          "type": "string"
+        }
+      }
+    },
     "NamespaceListResponse": {
       "description": "Response object containing a list of namespaces.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/Namespace"
+      }
+    },
+    "NamespaceUpdateRequest": {
+      "description": "Update payload for an existing namespace.",
+      "type": "object",
+      "required": [
+        "home_node"
+      ],
+      "properties": {
+        "home_node": {
+          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
+          "type": "string"
+        }
       }
     },
     "NestedProperty": {
@@ -19931,6 +20714,11 @@ func init() {
     "Property": {
       "type": "object",
       "properties": {
+        "bucketGeneration": {
+          "description": "Internal RAFT-replicated counter bumped by semantic runtime-reindex migrations (e.g. change-tokenization, enable-filterable, enable-searchable). Used by the data path to resolve the property's inverted-index bucket name; a single RAFT commit flipping the schema flag AND bumping this counter atomically cuts the cluster from the old bucket to the new one. Defaults to 0. Internal use; clients should not set this.",
+          "type": "integer",
+          "format": "int64"
+        },
         "dataType": {
           "description": "Data type of the property (required). If it starts with a capital (for example Person), may be a reference to another type.",
           "type": "array",
@@ -20001,6 +20789,26 @@ func init() {
             "kagome_ja",
             "gse_ch"
           ]
+        }
+      }
+    },
+    "PropertyIndexStatus": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IndexStatus"
+          }
+        },
+        "name": {
+          "type": "string"
         }
       }
     },

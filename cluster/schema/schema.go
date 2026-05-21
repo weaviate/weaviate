@@ -480,15 +480,22 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 	return meta.AddProperty(v, props...)
 }
 
-func (s *schema) updateProperty(class string, v uint64, property *models.Property) error {
+// updateProperty merges `property` into the named class. When `mask` is
+// non-empty, only the listed fields are merged onto an existing property
+// of the same name (see MergePropsMasked).
+//
+// Returns the merged property (post-merge view) so the FSM apply path can
+// pass it to the storage layer, which needs the full property to decide
+// which buckets to create / remove.
+func (s *schema) updateProperty(class string, v uint64, property *models.Property, mask []string) (*models.Property, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	meta := s.unsafeResolveClass(class)
 	if meta == nil {
-		return ErrClassNotFound
+		return nil, ErrClassNotFound
 	}
-	return meta.UpdateProperty(v, property)
+	return meta.UpdateProperty(v, property, mask)
 }
 
 func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {

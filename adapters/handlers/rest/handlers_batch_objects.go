@@ -26,6 +26,7 @@ import (
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -71,10 +72,10 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 
 	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchObjectsCreateOK().
-		WithPayload(h.objectsResponse(objs))
+		WithPayload(h.objectsResponse(principal, objs))
 }
 
-func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*models.ObjectsGetResponse {
+func (h *batchObjectHandlers) objectsResponse(principal *models.Principal, input objects.BatchObjects) []*models.ObjectsGetResponse {
 	response := make([]*models.ObjectsGetResponse, len(input))
 	for i, object := range input {
 		var errorResponse *models.ErrorResponse
@@ -85,6 +86,7 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 		}
 
 		object.Object.ID = object.UUID
+		namespacing.StripObjectResponseClass(principal, object.Object)
 		response[i] = &models.ObjectsGetResponse{
 			Object: *object.Object,
 			Result: &models.ObjectsGetResponseAO2Result{
@@ -193,10 +195,10 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 
 	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchObjectsDeleteOK().
-		WithPayload(h.objectsDeleteResponse(res))
+		WithPayload(h.objectsDeleteResponse(principal, res))
 }
 
-func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteResponse) *models.BatchDeleteResponse {
+func (h *batchObjectHandlers) objectsDeleteResponse(principal *models.Principal, input *objects.BatchDeleteResponse) *models.BatchDeleteResponse {
 	var successful, failed int64
 	output := input.Output
 	var objects []*models.BatchDeleteResponseResultsObjectsItems0
@@ -232,7 +234,7 @@ func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteRe
 
 	response := &models.BatchDeleteResponse{
 		Match: &models.BatchDeleteResponseMatch{
-			Class: input.Match.Class,
+			Class: namespacing.StripOwnNamespace(principal, input.Match.Class),
 			Where: input.Match.Where,
 		},
 		DeletionTimeUnixMilli: &deletionTimeUnixMilli,

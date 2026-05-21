@@ -188,7 +188,7 @@ func NewManager(schemaManager schemaManager,
 
 // resolveNS qualifies name with the principal's namespace (if enabled)
 // and resolves any alias to its underlying class.
-func (m *Manager) resolveNS(principal *models.Principal, name string) (class, originalAlias string, err error) {
+func (m *Manager) resolveNS(principal *models.Principal, name string) (class, qualifiedAlias string, err error) {
 	return namespacing.Resolve(principal, m.schemaManager, m.config.Config.Namespaces.Enabled, name)
 }
 

@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -29,15 +28,11 @@ type Auth struct {
 	authorizer           authorization.Authorizer
 }
 
-func NewAuth(state *state.State) *Auth {
+func NewAuth(allowAnonymousAccess bool, authComposer composer.TokenFunc, authorizer authorization.Authorizer) *Auth {
 	return &Auth{
-		allowAnonymousAccess: state.ServerConfig.Config.Authentication.AnonymousAccess.Enabled,
-		authComposer: composer.New(
-			state.ServerConfig.Config.Authentication,
-			state.APIKey,
-			state.OIDC,
-		),
-		authorizer: state.Authorizer,
+		allowAnonymousAccess: allowAnonymousAccess,
+		authComposer:         authComposer,
+		authorizer:           authorizer,
 	}
 }
 

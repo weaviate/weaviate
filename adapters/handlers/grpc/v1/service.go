@@ -300,6 +300,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	replier := NewReplier(
 		req.Uses_127Api,
 		parser.generative,
+		principal,
 		s.logger,
 	)
 
@@ -361,17 +362,6 @@ func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *model
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}
 		return class, nil
-	}
-}
-
-type aliasGetter func(string) string
-
-func (s *Service) aliasGetter() aliasGetter {
-	return func(name string) string {
-		if cls := s.schemaManager.ResolveAlias(name); cls != "" {
-			return name // name is an alias
-		}
-		return ""
 	}
 }
 

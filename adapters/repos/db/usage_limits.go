@@ -14,21 +14,28 @@ package db
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // LocalObjectCount sums async object counts across all locally-loaded
 // shards on this node. Implements usagelimits.ObjectCounter.
 //
+// namespace, if non-empty, restricts the sum to indices whose class name
+// is qualified by that namespace; an empty namespace sums all indices.
+//
 // Uses ObjectCountAsync (excludes the memtable) so bulk imports may
 // briefly overshoot; self-corrects on flush. Cold lazy-load shards are
 // skipped — counting them wouldn't force a load, but would mean a dir
 // walk + per-segment metadata read on every write. See
 // docs/usage_limits.md.
-func (db *DB) LocalObjectCount(ctx context.Context) (int64, error) {
+func (db *DB) LocalObjectCount(ctx context.Context, namespace string) (int64, error) {
 	db.indexLock.RLock()
 	indices := make([]*Index, 0, len(db.indices))
 	for _, idx := range db.indices {
+		if namespace != "" && namespacing.NamespaceFromQualified(idx.Config.ClassName.String()) != namespace {
+			continue
+		}
 		indices = append(indices, idx)
 	}
 	db.indexLock.RUnlock()

@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -439,6 +440,16 @@ func (f *fakeExister) Exists(name string) bool {
 func (f *fakeExister) IsActive(name string) bool {
 	_, ok := f.known[name]
 	return ok
+}
+
+func (f *fakeExister) GetNamespace(name string) (api.Namespace, bool) {
+	if _, ok := f.known[name]; ok {
+		return api.Namespace{Name: name, State: api.NamespaceStateActive}, true
+	}
+	if _, ok := f.deleting[name]; ok {
+		return api.Namespace{Name: name, State: api.NamespaceStateDeleting}, true
+	}
+	return api.Namespace{}, false
 }
 
 // TestClassifyPrincipal exercises the per-token classification matrix.

@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // TestInitRetryBackoff verifies that initRetryBackoff never produces a negative
@@ -381,7 +381,7 @@ func TestAsyncSchedulerNextInterval(t *testing.T) {
 		{
 			name:         "ErrNoDiffFound returns frequency",
 			ctx:          context.Background(),
-			err:          replica.ErrNoDiffFound,
+			err:          replicaerrors.ErrNoDiffFound,
 			wantInterval: freq,
 		},
 		{
@@ -659,7 +659,7 @@ func TestNextIntervalErrNoDiffFoundWithPropagatedTrue(t *testing.T) {
 	entry := &asyncSchedulerEntry{shard: &Shard{asyncRepCtx: context.Background()}}
 	result := asyncSchedulerResult{
 		entry:      entry,
-		err:        replica.ErrNoDiffFound,
+		err:        replicaerrors.ErrNoDiffFound,
 		propagated: true, // propagated=true must NOT override the error path
 		ctx:        context.Background(),
 	}

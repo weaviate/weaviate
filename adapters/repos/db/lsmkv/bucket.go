@@ -90,7 +90,27 @@ type Bucket struct {
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
-	flushLock        sync.RWMutex
+	flushLock sync.RWMutex
+	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
+	// designed assuming a single triggerer at a time (the periodic flush
+	// callback or a control-plane caller — backup, runtime migration,
+	// startup finalize); the data hot path never invokes
+	// [FlushAndSwitch] directly (writes go through memtable.put without
+	// it). When two callers overlap — most visibly seen on the objects
+	// bucket with concurrent runtime-reindex migrations — the second
+	// caller's atomicallySwitchMemtable observes `active.Size() == 0`
+	// and returns early, racing the first caller's still-in-flight
+	// flush. Any follow-up `CursorOnDisk` would miss data parked in
+	// `b.flushing`. Serializing here gives every caller the invariant
+	// "after FlushAndSwitch returns, all data written before the call
+	// is durably in segments." See GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issues C+D.
+	//
+	// Lock ordering: flushAndSwitchMu MUST be acquired BEFORE flushLock.
+	// FlushAndSwitch takes flushAndSwitchMu for its full duration and
+	// internally takes flushLock during atomicallySwitchMemtable +
+	// atomicallyAddDiskSegmentAndRemoveFlushing. Reverse-order callers
+	// would deadlock.
+	flushAndSwitchMu sync.Mutex
 	haltedFlushTimer *interval.BackoffTimer
 
 	minWalThreshold   uint64
@@ -1761,6 +1781,16 @@ func (b *Bucket) FlushAndSwitch() error {
 	if err := b.readOnlyErr(); err != nil {
 		return err
 	}
+
+	// Serialize against any other in-flight FlushAndSwitch on this bucket.
+	// See the [flushAndSwitchMu] godoc and GH https://github.com/weaviate/0-weaviate-issues/issues/212
+	// Issues C+D for the rationale. This ensures the invariant
+	// "after FlushAndSwitch returns, all data written before the call is
+	// durably in segments" holds even when two callers race — the second
+	// caller waits for the first's flush to land before its own
+	// atomicallySwitchMemtable runs.
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
 
 	before := time.Now()
 	var err error

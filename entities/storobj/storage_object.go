@@ -873,6 +873,10 @@ const (
 //   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors is empty, NO target vectors are included
 //   - If addProps.IncludeAllTargetVectors is false and addProps.Vectors has specific names, only those are included
 func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte, error) {
+	return ko.marshalBinaryInternal(addProps, false)
+}
+
+func (ko *Object) marshalBinaryInternal(addProps additional.Properties, skipClassName bool) ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
 	}
@@ -904,6 +908,9 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "className", len(className), maxClassNameLength)
 	}
 	classNameLength := uint32(len(className))
+	if skipClassName {
+		classNameLength = 0
+	}
 
 	// Conditionally include properties based on addProps.NoProps
 	var schema []byte
@@ -1074,9 +1081,11 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 	}
 
 	rw.WriteUint16(uint16(classNameLength))
-	err = rw.CopyBytesToBuffer(className)
-	if err != nil {
-		return byteBuffer, errors.Wrap(err, "Could not copy className")
+	if classNameLength > 0 {
+		err = rw.CopyBytesToBuffer(className)
+		if err != nil {
+			return byteBuffer, errors.Wrap(err, "Could not copy className")
+		}
 	}
 
 	rw.WriteUint32(schemaLength)
@@ -1147,6 +1156,17 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		Vector:                  true,
 		IncludeAllTargetVectors: true,
 	})
+}
+
+// MarshalBinaryDisk produces the on-disk representation of the object. When
+// skipClassName is true, the className body is omitted (the 2-byte length
+// prefix is written as 0). Disk readers stamp the className from the bucket
+// onto the decoded object via FromBinaryDisk.
+func (ko *Object) MarshalBinaryDisk(skipClassName bool) ([]byte, error) {
+	return ko.marshalBinaryInternal(additional.Properties{
+		Vector:                  true,
+		IncludeAllTargetVectors: true,
+	}, skipClassName)
 }
 
 // UnmarshalPropertiesFromObject accepts marshaled object as data and populates resultProperties map with the properties specified by propertyPaths.
