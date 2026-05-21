@@ -646,25 +646,8 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 	propertiesMap["id"] = ko.ID()
 	ko.SetProperties(propertiesMap)
 
-	additionalProperties := models.AdditionalProperties{}
-	if ko.AdditionalProperties() != nil {
-		if interpretation, ok := additional.ModuleParams["interpretation"]; ok {
-			if interpretationValue, ok := interpretation.(bool); ok && interpretationValue {
-				additionalProperties["interpretation"] = ko.AdditionalProperties()["interpretation"]
-			}
-		}
-		if additional.Classification {
-			additionalProperties["classification"] = ko.AdditionalProperties()["classification"]
-		}
-		if additional.Group {
-			additionalProperties["group"] = ko.AdditionalProperties()["group"]
-		}
-		if additional.Highlight {
-			if highlight, ok := ko.AdditionalProperties()["highlight"]; ok {
-				additionalProperties["highlight"] = highlight
-			}
-		}
-	}
+	additionalProperties := buildAdditionalProperties(ko, additional)
+
 	if ko.ExplainScore() != "" {
 		additionalProperties["explainScore"] = ko.ExplainScore()
 	}
@@ -687,6 +670,30 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		Tenant:       tenant, // not part of the binary
 		// TODO: Beacon?
 	}
+}
+
+func buildAdditionalProperties(ko *Object, additional additional.Properties) models.AdditionalProperties {
+	additionalProperties := models.AdditionalProperties{}
+	if ko.AdditionalProperties() == nil {
+		return additionalProperties
+	}
+	if interpretation, ok := additional.ModuleParams["interpretation"]; ok {
+		if interpretationValue, ok := interpretation.(bool); ok && interpretationValue {
+			additionalProperties["interpretation"] = ko.AdditionalProperties()["interpretation"]
+		}
+	}
+	if additional.Classification {
+		additionalProperties["classification"] = ko.AdditionalProperties()["classification"]
+	}
+	if additional.Group {
+		additionalProperties["group"] = ko.AdditionalProperties()["group"]
+	}
+	if additional.Highlight {
+		if highlight, ok := ko.AdditionalProperties()["highlight"]; ok {
+			additionalProperties["highlight"] = highlight
+		}
+	}
+	return additionalProperties
 }
 
 func (ko *Object) asVectors(vectors map[string][]float32, multiVectors map[string][][]float32) models.Vectors {

@@ -746,64 +746,68 @@ func (b *BM25Searcher) GetBucket(propName string) *lsmkv.Bucket {
 
 // addHighlights generates highlighted text fragments for each result object
 // by finding occurrences of query terms in the searched property values.
-// Results are stored in the object's AdditionalProperties["highlight"].
 func (b *BM25Searcher) addHighlights(objs []*storobj.Object, keywordRanking searchparams.KeywordRanking) {
 	queryTerms := strings.Fields(strings.ToLower(keywordRanking.Query))
 	if len(queryTerms) == 0 {
 		return
 	}
-
 	for _, obj := range objs {
-		props := obj.Properties()
-		if props == nil {
-			continue
-		}
+		b.addHighlightsForObject(obj, keywordRanking, queryTerms)
+	}
+}
 
-		propsMap, ok := props.(map[string]interface{})
+func (b *BM25Searcher) addHighlightsForObject(obj *storobj.Object, keywordRanking searchparams.KeywordRanking, queryTerms []string) {
+	props := obj.Properties()
+	if props == nil {
+		return
+	}
+	propsMap, ok := props.(map[string]interface{})
+	if !ok {
+		return
+	}
+	var highlights []additional.Highlight
+	for _, propName := range keywordRanking.Properties {
+		propVal, ok := propsMap[propName]
 		if !ok {
 			continue
 		}
-
-		var highlights []additional.Highlight
-		for _, propName := range keywordRanking.Properties {
-			propVal, ok := propsMap[propName]
-			if !ok {
-				continue
-			}
-
-			text, ok := propVal.(string)
-			if !ok || text == "" {
-				continue
-			}
-
-			fragments := generateHighlightFragments(text, queryTerms)
-			if len(fragments) > 0 {
-				highlights = append(highlights, additional.Highlight{
-					Property:  propName,
-					Fragments: fragments,
-				})
-			}
+		text, ok := propVal.(string)
+		if !ok || text == "" {
+			continue
 		}
-
-		if len(highlights) > 0 {
-			if obj.Object.Additional == nil {
-				obj.Object.Additional = make(map[string]interface{})
-			}
-			obj.Object.Additional["highlight"] = highlights
+		fragments := generateHighlightFragments(text, queryTerms)
+		if len(fragments) > 0 {
+			highlights = append(highlights, additional.Highlight{
+				Property:  propName,
+				Fragments: fragments,
+			})
 		}
+	}
+	if len(highlights) > 0 {
+		if obj.Object.Additional == nil {
+			obj.Object.Additional = make(map[string]interface{})
+		}
+		obj.Object.Additional["highlight"] = highlights
 	}
 }
 
 // generateHighlightFragments finds occurrences of query terms in the text
-// and returns fragments with <em> tags around matching terms. Each fragment
-// includes surrounding context up to fragSize characters on each side.
-// Matches are case-insensitive. Overlapping matches are merged.
+// and returns fragments with <em> tags around matching terms.
 func generateHighlightFragments(text string, queryTerms []string) []string {
+	matches := findMatchPositions(text, queryTerms)
+	if len(matches) == 0 {
+		return nil
+	}
+	sort.Slice(matches, func(i, j int) bool { return matches[i].start < matches[j].start })
+	merged := mergeOverlappingMatches(matches)
+	return buildHighlightFragments(text, merged)
+}
+
+type matchPos struct{ start, end int }
+
+func findMatchPositions(text string, queryTerms []string) []matchPos {
 	lowerText := strings.ToLower(text)
-
-	type match struct{ start, end int }
-	var matches []match
-
+	var matches []matchPos
 	for _, term := range queryTerms {
 		if term == "" {
 			continue
@@ -815,37 +819,33 @@ func generateHighlightFragments(text string, queryTerms []string) []string {
 				break
 			}
 			absIdx := searchFrom + idx
-			matches = append(matches, match{absIdx, absIdx + len(term)})
+			matches = append(matches, matchPos{absIdx, absIdx + len(term)})
 			searchFrom = absIdx + 1
 		}
 	}
+	return matches
+}
 
-	if len(matches) == 0 {
-		return nil
-	}
-
-	sort.Slice(matches, func(i, j int) bool { return matches[i].start < matches[j].start })
-
-	var merged []match
+func mergeOverlappingMatches(matches []matchPos) []matchPos {
+	var merged []matchPos
 	for _, m := range matches {
-		if len(merged) > 0 && m.start <= merged[len(merged)-1].end {
-			if m.end > merged[len(merged)-1].end {
-				merged[len(merged)-1].end = m.end
-			}
-		} else {
+		if len(merged) == 0 || m.start > merged[len(merged)-1].end {
 			merged = append(merged, m)
+		} else if m.end > merged[len(merged)-1].end {
+			merged[len(merged)-1].end = m.end
 		}
 	}
+	return merged
+}
 
+func buildHighlightFragments(text string, merged []matchPos) []string {
 	const fragSize = 80
 	const maxFragments = 3
-
 	var fragments []string
 	for _, m := range merged {
 		if len(fragments) >= maxFragments {
 			break
 		}
-
 		ctxStart := m.start - fragSize
 		if ctxStart < 0 {
 			ctxStart = 0
@@ -854,7 +854,6 @@ func generateHighlightFragments(text string, queryTerms []string) []string {
 		if ctxEnd > len(text) {
 			ctxEnd = len(text)
 		}
-
 		var buf strings.Builder
 		if ctxStart > 0 {
 			buf.WriteString("...")
@@ -867,9 +866,7 @@ func generateHighlightFragments(text string, queryTerms []string) []string {
 		if ctxEnd < len(text) {
 			buf.WriteString("...")
 		}
-
 		fragments = append(fragments, buf.String())
 	}
-
 	return fragments
 }
