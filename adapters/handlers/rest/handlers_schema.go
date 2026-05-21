@@ -25,6 +25,7 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/restrictions"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -46,13 +47,17 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 			return schema.NewSchemaObjectsCreateTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
 		}
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsCreateUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(err))
 		}
 	}
 
@@ -71,6 +76,10 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 		if errors.Is(err, schemaUC.ErrNotFound) {
 			return schema.NewSchemaObjectsUpdateNotFound()
 		}
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
@@ -78,7 +87,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(err))
 		}
 	}
 
@@ -136,13 +145,17 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	_, _, err := s.manager.AddClassProperty(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsPropertiesAddForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(err))
 		}
 	}
 

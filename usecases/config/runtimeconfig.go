@@ -71,6 +71,9 @@ type WeaviateRuntimeConfig struct {
 	DefaultQuantization                       *runtime.DynamicValue[string]        `yaml:"default_quantization" json:"default_quantization"`
 	DefaultVectorIndexType                    *runtime.DynamicValue[string]        `yaml:"default_vector_index" json:"default_vector_index"`
 	DefaultShardingCount                      *runtime.DynamicValue[int]           `yaml:"default_sharding_count" json:"default_sharding_count"`
+	AllowedVectorIndexTypes                   *runtime.DynamicValue[[]string]      `yaml:"allowed_vector_index_types" json:"allowed_vector_index_types"`
+	AllowedCompressionTypes                   *runtime.DynamicValue[[]string]      `yaml:"allowed_compression_types" json:"allowed_compression_types"`
+	RestrictionsErrorMessage                  *runtime.DynamicValue[string]        `yaml:"restrictions_error_message" json:"restrictions_error_message"`
 
 	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
 	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`

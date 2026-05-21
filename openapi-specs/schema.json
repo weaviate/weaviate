@@ -612,6 +612,54 @@
         }
       }
     },
+    "RestrictionViolationResponse": {
+      "description": "Returned with HTTP 422 from class create/update endpoints. For restriction violations (operator-disallowed config via ALLOWED_VECTOR_INDEX_TYPES or ALLOWED_COMPRESSION_TYPES) the structured fields (`errorCode`, `restriction`, `value`, `allowed`, `message`) are populated; the `message` text is rendered from the operator-overridable `RESTRICTIONS_ERROR_MESSAGE` template. For unrelated 422 errors the `error` array is populated (matching the legacy ErrorResponse shape) and the structured fields are omitted.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Legacy ErrorResponse-style error list, populated for non-restriction 422 errors."
+        },
+        "errorCode": {
+          "type": "string",
+          "description": "Machine-stable identifier. Set to `CONFIG_NOT_ALLOWED` for restriction violations; omitted otherwise.",
+          "enum": [
+            "CONFIG_NOT_ALLOWED"
+          ]
+        },
+        "restriction": {
+          "type": "string",
+          "description": "Which restriction was violated.",
+          "enum": [
+            "vector_index_type",
+            "compression"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "description": "The disallowed value the client submitted."
+        },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The operator-configured allow-list."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable message rendered from the `RESTRICTIONS_ERROR_MESSAGE` template with `{restriction}`, `{value}`, `{allowed}` placeholders substituted."
+        }
+      }
+    },
     "ExportCreateRequest": {
       "description": "Request to create a new export operation",
       "type": "object",
@@ -7898,7 +7946,7 @@
           "422": {
             "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "429": {
@@ -8070,7 +8118,7 @@
           "422": {
             "description": "Invalid update attempt.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -8130,7 +8178,7 @@
           "422": {
             "description": "Invalid property definition provided.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
