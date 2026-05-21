@@ -646,25 +646,7 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 	propertiesMap["id"] = ko.ID()
 	ko.SetProperties(propertiesMap)
 
-	additionalProperties := models.AdditionalProperties{}
-	if ko.AdditionalProperties() != nil {
-		if interpretation, ok := additional.ModuleParams["interpretation"]; ok {
-			if interpretationValue, ok := interpretation.(bool); ok && interpretationValue {
-				additionalProperties["interpretation"] = ko.AdditionalProperties()["interpretation"]
-			}
-		}
-		if additional.Classification {
-			additionalProperties["classification"] = ko.AdditionalProperties()["classification"]
-		}
-		if additional.Group {
-			additionalProperties["group"] = ko.AdditionalProperties()["group"]
-		}
-		if additional.Highlight {
-			if highlight, ok := ko.AdditionalProperties()["highlight"]; ok {
-				additionalProperties["highlight"] = highlight
-			}
-		}
-	}
+	additionalProperties := ko.buildAdditionalProperties(additional)
 	if ko.ExplainScore() != "" {
 		additionalProperties["explainScore"] = ko.ExplainScore()
 	}
@@ -687,6 +669,34 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		Tenant:       tenant, // not part of the binary
 		// TODO: Beacon?
 	}
+}
+
+// buildAdditionalProperties assembles the AdditionalProperties map for a
+// search result, selectively copying values from the stored object
+// properties based on the requested additional fields.
+func (ko *Object) buildAdditionalProperties(addl additional.Properties) models.AdditionalProperties {
+	result := models.AdditionalProperties{}
+	if ko.AdditionalProperties() == nil {
+		return result
+	}
+
+	if interpretation, ok := addl.ModuleParams["interpretation"]; ok {
+		if interpretationValue, ok := interpretation.(bool); ok && interpretationValue {
+			result["interpretation"] = ko.AdditionalProperties()["interpretation"]
+		}
+	}
+	if addl.Classification {
+		result["classification"] = ko.AdditionalProperties()["classification"]
+	}
+	if addl.Group {
+		result["group"] = ko.AdditionalProperties()["group"]
+	}
+	if addl.Highlight {
+		if highlight, ok := ko.AdditionalProperties()["highlight"]; ok {
+			result["highlight"] = highlight
+		}
+	}
+	return result
 }
 
 func (ko *Object) asVectors(vectors map[string][]float32, multiVectors map[string][][]float32) models.Vectors {

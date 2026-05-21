@@ -754,55 +754,79 @@ func (b *BM25Searcher) addHighlights(objs []*storobj.Object, keywordRanking sear
 	}
 
 	for _, obj := range objs {
-		props := obj.Properties()
-		if props == nil {
+		highlights := collectPropertyHighlights(obj, keywordRanking.Properties, queryTerms)
+		if len(highlights) == 0 {
 			continue
 		}
-
-		propsMap, ok := props.(map[string]interface{})
-		if !ok {
-			continue
+		if obj.Object.Additional == nil {
+			obj.Object.Additional = make(map[string]interface{})
 		}
-
-		var highlights []additional.Highlight
-		for _, propName := range keywordRanking.Properties {
-			propVal, ok := propsMap[propName]
-			if !ok {
-				continue
-			}
-
-			text, ok := propVal.(string)
-			if !ok || text == "" {
-				continue
-			}
-
-			fragments := generateHighlightFragments(text, queryTerms)
-			if len(fragments) > 0 {
-				highlights = append(highlights, additional.Highlight{
-					Property:  propName,
-					Fragments: fragments,
-				})
-			}
-		}
-
-		if len(highlights) > 0 {
-			if obj.Object.Additional == nil {
-				obj.Object.Additional = make(map[string]interface{})
-			}
-			obj.Object.Additional["highlight"] = highlights
-		}
+		obj.Object.Additional["highlight"] = highlights
 	}
 }
+
+// collectPropertyHighlights extracts highlight fragments for each searchable
+// property of the object and returns any that produced matches.
+func collectPropertyHighlights(obj *storobj.Object, propNames []string, queryTerms []string) []additional.Highlight {
+	props := obj.Properties()
+	if props == nil {
+		return nil
+	}
+	propsMap, ok := props.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	var highlights []additional.Highlight
+	for _, propName := range propNames {
+		h, ok := highlightForProperty(propsMap, propName, queryTerms)
+		if ok {
+			highlights = append(highlights, h)
+		}
+	}
+	return highlights
+}
+
+// highlightForProperty builds a single Highlight value for the given property
+// if the property value is non-empty text with at least one matching fragment.
+func highlightForProperty(props map[string]interface{}, propName string, queryTerms []string) (additional.Highlight, bool) {
+	val, ok := props[propName]
+	if !ok {
+		return additional.Highlight{}, false
+	}
+	text, ok := val.(string)
+	if !ok || text == "" {
+		return additional.Highlight{}, false
+	}
+	fragments := generateHighlightFragments(text, queryTerms)
+	if len(fragments) == 0 {
+		return additional.Highlight{}, false
+	}
+	return additional.Highlight{Property: propName, Fragments: fragments}, true
+}
+
+// matchRange represents a half-open byte interval [start, end) within text.
+type matchRange struct{ start, end int }
 
 // generateHighlightFragments finds occurrences of query terms in the text
 // and returns fragments with <em> tags around matching terms. Each fragment
 // includes surrounding context up to fragSize characters on each side.
 // Matches are case-insensitive. Overlapping matches are merged.
 func generateHighlightFragments(text string, queryTerms []string) []string {
-	lowerText := strings.ToLower(text)
+	matches := findAllMatches(text, queryTerms)
+	if len(matches) == 0 {
+		return nil
+	}
+	merged := mergeOverlappingMatches(matches)
+	return buildFragments(text, merged)
+}
 
-	type match struct{ start, end int }
-	var matches []match
+// findAllMatches collects all (start, end) positions where any query term
+// appears in text. Matching is case-insensitive; the returned positions
+// reference the original text.
+func findAllMatches(text string, queryTerms []string) []matchRange {
+	lowerText := strings.ToLower(text)
+	var matches []matchRange
 
 	for _, term := range queryTerms {
 		if term == "" {
@@ -815,61 +839,72 @@ func generateHighlightFragments(text string, queryTerms []string) []string {
 				break
 			}
 			absIdx := searchFrom + idx
-			matches = append(matches, match{absIdx, absIdx + len(term)})
+			matches = append(matches, matchRange{absIdx, absIdx + len(term)})
 			searchFrom = absIdx + 1
 		}
 	}
 
+	sort.Slice(matches, func(i, j int) bool { return matches[i].start < matches[j].start })
+	return matches
+}
+
+// mergeOverlappingMatches merges any matches that overlap or are adjacent
+// into single, larger spans.
+func mergeOverlappingMatches(matches []matchRange) []matchRange {
 	if len(matches) == 0 {
 		return nil
 	}
 
-	sort.Slice(matches, func(i, j int) bool { return matches[i].start < matches[j].start })
+	merged := make([]matchRange, 0, len(matches))
+	cur := matches[0]
 
-	var merged []match
-	for _, m := range matches {
-		if len(merged) > 0 && m.start <= merged[len(merged)-1].end {
-			if m.end > merged[len(merged)-1].end {
-				merged[len(merged)-1].end = m.end
+	for _, m := range matches[1:] {
+		if m.start <= cur.end {
+			if m.end > cur.end {
+				cur.end = m.end
 			}
 		} else {
-			merged = append(merged, m)
+			merged = append(merged, cur)
+			cur = m
 		}
 	}
+	merged = append(merged, cur)
 
+	return merged
+}
+
+// buildFragments wraps each merged match range in <em> tags and includes
+// surrounding context (fragSize chars on each side, maxFragments total).
+func buildFragments(text string, merged []matchRange) []string {
 	const fragSize = 80
 	const maxFragments = 3
 
-	var fragments []string
+	fragments := make([]string, 0, min(maxFragments, len(merged)))
 	for _, m := range merged {
 		if len(fragments) >= maxFragments {
 			break
 		}
-
-		ctxStart := m.start - fragSize
-		if ctxStart < 0 {
-			ctxStart = 0
-		}
-		ctxEnd := m.end + fragSize
-		if ctxEnd > len(text) {
-			ctxEnd = len(text)
-		}
-
-		var buf strings.Builder
-		if ctxStart > 0 {
-			buf.WriteString("...")
-		}
-		buf.WriteString(text[ctxStart:m.start])
-		buf.WriteString("<em>")
-		buf.WriteString(text[m.start:m.end])
-		buf.WriteString("</em>")
-		buf.WriteString(text[m.end:ctxEnd])
-		if ctxEnd < len(text) {
-			buf.WriteString("...")
-		}
-
-		fragments = append(fragments, buf.String())
+		fragments = append(fragments, buildSingleFragment(text, m, fragSize))
 	}
-
 	return fragments
+}
+
+// buildSingleFragment extracts one highlighted fragment with context ellipsis.
+func buildSingleFragment(text string, m matchRange, fragSize int) string {
+	ctxStart := max(0, m.start-fragSize)
+	ctxEnd := min(len(text), m.end+fragSize)
+
+	var buf strings.Builder
+	if ctxStart > 0 {
+		buf.WriteString("...")
+	}
+	buf.WriteString(text[ctxStart:m.start])
+	buf.WriteString("<em>")
+	buf.WriteString(text[m.start:m.end])
+	buf.WriteString("</em>")
+	buf.WriteString(text[m.end:ctxEnd])
+	if ctxEnd < len(text) {
+		buf.WriteString("...")
+	}
+	return buf.String()
 }
