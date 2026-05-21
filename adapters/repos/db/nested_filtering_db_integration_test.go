@@ -3841,8 +3841,8 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	// absent. Vacuous cases (countries[1] has no garages/cars at the LCA)
 	// no longer match. Note: idNoMatchModelInOtherGarage is mis-named —
 	// under the strict-existential rule it matches because garages[0].cars[0]
-	// lacks model. See plan_explicit_array_quantifiers.md for the future
-	// explicit ANY/ALL/NONE alternative.
+	// lacks model. Explicit ANY/ALL/NONE quantifiers (proposed) would give
+	// users a way to express the alternative semantics.
 	t.Run("regression_1a_countries_value_and_isNull_cars_model", func(t *testing.T) {
 		idMatch := uuid(1)
 		idMatchNoGarages := uuid(2)
@@ -4302,8 +4302,8 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	// discriminator: garages[1] holds two cars, one missing model, one with
 	// model — strict-existential matches because the no-model car
 	// satisfies the existential. Vacuous cases (no cars in garages[1])
-	// drop. See plan_explicit_array_quantifiers.md for the future explicit
-	// ANY/ALL/NONE alternative.
+	// drop. Explicit ANY/ALL/NONE quantifiers (proposed) would give users a
+	// way to express the alternative semantics.
 	t.Run("regression_3a_garages_value_and_isNull_cars_model", func(t *testing.T) {
 		idMatchMinimal := uuid(1)
 		idMatchNoCars := uuid(2)
@@ -8761,8 +8761,8 @@ func TestNestedFilteringIsNullWithArrayIndex(t *testing.T) {
 		// vacuous (out of pin universe).
 		//
 		// TODO aliszka:nested_filtering: pin-equals-operand case is
-		// recoverable via the hybrid in project_pinned_isnull_recovery.md
-		// (top-level → doc-level denylist). After fix, expected:
+		// recoverable via a hybrid top-level → doc-level denylist approach.
+		// After fix, expected:
 		//   []strfmt.UUID{idOnlyOne, idEmpty, idAbsent}
 		//   (docs that lack addresses[1]).
 		t.Run("addresses[1]_IsNull", func(t *testing.T) {
@@ -8988,9 +8988,8 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 		// in pin universe by definition; vacuous docs drop.
 		//
 		// TODO aliszka:nested_filtering: pin-equals-operand case is
-		// recoverable via the hybrid in project_pinned_isnull_recovery.md
-		// (top-level → doc-level denylist; J×K iteration for sub-clause).
-		// After fix, expected:
+		// recoverable via a hybrid top-level → doc-level denylist approach,
+		// with J×K iteration for the sub-clause. After fix, expected:
 		//   []strfmt.UUID{idCar1NoTires, idNoCar1, idAbsent}
 		//   (docs that lack cars[1].tires[0]).
 		t.Run("cars[1].tires[0]_IsNull", func(t *testing.T) {
@@ -9110,9 +9109,8 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 		// docs without tags[2] drop vacuously. Result: empty.
 		//
 		// TODO aliszka:nested_filtering: pin-equals-operand case
-		// (scalar-array positional variant) is recoverable via the
-		// hybrid in project_pinned_isnull_recovery.md. After fix,
-		// expected:
+		// (scalar-array positional variant) is recoverable via a hybrid
+		// top-level → doc-level denylist approach. After fix, expected:
 		//   []strfmt.UUID{idTwoTagsOnly, idEmptyTags, idNoTags, idAbsent}
 		//   (docs that lack a 3rd tag entry anywhere).
 		t.Run("regression_addresses.tags[2]_IsNull", func(t *testing.T) {
@@ -9162,9 +9160,10 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 	})
 }
 
-// TestNestedFilteringIsNullMultiDescendantCarGap9 is a focused regression
-// baseline that demonstrates the multi-element / multi-leaf encoding gap multi-leaf-per-element affecting IsNull
-// on an array-typed sub-property.
+// TestNestedFilteringIsNullMultiDescendantCar is a focused regression
+// baseline that demonstrates the multi-element / multi-leaf encoding gap
+// (multi-leaf-per-element variant) affecting IsNull on an array-typed
+// sub-property.
 //
 // Fixture: cars with BOTH `tires` (object[]) AND `tags` (text[]) as
 // descendants. When one car has both, the parent `cars[0]` intermediate
@@ -9182,12 +9181,11 @@ func TestNestedFilteringIsNullArrayIndexFollowups(t *testing.T) {
 // semantically impossible — the same car can't simultaneously lack
 // both arrays.
 //
-// TODO aliszka:nested_filtering: after the multi-element / multi-leaf encoding gap fix (per-element-index
-// iteration over _idx.cars.N — see project_gap9_multi_element_per_root.md),
-// the multi-descendant car drops out of both filters; only the
-// truly-missing-that-array docs match.
-func TestNestedFilteringIsNullMultiDescendantCarGap9(t *testing.T) {
-	const nestedClass = "IsNullGap9"
+// TODO aliszka:nested_filtering: after the multi-element / multi-leaf encoding
+// gap fix (per-element-index iteration over _idx.cars.N), the multi-descendant
+// car drops out of both filters; only the truly-missing-that-array docs match.
+func TestNestedFilteringIsNullMultiDescendantCar(t *testing.T) {
+	const nestedClass = "IsNullMultiDescendantCar"
 	vTrue := true
 	tok := models.NestedPropertyTokenizationField
 
@@ -9290,26 +9288,27 @@ func TestNestedFilteringIsNullMultiDescendantCarGap9(t *testing.T) {
 		{id: idAbsent, props: map[string]any{"doc": map[string]any{}}, note: "no cars"},
 	}
 
-	// regression_cars_tires_IsNull_gap9 — IsNull on the object[]
-	// sub-property `cars.tires`. Today's buggy result includes idBoth
-	// (multi-descendant car) because the tag leaves survive AndNot at
-	// the cars LCA. After the multi-element / multi-leaf encoding gap fix, expected: only idTagsOnly and
-	// idEmptyCar (cars that truly lack tires).
+	// regression_cars_tires_IsNull_multi_descendant — IsNull on the
+	// object[] sub-property `cars.tires`. Today's buggy result includes
+	// idBoth (multi-descendant car) because the tag leaves survive
+	// AndNot at the cars LCA. After the multi-element / multi-leaf
+	// encoding gap fix, expected: only idTagsOnly and idEmptyCar (cars
+	// that truly lack tires).
 	//
 	// TODO aliszka:nested_filtering: post-fix expectation:
 	//   []strfmt.UUID{idTagsOnly, idEmptyCar}
-	t.Run("regression_cars_tires_IsNull_gap9", func(t *testing.T) {
+	t.Run("regression_cars_tires_IsNull_multi_descendant", func(t *testing.T) {
 		runScenario(t, docs, isNullFilter("doc.cars.tires", true),
 			[]strfmt.UUID{idBoth, idTagsOnly, idEmptyCar})
 	})
 
-	// regression_cars_tags_IsNull_gap9 — mirror of the above with
-	// roles reversed. Same the multi-element / multi-leaf encoding gap mechanism: tire leaves of idBoth
-	// survive AndNot at cars LCA, wrongly matching "no tags".
+	// regression_cars_tags_IsNull_multi_descendant — mirror of the above
+	// with roles reversed. Same encoding-gap mechanism: tire leaves of
+	// idBoth survive AndNot at cars LCA, wrongly matching "no tags".
 	//
 	// TODO aliszka:nested_filtering: post-fix expectation:
 	//   []strfmt.UUID{idTiresOnly, idEmptyCar}
-	t.Run("regression_cars_tags_IsNull_gap9", func(t *testing.T) {
+	t.Run("regression_cars_tags_IsNull_multi_descendant", func(t *testing.T) {
 		runScenario(t, docs, isNullFilter("doc.cars.tags", true),
 			[]strfmt.UUID{idBoth, idTiresOnly, idEmptyCar})
 	})
@@ -9323,7 +9322,7 @@ func TestNestedFilteringIsNullMultiDescendantCarGap9(t *testing.T) {
 	// NOT appear in either result list. The intersection of the two
 	// IsNull queries should be {idEmptyCar} (the only car that truly
 	// lacks both arrays).
-	t.Run("gap9_overlap_smoking_gun_documentation", func(t *testing.T) {
+	t.Run("multi_descendant_overlap_smoking_gun_documentation", func(t *testing.T) {
 		// Lock in today's overlap as documentation; the post-fix
 		// expectation is captured by the two regression_* tests above.
 		t.Log("idBoth appears in both cars.tires IS NULL AND cars.tags IS NULL today (the multi-element / multi-leaf encoding gap). Post-fix: it appears in neither.")
@@ -11239,11 +11238,11 @@ func TestNestedFilteringNotOfCorrelatedAnd(t *testing.T) {
 		assert.ElementsMatch(t, want, got)
 	}
 
-	// Note: top-level NOT of a basic correlated AND (gap #9) and
-	// NOT-inside-correlated-AND with cross-LCA siblings (gap #3) are
-	// covered by `TestNestedFilteringNotInsideAnd3Levels` across root,
-	// L1, and L2 nesting. This test now focuses on the multi-pin
-	// partition case which is structurally distinct.
+	// Note: top-level NOT of a basic correlated AND (NOT-of-compound)
+	// and NOT-inside-correlated-AND with cross-LCA siblings are covered
+	// by `TestNestedFilteringNotInsideAnd3Levels` across root, L1, and
+	// L2 nesting. This test now focuses on the multi-pin partition case
+	// which is structurally distinct.
 
 	// ----- Sub-test: NOT over partitioned AND with conflicting arr[N] -----
 	// Filter: NOT (cars[0].make=tesla AND cars[1].make=bmw)
@@ -13898,10 +13897,10 @@ func TestNestedFilteringAndShapeFlatVsAndOfAnd(t *testing.T) {
 	})
 }
 
-// TestNestedFilteringNotInsideAnd3Levels expands gap #3 (NOT inside AND
-// with cross-LCA siblings) and gap #9 (top-level NOT of compound AND)
-// across three nesting levels: root cars, garages.cars, and
-// countries.garages.cars.
+// TestNestedFilteringNotInsideAnd3Levels expands two scope-aware NOT
+// shapes — NOT-inside-AND with cross-LCA siblings, and NOT-of-compound
+// (top-level NOT wrapping an AND) — across three nesting levels: root
+// cars, garages.cars, and countries.garages.cars.
 //
 // At deeper nesting levels, additional discriminators emerge — splits
 // across intermediate object[] levels (garages, countries) that don't
@@ -13910,11 +13909,11 @@ func TestNestedFilteringAndShapeFlatVsAndOfAnd(t *testing.T) {
 // way regardless of nesting depth, and document where each level's
 // flip will occur under scope-aware NOT.
 //
-// Gap #3 filter shape (level-agnostic):
+// NOT-inside-AND filter shape (level-agnostic):
 //
 //	<path>.make=tesla AND NOT <path>.tires.width=205
 //
-// Gap #9 filter shape:
+// NOT-of-compound filter shape:
 //
 //	NOT(<path>.make=tesla AND <path>.tires.width=205)
 //
@@ -13976,9 +13975,9 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 	}
 
 	// runLevel encapsulates a level's class and filter/wrap helpers,
-	// then drives the gap #3 and gap #9 sub-tests against a common doc
+	// then drives the NOT-inside-AND and NOT-of-compound sub-tests against a common doc
 	// set tailored to that level.
-	runLevel := func(t *testing.T, className string, class *models.Class, makePath, widthPath string, docs []docDef, gap3Want, gap9Want []strfmt.UUID) {
+	runLevel := func(t *testing.T, className string, class *models.Class, makePath, widthPath string, docs []docDef, notInsideAndWant, notCompoundWant []strfmt.UUID) {
 		t.Helper()
 		textF := func(path, val string) *filters.LocalFilter {
 			return &filters.LocalFilter{Root: &filters.Clause{
@@ -14030,32 +14029,31 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// regression_gap3_NOT_inside_AND_cross_LCA_siblings —
-		// scope-aware NOT at <path>.tires (operand LCA, existential
-		// per-element) inside same-cars-element AND. Doc matches when
-		// at least one tesla car has at least one non-205 tire.
-		// Tesla-no-tires docs drop (vacuous existential); mixed-tires
-		// and cross-car split docs (tesla(non-205) + bmw(205)) flip
-		// to match.
-		t.Run("regression_gap3_NOT_inside_AND_cross_LCA_siblings", func(t *testing.T) {
+		// regression_NOT_inside_AND_cross_LCA_siblings — scope-aware NOT
+		// at <path>.tires (operand LCA, existential per-element) inside
+		// same-cars-element AND. Doc matches when at least one tesla car
+		// has at least one non-205 tire. Tesla-no-tires docs drop
+		// (vacuous existential); mixed-tires and cross-car split docs
+		// (tesla(non-205) + bmw(205)) flip to match.
+		t.Run("regression_NOT_inside_AND_cross_LCA_siblings", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
 				notF(intF(widthPath, 205)),
-			), gap3Want)
+			), notInsideAndWant)
 		})
 
 		// Scope-aware NOT of a compound correlated AND (top-level NOT wrapping).
 		// NOT inverts at the operand's LCA = the inner AND's deepest common
 		// LCA. Doc matches if some element exists at that LCA that does NOT
-		// satisfy the inner AND. L0 lands clean per-element inversion here; at L1+, the
-		// gap9Want lists still carry idTeslaMixed contamination tracked by
-		// project_gap9_multi_element_per_root.md (per-level annotations
+		// satisfy the inner AND. L0 lands clean per-element inversion here; at
+		// L1+, the notCompoundWant lists still carry idTeslaMixed contamination
+		// from the multi-element-per-root encoding gap (per-level annotations
 		// reference it).
-		t.Run("regression_gap9_NOT_compound_top_level", func(t *testing.T) {
+		t.Run("regression_NOT_compound_top_level", func(t *testing.T) {
 			runScenario(t, notF(andF(
 				textF(makePath, "tesla"),
 				intF(widthPath, 205),
-			)), gap9Want)
+			)), notCompoundWant)
 		})
 	}
 
@@ -14078,10 +14076,10 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 
 		idTeslaWith205 := uuid(1)
 		idTeslaNo205 := uuid(2)
-		idTeslaMixed := uuid(3) // tesla, [205,225] — gap #3 flips, gap #9 same
+		idTeslaMixed := uuid(3) // tesla, [205,225] — NOT-inside-AND flips, NOT-of-compound same
 		idTeslaNoTires := uuid(4)
-		idSplitTeslaBmw := uuid(5)  // tesla(225) + bmw(205) — gap #3 flips, gap #9 same
-		idTeslaPlusOther := uuid(6) // tesla(205) + bmw(225) — gap #9 flips
+		idSplitTeslaBmw := uuid(5)  // tesla(225) + bmw(205) — NOT-inside-AND flips, NOT-of-compound same
+		idTeslaPlusOther := uuid(6) // tesla(205) + bmw(225) — NOT-of-compound flips
 		idBmwOnly := uuid(7)
 		idEmpty := uuid(8)
 		docs := []docDef{
@@ -14098,13 +14096,13 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make", "cars.tires.width",
 			docs,
-			// gap #3 — scope-aware NOT, existential per-element.
+			// NOT-inside-AND — scope-aware NOT, existential per-element.
 			// idTeslaNoTires drops (vacuous); idTeslaMixed (mixed
 			// tires on a single tesla car) and idSplitTeslaBmw (tesla
 			// car with non-205 tire) flip to match.
 			[]strfmt.UUID{idTeslaNo205, idTeslaMixed, idSplitTeslaBmw},
 
-			// gap #9 — scope-aware NOT of compound AND (top-level NOT wrapping
+			// NOT-of-compound — scope-aware NOT of compound AND (top-level NOT wrapping
 			// landed). idEmpty drops (no cars universe → vacuous);
 			// idTeslaPlusOther flips in (its bmw car fails the inner AND
 			// AND-cars-make=tesla-AND-cars-tires-width=205 — existential
@@ -14146,9 +14144,9 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		idTeslaPlusOtherSameGarage := uuid(6)
 		idBmwOnly := uuid(7)
 		idEmpty := uuid(8)
-		idSplitAcrossGarages := uuid(9)      // gap #3 NEW: tesla(225) in g[0]; bmw(205) in g[1] — flips under scope-aware
-		idTeslaG0PlusOtherG1 := uuid(10)     // gap #9 NEW: tesla+205 in g[0]; bmw+225 in g[1] — flips under scope-aware
-		idTwoTeslasOneSatisfiesG := uuid(11) // gap #9 NEW: g[0]=tesla+225, g[1]=tesla+205 — flips under scope-aware
+		idSplitAcrossGarages := uuid(9)      // NOT-inside-AND NEW: tesla(225) in g[0]; bmw(205) in g[1] — flips under scope-aware
+		idTeslaG0PlusOtherG1 := uuid(10)     // NOT-of-compound NEW: tesla+205 in g[0]; bmw+225 in g[1] — flips under scope-aware
+		idTwoTeslasOneSatisfiesG := uuid(11) // NOT-of-compound NEW: g[0]=tesla+225, g[1]=tesla+205 — flips under scope-aware
 		docs := []docDef{
 			{id: idTeslaWith205, props: wrapG(garage(car("tesla", tire(205)))), note: "1 garage: tesla,[205]"},
 			{id: idTeslaNo205, props: wrapG(garage(car("tesla", tire(225)))), note: "1 garage: tesla,[225]"},
@@ -14164,15 +14162,15 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		}
 
 		// Today's expected at L1:
-		// gap #3 (cars.make=tesla AND NOT cars.tires.width=205): tesla AND
+		// NOT-inside-AND (cars.make=tesla AND NOT cars.tires.width=205): tesla AND
 		// no 205 anywhere. d2 (single tesla,225) and d4 (tesla no tires)
 		// match. Others have 205 somewhere or no tesla.
-		// gap #9 (NOT(...)): all docs without a (tesla AND has-205-tire)
+		// NOT-of-compound (NOT(...)): all docs without a (tesla AND has-205-tire)
 		// car. d1, d3, d6, d10, d11 have such a car (correlated AND).
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.tires.width",
 			docs,
-			// gap #3 — scope-aware NOT, existential per-element.
+			// NOT-inside-AND — scope-aware NOT, existential per-element.
 			// Tesla-no-tires drops (vacuous); mixed-tires,
 			// split-cars-same-garage, split-across-garages, and
 			// two-teslas-one-satisfies all flip to match.
@@ -14182,15 +14180,15 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 				idSplitAcrossGarages, idTwoTeslasOneSatisfiesG,
 			},
 
-			// gap #9 — top-level NOT wrapping dispatches scope-aware NOT for
+			// NOT-of-compound — top-level NOT wrapping dispatches scope-aware NOT for
 			// top-level NOT-of-compound. The result lands close to per-element inversion
 			// but idTeslaMixed (single tesla car with [205,225] tires) leaks
 			// in: position-level evaluation's leaf-precise AndNot under-subtracts
 			// when one LCA-element owns multiple descendant leaves and the
 			// operand matches a subset.
-			// TODO aliszka:nested_filtering: after the multi-element / multi-leaf encoding gap multi-element-per-root
-			// subtask lands (project_gap9_multi_element_per_root.md),
-			// idTeslaMixed drops and the result collapses to:
+			// TODO aliszka:nested_filtering: after the multi-element / multi-leaf
+			// encoding gap multi-element-per-root subtask lands, idTeslaMixed
+			// drops and the result collapses to:
 			//   []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
 			//                 idSplitTeslaBmwSameGarage,
 			//                 idTeslaPlusOtherSameGarage, idBmwOnly,
@@ -14257,7 +14255,7 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"garage.cars.make", "garage.cars.tires.width",
 			docs,
-			// gap #3 — scope-aware NOT, existential per-element.
+			// NOT-inside-AND — scope-aware NOT, existential per-element.
 			// Tesla-no-tires drops; mixed-tires and split-cars-same-
 			// garage flip to match. No split-across-garages variant
 			// because the root is a single object, not an array.
@@ -14266,10 +14264,11 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 				idSplitTeslaBmwSameGarage,
 			},
 
-			// gap #9 — top-level NOT wrapping dispatches scope-aware NOT.
+			// NOT-of-compound — top-level NOT wrapping dispatches scope-aware NOT.
 			// idTeslaMixed leaks in (same multi-leaf cause as L1_garages_cars
-			// the multi-element / multi-leaf encoding gap). After the multi-element / multi-leaf encoding gap multi-element-per-root subtask
-			// (project_gap9_multi_element_per_root.md) it drops.
+			// the multi-element / multi-leaf encoding gap). After the
+			// multi-element / multi-leaf encoding gap multi-element-per-root
+			// subtask lands it drops.
 			// TODO aliszka:nested_filtering: post-fix expectation is:
 			//   []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
 			//                 idSplitTeslaBmwSameGarage,
@@ -14321,7 +14320,7 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		idBmwOnly := uuid(7)
 		idEmpty := uuid(8)
 		idSplitAcrossGarages := uuid(9)
-		idSplitAcrossCountries := uuid(10) // gap #3 NEW at L2: tesla in c[0]; 205 in c[1]
+		idSplitAcrossCountries := uuid(10) // NOT-inside-AND NEW at L2: tesla in c[0]; 205 in c[1]
 		idTwoTeslasAcrossCountries := uuid(11)
 		docs := []docDef{
 			{id: idTeslaWith205, props: wrapC(country(garage(car("tesla", tire(205))))), note: "single chain: tesla,[205]"},
@@ -14340,7 +14339,7 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.tires.width",
 			docs,
-			// gap #3 — scope-aware NOT, existential per-element.
+			// NOT-inside-AND — scope-aware NOT, existential per-element.
 			// Tesla-no-tires drops (vacuous); mixed-tires, split-cars-
 			// same-garage, split-across-garages, split-across-countries,
 			// and two-teslas-across-countries all flip to match.
@@ -14351,10 +14350,10 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 				idTwoTeslasAcrossCountries,
 			},
 
-			// gap #9 — top-level NOT wrapping dispatches scope-aware NOT.
+			// NOT-of-compound — top-level NOT wrapping dispatches scope-aware NOT.
 			// idTeslaMixed leaks in (same multi-leaf cause as
-			// L1_garages_cars). After the multi-element / multi-leaf encoding gap multi-element-per-root subtask
-			// (project_gap9_multi_element_per_root.md) it drops.
+			// L1_garages_cars). After the multi-element / multi-leaf encoding
+			// gap multi-element-per-root subtask lands it drops.
 			// TODO aliszka:nested_filtering: post-fix expectation is:
 			//   []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
 			//                 idSplitTeslaBmwSameGarage,
@@ -14430,7 +14429,7 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"country.garages.cars.make", "country.garages.cars.tires.width",
 			docs,
-			// gap #3 — scope-aware NOT, existential per-element.
+			// NOT-inside-AND — scope-aware NOT, existential per-element.
 			// Tesla-no-tires drops (vacuous); mixed-tires, split-cars-
 			// same-garage, and split-across-garages flip to match. No
 			// split-across-countries variant because the root is a
@@ -14440,10 +14439,10 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 				idSplitTeslaBmwSameGarage, idSplitAcrossGarages,
 			},
 
-			// gap #9 — top-level NOT wrapping dispatches scope-aware NOT.
+			// NOT-of-compound — top-level NOT wrapping dispatches scope-aware NOT.
 			// idTeslaMixed leaks in (same multi-leaf cause as
-			// L1_garages_cars). After the multi-element / multi-leaf encoding gap multi-element-per-root subtask
-			// (project_gap9_multi_element_per_root.md) it drops.
+			// L1_garages_cars). After the multi-element / multi-leaf encoding
+			// gap multi-element-per-root subtask lands it drops.
 			// TODO aliszka:nested_filtering: post-fix expectation is:
 			//   []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
 			//                 idSplitTeslaBmwSameGarage,
@@ -20302,8 +20301,8 @@ func TestNestedFilteringAndDeepWithOrThreeDepths3Levels(t *testing.T) {
 //
 //	cars.accessories.type=spoiler AND NOT cars.tires.width=205
 //
-// Distinct from gap #3 (`cars.make=tesla AND NOT cars.tires.width
-// =205`) which had A at cars[] and B at cars.tires[] — only one
+// Distinct from the NOT-inside-AND shape (`cars.make=tesla AND NOT
+// cars.tires.width=205`) which had A at cars[] and B at cars.tires[] — only one
 // operand at depth 2. Here both A and B are at depth 2 (sibling
 // sub-arrays); the LCA of the AND is cars[]. Today's NOT is
 // root-universe and the AND across sibling sub-arrays correlates
