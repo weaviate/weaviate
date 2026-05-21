@@ -67,6 +67,42 @@ func TestDefaultVectorIndexEmpty(t *testing.T) {
 		got := helper.GetClass(t, cls.Class)
 		require.Equal(t, "hnsw", got.VectorConfig["my_vector"].VectorIndexType)
 	})
+
+	t.Run("empty string vectorIndexType defaults to hnsw", func(t *testing.T) {
+		cls := &models.Class{
+			Class:             "EmptyVectorIndexType",
+			VectorIndexType:   "",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		helper.DeleteClass(t, cls.Class)
+		helper.CreateClass(t, cls)
+
+		got := helper.GetClass(t, cls.Class)
+		require.Equal(t, "hnsw", got.VectorIndexType)
+	})
+
+	t.Run("empty string vectorIndexType defaults to hnsw for named vectors", func(t *testing.T) {
+		cls := &models.Class{
+			Class: "NamedVectorEmptyIndexType",
+			VectorConfig: map[string]models.VectorConfig{
+				"my_vector": {
+					VectorIndexType: "",
+					Vectorizer: map[string]interface{}{
+						"none": map[string]interface{}{},
+					},
+				},
+			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		helper.DeleteClass(t, cls.Class)
+		helper.CreateClass(t, cls)
+
+		got := helper.GetClass(t, cls.Class)
+		require.Equal(t, "hnsw", got.VectorConfig["my_vector"].VectorIndexType)
+	})
 }
 
 func TestDefaultVectorIndexHfresh(t *testing.T) {
