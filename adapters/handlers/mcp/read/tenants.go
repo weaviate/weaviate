@@ -18,9 +18,10 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func (r *WeaviateReader) GetTenants(ctx context.Context, req mcp.CallToolRequest, args GetTenantsArgs) (*GetTenantsResp, error) {
+func (r *WeaviateReader) GetTenants(ctx context.Context, req mcp.CallToolRequest, args GetTenantsArgs) (resp *GetTenantsResp, retErr error) {
 	log := r.logger.WithFields(logrus.Fields{
 		"tool":       "weaviate-tenants-list",
 		"collection": args.CollectionName,
@@ -35,6 +36,7 @@ func (r *WeaviateReader) GetTenants(ctx context.Context, req mcp.CallToolRequest
 	if err != nil {
 		return nil, err
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 
 	tenants, err := r.schemaReader.GetConsistentTenants(ctx, principal, args.CollectionName, true, nil)
 	if err != nil {
