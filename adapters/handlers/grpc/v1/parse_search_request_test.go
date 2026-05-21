@@ -2782,11 +2782,7 @@ func TestGRPCSearchRequest(t *testing.T) {
 		},
 	}
 
-<<<<<<< feat/xref-namespace-strip
-	parser := NewParser(false, getClass, getAlias, nil, false)
-=======
-	parser := NewParser(false, getClass)
->>>>>>> main
+	parser := NewParser(false, getClass, nil, false)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})

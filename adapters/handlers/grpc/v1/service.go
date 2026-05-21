@@ -293,7 +293,6 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	parser := NewParser(
 		req.Uses_127Api,
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
-		s.aliasGetter(),
 		principal,
 		s.config.Namespaces.Enabled,
 	)

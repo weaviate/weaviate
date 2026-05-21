@@ -60,32 +60,20 @@ type generativeParser interface {
 type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
-<<<<<<< feat/xref-namespace-strip
-	aliasGetter        aliasGetter
 	principal          *models.Principal
 	namespacesEnabled  bool
-=======
->>>>>>> main
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
-<<<<<<< feat/xref-namespace-strip
-	aliasGetter aliasGetter,
 	principal *models.Principal,
 	namespacesEnabled bool,
-=======
->>>>>>> main
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
-<<<<<<< feat/xref-namespace-strip
-		aliasGetter:        aliasGetter,
 		principal:          principal,
 		namespacesEnabled:  namespacesEnabled,
-=======
->>>>>>> main
 	}
 }
 
@@ -711,7 +699,7 @@ func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tena
 
 	switch c := cond.GetCondition().(type) {
 	case *pb.Boost_Condition_Filter:
-		clause, err := ExtractFilters(c.Filter, p.authorizedGetClass, className, tenant, namespacesEnabled)
+		clause, err := ExtractFilters(c.Filter, p.authorizedGetClass, className, tenant, namespacesEnabled, p.principal)
 		if err != nil {
 			return filters.BoostCondition{}, fmt.Errorf("boost condition[%d] filter: %w", idx, err)
 		}

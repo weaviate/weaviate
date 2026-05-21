@@ -78,10 +78,6 @@ func nsParserClassGetter() classGetterWithAuthzFunc {
 	}
 }
 
-func nsParserAliasGetter() aliasGetter {
-	return func(string) string { return "" }
-}
-
 // TestExtractPropertiesRequest_NamespaceStitching covers the gRPC search
 // parser's read-side namespace handling (WS9). The parser must qualify
 // `linkedClassName` using the *parent class's* namespace before the
@@ -91,7 +87,7 @@ func nsParserAliasGetter() aliasGetter {
 func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 	t.Run("single-target ref stitches parent namespace onto short DataType", func(t *testing.T) {
 		parser := NewParser(false,
-			nsParserClassGetter(), nsParserAliasGetter(),
+			nsParserClassGetter(),
 			&models.Principal{Username: "u", Namespace: "customer1"}, true,
 		)
 		req := &pb.SearchRequest{
@@ -113,7 +109,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 
 	t.Run("nested refs inherit namespace at each level", func(t *testing.T) {
 		parser := NewParser(false,
-			nsParserClassGetter(), nsParserAliasGetter(),
+			nsParserClassGetter(),
 			&models.Principal{Username: "u", Namespace: "customer1"}, true,
 		)
 		req := &pb.SearchRequest{
@@ -151,7 +147,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 
 	t.Run("non-namespace cluster passes through unchanged", func(t *testing.T) {
 		parser := NewParser(false,
-			nsParserClassGetter(), nsParserAliasGetter(),
+			nsParserClassGetter(),
 			&models.Principal{Username: "admin"}, false,
 		)
 		req := &pb.SearchRequest{
@@ -189,7 +185,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 			return multiTarget(name)
 		}
 		parser := NewParser(false,
-			customGetter, nsParserAliasGetter(),
+			customGetter,
 			&models.Principal{Username: "u", Namespace: "customer1"}, true,
 		)
 		req := &pb.SearchRequest{
