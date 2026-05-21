@@ -16,22 +16,13 @@ import (
 	"strings"
 )
 
-// DefaultErrorMessageTemplate is used when RESTRICTIONS_ERROR_MESSAGE is
-// unset. Three placeholders are recognized: {restriction}, {value}, and
-// {allowed} (rendered as a comma-joined list, alphabetically sorted for
-// deterministic output). Kept intentionally generic — tier-specific copy
-// ("free tier", "please upgrade", etc.) lives only in operator-provided
-// overrides, never in OSS source.
+// DefaultErrorMessageTemplate is rendered when RESTRICTIONS_ERROR_MESSAGE
+// is unset. Tier-specific copy lives only in operator overrides, not OSS.
 const DefaultErrorMessageTemplate = "{value} is not allowed for {restriction}. Allowed values: {allowed}."
 
-// RenderTemplate substitutes {restriction}, {value} and {allowed}
-// placeholders in template. An empty template falls back to
-// DefaultErrorMessageTemplate so a missing RESTRICTIONS_ERROR_MESSAGE
-// doesn't surface as an empty user-facing message.
-//
-// The allowed list is rendered as a comma-joined, alphabetically sorted
-// string so wire output is deterministic across requests regardless of
-// operator-configured order.
+// RenderTemplate substitutes {restriction}, {value}, {allowed} in the
+// template (empty = default). Allowed is sorted to keep the wire output
+// deterministic regardless of operator-configured order.
 func RenderTemplate(template string, restriction RestrictionName, value string, allowed []string) string {
 	if template == "" {
 		template = DefaultErrorMessageTemplate

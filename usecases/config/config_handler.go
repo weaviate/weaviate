@@ -116,32 +116,15 @@ type SchemaHandlerConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
-// RestrictionsConfig holds the env-var and runtime-overrideable
-// configuration restrictions that constrain *what kind* of class
-// tenants are allowed to create — distinct from UsageLimitsConfig
-// which caps *how much* state they can produce. Both allow-lists are
-// comma-separated env vars surfaced as *runtime.DynamicValue[[]string]
-// so operators can revise the policy without a restart.
-//
-// A nil DynamicValue means "no restriction"; an empty list means "no
-// restriction" (treated identically). When non-empty, the matching
-// `DEFAULT_*` env var must also resolve to a value in the list — see
-// Config.validateRestrictions() for the full cross-field rules.
+// RestrictionsConfig gates *what kind* of class operators allow to be
+// created (vs UsageLimitsConfig which caps how much). nil or empty list
+// = no restriction; see validateRestrictions for cross-field rules.
 type RestrictionsConfig struct {
-	// AllowedVectorIndexTypes constrains the value of class
-	// vectorIndexType / vectorConfig[*].vectorIndexType on class
-	// create/update. Valid entries: "hnsw", "flat", "dynamic", "hfresh".
 	AllowedVectorIndexTypes *runtime.DynamicValue[[]string] `json:"allowed_vector_index_types" yaml:"allowed_vector_index_types"`
-	// AllowedCompressionTypes constrains the compression chosen on a
-	// class's vector index config. Valid entries: "none", "pq", "sq",
-	// "rq-1", "rq-8", "bq" (matching the values accepted by
-	// DEFAULT_QUANTIZATION). hfresh classes are exempt — hfresh has no
-	// compression knobs and the check is skipped for hfresh entries.
 	AllowedCompressionTypes *runtime.DynamicValue[[]string] `json:"allowed_compression_types" yaml:"allowed_compression_types"`
-	// ErrorMessage is the operator-overridable template used to render
-	// the `message` field of the structured CONFIG_NOT_ALLOWED response.
-	// Recognized placeholders: {restriction}, {value}, {allowed}.
-	// See usecases/restrictions/template.go for the default template.
+	// ErrorMessage is the operator-overridable template rendered into
+	// the CONFIG_NOT_ALLOWED response `message`. Placeholders:
+	// {restriction}, {value}, {allowed}.
 	ErrorMessage *runtime.DynamicValue[string] `json:"error_message" yaml:"error_message"`
 }
 
@@ -405,12 +388,9 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// validateUsageLimitsReplicationLinkage enforces the RF=1 precondition for the
-// object/tenant/shard usage limits: only the RF=1 deployment shape is
-// supported, so when any of those caps is set we require
-// REPLICATION_MAXIMUM_FACTOR=1 so per-class RF cannot exceed 1. The collection
-// cap is excluded because it predates this PR and tying it would be a breaking
-// change for existing operators.
+// validateUsageLimitsReplicationLinkage enforces RF=1 when any object/
+// tenant/shard cap is set. The collection cap predates the linkage and
+// is intentionally excluded to avoid a breaking change for operators.
 func (c *Config) validateUsageLimitsReplicationLinkage() error {
 	hasLimit := dynamicIntSet(c.UsageLimits.MaxObjectsCount) ||
 		dynamicIntSet(c.UsageLimits.MaxTenantsPerCollection) ||
@@ -424,57 +404,32 @@ func (c *Config) validateUsageLimitsReplicationLinkage() error {
 	return nil
 }
 
-// dynamicIntSet reports whether dv carries a configured (>=0) value. A nil
-// DynamicValue or a negative value means "unset / unlimited".
+// dynamicIntSet reports whether dv carries a configured (>=0) value.
 func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
 	return dv != nil && dv.Get() >= 0
 }
 
-// validRestrictionVectorIndexTypes is the canonical allow-list for
-// ALLOWED_VECTOR_INDEX_TYPES entries. Mirrors entities/vectorindex/config.go;
-// duplicated here as plain strings so this package doesn't grow an import
-// dependency on entities/vectorindex (which already imports usecases/config
-// indirectly via schema). VectorIndexTypeNone is intentionally excluded —
-// it is an internal sentinel never accepted as user input.
+// Mirrors entities/vectorindex/config.go; duplicated as plain strings to
+// avoid an import cycle. VectorIndexTypeNone is an internal sentinel.
 var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfresh"}
 
-// validRestrictionCompressionTypes is the canonical allow-list for
-// ALLOWED_COMPRESSION_TYPES entries. Matches the values accepted by
-// DEFAULT_QUANTIZATION (entities/vectorindex/hnsw/config.go's
-// ParseDefaultQuantization switch) so operators can copy values across
-// the two env vars verbatim. "none" is a real, accepted value here
-// (meaning "uncompressed"); when "none" is omitted from the allow-list,
-// the schema layer enforces that every non-hfresh class must have a
-// compression configured.
+// Matches DEFAULT_QUANTIZATION values so operators can copy them across.
+// "none" means "uncompressed"; omitting it from the allow-list makes
+// every non-hfresh class require a compression.
 var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-8", "bq"}
 
-// IsValidRestrictionVectorIndexType reports whether v (case-insensitive,
-// whitespace-trimmed) is in the canonical vector-index-type allow-list.
-// Exported so test helpers and runtime-override consumers can share the
-// same definition; the env-var validator uses it too.
 func IsValidRestrictionVectorIndexType(v string) bool {
 	return slices.Contains(validRestrictionVectorIndexTypes, strings.ToLower(strings.TrimSpace(v)))
 }
 
-// IsValidRestrictionCompressionType is the compression analogue of
-// IsValidRestrictionVectorIndexType.
 func IsValidRestrictionCompressionType(v string) bool {
 	return slices.Contains(validRestrictionCompressionTypes, strings.ToLower(strings.TrimSpace(v)))
 }
 
-// makeRestrictionListValidator returns a DynamicValue validator that
-// rejects a runtime YAML update whose list contains any entry outside
-// the canonical set. Empty entries are tolerated (normalized away by
-// normalizeRestrictionList downstream); unknown values are not.
-//
-// The validator is attached at env-var init time so a runtime YAML
-// override pushing `[hnsw, FOO]` is rejected at SetValue time before it
-// can corrupt the live config. The merger logs the rejection but keeps
-// the previous (valid) value in place. Cross-field invariants (e.g.
-// multi-entry requires a default) are NOT enforced here because
-// SetValue sees only one field at a time; they remain a startup-only
-// check, which is acceptable because they're operator-friendliness
-// rules, not safety rules.
+// makeRestrictionListValidator rejects unknown entries at SetValue time.
+// Cross-field rules (default-matching, hfresh+compression) stay in
+// validateRestrictions/ValidateRestrictionsRuntime — SetValue sees one
+// field at a time.
 func makeRestrictionListValidator(valid []string, envName string) func([]string) error {
 	return func(val []string) error {
 		for _, entry := range val {
@@ -491,10 +446,6 @@ func makeRestrictionListValidator(valid []string, envName string) func([]string)
 	}
 }
 
-// NewRestrictionVectorIndexTypeListValidator and its compression sibling
-// are exported so the env-var setup in environment.go can wire identical
-// validators onto its DynamicValues without re-declaring the canonical
-// list there.
 func NewRestrictionVectorIndexTypeListValidator() func([]string) error {
 	return makeRestrictionListValidator(validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
 }
@@ -503,22 +454,10 @@ func NewRestrictionCompressionTypeListValidator() func([]string) error {
 	return makeRestrictionListValidator(validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
 }
 
-// ValidateRestrictionsRuntime re-runs the cross-field invariants
-// (hfresh-only + compression set, multi-entry allow-list without a
-// matching default) after a runtime YAML override has changed any of
-// the related DynamicValues. Per-value validation already happens at
-// SetValue time via the validators wired in environment.go; this hook
-// is purely the cross-field layer.
-//
-// Behavior on failure: log the violation and reset BOTH allow-lists to
-// empty (fail-safe to "no restriction"). We intentionally do not try to
-// revert to the previous value — that would require snapshotting state
-// outside the DynamicValue, which is more machinery than the
-// fail-safe-and-warn outcome justifies. Operators see the loud log,
-// fix their YAML, and the restriction comes back on the next reload.
-//
-// Returns nil on success so the runtime-config logger doesn't surface
-// it as a hook error; the failure logging happens inside.
+// ValidateRestrictionsRuntime is the cross-field layer of validation
+// (per-value runs at SetValue time). On failure it logs and clears both
+// allow-lists — reverting to the prior value would need a snapshot
+// outside the DynamicValue, which buys little over fail-safe-and-warn.
 func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 	allowVector, vErr := normalizeRestrictionList(c.Restrictions.AllowedVectorIndexTypes, validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
 	allowCompression, cErr := normalizeRestrictionList(c.Restrictions.AllowedCompressionTypes, validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
@@ -530,25 +469,10 @@ func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 	if cErr != nil {
 		problems = append(problems, cErr.Error())
 	}
-	// Per-value SetValue validators should already have caught these,
-	// but mirror the check here defensively in case the DynamicValue was
-	// written through a code path that bypassed validation.
-
 	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
 		problems = append(problems, "ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
 	}
 
-	// Allow-list ↔ default mismatch (both single-entry and multi-entry
-	// cases). The boot-time validator's reconcileAllowListWithDefault
-	// rejects either:
-	//   - single-entry list whose entry doesn't match an EXPLICIT default
-	//     (the unset-default case seeds the default and isn't a problem),
-	//   - multi-entry list with no default OR a default not in the list.
-	// The runtime hook must mirror both: a runtime push that seeds
-	// ALLOWED_VECTOR_INDEX_TYPES=hfresh while DEFAULT_VECTOR_INDEX=hnsw
-	// is invalid the same way it is at boot, and must fail-safe back to
-	// no-restriction rather than silently leave the cluster in a state
-	// where the default conflicts with the allow-list.
 	problems = append(problems, runtimeMismatchProblems(
 		allowVector, c.DefaultVectorIndexType,
 		"ALLOWED_VECTOR_INDEX_TYPES", "DEFAULT_VECTOR_INDEX",
@@ -567,8 +491,7 @@ func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 		"problems": problems,
 	}).Errorf("runtime override violates restriction invariants — resetting allow-lists to empty (no restriction) until fixed: %s", strings.Join(problems, "; "))
 
-	// Fail-safe: drop both allow-lists. Schema layer falls back to "no
-	// restriction" until the operator fixes the YAML.
+	// Fail-safe: drop both allow-lists.
 	if c.Restrictions.AllowedVectorIndexTypes != nil {
 		_ = c.Restrictions.AllowedVectorIndexTypes.SetValue(nil)
 	}
@@ -578,25 +501,10 @@ func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
 	return nil
 }
 
-// validateRestrictions enforces the cross-field rules between
-// ALLOWED_VECTOR_INDEX_TYPES / ALLOWED_COMPRESSION_TYPES and the
-// pre-existing DEFAULT_VECTOR_INDEX / DEFAULT_QUANTIZATION env vars.
-// On success, it may also seed the default DynamicValues when only one
-// allow-list entry exists and the matching default is unset — so the
-// rest of the codebase can keep reading the default fields without
-// caring whether the operator set them explicitly.
-//
-// Rules (mirror the RFC):
-//   - Each entry must be one of the canonical valid values.
-//   - If the allow-list contains exactly one entry: the matching default
-//     must either be unset (and we set it) or match that entry.
-//   - If the allow-list contains multiple entries: the matching default
-//     must be explicitly set and present in the list.
-//   - If `ALLOWED_VECTOR_INDEX_TYPES=hfresh` is the *only* entry AND
-//     `ALLOWED_COMPRESSION_TYPES` is non-empty: invalid (hfresh has no
-//     compression knobs; setting one is operator confusion). Compression
-//     is otherwise allowed alongside hfresh in mixed-allow-list shapes
-//     because non-hfresh members still need a compression policy.
+// validateRestrictions enforces the boot-time cross-field rules between
+// the allow-lists and DEFAULT_VECTOR_INDEX / DEFAULT_QUANTIZATION. May
+// seed the matching default when a single-entry allow-list leaves it
+// unset, so downstream readers don't need to special-case.
 func (c *Config) validateRestrictions() error {
 	allowVector, err := normalizeRestrictionList(c.Restrictions.AllowedVectorIndexTypes, validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
 	if err != nil {
@@ -624,14 +532,9 @@ func (c *Config) validateRestrictions() error {
 		return err
 	}
 
-	// Persist the normalized list back so downstream readers see the
-	// canonical lowercase / deduplicated form rather than whatever the
-	// operator typed. Always overwrite when the DynamicValue is non-nil:
-	// even if normalization collapsed the input to an empty list (e.g.
-	// `ALLOWED_VECTOR_INDEX_TYPES=,` — only whitespace), the original
-	// non-empty slice must NOT be left in place; otherwise
-	// allowedVectorIndexTypes() would later see `len(v) > 0` and enforce
-	// an allow-list of blank strings, rejecting every real class.
+	// Persist normalized form: a whitespace-only input ("X=,") collapses
+	// to an empty list — leaving the original would force the schema
+	// layer to enforce an allow-list of blank strings.
 	if c.Restrictions.AllowedVectorIndexTypes != nil {
 		_ = c.Restrictions.AllowedVectorIndexTypes.SetValue(allowVector)
 	}
@@ -642,9 +545,8 @@ func (c *Config) validateRestrictions() error {
 	return nil
 }
 
-// normalizeRestrictionList reads dv, trims/lowercases each entry,
-// rejects unknown values, and returns the canonical list. Returns
-// nil if dv is nil or empty (the "no restriction" case).
+// normalizeRestrictionList trims/lowercases/dedupes entries and rejects
+// unknowns. Returns nil for the "no restriction" case (nil or empty dv).
 func normalizeRestrictionList(dv *runtime.DynamicValue[[]string], valid []string, envName string) ([]string, error) {
 	if dv == nil {
 		return nil, nil
@@ -680,11 +582,8 @@ func normalizeRestrictionList(dv *runtime.DynamicValue[[]string], valid []string
 	return out, nil
 }
 
-// reconcileAllowListWithDefault implements the "must match" / "seeds the
-// default" rules between an allow-list and its matching default. When
-// the allow-list is empty (no restriction), nothing is enforced and the
-// default is left alone. Mutates `defaultDV` only in the single-entry,
-// unset-default case (seeding behavior).
+// reconcileAllowListWithDefault enforces "default must be in the list",
+// seeding the default in the single-entry / unset-default case.
 func reconcileAllowListWithDefault(allowList []string, defaultDV *runtime.DynamicValue[string], allowEnv, defaultEnv string) error {
 	if len(allowList) == 0 {
 		return nil
@@ -702,16 +601,13 @@ func reconcileAllowListWithDefault(allowList []string, defaultDV *runtime.Dynami
 			return fmt.Errorf("%s=%q is not in %s (%s)",
 				defaultEnv, currentDefault, allowEnv, strings.Join(allowList, ", "))
 		}
-		// Persist normalized lowercase form.
 		if defaultDV != nil && defaultDV.Get() != currentDefault {
 			_ = defaultDV.SetValue(currentDefault)
 		}
 		return nil
 	}
-	// Single-entry allow-list.
 	only := allowList[0]
 	if currentDefault == "" {
-		// Seed the default so downstream readers don't need to special-case.
 		if defaultDV != nil {
 			_ = defaultDV.SetValue(only)
 		}
@@ -721,28 +617,16 @@ func reconcileAllowListWithDefault(allowList []string, defaultDV *runtime.Dynami
 		return fmt.Errorf("%s=%q does not match the only entry in %s (%q)",
 			defaultEnv, currentDefault, allowEnv, only)
 	}
-	// Persist the normalized (lowercase) form so downstream readers see
-	// the canonical value regardless of how the operator typed it.
 	if defaultDV != nil && defaultDV.Get() != currentDefault {
 		_ = defaultDV.SetValue(currentDefault)
 	}
 	return nil
 }
 
-// runtimeMismatchProblems mirrors the boot-time check for "allow-list
-// entry does not match an explicit default" without mutating the
-// default (the runtime hook fails safe by clearing the allow-list
-// instead of seeding defaults — see ValidateRestrictionsRuntime).
-// Returns one problem string per detected mismatch.
-//
-// The boot-time helper [reconcileAllowListWithDefault] returns at the
-// first error and may also write through to the default DynamicValue
-// (single-entry-unset-default seeding). Neither is appropriate for the
-// runtime hook: we want every problem surfaced together so the
-// operator sees the full picture in one log line, and we never seed
-// defaults at runtime — a runtime YAML change that drops the
-// allow-list entry the running default points at should fail loudly
-// rather than silently rewrite the default behind the operator's back.
+// runtimeMismatchProblems is the runtime-hook equivalent of
+// reconcileAllowListWithDefault: collect every mismatch (one log line
+// per operator change) and never seed defaults at runtime — the boot
+// path is the only place we may rewrite an unset default.
 func runtimeMismatchProblems(allowList []string, defaultDV *runtime.DynamicValue[string], allowEnv, defaultEnv string) []string {
 	if len(allowList) == 0 {
 		return nil
@@ -762,11 +646,7 @@ func runtimeMismatchProblems(allowList []string, defaultDV *runtime.DynamicValue
 		}
 		return out
 	}
-	// Single-entry: tolerate an unset default (boot-time seeds it; the
-	// runtime hook leaves the value unchanged because seeding is a
-	// startup-only contract). A mismatched EXPLICIT default is what we
-	// catch here — that's the boot-time invariant the runtime path was
-	// missing.
+	// Single-entry: unset default is tolerated (seeding is boot-only).
 	if currentDefault != "" && currentDefault != allowList[0] {
 		out = append(out, fmt.Sprintf("%s=%q does not match the only entry in %s (%q)",
 			defaultEnv, currentDefault, allowEnv, allowList[0]))

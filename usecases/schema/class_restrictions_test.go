@@ -27,11 +27,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/restrictions"
 )
 
-// TestValidateVectorIndexType_AllowList covers the allow-list gate
-// validateVectorIndexTypeAllowList in combination with the basic
-// per-type validation (validateVectorIndexTypeBasic — async-indexing
-// required for dynamic, experimental flag for hfresh) that production
-// runs in sequence in validateVectorSettingsAgainst.
+// TestValidateVectorIndexType_AllowList composes the basic per-type
+// check with the allow-list gate, matching production ordering.
 func TestValidateVectorIndexType_AllowList(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -102,56 +99,34 @@ func TestValidateVectorIndexType_AllowList(t *testing.T) {
 	}
 }
 
-// TestValidateVectorIndexType_RuntimeOverrideNormalization is the
-// regression for the Copilot review on runtime overrides: a YAML push
-// can bypass startup validation, so the accessor must normalize at
-// read time. Mixed-case entries that the validator at SetValue time
-// somehow let through (test injection here) must still match the
-// canonical lowercase form the schema layer compares against.
+// TestValidateVectorIndexType_RuntimeOverrideNormalization pins that
+// the accessor normalizes at read time — a runtime YAML push of mixed-
+// case or unknown entries (test injected here, bypassing the validator)
+// must still match the canonical lowercase comparison.
 func TestValidateVectorIndexType_RuntimeOverrideNormalization(t *testing.T) {
 	handler, _ := newTestHandler(t, &fakeDB{})
 	handler.config.HFreshEnabled = true
-	// Bypass the env-var validator by writing directly to the
-	// DynamicValue — simulating a runtime push that contains
-	// mixed-case + an unknown entry.
 	dv := runtime.NewDynamicValue([]string{"HNSW", " FLAT ", "Bogus", "hnsw"})
 	handler.config.Restrictions.AllowedVectorIndexTypes = dv
 
-	// "hnsw" must be accepted: the accessor lowercases the entries.
 	require.NoError(t, handler.validateVectorIndexTypeBasic(vectorindex.VectorIndexTypeHNSW))
 	require.NoError(t, handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHNSW))
 	require.NoError(t, handler.validateVectorIndexTypeBasic(vectorindex.VectorIndexTypeFLAT))
 	require.NoError(t, handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeFLAT))
 
-	// "hfresh" not in the (normalized) list — rejected.
 	require.NoError(t, handler.validateVectorIndexTypeBasic(vectorindex.VectorIndexTypeHFresh))
 	err := handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHFresh)
 	require.Error(t, err)
 	v, ok := restrictions.AsViolation(err)
 	require.True(t, ok)
-	// The Allowed slice in the violation reflects what the accessor
-	// surfaces: canonical lowercase, dedup'd, with the unknown
-	// "bogus" entry filtered out.
+	// Violation reflects what the accessor surfaces: lowercase, deduped,
+	// unknown "bogus" filtered out.
 	assert.Equal(t, []string{"hnsw", "flat"}, v.Allowed)
 }
 
-// TestValidateVectorSettingsAgainst_GrandfatherUnchanged is the
-// regression for QA-#2: after an operator tightens the allow-list at
-// runtime, a PUT on a pre-existing class whose body is unchanged must
-// NOT be rejected with 422 — the restriction is meant to gate *new*
-// configurations, not police pre-existing ones. Inserts and add-property
-// already work on the existing data; this brings PUT-update in line.
-//
-// Validation matrix:
-//  1. Add (initial=nil) with disallowed type → REJECTED (the new
-//     restriction still applies to genuinely-new classes).
-//  2. Update (initial != nil) with unchanged disallowed type → PASS
-//     (grandfather: same value as stored, no policy violation introduced).
-//  3. Update with type *changing* to a still-disallowed value → REJECTED
-//     (the operator is actively introducing a violation, not preserving
-//     pre-existing state).
-//  4. Update with unchanged disallowed compression → PASS.
-//  5. Update changing compression to a disallowed value → REJECTED.
+// TestValidateVectorSettingsAgainst_GrandfatherUnchanged pins that a
+// PUT with unchanged fields passes after an allow-list tighten, while
+// Add and field-changing PUT remain gated. See QA-#2 thread.
 func TestValidateVectorSettingsAgainst_GrandfatherUnchanged(t *testing.T) {
 	t.Run("add with disallowed type — rejected", func(t *testing.T) {
 		handler := newHandlerWithAllowList(t, []string{"hfresh", "hnsw"}, nil)
@@ -517,11 +492,8 @@ func TestValidateAllowedCompression(t *testing.T) {
 			cfg:       hnsw.UserConfig{SkipDefaultQuantization: true},
 		},
 		{
-			// Regression test for the Copilot review on the original
-			// "first hit wins" implementation: with a dynamic config
-			// that has an *allowed* compression on one branch and a
-			// *disallowed* compression on the other branch, the
-			// disallowed one must still cause rejection.
+			// Regression vs. "first hit wins": both Dynamic branches
+			// must be checked, not just the first.
 			name:      "dynamic with one allowed + one disallowed branch — rejected on disallowed",
 			allow:     []string{"pq"},
 			indexType: vectorindex.VectorIndexTypeDYNAMIC,

@@ -191,13 +191,8 @@ func translateTypedError(err error) error {
 	return nil
 }
 
-// restrictionViolationToGrpcError converts a *restrictions.ViolationError
-// into a gRPC status with codes.FailedPrecondition (config policy
-// violation, retrying without changing the request will keep failing)
-// and an attached errdetails.ErrorInfo proto mirroring the REST 422 body.
-// SDKs may match on the gRPC code alone, or read the details payload
-// for the same `errorCode`/`restriction`/`value`/`allowed`/`message`
-// fields they'd see over REST.
+// restrictionViolationToGrpcError maps a ViolationError to
+// FailedPrecondition + ErrorInfo metadata mirroring the REST 422 body.
 func restrictionViolationToGrpcError(v *restrictions.ViolationError) error {
 	st := status.New(codes.FailedPrecondition, v.Error())
 	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{

@@ -21,12 +21,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/restrictions"
 )
 
-// TestRestrictionViolationToGrpcError mirrors TestLimitExceededToGrpcError
-// for the new mapper. There is currently no gRPC user flow that reaches
-// restrictionViolationToGrpcError — class-create/update is REST-only and
-// gRPC BatchObjects auto-schema uses DEFAULT_VECTOR_INDEX which boot
-// validation pins to the allow-list — so the unit test is the realistic
-// coverage path until a gRPC schema-create endpoint exists.
+// TestRestrictionViolationToGrpcError is the realistic coverage path:
+// no gRPC user flow reaches the mapper yet (schema-create is REST-only;
+// gRPC BatchObjects auto-schema uses DEFAULT_VECTOR_INDEX, already
+// pinned to the allow-list at boot).
 func TestRestrictionViolationToGrpcError(t *testing.T) {
 	v := &restrictions.ViolationError{
 		Restriction:     restrictions.RestrictionVectorIndexType,

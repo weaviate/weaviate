@@ -219,12 +219,8 @@ func TestValidateRestrictions_EmptyAllowList_NoRestriction(t *testing.T) {
 	assert.Equal(t, "", c.DefaultQuantization.Get())
 }
 
-// TestRestrictionListValidator covers the per-DynamicValue validator
-// wired in environment.go: a YAML runtime override pushing an entry
-// outside the canonical set must be rejected at SetValue time so it
-// never lands in the live config. Cross-field rules (multi-entry needs
-// default, hfresh+compression) intentionally remain a startup-only
-// check; the read-side accessors normalize defensively for those.
+// TestRestrictionListValidator covers the per-value DynamicValue
+// validator (cross-field rules stay startup-only).
 func TestRestrictionListValidator(t *testing.T) {
 	vectorValidator := NewRestrictionVectorIndexTypeListValidator()
 	compressionValidator := NewRestrictionCompressionTypeListValidator()
@@ -258,19 +254,13 @@ func TestRestrictionListValidator(t *testing.T) {
 }
 
 func TestValidateRestrictions_WhitespaceOnly_PersistsEmpty(t *testing.T) {
-	// Regression: when the env var contains only blank/whitespace entries
-	// (e.g. `ALLOWED_VECTOR_INDEX_TYPES=,` or `, , `), normalization
-	// collapses to an empty slice. The validator must persist that empty
-	// slice back so downstream readers don't see the original non-empty
-	// raw input. Without this, allowedVectorIndexTypes() would treat the
-	// raw `["", ""]` as a real allow-list and reject every class.
+	// Regression: `X=,` env var → `["", ""]` after Split. Normalization
+	// must persist the empty slice back, else allowedVectorIndexTypes
+	// would treat it as an allow-list of blank strings.
 	c := &Config{
 		DefaultVectorIndexType: runtime.NewDynamicValue(""),
 		DefaultQuantization:    runtime.NewDynamicValue(""),
 		Restrictions: RestrictionsConfig{
-			// Mirrors what `strings.Split(",", ",")` produces for env
-			// vars like `ALLOWED_VECTOR_INDEX_TYPES=,` — a slice of
-			// blank strings that should normalize to empty.
 			AllowedVectorIndexTypes: runtime.NewDynamicValue([]string{"", " ", "\t"}),
 			AllowedCompressionTypes: runtime.NewDynamicValue([]string{"", " "}),
 		},
@@ -282,17 +272,9 @@ func TestValidateRestrictions_WhitespaceOnly_PersistsEmpty(t *testing.T) {
 		"whitespace-only input should normalize to empty, not be passed through")
 }
 
-// TestValidateRestrictionsRuntime covers the hook that re-runs
-// cross-field invariants after a runtime YAML override changes any of
-// the Allowed* / Default* fields. Per-value validation runs at
-// SetValue time (covered by TestRestrictionListValidator above); this
-// is the cross-field layer.
-//
-// Failure semantics: when an invariant is violated, the hook logs and
-// resets BOTH allow-lists to empty so the schema layer falls back to
-// "no restriction" rather than running with a broken config. Operators
-// see the loud log, fix their YAML, restriction comes back on the next
-// reload.
+// TestValidateRestrictionsRuntime covers the cross-field hook that
+// fires on a runtime YAML override. On failure: log + clear both
+// allow-lists (fail-safe to "no restriction").
 func TestValidateRestrictionsRuntime(t *testing.T) {
 	t.Run("valid config passes silently", func(t *testing.T) {
 		log, hook := logrustest.NewNullLogger()

@@ -167,9 +167,8 @@ func (h *Handler) errorMessageTemplate() string {
 	return ""
 }
 
-// restrictionsErrorMessageTemplate returns the operator-overridable
-// RESTRICTIONS_ERROR_MESSAGE template, or "" when unset (the
-// restrictions package falls back to its built-in default).
+// restrictionsErrorMessageTemplate returns RESTRICTIONS_ERROR_MESSAGE
+// or "" (callers fall back to the package default).
 func (h *Handler) restrictionsErrorMessageTemplate() string {
 	if dv := h.config.Restrictions.ErrorMessage; dv != nil {
 		return dv.Get()
@@ -177,16 +176,9 @@ func (h *Handler) restrictionsErrorMessageTemplate() string {
 	return ""
 }
 
-// allowedVectorIndexTypes returns the operator-configured allow-list
-// for class vectorIndexType, or nil if unrestricted. Callers must not
-// mutate the returned slice.
-//
-// Defensive read-time normalization: entries are lowercased + trimmed
-// and filtered to canonical types. This is belt-and-braces alongside
-// the DynamicValue validator wired in environment.go — without it, a
-// runtime YAML override pushing mixed-case entries (e.g. `[HNSW]`)
-// would never match the lowercase canonical comparisons the schema
-// layer does, rejecting every class that should pass.
+// allowedVectorIndexTypes returns the configured allow-list (nil =
+// unrestricted; caller must not mutate). Entries are re-normalized at
+// read time so a runtime YAML push of mixed-case entries still matches.
 func (h *Handler) allowedVectorIndexTypes() []string {
 	if dv := h.config.Restrictions.AllowedVectorIndexTypes; dv != nil {
 		if v := dv.Get(); len(v) > 0 {
@@ -196,8 +188,7 @@ func (h *Handler) allowedVectorIndexTypes() []string {
 	return nil
 }
 
-// allowedCompressionTypes returns the operator-configured allow-list
-// for compression types, or nil if unrestricted.
+// allowedCompressionTypes is the compression sibling of allowedVectorIndexTypes.
 func (h *Handler) allowedCompressionTypes() []string {
 	if dv := h.config.Restrictions.AllowedCompressionTypes; dv != nil {
 		if v := dv.Get(); len(v) > 0 {
@@ -207,10 +198,9 @@ func (h *Handler) allowedCompressionTypes() []string {
 	return nil
 }
 
-// normalizeAllowList lowercases + trims each entry and drops anything
-// the canonical predicate rejects. Returning nil for an all-invalid
-// input means "no restriction" — fail-safe behavior for a misconfigured
-// runtime override.
+// normalizeAllowList lowercases/trims entries and drops invalid ones.
+// All-invalid input returns nil ("no restriction") — fail-safe for a
+// misconfigured runtime override.
 func normalizeAllowList(in []string, isValid func(string) bool) []string {
 	out := make([]string, 0, len(in))
 	seen := make(map[string]struct{}, len(in))

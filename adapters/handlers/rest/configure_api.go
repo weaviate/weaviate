@@ -2310,22 +2310,10 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
 
-		// Restriction cross-field validation hook. Per-value validation
-		// runs at SetValue time (via NewDynamicValueWithValidation), but
-		// cross-field rules (hfresh-only + compression set, multi-entry
-		// allow-list without matching default, single-entry mismatched
-		// default) only ever ran at boot. Re-run them here after any
-		// related field changes so a runtime YAML push that violates an
-		// invariant gets the same rejection treatment as it would at
-		// boot.
-		//
-		// Register the hook against EXACT struct-field names rather than
-		// prefixes: matchUpdatedFields() uses strings.HasPrefix, so
-		// "Default" would match unrelated fields like
-		// DefaultShardingCount and any future field starting with
-		// "Default" or "Allowed". The exact list below covers every
-		// runtime field validateRestrictions / runtimeMismatchProblems
-		// actually reads.
+		// Re-run cross-field restriction validation on runtime YAML pushes
+		// (per-value runs at SetValue time). Keys are exact struct-field
+		// names — matchUpdatedFields uses HasPrefix, so "Default" would
+		// also match DefaultShardingCount and friends.
 		restrictionHook := func() error {
 			return appState.ServerConfig.Config.ValidateRestrictionsRuntime(appState.Logger)
 		}

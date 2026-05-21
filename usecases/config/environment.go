@@ -554,20 +554,14 @@ func FromEnv(config *Config) error {
 
 	defaultQuantization := ""
 	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
-		// Trim for UX symmetry with ALLOWED_COMPRESSION_TYPES (which
-		// trims). validateRestrictions will subsequently reject if the
-		// normalized value isn't in the canonical compression set.
+		// Trim/lowercase for symmetry with ALLOWED_COMPRESSION_TYPES.
 		defaultQuantization = strings.ToLower(strings.TrimSpace(v))
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
 	defaultVectorIndexType := ""
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
-		// Trim + lowercase for UX consistency with the ALLOWED_* lenient
-		// parsers next door (which both trim). Without TrimSpace, an env
-		// var like `DEFAULT_VECTOR_INDEX=" hnsw "` fails boot validation
-		// against the unchanged-vs-trimmed canonical list — surprising
-		// when ALLOWED_VECTOR_INDEX_TYPES=" HNSW " is accepted.
+		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
 		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
 		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
 		if !slices.Contains(validTypes, defaultVectorIndexType) {
@@ -1237,20 +1231,11 @@ func FromEnv(config *Config) error {
 		config.UsageLimits.ErrorMessage = configRuntime.NewDynamicValue(val)
 	}, DefaultUsageLimitsErrorMessage)
 
-	// Configuration-restriction env vars (allow-lists; see
-	// docs/usage_limits.md). Comma-separated lists with whitespace
-	// trimmed and entries lowercased at parse time. An unset / empty
-	// env var means "no restriction". Cross-field validation (default
-	// must match the allow-list, hfresh-only + compression set is
-	// invalid, etc.) runs later in Config.Validate via
-	// validateRestrictions().
-	// Always initialize the DynamicValue (even with a nil slice) so the
-	// runtime-overrides reflection merger has a non-nil source pointer to
-	// mutate when an operator activates the restriction at runtime. The
-	// validators attached here also fire on every runtime YAML override:
-	// an entry outside the canonical set is rejected at SetValue time,
-	// keeping the previous valid value in place rather than letting bad
-	// input through to the schema layer.
+	// Allow-list env vars. Empty = no restriction. Cross-field validation
+	// runs in validateRestrictions; per-entry runs at SetValue time so
+	// runtime YAML pushes of unknown entries are rejected before they hit
+	// the schema layer. DynamicValues are initialized even when unset so
+	// the runtime-overrides merger has a non-nil pointer to mutate.
 	var allowVector []string
 	if v := os.Getenv("ALLOWED_VECTOR_INDEX_TYPES"); v != "" {
 		allowVector = strings.Split(v, ",")
