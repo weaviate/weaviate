@@ -12,6 +12,7 @@
 package namespace
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/objects"
+	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -104,7 +106,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 			},
 		}, user1Key)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not a valid class name")
+		assert.Contains(t, schemaCreateErrMessage(t, err), "not a valid class name")
 	})
 
 	t.Run("AddClass with cross-NS DataType rejected", func(t *testing.T) {
@@ -119,7 +121,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 			},
 		}, user1Key)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not a valid class name")
+		assert.Contains(t, schemaCreateErrMessage(t, err), "not a valid class name")
 	})
 
 	t.Run("schema GET → PUT round-trip on real class path succeeds with stripped body", func(t *testing.T) {
@@ -380,4 +382,17 @@ func TestNamespaces_ResponseStripping_OwnInfoUsername(t *testing.T) {
 		// passes through unchanged.
 		assert.Equal(t, adminUser, *resp.Payload.Username)
 	})
+}
+
+// schemaCreateErrMessage extracts the human-readable validation message from a
+// SchemaObjectsCreate 422 response. The go-swagger Error() output only shows
+// the status line and a pointer to the body, so callers asserting on the
+// underlying validation text must unwrap through the typed payload.
+func schemaCreateErrMessage(t *testing.T, err error) string {
+	t.Helper()
+	var parsed *clschema.SchemaObjectsCreateUnprocessableEntity
+	require.True(t, errors.As(err, &parsed), "expected SchemaObjectsCreateUnprocessableEntity, got %T: %v", err, err)
+	require.NotNil(t, parsed.Payload)
+	require.NotEmpty(t, parsed.Payload.Error)
+	return parsed.Payload.Error[0].Message
 }
