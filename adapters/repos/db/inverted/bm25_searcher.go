@@ -812,6 +812,15 @@ type matchRange struct{ start, end int }
 // matched region in <em> tags with surrounding context (80 chars per side,
 // max 3 fragments). Overlapping matches are merged. Case-insensitive.
 func generateHighlightFragments(text string, queryTerms []string) []string {
+	matches := findAllMatchRanges(text, queryTerms)
+	if len(matches) == 0 {
+		return nil
+	}
+	merged := mergeRanges(matches)
+	return buildFragments(text, merged)
+}
+
+func findAllMatchRanges(text string, queryTerms []string) []matchRange {
 	lowerText := strings.ToLower(text)
 	var matches []matchRange
 	for _, term := range queryTerms {
@@ -829,11 +838,14 @@ func generateHighlightFragments(text string, queryTerms []string) []string {
 			searchFrom = absIdx + 1
 		}
 	}
+	return matches
+}
+
+func mergeRanges(matches []matchRange) []matchRange {
 	if len(matches) == 0 {
 		return nil
 	}
 	sort.Slice(matches, func(i, j int) bool { return matches[i].start < matches[j].start })
-
 	var merged []matchRange
 	for _, m := range matches {
 		if len(merged) > 0 && m.start <= merged[len(merged)-1].end {
@@ -844,7 +856,10 @@ func generateHighlightFragments(text string, queryTerms []string) []string {
 			merged = append(merged, m)
 		}
 	}
+	return merged
+}
 
+func buildFragments(text string, merged []matchRange) []string {
 	const fragSize = 80
 	const maxFragments = 3
 	var fragments []string
