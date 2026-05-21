@@ -71,7 +71,11 @@ var testBM25Queries = []string{
 // This avoids spinning up a new cluster per test (~20s overhead each).
 func TestMultiNode_HappyPath(t *testing.T) {
 	ctx := context.Background()
-	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	// Boot on WAND so the MapToBlockmax + QueryConsistencyDuringReindex
+	// sub-tests can trigger algorithm:"blockmax". ChangeTokenization
+	// shares the cluster and runs on Map-based searchable as a
+	// side-effect of that choice.
+	compose, cleanup := start3NodeReindexCluster(ctx, t, "USE_INVERTED_SEARCHABLE", "false")
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
