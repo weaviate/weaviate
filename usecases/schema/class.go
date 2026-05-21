@@ -1108,7 +1108,7 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 			return err
 		}
 		if !typeUnchanged {
-			if err := h.validateVectorIndexTypeAllowList(class.VectorIndexType); err != nil {
+			if err := h.validateVectorIndexTypeAllowList(class.VectorIndexType, false); err != nil {
 				return err
 			}
 		}
@@ -1155,7 +1155,7 @@ func (h *Handler) validateVectorSettingsAgainst(class, initial *models.Class) er
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
 		if !typeUnchanged {
-			if err := h.validateVectorIndexTypeAllowList(cfg.VectorIndexType); err != nil {
+			if err := h.validateVectorIndexTypeAllowList(cfg.VectorIndexType, true); err != nil {
 				return fmt.Errorf("target vector %q: %w", name, err)
 			}
 		}
@@ -1394,7 +1394,12 @@ func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 
 // validateVectorIndexTypeAllowList enforces ALLOWED_VECTOR_INDEX_TYPES.
 // Split from the basic check because the grandfather skip applies here.
-func (h *Handler) validateVectorIndexTypeAllowList(vectorIndexType string) error {
+//
+// On a named-vector hnsw rejection the message gets an out-of-date-client
+// hint: older clients send vectorIndexType="hnsw" implicitly even when
+// the user didn't pick it, so a hfresh-only allow-list rejects requests
+// the user never thought they made.
+func (h *Handler) validateVectorIndexTypeAllowList(vectorIndexType string, forNamedVector bool) error {
 	allow := h.allowedVectorIndexTypes()
 	if allow == nil {
 		return nil
@@ -1404,12 +1409,16 @@ func (h *Handler) validateVectorIndexTypeAllowList(vectorIndexType string) error
 			return nil
 		}
 	}
-	return restrictions.NewViolationError(
+	v := restrictions.NewViolationError(
 		h.restrictionsErrorMessageTemplate(),
 		restrictions.RestrictionVectorIndexType,
 		vectorIndexType,
 		allow,
 	)
+	if forNamedVector && vectorIndexType == vectorindex.VectorIndexTypeHNSW {
+		v.RenderedMessage += " If you have not explicitly set vectorIndexType=hnsw, your client version is out of date — please update to the latest."
+	}
+	return v
 }
 
 func validateMT(class *models.Class) error {

@@ -81,7 +81,7 @@ func TestValidateVectorIndexType_AllowList(t *testing.T) {
 
 			err := handler.validateVectorIndexTypeBasic(tt.indexType)
 			if err == nil {
-				err = handler.validateVectorIndexTypeAllowList(tt.indexType)
+				err = handler.validateVectorIndexTypeAllowList(tt.indexType, false)
 			}
 			if !tt.wantErr {
 				assert.NoError(t, err)
@@ -110,12 +110,12 @@ func TestValidateVectorIndexType_RuntimeOverrideNormalization(t *testing.T) {
 	handler.config.Restrictions.AllowedVectorIndexTypes = dv
 
 	require.NoError(t, handler.validateVectorIndexTypeBasic(vectorindex.VectorIndexTypeHNSW))
-	require.NoError(t, handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHNSW))
+	require.NoError(t, handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHNSW, false))
 	require.NoError(t, handler.validateVectorIndexTypeBasic(vectorindex.VectorIndexTypeFLAT))
-	require.NoError(t, handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeFLAT))
+	require.NoError(t, handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeFLAT, false))
 
 	require.NoError(t, handler.validateVectorIndexTypeBasic(vectorindex.VectorIndexTypeHFresh))
-	err := handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHFresh)
+	err := handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHFresh, false)
 	require.Error(t, err)
 	v, ok := restrictions.AsViolation(err)
 	require.True(t, ok)
@@ -325,12 +325,49 @@ func TestValidateVectorIndexType_AllowListUsesOperatorTemplate(t *testing.T) {
 	)
 
 	require.NoError(t, handler.validateVectorIndexTypeBasic(vectorindex.VectorIndexTypeHNSW))
-	err := handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHNSW)
+	err := handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHNSW, false)
 	require.Error(t, err)
 	v, ok := restrictions.AsViolation(err)
 	require.True(t, ok)
 	assert.Contains(t, v.RenderedMessage, "Invalid config: hnsw is not allowed for vector_index_type")
 	assert.Contains(t, v.RenderedMessage, "allowed: hfresh")
+}
+
+// TestValidateVectorIndexType_NamedVectorHNSWHasClientHint pins that a
+// hnsw-on-named-vector rejection appends a client-upgrade hint. Old
+// clients always populate vectorIndexType="hnsw" (the default), so users
+// who never asked for hnsw see a misleading rejection unless we point
+// them at the client version.
+func TestValidateVectorIndexType_NamedVectorHNSWHasClientHint(t *testing.T) {
+	handler, _ := newTestHandler(t, &fakeDB{})
+	handler.config.HFreshEnabled = true
+	handler.config.Restrictions.AllowedVectorIndexTypes = runtime.NewDynamicValue([]string{"hfresh"})
+
+	t.Run("named-vector rejection appends client hint", func(t *testing.T) {
+		err := handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHNSW, true)
+		require.Error(t, err)
+		v, ok := restrictions.AsViolation(err)
+		require.True(t, ok)
+		assert.Contains(t, v.RenderedMessage, "hnsw is not allowed for vector_index_type")
+		assert.Contains(t, v.RenderedMessage,
+			"If you have not explicitly set vectorIndexType=hnsw, your client version is out of date")
+	})
+
+	t.Run("legacy single-vector rejection has no hint", func(t *testing.T) {
+		err := handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeHNSW, false)
+		require.Error(t, err)
+		v, ok := restrictions.AsViolation(err)
+		require.True(t, ok)
+		assert.NotContains(t, v.RenderedMessage, "client version is out of date")
+	})
+
+	t.Run("named-vector non-hnsw rejection has no hint", func(t *testing.T) {
+		err := handler.validateVectorIndexTypeAllowList(vectorindex.VectorIndexTypeFLAT, true)
+		require.Error(t, err)
+		v, ok := restrictions.AsViolation(err)
+		require.True(t, ok)
+		assert.NotContains(t, v.RenderedMessage, "client version is out of date")
+	})
 }
 
 // --- compressionsFromIndexConfig ---
