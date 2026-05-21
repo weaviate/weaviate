@@ -86,7 +86,7 @@ func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size int) erro
 			if oldSize > 0 {
 				p.count.Add(^uint64(0)) // decrement by 1
 				atomic.StoreUint32(&page[slot], 0)
-				p.totalSize.Add(uint64(-int64(oldSize)))
+				p.addToTotalSize(oldSize, 0)
 			}
 		}
 
@@ -113,8 +113,9 @@ func (p *PostingSizes) Set(ctx context.Context, postingID uint64, size int) erro
 		p.count.Add(1)
 	}
 
-	atomic.StoreUint32(&page[slot], uint32(size))
-	p.totalSize.Add(uint64(int64(size) - int64(oldSize)))
+	newSize := uint32(size)
+	atomic.StoreUint32(&page[slot], newSize)
+	p.addToTotalSize(oldSize, newSize)
 
 	persistedSize, err := p.store.Get(ctx, postingID)
 	if err != nil && !errors.Is(err, ErrPostingNotFound) {
@@ -157,6 +158,15 @@ func (p *PostingSizes) Restore(ctx context.Context) error {
 // Count returns the total number of postings.
 func (p *PostingSizes) Count() uint64 {
 	return p.count.Load()
+}
+
+func (p *PostingSizes) addToTotalSize(oldSize, newSize uint32) {
+	if newSize >= oldSize {
+		p.totalSize.Add(uint64(newSize - oldSize))
+		return
+	}
+
+	p.totalSize.Add(^uint64(oldSize-newSize) + 1)
 }
 
 // PostingSizesStore is a persistent store for posting sizes.

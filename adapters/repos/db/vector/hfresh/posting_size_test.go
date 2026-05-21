@@ -62,6 +62,26 @@ func TestPostingSizes(t *testing.T) {
 		require.EqualValues(t, 20, persisted)
 	})
 
+	t.Run("Set decreases total size when a posting shrinks", func(t *testing.T) {
+		sizes := makePostingSizes(t)
+
+		err := sizes.Set(ctx, 42, 20)
+		require.NoError(t, err)
+
+		err = sizes.Set(ctx, 42, 10)
+		require.NoError(t, err)
+
+		size, err := sizes.Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 10, size)
+		require.EqualValues(t, 1, sizes.Count())
+		require.EqualValues(t, 10, sizes.totalSize.Load())
+
+		persisted, err := sizes.store.Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 10, persisted)
+	})
+
 	t.Run("Set zero removes an existing posting size", func(t *testing.T) {
 		sizes := makePostingSizes(t)
 
