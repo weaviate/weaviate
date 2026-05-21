@@ -128,6 +128,32 @@ func TestShardReplicationFSM_IsLocalShardWritable_VersionGated(t *testing.T) {
 	}
 }
 
+// TestShardReplicationFSM_IsLocalShardWritable_DehydratingCatchUp: a
+// DEHYDRATING source rejects with catchUpIndex = raftAppliedIndex(), or 0 when
+// the accessor is unwired.
+func TestShardReplicationFSM_IsLocalShardWritable_DehydratingCatchUp(t *testing.T) {
+	t.Run("unwired: catchUp falls back to 0", func(t *testing.T) {
+		fsm := NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+		seedOpOfType(t, fsm, 1, api.MOVE)
+		driveToState(t, fsm, 1, api.DEHYDRATING)
+
+		allowed, catchUp := fsm.IsLocalShardWritable(srcNode, testClass, testShard, 0)
+		assert.False(t, allowed)
+		assert.Equal(t, uint64(0), catchUp)
+	})
+
+	t.Run("wired: catchUp is the live RAFT applied index", func(t *testing.T) {
+		fsm := NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+		fsm.SetRaftAppliedIndex(func() uint64 { return 77 })
+		seedOpOfType(t, fsm, 1, api.MOVE)
+		driveToState(t, fsm, 1, api.DEHYDRATING)
+
+		allowed, catchUp := fsm.IsLocalShardWritable(srcNode, testClass, testShard, 0)
+		assert.False(t, allowed)
+		assert.Equal(t, uint64(77), catchUp)
+	})
+}
+
 // TestShardReplicationFSM_IsLocalShardWritable_NoOp: no op on the shard
 // means the fence passes for any node regardless of schemaVersion.
 func TestShardReplicationFSM_IsLocalShardWritable_NoOp(t *testing.T) {

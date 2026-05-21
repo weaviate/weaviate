@@ -80,6 +80,8 @@ type ShardReplicationFSM struct {
 	statusById map[uint64]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
+
+	raftAppliedIndex func() uint64
 }
 
 func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
@@ -102,6 +104,15 @@ func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	}, []string{"state"})
 
 	return fsm
+}
+
+// SetRaftAppliedIndex injects the RAFT applied-index accessor used by
+// IsLocalShardWritable. A setter, not a constructor arg, because the RAFT
+// store does not exist yet when the FSM is built.
+func (s *ShardReplicationFSM) SetRaftAppliedIndex(f func() uint64) {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+	s.raftAppliedIndex = f
 }
 
 type snapshot struct {
@@ -383,9 +394,11 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 // driving the coordinator's waitForFSMCatchUp + retry. Rules per op where
 // localNode is the source of (collection, shard):
 //
-//   - DEHYDRATING: reject; catchUpIndex = 0 (caller falls back to its own
-//     raftAppliedIndex — strictly conservative, equivalent to "catch up to
-//     where the source is now").
+//   - DEHYDRATING: reject; catchUpIndex = this node's live RAFT applied index.
+//     The source removal (DeleteReplicaFromShard) lands *after* DEHYDRATING
+//     converges, so its index is unknown at fence time — a live, rising bound
+//     is required, not one captured at the op transition. 0 when unwired, so
+//     the caller retries without waiting.
 //   - INTEGRATING|READY && schemaVersion < AddReplicaVersion: reject;
 //     catchUpIndex = AddReplicaVersion. The coord's routing predates the
 //     target's add, so its PREPARE excludes the new target.
@@ -410,9 +423,12 @@ func (s *ShardReplicationFSM) IsLocalShardWritable(localNode, collection, shard 
 		}
 		switch opState.GetCurrentState() {
 		case api.DEHYDRATING:
-			// MOVE-only by construction: source is being removed. catchUpIndex
-			// stays 0; the DB-layer wrapper falls back to raftAppliedIndex().
 			allowed = false
+			if s.raftAppliedIndex != nil {
+				if applied := s.raftAppliedIndex(); applied > catchUpIndex {
+					catchUpIndex = applied
+				}
+			}
 		case api.INTEGRATING, api.READY:
 			if opState.AddReplicaVersion != 0 && schemaVersion < opState.AddReplicaVersion {
 				allowed = false

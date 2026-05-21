@@ -21,7 +21,8 @@ type ReplicationFSMReader interface {
 	// IsLocalShardWritable is the source-side PREPARE fence. When allowed is
 	// false the caller emits StatusRouteStale with LastAppliedIndex=catchUpIndex
 	// to drive the coord's catch-up + retry. Two rules:
-	//   - DEHYDRATING (MOVE) on source: reject; catchUp=LastStateChangeVersion.
+	//   - DEHYDRATING (MOVE) on source: reject; catchUp=this node's live RAFT
+	//     applied index (0 if unwired).
 	//   - INTEGRATING|READY on source && schemaVersion<AddReplicaVersion:
 	//     reject; catchUp=AddReplicaVersion.
 	// Multiple qualifying ops: the highest catchUpIndex wins.

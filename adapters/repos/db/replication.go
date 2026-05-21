@@ -160,8 +160,7 @@ func (db *DB) ReplicateReferences(ctx context.Context, class,
 // checkLocalWritable applies the source-side fence; see
 // ShardReplicationFSM.IsLocalShardWritable for the rules. On rejection the
 // response carries LastAppliedIndex so the coord's retry path can catch its
-// FSM up and rebuild routing. Falls back to raftAppliedIndex when the FSM
-// returns 0 (snapshot-recovered ops with no LastStateChangeVersion).
+// FSM up and rebuild routing.
 func (db *DB) checkLocalWritable(class, shard string, schemaVersion uint64) *replica.SimpleResponse {
 	if db.replicationFSM == nil {
 		return nil
@@ -169,9 +168,6 @@ func (db *DB) checkLocalWritable(class, shard string, schemaVersion uint64) *rep
 	allowed, catchUp := db.replicationFSM.IsLocalShardWritable(db.localNodeName, class, shard, schemaVersion)
 	if allowed {
 		return nil
-	}
-	if catchUp == 0 && db.raftAppliedIndex != nil {
-		catchUp = db.raftAppliedIndex()
 	}
 	return &replica.SimpleResponse{Errors: []replica.Error{{
 		Code:             replica.StatusRouteStale,
