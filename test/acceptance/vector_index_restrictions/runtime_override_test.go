@@ -26,16 +26,10 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-// TestRuntimeOverride_AllowedVectorIndexTypes mirrors the usage-limits
-// runtime-override pattern: boot a container with no restriction, then
-// write the allow-list into the runtime-overrides YAML while the
-// container is running and verify that subsequent class creates start
-// to fail with HTTP 422.
-//
-// Setup intentionally pre-mounts an empty YAML at the configured
-// overrides path so the manager has a file to watch from the start;
-// once we write the override mid-flight, the file-watcher (1 s poll
-// interval) picks up the change.
+// TestRuntimeOverride_AllowedVectorIndexTypes covers the runtime-YAML
+// path: boot with no restriction, write the allow-list mid-flight, and
+// assert subsequent creates start failing. An empty YAML is pre-mounted
+// so the file-watcher has a file to watch from the start.
 func TestRuntimeOverride_AllowedVectorIndexTypes(t *testing.T) {
 	const overridePath = "/etc/weaviate/runtime-overrides.yaml"
 
@@ -78,8 +72,7 @@ func TestRuntimeOverride_AllowedVectorIndexTypes(t *testing.T) {
 	// (and seeds the default to hfresh, since hfresh becomes the sole
 	// allowed value).
 	weaviateNode := compose.GetWeaviate()
-	// printf interprets \n inside single quotes; this matches the pattern
-	// used in usage_limits/runtime_override_test.go.
+	// Pattern from usage_limits/runtime_override_test.go.
 	overrideCmd := fmt.Sprintf(
 		"printf 'allowed_vector_index_types:\\n  - hfresh\\ndefault_vector_index: hfresh\\n' > %s",
 		overridePath,
@@ -88,11 +81,9 @@ func TestRuntimeOverride_AllowedVectorIndexTypes(t *testing.T) {
 	require.NoError(t, err, "failed to write runtime override file")
 	require.Equal(t, 0, exitCode, "exec returned non-zero")
 
-	// Poll until the override propagates. RUNTIME_OVERRIDES_LOAD_INTERVAL=1s,
-	// so this should fire within a few seconds. Generous deadline for
-	// CI variance. Each probe uses a unique class name so a pre-propagation
-	// success doesn't alias as a "class already exists" 422 once the
-	// override fires.
+	// Poll until propagation. Each probe uses a unique class name so a
+	// pre-propagation success can't alias as a "class already exists"
+	// 422 once the override fires.
 	deadline := time.Now().Add(30 * time.Second)
 	var saw422 bool
 	for time.Now().Before(deadline) {
@@ -112,11 +103,8 @@ func TestRuntimeOverride_AllowedVectorIndexTypes(t *testing.T) {
 	require.True(t, saw422,
 		"runtime override did not take effect within 30s; expected an HTTP 422 once the YAML override propagated")
 
-	// --- grandfather behaviour: the flat class that was created
-	// BEFORE the override (RuntimePreOverride) must remain mutable
-	// after tightening. A no-op PUT (same body as create) should
-	// succeed — restriction is meant to gate *new* configurations,
-	// not police pre-existing ones. See QA-#2 comment thread.
+	// Grandfather: RuntimePreOverride was created before the tighten,
+	// so a no-op PUT must still succeed.
 	t.Run("grandfather PUT on pre-existing class passes after tighten", func(t *testing.T) {
 		putBody := []byte(`{
 			"class":"RuntimePreOverride",
@@ -134,15 +122,9 @@ func TestRuntimeOverride_AllowedVectorIndexTypes(t *testing.T) {
 			"PUT on grandfathered class with unchanged body should succeed; got %d", resp.StatusCode)
 	})
 
-	// --- now push an INVALID override on top and verify it gracefully
-	// degrades to "no restriction" (per the runtime hook's fail-safe
-	// reset). Two flavours:
-	//   1. unknown enum entry — per-value validator rejects, prior list
-	//      stays in effect (still flat → 422).
-	//   2. hfresh-only + compression — cross-field hook resets allow-lists
-	//      to empty, flat class creates start succeeding again.
+	// Cross-field violation in the override → fail-safe reset to "no
+	// restriction" (flat creates succeed again).
 	t.Run("invalid runtime override gracefully degrades", func(t *testing.T) {
-		// Cross-field violation: hfresh-only + compression set.
 		overrideCmd := fmt.Sprintf(
 			"printf 'allowed_vector_index_types:\\n  - hfresh\\nallowed_compression_types:\\n  - rq-8\\ndefault_vector_index: hfresh\\n' > %s",
 			overridePath,
@@ -151,10 +133,7 @@ func TestRuntimeOverride_AllowedVectorIndexTypes(t *testing.T) {
 		require.NoError(t, err, "failed to write second override")
 		require.Equal(t, 0, exitCode)
 
-		// Wait for the hook to fire and reset Allowed* to empty. After
-		// reset, a flat class should be accepted again — that's the
-		// fail-safe behavior: a misconfigured operator gets "no
-		// restriction" rather than a broken state.
+		// Wait for fail-safe reset; flat class should be accepted again.
 		deadline := time.Now().Add(30 * time.Second)
 		var sawAccepted bool
 		for time.Now().Before(deadline) {

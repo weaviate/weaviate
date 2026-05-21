@@ -21,30 +21,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestRestrictions_SingleSharedContainer covers the bulk of the RFC's
-// promised behaviours against ONE testcontainer startup. The container
-// is booted with the "common shape" from the brief:
-//
-//	ALLOWED_VECTOR_INDEX_TYPES=hfresh,hnsw
-//	ALLOWED_COMPRESSION_TYPES=rq-8
-//	DEFAULT_VECTOR_INDEX=hfresh
-//	DEFAULT_QUANTIZATION=rq-8
-//	RESTRICTIONS_ERROR_MESSAGE=<custom template>
-//
-// Sub-tests exercise: disallowed type, disallowed compression on hnsw,
-// allowed hnsw+rq-8, hfresh exempt from compression check, and that
-// the operator-overridable template renders into the wire `message`.
-//
-// The fail-to-boot scenario (hfresh-only + compression set) and the
-// runtime-override scenario each spin up their own container because
-// they need a different startup config.
-func TestRestrictions_SingleSharedContainer(t *testing.T) {
+// TestRestrictions_SharedCluster bundles the RFC scenarios that share
+// the mixed `hfresh,hnsw` allow-list into a single 3-node testcontainer:
+// the cluster-shape lets one sub-test cover Dirk's per-node 422 concern
+// without paying for a second container start. Boot-time and runtime-
+// override scenarios spin up their own containers because they need a
+// different startup config.
+func TestRestrictions_SharedCluster(t *testing.T) {
 	ctx, cancel := suiteContext(t)
 	defer cancel()
 
-	compose, terminate := startContainer(t, ctx, map[string]string{
+	compose, terminate := startCluster(t, ctx, map[string]string{
 		"ALLOWED_VECTOR_INDEX_TYPES": "hfresh,hnsw",
 		"ALLOWED_COMPRESSION_TYPES":  "rq-8",
 		"DEFAULT_VECTOR_INDEX":       "hfresh",
@@ -99,8 +90,7 @@ func TestRestrictions_SingleSharedContainer(t *testing.T) {
 	})
 
 	t.Run("hfresh class — compression check skipped, succeeds", func(t *testing.T) {
-		// Hfresh classes are exempt from ALLOWED_COMPRESSION_TYPES per the
-		// RFC: hfresh has no compression knobs operators can policy on.
+		// hfresh has no compression knobs; exempt from the allow-list.
 		body := []byte(`{
 			"class":"HfreshExempt",
 			"vectorizer":"none",
@@ -110,9 +100,6 @@ func TestRestrictions_SingleSharedContainer(t *testing.T) {
 	})
 
 	t.Run("named-vector with disallowed type is rejected", func(t *testing.T) {
-		// Same allow-list applies to vectorConfig entries: a class that
-		// passes the legacy gate must still have all of its named vectors
-		// in the allow-list.
 		body := []byte(`{
 			"class":"NamedVectorFlat",
 			"vectorConfig":{
@@ -141,10 +128,10 @@ func TestRestrictions_SingleSharedContainer(t *testing.T) {
 	})
 
 	t.Run("PUT adding a new named-vector with disallowed type — 422", func(t *testing.T) {
-		// This is the only scenario where the allow-list is the SOLE
-		// gate: the RAFT-side immutable check only iterates
-		// initial.VectorConfig, so brand-new entries on the updated
-		// side reach the use-case allow-list unfiltered.
+		// Only scenario where the allow-list is the sole gate: the
+		// RAFT-side immutable check iterates initial.VectorConfig, so
+		// brand-new entries on the updated side reach the use-case
+		// allow-list unfiltered.
 		create := []byte(`{
 			"class":"PutAddNamedVectorTest",
 			"vectorConfig":{
@@ -176,32 +163,38 @@ func TestRestrictions_SingleSharedContainer(t *testing.T) {
 		assert.Contains(t, v.Allowed, "hfresh")
 		assert.Contains(t, v.Allowed, "hnsw")
 	})
+
+	// Pre-RAFT rejection per Dirk's Slack note: each node surfaces the
+	// typed 422 locally. A 500 here means the typed error didn't survive
+	// a RAFT round-trip — see clusterapi/shared/indices_payloads.go
+	// (#11342) for the usage-limit precedent.
+	t.Run("all nodes return typed 422 for a disallowed type", func(t *testing.T) {
+		for i := 1; i <= 3; i++ {
+			i := i
+			t.Run("node_"+string(rune('0'+i)), func(t *testing.T) {
+				uri := "http://" + compose.GetWeaviateNode(i).URI() + "/v1/schema"
+				body := []byte(`{
+					"class":"FlatRejectedNode` + string(rune('0'+i)) + `",
+					"vectorizer":"none",
+					"vectorIndexType":"flat"
+				}`)
+				assertRestrictionViolation(t, ctx, uri, body, "vector_index_type", "flat")
+			})
+		}
+	})
 }
 
-// --- response shape + helpers ---
-
-// restrictionViolationBody mirrors the hand-rolled response in
-// adapters/handlers/rest/restriction_violation_responder.go. Keep
-// the JSON tags in sync.
-type restrictionViolationBody struct {
-	ErrorCode   string   `json:"errorCode"`
-	Restriction string   `json:"restriction"`
-	Value       string   `json:"value"`
-	Allowed     []string `json:"allowed"`
-	Message     string   `json:"message"`
-}
-
-func assertRestrictionViolation(t *testing.T, ctx context.Context, url string, body []byte, expectRestriction, expectValue string) restrictionViolationBody {
+func assertRestrictionViolation(t *testing.T, ctx context.Context, url string, body []byte, expectRestriction, expectValue string) *models.RestrictionViolationResponse {
 	t.Helper()
 	return assertRestrictionViolationOnMethod(t, ctx, http.MethodPost, url, body, expectRestriction, expectValue)
 }
 
-func assertRestrictionViolationOnPut(t *testing.T, ctx context.Context, url string, body []byte, expectRestriction, expectValue string) restrictionViolationBody {
+func assertRestrictionViolationOnPut(t *testing.T, ctx context.Context, url string, body []byte, expectRestriction, expectValue string) *models.RestrictionViolationResponse {
 	t.Helper()
 	return assertRestrictionViolationOnMethod(t, ctx, http.MethodPut, url, body, expectRestriction, expectValue)
 }
 
-func assertRestrictionViolationOnMethod(t *testing.T, ctx context.Context, method, url string, body []byte, expectRestriction, expectValue string) restrictionViolationBody {
+func assertRestrictionViolationOnMethod(t *testing.T, ctx context.Context, method, url string, body []byte, expectRestriction, expectValue string) *models.RestrictionViolationResponse {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
 	require.NoError(t, err)
@@ -213,8 +206,8 @@ func assertRestrictionViolationOnMethod(t *testing.T, ctx context.Context, metho
 		"expected HTTP 422 for restriction %q (value %q)", expectRestriction, expectValue)
 	raw, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	var parsed restrictionViolationBody
-	require.NoError(t, json.Unmarshal(raw, &parsed),
+	parsed := &models.RestrictionViolationResponse{}
+	require.NoError(t, json.Unmarshal(raw, parsed),
 		"response body should be JSON: %s", raw)
 	assert.Equal(t, "CONFIG_NOT_ALLOWED", parsed.ErrorCode)
 	assert.Equal(t, expectRestriction, parsed.Restriction)
