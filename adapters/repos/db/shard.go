@@ -185,6 +185,14 @@ type ShardLike interface {
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
 	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
+	// CreateAsyncCheckpoint takes createdAt from the initiator as the
+	// strict-greater-than tie-breaker; older/equal proposals are rejected.
+	CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error
+	DeleteAsyncCheckpoint(ctx context.Context) error
+	// AsyncCheckpointRoot: ok=false strictly means inactive and never
+	// reflects ctx cancellation, so callers must check ctx.Err() separately.
+	AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool)
+
 	Metrics() *Metrics
 
 	// A thread-safe counter that goes up any time there is activity on this
@@ -247,6 +255,16 @@ type Shard struct {
 	hashtreeFullyInitialized        bool
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
+
+	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a
+	// frozen clone of s.hashtree taken at create time. All in-memory only
+	// (not persisted, not replicated via RAFT); a restart drops it and the
+	// operator must re-create. activatedAt is local-clock so the lifetime
+	// histogram doesn't depend on cross-node clock skew.
+	asyncCheckpointHashtree    hashtree.AggregatedHashTree
+	asyncCheckpointCutoff      int64
+	asyncCheckpointCreatedAt   time.Time
+	asyncCheckpointActivatedAt time.Time
 
 	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
 	// derived from context.Background() and cancelled by asyncReplicationCancelFunc

@@ -210,6 +210,37 @@ func (_c *MockReplicator_CompareDigests_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// CreateAsyncCheckpoint provides a mock function with given fields: ctx, className, shardNames, cutoffMs, createdAt
+func (_m *MockReplicator) CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
+	ret := _m.Called(ctx, className, shardNames, cutoffMs, createdAt)
+	if len(ret) == 0 {
+		panic("no return value specified for CreateAsyncCheckpoint")
+	}
+	return ret.Error(0)
+}
+
+// DeleteAsyncCheckpoint provides a mock function with given fields: ctx, className, shardNames
+func (_m *MockReplicator) DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error {
+	ret := _m.Called(ctx, className, shardNames)
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAsyncCheckpoint")
+	}
+	return ret.Error(0)
+}
+
+// GetAsyncCheckpointStatus provides a mock function with given fields: ctx, className, shardNames
+func (_m *MockReplicator) GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	ret := _m.Called(ctx, className, shardNames)
+	if len(ret) == 0 {
+		panic("no return value specified for GetAsyncCheckpointStatus")
+	}
+	var r0 map[string]replica.AsyncCheckpointShardStatus
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(map[string]replica.AsyncCheckpointShardStatus)
+	}
+	return r0, ret.Error(1)
+}
+
 // CountObjects provides a mock function with given fields: ctx, indexName, shardName
 func (_m *MockReplicator) CountObjects(ctx context.Context, indexName string, shardName string) (int, error) {
 	ret := _m.Called(ctx, indexName, shardName)
