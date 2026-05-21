@@ -139,6 +139,43 @@ func TestRestrictions_SingleSharedContainer(t *testing.T) {
 		}`)
 		assertRestrictionViolation(t, ctx, httpURI+"/v1/schema", body, "compression", "pq")
 	})
+
+	t.Run("PUT adding a new named-vector with disallowed type — 422", func(t *testing.T) {
+		// This is the only scenario where the allow-list is the SOLE
+		// gate: the RAFT-side immutable check only iterates
+		// initial.VectorConfig, so brand-new entries on the updated
+		// side reach the use-case allow-list unfiltered.
+		create := []byte(`{
+			"class":"PutAddNamedVectorTest",
+			"vectorConfig":{
+				"v1":{
+					"vectorizer":{"none":{}},
+					"vectorIndexType":"hnsw",
+					"vectorIndexConfig":{"rq":{"enabled":true,"bits":8}}
+				}
+			}
+		}`)
+		assertCreateOK(t, ctx, httpURI+"/v1/schema", create)
+
+		update := []byte(`{
+			"class":"PutAddNamedVectorTest",
+			"vectorConfig":{
+				"v1":{
+					"vectorizer":{"none":{}},
+					"vectorIndexType":"hnsw",
+					"vectorIndexConfig":{"rq":{"enabled":true,"bits":8}}
+				},
+				"v2":{
+					"vectorizer":{"none":{}},
+					"vectorIndexType":"flat"
+				}
+			}
+		}`)
+		v := assertRestrictionViolationOnPut(t, ctx,
+			httpURI+"/v1/schema/PutAddNamedVectorTest", update, "vector_index_type", "flat")
+		assert.Contains(t, v.Allowed, "hfresh")
+		assert.Contains(t, v.Allowed, "hnsw")
+	})
 }
 
 // --- response shape + helpers ---
@@ -156,7 +193,21 @@ type restrictionViolationBody struct {
 
 func assertRestrictionViolation(t *testing.T, ctx context.Context, url string, body []byte, expectRestriction, expectValue string) restrictionViolationBody {
 	t.Helper()
-	resp := postRaw(t, ctx, url, body)
+	return assertRestrictionViolationOnMethod(t, ctx, http.MethodPost, url, body, expectRestriction, expectValue)
+}
+
+func assertRestrictionViolationOnPut(t *testing.T, ctx context.Context, url string, body []byte, expectRestriction, expectValue string) restrictionViolationBody {
+	t.Helper()
+	return assertRestrictionViolationOnMethod(t, ctx, http.MethodPut, url, body, expectRestriction, expectValue)
+}
+
+func assertRestrictionViolationOnMethod(t *testing.T, ctx context.Context, method, url string, body []byte, expectRestriction, expectValue string) restrictionViolationBody {
+	t.Helper()
+	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "%s %s", method, url)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode,
 		"expected HTTP 422 for restriction %q (value %q)", expectRestriction, expectValue)

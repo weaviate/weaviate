@@ -198,6 +198,76 @@ func TestValidateVectorSettingsAgainst_GrandfatherUnchanged(t *testing.T) {
 	})
 }
 
+// TestValidateVectorSettingsAgainst_GrandfatherUnchanged_NamedVector
+// mirrors the legacy grandfather matrix for entries inside
+// class.VectorConfig — the named-vector loop in
+// validateVectorSettingsAgainst runs through the same allow-list +
+// grandfather logic on a per-entry basis. Includes the
+// add-a-new-named-vector-on-PUT cases that the RAFT-side immutable
+// check does NOT cover (it only iterates initial.VectorConfig), so the
+// allow-list is the sole gate.
+func TestValidateVectorSettingsAgainst_GrandfatherUnchanged_NamedVector(t *testing.T) {
+	t.Run("update with unchanged disallowed named-vector type — passes (grandfathered)", func(t *testing.T) {
+		handler := newHandlerWithAllowList(t, []string{"hfresh", "hnsw"}, nil)
+		initial := classWithNamedVector(t, "v1", "flat", "")
+		updated := classWithNamedVector(t, "v1", "flat", "")
+		require.NoError(t, handler.validateVectorSettingsAgainst(updated, initial))
+	})
+
+	t.Run("update with unchanged disallowed named-vector compression — passes", func(t *testing.T) {
+		handler := newHandlerWithAllowList(t, nil, []string{"rq-8"})
+		initial := classWithNamedVector(t, "v1", "hnsw", "pq")
+		updated := classWithNamedVector(t, "v1", "hnsw", "pq")
+		require.NoError(t, handler.validateVectorSettingsAgainst(updated, initial))
+	})
+
+	t.Run("update changing named-vector compression to disallowed — rejected", func(t *testing.T) {
+		handler := newHandlerWithAllowList(t, nil, []string{"rq-8"})
+		initial := classWithNamedVector(t, "v1", "hnsw", "rq-8")
+		updated := classWithNamedVector(t, "v1", "hnsw", "pq")
+		err := handler.validateVectorSettingsAgainst(updated, initial)
+		require.Error(t, err)
+		v, ok := restrictions.AsViolation(err)
+		require.True(t, ok)
+		assert.Equal(t, "pq", v.Value)
+	})
+
+	t.Run("update adding new named-vector with disallowed type — rejected", func(t *testing.T) {
+		// Allow-list is the sole gate here: the RAFT-side immutable check
+		// (validateNamedVectorConfigsParityAndImmutables) iterates only
+		// initial.VectorConfig, so brand-new entries on the updated side
+		// pass that gate and reach allow-list unfiltered.
+		handler := newHandlerWithAllowList(t, []string{"hfresh", "hnsw"}, nil)
+		initial := classWithNamedVector(t, "v1", "hnsw", "rq-8")
+		updated := classWithNamedVector(t, "v1", "hnsw", "rq-8")
+		updated.VectorConfig["v2"] = models.VectorConfig{
+			Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+			VectorIndexType: "flat",
+		}
+		err := handler.validateVectorSettingsAgainst(updated, initial)
+		require.Error(t, err)
+		v, ok := restrictions.AsViolation(err)
+		require.True(t, ok)
+		assert.Equal(t, "flat", v.Value)
+	})
+
+	t.Run("update adding new named-vector with disallowed compression — rejected", func(t *testing.T) {
+		handler := newHandlerWithAllowList(t, nil, []string{"rq-8"})
+		initial := classWithNamedVector(t, "v1", "hnsw", "rq-8")
+		updated := classWithNamedVector(t, "v1", "hnsw", "rq-8")
+		updated.VectorConfig["v2"] = models.VectorConfig{
+			Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+			VectorIndexType:   "hnsw",
+			VectorIndexConfig: hnsw.UserConfig{PQ: hnsw.PQConfig{Enabled: true}},
+		}
+		err := handler.validateVectorSettingsAgainst(updated, initial)
+		require.Error(t, err)
+		v, ok := restrictions.AsViolation(err)
+		require.True(t, ok)
+		assert.Equal(t, "pq", v.Value)
+	})
+}
+
 // --- helpers for the grandfather tests ---
 
 func newHandlerWithAllowList(t *testing.T, vectorAllow, compressionAllow []string) *Handler {
@@ -235,6 +305,39 @@ func classWithHnswCompression(t *testing.T, compression string) *models.Class {
 		VectorIndexType:   "hnsw",
 		Vectorizer:        "none",
 		VectorIndexConfig: cfg,
+	}
+}
+
+// classWithNamedVector builds a class with a single named-vector entry.
+// compression == "" leaves VectorIndexConfig unset on the entry (no
+// compression configured); otherwise it embeds an hnsw.UserConfig with
+// the named compression enabled. Used by the named-vector grandfather
+// matrix.
+func classWithNamedVector(t *testing.T, name, indexType, compression string) *models.Class {
+	t.Helper()
+	var cfg interface{}
+	if compression != "" {
+		c := hnsw.UserConfig{}
+		switch compression {
+		case "pq":
+			c.PQ.Enabled = true
+		case "rq-8":
+			c.RQ.Enabled = true
+			c.RQ.Bits = 8
+		default:
+			t.Fatalf("unsupported test compression %q", compression)
+		}
+		cfg = c
+	}
+	return &models.Class{
+		Class: "Demo",
+		VectorConfig: map[string]models.VectorConfig{
+			name: {
+				Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+				VectorIndexType:   indexType,
+				VectorIndexConfig: cfg,
+			},
+		},
 	}
 }
 
