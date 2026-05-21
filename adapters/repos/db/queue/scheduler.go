@@ -526,12 +526,12 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 				}
 
 				// decrement the global and queue active tasks counters
-				q.activeTasks.Decr()
+				qTaskCount := q.activeTasks.Decr()
 				s.activeTasks.Decr()
 				q.q.Metrics().TasksProcessed(start, int(taskCount))
 
 				// notify the scheduler to check for more tasks
-				if c == 0 {
+				if qTaskCount == 0 {
 					s.triggerSchedule()
 				}
 			},
