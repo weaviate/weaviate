@@ -596,8 +596,12 @@ func (l *hnswCommitLogger) Flush() error {
 	l.Lock()
 	defer l.Unlock()
 
-	if err := l.currentWriter.Flush(); err != nil {
-		return errors.Wrap(err, "flush commit log buffer")
-	}
-	return l.currentFile.Sync()
+	// Buffered writer flush is sufficient here: the OS page cache absorbs the
+	// bytes and the per-batch durability the fsync used to provide isn't
+	// load-bearing for HNSW (the index is rebuilt from the object store on
+	// any unclean shutdown). The fsync is retained on `switchCommitLogs`
+	// (file rotation) and on backup/snapshot paths. Per-batch fsync was the
+	// dominant contributor to the ~15-30% import time regression on slow
+	// disks observed in weaviate/0-weaviate-issues#199.
+	return l.currentWriter.Flush()
 }
