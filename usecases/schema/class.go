@@ -491,6 +491,18 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 		}
 	}
 
+	// apply default vector index type to named vectors
+	for name, vectorConfig := range class.VectorConfig {
+		if vectorConfig.VectorIndexType == "" {
+			if v := h.config.DefaultVectorIndexType.Get(); v != "" {
+				vectorConfig.VectorIndexType = v
+			} else {
+				vectorConfig.VectorIndexType = vectorindex.DefaultVectorIndexType
+			}
+			class.VectorConfig[name] = vectorConfig
+		}
+	}
+
 	setInvertedConfigDefaults(class)
 	for _, prop := range class.Properties {
 		setPropertyDefaults(prop)
