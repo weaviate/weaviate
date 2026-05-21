@@ -151,7 +151,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 
 	cases := []scopeCase{
 		{
-			name:       "repair-searchable",
+			name:       "change-algorithm",
 			className:  "ScopeRepairSearchable",
 			properties: searchableScopeProps,
 			objects:    textScopeObjects,

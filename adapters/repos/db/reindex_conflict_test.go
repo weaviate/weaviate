@@ -93,7 +93,7 @@ func TestTypesConflictReason(t *testing.T) {
 		},
 		{
 			name:         "empty new props (all) vs single existing → conflict",
-			newType:      ReindexTypeRepairSearchable,
+			newType:      ReindexTypeChangeAlgorithm,
 			newProps:     nil,
 			existType:    ReindexTypeChangeTokenization,
 			existProps:   []string{"text"},
@@ -457,7 +457,7 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 		ReindexTypeEnableFilterable,
 		ReindexTypeEnableSearchable,
 		ReindexTypeEnableRangeable,
-		ReindexTypeRepairSearchable,
+		ReindexTypeChangeAlgorithm,
 		ReindexTypeRepairFilterable,
 		ReindexTypeRepairRangeable,
 	}

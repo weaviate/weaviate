@@ -630,7 +630,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 	// a fabricated gen would fail at runtimeSwap with "reindex bucket
 	// not found", so callers skip task instantiation in that case.
 	switch payload.MigrationType {
-	case ReindexTypeRepairSearchable:
+	case ReindexTypeChangeAlgorithm:
 		gen, ok := genFor(MigrationDirSearchableMapToBlockmax, "")
 		if !ok {
 			return nil, nil
@@ -1604,7 +1604,7 @@ func logOperatorRepairGuidanceOnFailedSemanticMigration(logger logrus.FieldLogge
 		switch payload.MigrationType {
 		case ReindexTypeChangeTokenization,
 			ReindexTypeEnableSearchable,
-			ReindexTypeRepairSearchable,
+			ReindexTypeChangeAlgorithm,
 			ReindexTypeRebuildSearchable:
 			repairBody = `{"filterable":{"rebuild":true},"searchable":{"rebuild":true}}`
 		case ReindexTypeChangeTokenizationFilterable,
@@ -1702,7 +1702,7 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"searchable"}
 	case ReindexTypeEnableFilterable:
 		return []string{"filterable"}
-	case ReindexTypeRepairSearchable, ReindexTypeRebuildSearchable,
+	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
 		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits

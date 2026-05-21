@@ -368,7 +368,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
 				"searchable index is already on blockmax"))
 		}
-		migrationType = db.ReindexTypeRepairSearchable
+		migrationType = db.ReindexTypeChangeAlgorithm
 		properties = []string{propertyName}
 
 	case body.Filterable != nil && body.Filterable.Enabled:
@@ -828,7 +828,7 @@ const (
 // directories and unloaded buckets are silently skipped.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeRepairSearchable, db.ReindexTypeRebuildSearchable:
+	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
 		return []string{"searchable"}, true
 	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
 		return []string{"filterable"}, true
@@ -859,7 +859,7 @@ func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 // (false, false) result still means "this task is not a cancel target".
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
 	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeRepairSearchable, db.ReindexTypeRebuildSearchable:
+	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
 		return indexType == "searchable", true
 	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
 		return indexType == "filterable", true
@@ -1105,7 +1105,7 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		if bestPayload.TargetTokenization != "" {
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
-	case db.ReindexTypeRepairSearchable:
+	case db.ReindexTypeChangeAlgorithm:
 		// repair-searchable migrates WAND → BlockMax. The targetAlgorithm
 		// lets the UI render the in-flight switch the same way it renders
 		// targetTokenization for change-tokenization.

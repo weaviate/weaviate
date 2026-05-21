@@ -34,9 +34,9 @@ func ExtractReindexTaskCollection(payload []byte) (string, bool) {
 type ReindexMigrationType string
 
 const (
-	// ReindexTypeRepairSearchable migrates searchable indexes from Map (WAND)
+	// ReindexTypeChangeAlgorithm migrates searchable indexes from Map (WAND)
 	// to Inverted (BlockMax). Dispatched by {searchable:{algorithm:"blockmax"}}.
-	ReindexTypeRepairSearchable ReindexMigrationType = "repair-searchable"
+	ReindexTypeChangeAlgorithm ReindexMigrationType = "change-algorithm"
 
 	// ReindexTypeRebuildSearchable rebuilds an existing BlockMax searchable
 	// bucket from the objects store, preserving tokenization and algorithm.

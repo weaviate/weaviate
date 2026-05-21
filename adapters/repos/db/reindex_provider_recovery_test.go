@@ -190,7 +190,7 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 		},
 		{
 			name: "repair-searchable → empty (format-only, no swap barrier)",
-			mt:   ReindexTypeRepairSearchable,
+			mt:   ReindexTypeChangeAlgorithm,
 			want: nil,
 		},
 		{
