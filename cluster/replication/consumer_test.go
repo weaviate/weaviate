@@ -1535,14 +1535,6 @@ func TestConsumerCopyIntegratingState(t *testing.T) {
 	mockReplicaCopier.AssertExpectations(t)
 }
 
-// closedChan returns a pre-closed channel — the AllPeersAtLeast wait will
-// either be satisfied immediately (skipping the select) or wake instantly.
-func closedChan() <-chan struct{} {
-	ch := make(chan struct{})
-	close(ch)
-	return ch
-}
-
 // TestConsumerCopyIntegratingRetryAfterSeal: a retry after a prior seal
 // sees "log gone" on snapshot, syncs, and reaches READY — no re-finalize.
 func TestConsumerCopyIntegratingRetryAfterSeal(t *testing.T) {
