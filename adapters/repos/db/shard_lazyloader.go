@@ -709,6 +709,35 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }
 
+// CreateAsyncCheckpoint maps unloaded to ErrAsyncReplicationNotActive so transports
+// return REST 412 / gRPC FailedPrecondition (matching the loaded path).
+func (l *LazyLoadShard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
+	if !l.isLoaded() {
+		return errAsyncReplicationNotActive
+	}
+	return l.shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
+}
+
+func (l *LazyLoadShard) DeleteAsyncCheckpoint(ctx context.Context) error {
+	if !l.isLoaded() {
+		return nil
+	}
+	return l.shard.DeleteAsyncCheckpoint(ctx)
+}
+
+func (l *LazyLoadShard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
+	if !l.isLoaded() {
+		return hashtree.Digest{}, 0, time.Time{}, false
+	}
+	return l.shard.AsyncCheckpointRoot(ctx)
+}
+
+// IsAsyncCheckpointHostable lets Index.GetAsyncCheckpointShardStatus
+// distinguish unloaded shards from "loaded but inactive".
+func (l *LazyLoadShard) IsAsyncCheckpointHostable() bool {
+	return l.isLoaded()
+}
+
 func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
