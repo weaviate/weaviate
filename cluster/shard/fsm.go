@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,7 +23,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/hashicorp/raft"
 	"github.com/klauspost/compress/s2"
 	"github.com/sirupsen/logrus"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
@@ -104,8 +102,10 @@ type StateTransferer interface {
 	TransferState(ctx context.Context, className, shardName string) error
 }
 
-// FSM implements raft.FSM for per-shard object replication.
-// Each physical shard has its own RAFT cluster with a dedicated FSM.
+// FSM is the per-shard command dispatcher. The Store's Ready loop hands it
+// committed RAFT log entries via Dispatch; the FSM applies each command to the
+// underlying shard. With etcd/raft the FSM is no longer a library interface —
+// it is a plain dispatcher invoked single-threaded from the Ready loop.
 type FSM struct {
 	className string
 	shardName string
@@ -170,23 +170,35 @@ func (f *FSM) SetStateTransferer(st StateTransferer) {
 	f.stateTransferer = st
 }
 
-// Apply implements raft.FSM. It processes committed log entries and applies
-// them to the shard. This method must be deterministic.
-func (f *FSM) Apply(l *raft.Log) any {
+// setApplied records the last applied RAFT log index and wakes WaitForIndex
+// waiters. The Store calls it directly for entries that carry no command
+// (empty leader entries, conf changes); Dispatch calls it for command entries.
+func (f *FSM) setApplied(index uint64) {
+	f.lastAppliedIndex.Store(index)
+	f.indexCond.Broadcast()
+}
+
+// Dispatch applies one committed command entry to the shard. payload is the
+// marshalled shardproto.ApplyRequest (the Store has already stripped the
+// request-ID prefix); index is the entry's RAFT log index. It must be
+// deterministic and is invoked single-threaded from the Store's Ready loop.
+func (f *FSM) Dispatch(payload []byte, index uint64) Response {
 	f.mu.RLock()
 	shard := f.shard
 	f.mu.RUnlock()
 
 	if shard == nil {
 		f.log.Error("shard not set, cannot apply log entry")
-		return Response{Version: l.Index, Error: fmt.Errorf("shard not set")}
+		f.setApplied(index)
+		return Response{Version: index, Error: fmt.Errorf("shard not set")}
 	}
 
 	// Parse the command
 	var req shardproto.ApplyRequest
-	if err := proto.Unmarshal(l.Data, &req); err != nil {
+	if err := proto.Unmarshal(payload, &req); err != nil {
 		f.log.WithError(err).Error("failed to unmarshal command")
-		return Response{Version: l.Index, Error: fmt.Errorf("unmarshal command: %w", err)}
+		f.setApplied(index)
+		return Response{Version: index, Error: fmt.Errorf("unmarshal command: %w", err)}
 	}
 
 	// Decompress sub_command if the entry was compressed by the replicator.
@@ -196,7 +208,8 @@ func (f *FSM) Apply(l *raft.Log) any {
 		decompressed, err := s2.Decode(nil, req.SubCommand)
 		if err != nil {
 			f.log.WithError(err).Error("failed to decompress sub_command")
-			return Response{Version: l.Index, Error: fmt.Errorf("decompress: %w", err)}
+			f.setApplied(index)
+			return Response{Version: index, Error: fmt.Errorf("decompress: %w", err)}
 		}
 		req.SubCommand = decompressed
 	}
@@ -222,17 +235,16 @@ func (f *FSM) Apply(l *raft.Log) any {
 	}
 
 	// Update last applied index and notify waiters.
-	f.lastAppliedIndex.Store(l.Index)
-	f.indexCond.Broadcast()
+	f.setApplied(index)
 
 	if applyErr != nil {
 		// This should not happen after the retry changes — all handlers now
 		// swallow errors to maintain FSM consistency. Log as defense-in-depth.
-		f.log.WithError(applyErr).WithField("index", l.Index).
+		f.log.WithError(applyErr).WithField("index", index).
 			Error("unexpected error from FSM handler (should have been swallowed)")
 	}
 
-	return Response{Version: l.Index}
+	return Response{Version: index}
 }
 
 // isRetryableInFSM returns true if the error is a transient infrastructure
@@ -443,45 +455,29 @@ func (f *FSM) addReferences(shard shard, req *shardproto.ApplyRequest) error {
 	return nil
 }
 
-// Snapshot implements raft.FSM. It captures a lightweight reference to the
-// current FSM state and returns quickly. The expensive FlushMemtables call
-// happens in FSMSnapshot.Persist(), which runs on the snapshot goroutine
-// and does not block Apply().
-func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
-	f.log.Info("creating snapshot")
-
-	f.mu.RLock()
-	shard := f.shard
-	f.mu.RUnlock()
-
-	return &FSMSnapshot{
-		className:        f.className,
-		shardName:        f.shardName,
-		nodeID:           f.nodeID,
-		lastAppliedIndex: f.lastAppliedIndex.Load(),
-		log:              f.log,
-		shard:            shard,
-	}, nil
+// SnapshotMetadata returns a snapshot of the FSM's current identity and applied
+// index. The Store uses it to build a SnapshotRequest for the Snapshotter pool.
+func (f *FSM) SnapshotMetadata() shardSnapshotData {
+	return shardSnapshotData{
+		ClassName:        f.className,
+		ShardName:        f.shardName,
+		NodeID:           f.nodeID,
+		LastAppliedIndex: f.lastAppliedIndex.Load(),
+	}
 }
 
-// Restore implements raft.FSM. It restores the FSM state from a snapshot.
+// RestoreFromSnapshot restores FSM state from a RAFT snapshot's metadata. The
+// Store's Ready loop calls it when etcd/raft delivers a non-empty rd.Snapshot.
 // If the snapshot was created by a different node (foreign snapshot), it
 // triggers an out-of-band state transfer to download shard data from the
-// current leader. The StateTransferer determines the leader dynamically —
-// we don't use snap.NodeID for leader determination since the leader may
-// have changed between snapshot creation and restore.
-func (f *FSM) Restore(rc io.ReadCloser) error {
-	defer rc.Close()
-
-	var snap shardSnapshotData
-	if err := json.NewDecoder(rc).Decode(&snap); err != nil {
-		return fmt.Errorf("decode snapshot: %w", err)
-	}
-
+// current leader. The StateTransferer determines the leader dynamically — we
+// don't use meta.NodeID for leader determination since the leader may have
+// changed between snapshot creation and restore.
+func (f *FSM) RestoreFromSnapshot(meta shardSnapshotData) error {
 	// Verify snapshot is for the correct shard
-	if snap.ClassName != f.className || snap.ShardName != f.shardName {
+	if meta.ClassName != f.className || meta.ShardName != f.shardName {
 		return fmt.Errorf("snapshot class/shard mismatch: expected %s/%s, got %s/%s",
-			f.className, f.shardName, snap.ClassName, snap.ShardName)
+			f.className, f.shardName, meta.ClassName, meta.ShardName)
 	}
 
 	// Trigger state transfer if this is a foreign snapshot (from another node).
@@ -489,9 +485,9 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 	st := f.stateTransferer
 	f.mu.RUnlock()
 
-	if snap.NodeID != f.nodeID && st != nil {
+	if meta.NodeID != f.nodeID && st != nil {
 		f.log.WithFields(logrus.Fields{
-			"snapshot_node_id": snap.NodeID,
+			"snapshot_node_id": meta.NodeID,
 			"local_node_id":    f.nodeID,
 		}).Info("foreign snapshot detected, initiating state transfer")
 
@@ -501,8 +497,8 @@ func (f *FSM) Restore(rc io.ReadCloser) error {
 		}
 	}
 
-	f.lastAppliedIndex.Store(snap.LastAppliedIndex)
-	f.log.WithField("lastAppliedIndex", snap.LastAppliedIndex).Info("restored from snapshot")
+	f.setApplied(meta.LastAppliedIndex)
+	f.log.WithField("lastAppliedIndex", meta.LastAppliedIndex).Info("restored from snapshot")
 
 	return nil
 }
@@ -550,58 +546,12 @@ func (f *FSM) WaitForIndex(ctx context.Context, targetIndex uint64) error {
 	return nil
 }
 
-// shardSnapshotData is the JSON-serializable snapshot data structure.
+// shardSnapshotData is the JSON-serializable snapshot data structure. It is
+// the payload of raftpb.Snapshot.Data and the content of each .snap file the
+// Snapshotter writes.
 type shardSnapshotData struct {
 	ClassName        string `json:"class_name"`
 	ShardName        string `json:"shard_name"`
 	NodeID           string `json:"node_id"`
 	LastAppliedIndex uint64 `json:"last_applied_index"`
-}
-
-// FSMSnapshot implements raft.FSMSnapshot for shard snapshots.
-type FSMSnapshot struct {
-	className        string
-	shardName        string
-	nodeID           string
-	lastAppliedIndex uint64
-	log              logrus.FieldLogger
-	shard            shard
-}
-
-// Persist implements raft.FSMSnapshot. It writes the snapshot to the sink.
-// Before writing, all memtables are flushed to LSM segments. This ensures
-// all applied entries up to lastAppliedIndex are durable before RAFT
-// truncates the log. Persist() runs on the snapshot goroutine (not the
-// FSM apply thread), so this does not block new Apply() calls.
-func (s *FSMSnapshot) Persist(sink raft.SnapshotSink) error {
-	defer sink.Close()
-
-	if s.shard != nil {
-		ctx := context.Background()
-		if err := s.shard.FlushMemtables(ctx); err != nil {
-			sink.Cancel()
-			return fmt.Errorf("flush memtables before snapshot persist: %w", err)
-		}
-	}
-
-	snap := shardSnapshotData{
-		ClassName:        s.className,
-		ShardName:        s.shardName,
-		NodeID:           s.nodeID,
-		LastAppliedIndex: s.lastAppliedIndex,
-	}
-
-	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
-		sink.Cancel()
-		return fmt.Errorf("encode snapshot: %w", err)
-	}
-
-	s.log.WithField("lastAppliedIndex", s.lastAppliedIndex).Info("snapshot persisted")
-	return nil
-}
-
-// Release implements raft.FSMSnapshot. It's called when the snapshot is no
-// longer needed.
-func (s *FSMSnapshot) Release() {
-	// No resources to release
 }

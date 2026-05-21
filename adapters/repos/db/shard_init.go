@@ -189,7 +189,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		if len(members) == 0 {
 			return nil, fmt.Errorf("raft shard registration: no replicas for %s/%s", className, shardName)
 		}
-		if err := index.raft.OnShardCreated(ctx, shardName, members, s.path(), s); err != nil {
+		if err := index.raft.OnShardCreated(ctx, shardName, members, s); err != nil {
 			return nil, fmt.Errorf("raft shard registration: %s/%s: %w", className, shardName, err)
 		}
 

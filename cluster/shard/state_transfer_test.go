@@ -12,9 +12,7 @@
 package shard_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -34,19 +32,8 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// FSM.Restore() Tests
+// FSM.RestoreFromSnapshot() Tests
 // ---------------------------------------------------------------------------
-
-func snapshotReader(className, shardName, nodeID string, lastAppliedIndex uint64) io.ReadCloser {
-	data := map[string]interface{}{
-		"class_name":         className,
-		"shard_name":         shardName,
-		"node_id":            nodeID,
-		"last_applied_index": lastAppliedIndex,
-	}
-	buf, _ := json.Marshal(data)
-	return io.NopCloser(bytes.NewReader(buf))
-}
 
 func TestFSM_Restore_TriggersStateTransfer_ForeignSnapshot(t *testing.T) {
 	logger := logrus.New()
@@ -68,8 +55,7 @@ func TestFSM_Restore_TriggersStateTransfer_ForeignSnapshot(t *testing.T) {
 	fsm.SetStateTransferer(mockTransferer)
 
 	// Restore with a snapshot from a different node
-	rc := snapshotReader(testClassName, testShardName, "other-node", 42)
-	err := fsm.Restore(rc)
+	err := shard.RestoreFSM(fsm, testClassName, testShardName, "other-node", 42)
 	require.NoError(t, err)
 
 	assert.True(t, transferCalled, "state transfer should be triggered for foreign snapshot")
@@ -92,8 +78,7 @@ func TestFSM_Restore_SkipsTransfer_SameNode(t *testing.T) {
 	fsm.SetStateTransferer(mockTransferer)
 
 	// Restore with a snapshot from the same node (self-snapshot)
-	rc := snapshotReader(testClassName, testShardName, testNodeID, 100)
-	err := fsm.Restore(rc)
+	err := shard.RestoreFSM(fsm, testClassName, testShardName, testNodeID, 100)
 	require.NoError(t, err)
 
 	assert.False(t, transferCalled, "state transfer should NOT be triggered for self-snapshot")
@@ -108,8 +93,7 @@ func TestFSM_Restore_SkipsTransfer_NilTransferer(t *testing.T) {
 	// Do NOT call SetStateTransferer
 
 	// Restore with a foreign snapshot — should succeed without state transfer
-	rc := snapshotReader(testClassName, testShardName, "other-node", 50)
-	err := fsm.Restore(rc)
+	err := shard.RestoreFSM(fsm, testClassName, testShardName, "other-node", 50)
 	require.NoError(t, err)
 
 	assert.Equal(t, uint64(50), fsm.LastAppliedIndex())
@@ -130,8 +114,7 @@ func TestFSM_Restore_TransferError_ReturnsError(t *testing.T) {
 	fsm.SetStateTransferer(mockTransferer)
 
 	// Restore with a foreign snapshot — state transfer fails
-	rc := snapshotReader(testClassName, testShardName, "other-node", 42)
-	err := fsm.Restore(rc)
+	err := shard.RestoreFSM(fsm, testClassName, testShardName, "other-node", 42)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "state transfer")
 	assert.Contains(t, err.Error(), "download failed")

@@ -200,8 +200,8 @@ func TestSnapshotter_BusyWhenSaturated(t *testing.T) {
 	}
 
 	require.NoError(t, s.Submit(mkReq(1)))
-	<-started // the single worker has picked up req 1 and is blocked in flush
-	require.NoError(t, s.Submit(mkReq(2)))                  // fills the buffer
+	<-started                                                 // the single worker has picked up req 1 and is blocked in flush
+	require.NoError(t, s.Submit(mkReq(2)))                    // fills the buffer
 	assert.ErrorIs(t, s.Submit(mkReq(3)), ErrSnapshotterBusy) // saturated
 
 	close(block)

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/shard/sharedlog"
 )
 
 // RaftConfig holds configuration for a per-index RAFT manager.
@@ -42,8 +43,13 @@ type RaftConfig struct {
 	// StateTransferer handles out-of-band state transfer for snapshot restore.
 	StateTransferer StateTransferer
 
-	// MuxTransport is the shared multiplexed transport for creating per-shard transports.
+	// Node-wide shared raft infrastructure, owned by the Registry.
 	MuxTransport *MuxTransport
+	SharedLog    *sharedlog.Store
+	Snapshotter  *Snapshotter
+	NodeIDs      *nodeIDMap
+	Resolver     addressResolver
+	GroupRouter  groupRouter
 }
 
 // Raft manages all per-shard RAFT clusters (Stores) for a single index.
@@ -91,15 +97,15 @@ func (r *Raft) Shutdown() error {
 
 	var lastErr error
 
-	// Stop all shard stores and destroy their transports
+	// Stop all shard stores and unregister them from message routing
 	r.stores.Range(func(key, value interface{}) bool {
 		store := value.(*Store)
 		if err := store.Stop(); err != nil {
 			r.log.WithError(err).WithField("shard", key).Error("error stopping store")
 			lastErr = err
 		}
-		if r.config.MuxTransport != nil {
-			r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, key.(string))
+		if r.config.GroupRouter != nil {
+			r.config.GroupRouter.unregisterGroup(store.GroupID())
 		}
 		r.stores.Delete(key)
 		return true
@@ -116,7 +122,6 @@ func (r *Raft) GetOrCreateStore(
 	ctx context.Context,
 	shardName string,
 	members []string,
-	dataPath string,
 ) (*Store, error) {
 	r.startMu.Lock()
 	if !r.started {
@@ -130,19 +135,10 @@ func (r *Raft) GetOrCreateStore(
 		return existing.(*Store), nil
 	}
 
-	// Create shard transport via the multiplexed transport
-	transport, err := r.config.MuxTransport.CreateShardTransport(
-		r.config.ClassName, shardName, r.config.Logger,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("create shard transport: %w", err)
-	}
-
 	storeConfig := StoreConfig{
 		ClassName:          r.config.ClassName,
 		ShardName:          shardName,
 		NodeID:             r.config.NodeID,
-		DataPath:           dataPath,
 		Members:            members,
 		Logger:             r.config.Logger,
 		ApplyTimeout:       r.config.ApplyTimeout,
@@ -152,23 +148,25 @@ func (r *Raft) GetOrCreateStore(
 		SnapshotInterval:   r.config.SnapshotInterval,
 		SnapshotThreshold:  r.config.SnapshotThreshold,
 		TrailingLogs:       r.config.TrailingLogs,
-		Transport:          transport,
+		Transport:          r.config.MuxTransport,
+		SharedLog:          r.config.SharedLog,
+		Snapshotter:        r.config.Snapshotter,
+		NodeIDs:            r.config.NodeIDs,
+		Resolver:           r.config.Resolver,
 	}
 
 	store, err := NewStore(storeConfig)
 	if err != nil {
-		r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, shardName)
 		return nil, fmt.Errorf("create shard raft store: %w", err)
 	}
 
 	// Store the new store (use LoadOrStore to handle concurrent creation)
 	actual, loaded := r.stores.LoadOrStore(shardName, store)
 	if loaded {
-		// Lost the race — clean up orphaned transport
-		r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, shardName)
 		return actual.(*Store), nil
 	}
 
+	r.config.GroupRouter.registerGroup(store.GroupID(), store)
 	r.log.WithField("shard", shardName).Info("created shard RAFT store")
 	return store, nil
 }
@@ -183,10 +181,11 @@ func (r *Raft) GetStore(shardName string) *Store {
 
 // StopStore stops and removes a shard's Store.
 func (r *Raft) StopStore(shardName string) error {
-	if store, ok := r.stores.LoadAndDelete(shardName); ok {
-		err := store.(*Store).Stop()
-		if r.config.MuxTransport != nil {
-			r.config.MuxTransport.DestroyShardTransport(r.config.ClassName, shardName)
+	if v, ok := r.stores.LoadAndDelete(shardName); ok {
+		store := v.(*Store)
+		err := store.Stop()
+		if r.config.GroupRouter != nil {
+			r.config.GroupRouter.unregisterGroup(store.GroupID())
 		}
 		return err
 	}
@@ -199,10 +198,9 @@ func (r *Raft) OnShardCreated(
 	ctx context.Context,
 	shardName string,
 	members []string,
-	dataPath string,
 	shard shard,
 ) error {
-	store, err := r.GetOrCreateStore(ctx, shardName, members, dataPath)
+	store, err := r.GetOrCreateStore(ctx, shardName, members)
 	if err != nil {
 		return fmt.Errorf("get or create store: %w", err)
 	}

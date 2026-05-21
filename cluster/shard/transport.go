@@ -19,17 +19,34 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/raft"
 	"github.com/hashicorp/yamux"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/log"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"go.etcd.io/raft/v3/raftpb"
 )
 
-// ShardAddressProvider implements raft.ServerAddressProvider.
-// It resolves a RAFT server ID (node name) to a host:port address
-// for the shard RAFT transport layer.
+// maxRaftFrameSize caps an inbound raft-message frame. Generous headroom over
+// the 2MB MaxSizePerMsg; an oversized length is treated as a corrupt stream.
+const maxRaftFrameSize = 64 * 1024 * 1024
+
+// Transport sends raft messages to peer nodes for any group. Send is
+// fire-and-forget: raft tolerates message loss and retries on the next tick.
+// Each raftpb.Message carries its own To/From uint64 node IDs.
+type Transport interface {
+	Send(groupID uint64, msgs []raftpb.Message)
+	Close() error
+}
+
+// MessageRouter hands an inbound raft message to the Store that owns the
+// group. A transport is node-scoped and multiplexes every group, so it needs
+// this indirection to fan messages out to per-group Stores. Implemented by
+// the Registry.
+type MessageRouter interface {
+	RouteMessage(groupID uint64, msg raftpb.Message) error
+}
+
+// ShardAddressProvider resolves a string node ID to a host:port address for
+// the shard RAFT transport layer.
 type ShardAddressProvider struct {
 	resolver          addressResolver
 	raftPort          int
@@ -37,48 +54,66 @@ type ShardAddressProvider struct {
 	nodeNameToPortMap map[string]int
 }
 
-// ServerAddr resolves a server ID to a RAFT transport address.
-func (p *ShardAddressProvider) ServerAddr(id raft.ServerID) (raft.ServerAddress, error) {
-	addr := p.resolver.NodeAddress(string(id))
+// Resolve returns the host:port RAFT transport address for a node ID.
+func (p *ShardAddressProvider) Resolve(nodeID string) (string, error) {
+	addr := p.resolver.NodeAddress(nodeID)
 	if addr == "" {
-		return "", fmt.Errorf("could not resolve node %s", id)
+		return "", fmt.Errorf("could not resolve node %s", nodeID)
 	}
 	if !p.isLocalCluster {
-		return raft.ServerAddress(fmt.Sprintf("%s:%d", addr, p.raftPort)), nil
+		return fmt.Sprintf("%s:%d", addr, p.raftPort), nil
 	}
-	port, exists := p.nodeNameToPortMap[string(id)]
+	port, exists := p.nodeNameToPortMap[nodeID]
 	if !exists {
 		port = p.raftPort
 	}
-	return raft.ServerAddress(fmt.Sprintf("%s:%d", addr, port)), nil
+	return fmt.Sprintf("%s:%d", addr, port), nil
 }
 
-// MuxTransport is a per-node singleton that manages a shared TCP listener
-// and yamux session pool for multiplexing per-shard RAFT traffic.
-// All shard RAFT clusters on a node share a bounded number of TCP connections
-// (at most 2 per peer pair) via yamux stream multiplexing.
+// peerConn is a single long-lived outbound yamux stream to one peer, carrying
+// framed raft messages for every group. The mutex serialises concurrent Sends
+// from multiple per-shard Ready loops.
+type peerConn struct {
+	mu     sync.Mutex
+	stream net.Conn
+}
+
+// MuxTransport is a per-node singleton that manages a shared TCP listener and
+// yamux session pool, multiplexing every shard's RAFT traffic. It implements
+// Transport: outbound messages are framed (groupID, raftpb.Message) over a
+// per-peer stream; inbound frames are demultiplexed to per-group Stores via
+// the MessageRouter.
 type MuxTransport struct {
 	listener     net.Listener
 	advertise    net.Addr
 	addrProvider *ShardAddressProvider
+	nodeIDs      *nodeIDMap
+	router       MessageRouter
 	logger       logrus.FieldLogger
 	yamuxCfg     *yamux.Config
 
 	sessions   map[string]*yamux.Session // peerAddr -> outbound session
-	sessionsMu sync.RWMutex
+	inbound    []*yamux.Session          // accepted server sessions
+	sessionsMu sync.RWMutex              // guards sessions + inbound
 
-	shardLayers   map[string]*ShardStreamLayer // shardKey -> layer
-	shardLayersMu sync.RWMutex
+	peers   map[uint64]*peerConn // peer uint64 nodeID -> outbound raft stream
+	peersMu sync.RWMutex
 
 	shutdownCh chan struct{}
+	acceptDone chan struct{}  // closed when acceptLoop exits
+	wg         sync.WaitGroup // handleSession + readStream goroutines
 }
 
 // NewMuxTransport creates a new multiplexed transport. It binds a TCP listener
-// on bindAddr and starts an accept loop for incoming connections.
+// on bindAddr and starts an accept loop for incoming connections. router
+// receives every inbound raft message; nodeIDs translates raft uint64 IDs back
+// to string node IDs for address resolution.
 func NewMuxTransport(
 	bindAddr string,
 	advertise net.Addr,
 	provider *ShardAddressProvider,
+	nodeIDs *nodeIDMap,
+	router MessageRouter,
 	logger logrus.FieldLogger,
 ) (*MuxTransport, error) {
 	ln, err := net.Listen("tcp", bindAddr)
@@ -96,11 +131,14 @@ func NewMuxTransport(
 		listener:     ln,
 		advertise:    advertise,
 		addrProvider: provider,
+		nodeIDs:      nodeIDs,
+		router:       router,
 		logger:       logger,
 		yamuxCfg:     yamuxCfg,
 		sessions:     make(map[string]*yamux.Session),
-		shardLayers:  make(map[string]*ShardStreamLayer),
+		peers:        make(map[uint64]*peerConn),
 		shutdownCh:   make(chan struct{}),
+		acceptDone:   make(chan struct{}),
 	}
 
 	enterrors.GoWrapper(m.acceptLoop, logger)
@@ -114,8 +152,10 @@ func NewMuxTransport(
 }
 
 // acceptLoop accepts incoming TCP connections and wraps each in a yamux
-// server session, then dispatches streams to the appropriate shard layers.
+// server session. It is not tracked by m.wg; Close waits on m.acceptDone so
+// that no inbound session is registered after Close starts closing them.
 func (m *MuxTransport) acceptLoop() {
+	defer close(m.acceptDone)
 	for {
 		conn, err := m.listener.Accept()
 		if err != nil {
@@ -135,15 +175,21 @@ func (m *MuxTransport) acceptLoop() {
 			continue
 		}
 
+		m.sessionsMu.Lock()
+		m.inbound = append(m.inbound, session)
+		m.sessionsMu.Unlock()
+
+		m.wg.Add(1)
 		enterrors.GoWrapper(func() {
 			m.handleSession(session)
 		}, m.logger)
 	}
 }
 
-// handleSession accepts yamux streams from a session and dispatches each
-// to the appropriate ShardStreamLayer based on the shard key header.
+// handleSession accepts yamux streams from a session and spawns a reader for
+// each. Every stream carries framed raft messages.
 func (m *MuxTransport) handleSession(session *yamux.Session) {
+	defer m.wg.Done()
 	for {
 		stream, err := session.Accept()
 		if err != nil {
@@ -158,39 +204,133 @@ func (m *MuxTransport) handleSession(session *yamux.Session) {
 			return
 		}
 
-		key, err := readShardKeyHeader(stream)
+		m.wg.Add(1)
+		enterrors.GoWrapper(func() {
+			m.readStream(stream)
+		}, m.logger)
+	}
+}
+
+// readStream decodes framed raft messages off one stream and routes each to
+// the owning Store until the stream errors or closes.
+func (m *MuxTransport) readStream(stream net.Conn) {
+	defer m.wg.Done()
+	defer stream.Close()
+
+	var hdr [12]byte
+	for {
+		if _, err := io.ReadFull(stream, hdr[:]); err != nil {
+			if err != io.EOF {
+				m.logger.WithError(err).Debug("shard mux transport: read frame header")
+			}
+			return
+		}
+		groupID := binary.BigEndian.Uint64(hdr[:8])
+		msgLen := binary.BigEndian.Uint32(hdr[8:12])
+		if msgLen == 0 || msgLen > maxRaftFrameSize {
+			m.logger.WithField("len", msgLen).Warn("shard mux transport: invalid frame length, closing stream")
+			return
+		}
+
+		buf := make([]byte, msgLen)
+		if _, err := io.ReadFull(stream, buf); err != nil {
+			m.logger.WithError(err).Debug("shard mux transport: read frame payload")
+			return
+		}
+
+		var msg raftpb.Message
+		if err := msg.Unmarshal(buf); err != nil {
+			m.logger.WithError(err).Warn("shard mux transport: unmarshal raft message")
+			continue
+		}
+		if err := m.router.RouteMessage(groupID, msg); err != nil {
+			m.logger.WithField("group", groupID).WithError(err).Warn("shard mux transport: route message")
+		}
+	}
+}
+
+// Send frames each raft message and writes it on the destination peer's
+// stream. Fire-and-forget: unresolvable peers and write failures are dropped
+// (raft re-sends on the next tick).
+func (m *MuxTransport) Send(groupID uint64, msgs []raftpb.Message) {
+	for i := range msgs {
+		msg := msgs[i]
+		pc := m.peerStream(msg.To)
+		if pc == nil {
+			continue
+		}
+		frame, err := encodeFrame(groupID, &msg)
 		if err != nil {
-			m.logger.WithError(err).Warn("shard mux transport: read shard key header")
-			stream.Close()
+			m.logger.WithError(err).Warn("shard mux transport: encode frame")
 			continue
 		}
-
-		m.shardLayersMu.RLock()
-		layer, ok := m.shardLayers[key]
-		m.shardLayersMu.RUnlock()
-
-		if !ok {
-			m.logger.WithField("shard_key", key).Warn("shard mux transport: unknown shard key, closing stream")
-			stream.Close()
-			continue
+		pc.mu.Lock()
+		_, werr := pc.stream.Write(frame)
+		pc.mu.Unlock()
+		if werr != nil {
+			m.logger.WithError(werr).WithField("to", msg.To).Debug("shard mux transport: write failed, dropping peer")
+			m.dropPeer(msg.To)
 		}
+	}
+}
 
-		// Non-blocking send to the shard layer's incoming channel.
-		// If the buffer is full, close the stream — remote RAFT will retry.
-		select {
-		case layer.incomingCh <- stream:
-		default:
-			m.logger.WithField("shard_key", key).Warn("shard mux transport: incoming buffer full, dropping stream")
-			stream.Close()
-		}
+// peerStream returns the outbound stream for a peer, dialing one if needed.
+// Returns nil if the peer cannot be resolved or dialed.
+func (m *MuxTransport) peerStream(to uint64) *peerConn {
+	m.peersMu.RLock()
+	pc, ok := m.peers[to]
+	m.peersMu.RUnlock()
+	if ok {
+		return pc
+	}
+
+	m.peersMu.Lock()
+	defer m.peersMu.Unlock()
+	if pc, ok := m.peers[to]; ok {
+		return pc
+	}
+
+	nodeID, ok := m.nodeIDs.stringID(to)
+	if !ok {
+		m.logger.WithField("to", to).Warn("shard mux transport: unknown destination node ID")
+		return nil
+	}
+	addr, err := m.addrProvider.Resolve(nodeID)
+	if err != nil {
+		m.logger.WithError(err).WithField("node", nodeID).Warn("shard mux transport: resolve peer address")
+		return nil
+	}
+	session, err := m.getOrDialSession(addr)
+	if err != nil {
+		m.logger.WithError(err).WithField("addr", addr).Debug("shard mux transport: dial peer")
+		return nil
+	}
+	stream, err := session.Open()
+	if err != nil {
+		m.logger.WithError(err).WithField("addr", addr).Debug("shard mux transport: open stream")
+		return nil
+	}
+	pc = &peerConn{stream: stream}
+	m.peers[to] = pc
+	return pc
+}
+
+// dropPeer closes and forgets a peer's stream so the next Send re-dials.
+func (m *MuxTransport) dropPeer(to uint64) {
+	m.peersMu.Lock()
+	pc, ok := m.peers[to]
+	if ok {
+		delete(m.peers, to)
+	}
+	m.peersMu.Unlock()
+	if ok {
+		pc.stream.Close()
 	}
 }
 
 // getOrDialSession returns an existing outbound yamux session for the peer,
 // or dials a new TCP connection and creates a yamux client session.
-func (m *MuxTransport) getOrDialSession(address raft.ServerAddress) (*yamux.Session, error) {
-	addr := string(address)
-
+func (m *MuxTransport) getOrDialSession(addr string) (*yamux.Session, error) {
 	m.sessionsMu.RLock()
 	session, ok := m.sessions[addr]
 	m.sessionsMu.RUnlock()
@@ -207,7 +347,6 @@ func (m *MuxTransport) getOrDialSession(address raft.ServerAddress) (*yamux.Sess
 		return session, nil
 	}
 
-	// Dial new TCP connection
 	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("dial peer %s: %w", addr, err)
@@ -223,55 +362,9 @@ func (m *MuxTransport) getOrDialSession(address raft.ServerAddress) (*yamux.Sess
 	return session, nil
 }
 
-// CreateShardTransport creates a per-shard RAFT transport. It registers a
-// ShardStreamLayer and wraps it in a raft.NetworkTransport.
-func (m *MuxTransport) CreateShardTransport(
-	className, shardName string,
-	logger *logrus.Logger,
-) (raft.Transport, error) {
-	key := shardKey(className, shardName)
-
-	layer := &ShardStreamLayer{
-		shardKey:   key,
-		mux:        m,
-		advertise:  m.advertise,
-		incomingCh: make(chan net.Conn, 64),
-		closeCh:    make(chan struct{}),
-	}
-
-	m.shardLayersMu.Lock()
-	m.shardLayers[key] = layer
-	m.shardLayersMu.Unlock()
-
-	transport := raft.NewNetworkTransportWithConfig(&raft.NetworkTransportConfig{
-		Stream:                layer,
-		MaxPool:               3,
-		Timeout:               10 * time.Second,
-		ServerAddressProvider: m.addrProvider,
-		Logger:                log.NewHCLogrusLogger("shard-raft-net", logger),
-	})
-
-	return transport, nil
-}
-
-// DestroyShardTransport unregisters a shard's stream layer and closes it.
-func (m *MuxTransport) DestroyShardTransport(className, shardName string) {
-	key := shardKey(className, shardName)
-
-	m.shardLayersMu.Lock()
-	layer, ok := m.shardLayers[key]
-	if ok {
-		delete(m.shardLayers, key)
-	}
-	m.shardLayersMu.Unlock()
-
-	if ok {
-		layer.Close()
-	}
-}
-
-// Close shuts down the mux transport: closes the listener, all yamux sessions,
-// and signals all goroutines to stop.
+// Close shuts down the mux transport: stops the accept loop, closes every
+// yamux session (inbound and outbound) and peer stream — which unblocks the
+// handleSession/readStream goroutines — then waits for them to stop.
 func (m *MuxTransport) Close() error {
 	close(m.shutdownCh)
 
@@ -279,7 +372,22 @@ func (m *MuxTransport) Close() error {
 		m.logger.WithError(err).Warn("shard mux transport: error closing listener")
 	}
 
+	// Wait for the accept loop to exit before closing inbound sessions, so no
+	// session is registered after this point.
+	<-m.acceptDone
+
+	m.peersMu.Lock()
+	for to, pc := range m.peers {
+		pc.stream.Close()
+		delete(m.peers, to)
+	}
+	m.peersMu.Unlock()
+
 	m.sessionsMu.Lock()
+	for _, session := range m.inbound {
+		session.Close()
+	}
+	m.inbound = nil
 	for addr, session := range m.sessions {
 		if err := session.Close(); err != nil {
 			m.logger.WithError(err).WithField("peer", addr).Debug("shard mux transport: error closing session")
@@ -288,129 +396,21 @@ func (m *MuxTransport) Close() error {
 	}
 	m.sessionsMu.Unlock()
 
-	m.shardLayersMu.Lock()
-	for key, layer := range m.shardLayers {
-		layer.Close()
-		delete(m.shardLayers, key)
-	}
-	m.shardLayersMu.Unlock()
+	m.wg.Wait()
 
 	m.logger.Info("shard RAFT mux transport closed")
 	return nil
 }
 
-// ShardStreamLayer implements raft.StreamLayer for a single shard.
-// It provides virtual per-shard Accept/Dial over shared yamux sessions.
-type ShardStreamLayer struct {
-	shardKey   string
-	mux        *MuxTransport
-	advertise  net.Addr
-	incomingCh chan net.Conn // buffered, populated by MuxTransport.handleSession
-	closeCh    chan struct{}
-}
-
-// Accept waits for and returns the next incoming connection for this shard.
-func (s *ShardStreamLayer) Accept() (net.Conn, error) {
-	select {
-	case conn := <-s.incomingCh:
-		return conn, nil
-	case <-s.closeCh:
-		return nil, fmt.Errorf("shard stream layer closed")
-	}
-}
-
-// Close closes the stream layer, causing Accept to return an error.
-func (s *ShardStreamLayer) Close() error {
-	select {
-	case <-s.closeCh:
-		// Already closed
-	default:
-		close(s.closeCh)
-		// Drain and close any pending connections
-		for {
-			select {
-			case conn := <-s.incomingCh:
-				conn.Close()
-			default:
-				return nil
-			}
-		}
-	}
-	return nil
-}
-
-// Addr returns the advertise address for this stream layer.
-func (s *ShardStreamLayer) Addr() net.Addr {
-	return s.advertise
-}
-
-// Dial opens a new yamux stream to the target address and writes the shard
-// key header so the remote MuxTransport can dispatch it correctly.
-func (s *ShardStreamLayer) Dial(address raft.ServerAddress, timeout time.Duration) (net.Conn, error) {
-	session, err := s.mux.getOrDialSession(address)
+// encodeFrame builds a wire frame: [uint64 groupID BE][uint32 msgLen BE][msg].
+func encodeFrame(groupID uint64, msg *raftpb.Message) ([]byte, error) {
+	body, err := msg.Marshal()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal raft message: %w", err)
 	}
-
-	stream, err := session.Open()
-	if err != nil {
-		return nil, fmt.Errorf("open yamux stream to %s: %w", address, err)
-	}
-
-	if err := writeShardKeyHeader(stream, s.shardKey); err != nil {
-		stream.Close()
-		return nil, fmt.Errorf("write shard key header to %s: %w", address, err)
-	}
-
-	return stream, nil
-}
-
-// writeShardKeyHeader writes a shard key header: [uint16 BE length][key bytes].
-func writeShardKeyHeader(w io.Writer, key string) error {
-	keyBytes := []byte(key)
-	if len(keyBytes) > 65535 {
-		return fmt.Errorf("shard key too long: %d bytes", len(keyBytes))
-	}
-	var hdr [2]byte
-	binary.BigEndian.PutUint16(hdr[:], uint16(len(keyBytes)))
-	if _, err := w.Write(hdr[:]); err != nil {
-		return err
-	}
-	_, err := w.Write(keyBytes)
-	return err
-}
-
-// readShardKeyHeader reads a shard key header: [uint16 BE length][key bytes].
-func readShardKeyHeader(r io.Reader) (string, error) {
-	var hdr [2]byte
-	if _, err := io.ReadFull(r, hdr[:]); err != nil {
-		return "", err
-	}
-	length := binary.BigEndian.Uint16(hdr[:])
-	if length == 0 {
-		return "", fmt.Errorf("empty shard key")
-	}
-	buf := make([]byte, length)
-	if _, err := io.ReadFull(r, buf); err != nil {
-		return "", err
-	}
-	return string(buf), nil
-}
-
-// shardKey creates a composite key for identifying a shard's RAFT cluster.
-func shardKey(className, shardName string) string {
-	return className + "/" + shardName
-}
-
-type Transport interface {
-	Send(groupID uint64, msgs []raftpb.Message)
-	Close() error
-}
-
-// MessageRouter hands an inbound raft message to the Store that owns the
-// group. A transport is node-scoped and multiplexes every group, so it needs
-// this indirection to fan messages out to per-group Stores. Implemented by
-// the Registry.
-type MessageRouter interface {
-	RouteMessage(groupID uint64, msg raftpb.Message) error
+	frame := make([]byte, 12+len(body))
+	binary.BigEndian.PutUint64(frame[:8], groupID)
+	binary.BigEndian.PutUint32(frame[8:12], uint32(len(body)))
+	copy(frame[12:], body)
+	return frame, nil
 }

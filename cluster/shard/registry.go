@@ -16,21 +16,33 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
+	"github.com/weaviate/weaviate/cluster/shard/sharedlog"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"go.etcd.io/raft/v3/raftpb"
 )
 
 type addressResolver interface {
 	NodeAddress(nodeName string) string
 }
+
+// groupRouter lets per-class Raft managers register their Stores in the
+// node-wide group table the Registry uses to route inbound raft messages.
+type groupRouter interface {
+	registerGroup(groupID uint64, s *Store)
+	unregisterGroup(groupID uint64)
+}
+
+// sharedRaftLogName is the bbolt file holding every shard group's raft log.
+const sharedRaftLogName = "shard-raft-log.db"
 
 // rpcClientMaker creates a gRPC client to the shard replication service on
 // the node identified by nodeID. The closure resolves the nodeID to the
@@ -45,6 +57,9 @@ type RegistryConfig struct {
 	Logger *logrus.Logger
 	// AddressResolver resolves node names to addresses.
 	AddressResolver addressResolver
+	// DataPath is the node data root; the shared raft log and snapshot
+	// directory live under it.
+	DataPath string
 	// RaftPort is the single port used for all shard RAFT traffic (multiplexed).
 	RaftPort int
 	// ApplyTimeout is the timeout for RAFT Apply operations.
@@ -71,15 +86,21 @@ type RegistryConfig struct {
 }
 
 // Registry manages all per-index Raft instances on a node.
-// This is the top-level entry point for RAFT-based replication.
+// This is the top-level entry point for RAFT-based replication. It owns the
+// node-wide shared raft infrastructure (shared log, snapshot pool, node-ID
+// table) and routes inbound raft messages to the owning Store.
 type Registry struct {
 	config         RegistryConfig
 	log            logrus.FieldLogger
 	RpcClientMaker rpcClientMaker
 
 	muxTransport *MuxTransport
+	sharedLog    *sharedlog.Store
+	snapshotter  *Snapshotter
+	nodeIDs      *nodeIDMap
 
 	indices sync.Map // key: className -> *Raft
+	groups  sync.Map // key: groupID uint64 -> *Store (the message-routing table)
 
 	started bool
 	startMu sync.Mutex
@@ -126,8 +147,26 @@ func (reg *Registry) Start() error {
 		nodeNameToPortMap: reg.config.NodeNameToPortMap,
 	}
 
-	reg.muxTransport, err = NewMuxTransport(bindAddr, tcpAddr, provider, reg.log)
+	// Node-wide shared raft infrastructure consumed by every Store.
+	reg.nodeIDs = newNodeIDMap()
+
+	reg.sharedLog, err = sharedlog.Open(sharedlog.Options{
+		Path:   filepath.Join(reg.config.DataPath, sharedRaftLogName),
+		Logger: reg.log,
+	})
 	if err != nil {
+		return fmt.Errorf("open shared raft log: %w", err)
+	}
+
+	reg.snapshotter = NewSnapshotter(SnapshotterOptions{
+		RootDataPath: reg.config.DataPath,
+		Logger:       reg.log,
+	})
+
+	reg.muxTransport, err = NewMuxTransport(bindAddr, tcpAddr, provider, reg.nodeIDs, reg, reg.log)
+	if err != nil {
+		_ = reg.snapshotter.Close()
+		_ = reg.sharedLog.Close()
 		return fmt.Errorf("create mux transport: %w", err)
 	}
 
@@ -157,13 +196,29 @@ func (reg *Registry) Shutdown() error {
 		return true
 	})
 
-	// Close the mux transport after all Raft instances are stopped
+	// Close shared infrastructure after all Stores' Ready loops have drained:
+	// transport first (no more inbound routing), then the snapshot pool, then
+	// the shared log.
 	if reg.muxTransport != nil {
 		if err := reg.muxTransport.Close(); err != nil {
 			reg.log.WithError(err).Error("error closing mux transport")
 			lastErr = err
 		}
 		reg.muxTransport = nil
+	}
+	if reg.snapshotter != nil {
+		if err := reg.snapshotter.Close(); err != nil {
+			reg.log.WithError(err).Error("error closing snapshotter")
+			lastErr = err
+		}
+		reg.snapshotter = nil
+	}
+	if reg.sharedLog != nil {
+		if err := reg.sharedLog.Close(); err != nil {
+			reg.log.WithError(err).Error("error closing shared raft log")
+			lastErr = err
+		}
+		reg.sharedLog = nil
 	}
 
 	reg.started = false
@@ -198,6 +253,11 @@ func (reg *Registry) GetOrCreateRaft(className string) (*Raft, error) {
 		TrailingLogs:       reg.config.TrailingLogs,
 		StateTransferer:    reg.config.StateTransferer,
 		MuxTransport:       reg.muxTransport,
+		SharedLog:          reg.sharedLog,
+		Snapshotter:        reg.snapshotter,
+		NodeIDs:            reg.nodeIDs,
+		Resolver:           reg.config.AddressResolver,
+		GroupRouter:        reg,
 	}
 
 	raft := NewRaft(raftConfig)
@@ -424,7 +484,7 @@ func (reg *Registry) Execute(ctx context.Context, req *shardproto.ApplyRequest) 
 		if store.IsLeader() {
 			schemaVersion, err = store.Apply(ctx, req)
 			// We might fail due to leader not found as we are losing or transferring leadership, retry
-			if errors.Is(err, raft.ErrNotLeader) || errors.Is(err, raft.ErrLeadershipLost) {
+			if errors.Is(err, ErrNotLeader) || errors.Is(err, ErrLeadershipLost) {
 				return err
 			}
 			return backoff.Permanent(err)
@@ -473,4 +533,34 @@ func (reg *Registry) leaderErr(class, shard string) error {
 	// 	return fmt.Errorf("%w, can not resolve nodes [%s]", types.ErrLeaderNotFound, strings.Join(nodes, ","))
 	// }
 	return types.ErrLeaderNotFound
+}
+
+// RouteMessage delivers an inbound raft message to the Store that owns the
+// group. Implements MessageRouter for the MuxTransport. A message for an
+// unknown group is dropped silently — that is normal during startup races
+// before the Store has registered.
+func (reg *Registry) RouteMessage(groupID uint64, msg raftpb.Message) error {
+	if v, ok := reg.groups.Load(groupID); ok {
+		v.(*Store).step(msg)
+	}
+	return nil
+}
+
+// registerGroup adds a Store to the node-wide message-routing table.
+// A groupID collision between distinct shards is an unrecoverable hash
+// collision (see hashGroupID) and panics.
+func (reg *Registry) registerGroup(groupID uint64, s *Store) {
+	if prev, loaded := reg.groups.LoadOrStore(groupID, s); loaded {
+		ps := prev.(*Store)
+		if ps != s {
+			panic(fmt.Sprintf("shard: group ID collision: %d shared by %s/%s and %s/%s",
+				groupID, ps.config.ClassName, ps.config.ShardName,
+				s.config.ClassName, s.config.ShardName))
+		}
+	}
+}
+
+// unregisterGroup removes a Store from the message-routing table.
+func (reg *Registry) unregisterGroup(groupID uint64) {
+	reg.groups.Delete(groupID)
 }

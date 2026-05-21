@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package shard
 
 import (
@@ -8,7 +19,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
@@ -75,33 +85,9 @@ func (f *fakeReplicatorShard) Name() string {
 func newReplicatorTestStore(t *testing.T, members []string) (*Store, *fakeReplicatorShard) {
 	t.Helper()
 
-	_, transport := raft.NewInmemTransport("")
-	logger := logrus.New()
-	logger.SetLevel(logrus.WarnLevel)
-
-	cfg := StoreConfig{
-		ClassName:          replicatorTestClass,
-		ShardName:          replicatorTestShard,
-		NodeID:             replicatorTestNode,
-		DataPath:           t.TempDir(),
-		Members:            members,
-		Logger:             logger,
-		Transport:          transport,
-		HeartbeatTimeout:   150 * time.Millisecond,
-		ElectionTimeout:    150 * time.Millisecond,
-		LeaderLeaseTimeout: 100 * time.Millisecond,
-		SnapshotInterval:   10 * time.Second,
-		SnapshotThreshold:  1024,
-	}
-
-	store, err := NewStore(cfg)
-	require.NoError(t, err)
-
 	fakeShard := &fakeReplicatorShard{}
-	store.SetShard(fakeShard)
-
+	store := BuildTestStore(t, replicatorTestClass, replicatorTestShard, replicatorTestNode, members, fakeShard)
 	require.NoError(t, store.Start(context.Background()))
-	t.Cleanup(func() { _ = store.Stop() })
 
 	return store, fakeShard
 }

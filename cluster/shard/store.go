@@ -13,41 +13,62 @@ package shard
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
-	"os"
-	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/raft"
-	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/log"
 	shardproto "github.com/weaviate/weaviate/cluster/shard/proto"
+	"github.com/weaviate/weaviate/cluster/shard/sharedlog"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"go.etcd.io/raft/v3"
 	"go.etcd.io/raft/v3/raftpb"
 	"google.golang.org/protobuf/proto"
 )
 
 const (
-	// raftDBName is the name of the BoltDB file for RAFT log storage.
-	raftDBName = "raft.db"
-
-	// logCacheCapacity is the maximum number of logs to cache in-memory.
-	logCacheCapacity = 512
-
-	// nRetainedSnapshots is the number of snapshots to retain.
+	// nRetainedSnapshots is the number of snapshots to retain per shard.
 	nRetainedSnapshots = 3
 
 	// defaultApplyTimeout is the default timeout for RAFT Apply operations.
 	defaultApplyTimeout = 10 * time.Second
+
+	// defaultTickInterval is how often the Ready loop ticks the RawNode.
+	defaultTickInterval = 100 * time.Millisecond
+
+	// defaultHeartbeatTicks / defaultElectionTicks are the etcd/raft tick
+	// counts used when no duration is configured (≈200ms heartbeat, ≈1s
+	// election at the default 100ms tick).
+	defaultHeartbeatTicks = 2
+	defaultElectionTicks  = 10
+
+	// defaultSnapshotThreshold is the applied-index delta that triggers a
+	// snapshot when StoreConfig.SnapshotThreshold is unset.
+	defaultSnapshotThreshold = 8192
+
+	// defaultMaxSizePerMsg / defaultMaxInflightMsgs size etcd/raft replication
+	// batches — tuned against the replicator's 2MB chunk size.
+	defaultMaxSizePerMsg   = 2 * 1024 * 1024
+	defaultMaxInflightMsgs = 256
+
+	// proposeChanSize / incomingMsgChanSize buffer the Ready loop's inbound
+	// channels. raft tolerates message loss, so overflow simply drops.
+	proposeChanSize     = 64
+	incomingMsgChanSize = 256
 )
 
 var (
 	// ErrNotLeader is returned when an operation is attempted on a non-leader node.
 	ErrNotLeader = errors.New("not leader")
+
+	// ErrLeadershipLost is returned to a pending Apply when this node loses
+	// leadership before the proposed command commits.
+	ErrLeadershipLost = errors.New("leadership lost")
 
 	// ErrNotStarted is returned when an operation is attempted before the cluster is started.
 	ErrNotStarted = errors.New("raft cluster not started")
@@ -60,6 +81,32 @@ var (
 	ErrLeaderElectionTimeout = errors.New("timed out waiting for shard raft leader election")
 )
 
+// ShardRaftState is this node's role in a shard's RAFT cluster. It replaces the
+// leaked hashicorp raft.RaftState in the public Store API.
+type ShardRaftState uint32
+
+const (
+	ShardStateFollower ShardRaftState = iota
+	ShardStateCandidate
+	ShardStateLeader
+	ShardStateShutdown
+)
+
+func (s ShardRaftState) String() string {
+	switch s {
+	case ShardStateFollower:
+		return "Follower"
+	case ShardStateCandidate:
+		return "Candidate"
+	case ShardStateLeader:
+		return "Leader"
+	case ShardStateShutdown:
+		return "Shutdown"
+	default:
+		return "Unknown"
+	}
+}
+
 // StoreConfig holds configuration for a shard's RAFT cluster.
 type StoreConfig struct {
 	// ClassName is the name of the class this shard belongs to.
@@ -68,74 +115,166 @@ type StoreConfig struct {
 	ShardName string
 	// NodeID is the local node's identifier.
 	NodeID string
-	// DataPath is the root path where RAFT data will be stored.
-	DataPath string
 	// Members is the list of node IDs that are members of this shard's RAFT cluster.
 	Members []string
 	// Logger is the logger to use.
 	Logger *logrus.Logger
 	// ApplyTimeout is the timeout for RAFT Apply operations.
 	ApplyTimeout time.Duration
+	// TickInterval is how often the Ready loop ticks the RawNode.
+	TickInterval time.Duration
 
-	// Transport is the RAFT transport to use. In production this is a TCP transport,
-	// in tests it can be an in-memory transport.
-	Transport raft.Transport
+	// Transport delivers raft messages to peer nodes. In production this is
+	// the node's MuxTransport; in tests it is a MemTransport.
+	Transport Transport
+	// SharedLog is the node-wide multi-group raft log.
+	SharedLog *sharedlog.Store
+	// Snapshotter is the node-wide bounded snapshot worker pool.
+	Snapshotter *Snapshotter
+	// NodeIDs translates between string node IDs and etcd/raft uint64 IDs.
+	// If nil, a private map is created (single-node use only).
+	NodeIDs *nodeIDMap
+	// Resolver resolves node IDs to host addresses (for Leader()).
+	Resolver addressResolver
 
-	// RAFT timing configuration
-	HeartbeatTimeout   time.Duration
-	ElectionTimeout    time.Duration
+	// RAFT timing configuration.
+	HeartbeatTimeout time.Duration
+	ElectionTimeout  time.Duration
+	// SnapshotThreshold is the applied-index delta that triggers a snapshot.
+	SnapshotThreshold uint64
+
+	// LeaderLeaseTimeout, SnapshotInterval and TrailingLogs have no etcd/raft
+	// equivalent and are unused. They are removed in commit 5 alongside the
+	// config-wiring cleanup.
 	LeaderLeaseTimeout time.Duration
 	SnapshotInterval   time.Duration
-	SnapshotThreshold  uint64
 	TrailingLogs       uint64
 }
 
-// Store manages a RAFT cluster for a single physical shard.
-// Each shard has its own RAFT cluster where membership equals the shard's
-// replica nodes (Physical.BelongsToNodes).
-type Store struct {
-	config StoreConfig
-	log    logrus.FieldLogger
-
-	// RAFT components
-	raft          *raft.Raft
-	fsm           *FSM
-	logStore      *raftbolt.BoltStore
-	logCache      *raft.LogCache
-	snapshotStore raft.SnapshotStore
-	transport     raft.Transport
-
-	// State
-	mu       sync.RWMutex
-	started  bool
-	closed   bool
-	dataPath string
+// Response is the result of applying a command to the FSM.
+type Response struct {
+	Error   error
+	Version uint64
 }
 
-// NewStore creates a new RAFT cluster for a shard.
-// The cluster is not started until Start() is called.
+// applyResult carries a committed command's outcome back to a pending Apply.
+type applyResult struct {
+	idx uint64
+	err error
+}
+
+// pendingApply correlates one in-flight Apply with its committed entry.
+type pendingApply struct {
+	done chan applyResult
+}
+
+// proposal is one command queued from Apply onto the Ready loop.
+type proposal struct {
+	reqID uint64
+	data  []byte
+}
+
+// Store manages a RAFT cluster for a single physical shard. Each shard has its
+// own etcd/raft group; membership equals the shard's replica nodes
+// (Physical.BelongsToNodes). The public API is library-agnostic.
+type Store struct {
+	config  StoreConfig
+	log     logrus.FieldLogger
+	groupID uint64
+
+	fsm         *FSM
+	transport   Transport
+	sharedLog   *sharedlog.Store
+	snapshotter *Snapshotter
+	nodeIDs     *nodeIDMap
+	resolver    addressResolver
+
+	// raftStorage is this group's view of the shared log; it is the
+	// RawNode's raft.Storage.
+	raftStorage  raft.Storage
+	tickInterval time.Duration
+
+	// rawNode and the Ready-loop channels are owned by the run() goroutine
+	// after Start; only run() touches rawNode (it is not thread-safe).
+	rawNode       *raft.RawNode
+	proposeCh     chan proposal
+	incomingMsgCh chan raftpb.Message
+	snapResultCh  chan SnapshotResult
+	loopCtx       context.Context
+	loopCancel    context.CancelFunc
+	loopDone      chan struct{}
+
+	// confState / lastSnapshotIndex / snapshotPending are Ready-loop-local.
+	confState         raftpb.ConfState
+	lastSnapshotIndex uint64
+	snapshotPending   bool
+
+	// leadership snapshots, written by the Ready loop, read by accessors.
+	state    atomic.Uint32 // ShardRaftState
+	leaderID atomic.Uint64
+	leaderCh chan struct{}
+
+	// pending correlates Apply reqIDs with their committed entries.
+	pending   map[uint64]*pendingApply
+	pendingMu sync.Mutex
+	nextReqID atomic.Uint64
+
+	mu      sync.RWMutex
+	started bool
+	closed  bool
+}
+
+// NewStore creates a new RAFT cluster for a shard. The cluster is not started
+// until Start() is called.
 func NewStore(config StoreConfig) (*Store, error) {
 	if config.ApplyTimeout == 0 {
 		config.ApplyTimeout = defaultApplyTimeout
 	}
+	if config.TickInterval <= 0 {
+		config.TickInterval = defaultTickInterval
+	}
+	if config.SharedLog == nil {
+		return nil, fmt.Errorf("shard store: SharedLog is required")
+	}
+	if config.Snapshotter == nil {
+		return nil, fmt.Errorf("shard store: Snapshotter is required")
+	}
+	if config.Transport == nil {
+		return nil, fmt.Errorf("shard store: Transport is required")
+	}
+	nodeIDs := config.NodeIDs
+	if nodeIDs == nil {
+		nodeIDs = newNodeIDMap()
+	}
 
-	// Calculate the data path for this shard's RAFT state
-	dataPath := filepath.Join(config.DataPath, "raft")
+	groupID := hashGroupID(config.ClassName, config.ShardName)
 
 	log := config.Logger.WithFields(logrus.Fields{
 		"component": "shard_raft_store",
 		"class":     config.ClassName,
 		"shard":     config.ShardName,
+		"group":     groupID,
 	})
 
 	return &Store{
-		config:    config,
-		log:       log,
-		fsm:       NewFSM(config.ClassName, config.ShardName, config.NodeID, config.Logger),
-		transport: config.Transport,
-		dataPath:  dataPath,
+		config:       config,
+		log:          log,
+		groupID:      groupID,
+		fsm:          NewFSM(config.ClassName, config.ShardName, config.NodeID, config.Logger),
+		transport:    config.Transport,
+		sharedLog:    config.SharedLog,
+		snapshotter:  config.Snapshotter,
+		nodeIDs:      nodeIDs,
+		resolver:     config.Resolver,
+		raftStorage:  config.SharedLog.Storage(groupID),
+		tickInterval: config.TickInterval,
+		leaderCh:     make(chan struct{}, 1),
+		pending:      make(map[uint64]*pendingApply),
 	}, nil
 }
+
+// GroupID returns this shard's etcd/raft group identifier.
+func (s *Store) GroupID() uint64 { return s.groupID }
 
 // SetShard sets the shard operator that will process commands.
 // This must be called before Start().
@@ -182,284 +321,535 @@ func (s *Store) Start(ctx context.Context) error {
 
 	s.log.Info("starting shard RAFT store")
 
-	// Initialize storage
-	if err := s.initStorage(); err != nil {
-		return fmt.Errorf("init storage: %w", err)
+	// Seed the nodeID map's reverse table for every member before driving the
+	// RawNode, so any uint64 etcd hands back (Status().Lead, ConfState.Voters,
+	// Message.From) can be un-hashed to a string node ID.
+	for _, m := range s.config.Members {
+		s.nodeIDs.register(m)
+	}
+	localID := s.nodeIDs.register(s.config.NodeID)
+
+	hasGroup, err := s.sharedLog.HasGroup(s.groupID)
+	if err != nil {
+		return fmt.Errorf("check existing group: %w", err)
 	}
 
-	// Create RAFT instance
-	if err := s.initRaft(); err != nil {
-		s.cleanupStorage()
-		return fmt.Errorf("init raft: %w", err)
+	rn, err := raft.NewRawNode(s.raftConfig(localID))
+	if err != nil {
+		return fmt.Errorf("new raw node: %w", err)
 	}
 
-	// Bootstrap if this is a new cluster
-	if err := s.maybeBootstrap(); err != nil {
-		s.cleanupRaft()
-		s.cleanupStorage()
-		return fmt.Errorf("bootstrap: %w", err)
+	if !hasGroup {
+		peers := make([]raft.Peer, 0, len(s.config.Members))
+		for _, m := range s.config.Members {
+			peers = append(peers, raft.Peer{ID: s.nodeIDs.register(m)})
+		}
+		if err := rn.Bootstrap(peers); err != nil {
+			return fmt.Errorf("bootstrap raft group: %w", err)
+		}
+		s.log.WithField("peers", len(peers)).Info("bootstrapped RAFT group")
+	} else if snap, err := s.raftStorage.Snapshot(); err == nil && !raft.IsEmptySnap(snap) {
+		// Restart from a local snapshot: re-seed the FSM's applied index so
+		// WaitForAppliedIndex stays correct across restarts.
+		var meta shardSnapshotData
+		if len(snap.Data) > 0 && json.Unmarshal(snap.Data, &meta) == nil {
+			if err := s.fsm.RestoreFromSnapshot(meta); err != nil {
+				s.log.WithError(err).Warn("restore FSM from local snapshot")
+			}
+		}
+		s.confState = snap.Metadata.ConfState
+		s.lastSnapshotIndex = snap.Metadata.Index
 	}
+
+	s.rawNode = rn
+	s.proposeCh = make(chan proposal, proposeChanSize)
+	s.incomingMsgCh = make(chan raftpb.Message, incomingMsgChanSize)
+	s.snapResultCh = make(chan SnapshotResult, 1)
+	s.loopCtx, s.loopCancel = context.WithCancel(context.Background())
+	s.loopDone = make(chan struct{})
+
+	enterrors.GoWrapper(s.run, s.log)
 
 	s.started = true
 	s.log.Info("shard RAFT store started")
 	return nil
 }
 
-// initStorage initializes the log store and snapshot store.
-func (s *Store) initStorage() error {
-	// Create the data directory
-	if err := os.MkdirAll(s.dataPath, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", s.dataPath, err)
+// raftConfig builds the etcd/raft configuration for this group.
+func (s *Store) raftConfig(localID uint64) *raft.Config {
+	hb := ticksFromDuration(s.config.HeartbeatTimeout, s.tickInterval, defaultHeartbeatTicks)
+	el := ticksFromDuration(s.config.ElectionTimeout, s.tickInterval, defaultElectionTicks)
+	if el <= hb {
+		el = hb + 1
 	}
 
-	// Initialize BoltDB log store
-	var err error
-	s.logStore, err = raftbolt.NewBoltStore(filepath.Join(s.dataPath, raftDBName))
-	if err != nil {
-		return fmt.Errorf("bolt db: %w", err)
+	var applied uint64
+	if snap, err := s.raftStorage.Snapshot(); err == nil {
+		applied = snap.Metadata.Index
 	}
 
-	// Initialize log cache
-	s.logCache, err = raft.NewLogCache(logCacheCapacity, s.logStore)
-	if err != nil {
-		s.logStore.Close()
-		return fmt.Errorf("log cache: %w", err)
+	return &raft.Config{
+		ID:              localID,
+		ElectionTick:    el,
+		HeartbeatTick:   hb,
+		Storage:         s.raftStorage,
+		Applied:         applied,
+		MaxSizePerMsg:   defaultMaxSizePerMsg,
+		MaxInflightMsgs: defaultMaxInflightMsgs,
+		CheckQuorum:     true,
+		PreVote:         true,
+		Logger:          raftLogger{s.log},
 	}
-
-	// Initialize snapshot store
-	s.snapshotStore, err = raft.NewFileSnapshotStore(s.dataPath, nRetainedSnapshots, s.config.Logger.Writer())
-	if err != nil {
-		s.logStore.Close()
-		return fmt.Errorf("snapshot store: %w", err)
-	}
-
-	return nil
 }
 
-// initRaft creates the RAFT instance.
-func (s *Store) initRaft() error {
-	cfg := s.raftConfig()
-
-	var err error
-	s.raft, err = raft.NewRaft(cfg, s.fsm, s.logCache, s.logStore, s.snapshotStore, s.transport)
-	if err != nil {
-		return fmt.Errorf("new raft: %w", err)
+// ticksFromDuration converts a timeout duration to a tick count, falling back
+// to def when the duration is unset.
+func ticksFromDuration(d, tick time.Duration, def int) int {
+	if d <= 0 || tick <= 0 {
+		return def
 	}
-
-	return nil
+	n := int(d / tick)
+	if n < 1 {
+		n = 1
+	}
+	return n
 }
 
-// raftConfig creates the RAFT configuration.
-func (s *Store) raftConfig() *raft.Config {
-	cfg := raft.DefaultConfig()
+// run is the Ready loop: the single goroutine that owns the RawNode. It ticks,
+// drains Ready(), persists, transmits, applies committed entries, and Advances.
+func (s *Store) run() {
+	defer close(s.loopDone)
 
-	if s.config.HeartbeatTimeout > 0 {
-		cfg.HeartbeatTimeout = s.config.HeartbeatTimeout
-	}
-	if s.config.ElectionTimeout > 0 {
-		cfg.ElectionTimeout = s.config.ElectionTimeout
-	}
-	if s.config.LeaderLeaseTimeout > 0 {
-		cfg.LeaderLeaseTimeout = s.config.LeaderLeaseTimeout
-	}
-	if s.config.SnapshotInterval > 0 {
-		cfg.SnapshotInterval = s.config.SnapshotInterval
-	}
-	if s.config.SnapshotThreshold > 0 {
-		cfg.SnapshotThreshold = s.config.SnapshotThreshold
-	}
-	if s.config.TrailingLogs > 0 {
-		cfg.TrailingLogs = s.config.TrailingLogs
-	} else {
-		// Shard-level default: zero trailing logs. Out-of-band state transfer
-		// handles followers that fall behind, so no trailing logs are needed
-		// for catch-up via log replay.
-		cfg.TrailingLogs = 0
-	}
+	ticker := time.NewTicker(s.tickInterval)
+	defer ticker.Stop()
 
-	cfg.LocalID = raft.ServerID(s.config.NodeID)
-	cfg.LogLevel = s.config.Logger.GetLevel().String()
-	cfg.NoLegacyTelemetry = true
-	cfg.Logger = log.NewHCLogrusLogger("shard-raft", s.config.Logger)
+	for {
+		select {
+		case <-s.loopCtx.Done():
+			return
+		case <-ticker.C:
+			s.rawNode.Tick()
+		case m := <-s.incomingMsgCh:
+			if err := s.rawNode.Step(m); err != nil {
+				s.log.WithError(err).Debug("raft step")
+			}
+		case p := <-s.proposeCh:
+			s.handlePropose(p)
+		case r := <-s.snapResultCh:
+			s.onSnapshotResult(r)
+		}
 
-	return cfg
+		for s.rawNode.HasReady() {
+			s.processReady()
+		}
+	}
 }
 
-// maybeBootstrap bootstraps the RAFT cluster if this is a new cluster.
-func (s *Store) maybeBootstrap() error {
-	// Check if the cluster has already been bootstrapped
-	hasState, err := raft.HasExistingState(s.logCache, s.logStore, s.snapshotStore)
-	if err != nil {
-		return fmt.Errorf("check existing state: %w", err)
-	}
+// processReady drains one Ready: persist durably, install snapshots, send
+// messages, apply committed entries, track leadership, Advance, then maybe
+// trigger a new snapshot.
+func (s *Store) processReady() {
+	rd := s.rawNode.Ready()
 
-	if hasState {
-		s.log.Info("RAFT store already bootstrapped, skipping bootstrap")
-		return nil
-	}
-
-	// Build the server configuration from members
-	var servers []raft.Server
-	for _, member := range s.config.Members {
-		servers = append(servers, raft.Server{
-			ID:       raft.ServerID(member),
-			Address:  raft.ServerAddress(member), // Will be resolved by the transport
-			Suffrage: raft.Voter,
-		})
-	}
-
-	configuration := raft.Configuration{Servers: servers}
-
-	s.log.WithField("servers", len(servers)).Info("bootstrapping RAFT store")
-	fut := s.raft.BootstrapCluster(configuration)
-	if err := fut.Error(); err != nil {
-		// Ignore "already bootstrapped" error
-		if !errors.Is(err, raft.ErrCantBootstrap) {
-			return fmt.Errorf("bootstrap cluster: %w", err)
+	// 1. Persist HardState + Entries (+ Snapshot) durably before sending.
+	if len(rd.Entries) > 0 || !raft.IsEmptyHardState(rd.HardState) || !raft.IsEmptySnap(rd.Snapshot) {
+		gw := sharedlog.GroupWrite{GroupID: s.groupID, Entries: rd.Entries}
+		if !raft.IsEmptyHardState(rd.HardState) {
+			hs := rd.HardState
+			gw.HardState = &hs
+		}
+		if !raft.IsEmptySnap(rd.Snapshot) {
+			sn := rd.Snapshot
+			gw.Snapshot = &sn
+		}
+		if err := s.sharedLog.Append(context.Background(), gw); err != nil {
+			panic(fmt.Sprintf("shard raft %s/%s: durability invariant violated persisting raft state: %v",
+				s.config.ClassName, s.config.ShardName, err))
 		}
 	}
 
-	return nil
+	// 2. Install a received snapshot into the FSM.
+	if !raft.IsEmptySnap(rd.Snapshot) {
+		s.applySnapshot(rd.Snapshot)
+	}
+
+	// 3. Transmit outbound messages.
+	if len(rd.Messages) > 0 {
+		s.transport.Send(s.groupID, rd.Messages)
+	}
+
+	// 4. Apply committed entries to the FSM, wake pending Applies.
+	s.applyEntries(rd.CommittedEntries)
+
+	// 5. Track leadership changes.
+	if rd.SoftState != nil {
+		s.handleSoftState(rd.SoftState)
+	}
+
+	// 6. Advance and maybe snapshot.
+	s.rawNode.Advance(rd)
+	s.maybeSnapshot()
+}
+
+// applySnapshot installs a snapshot received from the leader: restore the FSM
+// from its metadata and discard the now-stale log prefix.
+func (s *Store) applySnapshot(snap raftpb.Snapshot) {
+	if len(snap.Data) > 0 {
+		var meta shardSnapshotData
+		if err := json.Unmarshal(snap.Data, &meta); err != nil {
+			s.log.WithError(err).Error("decode snapshot data")
+		} else if err := s.fsm.RestoreFromSnapshot(meta); err != nil {
+			s.log.WithError(err).Error("restore from snapshot")
+		}
+	}
+	s.confState = snap.Metadata.ConfState
+	if err := s.sharedLog.Compact(s.groupID, snap.Metadata.Index+1); err != nil {
+		s.log.WithError(err).Warn("compact log after snapshot install")
+	}
+	s.lastSnapshotIndex = snap.Metadata.Index
+}
+
+// applyEntries dispatches committed entries to the FSM and wakes pending Applies.
+func (s *Store) applyEntries(entries []raftpb.Entry) {
+	for i := range entries {
+		ent := entries[i]
+		switch ent.Type {
+		case raftpb.EntryNormal:
+			if len(ent.Data) == 0 {
+				// Empty leader entry (no-op on election) — advance index only.
+				s.fsm.setApplied(ent.Index)
+				continue
+			}
+			reqID, payload, ok := decodeCmd(ent.Data)
+			if !ok {
+				s.log.WithField("index", ent.Index).Error("malformed command entry, skipping")
+				s.fsm.setApplied(ent.Index)
+				continue
+			}
+			resp := s.fsm.Dispatch(payload, ent.Index)
+			s.wakePending(reqID, applyResult{idx: ent.Index, err: resp.Error})
+		case raftpb.EntryConfChange:
+			var cc raftpb.ConfChange
+			if err := cc.Unmarshal(ent.Data); err != nil {
+				s.log.WithError(err).Error("unmarshal conf change")
+			} else if cs := s.rawNode.ApplyConfChange(cc); cs != nil {
+				s.confState = *cs
+			}
+			s.fsm.setApplied(ent.Index)
+		case raftpb.EntryConfChangeV2:
+			var cc raftpb.ConfChangeV2
+			if err := cc.Unmarshal(ent.Data); err != nil {
+				s.log.WithError(err).Error("unmarshal conf change v2")
+			} else if cs := s.rawNode.ApplyConfChange(cc); cs != nil {
+				s.confState = *cs
+			}
+			s.fsm.setApplied(ent.Index)
+		default:
+			s.fsm.setApplied(ent.Index)
+		}
+	}
+}
+
+// handleSoftState records a leadership change and wakes waiters; on losing
+// leadership it fails all pending Applies.
+func (s *Store) handleSoftState(ss *raft.SoftState) {
+	prev := ShardRaftState(s.state.Load())
+	next := mapRaftState(ss.RaftState)
+	s.state.Store(uint32(next))
+
+	prevLeader := s.leaderID.Load()
+	s.leaderID.Store(ss.Lead)
+	if ss.Lead != prevLeader {
+		select {
+		case s.leaderCh <- struct{}{}:
+		default:
+		}
+	}
+
+	if prev == ShardStateLeader && next != ShardStateLeader {
+		s.drainPending(ErrLeadershipLost)
+	}
+}
+
+// handlePropose proposes a queued command, or fails it fast if not leader.
+func (s *Store) handlePropose(p proposal) {
+	if ShardRaftState(s.state.Load()) != ShardStateLeader {
+		s.wakePending(p.reqID, applyResult{err: ErrNotLeader})
+		return
+	}
+	if err := s.rawNode.Propose(p.data); err != nil {
+		s.wakePending(p.reqID, applyResult{err: ErrNotLeader})
+	}
+}
+
+// maybeSnapshot dispatches a snapshot job once the applied index has advanced
+// far enough past the last snapshot. Snapshots are advisory: if the pool is
+// busy the attempt simply retries on a later round.
+func (s *Store) maybeSnapshot() {
+	if s.snapshotPending {
+		return
+	}
+	threshold := s.config.SnapshotThreshold
+	if threshold == 0 {
+		threshold = defaultSnapshotThreshold
+	}
+	applied := s.fsm.LastAppliedIndex()
+	if applied < s.lastSnapshotIndex+threshold {
+		return
+	}
+	sh := s.fsm.getShard()
+	if sh == nil {
+		return
+	}
+	err := s.snapshotter.Submit(SnapshotRequest{
+		GroupID:      s.groupID,
+		ClassName:    s.config.ClassName,
+		ShardName:    s.config.ShardName,
+		NodeID:       s.config.NodeID,
+		AppliedIndex: applied,
+		Flusher:      sh,
+		Result:       s.snapResultCh,
+	})
+	if err != nil {
+		return // busy/closed — retry next round
+	}
+	s.snapshotPending = true
+}
+
+// onSnapshotResult records a completed snapshot in raft storage and truncates
+// the log. It runs single-threaded on the Ready loop.
+func (s *Store) onSnapshotResult(r SnapshotResult) {
+	s.snapshotPending = false
+	if r.Err != nil {
+		s.log.WithError(r.Err).WithField("index", r.Index).Warn("snapshot job failed")
+		return
+	}
+	term, err := s.raftStorage.Term(r.Index)
+	if err != nil {
+		s.log.WithError(err).WithField("index", r.Index).Warn("snapshot index already compacted, skipping")
+		return
+	}
+	snap := raftpb.Snapshot{
+		Data: r.Metadata,
+		Metadata: raftpb.SnapshotMetadata{
+			Index:     r.Index,
+			Term:      term,
+			ConfState: s.confState,
+		},
+	}
+	if err := s.sharedLog.Append(context.Background(), sharedlog.GroupWrite{
+		GroupID:  s.groupID,
+		Snapshot: &snap,
+	}); err != nil {
+		panic(fmt.Sprintf("shard raft %s/%s: durability invariant violated persisting snapshot: %v",
+			s.config.ClassName, s.config.ShardName, err))
+	}
+	if err := s.sharedLog.Compact(s.groupID, r.Index+1); err != nil {
+		s.log.WithError(err).Warn("compact log after snapshot")
+	}
+	s.lastSnapshotIndex = r.Index
+}
+
+// wakePending delivers a result to a waiting Apply, if one is registered.
+// The send is non-blocking: a result may already have been delivered (e.g. a
+// leadership-loss drain racing a commit), in which case this is a no-op.
+func (s *Store) wakePending(reqID uint64, res applyResult) {
+	s.pendingMu.Lock()
+	p, ok := s.pending[reqID]
+	s.pendingMu.Unlock()
+	if !ok {
+		return
+	}
+	select {
+	case p.done <- res:
+	default:
+	}
+}
+
+// drainPending fails every in-flight Apply with err.
+func (s *Store) drainPending(err error) {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	for _, p := range s.pending {
+		select {
+		case p.done <- applyResult{err: err}:
+		default:
+		}
+	}
+}
+
+// step hands an inbound raft message to the Ready loop. Called by the
+// Registry's MessageRouter. Non-blocking: a message that arrives before Start
+// or after Stop, or when the queue is full, is dropped — raft re-sends.
+func (s *Store) step(msg raftpb.Message) {
+	s.mu.RLock()
+	ch := s.incomingMsgCh
+	live := s.started && !s.closed
+	s.mu.RUnlock()
+	if !live || ch == nil {
+		return
+	}
+	select {
+	case ch <- msg:
+	default:
+		s.log.WithField("type", msg.Type).Warn("dropping inbound raft message: queue full")
+	}
 }
 
 // Stop gracefully stops the RAFT cluster.
 func (s *Store) Stop() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.closed {
+		s.mu.Unlock()
 		return nil
 	}
 	if !s.started {
 		s.closed = true
+		s.mu.Unlock()
 		return nil
 	}
+	s.closed = true
+	loopCancel := s.loopCancel
+	loopDone := s.loopDone
+	s.mu.Unlock()
 
 	s.log.Info("stopping shard RAFT store")
 
-	s.cleanupRaft()
-	s.cleanupStorage()
+	loopCancel()
+	<-loopDone
 
+	// Fail any Apply still waiting on a commit the (now stopped) loop will
+	// never deliver.
+	s.drainPending(ErrAlreadyClosed)
+
+	s.mu.Lock()
 	s.started = false
-	s.closed = true
+	s.mu.Unlock()
+
 	s.log.Info("shard RAFT store stopped")
 	return nil
 }
 
-func (s *Store) cleanupRaft() {
-	if s.raft != nil {
-		if err := s.raft.Shutdown().Error(); err != nil {
-			s.log.WithError(err).Error("error shutting down raft")
-		}
-		s.raft = nil
-	}
-}
-
-func (s *Store) cleanupStorage() {
-	if s.logStore != nil {
-		if err := s.logStore.Close(); err != nil {
-			s.log.WithError(err).Error("error closing log store")
-		}
-		s.logStore = nil
-	}
-	s.logCache = nil
-	s.snapshotStore = nil
-}
-
-// Apply applies a command to the RAFT cluster. It blocks until the command is committed and applied on all replicas.
+// Apply applies a command to the RAFT cluster. It blocks until the command is
+// committed and applied locally, or the context is cancelled.
 func (s *Store) Apply(ctx context.Context, req *shardproto.ApplyRequest) (uint64, error) {
 	s.mu.RLock()
-	if !s.started {
-		s.mu.RUnlock()
+	started, closed := s.started, s.closed
+	s.mu.RUnlock()
+	if !started {
 		return 0, ErrNotStarted
 	}
-	if s.closed {
-		s.mu.RUnlock()
+	if closed {
 		return 0, ErrAlreadyClosed
 	}
-	r := s.raft
-	s.mu.RUnlock()
 
-	// Serialize the command
-	cmdBytes, err := proto.Marshal(req)
+	body, err := proto.Marshal(req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal command: %w", err)
 	}
 
-	// Apply to RAFT
-	fut := r.Apply(cmdBytes, s.config.ApplyTimeout)
-	if err := fut.Error(); err != nil {
-		if errors.Is(err, raft.ErrNotLeader) {
-			return 0, ErrNotLeader
-		}
-		return 0, fmt.Errorf("raft apply: %w", err)
+	reqID := s.nextReqID.Add(1)
+	p := &pendingApply{done: make(chan applyResult, 1)}
+	s.pendingMu.Lock()
+	s.pending[reqID] = p
+	s.pendingMu.Unlock()
+	defer func() {
+		s.pendingMu.Lock()
+		delete(s.pending, reqID)
+		s.pendingMu.Unlock()
+	}()
+
+	select {
+	case s.proposeCh <- proposal{reqID: reqID, data: encodeCmd(reqID, body)}:
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-s.loopDone:
+		return 0, ErrAlreadyClosed
 	}
 
-	// Always wait for the response
-	futureResponse := fut.Response()
-	resp, ok := futureResponse.(Response)
-	if !ok {
-		// This should not happen, but it's better to log an error *if* it happens than panic and crash.
-		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen", futureResponse)
+	select {
+	case r := <-p.done:
+		return r.idx, r.err
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-s.loopDone:
+		return 0, ErrAlreadyClosed
 	}
-	return resp.Version, resp.Error
 }
 
 // IsLeader returns true if this node is the leader of the shard's RAFT cluster.
 func (s *Store) IsLeader() bool {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if !s.started || s.closed || s.raft == nil {
+	started, closed := s.started, s.closed
+	s.mu.RUnlock()
+	if !started || closed {
 		return false
 	}
-	return s.raft.State() == raft.Leader
+	return ShardRaftState(s.state.Load()) == ShardStateLeader
 }
 
 // Leader returns the current leader's address, or empty string if unknown.
 func (s *Store) Leader() string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if !s.started || s.closed || s.raft == nil {
+	id := s.LeaderID()
+	if id == "" {
 		return ""
 	}
-	addr, _ := s.raft.LeaderWithID()
-	return string(addr)
+	if s.resolver == nil {
+		return id
+	}
+	if addr := s.resolver.NodeAddress(id); addr != "" {
+		return addr
+	}
+	return id
 }
 
 // LeaderID returns the current leader's node ID, or empty string if unknown.
 func (s *Store) LeaderID() string {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if !s.started || s.closed || s.raft == nil {
+	started, closed := s.started, s.closed
+	s.mu.RUnlock()
+	if !started || closed {
 		return ""
 	}
-	_, id := s.raft.LeaderWithID()
-	return string(id)
+	id := s.leaderID.Load()
+	if id == 0 {
+		return ""
+	}
+	str, ok := s.nodeIDs.stringID(id)
+	if !ok {
+		return ""
+	}
+	return str
 }
 
-// VerifyLeader ensures this node is still the leader. Used for linearizable reads.
+// VerifyLeader ensures this node is still the leader. Used for linearizable
+// reads. Correctness rests on CheckQuorum: a leader that has lost contact with
+// a majority steps itself down within ~election-timeout.
 func (s *Store) VerifyLeader() error {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if !s.started || s.closed || s.raft == nil {
+	started, closed := s.started, s.closed
+	s.mu.RUnlock()
+	if closed {
+		return ErrAlreadyClosed
+	}
+	if !started {
 		return ErrNotStarted
 	}
-	return s.raft.VerifyLeader().Error()
+	if ShardRaftState(s.state.Load()) != ShardStateLeader {
+		return ErrNotLeader
+	}
+	return nil
 }
 
 // State returns the current RAFT state of this node.
-func (s *Store) State() raft.RaftState {
+func (s *Store) State() ShardRaftState {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if !s.started || s.closed || s.raft == nil {
-		return raft.Shutdown
+	started, closed := s.started, s.closed
+	s.mu.RUnlock()
+	if !started || closed {
+		return ShardStateShutdown
 	}
-	return s.raft.State()
+	return ShardRaftState(s.state.Load())
 }
 
 // LastAppliedIndex returns the last applied RAFT log index.
@@ -468,8 +858,7 @@ func (s *Store) LastAppliedIndex() uint64 {
 }
 
 // WaitForAppliedIndex blocks until the local FSM has applied at least
-// targetIndex, or the context is cancelled. Used by followers to ensure
-// their local state has caught up before performing a local read.
+// targetIndex, or the context is cancelled.
 func (s *Store) WaitForAppliedIndex(ctx context.Context, targetIndex uint64) error {
 	return s.fsm.WaitForIndex(ctx, targetIndex)
 }
@@ -478,22 +867,20 @@ func (s *Store) WaitForAppliedIndex(ctx context.Context, targetIndex uint64) err
 // cluster (either local or remote), or the context is cancelled.
 func (s *Store) WaitForLeader(ctx context.Context) error {
 	s.mu.RLock()
-	if s.closed {
-		s.mu.RUnlock()
+	started, closed := s.started, s.closed
+	loopDone := s.loopDone
+	s.mu.RUnlock()
+	if closed {
 		return ErrAlreadyClosed
 	}
-	if !s.started {
-		s.mu.RUnlock()
+	if !started {
 		return ErrNotStarted
 	}
-	r := s.raft
-	s.mu.RUnlock()
 
-	if hasLeader(r) {
+	if s.leaderID.Load() != 0 {
 		return nil
 	}
 
-	leaderCh := r.LeaderCh()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -504,30 +891,79 @@ func (s *Store) WaitForLeader(ctx context.Context) error {
 				return ErrLeaderElectionTimeout
 			}
 			return ctx.Err()
-		case <-leaderCh:
-			if hasLeader(r) {
+		case <-s.leaderCh:
+			if s.leaderID.Load() != 0 {
 				return nil
 			}
 		case <-ticker.C:
-			if hasLeader(r) {
+			if s.leaderID.Load() != 0 {
 				return nil
 			}
+		case <-loopDone:
+			return ErrAlreadyClosed
 		}
 	}
 }
 
-func hasLeader(r *raft.Raft) bool {
-	if r == nil {
-		return false
+// mapRaftState maps an etcd/raft StateType to a ShardRaftState.
+func mapRaftState(st raft.StateType) ShardRaftState {
+	switch st {
+	case raft.StateLeader:
+		return ShardStateLeader
+	case raft.StateCandidate, raft.StatePreCandidate:
+		return ShardStateCandidate
+	default:
+		return ShardStateFollower
 	}
-	addr, id := r.LeaderWithID()
-	return addr != "" && id != ""
 }
 
-type Response struct {
-	Error   error
-	Version uint64
+// encodeCmd prefixes a marshalled command with its 8-byte request ID so the
+// Ready loop can correlate the committed entry back to the waiting Apply.
+func encodeCmd(reqID uint64, body []byte) []byte {
+	out := make([]byte, 8+len(body))
+	binary.BigEndian.PutUint64(out[:8], reqID)
+	copy(out[8:], body)
+	return out
 }
+
+// decodeCmd splits an entry into its request ID and command payload.
+func decodeCmd(data []byte) (reqID uint64, payload []byte, ok bool) {
+	if len(data) < 8 {
+		return 0, nil, false
+	}
+	return binary.BigEndian.Uint64(data[:8]), data[8:], true
+}
+
+// hashGroupID derives a deterministic uint64 group ID from a class/shard pair,
+// mirroring hashNodeID (0 is bumped to 1 since etcd/raft has no group 0 reserved
+// but 0 is a convenient "unset" sentinel for the Registry's router table).
+func hashGroupID(className, shardName string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(className))
+	_, _ = h.Write([]byte{'/'})
+	_, _ = h.Write([]byte(shardName))
+	v := h.Sum64()
+	if v == 0 {
+		return 1
+	}
+	return v
+}
+
+// raftLogger adapts a logrus.FieldLogger to etcd/raft's Logger interface.
+type raftLogger struct{ l logrus.FieldLogger }
+
+func (r raftLogger) Debug(v ...interface{})              { r.l.Debug(v...) }
+func (r raftLogger) Debugf(f string, v ...interface{})   { r.l.Debugf(f, v...) }
+func (r raftLogger) Info(v ...interface{})               { r.l.Info(v...) }
+func (r raftLogger) Infof(f string, v ...interface{})    { r.l.Infof(f, v...) }
+func (r raftLogger) Warning(v ...interface{})            { r.l.Warn(v...) }
+func (r raftLogger) Warningf(f string, v ...interface{}) { r.l.Warnf(f, v...) }
+func (r raftLogger) Error(v ...interface{})              { r.l.Error(v...) }
+func (r raftLogger) Errorf(f string, v ...interface{})   { r.l.Errorf(f, v...) }
+func (r raftLogger) Fatal(v ...interface{})              { r.l.Fatal(v...) }
+func (r raftLogger) Fatalf(f string, v ...interface{})   { r.l.Fatalf(f, v...) }
+func (r raftLogger) Panic(v ...interface{})              { r.l.Panic(v...) }
+func (r raftLogger) Panicf(f string, v ...interface{})   { r.l.Panicf(f, v...) }
 
 // memTransportInboxSize is generous so that, in practice, tests never hit the
 // drop path. Dropping is still correct (raft re-sends) — the buffer just

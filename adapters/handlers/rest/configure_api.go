@@ -411,6 +411,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		RaftPort:        raftCfg.ShardRaftPort,
 		AddressResolver: appState.Cluster,
 		RpcClientMaker:  rpcClientMaker,
+		DataPath:        appState.ServerConfig.Config.Persistence.DataPath,
 
 		HeartbeatTimeout:   raftCfg.HeartbeatTimeout,
 		ElectionTimeout:    raftCfg.ElectionTimeout,
