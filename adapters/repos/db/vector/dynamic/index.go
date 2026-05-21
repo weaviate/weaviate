@@ -114,8 +114,6 @@ type dynamic struct {
 	db                           *bbolt.DB
 	ctx                          context.Context
 	cancel                       context.CancelFunc
-	hnswDisableSnapshots         bool
-	hnswSnapshotOnStartup        bool
 	hnswWaitForCachePrefill      bool
 	AllocChecker                 memwatch.AllocChecker
 	MakeBucketOptions            lsmkv.MakeBucketOptions
@@ -166,8 +164,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		db:                           cfg.SharedDB,
 		ctx:                          ctx,
 		cancel:                       cancel,
-		hnswDisableSnapshots:         cfg.HNSWDisableSnapshots,
-		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
 		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
 		AllocChecker:                 cfg.AllocChecker,
 		MakeBucketOptions:            cfg.MakeBucketOptions,
@@ -194,8 +190,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				TempVectorForIDWithViewThunk: index.tempVectorForIDWithViewThunk,
 				DistanceProvider:             index.distanceProvider,
 				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
-				DisableSnapshots:             index.hnswDisableSnapshots,
-				SnapshotOnStartup:            index.hnswSnapshotOnStartup,
 				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
 				AllocChecker:                 index.AllocChecker,
 				MakeBucketOptions:            index.MakeBucketOptions,
@@ -301,6 +295,18 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 	})
 	if err != nil {
 		return false, errors.Wrap(err, "get dynamic state")
+	}
+
+	// If not yet upgraded, remove any stale HNSW commit log left by a
+	// previous failed upgrade attempt. The compact-v2 Loader replays the
+	// live WAL file on every hnsw.New() call, so without this cleanup each
+	// retry inherits partial state from the prior attempt, corrupting the
+	// compressor and causing vector-dimension mismatches at search time.
+	if !upgraded {
+		commitLogDir := hnswCommitLogDirectory(cfg.RootPath, cfg.ID)
+		if err := os.RemoveAll(commitLogDir); err != nil {
+			return false, errors.Wrap(err, "clean up stale hnsw commit log")
+		}
 	}
 
 	return upgraded, nil
@@ -536,8 +542,6 @@ func (dynamic *dynamic) doUpgrade() error {
 			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
 			DistanceProvider:             dynamic.distanceProvider,
 			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
-			DisableSnapshots:             dynamic.hnswDisableSnapshots,
-			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
 			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
 			AllocChecker:                 dynamic.AllocChecker,
 			MakeBucketOptions:            dynamic.MakeBucketOptions,

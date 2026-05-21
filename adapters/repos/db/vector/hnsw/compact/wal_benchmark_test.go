@@ -9,17 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package hnsw
+package compact
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/binary"
 	"math/rand"
 	"testing"
 	"time"
-
-	"github.com/sirupsen/logrus/hooks/test"
 )
 
 func sampleCommitType(r *rand.Rand) HnswCommitType {
@@ -36,8 +32,8 @@ func sampleCommitType(r *rand.Rand) HnswCommitType {
 }
 
 func BenchmarkDeserializerPerf(b *testing.B) {
-	buf := new(bytes.Buffer)
-	writer := bufio.NewWriter(buf)
+	var buf bytes.Buffer
+	writer := NewWALWriter(&buf)
 
 	maxNodeID := uint64(1000000)
 	r := rand.New(rand.NewSource(42))
@@ -46,25 +42,21 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 	connections := make([]int, maxNodeID)
 	skipped := 0
 
-	// Generate realistic level using HNSW probability (most at level 0)
 	generateLevel := func() uint16 {
 		level := 0
-		for r.Float64() < 0.5 && level < 6 { // Cap at level 6 (realistic max)
+		for r.Float64() < 0.5 && level < 6 {
 			level++
 		}
 		return uint16(level)
 	}
 
-	// Generate realistic connection count based on level and HNSW limits
 	generateConnectionCount := func(level uint16) uint16 {
 		var maxConn int
 		if level == 0 {
-			maxConn = M * 2 // Allow some overflow during construction
+			maxConn = M * 2
 		} else {
 			maxConn = M
 		}
-
-		// Most connections are near the limit (realistic HNSW behavior)
 		minConn := maxConn / 2
 		return uint16(r.Intn(maxConn-minConn+1) + minConn)
 	}
@@ -79,68 +71,63 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 			connCount := generateConnectionCount(level)
 
 			if connections[sourceID] > 2*M {
-				skipped += 1
+				skipped++
 				continue
-			} else {
-				connections[sourceID] += int(connCount)
 			}
+			connections[sourceID] += int(connCount)
 
-			writer.WriteByte(byte(commit))
-			binary.Write(writer, binary.LittleEndian, sourceID)
-			binary.Write(writer, binary.LittleEndian, level)
-			binary.Write(writer, binary.LittleEndian, connCount)
-			for j := 0; j < int(connCount); j++ {
-				binary.Write(writer, binary.LittleEndian, uint64(r.Int63n(int64(maxNodeID))))
+			targets := make([]uint64, connCount)
+			for j := range targets {
+				targets[j] = uint64(r.Int63n(int64(maxNodeID)))
+			}
+			if err := writer.WriteReplaceLinksAtLevel(sourceID, level, targets); err != nil {
+				b.Fatal(err)
 			}
 
 		case AddNode:
 			nodeID := uint64(r.Int63n(int64(maxNodeID)))
 			level := generateLevel()
-			writer.WriteByte(byte(commit))
-			binary.Write(writer, binary.LittleEndian, nodeID)
-			binary.Write(writer, binary.LittleEndian, level)
+			if err := writer.WriteAddNode(nodeID, level); err != nil {
+				b.Fatal(err)
+			}
 
 		case AddLinkAtLevel:
 			sourceID := uint64(r.Int63n(int64(maxNodeID)))
 
 			if connections[sourceID] > 2*M {
-				skipped += 1
+				skipped++
 				continue
-			} else {
-				connections[sourceID] += 1
 			}
+			connections[sourceID]++
 
 			level := generateLevel()
 			target := uint64(r.Int63n(int64(maxNodeID)))
-
-			writer.WriteByte(byte(commit))
-			binary.Write(writer, binary.LittleEndian, sourceID)
-			binary.Write(writer, binary.LittleEndian, level)
-			binary.Write(writer, binary.LittleEndian, target)
+			if err := writer.WriteAddLinkAtLevel(sourceID, level, target); err != nil {
+				b.Fatal(err)
+			}
 
 		case ClearLinksAtLevel:
 			nodeID := uint64(r.Int63n(int64(maxNodeID)))
 			connections[nodeID] = 0
 			level := generateLevel()
-			writer.WriteByte(byte(commit))
-			binary.Write(writer, binary.LittleEndian, nodeID)
-			binary.Write(writer, binary.LittleEndian, level)
+			if err := writer.WriteClearLinksAtLevel(nodeID, level); err != nil {
+				b.Fatal(err)
+			}
+
 		default:
 			continue
 		}
 	}
-	writer.Flush()
 
-	// Create deserializer
-	logger, _ := test.NewNullLogger()
-	deserializer := NewDeserializer(logger)
+	logger := testLogger()
+	data := buf.Bytes()
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		reader := bufio.NewReader(bytes.NewReader(buf.Bytes()))
-		_, _, err := deserializer.Do(reader, nil, true)
-		if err != nil {
+		walReader := NewWALCommitReader(bytes.NewReader(data), logger)
+		memReader := NewInMemoryReader(walReader, logger)
+		if _, err := memReader.Do(nil, true); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -153,16 +140,15 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 }
 
 func BenchmarkAddLinksAtLevelPerf(b *testing.B) {
-	buf := new(bytes.Buffer)
-	writer := bufio.NewWriter(buf)
+	var buf bytes.Buffer
+	writer := NewWALWriter(&buf)
 
 	maxNodeID := uint64(1000000)
 	r := rand.New(rand.NewSource(42))
 	const linksPerOperation = 64
-	commitLogs := 1000000 // 1M operations
-	level := uint16(0)    // Always use level 0 for simiplicity
+	commitLogs := 1000000
+	level := uint16(0)
 
-	// Track which nodes have links at level 0
 	nodesWithLinks := make(map[uint64]bool)
 	addLinksCount := 0
 	clearLinksCount := 0
@@ -170,45 +156,36 @@ func BenchmarkAddLinksAtLevelPerf(b *testing.B) {
 	for i := 0; i < commitLogs; i++ {
 		sourceID := uint64(r.Int63n(int64(maxNodeID)))
 
-		// Check if this node already has links at level 0
 		if nodesWithLinks[sourceID] {
-			// Clear existing links first
-			writer.WriteByte(byte(ClearLinksAtLevel))
-			binary.Write(writer, binary.LittleEndian, sourceID)
-			binary.Write(writer, binary.LittleEndian, level)
+			if err := writer.WriteClearLinksAtLevel(sourceID, level); err != nil {
+				b.Fatal(err)
+			}
 			clearLinksCount++
 			nodesWithLinks[sourceID] = false
 		}
 
-		// Add 64 random links
 		targets := make([]uint64, linksPerOperation)
-		for j := 0; j < linksPerOperation; j++ {
+		for j := range targets {
 			targets[j] = uint64(r.Int63n(int64(maxNodeID)))
 		}
 
-		writer.WriteByte(byte(AddLinksAtLevel))
-		binary.Write(writer, binary.LittleEndian, sourceID)
-		binary.Write(writer, binary.LittleEndian, level)
-		binary.Write(writer, binary.LittleEndian, uint16(linksPerOperation))
-		for _, target := range targets {
-			binary.Write(writer, binary.LittleEndian, target)
+		if err := writer.WriteAddLinksAtLevel(sourceID, level, targets); err != nil {
+			b.Fatal(err)
 		}
 
 		nodesWithLinks[sourceID] = true
 		addLinksCount++
 	}
-	writer.Flush()
 
-	// Create deserializer
-	logger, _ := test.NewNullLogger()
-	deserializer := NewDeserializer(logger)
+	logger := testLogger()
+	data := buf.Bytes()
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		reader := bufio.NewReader(bytes.NewReader(buf.Bytes()))
-		_, _, err := deserializer.Do(reader, nil, true)
-		if err != nil {
+		walReader := NewWALCommitReader(bytes.NewReader(data), logger)
+		memReader := NewInMemoryReader(walReader, logger)
+		if _, err := memReader.Do(nil, true); err != nil {
 			b.Fatal(err)
 		}
 	}

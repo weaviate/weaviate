@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
@@ -118,17 +117,15 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 				TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
 				DistanceProvider:                  distProv,
-				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+				MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+					// Prepend our default options, caller's opts take precedence
+					allOpts := append([]hnsw.CommitlogOption{
+						// consistent with previous logic where the individual limit is 1/5 of the combined limit
+						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
+					}, opts...)
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-						hnsw.WithAllocChecker(s.index.allocChecker),
-						hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
-						// consistent with previous logic where the individual limit is 1/5 of the combined limit
-						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
-						hnsw.WithSnapshotDisabled(s.index.Config.HNSWDisableSnapshots),
-						hnsw.WithSnapshotCreateInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
-						hnsw.WithSnapshotMinDeltaCommitlogsNumer(s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber),
-						hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
+						allOpts...,
 					)
 				},
 				AllocChecker:           s.index.allocChecker,
@@ -136,8 +133,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
 				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
 				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
-				DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
-				SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
 				MakeBucketOptions:      makeBucketOptions,
 				AsyncIndexingEnabled:   s.index.AsyncIndexingEnabled,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
@@ -207,26 +202,22 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 			GetViewThunk:                 func() vcommon.BucketView { return s.GetObjectsBucketView() },
 			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
-			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+			MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+				// Prepend our default options, caller's opts take precedence
+				allOpts := append([]hnsw.CommitlogOption{
+					// consistent with previous logic where the individual limit is 1/5 of the combined limit
+					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
+				}, opts...)
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-					hnsw.WithAllocChecker(s.index.allocChecker),
-					hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
-					// consistent with previous logic where the individual limit is 1/5 of the combined limit
-					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
-					hnsw.WithSnapshotDisabled(s.index.Config.HNSWDisableSnapshots),
-					hnsw.WithSnapshotCreateInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
-					hnsw.WithSnapshotMinDeltaCommitlogsNumer(s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber),
-					hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
+					allOpts...,
 				)
 			},
-			TombstoneCallbacks:    s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SharedDB:              sharedDB,
-			HNSWDisableSnapshots:  s.index.Config.HNSWDisableSnapshots,
-			HNSWSnapshotOnStartup: s.index.Config.HNSWSnapshotOnStartup,
-			AllocChecker:          s.index.allocChecker,
-			MakeBucketOptions:     makeBucketOptions,
-			AsyncIndexingEnabled:  s.index.AsyncIndexingEnabled,
+			TombstoneCallbacks:   s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			SharedDB:             sharedDB,
+			AllocChecker:         s.index.allocChecker,
+			MakeBucketOptions:    makeBucketOptions,
+			AsyncIndexingEnabled: s.index.AsyncIndexingEnabled,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
@@ -277,17 +268,15 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					TempVectorForIDWithViewThunk:      hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 					TempMultiVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readMultiVectorByIndexIDIntoSliceWithView),
 					DistanceProvider:                  distProv,
-					MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+					MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
+						// Prepend our default options, caller's opts take precedence
+						allOpts := append([]hnsw.CommitlogOption{
+							// consistent with previous logic where the individual limit is 1/5 of the combined limit
+							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
+						}, opts...)
 						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-							hnsw.WithAllocChecker(s.index.allocChecker),
-							hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
-							// consistent with previous logic where the individual limit is 1/5 of the combined limit
-							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
-							hnsw.WithSnapshotDisabled(s.index.Config.HNSWDisableSnapshots),
-							hnsw.WithSnapshotCreateInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
-							hnsw.WithSnapshotMinDeltaCommitlogsNumer(s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber),
-							hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
+							allOpts...,
 						)
 					},
 					AllocChecker:           s.index.allocChecker,
@@ -295,8 +284,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
 					AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
 					VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
-					DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
-					SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
 					MakeBucketOptions:      makeBucketOptions,
 				},
 			},
