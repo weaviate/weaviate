@@ -48,7 +48,8 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 				WithPayload(newUsageLimitPayload(le))
 		}
 		if v, ok := restrictions.AsViolation(err); ok {
-			return newRestrictionViolationResponder(v)
+			return schema.NewSchemaObjectsCreateUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
 		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
@@ -56,7 +57,7 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(err))
 		}
 	}
 
@@ -76,7 +77,8 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 			return schema.NewSchemaObjectsUpdateNotFound()
 		}
 		if v, ok := restrictions.AsViolation(err); ok {
-			return newRestrictionViolationResponder(v)
+			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
 		}
 
 		switch {
@@ -85,7 +87,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(err))
 		}
 	}
 
@@ -143,13 +145,17 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	_, _, err := s.manager.AddClassProperty(ctx, principal, s.manager.ReadOnlyClass(params.ClassName), params.ClassName, false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsPropertiesAddForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(err))
 		}
 	}
 
