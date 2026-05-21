@@ -324,6 +324,9 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		if body.Searchable.Rebuild {
 			verbs = append(verbs, "searchable.rebuild")
 		}
+		if body.Searchable.Algorithm != "" {
+			verbs = append(verbs, "searchable.algorithm")
+		}
 		// Tokenization is a verb on its own (change-tokenization) ONLY when
 		// Enabled is not set. With Enabled it is part of the enable verb.
 		if body.Searchable.Tokenization != "" && !body.Searchable.Enabled {
@@ -333,7 +336,7 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 			verbs = append(verbs, "searchable.cancel")
 		}
 		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in searchable: %v — set exactly one of enabled, rebuild, tokenization, or cancel (tokenization combined with enabled is allowed)", verbs)
+			return fmt.Errorf("conflicting fields in searchable: %v — set exactly one of enabled, rebuild, algorithm, tokenization, or cancel (tokenization combined with enabled is allowed)", verbs)
 		}
 		if len(verbs) == 1 {
 			groupsSet = append(groupsSet, "searchable")

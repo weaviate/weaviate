@@ -8528,6 +8528,13 @@ func init() {
     "IndexUpdateSearchable": {
       "type": "object",
       "properties": {
+        "algorithm": {
+          "description": "Switch the BM25 algorithm for this property's searchable index. Currently only ` + "`" + `blockmax` + "`" + ` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported.",
+          "type": "string",
+          "enum": [
+            "blockmax"
+          ]
+        },
         "cancel": {
           "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
           "type": "boolean"
@@ -8536,7 +8543,7 @@ func init() {
           "type": "boolean"
         },
         "rebuild": {
-          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -\u003e wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
+          "description": "When true, rebuilds the searchable index for this property from the stored objects. Preserves the current tokenization and BM25 algorithm. Only valid when the property's current algorithm is ` + "`" + `blockmax` + "`" + `; on a WAND property the request is rejected with guidance to use ` + "`" + `algorithm:\"blockmax\"` + "`" + ` first.",
           "type": "boolean"
         },
         "tokenization": {
@@ -19691,6 +19698,13 @@ func init() {
     "IndexUpdateSearchable": {
       "type": "object",
       "properties": {
+        "algorithm": {
+          "description": "Switch the BM25 algorithm for this property's searchable index. Currently only ` + "`" + `blockmax` + "`" + ` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported.",
+          "type": "string",
+          "enum": [
+            "blockmax"
+          ]
+        },
         "cancel": {
           "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
           "type": "boolean"
@@ -19699,7 +19713,7 @@ func init() {
           "type": "boolean"
         },
         "rebuild": {
-          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -\u003e wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
+          "description": "When true, rebuilds the searchable index for this property from the stored objects. Preserves the current tokenization and BM25 algorithm. Only valid when the property's current algorithm is ` + "`" + `blockmax` + "`" + `; on a WAND property the request is rejected with guidance to use ` + "`" + `algorithm:\"blockmax\"` + "`" + ` first.",
           "type": "boolean"
         },
         "tokenization": {

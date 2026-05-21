@@ -145,7 +145,7 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	}
 
 	// Submit reindex.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Poll until reindex is done via /indexes endpoint.
@@ -399,7 +399,7 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 	}
 
 	// Submit reindex (repair-searchable — the most common type).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))

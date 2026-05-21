@@ -1020,6 +1020,35 @@ func TestValidateBodyExclusivity(t *testing.T) {
 			},
 			wantErr: "conflicting fields in filterable",
 		},
+
+		// --- algorithm verb ----------------------------------------------------
+		{
+			name: "valid: searchable.algorithm alone",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax"},
+			},
+		},
+		{
+			name: "reject: searchable.algorithm + searchable.rebuild",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Rebuild: true},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
+		{
+			name: "reject: searchable.algorithm + searchable.tokenization",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Tokenization: "word"},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
+		{
+			name: "reject: searchable.algorithm + searchable.enabled",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Enabled: true},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
 	}
 
 	for _, tc := range cases {

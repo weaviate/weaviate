@@ -156,7 +156,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			properties: searchableScopeProps,
 			objects:    textScopeObjects,
 			target:     "title",
-			body:       `{"searchable":{"rebuild":true}}`,
+			body:       `{"searchable":{"algorithm":"blockmax"}}`,
 			indexType:  "searchable",
 		},
 		{

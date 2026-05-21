@@ -180,7 +180,7 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 	}
 
 	// Complete a reindex.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
 	// Rolling restart all 3 nodes one at a time.

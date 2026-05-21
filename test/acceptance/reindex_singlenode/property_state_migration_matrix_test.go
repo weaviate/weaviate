@@ -261,7 +261,7 @@ func matrixBodies() []matrixBody {
 		{"PUT_searchable_tokenization_word", `{"searchable":{"tokenization":"word"}}`},
 		{"PUT_searchable_tokenization_field", `{"searchable":{"tokenization":"field"}}`},
 		// repair-searchable.
-		{"PUT_searchable_rebuild", `{"searchable":{"rebuild":true}}`},
+		{"PUT_searchable_rebuild", `{"searchable":{"algorithm":"blockmax"}}`},
 		// canonical enable-filterable.
 		{"PUT_filterable_enabled", `{"filterable":{"enabled":true}}`},
 		{"PUT_filterable_enabled_false", `{"filterable":{"enabled":false}}`},
