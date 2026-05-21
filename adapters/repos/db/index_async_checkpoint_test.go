@@ -160,16 +160,16 @@ func TestIndex_CreateAsyncCheckpoint_DelegatesToShard(t *testing.T) {
 	shard.On("CreateAsyncCheckpoint", mock.Anything, int64(123), now).Return(nil).Once()
 	idx.shards.Store("s1", shard)
 
-	require.NoError(t, idx.CreateAsyncCheckpoint(context.Background(), "s1", 123, now))
+	require.NoError(t, idx.createAsyncCheckpoint(context.Background(), "s1", 123, now))
 }
 
 func TestIndex_CreateAsyncCheckpoint_ShardNotLoadedReturnsNil(t *testing.T) {
 	// GetShard returns (nil, _, nil) when the shard isn't in the map. A
 	// fan-out create posts the same shard list to every node, so a shard
 	// not hosted here is a benign no-op — not a failure. This matches
-	// Index.DeleteAsyncCheckpoint.
+	// Index.deleteAsyncCheckpoint.
 	idx := indexForCheckpointTest(t)
-	require.NoError(t, idx.CreateAsyncCheckpoint(context.Background(), "missing", 123, time.Now()))
+	require.NoError(t, idx.createAsyncCheckpoint(context.Background(), "missing", 123, time.Now()))
 }
 
 func TestIndex_CreateAsyncCheckpoint_ShardErrorPropagates(t *testing.T) {
@@ -180,7 +180,7 @@ func TestIndex_CreateAsyncCheckpoint_ShardErrorPropagates(t *testing.T) {
 	shard.On("CreateAsyncCheckpoint", mock.Anything, mock.Anything, mock.Anything).Return(staleErr).Once()
 	idx.shards.Store("s1", shard)
 
-	err := idx.CreateAsyncCheckpoint(context.Background(), "s1", 123, time.Now())
+	err := idx.createAsyncCheckpoint(context.Background(), "s1", 123, time.Now())
 	require.Error(t, err)
 	assert.Equal(t, staleErr, err, "shard-level error must surface untransformed so the REST status mapper can classify it")
 }
@@ -194,16 +194,16 @@ func TestIndex_DeleteAsyncCheckpoint_DelegatesToShard(t *testing.T) {
 	shard.On("DeleteAsyncCheckpoint", mock.Anything).Return(nil).Once()
 	idx.shards.Store("s1", shard)
 
-	require.NoError(t, idx.DeleteAsyncCheckpoint(context.Background(), "s1"))
+	require.NoError(t, idx.deleteAsyncCheckpoint(context.Background(), "s1"))
 }
 
 func TestIndex_DeleteAsyncCheckpoint_ShardNotLoadedReturnsNil(t *testing.T) {
 	// Unlike Create, Delete is idempotent across replicas — a missing shard
 	// here is a no-op so a fan-out delete to a node that doesn't host the
 	// shard is harmless. This matches the design note in
-	// Index.DeleteAsyncCheckpoint.
+	// Index.deleteAsyncCheckpoint.
 	idx := indexForCheckpointTest(t)
-	require.NoError(t, idx.DeleteAsyncCheckpoint(context.Background(), "missing"))
+	require.NoError(t, idx.deleteAsyncCheckpoint(context.Background(), "missing"))
 }
 
 // --- GetAsyncCheckpointShardStatus -----------------------------------------
@@ -227,7 +227,7 @@ func TestIndex_GetAsyncCheckpointShardStatus_OmitsUnloadedShards(t *testing.T) {
 	inactive.On("AsyncCheckpointRoot", mock.Anything).Return(hashtree.Digest{}, int64(0), time.Time{}, false).Once()
 	idx.shards.Store("inactive", inactive)
 
-	got, err := idx.GetAsyncCheckpointShardStatus(context.Background(),
+	got, err := idx.getAsyncCheckpointShardStatus(context.Background(),
 		[]string{"active", "inactive", "missing"})
 	require.NoError(t, err)
 
@@ -249,7 +249,7 @@ func TestIndex_GetAsyncCheckpointShardStatus_OmitsUnloadedShards(t *testing.T) {
 
 func TestIndex_GetAsyncCheckpointShardStatus_EmptyRequestReturnsEmptyMap(t *testing.T) {
 	idx := indexForCheckpointTest(t)
-	got, err := idx.GetAsyncCheckpointShardStatus(context.Background(), nil)
+	got, err := idx.getAsyncCheckpointShardStatus(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
@@ -261,7 +261,7 @@ func TestIndex_GetAsyncCheckpointShardStatus_CancelledContextReturnsError(t *tes
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	got, err := idx.GetAsyncCheckpointShardStatus(ctx, []string{"s1"})
+	got, err := idx.getAsyncCheckpointShardStatus(ctx, []string{"s1"})
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, got)
 }

@@ -235,7 +235,7 @@ func (db *DB) GetAsyncCheckpointStatus(ctx context.Context, className string, sh
 		return nil, pr.FirstError()
 	}
 	targets := index.resolveShardNames(shardNames)
-	return index.GetAsyncCheckpointShardStatus(ctx, targets)
+	return index.getAsyncCheckpointShardStatus(ctx, targets)
 }
 
 func (db *DB) CreateAsyncCheckpoints(ctx context.Context, className string, cutoffMs int64, shards []string) error {

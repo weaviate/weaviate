@@ -21,10 +21,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// CreateAsyncCheckpoint applies a fan-out create. createdAt must be the
+// createAsyncCheckpoint applies a fan-out create. createdAt must be the
 // initiator's timestamp (convergence tie-breaker). Returns nil for shards
 // not hosted on this node so a class-wide broadcast can no-op safely.
-func (i *Index) CreateAsyncCheckpoint(ctx context.Context, shardName string, cutoffMs int64, createdAt time.Time) error {
+func (i *Index) createAsyncCheckpoint(ctx context.Context, shardName string, cutoffMs int64, createdAt time.Time) error {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return fmt.Errorf("get shard %q: %w", shardName, err)
@@ -44,7 +44,7 @@ func (i *Index) createAsyncCheckpointShards(ctx context.Context, shardNames []st
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := i.CreateAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt); err != nil {
+		if err := i.createAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -57,15 +57,15 @@ func (i *Index) deleteAsyncCheckpointShards(ctx context.Context, shardNames []st
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := i.DeleteAsyncCheckpoint(ctx, shardName); err != nil {
+		if err := i.deleteAsyncCheckpoint(ctx, shardName); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// DeleteAsyncCheckpoint is idempotent; returns nil when the shard isn't loaded.
-func (i *Index) DeleteAsyncCheckpoint(ctx context.Context, shardName string) error {
+// deleteAsyncCheckpoint is idempotent; returns nil when the shard isn't loaded.
+func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) error {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return fmt.Errorf("get shard %q: %w", shardName, err)
@@ -77,10 +77,10 @@ func (i *Index) DeleteAsyncCheckpoint(ctx context.Context, shardName string) err
 	return shard.DeleteAsyncCheckpoint(ctx)
 }
 
-// GetAsyncCheckpointShardStatus omits shards not loaded here (including
+// getAsyncCheckpointShardStatus omits shards not loaded here (including
 // unloaded LazyLoadShards) so the aggregator can distinguish "not on this
 // node" from "loaded but inactive" (CutoffMs == 0).
-func (i *Index) GetAsyncCheckpointShardStatus(ctx context.Context, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
 	out := make(map[string]replica.AsyncCheckpointShardStatus, len(shardNames))
 	for _, shardName := range shardNames {
 		if err := ctx.Err(); err != nil {
@@ -152,7 +152,7 @@ func (i *Index) createAsyncCheckpoints(ctx context.Context, cutoffMs int64, shar
 
 	var localSuccesses, localFailures int
 	for _, shardName := range targets {
-		if err := i.CreateAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt); err != nil {
+		if err := i.createAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt); err != nil {
 			localFailures++
 			// Debug, not Warn: "shard not loaded here" is expected for fan-out.
 			i.logger.WithFields(logrus.Fields{
@@ -191,7 +191,7 @@ func (i *Index) deleteAsyncCheckpoints(ctx context.Context, shards []string, bro
 	targets := i.resolveShardNames(shards)
 	var localSuccesses, localFailures int
 	for _, shardName := range targets {
-		if err := i.DeleteAsyncCheckpoint(ctx, shardName); err != nil {
+		if err := i.deleteAsyncCheckpoint(ctx, shardName); err != nil {
 			localFailures++
 			i.logger.WithFields(logrus.Fields{
 				"action": "async_checkpoint_local",
@@ -226,7 +226,7 @@ func (i *Index) getAsyncCheckpointStatus(ctx context.Context, shards []string, b
 
 	out, remoteSuccesses, remoteFailures := broadcaster.BroadcastGetAsyncCheckpointStatus(ctx, targets)
 
-	localStatuses, err := i.GetAsyncCheckpointShardStatus(ctx, targets)
+	localStatuses, err := i.getAsyncCheckpointShardStatus(ctx, targets)
 	if err != nil {
 		return nil, fmt.Errorf("get local checkpoint status: %w", err)
 	}
