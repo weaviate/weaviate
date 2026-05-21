@@ -751,8 +751,8 @@ func runMigrationWithProbes(
 	samples := make([]probeSample, 0, 1024)
 	record := func(s probeSample) {
 		samplesMu.Lock()
+		defer samplesMu.Unlock()
 		samples = append(samples, s)
-		samplesMu.Unlock()
 	}
 
 	stopCh := make(chan struct{})

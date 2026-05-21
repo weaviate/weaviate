@@ -200,6 +200,82 @@ func (p *ReindexProvider) GetLocalTasks() []distributedtask.TaskDescriptor {
 	return nil
 }
 
+// Lock-coupled getters/setters for the in-memory caches keyed by
+// TaskDescriptor. Every state mutation goes through one of these so the
+// lock is always released via defer.
+
+func (p *ReindexProvider) registerStartingTask(desc distributedtask.TaskDescriptor, handle *reindexTaskHandle, payload *ReindexTaskPayload) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.runningHandles[desc] = handle
+	p.payloads[desc] = payload
+}
+
+func (p *ReindexProvider) deleteRunningHandle(desc distributedtask.TaskDescriptor) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.runningHandles, desc)
+}
+
+func (p *ReindexProvider) runningHandle(desc distributedtask.TaskDescriptor) (*reindexTaskHandle, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	handle, ok := p.runningHandles[desc]
+	return handle, ok
+}
+
+func (p *ReindexProvider) cachedPayload(desc distributedtask.TaskDescriptor) *ReindexTaskPayload {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.payloads[desc]
+}
+
+func (p *ReindexProvider) cachedReindexTasks(desc distributedtask.TaskDescriptor, unitID string) []*ShardReindexTaskGeneric {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.reindexTasks[desc][unitID]
+}
+
+func (p *ReindexProvider) cacheReindexTasks(desc distributedtask.TaskDescriptor, unitID string, tasks []*ShardReindexTaskGeneric) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.reindexTasks[desc] == nil {
+		p.reindexTasks[desc] = make(map[string][]*ShardReindexTaskGeneric)
+	}
+	p.reindexTasks[desc][unitID] = tasks
+}
+
+func (p *ReindexProvider) clearTaskCaches(desc distributedtask.TaskDescriptor) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.payloads, desc)
+	delete(p.reindexTasks, desc)
+}
+
+// claimActiveWorker reserves the (desc, unitID) slot in activeWorkers.
+// Returns false if another worker already holds it.
+func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor, unitID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.activeWorkers[desc][unitID] {
+		return false
+	}
+	if p.activeWorkers[desc] == nil {
+		p.activeWorkers[desc] = make(map[string]bool)
+	}
+	p.activeWorkers[desc][unitID] = true
+	return true
+}
+
+func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.activeWorkers[desc], unitID)
+	if len(p.activeWorkers[desc]) == 0 {
+		delete(p.activeWorkers, desc)
+	}
+}
+
 func (p *ReindexProvider) CleanupTask(_ distributedtask.TaskDescriptor) error {
 	return nil
 }
@@ -235,10 +311,7 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 		doneCh: make(chan struct{}),
 	}
 
-	p.mu.Lock()
-	p.runningHandles[task.TaskDescriptor] = handle
-	p.payloads[task.TaskDescriptor] = &payload
-	p.mu.Unlock()
+	p.registerStartingTask(task.TaskDescriptor, handle, &payload)
 
 	// Progress is emitted from the inverted-index reindex iteration every
 	// checkProcessingEveryNoObjects iterations (default 1000). p.recorder
@@ -248,9 +321,7 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 	// Raft. No additional throttle is needed here.
 	enterrors.GoWrapper(func() {
 		defer func() {
-			p.mu.Lock()
-			delete(p.runningHandles, task.TaskDescriptor)
-			p.mu.Unlock()
+			p.deleteRunningHandle(task.TaskDescriptor)
 			close(handle.doneCh)
 		}()
 
@@ -374,25 +445,11 @@ func (p *ReindexProvider) processOneUnit(
 	// + the local TestMultiNode_GracefulLeaderRestartDuringReindex
 	// failure both surfaced this).
 	if semantic {
-		p.mu.Lock()
-		if p.activeWorkers[task.TaskDescriptor][unitID] {
-			p.mu.Unlock()
+		if !p.claimActiveWorker(task.TaskDescriptor, unitID) {
 			logger.Info("reindex provider: skipping re-entered unit (concurrent worker)")
 			return
 		}
-		if p.activeWorkers[task.TaskDescriptor] == nil {
-			p.activeWorkers[task.TaskDescriptor] = make(map[string]bool)
-		}
-		p.activeWorkers[task.TaskDescriptor][unitID] = true
-		p.mu.Unlock()
-		defer func() {
-			p.mu.Lock()
-			delete(p.activeWorkers[task.TaskDescriptor], unitID)
-			if len(p.activeWorkers[task.TaskDescriptor]) == 0 {
-				delete(p.activeWorkers, task.TaskDescriptor)
-			}
-			p.mu.Unlock()
-		}()
+		defer p.releaseActiveWorker(task.TaskDescriptor, unitID)
 	}
 
 	// Use cached task instances when present. Two populating paths land
@@ -405,9 +462,7 @@ func (p *ReindexProvider) processOneUnit(
 		cached bool
 	)
 	if semantic {
-		p.mu.Lock()
-		tasks = p.reindexTasks[task.TaskDescriptor][unitID]
-		p.mu.Unlock()
+		tasks = p.cachedReindexTasks(task.TaskDescriptor, unitID)
 		cached = len(tasks) > 0
 	}
 	if !cached {
@@ -445,12 +500,7 @@ func (p *ReindexProvider) processOneUnit(
 	// we already have these instances in the map; only write on the
 	// fresh-tasks path.
 	if semantic && !cached {
-		p.mu.Lock()
-		if p.reindexTasks[task.TaskDescriptor] == nil {
-			p.reindexTasks[task.TaskDescriptor] = make(map[string][]*ShardReindexTaskGeneric)
-		}
-		p.reindexTasks[task.TaskDescriptor][unitID] = tasks
-		p.mu.Unlock()
+		p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
 	}
 
 	// Persist a recovery record so that a restart mid-flight can rebuild
@@ -737,10 +787,7 @@ func (p *ReindexProvider) propertyHasFilterableBucket(className, propName string
 // after a node restart that happened between reindex finishing and the
 // group callback firing.
 func (p *ReindexProvider) loadPayload(task *distributedtask.Task) (*ReindexTaskPayload, error) {
-	p.mu.Lock()
-	cached := p.payloads[task.TaskDescriptor]
-	p.mu.Unlock()
-	if cached != nil {
+	if cached := p.cachedPayload(task.TaskDescriptor); cached != nil {
 		return cached, nil
 	}
 
@@ -980,10 +1027,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 		}
 	}
 
-	p.mu.Lock()
-	cached := p.reindexTasks[task.TaskDescriptor][unitID]
-	p.mu.Unlock()
-	if len(cached) > 0 {
+	if cached := p.cachedReindexTasks(task.TaskDescriptor, unitID); len(cached) > 0 {
 		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
 	}
 
@@ -1016,12 +1060,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 
 	// Cache the rehydrated tasks so the SWAP callback's lookup hits after
 	// the PreparationCompleteAck barrier (RAFT propagation can take minutes).
-	p.mu.Lock()
-	if p.reindexTasks[task.TaskDescriptor] == nil {
-		p.reindexTasks[task.TaskDescriptor] = make(map[string][]*ShardReindexTaskGeneric)
-	}
-	p.reindexTasks[task.TaskDescriptor][unitID] = fresh
-	p.mu.Unlock()
+	p.cacheReindexTasks(task.TaskDescriptor, unitID, fresh)
 
 	logger.WithField("unit", unitID).
 		Info("reindex provider: resolveUnitForPhase: rebuilding tasks from disk (node likely restarted); cached for subsequent phase callbacks")
@@ -1455,10 +1494,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	// Clear caches up-front so a failed-task early return doesn't leak.
 	payload, payloadErr := p.loadPayload(task)
-	p.mu.Lock()
-	delete(p.payloads, task.TaskDescriptor)
-	delete(p.reindexTasks, task.TaskDescriptor)
-	p.mu.Unlock()
+	p.clearTaskCaches(task.TaskDescriptor)
 
 	logger := p.logger.WithField("taskID", task.ID).WithField("status", task.Status)
 	logger.Info("reindex provider: task-completion")
@@ -1876,9 +1912,7 @@ func (p *ReindexProvider) WaitForLocalTaskDrain(
 	ctx context.Context,
 	desc distributedtask.TaskDescriptor,
 ) error {
-	p.mu.Lock()
-	handle, ok := p.runningHandles[desc]
-	p.mu.Unlock()
+	handle, ok := p.runningHandle(desc)
 	if !ok {
 		return nil
 	}
