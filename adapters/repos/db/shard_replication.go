@@ -69,12 +69,6 @@ func (p *pendingReplicaTasks) keys() map[string]struct{} {
 	return out
 }
 
-// registerReplicaTask records a PREPARE's deferred task under its request ID
-// so a later commitReplication can run it.
-func (s *Shard) registerReplicaTask(requestID string, task replicaTask) {
-	s.replicationMap.set(requestID, task)
-}
-
 func (s *Shard) commitReplication(ctx context.Context, requestID string) interface{} {
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {
@@ -97,7 +91,7 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 			Code: replica.StatusPreconditionFailed, Msg: err.Error(),
 		}}}
 	}
-	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
+	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.putOne(ctx, uuid, object); err != nil {
 			resp.Errors = []replica.Error{
@@ -105,7 +99,8 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 			}
 		}
 		return resp
-	})
+	}
+	s.replicationMap.set(requestID, task)
 	return replica.SimpleResponse{}
 }
 
@@ -116,7 +111,7 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 			{Code: replica.StatusPreconditionFailed, Msg: err.Error()},
 		}}
 	}
-	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
+	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.merge(ctx, uuid, *doc); err != nil {
 			var code replica.StatusCode
@@ -130,12 +125,13 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 			}
 		}
 		return resp
-	})
+	}
+	s.replicationMap.set(requestID, task)
 	return replica.SimpleResponse{}
 }
 
 func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
-	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
+	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.DeleteObject(ctx, uuid, deletionTime); err != nil {
 			resp.Errors = []replica.Error{
@@ -143,12 +139,13 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 			}
 		}
 		return resp
-	})
+	}
+	s.replicationMap.set(requestID, task)
 	return replica.SimpleResponse{}
 }
 
 func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects []*storobj.Object) replica.SimpleResponse {
-	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
+	task := func(ctx context.Context) interface{} {
 		rawErrs := s.putBatch(ctx, objects)
 		resp := replica.SimpleResponse{Errors: make([]replica.Error, len(rawErrs))}
 		for i, err := range rawErrs {
@@ -157,14 +154,15 @@ func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects
 			}
 		}
 		return resp
-	})
+	}
+	s.replicationMap.set(requestID, task)
 	return replica.SimpleResponse{}
 }
 
 func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) replica.SimpleResponse {
-	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
+	task := func(ctx context.Context) interface{} {
 		result := newDeleteObjectsBatcher(s).Delete(ctx, uuids, deletionTime, dryRun)
 		resp := replica.DeleteBatchResponse{
 			Batch: make([]replica.UUID2Error, len(result)),
@@ -178,12 +176,13 @@ func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string,
 			resp.Batch[i] = entry
 		}
 		return resp
-	})
+	}
+	s.replicationMap.set(requestID, task)
 	return replica.SimpleResponse{}
 }
 
 func (s *Shard) prepareAddReferences(ctx context.Context, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
-	s.registerReplicaTask(requestID, func(ctx context.Context) interface{} {
+	task := func(ctx context.Context) interface{} {
 		rawErrs := newReferencesBatcher(s).References(ctx, refs)
 		resp := replica.SimpleResponse{Errors: make([]replica.Error, len(rawErrs))}
 		for i, err := range rawErrs {
@@ -192,7 +191,8 @@ func (s *Shard) prepareAddReferences(ctx context.Context, requestID string, refs
 			}
 		}
 		return resp
-	})
+	}
+	s.replicationMap.set(requestID, task)
 	return replica.SimpleResponse{}
 }
 
