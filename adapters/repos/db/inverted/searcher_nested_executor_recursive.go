@@ -197,11 +197,13 @@ func (e *recExecutor) executeRootAnchor() (*sroar.Bitmap, func(), error) {
 // evalNode dispatches by node type. parentScope (a raw position bitmap) limits
 // evaluation to positions within those array elements; nil means no restriction.
 //
-// The returned bitmap is a position bitmap with leaf bits zeroed. Most nodes
-// return a rootDoc bitmap (root_idx + docID). The single exception is a
-// recSplitNode at lcaPath="" — its branches must be ANDed at docID level
-// because they pin to different root_idx values, so the result has both root
-// and leaf bits zeroed. MaskRootLeaf in execute is idempotent in that case.
+// Most nodes return a raw position bitmap (root_idx | leaf_idx | docID) with
+// leaves intact so downstream operands can keep composing on raw positions; the
+// caller strips to docIDs via MaskRootLeaf when docIDs are needed. The single
+// exception is a recSplitNode at lcaPath="" — its branches pin to different
+// root_idx values, so andBranchesAtDocID MaskRootLeaf's each branch and ANDs
+// them at docID level; the result is a doc-only bitmap. A caller-side
+// MaskRootLeaf is idempotent on that doc-only result.
 func (e *recExecutor) evalNode(ctx context.Context, node recPlanNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
 	switch n := node.(type) {
 	case *recGroupNode:

@@ -195,7 +195,7 @@ func (pv *propValuePair) resolveNestedSubtree(ctx context.Context, s *Searcher) 
 	groups, allRootConstrained := groupChildrenByArrayIndicesKey(pv.children)
 	switch len(groups) {
 	case 0:
-		return nil, fmt.Errorf("nested correlated AND: no condition groups for %q", pv.prop)
+		return nil, fmt.Errorf("nested subtree: no condition groups for %q", pv.prop)
 	case 1:
 		return pv.resolveNestedSubtreeGroup(ctx, s, groups[0])
 	}
@@ -307,7 +307,7 @@ func (pv *propValuePair) resolveGroupRaw(ctx context.Context, s *Searcher, child
 	// consider deriving it from the request context or shard-level config.
 	raw, rawRelease, err := executor.execute(ctx, plan)
 	if err != nil {
-		return nil, nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
+		return nil, nil, fmt.Errorf("nested subtree: execute for %q: %w", pv.prop, err)
 	}
 	return raw, rawRelease, nil
 }
