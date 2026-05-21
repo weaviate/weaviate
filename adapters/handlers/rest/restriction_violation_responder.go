@@ -12,8 +12,6 @@
 package rest
 
 import (
-	"fmt"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/restrictions"
 )
@@ -34,7 +32,7 @@ func newRestrictionViolationPayload(v *restrictions.ViolationError) *models.Rest
 func restrictionViolationFromErr(err error) *models.RestrictionViolationResponse {
 	return &models.RestrictionViolationResponse{
 		Error: []*models.RestrictionViolationResponseErrorItems0{{
-			Message: fmt.Sprintf("%s", err),
+			Message: err.Error(),
 		}},
 	}
 }
