@@ -109,7 +109,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	}
 	if params.Body.ID == baseBackupID {
 		return backups.NewBackupsCreateInternalServerError().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("base backup cannot be the same as the new backup ID: %s", baseBackupID)))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("base backup cannot be the same as the new backup ID: %s", baseBackupID)))
 	}
 
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
@@ -127,13 +127,13 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return backups.NewBackupsCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -158,16 +158,16 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCreateStatusForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCreateStatusUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrNotFound{}):
 			return backups.NewBackupsCreateStatusNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return backups.NewBackupsCreateStatusInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -224,16 +224,16 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrNotFound{}):
 			return backups.NewBackupsRestoreNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return backups.NewBackupsRestoreInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -259,16 +259,16 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrNotFound{}):
 			return backups.NewBackupsRestoreNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return backups.NewBackupsRestoreInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 	strStatus := string(status.Status)
@@ -300,13 +300,13 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCancelForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCancelUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return backups.NewBackupsCancelInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -331,13 +331,13 @@ func (s *backupHandlers) cancelRestore(params backups.BackupsRestoreCancelParams
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreCancelForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreCancelUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return backups.NewBackupsRestoreCancelInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -356,14 +356,14 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 
 		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsRestoreUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return backups.NewBackupsRestoreInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 

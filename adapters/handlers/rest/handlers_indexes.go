@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
@@ -72,9 +73,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	if err := h.appState.Authorizer.Authorize(params.HTTPRequest.Context(), principal,
 		authorization.READ, authorization.CollectionsMetadata(collection)...); err != nil {
 		if errors.As(err, &authzerrors.Forbidden{}) {
-			return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
-		return schema.NewSchemaObjectsIndexesGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return schema.NewSchemaObjectsIndexesGetInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	class := h.appState.SchemaManager.ReadOnlyClass(collection)
@@ -204,9 +205,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	if err := h.appState.Authorizer.Authorize(params.HTTPRequest.Context(), principal,
 		authorization.UPDATE, authorization.Collections(collection)...); err != nil {
 		if errors.As(err, &authzerrors.Forbidden{}) {
-			return schema.NewSchemaObjectsIndexesUpdateForbidden().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaObjectsIndexesUpdateForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	// Acquire the per-(collection, property) submit lock EARLY — before
@@ -256,13 +257,13 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 	body := params.Body
 	if body == nil {
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse("request body required"))
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, "request body required"))
 	}
 
 	// Reject ambiguous bodies (multiple groups set, conflicting verbs within
 	// a group, or zero verbs) before the switch silently picks one arm.
 	if err := validateBodyExclusivity(body); err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 	}
 
 	// Cancel is fundamentally different from the other actions: it does not
@@ -291,7 +292,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		properties = []string{propertyName}
 		targetTok = body.Searchable.Tokenization
 		if err := validateEnableSearchableProperty(targetProp, targetTok); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 
 	case body.Searchable != nil && body.Searchable.Tokenization != "":
@@ -308,14 +309,14 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// just see a 400 and the dialog hangs. Filterable-only properties
 		// should use {filterable: {tokenization: X}} instead.
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				fmt.Sprintf("property %q has no searchable index; use {\"filterable\":{\"tokenization\":...}} to retokenize the filterable bucket, or {\"searchable\":{\"enabled\":true,\"tokenization\":...}} to add a searchable index", propertyName)))
 		}
 
 		var err error
 		bucketStrategy, err = validateTokenizationChange(h.appState, class, collection, propertyName, targetTok)
 		if err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 
 	case body.Filterable != nil && body.Filterable.Tokenization != "":
@@ -332,14 +333,14 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		targetTok = body.Filterable.Tokenization
 
 		if err := validateFilterableTokenizationChange(targetProp, targetTok); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 
 	case body.Searchable != nil && body.Searchable.Rebuild:
 		migrationType = db.ReindexTypeRepairSearchable
 		properties = []string{propertyName}
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
 		}
 
@@ -347,32 +348,32 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		migrationType = db.ReindexTypeEnableFilterable
 		properties = []string{propertyName}
 		if err := validateEnableFilterableProperty(targetProp); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 
 	case body.Filterable != nil && body.Filterable.Rebuild:
 		migrationType = db.ReindexTypeRepairFilterable
 		properties = []string{propertyName}
 		if targetProp.IndexFilterable != nil && !*targetProp.IndexFilterable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				fmt.Sprintf("property %q does not have a filterable index", propertyName)))
 		}
 		if err := validateRebuildFilterableDataType(targetProp); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 
 	case body.Rangeable != nil && body.Rangeable.Enabled:
 		migrationType = db.ReindexTypeEnableRangeable
 		properties = []string{propertyName}
 		if err := validateRangeableProperties(class, properties); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 
 	case body.Rangeable != nil && body.Rangeable.Rebuild:
 		migrationType = db.ReindexTypeRepairRangeable
 		properties = []string{propertyName}
 		if err := validateRebuildRangeableProperty(targetProp); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 
 	default:
@@ -381,10 +382,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// but the error says it's invalid") and was the symptom flagged on
 		// weaviate/0-weaviate-issues#227 (Gap 7). Order: per index-group,
 		// then alphabetical within group.
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
-			"no actionable change detected; set one of: " +
-				"searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
-				"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, " +
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
+			"no actionable change detected; set one of: "+
+				"searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, "+
+				"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, "+
 				"rangeable.cancel, rangeable.enabled, rangeable.rebuild"))
 	}
 
@@ -396,17 +397,17 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// Validate MT + tenants combination.
 	if !isMT && len(tenants) > 0 {
 		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(
-			errorResponse("tenants parameter is only valid for multi-tenant collections"))
+			errorResponse(principal, "tenants parameter is only valid for multi-tenant collections"))
 	}
 	if semantic && len(tenants) > 0 {
 		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(
-			errorResponse("tenants parameter cannot be used with semantic migrations (change-tokenization); all tenants must be targeted"))
+			errorResponse(principal, "tenants parameter cannot be used with semantic migrations (change-tokenization); all tenants must be targeted"))
 	}
 
 	// For MT collections with specific tenants, validate they exist and are not OFFLOADED/FROZEN.
 	if isMT && len(tenants) > 0 {
 		if err := validateTenants(h.appState.DB, params.HTTPRequest.Context(), collection, tenants); err != nil {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(err.Error()))
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, err.Error()))
 		}
 	}
 
@@ -423,10 +424,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	}
 	if err != nil {
 		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
-			errorResponse(fmt.Sprintf("getting shard ownership: %v", err)))
+			errorResponse(principal, fmt.Sprintf("getting shard ownership: %v", err)))
 	}
 	if len(shardOwnership) == 0 {
-		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse("collection has no shards"))
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal, "collection has no shards"))
 	}
 
 	unitIDs, unitToShard, unitToNode := buildUnitMaps(shardOwnership)
@@ -482,10 +483,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 				// prove the new submit doesn't conflict with it, so refuse
 				// rather than race. Return 503 so the caller knows to retry
 				// after an operator inspects the in-flight task.
-				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(checkErr.Error()))
+				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, checkErr.Error()))
 			}
 			if reason != "" {
-				return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(reason))
+				return schema.NewSchemaObjectsIndexesUpdateConflict().WithPayload(errorResponse(principal, reason))
 			}
 			// Per-collection cap on concurrent STARTED reindex tasks. Without
 			// this a caller scripting `for p in $(properties); do PUT
@@ -494,7 +495,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			// on every replica. The LSM compaction layer and disk would not
 			// survive that. Reject with 429 once the cap is reached.
 			if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
-				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(fmt.Sprintf(
+				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, fmt.Sprintf(
 					"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
 					collection, inflight, maxConcurrentReindexPerCollection)))
 			}
@@ -545,14 +546,14 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			ctx, db.ReindexNamespace, taskID, payload, unitSpecs, semantic,
 		); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
-				errorResponse(fmt.Sprintf("submitting task: %v", err)))
+				errorResponse(principal, fmt.Sprintf("submitting task: %v", err)))
 		}
 	} else {
 		if err := h.appState.ClusterService.AddDistributedTaskWithBarrier(
 			ctx, db.ReindexNamespace, taskID, payload, unitIDs, semantic,
 		); err != nil {
 			return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(
-				errorResponse(fmt.Sprintf("submitting task: %v", err)))
+				errorResponse(principal, fmt.Sprintf("submitting task: %v", err)))
 		}
 	}
 
@@ -611,13 +612,13 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 // the worker goroutine returns.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	if h.appState.ClusterService == nil {
-		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(
+		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
 			"cluster service unavailable; cannot cancel reindex task"))
 	}
 
 	tasks, err := h.appState.ClusterService.ListDistributedTasks(ctx)
 	if err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(
+		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
 			fmt.Sprintf("listing tasks: %v", err)))
 	}
 
@@ -651,7 +652,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	if err := h.appState.ClusterService.CancelDistributedTask(
 		ctx, target.Namespace, target.ID, target.Version,
 	); err != nil {
-		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(
+		return schema.NewSchemaObjectsIndexesUpdateInternalServerError().WithPayload(errorResponse(principal,
 			fmt.Sprintf("cancelling task: %v", err)))
 	}
 
@@ -1176,10 +1177,10 @@ func isSyntheticStatus(s string) bool {
 	return false
 }
 
-func errorResponse(msg string) *models.ErrorResponse {
+func errorResponse(principal *models.Principal, msg string) *models.ErrorResponse {
 	return &models.ErrorResponse{
 		Error: []*models.ErrorResponseErrorItems0{
-			{Message: msg},
+			{Message: namespacing.StripErrorMessage(principal, msg)},
 		},
 	}
 }

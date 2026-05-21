@@ -12,13 +12,15 @@
 package errors
 
 import (
-	"fmt"
-
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func ErrPayloadFromSingleErr(err error) *models.ErrorResponse {
+// ErrPayloadFromSingleErr builds a single-message ErrorResponse with the
+// principal's own namespace prefix stripped from err. Pass nil for global
+// callers to leave the message unchanged.
+func ErrPayloadFromSingleErr(principal *models.Principal, err error) *models.ErrorResponse {
 	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
-		Message: fmt.Sprintf("%s", err),
+		Message: namespacing.StripErrorMessage(principal, err.Error()),
 	}}}
 }
