@@ -127,7 +127,6 @@ func (st *Store) Apply(l *raft.Log) any {
 		// however we do not update the metrics so the metric will be the source of truth
 		// about AppliedIndex
 		st.lastAppliedIndex.Store(l.Index)
-		st.signalApplied()
 
 		if ret.Error != nil {
 			st.metrics.applyFailures.Inc()

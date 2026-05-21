@@ -18,7 +18,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -249,11 +248,6 @@ type Store struct {
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
 
-	// Close-and-replace notify: closed on each apply so
-	// WaitForAppliedIndex waiters wake without polling.
-	appliedNotifyMu sync.Mutex
-	appliedNotify   chan struct{}
-
 	// snapshotter is the snapshotter for the store
 	snapshotter fsm.Snapshotter
 
@@ -352,8 +346,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			Clock:            clockwork.NewRealClock(),
 			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
 		}),
-		metrics:       newStoreMetrics(cfg.NodeID, reg),
-		appliedNotify: make(chan struct{}),
+		metrics: newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
@@ -621,37 +614,31 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 	}
 }
 
-// WaitForAppliedIndex blocks until the local FSM has applied version, ctx
-// is cancelled, or ConsistencyWaitTimeout elapses. Snapshots the notify
-// channel before re-checking so any apply between snapshot and re-check is
-// observed without sleeping.
-func (st *Store) WaitForAppliedIndex(ctx context.Context, version uint64) error {
+// WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
+func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
 	if idx := st.lastAppliedIndex.Load(); idx >= version {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, st.cfg.ConsistencyWaitTimeout)
 	defer cancel()
+	ticker := time.NewTicker(period)
+	defer ticker.Stop()
+	var idx uint64
 	for {
-		st.appliedNotifyMu.Lock()
-		notify := st.appliedNotify
-		st.appliedNotifyMu.Unlock()
-		if idx := st.lastAppliedIndex.Load(); idx >= version {
-			return nil
-		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, st.lastAppliedIndex.Load(), version)
-		case <-notify:
+			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
+		case <-ticker.C:
+			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				return nil
+			} else {
+				st.log.WithFields(logrus.Fields{
+					"got":  idx,
+					"want": version,
+				}).Debug("wait for update version")
+			}
 		}
 	}
-}
-
-// signalApplied wakes WaitForAppliedIndex waiters; over-signalling is safe.
-func (st *Store) signalApplied() {
-	st.appliedNotifyMu.Lock()
-	close(st.appliedNotify)
-	st.appliedNotify = make(chan struct{})
-	st.appliedNotifyMu.Unlock()
 }
 
 func (st *Store) Servers() ([]raft.Server, error) {
@@ -674,7 +661,7 @@ func (st *Store) IsLeader() bool {
 // for a raft log entry to be applied in the FSM Store before authorizing the read to continue.
 func (st *Store) SchemaReader() schema.SchemaReader {
 	f := func(ctx context.Context, version uint64) error {
-		return st.WaitForAppliedIndex(ctx, version)
+		return st.WaitForAppliedIndex(ctx, time.Millisecond*50, version)
 	}
 	return st.schemaManager.NewSchemaReaderWithWaitFunc(f)
 }

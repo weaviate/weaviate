@@ -197,9 +197,9 @@ func TestRaftEndpoints(t *testing.T) {
 	info.ClassVersion = version
 	info.ShardVersion = version0
 	assert.Nil(t, err)
-	assert.Nil(t, srv.store.WaitForAppliedIndex(ctx, version))
+	assert.Nil(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, version))
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, srv.store.lastAppliedIndex.Load()+1), types.ErrDeadlineExceeded)
+	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastAppliedIndex.Load()+1), types.ErrDeadlineExceeded)
 
 	// DeleteClass
 	m.replicationFSM.EXPECT().DeleteReplicationsByCollection(Anything).Return(nil).Times(2)

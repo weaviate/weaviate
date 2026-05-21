@@ -72,7 +72,7 @@ func (s *Raft) WaitUntilDBRestored(ctx context.Context, period time.Duration, cl
 }
 
 func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
-	return s.store.WaitForAppliedIndex(ctx, schemaVersion)
+	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
 }
 
 // AppliedIndex is the DB layer's fallback catchUp index for fence
