@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/additional"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -35,6 +37,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
+
+// Nested filtering is preview-gated. Enable the gate at package init via
+// the env var; individual tests that want the off state use t.Setenv.
+func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
 
 // TestNestedFilteringViaShardWritePath exercises nested property filtering
 // end-to-end using the full production write and search pipelines:

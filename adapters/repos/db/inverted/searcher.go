@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/inverted"
@@ -509,6 +510,12 @@ func (s *Searcher) buildPropValuePair(
 	}
 
 	if _, ok := schema.AsNested(property.DataType); ok {
+		// Defensive preview gate. The validator catches this first under the
+		// normal request flow; this duplicate guards any code path that
+		// reaches the searcher without going through validation.
+		if !entcfg.NestedFilteringEnabled() {
+			return nil, entcfg.NestedFilteringDisabledError()
+		}
 		return s.extractNestedProp(filter, props[0], property, class)
 	}
 

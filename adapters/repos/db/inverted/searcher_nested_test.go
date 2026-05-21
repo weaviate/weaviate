@@ -12,6 +12,7 @@
 package inverted
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -21,11 +22,16 @@ import (
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+// Nested filtering is preview-gated. Enable the gate at package init via
+// the env var; individual tests that want the off state use t.Setenv.
+func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
 
 // nestedSearcherClass is the test schema used across all extractNestedProp tests:
 //
