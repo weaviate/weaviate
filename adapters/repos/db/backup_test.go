@@ -750,6 +750,9 @@ func TestDescriptorHotAndColdTenants(t *testing.T) {
 		name := name
 		mockShard := NewMockShardLike(t)
 		files := hotFiles[name]
+		// preventShutdown is acquired by backupShardWithHardlinks on the active
+		// path before releasing shardCreateLocks. See weaviate/0-weaviate-issues#234.
+		mockShard.EXPECT().preventShutdown().Return(func() {}, nil)
 		mockShard.EXPECT().
 			CreateBackupSnapshot(mock.Anything, mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, sd *backup.ShardDescriptor, _ string) ([]string, error) {
