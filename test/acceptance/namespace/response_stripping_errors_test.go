@@ -52,34 +52,34 @@ func TestNamespaces_ResponseStripping_Errors_REST(t *testing.T) {
 	})
 
 	t.Run("returned error: global admin sees raw qualified name (control)", func(t *testing.T) {
-		// Trigger the same duplicate via the qualified name; admin's
-		// response must keep "customer1:" intact.
-		_, err := helper.CreateClassAuthWithReturn(t, &models.Class{Class: "customer1:" + class}, adminKey)
+		// Admin adds a property whose name collides with the existing
+		// "title" prop on the qualified class. The 422 message names the
+		// qualified class, and the strip is a no-op for a global principal,
+		// so "customer1:" stays intact.
+		_, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(
+			schema.NewSchemaObjectsPropertiesAddParams().
+				WithClassName("customer1:"+class).
+				WithBody(&models.Property{Name: "title", DataType: []string{"text"}}),
+			helper.CreateAuth(adminKey),
+		)
 		require.Error(t, err)
-		var forbidden *schema.SchemaObjectsCreateForbidden
-		var unproc *schema.SchemaObjectsCreateUnprocessableEntity
-		switch {
-		case stderrors.As(err, &unproc):
-			assert.Contains(t, unproc.Payload.Error[0].Message, "customer1:", "admin must see qualified name: %s", unproc.Payload.Error[0].Message)
-		case stderrors.As(err, &forbidden):
-			// On NS-enabled clusters the admin path may be 403; the
-			// Forbidden message still contains the qualified resource.
-			assert.Contains(t, forbidden.Payload.Error[0].Message, "customer1:", "admin must see qualified name: %s", forbidden.Payload.Error[0].Message)
-		default:
-			t.Fatalf("unexpected error type %T: %v", err, err)
-		}
+		var unproc *schema.SchemaObjectsPropertiesAddUnprocessableEntity
+		require.True(t, stderrors.As(err, &unproc), "expected SchemaObjectsPropertiesAddUnprocessableEntity, got %T: %v", err, err)
+		require.NotEmpty(t, unproc.Payload.Error)
+		assert.Contains(t, unproc.Payload.Error[0].Message, "customer1:", "admin must see qualified name: %s", unproc.Payload.Error[0].Message)
 	})
 
-	t.Run("batch per-item error: object referencing unknown class is stripped", func(t *testing.T) {
-		// Submit a batch where one object names a non-existent class. The
-		// per-item error lands in the success-shaped response's Result.Errors;
-		// the message must have no "customer1:" prefix.
-		const unknown = "DoesNotExistInNs1"
+	t.Run("batch per-item error: object with type-mismatched property is stripped", func(t *testing.T) {
+		// Number value for a text property — auto-schema can't reconcile
+		// a type conflict on an existing prop, so the validator emits a
+		// per-item error naming the qualified class. The message lands in
+		// the success-shaped response's Result.Errors with "customer1:"
+		// stripped for the namespaced caller.
 		resp, err := helper.Client(t).Batch.BatchObjectsCreate(
 			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
 				Objects: []*models.Object{
 					{Class: class, Properties: map[string]any{"title": "ok"}},
-					{Class: unknown, Properties: map[string]any{"title": "bad"}},
+					{Class: class, Properties: map[string]any{"title": 42}},
 				},
 			}),
 			helper.CreateAuth(user1Key),
