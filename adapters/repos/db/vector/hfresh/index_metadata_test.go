@@ -50,3 +50,48 @@ func TestQuantizationDataSurvivesRestart(t *testing.T) {
 	require.Equal(t, dataBefore.Rotation.Swaps, dataAfter.Rotation.Swaps)
 	require.Equal(t, dataBefore.Rotation.Signs, dataAfter.Rotation.Signs)
 }
+
+func TestRestoreMetadataBackfillsPartialPostingSizes(t *testing.T) {
+	ctx := t.Context()
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
+	require.NoError(t, err)
+
+	err = NewIndexMetadataStore(bucket).SetDimensions(64)
+	require.NoError(t, err)
+
+	postingMap := NewPostingMap(bucket)
+	err = postingMap.SetVectorIDs(ctx, 10, Posting{
+		NewVector(1, 1, nil),
+		NewVector(2, 1, nil),
+	})
+	require.NoError(t, err)
+	err = postingMap.SetVectorIDs(ctx, 11, Posting{
+		NewVector(3, 1, nil),
+		NewVector(4, 1, nil),
+		NewVector(5, 1, nil),
+	})
+	require.NoError(t, err)
+
+	partialSizes := NewPostingSizes(bucket, NewMetrics(nil, "n/a", "n/a"))
+	err = partialSizes.store.Set(ctx, 10, 2)
+	require.NoError(t, err)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	size, err := index.PostingSizes.Get(ctx, 10)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, size)
+
+	size, err = index.PostingSizes.Get(ctx, 11)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, size)
+
+	persisted, err := index.PostingSizes.store.Get(ctx, 11)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, persisted)
+	require.EqualValues(t, 2, index.PostingSizes.Count())
+	require.EqualValues(t, 5, index.PostingSizes.totalSize.Load())
+}

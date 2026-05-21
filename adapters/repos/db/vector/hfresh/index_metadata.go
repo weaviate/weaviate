@@ -153,7 +153,7 @@ func (h *HFresh) restoreMetadata() error {
 	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
-	if h.PostingSizes.Count() == 0 && h.PostingMap.Size() > 0 {
+	if h.PostingSizes.Count() != uint64(h.PostingMap.Size()) {
 		if err := h.restorePostingSizesFromPostingMap(h.ctx); err != nil {
 			return err
 		}
