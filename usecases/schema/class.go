@@ -457,6 +457,9 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, namespacing.StripOwnNamespace(principal, className))
 		}
 		updated.Class = qualifiedBody
+		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, updated.Properties); err != nil {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(className)...); err != nil || updated == nil {

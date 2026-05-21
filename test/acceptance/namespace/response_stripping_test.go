@@ -149,6 +149,48 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		assert.Equal(t, "v2", after.Description)
 	})
 
+	t.Run("schema GET → PUT round-trip with cross-ref properties succeeds", func(t *testing.T) {
+		// Stripped cross-ref DataTypes in the PUT body must be re-qualified;
+		// otherwise the property-immutability check rejects the round-trip.
+		const host = "RoundTripWithRefs"
+		const target = "RoundTripRefTarget"
+		helper.CreateClassAuth(t, &models.Class{Class: target}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class:       host,
+			Description: "v1",
+			Properties: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+				{Name: "watched", DataType: []string{target}},
+				{Name: "related", DataType: []string{target}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+host, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+target, adminKey)
+		})
+
+		got, err := helper.GetClassAuthWithReturn(t, host, user1Key)
+		require.NoError(t, err)
+		require.Equal(t, host, got.Payload.Class)
+		// GET response is stripped: cross-ref DataTypes are short.
+		assert.Equal(t, []string{target}, findProp(got.Payload, "watched").DataType)
+		assert.Equal(t, []string{target}, findProp(got.Payload, "related").DataType)
+
+		// PUT the stripped body back verbatim with a non-immutable change.
+		got.Payload.Description = "v2"
+		putResp, err := helper.UpdateClassAuthWithReturn(t, host, got.Payload, user1Key)
+		require.NoError(t, err)
+		assert.Equal(t, host, putResp.Payload.Class)
+		assert.Equal(t, []string{target}, findProp(putResp.Payload, "watched").DataType)
+
+		// Admin GET confirms the stored cross-refs are still qualified and
+		// the Description update landed.
+		after := helper.GetClassAuth(t, "customer1:"+host, adminKey)
+		assert.Equal(t, "v2", after.Description)
+		assert.Equal(t, []string{"customer1:" + target}, findProp(after, "watched").DataType)
+		assert.Equal(t, []string{"customer1:" + target}, findProp(after, "related").DataType)
+	})
+
 	t.Run("AddAlias response strips Alias and Class", func(t *testing.T) {
 		const class = "AliasCreateTarget"
 		const alias = "AliasCreateName"

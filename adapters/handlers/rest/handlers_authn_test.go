@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,6 +21,35 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
+
+// deepCopyPermission returns a fully independent clone of p via JSON
+// round-trip. Used by mutation-sensitive tests so the snapshot does not
+// share any pointers (sub-struct pointers and *string fields) with the
+// input the function under test sees.
+func deepCopyPermission(t *testing.T, p *models.Permission) *models.Permission {
+	t.Helper()
+	if p == nil {
+		return nil
+	}
+	b, err := json.Marshal(p)
+	require.NoError(t, err)
+	out := &models.Permission{}
+	require.NoError(t, json.Unmarshal(b, out))
+	return out
+}
+
+// deepCopyRoles is the slice variant of deepCopyPermission for role tables.
+func deepCopyRoles(t *testing.T, roles []*models.Role) []*models.Role {
+	t.Helper()
+	if roles == nil {
+		return nil
+	}
+	b, err := json.Marshal(roles)
+	require.NoError(t, err)
+	out := []*models.Role{}
+	require.NoError(t, json.Unmarshal(b, &out))
+	return out
+}
 
 var (
 	authnNamespacedPrincipal = &models.Principal{Username: "u", Namespace: "customer1"}
@@ -135,11 +165,13 @@ func TestStripPermissionForCaller(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			snapshot := tc.in
+			// Deep-copy snapshot so a mutation through tc.in is observable
+			// in the post-call comparison (a pointer copy would be aliased
+			// by any in-place edit on sub-structs or *string fields).
+			snapshot := deepCopyPermission(t, tc.in)
 			got := stripPermissionForCaller(tc.principal, tc.in)
 			assert.Equal(t, tc.want, got)
-			// Input must not have been mutated.
-			assert.Equal(t, snapshot, tc.in)
+			assert.Equal(t, snapshot, tc.in, "input must not be mutated")
 		})
 	}
 
@@ -309,11 +341,10 @@ func TestStripRolesForCaller(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			snapshot := tc.in
+			snapshot := deepCopyRoles(t, tc.in)
 			got := stripRolesForCaller(tc.principal, tc.in)
 			assert.Equal(t, tc.want, got)
-			// Input slice itself must not have been mutated.
-			assert.Equal(t, snapshot, tc.in)
+			assert.Equal(t, snapshot, tc.in, "input must not be mutated")
 			if tc.wantSame && tc.in != nil {
 				// Pass-through path: same backing slice header.
 				require.Len(t, got, len(tc.in))

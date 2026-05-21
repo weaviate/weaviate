@@ -12,6 +12,7 @@
 package namespacing
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -22,6 +23,20 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
+
+// deepCopyJSON returns a fully independent clone via JSON round-trip, so
+// no-mutation assertions can catch in-place edits through shared pointers.
+func deepCopyJSON[T any](t *testing.T, src *T) *T {
+	t.Helper()
+	if src == nil {
+		return nil
+	}
+	b, err := json.Marshal(src)
+	require.NoError(t, err)
+	out := new(T)
+	require.NoError(t, json.Unmarshal(b, out))
+	return out
+}
 
 // fakeSchemaManager implements SchemaManager for testing
 type fakeSchemaManager struct {
@@ -490,8 +505,7 @@ func TestStripClassResponse(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Snapshot input to verify it is not mutated.
-			snapshot := tc.in
+			snapshot := deepCopyJSON(t, tc.in)
 			got := StripClassResponse(tc.principal, tc.in)
 			assert.Equal(t, tc.want, got)
 			if tc.wantSame {
@@ -499,8 +513,7 @@ func TestStripClassResponse(t *testing.T) {
 			} else if tc.in != nil {
 				assert.NotSame(t, tc.in, got)
 			}
-			// Input must not have been mutated.
-			assert.Equal(t, snapshot, tc.in)
+			assert.Equal(t, snapshot, tc.in, "input must not be mutated")
 		})
 	}
 }
@@ -677,7 +690,7 @@ func TestStripPropertyResponse(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			snapshot := tc.in
+			snapshot := deepCopyJSON(t, tc.in)
 			got := StripPropertyResponse(tc.principal, tc.in)
 			assert.Equal(t, tc.want, got)
 			if tc.wantSame {
@@ -685,7 +698,7 @@ func TestStripPropertyResponse(t *testing.T) {
 			} else if tc.in != nil {
 				assert.NotSame(t, tc.in, got)
 			}
-			assert.Equal(t, snapshot, tc.in)
+			assert.Equal(t, snapshot, tc.in, "input must not be mutated")
 		})
 	}
 }
@@ -727,7 +740,7 @@ func TestStripAliasResponse(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			snapshot := tc.in
+			snapshot := deepCopyJSON(t, tc.in)
 			got := StripAliasResponse(tc.principal, tc.in)
 			assert.Equal(t, tc.want, got)
 			if tc.wantSame {
@@ -735,7 +748,7 @@ func TestStripAliasResponse(t *testing.T) {
 			} else if tc.in != nil {
 				assert.NotSame(t, tc.in, got)
 			}
-			assert.Equal(t, snapshot, tc.in)
+			assert.Equal(t, snapshot, tc.in, "input must not be mutated")
 		})
 	}
 }

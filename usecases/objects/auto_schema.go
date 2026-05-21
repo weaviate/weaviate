@@ -200,7 +200,7 @@ func (m *AutoSchemaManager) getProperties(object *models.Object, principal *mode
 	// other DataType (primitive, nested, short class from beacons-with-class).
 	for _, p := range properties {
 		for i, dt := range p.DataType {
-			p.DataType[i] = namespacing.StripOwnNS(principal, dt)
+			p.DataType[i] = namespacing.StripOwnNamespace(principal, dt)
 		}
 	}
 	return properties, nil
