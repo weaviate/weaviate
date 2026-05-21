@@ -47,9 +47,12 @@ const EnvNestedFilteringPreview = "WEAVIATE_PREVIEW_NESTED_FILTERING"
 // if a parallel test or a test with a parallel ancestor attempts the
 // override, giving us automatic isolation against future t.Parallel()
 // adoption in nested test packages. The cost is one map lookup +
-// boolean parse per call; the call sites are request-boundary
-// dispatches (validator / searcher / analyzer / bucket-creation), not
-// hot loops.
+// boolean parse per call. Most call sites are request-boundary
+// dispatches (validator / searcher / bucket-creation); the analyzer
+// call site (objects.go) is on the per-object/per-property write loop
+// — the per-call env read is acceptable today, but if the cost shows
+// up in profiles, hoist the lookup to once per AnalyzeObject and pass
+// the bool down.
 //
 // Removed at GA — at that point the feature is unconditionally enabled
 // and call sites lose the gate. Do not depend on this function from

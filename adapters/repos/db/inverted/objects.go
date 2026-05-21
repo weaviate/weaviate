@@ -76,9 +76,9 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 		if _, ok := schema.AsNested(prop.DataType); ok {
 			// Preview gate — when off we silently skip nested analysis so no
 			// entries are appended to nested filterable or meta buckets. Pairs
-			// with the bucket-creation skip in shard_init_properties_nested.go;
-			// even if one leaks past the other, the absence of buckets makes
-			// the writes inert.
+			// with the bucket-creation skip in shard_init_properties.go; even
+			// if one leaks past the other, the absence of buckets makes the
+			// writes inert.
 			if !entcfg.NestedFilteringEnabled() {
 				continue
 			}
