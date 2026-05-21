@@ -65,6 +65,13 @@ type Metrics struct {
 	asyncReplicationObjectsDiffCount    prometheus.Counter
 	asyncReplicationLocalDeletionsCount prometheus.Counter
 
+	// async checkpoint metrics
+	asyncCheckpointCreateCount        prometheus.Counter
+	asyncCheckpointCreateFailureCount prometheus.Counter
+	asyncCheckpointDeleteCount        prometheus.Counter
+	asyncCheckpointActive             prometheus.Gauge
+	asyncCheckpointLifetimeSeconds    prometheus.Histogram
+
 	objttlFindUuidsCount             prometheus.Counter
 	objttlFindUuidsFailureCount      prometheus.Counter
 	objttlFindUuidsRunning           prometheus.Gauge
@@ -408,6 +415,76 @@ func NewMetrics(
 	}
 	if !alreadyRegistered {
 		m.asyncReplicationLocalDeletionsCount.Add(0)
+	}
+
+	// Label-free for bounded cardinality; per-shard context comes from logs.
+
+	m.asyncCheckpointCreateCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_checkpoint_create_total",
+			Help:      "Successful local async-checkpoint creations (includes replacements).",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_checkpoint_create_total: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncCheckpointCreateCount.Add(0)
+	}
+
+	m.asyncCheckpointCreateFailureCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_checkpoint_create_failure_total",
+			Help:      "Failed CreateAsyncCheckpoint calls (stale createdAt + async-rep-not-active).",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_checkpoint_create_failure_total: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncCheckpointCreateFailureCount.Add(0)
+	}
+
+	m.asyncCheckpointDeleteCount, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_checkpoint_delete_total",
+			Help:      "Explicit DeleteAsyncCheckpoint calls that cleared an active checkpoint (stop/disable clears excluded).",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_checkpoint_delete_total: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncCheckpointDeleteCount.Add(0)
+	}
+
+	m.asyncCheckpointActive, alreadyRegistered, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "weaviate",
+			Name:      "async_checkpoint_active",
+			Help:      "Shards on this node currently holding an active checkpoint. Replacements don't change the count.",
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_checkpoint_active: %w", err)
+	}
+	if !alreadyRegistered {
+		m.asyncCheckpointActive.Set(0)
+	}
+
+	m.asyncCheckpointLifetimeSeconds, _, err = monitoring.EnsureRegisteredMetric(prom.Registerer,
+		prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "weaviate",
+			Name:      "async_checkpoint_lifetime_seconds",
+			Help:      "Time a checkpoint stayed active before being cleared (explicit delete, replacement, or stop/disable).",
+			Buckets:   defaultDurationBuckets,
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("registering async_checkpoint_lifetime_seconds: %w", err)
 	}
 
 	// objects ttl - find uuids
@@ -869,6 +946,51 @@ func (m *Metrics) AddAsyncReplicationLocalDeletionsCount(n int) {
 	if m.monitoring {
 		m.asyncReplicationLocalDeletionsCount.Add(float64(n))
 	}
+}
+
+// --- Async checkpoint ---
+
+func (m *Metrics) IncAsyncCheckpointCreateCount() {
+	if m == nil || !m.monitoring {
+		return
+	}
+	m.asyncCheckpointCreateCount.Inc()
+}
+
+func (m *Metrics) IncAsyncCheckpointCreateFailureCount() {
+	if m == nil || !m.monitoring {
+		return
+	}
+	m.asyncCheckpointCreateFailureCount.Inc()
+}
+
+func (m *Metrics) IncAsyncCheckpointDeleteCount() {
+	if m == nil || !m.monitoring {
+		return
+	}
+	m.asyncCheckpointDeleteCount.Inc()
+}
+
+// IncAsyncCheckpointActive fires on inactive→active transitions only (replace doesn't change the count).
+func (m *Metrics) IncAsyncCheckpointActive() {
+	if m == nil || !m.monitoring {
+		return
+	}
+	m.asyncCheckpointActive.Inc()
+}
+
+func (m *Metrics) DecAsyncCheckpointActive() {
+	if m == nil || !m.monitoring {
+		return
+	}
+	m.asyncCheckpointActive.Dec()
+}
+
+func (m *Metrics) ObserveAsyncCheckpointLifetime(d time.Duration) {
+	if m == nil || !m.monitoring {
+		return
+	}
+	m.asyncCheckpointLifetimeSeconds.Observe(d.Seconds())
 }
 
 // --- Objects TTL: find uuids ---
