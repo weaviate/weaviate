@@ -135,6 +135,36 @@ func TestValidateReservedPropertyName(t *testing.T) {
 	}
 }
 
+func TestValidateReservedPropertyNameSuffix(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{name: "ok plain", input: "foo", wantErr: false},
+		{name: "ok suffix-like but different", input: "searchable", wantErr: false},
+		{name: "ok ends with underscore", input: "foo_", wantErr: false},
+		{name: "reject _searchable", input: "foo_searchable", wantErr: true},
+		{name: "reject _rangeable", input: "foo_rangeable", wantErr: true},
+		{name: "reject _temp", input: "foo_temp", wantErr: true},
+		{name: "reject __meta_count", input: "foo__meta_count", wantErr: true},
+		{name: "reject _propertyLength", input: "foo_propertyLength", wantErr: true},
+		{name: "reject _nullState", input: "foo_nullState", wantErr: true},
+		{name: "reject when suffix is the whole prefix of name", input: "bar_temp", wantErr: true},
+		{name: "reject name equal to suffix only", input: "_temp", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateReservedPropertyNameSuffix(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateTenantName(t *testing.T) {
 	tests := []struct {
 		name        string
