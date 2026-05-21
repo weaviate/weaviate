@@ -91,9 +91,19 @@ func TestMultiNode_HappyPath(t *testing.T) {
 	t.Run("ChangeTokenization", func(t *testing.T) {
 		testChangeTokenization(t, compose)
 	})
-	t.Run("QueryConsistencyDuringReindex", func(t *testing.T) {
-		testQueryConsistencyDuringReindex(t, compose)
-	})
+}
+
+// TestMultiNode_QueryConsistencyDuringReindex pulls the query-consistency
+// scenario into its own cluster so it isn't running on cluster state
+// previously mutated by the four HappyPath sub-tests. The earlier shared-
+// cluster shape hit "store is read-only" reindex failures triggered by
+// cross-sub-test bucket-finalize residue under concurrent query load.
+func TestMultiNode_QueryConsistencyDuringReindex(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t, "USE_INVERTED_SEARCHABLE", "false")
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+	testQueryConsistencyDuringReindex(t, compose)
 }
 
 func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
