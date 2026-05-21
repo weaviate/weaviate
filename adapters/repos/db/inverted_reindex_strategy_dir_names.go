@@ -167,6 +167,7 @@ func migrationDirsForPropertyIndex(propName, indexType string) []string {
 	case "searchable":
 		return []string{
 			migrationDirWithProps(MigrationDirPrefixEnableSearchable, []string{propName}),
+			migrationDirWithProps(MigrationDirPrefixRebuildSearchable, []string{propName}),
 			MigrationDirPrefixSearchableRetokenize + "_" + propName,
 		}
 	case "rangeable":

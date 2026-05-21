@@ -357,7 +357,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
 				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
 		}
-		if body.Searchable.Algorithm != models.IndexStatusAlgorithmBlockmax {
+		// Case-insensitive match — swagger generated EnumCase validator
+		// is permissive here, so accept "Blockmax" / "BLOCKMAX" too.
+		if !strings.EqualFold(body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax) {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
 				fmt.Sprintf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
 					body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax)))

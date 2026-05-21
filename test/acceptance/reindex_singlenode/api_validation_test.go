@@ -221,7 +221,7 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			wantBodyHas: "invalid tokenization",
 		},
 		{
-			name:       "searchable.rebuild on property with no searchable index",
+			name:       "searchable.algorithm:blockmax on property with no searchable index",
 			collection: stClass, property: "text_unindexed",
 			body:        `{"searchable":{"algorithm":"blockmax"}}`,
 			wantStatus:  http.StatusBadRequest,
