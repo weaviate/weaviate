@@ -28,7 +28,7 @@ var errNoSuchChangeLog = errors.New("shard: " + changelog.ErrMsgNoActiveChangeCa
 const (
 	changelogDirName       = "changelog"
 	changelogFileExtension = ".log"
-	// Kept small because retries run under docIdLock + the two RLocks.
+	// Kept small because retries run under docIdLock + asyncReplicationRWMux.RLock.
 	changelogRetryAttempts = 2
 )
 
@@ -64,20 +64,21 @@ func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.
 }
 
 // FinalizeChangeLog waits for the PREPAREs in flight at entry to commit or
-// abort, then seals under writeBarrierMux.Lock. Writes that arrive after the
-// snapshot don't block the seal — stale-routed ones are caught upstream by
-// IsLocalShardWritable, and fresh-routed ones already include the target so
-// a dropped CCL append is harmless.
+// abort, then seals the log and returns the final LSN.
+//
+// Writes racing the seal need no write barrier: the consumer only calls
+// Finalize after waiting for the op to reach INTEGRATING on every node (see
+// processIntegratingOp in cluster/replication). Past that point every write
+// is either routed to the target directly — so a dropped CCL append is
+// harmless — or rejected at the source by IsLocalShardWritable and never
+// commits. So it does not matter whether a write's CCL append lands before
+// or after the seal.
 func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {
 		return 0, errNoSuchChangeLog
 	}
-	// Snapshot pending under writeBarrierMux.Lock so registerReplicaTask
-	// (RLock) can't slip a new entry in between.
-	s.writeBarrierMux.Lock()
 	pending := s.replicationMap.keys()
-	s.writeBarrierMux.Unlock()
 
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
@@ -93,11 +94,7 @@ func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, err
 			}
 		}
 		if !draining {
-			// Seal under Lock so new registerReplicaTask callers can't race in.
-			s.writeBarrierMux.Lock()
-			l, err := log.Finalize()
-			s.writeBarrierMux.Unlock()
-			return l, err
+			return log.Finalize()
 		}
 		select {
 		case <-ctx.Done():
@@ -107,17 +104,14 @@ func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, err
 	}
 }
 
-// SnapshotChangeLogLSN returns the highest LSN under the same brief
-// write-barrier as FinalizeChangeLog, but does not seal — the log keeps
-// accepting writes. Pairs with a capped tailer to drain a phase boundary
-// mid-movement.
+// SnapshotChangeLogLSN returns the highest LSN currently in the log without
+// sealing it — the log keeps accepting writes. Pairs with a capped tailer to
+// drain a phase boundary mid-movement.
 func (s *Shard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error) {
 	log := s.changeLogs.Load().Get(opID)
 	if log == nil {
 		return 0, errNoSuchChangeLog
 	}
-	s.writeBarrierMux.Lock()
-	defer s.writeBarrierMux.Unlock()
 	return log.LSN(), nil
 }
 

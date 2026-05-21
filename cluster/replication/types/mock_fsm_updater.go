@@ -153,22 +153,32 @@ func (_c *MockFSMUpdater_ReplicationAddReplicaToShard_Call) RunAndReturn(run fun
 	return _c
 }
 
-// ReplicationAllPeersAtLeast provides a mock function with given fields: opID, peers, target
-func (_m *MockFSMUpdater) ReplicationAllPeersAtLeast(opID uint64, peers []string, target api.ShardReplicationState) bool {
-	ret := _m.Called(opID, peers, target)
+// ReplicationAllPeersAtLeast provides a mock function with given fields: opID, target
+func (_m *MockFSMUpdater) ReplicationAllPeersAtLeast(opID uint64, target api.ShardReplicationState) (bool, error) {
+	ret := _m.Called(opID, target)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationAllPeersAtLeast")
 	}
 
 	var r0 bool
-	if rf, ok := ret.Get(0).(func(uint64, []string, api.ShardReplicationState) bool); ok {
-		r0 = rf(opID, peers, target)
+	var r1 error
+	if rf, ok := ret.Get(0).(func(uint64, api.ShardReplicationState) (bool, error)); ok {
+		return rf(opID, target)
+	}
+	if rf, ok := ret.Get(0).(func(uint64, api.ShardReplicationState) bool); ok {
+		r0 = rf(opID, target)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(uint64, api.ShardReplicationState) error); ok {
+		r1 = rf(opID, target)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockFSMUpdater_ReplicationAllPeersAtLeast_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationAllPeersAtLeast'
@@ -178,25 +188,24 @@ type MockFSMUpdater_ReplicationAllPeersAtLeast_Call struct {
 
 // ReplicationAllPeersAtLeast is a helper method to define mock.On call
 //   - opID uint64
-//   - peers []string
 //   - target api.ShardReplicationState
-func (_e *MockFSMUpdater_Expecter) ReplicationAllPeersAtLeast(opID interface{}, peers interface{}, target interface{}) *MockFSMUpdater_ReplicationAllPeersAtLeast_Call {
-	return &MockFSMUpdater_ReplicationAllPeersAtLeast_Call{Call: _e.mock.On("ReplicationAllPeersAtLeast", opID, peers, target)}
+func (_e *MockFSMUpdater_Expecter) ReplicationAllPeersAtLeast(opID interface{}, target interface{}) *MockFSMUpdater_ReplicationAllPeersAtLeast_Call {
+	return &MockFSMUpdater_ReplicationAllPeersAtLeast_Call{Call: _e.mock.On("ReplicationAllPeersAtLeast", opID, target)}
 }
 
-func (_c *MockFSMUpdater_ReplicationAllPeersAtLeast_Call) Run(run func(opID uint64, peers []string, target api.ShardReplicationState)) *MockFSMUpdater_ReplicationAllPeersAtLeast_Call {
+func (_c *MockFSMUpdater_ReplicationAllPeersAtLeast_Call) Run(run func(opID uint64, target api.ShardReplicationState)) *MockFSMUpdater_ReplicationAllPeersAtLeast_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64), args[1].([]string), args[2].(api.ShardReplicationState))
+		run(args[0].(uint64), args[1].(api.ShardReplicationState))
 	})
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationAllPeersAtLeast_Call) Return(_a0 bool) *MockFSMUpdater_ReplicationAllPeersAtLeast_Call {
-	_c.Call.Return(_a0)
+func (_c *MockFSMUpdater_ReplicationAllPeersAtLeast_Call) Return(_a0 bool, _a1 error) *MockFSMUpdater_ReplicationAllPeersAtLeast_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationAllPeersAtLeast_Call) RunAndReturn(run func(uint64, []string, api.ShardReplicationState) bool) *MockFSMUpdater_ReplicationAllPeersAtLeast_Call {
+func (_c *MockFSMUpdater_ReplicationAllPeersAtLeast_Call) RunAndReturn(run func(uint64, api.ShardReplicationState) (bool, error)) *MockFSMUpdater_ReplicationAllPeersAtLeast_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -301,110 +310,6 @@ func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) Return(_a0 api.Shar
 }
 
 func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) RunAndReturn(run func(context.Context, uint64) (api.ShardReplicationState, error)) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReplicationPeers provides a mock function with no fields
-func (_m *MockFSMUpdater) ReplicationPeers() ([]string, error) {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReplicationPeers")
-	}
-
-	var r0 []string
-	var r1 error
-	if rf, ok := ret.Get(0).(func() ([]string, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() []string); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]string)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockFSMUpdater_ReplicationPeers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationPeers'
-type MockFSMUpdater_ReplicationPeers_Call struct {
-	*mock.Call
-}
-
-// ReplicationPeers is a helper method to define mock.On call
-func (_e *MockFSMUpdater_Expecter) ReplicationPeers() *MockFSMUpdater_ReplicationPeers_Call {
-	return &MockFSMUpdater_ReplicationPeers_Call{Call: _e.mock.On("ReplicationPeers")}
-}
-
-func (_c *MockFSMUpdater_ReplicationPeers_Call) Run(run func()) *MockFSMUpdater_ReplicationPeers_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockFSMUpdater_ReplicationPeers_Call) Return(_a0 []string, _a1 error) *MockFSMUpdater_ReplicationPeers_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockFSMUpdater_ReplicationPeers_Call) RunAndReturn(run func() ([]string, error)) *MockFSMUpdater_ReplicationPeers_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReplicationPerNodeStateNotify provides a mock function with no fields
-func (_m *MockFSMUpdater) ReplicationPerNodeStateNotify() <-chan struct{} {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReplicationPerNodeStateNotify")
-	}
-
-	var r0 <-chan struct{}
-	if rf, ok := ret.Get(0).(func() <-chan struct{}); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(<-chan struct{})
-		}
-	}
-
-	return r0
-}
-
-// MockFSMUpdater_ReplicationPerNodeStateNotify_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationPerNodeStateNotify'
-type MockFSMUpdater_ReplicationPerNodeStateNotify_Call struct {
-	*mock.Call
-}
-
-// ReplicationPerNodeStateNotify is a helper method to define mock.On call
-func (_e *MockFSMUpdater_Expecter) ReplicationPerNodeStateNotify() *MockFSMUpdater_ReplicationPerNodeStateNotify_Call {
-	return &MockFSMUpdater_ReplicationPerNodeStateNotify_Call{Call: _e.mock.On("ReplicationPerNodeStateNotify")}
-}
-
-func (_c *MockFSMUpdater_ReplicationPerNodeStateNotify_Call) Run(run func()) *MockFSMUpdater_ReplicationPerNodeStateNotify_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockFSMUpdater_ReplicationPerNodeStateNotify_Call) Return(_a0 <-chan struct{}) *MockFSMUpdater_ReplicationPerNodeStateNotify_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockFSMUpdater_ReplicationPerNodeStateNotify_Call) RunAndReturn(run func() <-chan struct{}) *MockFSMUpdater_ReplicationPerNodeStateNotify_Call {
 	_c.Call.Return(run)
 	return _c
 }

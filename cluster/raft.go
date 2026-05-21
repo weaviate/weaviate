@@ -81,26 +81,16 @@ func (s *Raft) AppliedIndex() uint64 {
 	return s.store.lastAppliedIndex.Load()
 }
 
-// ReplicationPeers scopes the consumer's convergence check to current cluster
-// membership — peers removed via membership change drop out naturally.
-func (s *Raft) ReplicationPeers() ([]string, error) {
+func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicationState) (bool, error) {
 	servers, err := s.store.Servers()
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	peers := make([]string, 0, len(servers))
 	for _, srv := range servers {
 		peers = append(peers, string(srv.ID))
 	}
-	return peers, nil
-}
-
-func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, peers []string, target cmd.ShardReplicationState) bool {
-	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, peers, target)
-}
-
-func (s *Raft) ReplicationPerNodeStateNotify() <-chan struct{} {
-	return s.store.replicationManager.GetReplicationFSM().PerNodeStateNotify()
+	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, peers, target), nil
 }
 
 func (s *Raft) NodeSelector() cluster.NodeSelector {

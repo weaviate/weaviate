@@ -72,9 +72,9 @@ func (c *Copier) TailAndApply(ctx context.Context, srcNodeId, indexName, shardNa
 	return changelogdrain.Drain(ctx, stream, apply)
 }
 
-// SnapshotChangeLogLSN returns the source's current change-log LSN under a
-// brief shard write barrier. The log stays writable; pair with a capped
-// TailAndApply to drain a phase boundary without sealing.
+// SnapshotChangeLogLSN returns the source's current change-log LSN without
+// sealing it. The log stays writable; pair with a capped TailAndApply to
+// drain a phase boundary without sealing.
 func (c *Copier) SnapshotChangeLogLSN(ctx context.Context, srcNodeId, indexName, shardName, opID string) (uint64, error) {
 	client, err := c.dialSource(ctx, srcNodeId)
 	if err != nil {

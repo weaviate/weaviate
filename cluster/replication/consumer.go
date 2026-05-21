@@ -96,29 +96,27 @@ func isCCLAlreadyGone(err error) bool {
 // errOpCancelled is an error indicating that the operation was cancelled.
 var errOpCancelled = errors.New("operation cancelled")
 
-// waitForAllNodesAtLeast blocks until every current RAFT voting peer has
-// reported PerNodeState[peer] >= target. Snapshots the notify channel
-// BEFORE the check so a broadcast that lands between check and select
-// can't be missed.
+// waitForAllNodesAtLeast blocks until every node has reported PerNodeState[peer] >= target
 func (c *CopyOpConsumer) waitForAllNodesAtLeast(
 	ctx context.Context, opID uint64, target api.ShardReplicationState,
 ) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		notify := c.leaderClient.ReplicationPerNodeStateNotify()
-		peers, err := c.leaderClient.ReplicationPeers()
+		ok, err := c.leaderClient.ReplicationAllPeersAtLeast(opID, target)
 		if err != nil {
-			return fmt.Errorf("failed to get replication peers: %w", err)
+			return fmt.Errorf("failed to check replication state of peers: %w", err)
 		}
-		if c.leaderClient.ReplicationAllPeersAtLeast(opID, peers, target) {
+		if ok {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-notify:
+		case <-ticker.C:
 		}
 	}
 }

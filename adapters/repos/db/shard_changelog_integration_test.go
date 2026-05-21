@@ -227,8 +227,8 @@ func TestShard_ChangeLog_SkipPaths_NoEntry(t *testing.T) {
 	require.NoError(t, shard.StopChangeCapture(ctx, "op-skips"))
 }
 
-// Hangs on lock-order regression. The only assertion is the 10s timeout —
-// if writeBarrierMux ends up nested inside docIdLock, this deadlocks.
+// Writers racing FinalizeChangeLog must neither deadlock nor hang the seal.
+// The only assertion is the 10s timeout.
 func TestShard_ChangeLog_LockOrder_NoDeadlock(t *testing.T) {
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)

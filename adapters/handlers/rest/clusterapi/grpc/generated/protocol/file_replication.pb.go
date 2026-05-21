@@ -922,8 +922,8 @@ type SnapshotChangeLogLSNResponse struct {
 	IndexName string                 `protobuf:"bytes,1,opt,name=index_name,json=indexName,proto3" json:"index_name,omitempty"`
 	ShardName string                 `protobuf:"bytes,2,opt,name=shard_name,json=shardName,proto3" json:"shard_name,omitempty"`
 	OpId      string                 `protobuf:"bytes,3,opt,name=op_id,json=opId,proto3" json:"op_id,omitempty"`
-	// Captured under the shard's write barrier — a true upper bound on writes
-	// already past the bucket-write boundary. The log remains writable.
+	// The highest LSN in the change log at snapshot time. The log remains
+	// writable.
 	Lsn           uint64 `protobuf:"varint,4,opt,name=lsn,proto3" json:"lsn,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

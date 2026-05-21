@@ -69,11 +69,9 @@ func (p *pendingReplicaTasks) keys() map[string]struct{} {
 	return out
 }
 
-// registerReplicaTask records a PREPARE under writeBarrierMux.RLock so
-// FinalizeChangeLog's Lock fences out new registrations during the seal.
+// registerReplicaTask records a PREPARE's deferred task under its request ID
+// so a later commitReplication can run it.
 func (s *Shard) registerReplicaTask(requestID string, task replicaTask) {
-	s.writeBarrierMux.RLock()
-	defer s.writeBarrierMux.RUnlock()
 	s.replicationMap.set(requestID, task)
 }
 

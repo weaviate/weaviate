@@ -1454,16 +1454,8 @@ func TestConsumerCopyIntegratingState(t *testing.T) {
 	// PerNodeState[peer] >= INTEGRATING before sealing the log. Stubbed:
 	// peer list is empty so AllPeersAtLeast returns true immediately.
 	mockFSMUpdater.EXPECT().
-		ReplicationPerNodeStateNotify().
-		Return(closedChan()).
-		Maybe()
-	mockFSMUpdater.EXPECT().
-		ReplicationPeers().
-		Return([]string{}, nil).
-		Maybe()
-	mockFSMUpdater.EXPECT().
-		ReplicationAllPeersAtLeast(opId, mock.Anything, api.INTEGRATING).
-		Return(true).
+		ReplicationAllPeersAtLeast(opId, api.INTEGRATING).
+		Return(true, nil).
 		Maybe()
 	mockReplicaCopier.EXPECT().
 		SnapshotChangeLogLSN(mock.Anything, "node1", "TestCollection", "shard1", mock.Anything).
@@ -1576,9 +1568,7 @@ func TestConsumerCopyIntegratingRetryAfterSeal(t *testing.T) {
 		Return(api.INTEGRATING, nil).
 		Times(1)
 	// Local convergence stubbed satisfied immediately.
-	mockFSMUpdater.EXPECT().ReplicationPerNodeStateNotify().Return(closedChan()).Maybe()
-	mockFSMUpdater.EXPECT().ReplicationPeers().Return([]string{}, nil).Maybe()
-	mockFSMUpdater.EXPECT().ReplicationAllPeersAtLeast(opId, mock.Anything, api.INTEGRATING).Return(true).Maybe()
+	mockFSMUpdater.EXPECT().ReplicationAllPeersAtLeast(opId, api.INTEGRATING).Return(true, nil).Maybe()
 	// The source already sealed the log on a prior attempt: the capped-drain
 	// snapshot reports it gone. The handler must NOT re-issue finalize/stop.
 	mockReplicaCopier.EXPECT().
@@ -1660,7 +1650,5 @@ func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpda
 	m.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	// PerNodeState convergence wait: satisfied immediately by default.
-	fsm.EXPECT().ReplicationPeers().Return([]string{}, nil).Maybe()
-	fsm.EXPECT().ReplicationPerNodeStateNotify().Return(closedChan()).Maybe()
-	fsm.EXPECT().ReplicationAllPeersAtLeast(mock.Anything, mock.Anything, mock.Anything).Return(true).Maybe()
+	fsm.EXPECT().ReplicationAllPeersAtLeast(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 }

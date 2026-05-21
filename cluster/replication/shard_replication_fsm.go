@@ -80,11 +80,6 @@ type ShardReplicationFSM struct {
 	statusById map[uint64]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
-
-	// Close-and-replace wake signal for AllPeersAtLeast waiters; see
-	// cluster/store.go::appliedNotify for the pattern.
-	perNodeStateNotifyMu sync.Mutex
-	perNodeStateNotify   chan struct{}
 }
 
 func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
@@ -98,7 +93,6 @@ func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 		opsBySourceFQDN:         make(map[shardFQDN][]ShardReplicationOp),
 		opsById:                 make(map[uint64]ShardReplicationOp),
 		statusById:              make(map[uint64]ShardReplicationOpStatus),
-		perNodeStateNotify:      make(chan struct{}),
 	}
 
 	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
@@ -493,20 +487,4 @@ func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, peers []string, targe
 		}
 	}
 	return true
-}
-
-// PerNodeStateNotify returns the current wake channel. Snapshot it BEFORE
-// AllPeersAtLeast so an update between check and select can't be missed.
-func (s *ShardReplicationFSM) PerNodeStateNotify() <-chan struct{} {
-	s.perNodeStateNotifyMu.Lock()
-	defer s.perNodeStateNotifyMu.Unlock()
-	return s.perNodeStateNotify
-}
-
-// signalPerNodeStateChange wakes waiters; over-signalling is safe.
-func (s *ShardReplicationFSM) signalPerNodeStateChange() {
-	s.perNodeStateNotifyMu.Lock()
-	close(s.perNodeStateNotify)
-	s.perNodeStateNotify = make(chan struct{})
-	s.perNodeStateNotifyMu.Unlock()
 }

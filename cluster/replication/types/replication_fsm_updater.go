@@ -29,7 +29,5 @@ type FSMUpdater interface {
 	ReplicationStoreSchemaVersion(ctx context.Context, id uint64, schemaVersion uint64) error
 	UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error)
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
-	ReplicationAllPeersAtLeast(opID uint64, peers []string, target api.ShardReplicationState) bool
-	ReplicationPeers() ([]string, error)
-	ReplicationPerNodeStateNotify() <-chan struct{}
+	ReplicationAllPeersAtLeast(opID uint64, target api.ShardReplicationState) (bool, error)
 }

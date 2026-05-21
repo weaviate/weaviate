@@ -146,26 +146,21 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 // peer via StateRank — safe against re-broadcasts from log replay.
 func (s *ShardReplicationFSM) NodeReachedState(c *api.ReplicationNodeReachedStateRequest) error {
 	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
 	status, ok := s.statusById[c.Id]
 	if !ok {
-		s.opsLock.Unlock()
 		// Stale broadcast for an op that's been pruned — silent no-op.
 		return nil
 	}
 	if status.PerNodeState == nil {
 		status.PerNodeState = make(map[string]api.ShardReplicationState)
 	}
-	changed := false
 	if api.StateRank(c.State) > api.StateRank(status.PerNodeState[c.NodeId]) {
 		status.PerNodeState[c.NodeId] = c.State
 		s.statusById[c.Id] = status
-		changed = true
 	}
-	s.opsLock.Unlock()
 
-	if changed {
-		s.signalPerNodeStateChange()
-	}
 	return nil
 }
 

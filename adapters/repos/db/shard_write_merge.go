@@ -128,9 +128,6 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
-		s.writeBarrierMux.RLock()
-		defer s.writeBarrierMux.RUnlock()
-
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()
 
@@ -221,9 +218,6 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 ) (mutableMergeResult, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	out := mutableMergeResult{}
-
-	s.writeBarrierMux.RLock()
-	defer s.writeBarrierMux.RUnlock()
 
 	s.asyncReplicationRWMux.RLock()
 	defer s.asyncReplicationRWMux.RUnlock()

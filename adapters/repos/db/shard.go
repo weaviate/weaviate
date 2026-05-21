@@ -191,8 +191,8 @@ type ShardLike interface {
 	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
 	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
 	// FinalizeChangeLog drains the pre-seal in-flight PREPARE set, then
-	// seals the log under writeBarrierMux.Lock and returns the final LSN.
-	// Tailers drain to finalLSN and EOF.
+	// seals the log and returns the final LSN. Tailers drain to finalLSN
+	// and EOF.
 	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
 	// StopChangeCapture unregisters and deactivates the log without sealing.
 	StopChangeCapture(ctx context.Context, opID string) error
@@ -263,15 +263,11 @@ type Shard struct {
 	asyncReplicationCancelFunc      context.CancelFunc
 
 	// Lock order, outermost → innermost:
-	//   Index.backupLock.RLock(shard) > writeBarrierMux > asyncReplicationRWMux > docIdLock[poolId].
+	//   Index.backupLock.RLock(shard) > asyncReplicationRWMux > docIdLock[poolId].
 	changeLogs atomic.Pointer[changelog.Set]
 	// changeLogsActivateMu serializes ActivateChangeLog so concurrent
 	// activates can't sweep each other's freshly-opened .log file.
 	changeLogsActivateMu sync.Mutex
-	// writeBarrierMux: writes/reads RLock; barrier-takers Lock to fence
-	// in-flight writes for a consistent LSN snapshot and to atomically
-	// seal the CCL against concurrent registerReplicaTask in Finalize.
-	writeBarrierMux sync.RWMutex
 	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
 	// derived from context.Background() and cancelled by asyncReplicationCancelFunc
 	// when async replication is stopped. Workers receive this context so that
