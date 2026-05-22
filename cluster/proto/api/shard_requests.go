@@ -29,11 +29,9 @@ func (s ShardReplicationState) String() string {
 }
 
 const (
-	REGISTERED ShardReplicationState = "REGISTERED"
-	HYDRATING  ShardReplicationState = "HYDRATING"
-	FINALIZING ShardReplicationState = "FINALIZING"
-	// INTEGRATING: target is a counted write replica; source CCL is
-	// draining to its final LSN before seal.
+	REGISTERED  ShardReplicationState = "REGISTERED"
+	HYDRATING   ShardReplicationState = "HYDRATING"
+	FINALIZING  ShardReplicationState = "FINALIZING"
 	INTEGRATING ShardReplicationState = "INTEGRATING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
