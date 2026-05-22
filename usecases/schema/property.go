@@ -48,10 +48,8 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
 	}
-	// Cross-ref Property.DataType entries are already qualified by
-	// QualifyPropertyDataTypes above. Use the name as-is for authz +
-	// schema lookup — re-qualifying would produce "customer1:customer1:Foo"
-	// and authorize the wrong resource.
+	// DataType is pre-qualified; see namespacing.QualifyPropertyDataTypes.
+	// Used as-is for authz + schema lookup.
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err

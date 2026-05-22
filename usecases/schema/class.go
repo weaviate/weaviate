@@ -153,13 +153,10 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	// Cross-ref Property.DataType entries are already qualified by
-	// QualifyPropertyDataTypes above. Use the name as-is for authz +
-	// schema lookup — re-qualifying would produce "customer1:customer1:Foo"
-	// which authz currently tolerates only because relaxCrossRefValidation
-	// is set and namespace RBAC prefix-matches, but authorizes the wrong
-	// resource. AddClass relaxes ref-existence validation; the existence
-	// check itself lives downstream in cluster/schema/manager.go.
+	// DataType is pre-qualified; see namespacing.QualifyPropertyDataTypes.
+	// Used as-is for authz + schema lookup. AddClass relaxes ref-existence
+	// validation; the existence check itself lives downstream in
+	// cluster/schema/manager.go.
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err

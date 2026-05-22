@@ -177,6 +177,27 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 //
 // Scope: top-level properties only. NestedProperty.DataType cross-refs are
 // rejected at usecases/schema/validation.go and never reach this path.
+//
+// # Downstream invariant for ref-property readers
+//
+// After AddClass on an NS-enabled cluster, every cross-ref Property.DataType
+// entry persisted in the schema is qualified ("customer1:Animal"). Downstream
+// readers (RAFT existence check, gRPC search/aggregate/batch parsers, the
+// autodetect-to-class sites in references/batch_references/properties
+// validation, AddClass / AddClassProperty's classGetterWithAuth) MUST honour
+// the split below:
+//
+//   - In-memory ops (authz, schema lookup, MT validation, shard routing): use
+//     the stored DataType as-is. Re-qualifying would produce
+//     "customer1:customer1:Foo" — authz authorizes the wrong resource and
+//     the schema lookup misses.
+//   - Storage-shape outputs (beacons written to the property bytes, filter
+//     values compared against stored beacons): call StripQualification first
+//     so the on-disk URI stays namespace-portable. Beacons always carry the
+//     SHORT class name.
+//
+// Call sites that bridge the two reference this comment instead of restating
+// the why.
 func QualifyPropertyDataTypes(
 	principal *models.Principal,
 	namespacesEnabled bool,

@@ -954,13 +954,11 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 	}
 
 	if len(reqProps.RefProperties) > 0 {
-		// className arrives qualified at this layer (top-level service.go
-		// already ran namespacing.Resolve; recursive calls below pass the
-		// previously-qualified linked class as the new className). Extract
-		// the parent's namespace so caller-supplied TargetCollection (short
-		// for namespaced callers) qualifies against the source's namespace.
-		// DataType entries are already qualified by QualifyPropertyDataTypes
-		// upstream and are used as-is.
+		// className is pre-qualified by service.go's namespacing.Resolve (or
+		// by the recursive call below). parentNS lets caller-supplied
+		// TargetCollection (short for namespaced callers) qualify against the
+		// source class's namespace. DataType is pre-qualified; see
+		// namespacing.QualifyPropertyDataTypes.
 		parentNS := namespacing.NamespaceFromQualified(className)
 
 		for _, prop := range reqProps.RefProperties {
@@ -972,9 +970,7 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 
 			var linkedClassName string
 			if len(schemaProp.DataType) == 1 {
-				// DataType is already qualified by QualifyPropertyDataTypes
-				// upstream — use as-is. Re-qualifying would produce
-				// "customer1:customer1:Foo".
+				// DataType is pre-qualified; see namespacing.QualifyPropertyDataTypes.
 				linkedClassName = schemaProp.DataType[0]
 			} else {
 				if err := namespacing.ValidateNamespacePrefix(p.principal, p.namespacesEnabled, prop.TargetCollection, "class"); err != nil {

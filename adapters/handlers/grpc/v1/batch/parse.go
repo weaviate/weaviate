@@ -146,13 +146,8 @@ func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_Si
 		if len(prop.DataType) > 1 {
 			return fmt.Errorf("target is a multi-target reference, need single target %v", prop.DataType)
 		}
-		// DataType is qualified by QualifyPropertyDataTypes upstream on
-		// NS clusters; strip back to short so the constructed beacon
-		// stays in the portable on-disk form and properties_validation's
-		// parseAndValidateSingleRef accepts it from a namespaced
-		// principal (ValidateNamespacePrefix rejects qualified beacons).
-		// Same pattern as properties_validation.go and
-		// batch_references_add.go autodetect sites.
+		// Strip back to short for the beacon; see the storage-shape rule in
+		// namespacing.QualifyPropertyDataTypes.
 		toClass := namespacing.StripQualification(prop.DataType[0])
 		beacons := make([]interface{}, len(refSingle.Uuids))
 		for j, uuid := range refSingle.Uuids {

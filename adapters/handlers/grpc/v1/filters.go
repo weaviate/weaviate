@@ -317,16 +317,12 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 	if err != nil {
 		return nil, "", err
 	}
-	// className arrives qualified at this layer (top-level service.go ran
-	// namespacing.Resolve on the search/aggregate/delete collection name;
-	// recursive calls below pass the previously-qualified linked class as
-	// the new className). Extract the parent's namespace so the
-	// caller-supplied MultiTarget.TargetCollection (always short for
-	// namespaced callers — ValidateNamespacePrefix rejects qualified
-	// prefixes) qualifies against the same namespace as the source class.
-	// DataType entries are already qualified by QualifyPropertyDataTypes
-	// upstream and are used as-is. parentNS is "" on non-namespace
-	// clusters, so QualifiedName is a no-op there.
+	// className is pre-qualified by service.go's namespacing.Resolve (or by
+	// the recursive call below). parentNS lets the caller-supplied
+	// MultiTarget.TargetCollection (always short for namespaced callers)
+	// qualify against the source class's namespace. parentNS is "" on
+	// non-NS clusters, so QualifiedName is a no-op there. DataType is
+	// pre-qualified; see namespacing.QualifyPropertyDataTypes.
 	parentNS := namespacing.NamespaceFromQualified(className)
 	switch target.Target.(type) {
 	case *pb.FilterTarget_Property:
@@ -345,8 +341,7 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 		if len(refProp.DataType) != 1 {
 			return nil, "", fmt.Errorf("expected reference property with a single target, got %v for %v ", refProp.DataType, refProp.Name)
 		}
-		// DataType is already qualified by QualifyPropertyDataTypes upstream
-		// — use as-is. Re-qualifying would produce "customer1:customer1:Foo".
+		// DataType is pre-qualified; see namespacing.QualifyPropertyDataTypes.
 		linkedClassName := refProp.DataType[0]
 		child, property, err := extractPathNew(authorizedGetClass, linkedClassName, tenant, singleTarget.Target, operator, namespacesEnabled, principal)
 		if err != nil {

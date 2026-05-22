@@ -265,11 +265,8 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	if req.State == nil {
 		return fmt.Errorf("%w: nil sharding state", ErrBadRequest)
 	}
-	// validate xrefs within the class for existence. On namespace-enabled
-	// clusters req.Class.Class arrives qualified ("customer1:Zoo") and
-	// Property.DataType is already qualified by namespacing.QualifyPropertyDataTypes
-	// at the handler layer (usecases/schema/class.go:AddClass). Use DataType
-	// directly — re-qualifying would produce "customer1:customer1:Foo".
+	// Validate xrefs within the class for existence. Use DataType as-is —
+	// it's pre-qualified on NS clusters; see namespacing.QualifyPropertyDataTypes.
 	for _, prop := range req.Class.Properties {
 		if !entSchema.IsRefDataType(prop.DataType) {
 			// don't need to validate non-xref data types
