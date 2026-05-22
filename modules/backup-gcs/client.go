@@ -187,7 +187,15 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 	}
 
 	return ubak.FetchBackupDescriptors(ctx, g.logger, keys, func(ctx context.Context, key string) ([]byte, error) {
-		return g.getObject(ctx, bucket, key)
+		data, err := g.getObject(ctx, bucket, key)
+		if err != nil {
+			if errors.Is(err, storage.ErrObjectNotExist) {
+				return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", key))
+			}
+			return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", key))
+		}
+
+		return data, nil
 	})
 }
 

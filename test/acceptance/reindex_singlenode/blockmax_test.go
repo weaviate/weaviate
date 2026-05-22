@@ -131,7 +131,7 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 		}
 	}()
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, blockmaxClassName, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, blockmaxClassName, "text", `{"searchable":{"algorithm":"blockmax"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// While the rebuild is in flight, GET /indexes must surface

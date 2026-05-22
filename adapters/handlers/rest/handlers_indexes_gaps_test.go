@@ -87,7 +87,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 	// exception for enable-rangeable.
 	cases := []row{
 		// Same type, same property — conflict.
-		{"repair-searchable vs repair-searchable", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairSearchable, []string{"p"}, true, "overlapping properties"},
+		{"repair-searchable vs repair-searchable", db.ReindexTypeChangeAlgorithm, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"repair-filterable vs repair-filterable", db.ReindexTypeRepairFilterable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-searchable vs enable-searchable", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
 		{"enable-filterable vs enable-filterable", db.ReindexTypeEnableFilterable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
@@ -95,7 +95,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		{"enable-rangeable vs enable-rangeable (same prop)", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableRangeable, []string{"p"}, true, "overlapping properties"},
 
 		// Cross-type same-property — all conflict under the new rule.
-		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairSearchable, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs enable-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs repair-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs enable-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
@@ -104,7 +104,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		// shared on-disk migration state (filterable_to_rangeable_<prop>) is
 		// destroyed by the OnMigrationComplete updatePropertyBuckets path
 		// otherwise. Same prop = conflict.
-		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairSearchable, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs repair-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs enable-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs enable-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
@@ -113,7 +113,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		// Searchable-only vs filterable-only on the same property also conflicts:
 		// MergeProps fans out across all flags on OnMigrationComplete so the same
 		// cross-pollination concern applies.
-		{"repair-searchable vs repair-filterable (same prop)", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"repair-searchable vs repair-filterable (same prop)", db.ReindexTypeChangeAlgorithm, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-searchable vs enable-filterable (same prop)", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 	}
 
@@ -134,7 +134,7 @@ func TestTypesConflict_DifferentPropertiesNeverConflict(t *testing.T) {
 	// Two same-type tasks on different properties of the same collection
 	// must NOT conflict. This is the parallelism contract.
 	for _, mt := range []db.ReindexMigrationType{
-		db.ReindexTypeRepairSearchable,
+		db.ReindexTypeChangeAlgorithm,
 		db.ReindexTypeRepairFilterable,
 		db.ReindexTypeEnableSearchable,
 		db.ReindexTypeEnableFilterable,
@@ -523,7 +523,7 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 	}{
 		{db.ReindexTypeEnableSearchable, "searchable", true, true},
 		{db.ReindexTypeEnableSearchable, "filterable", false, true},
-		{db.ReindexTypeRepairSearchable, "searchable", true, true},
+		{db.ReindexTypeChangeAlgorithm, "searchable", true, true},
 		{db.ReindexTypeEnableFilterable, "filterable", true, true},
 		{db.ReindexTypeEnableFilterable, "searchable", false, true},
 		{db.ReindexTypeRepairFilterable, "filterable", true, true},
@@ -563,7 +563,7 @@ func TestIndexTypesFromMigrationType(t *testing.T) {
 		wantKnown bool
 	}{
 		{db.ReindexTypeEnableSearchable, []string{"searchable"}, true},
-		{db.ReindexTypeRepairSearchable, []string{"searchable"}, true},
+		{db.ReindexTypeChangeAlgorithm, []string{"searchable"}, true},
 		{db.ReindexTypeEnableFilterable, []string{"filterable"}, true},
 		{db.ReindexTypeRepairFilterable, []string{"filterable"}, true},
 		{db.ReindexTypeEnableRangeable, []string{"rangeable"}, true},
@@ -825,7 +825,7 @@ func TestTouchesSearchable(t *testing.T) {
 		t    db.ReindexMigrationType
 		want bool
 	}{
-		{db.ReindexTypeRepairSearchable, true},
+		{db.ReindexTypeChangeAlgorithm, true},
 		{db.ReindexTypeChangeTokenization, true},
 		{db.ReindexTypeEnableSearchable, true},
 		{db.ReindexTypeRepairFilterable, false},
@@ -847,7 +847,7 @@ func TestTouchesFilterable(t *testing.T) {
 		{db.ReindexTypeRepairFilterable, true},
 		{db.ReindexTypeChangeTokenization, true},
 		{db.ReindexTypeEnableFilterable, true},
-		{db.ReindexTypeRepairSearchable, false},
+		{db.ReindexTypeChangeAlgorithm, false},
 		{db.ReindexTypeEnableSearchable, false},
 		{db.ReindexTypeEnableRangeable, false},
 	}
@@ -1019,6 +1019,35 @@ func TestValidateBodyExclusivity(t *testing.T) {
 				Filterable: &models.IndexUpdateFilterable{Enabled: true, Rebuild: true},
 			},
 			wantErr: "conflicting fields in filterable",
+		},
+
+		// --- algorithm verb ----------------------------------------------------
+		{
+			name: "valid: searchable.algorithm alone",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax"},
+			},
+		},
+		{
+			name: "reject: searchable.algorithm + searchable.rebuild",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Rebuild: true},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
+		{
+			name: "reject: searchable.algorithm + searchable.tokenization",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Tokenization: "word"},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
+		{
+			name: "reject: searchable.algorithm + searchable.enabled",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Enabled: true},
+			},
+			wantErr: "conflicting fields in searchable",
 		},
 	}
 

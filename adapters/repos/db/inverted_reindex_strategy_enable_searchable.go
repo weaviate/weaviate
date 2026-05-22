@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -73,14 +72,7 @@ func (s *EnableSearchableStrategy) BackupStrategy() string {
 func (s *EnableSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
 	docID uint64, prop inverted.Property,
 ) error {
-	propLen := calcPropLenInverted(prop.Items)
-	for _, item := range prop.Items {
-		pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-		if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
-			return fmt.Errorf("adding prop '%s': %w", item.Data, err)
-		}
-	}
-	return nil
+	return writeBlockmaxSearchablePostings(shard, bucket, docID, prop)
 }
 
 // ShouldProcessProperty always returns true — scope is driven by
@@ -94,41 +86,13 @@ func (s *EnableSearchableStrategy) ShouldProcessProperty(property *inverted.Prop
 func (s *EnableSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {
-	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if _, ok := propsByName[property.Name]; !ok {
-			return nil
-		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
-		propLen := calcPropLenInverted(property.Items)
-		for _, item := range property.Items {
-			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-			if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
-				return fmt.Errorf("adding prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
-			}
-		}
-		return nil
-	}
+	return blockmaxSearchableAddCallback(bucketNamer, propsByName)
 }
 
 func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onDeleteFromPropertyValueIndex {
-	return func(shard *Shard, docID uint64, property *inverted.Property) error {
-		if _, ok := propsByName[property.Name]; !ok {
-			return nil
-		}
-
-		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
-		for _, item := range property.Items {
-			if err := shard.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
-				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
-			}
-		}
-		return nil
-	}
+	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName)
 }
 
 // PreReindexHook creates empty blockmax searchable buckets for the targeted

@@ -222,7 +222,7 @@ func buildRecoveryTasks(
 	}
 	var raw []*ShardReindexTaskGeneric
 	switch payload.MigrationType {
-	case ReindexTypeRepairSearchable:
+	case ReindexTypeChangeAlgorithm:
 		raw = []*ShardReindexTaskGeneric{
 			NewRuntimeMapToBlockmaxTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
 		}

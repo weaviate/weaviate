@@ -18,9 +18,12 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // IndexUpdateSearchable index update searchable
@@ -28,13 +31,17 @@ import (
 // swagger:model IndexUpdateSearchable
 type IndexUpdateSearchable struct {
 
+	// Switch the BM25 algorithm for this property's searchable index. Currently only `blockmax` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-`blockmax` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported.
+	// Enum: [blockmax]
+	Algorithm string `json:"algorithm,omitempty"`
+
 	// When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.
 	Cancel bool `json:"cancel,omitempty"`
 
 	// enabled
 	Enabled bool `json:"enabled,omitempty"`
 
-	// When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -> wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.
+	// When true, rebuilds the searchable index for this property from the stored objects. Preserves the current tokenization and BM25 algorithm. Only valid when the property's current algorithm is `blockmax`; on a WAND property the request is rejected with guidance to use `algorithm:"blockmax"` first.
 	Rebuild bool `json:"rebuild,omitempty"`
 
 	// tokenization
@@ -43,6 +50,54 @@ type IndexUpdateSearchable struct {
 
 // Validate validates this index update searchable
 func (m *IndexUpdateSearchable) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateAlgorithm(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var indexUpdateSearchableTypeAlgorithmPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["blockmax"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		indexUpdateSearchableTypeAlgorithmPropEnum = append(indexUpdateSearchableTypeAlgorithmPropEnum, v)
+	}
+}
+
+const (
+
+	// IndexUpdateSearchableAlgorithmBlockmax captures enum value "blockmax"
+	IndexUpdateSearchableAlgorithmBlockmax string = "blockmax"
+)
+
+// prop value enum
+func (m *IndexUpdateSearchable) validateAlgorithmEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, indexUpdateSearchableTypeAlgorithmPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *IndexUpdateSearchable) validateAlgorithm(formats strfmt.Registry) error {
+	if swag.IsZero(m.Algorithm) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateAlgorithmEnum("algorithm", "body", m.Algorithm); err != nil {
+		return err
+	}
+
 	return nil
 }
 

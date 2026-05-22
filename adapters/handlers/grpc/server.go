@@ -33,6 +33,7 @@ import (
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/restrictions"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -184,7 +185,30 @@ func translateTypedError(err error) error {
 	if le, ok := usagelimits.AsLimitExceeded(err); ok {
 		return limitExceededToGrpcError(le)
 	}
+	if v, ok := restrictions.AsViolation(err); ok {
+		return restrictionViolationToGrpcError(v)
+	}
 	return nil
+}
+
+// restrictionViolationToGrpcError maps a ViolationError to
+// FailedPrecondition + ErrorInfo metadata mirroring the REST 422 body.
+func restrictionViolationToGrpcError(v *restrictions.ViolationError) error {
+	st := status.New(codes.FailedPrecondition, v.Error())
+	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{
+		Reason: restrictions.ErrorCode,
+		Domain: "weaviate.restrictions",
+		Metadata: map[string]string{
+			"restriction": string(v.Restriction),
+			"value":       v.Value,
+			"allowed":     strings.Join(v.Allowed, ","),
+			"message":     v.RenderedMessage,
+		},
+	})
+	if derr != nil {
+		return st.Err()
+	}
+	return withDetails.Err()
 }
 
 func makeAuthInterceptor() grpc.UnaryServerInterceptor {

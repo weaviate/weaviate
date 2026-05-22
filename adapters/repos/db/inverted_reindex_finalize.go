@@ -446,6 +446,8 @@ func reindexSuffixForFinalize(namespace string) string {
 		return "__enable_filterable_reindex"
 	case strings.HasPrefix(namespace, MigrationDirPrefixEnableSearchable):
 		return "__enable_searchable_reindex"
+	case strings.HasPrefix(namespace, MigrationDirPrefixRebuildSearchable):
+		return "__rebuild_searchable_reindex"
 	}
 	return ""
 }
@@ -599,6 +601,14 @@ func migrationSuffixes(migName string) *migrationBucketSuffixes {
 			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
 			ingestSuffix:     "__enable_searchable_ingest",
 			backupSuffix:     "__enable_searchable_backup",
+		}
+	// Per-property dir names: "rebuild_searchable_<prop1>_<prop2>..." (see
+	// RebuildSearchableStrategy.MigrationDirName).
+	case strings.HasPrefix(migName, MigrationDirPrefixRebuildSearchable):
+		return &migrationBucketSuffixes{
+			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
+			ingestSuffix:     "__rebuild_searchable_ingest",
+			backupSuffix:     "__rebuild_searchable_backup",
 		}
 	default:
 		return nil

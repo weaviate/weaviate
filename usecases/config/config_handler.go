@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,6 +114,18 @@ type Flags struct {
 
 type SchemaHandlerConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+}
+
+// RestrictionsConfig gates *what kind* of class operators allow to be
+// created (vs UsageLimitsConfig which caps how much). nil or empty list
+// = no restriction; see validateRestrictions for cross-field rules.
+type RestrictionsConfig struct {
+	AllowedVectorIndexTypes *runtime.DynamicValue[[]string] `json:"allowed_vector_index_types" yaml:"allowed_vector_index_types"`
+	AllowedCompressionTypes *runtime.DynamicValue[[]string] `json:"allowed_compression_types" yaml:"allowed_compression_types"`
+	// ErrorMessage is the operator-overridable template rendered into
+	// the CONFIG_NOT_ALLOWED response `message`. Placeholders:
+	// {restriction}, {value}, {allowed}.
+	ErrorMessage *runtime.DynamicValue[string] `json:"error_message" yaml:"error_message"`
 }
 
 // UsageLimitsConfig holds the env-var and runtime-overrideable usage-limit
@@ -212,6 +225,7 @@ type Config struct {
 	MetadataServer                      MetadataServer         `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig    `json:"schema" yaml:"schema"`
 	UsageLimits                         UsageLimitsConfig      `json:"usage_limits" yaml:"usage_limits"`
+	Restrictions                        RestrictionsConfig     `json:"restrictions" yaml:"restrictions"`
 	DistributedTasks                    DistributedTasksConfig `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                    `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                    `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
@@ -383,6 +397,10 @@ func (c *Config) Validate() error {
 		return configErr(err)
 	}
 
+	if err := c.validateRestrictions(); err != nil {
+		return configErr(err)
+	}
+
 	return nil
 }
 
@@ -443,6 +461,251 @@ func dynamicString(v *runtime.DynamicValue[string]) string {
 // DynamicValue or a negative value means "unset / unlimited".
 func dynamicIntSet(dv *runtime.DynamicValue[int]) bool {
 	return dv != nil && dv.Get() >= 0
+}
+
+// Mirrors entities/vectorindex/config.go; duplicated as plain strings to
+// avoid an import cycle. VectorIndexTypeNone is an internal sentinel.
+var validRestrictionVectorIndexTypes = []string{"hnsw", "flat", "dynamic", "hfresh"}
+
+// Matches DEFAULT_QUANTIZATION values so operators can copy them across.
+// "none" means "uncompressed"; omitting it from the allow-list makes
+// every non-hfresh class require a compression.
+var validRestrictionCompressionTypes = []string{"none", "pq", "sq", "rq-1", "rq-8", "bq"}
+
+func IsValidRestrictionVectorIndexType(v string) bool {
+	return slices.Contains(validRestrictionVectorIndexTypes, strings.ToLower(strings.TrimSpace(v)))
+}
+
+func IsValidRestrictionCompressionType(v string) bool {
+	return slices.Contains(validRestrictionCompressionTypes, strings.ToLower(strings.TrimSpace(v)))
+}
+
+// makeRestrictionListValidator rejects unknown entries at SetValue time.
+// Cross-field rules (default-matching, hfresh+compression) stay in
+// validateRestrictions/ValidateRestrictionsRuntime — SetValue sees one
+// field at a time.
+func makeRestrictionListValidator(valid []string, envName string) func([]string) error {
+	return func(val []string) error {
+		for _, entry := range val {
+			entry = strings.ToLower(strings.TrimSpace(entry))
+			if entry == "" {
+				continue
+			}
+			if !slices.Contains(valid, entry) {
+				return fmt.Errorf("%s contains invalid entry %q; valid values are: %s",
+					envName, entry, strings.Join(valid, ", "))
+			}
+		}
+		return nil
+	}
+}
+
+func NewRestrictionVectorIndexTypeListValidator() func([]string) error {
+	return makeRestrictionListValidator(validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
+}
+
+func NewRestrictionCompressionTypeListValidator() func([]string) error {
+	return makeRestrictionListValidator(validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+}
+
+// ValidateRestrictionsRuntime is the cross-field layer of validation
+// (per-value runs at SetValue time). On failure it logs and clears both
+// allow-lists — reverting to the prior value would need a snapshot
+// outside the DynamicValue, which buys little over fail-safe-and-warn.
+func (c *Config) ValidateRestrictionsRuntime(log logrus.FieldLogger) error {
+	allowVector, vErr := normalizeRestrictionList(c.Restrictions.AllowedVectorIndexTypes, validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
+	allowCompression, cErr := normalizeRestrictionList(c.Restrictions.AllowedCompressionTypes, validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+
+	var problems []string
+	if vErr != nil {
+		problems = append(problems, vErr.Error())
+	}
+	if cErr != nil {
+		problems = append(problems, cErr.Error())
+	}
+	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
+		problems = append(problems, "ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
+	}
+
+	problems = append(problems, runtimeMismatchProblems(
+		allowVector, c.DefaultVectorIndexType,
+		"ALLOWED_VECTOR_INDEX_TYPES", "DEFAULT_VECTOR_INDEX",
+	)...)
+	problems = append(problems, runtimeMismatchProblems(
+		allowCompression, c.DefaultQuantization,
+		"ALLOWED_COMPRESSION_TYPES", "DEFAULT_QUANTIZATION",
+	)...)
+
+	if len(problems) == 0 {
+		return nil
+	}
+
+	log.WithFields(logrus.Fields{
+		"action":   "runtime_overrides_restrictions_invalid",
+		"problems": problems,
+	}).Errorf("runtime override violates restriction invariants — resetting allow-lists to empty (no restriction) until fixed: %s", strings.Join(problems, "; "))
+
+	// Fail-safe: drop both allow-lists.
+	if c.Restrictions.AllowedVectorIndexTypes != nil {
+		_ = c.Restrictions.AllowedVectorIndexTypes.SetValue(nil)
+	}
+	if c.Restrictions.AllowedCompressionTypes != nil {
+		_ = c.Restrictions.AllowedCompressionTypes.SetValue(nil)
+	}
+	return nil
+}
+
+// validateRestrictions enforces the boot-time cross-field rules between
+// the allow-lists and DEFAULT_VECTOR_INDEX / DEFAULT_QUANTIZATION. May
+// seed the matching default when a single-entry allow-list leaves it
+// unset, so downstream readers don't need to special-case.
+func (c *Config) validateRestrictions() error {
+	allowVector, err := normalizeRestrictionList(c.Restrictions.AllowedVectorIndexTypes, validRestrictionVectorIndexTypes, "ALLOWED_VECTOR_INDEX_TYPES")
+	if err != nil {
+		return err
+	}
+	allowCompression, err := normalizeRestrictionList(c.Restrictions.AllowedCompressionTypes, validRestrictionCompressionTypes, "ALLOWED_COMPRESSION_TYPES")
+	if err != nil {
+		return err
+	}
+
+	if len(allowVector) == 1 && allowVector[0] == "hfresh" && len(allowCompression) > 0 {
+		return fmt.Errorf("ALLOWED_COMPRESSION_TYPES cannot be set when ALLOWED_VECTOR_INDEX_TYPES is exclusively 'hfresh': hfresh has no compression configuration")
+	}
+
+	if err := reconcileAllowListWithDefault(
+		allowVector, c.DefaultVectorIndexType,
+		"ALLOWED_VECTOR_INDEX_TYPES", "DEFAULT_VECTOR_INDEX",
+	); err != nil {
+		return err
+	}
+	if err := reconcileAllowListWithDefault(
+		allowCompression, c.DefaultQuantization,
+		"ALLOWED_COMPRESSION_TYPES", "DEFAULT_QUANTIZATION",
+	); err != nil {
+		return err
+	}
+
+	// Persist normalized form: a whitespace-only input ("X=,") collapses
+	// to an empty list — leaving the original would force the schema
+	// layer to enforce an allow-list of blank strings.
+	if c.Restrictions.AllowedVectorIndexTypes != nil {
+		_ = c.Restrictions.AllowedVectorIndexTypes.SetValue(allowVector)
+	}
+	if c.Restrictions.AllowedCompressionTypes != nil {
+		_ = c.Restrictions.AllowedCompressionTypes.SetValue(allowCompression)
+	}
+
+	return nil
+}
+
+// normalizeRestrictionList trims/lowercases/dedupes entries and rejects
+// unknowns. Returns nil for the "no restriction" case (nil or empty dv).
+func normalizeRestrictionList(dv *runtime.DynamicValue[[]string], valid []string, envName string) ([]string, error) {
+	if dv == nil {
+		return nil, nil
+	}
+	raw := dv.Get()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, v := range raw {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		validEntry := false
+		for _, w := range valid {
+			if v == w {
+				validEntry = true
+				break
+			}
+		}
+		if !validEntry {
+			return nil, fmt.Errorf("%s contains invalid entry %q; valid values are: %s",
+				envName, v, strings.Join(valid, ", "))
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+// reconcileAllowListWithDefault enforces "default must be in the list",
+// seeding the default in the single-entry / unset-default case.
+func reconcileAllowListWithDefault(allowList []string, defaultDV *runtime.DynamicValue[string], allowEnv, defaultEnv string) error {
+	if len(allowList) == 0 {
+		return nil
+	}
+	currentDefault := ""
+	if defaultDV != nil {
+		currentDefault = strings.ToLower(strings.TrimSpace(defaultDV.Get()))
+	}
+	if len(allowList) > 1 {
+		if currentDefault == "" {
+			return fmt.Errorf("%s lists multiple values (%s); %s must also be set to one of them",
+				allowEnv, strings.Join(allowList, ", "), defaultEnv)
+		}
+		if !slices.Contains(allowList, currentDefault) {
+			return fmt.Errorf("%s=%q is not in %s (%s)",
+				defaultEnv, currentDefault, allowEnv, strings.Join(allowList, ", "))
+		}
+		if defaultDV != nil && defaultDV.Get() != currentDefault {
+			_ = defaultDV.SetValue(currentDefault)
+		}
+		return nil
+	}
+	only := allowList[0]
+	if currentDefault == "" {
+		if defaultDV != nil {
+			_ = defaultDV.SetValue(only)
+		}
+		return nil
+	}
+	if currentDefault != only {
+		return fmt.Errorf("%s=%q does not match the only entry in %s (%q)",
+			defaultEnv, currentDefault, allowEnv, only)
+	}
+	if defaultDV != nil && defaultDV.Get() != currentDefault {
+		_ = defaultDV.SetValue(currentDefault)
+	}
+	return nil
+}
+
+// runtimeMismatchProblems is the runtime-hook equivalent of
+// reconcileAllowListWithDefault: collect every mismatch (one log line
+// per operator change) and never seed defaults at runtime — the boot
+// path is the only place we may rewrite an unset default.
+func runtimeMismatchProblems(allowList []string, defaultDV *runtime.DynamicValue[string], allowEnv, defaultEnv string) []string {
+	if len(allowList) == 0 {
+		return nil
+	}
+	currentDefault := ""
+	if defaultDV != nil {
+		currentDefault = strings.ToLower(strings.TrimSpace(defaultDV.Get()))
+	}
+	var out []string
+	if len(allowList) > 1 {
+		if currentDefault == "" {
+			out = append(out, fmt.Sprintf("%s lists multiple values (%s); %s must also be set to one of them",
+				allowEnv, strings.Join(allowList, ", "), defaultEnv))
+		} else if !slices.Contains(allowList, currentDefault) {
+			out = append(out, fmt.Sprintf("%s=%q is not in %s (%s)",
+				defaultEnv, currentDefault, allowEnv, strings.Join(allowList, ", ")))
+		}
+		return out
+	}
+	// Single-entry: unset default is tolerated (seeding is boot-only).
+	if currentDefault != "" && currentDefault != allowList[0] {
+		out = append(out, fmt.Sprintf("%s=%q does not match the only entry in %s (%q)",
+			defaultEnv, currentDefault, allowEnv, allowList[0]))
+	}
+	return out
 }
 
 // ValidateModules validates the non-nested parameters. Nested objects must provide their own
@@ -736,7 +999,7 @@ type Namespaces struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

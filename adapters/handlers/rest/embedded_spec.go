@@ -5386,7 +5386,7 @@ func init() {
           "422": {
             "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "429": {
@@ -5517,7 +5517,7 @@ func init() {
           "422": {
             "description": "Invalid update attempt.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -5752,7 +5752,7 @@ func init() {
           "422": {
             "description": "Invalid property definition provided.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -8528,6 +8528,13 @@ func init() {
     "IndexUpdateSearchable": {
       "type": "object",
       "properties": {
+        "algorithm": {
+          "description": "Switch the BM25 algorithm for this property's searchable index. Currently only ` + "`" + `blockmax` + "`" + ` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported.",
+          "type": "string",
+          "enum": [
+            "blockmax"
+          ]
+        },
         "cancel": {
           "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
           "type": "boolean"
@@ -8536,7 +8543,7 @@ func init() {
           "type": "boolean"
         },
         "rebuild": {
-          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -\u003e wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
+          "description": "When true, rebuilds the searchable index for this property from the stored objects. Preserves the current tokenization and BM25 algorithm. Only valid when the property's current algorithm is ` + "`" + `blockmax` + "`" + `; on a WAND property the request is rejected with guidance to use ` + "`" + `algorithm:\"blockmax\"` + "`" + ` first.",
           "type": "boolean"
         },
         "tokenization": {
@@ -10096,6 +10103,54 @@ func init() {
             "noRestore",
             "all"
           ]
+        }
+      }
+    },
+    "RestrictionViolationResponse": {
+      "description": "Returned with HTTP 422 from class create/update endpoints. For restriction violations (operator-disallowed config via ALLOWED_VECTOR_INDEX_TYPES or ALLOWED_COMPRESSION_TYPES) the structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `restriction` + "`" + `, ` + "`" + `value` + "`" + `, ` + "`" + `allowed` + "`" + `, ` + "`" + `message` + "`" + `) are populated; the ` + "`" + `message` + "`" + ` text is rendered from the operator-overridable ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template. For unrelated 422 errors the ` + "`" + `error` + "`" + ` array is populated (matching the legacy ErrorResponse shape) and the structured fields are omitted.",
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "description": "The operator-configured allow-list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "Legacy ErrorResponse-style error list, populated for non-restriction 422 errors.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "errorCode": {
+          "description": "Machine-stable identifier. Set to ` + "`" + `CONFIG_NOT_ALLOWED` + "`" + ` for restriction violations; omitted otherwise.",
+          "type": "string",
+          "enum": [
+            "CONFIG_NOT_ALLOWED"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{restriction}` + "`" + `, ` + "`" + `{value}` + "`" + `, ` + "`" + `{allowed}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "restriction": {
+          "description": "Which restriction was violated.",
+          "type": "string",
+          "enum": [
+            "vector_index_type",
+            "compression"
+          ]
+        },
+        "value": {
+          "description": "The disallowed value the client submitted.",
+          "type": "string"
         }
       }
     },
@@ -16364,7 +16419,7 @@ func init() {
           "422": {
             "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "429": {
@@ -16495,7 +16550,7 @@ func init() {
           "422": {
             "description": "Invalid update attempt.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -16730,7 +16785,7 @@ func init() {
           "422": {
             "description": "Invalid property definition provided.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -19691,6 +19746,13 @@ func init() {
     "IndexUpdateSearchable": {
       "type": "object",
       "properties": {
+        "algorithm": {
+          "description": "Switch the BM25 algorithm for this property's searchable index. Currently only ` + "`" + `blockmax` + "`" + ` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-` + "`" + `blockmax` + "`" + ` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported.",
+          "type": "string",
+          "enum": [
+            "blockmax"
+          ]
+        },
         "cancel": {
           "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
           "type": "boolean"
@@ -19699,7 +19761,7 @@ func init() {
           "type": "boolean"
         },
         "rebuild": {
-          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -\u003e wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
+          "description": "When true, rebuilds the searchable index for this property from the stored objects. Preserves the current tokenization and BM25 algorithm. Only valid when the property's current algorithm is ` + "`" + `blockmax` + "`" + `; on a WAND property the request is rejected with guidance to use ` + "`" + `algorithm:\"blockmax\"` + "`" + ` first.",
           "type": "boolean"
         },
         "tokenization": {
@@ -21446,6 +21508,57 @@ func init() {
             "noRestore",
             "all"
           ]
+        }
+      }
+    },
+    "RestrictionViolationResponse": {
+      "description": "Returned with HTTP 422 from class create/update endpoints. For restriction violations (operator-disallowed config via ALLOWED_VECTOR_INDEX_TYPES or ALLOWED_COMPRESSION_TYPES) the structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `restriction` + "`" + `, ` + "`" + `value` + "`" + `, ` + "`" + `allowed` + "`" + `, ` + "`" + `message` + "`" + `) are populated; the ` + "`" + `message` + "`" + ` text is rendered from the operator-overridable ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template. For unrelated 422 errors the ` + "`" + `error` + "`" + ` array is populated (matching the legacy ErrorResponse shape) and the structured fields are omitted.",
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "description": "The operator-configured allow-list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "Legacy ErrorResponse-style error list, populated for non-restriction 422 errors.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RestrictionViolationResponseErrorItems0"
+          }
+        },
+        "errorCode": {
+          "description": "Machine-stable identifier. Set to ` + "`" + `CONFIG_NOT_ALLOWED` + "`" + ` for restriction violations; omitted otherwise.",
+          "type": "string",
+          "enum": [
+            "CONFIG_NOT_ALLOWED"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{restriction}` + "`" + `, ` + "`" + `{value}` + "`" + `, ` + "`" + `{allowed}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "restriction": {
+          "description": "Which restriction was violated.",
+          "type": "string",
+          "enum": [
+            "vector_index_type",
+            "compression"
+          ]
+        },
+        "value": {
+          "description": "The disallowed value the client submitted.",
+          "type": "string"
+        }
+      }
+    },
+    "RestrictionViolationResponseErrorItems0": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
         }
       }
     },
