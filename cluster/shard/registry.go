@@ -163,7 +163,7 @@ func (reg *Registry) Start() error {
 		Logger:       reg.log,
 	})
 
-	reg.muxTransport, err = NewMuxTransport(bindAddr, tcpAddr, provider, reg.nodeIDs, reg, reg.log)
+	reg.muxTransport, err = NewMuxTransport(bindAddr, tcpAddr, provider, reg.nodeIDs, reg, reg.log, 0)
 	if err != nil {
 		_ = reg.snapshotter.Close()
 		_ = reg.sharedLog.Close()

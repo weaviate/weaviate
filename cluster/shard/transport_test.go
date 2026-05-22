@@ -12,6 +12,7 @@
 package shard
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"sync"
@@ -133,9 +134,16 @@ type testMuxNode struct {
 	nodeIDs *nodeIDMap
 }
 
-// setupMuxNodes binds n MuxTransports on loopback and wires each with a
-// capturing router and a nodeID map pre-seeded with every node.
+// setupMuxNodes binds n MuxTransports on loopback with a short heartbeat flush
+// interval so coalesced heartbeats deliver quickly under test.
 func setupMuxNodes(t *testing.T, n int, logger *logrus.Logger) []testMuxNode {
+	return setupMuxNodesFlush(t, n, logger, 20*time.Millisecond)
+}
+
+// setupMuxNodesFlush binds n MuxTransports on loopback and wires each with a
+// capturing router and a nodeID map pre-seeded with every node. flushInterval
+// controls the heartbeat coalescer's flush cadence.
+func setupMuxNodesFlush(t *testing.T, n int, logger *logrus.Logger, flushInterval time.Duration) []testMuxNode {
 	t.Helper()
 
 	nodes := make([]testMuxNode, n)
@@ -177,7 +185,7 @@ func setupMuxNodes(t *testing.T, n int, logger *logrus.Logger) []testMuxNode {
 		}
 		router := &captureRouter{}
 
-		mux, err := NewMuxTransport(nodes[i].addr, advertise, provider, nodeIDs, router, logger)
+		mux, err := NewMuxTransport(nodes[i].addr, advertise, provider, nodeIDs, router, logger, flushInterval)
 		require.NoError(t, err)
 
 		nodes[i].mux = mux
@@ -266,4 +274,105 @@ func TestMuxTransport_SessionReconnect(t *testing.T) {
 	require.False(t, session2.IsClosed())
 
 	assert.NotSame(t, session1, session2)
+}
+
+// decodeFrames splits a concatenated frame buffer back into (groupID, message)
+// pairs, mirroring the wire decoding readStream performs.
+func decodeFrames(t *testing.T, buf []byte) ([]uint64, []raftpb.Message) {
+	t.Helper()
+	var (
+		groups []uint64
+		msgs   []raftpb.Message
+	)
+	for len(buf) > 0 {
+		require.GreaterOrEqual(t, len(buf), 12, "truncated frame header")
+		g := binary.BigEndian.Uint64(buf[:8])
+		l := binary.BigEndian.Uint32(buf[8:12])
+		buf = buf[12:]
+		require.GreaterOrEqual(t, uint32(len(buf)), l, "truncated frame payload")
+		var msg raftpb.Message
+		require.NoError(t, msg.Unmarshal(buf[:l]))
+		buf = buf[l:]
+		groups = append(groups, g)
+		msgs = append(msgs, msg)
+	}
+	return groups, msgs
+}
+
+// TestHeartbeatCoalescer_EnqueueTake verifies the coalescer accumulates
+// well-formed frames per destination and that take drains one destination
+// while leaving the rest intact.
+func TestHeartbeatCoalescer_EnqueueTake(t *testing.T) {
+	c := newHeartbeatCoalescer()
+	require.NoError(t, c.enqueue(1, 10, &raftpb.Message{Type: raftpb.MsgHeartbeat, To: 1, From: 9, Term: 2}))
+	require.NoError(t, c.enqueue(1, 20, &raftpb.Message{Type: raftpb.MsgHeartbeat, To: 1, From: 9, Term: 3}))
+	require.NoError(t, c.enqueue(2, 30, &raftpb.Message{Type: raftpb.MsgHeartbeatResp, To: 2, From: 9}))
+
+	require.ElementsMatch(t, []uint64{1, 2}, c.peers(nil))
+
+	// Destination 1 holds two concatenated frames, in enqueue order.
+	groups, msgs := decodeFrames(t, c.take(1, nil))
+	assert.Equal(t, []uint64{10, 20}, groups)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, uint64(2), msgs[0].Term)
+	assert.Equal(t, uint64(3), msgs[1].Term)
+
+	// take resets destination 1 but leaves destination 2 intact.
+	assert.Empty(t, c.take(1, nil), "take should reset the destination buffer")
+	assert.Equal(t, []uint64{2}, c.peers(nil))
+}
+
+// TestMuxTransport_CoalescesHeartbeats verifies heartbeats for several groups
+// to one peer are all delivered after a flush, each tagged with its group ID.
+func TestMuxTransport_CoalescesHeartbeats(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	nodes := setupMuxNodes(t, 2, logger)
+
+	to := nodes[0].nodeIDs.register(nodes[1].id)
+	from := nodes[0].nodeIDs.register(nodes[0].id)
+
+	groups := []uint64{10, 20, 30, 40}
+	for _, g := range groups {
+		nodes[0].mux.Send(g, []raftpb.Message{
+			{Type: raftpb.MsgHeartbeat, To: to, From: from, Term: 3},
+		})
+	}
+
+	require.Eventually(t, func() bool {
+		return nodes[1].router.count() == len(groups)
+	}, 3*time.Second, 10*time.Millisecond, "expected every coalesced heartbeat to be routed")
+
+	gotGroups := make(map[uint64]bool)
+	for _, m := range nodes[1].router.all() {
+		gotGroups[m.groupID] = true
+		assert.Equal(t, raftpb.MsgHeartbeat, m.msg.Type)
+	}
+	for _, g := range groups {
+		assert.Truef(t, gotGroups[g], "heartbeat for group %d not routed", g)
+	}
+}
+
+// TestMuxTransport_NonHeartbeatSentImmediately verifies a non-heartbeat message
+// bypasses the coalescer: with the flush interval set far in the future, the
+// MsgApp still arrives while the buffered heartbeat does not.
+func TestMuxTransport_NonHeartbeatSentImmediately(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	nodes := setupMuxNodesFlush(t, 2, logger, time.Hour)
+
+	to := nodes[0].nodeIDs.register(nodes[1].id)
+
+	nodes[0].mux.Send(7, []raftpb.Message{
+		{Type: raftpb.MsgHeartbeat, To: to}, // buffered; will not flush during the test
+		{Type: raftpb.MsgApp, To: to},       // immediate
+	})
+
+	require.Eventually(t, func() bool {
+		return nodes[1].router.count() == 1
+	}, time.Second, 5*time.Millisecond, "MsgApp should arrive without waiting for a flush")
+
+	// The buffered heartbeat must still not have been delivered.
+	time.Sleep(100 * time.Millisecond)
+	got := nodes[1].router.all()
+	require.Len(t, got, 1)
+	assert.Equal(t, raftpb.MsgApp, got[0].msg.Type)
 }

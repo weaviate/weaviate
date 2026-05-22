@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,9 +26,16 @@ import (
 	"go.etcd.io/raft/v3/raftpb"
 )
 
+// frameHeaderLen is the wire-frame prefix: [uint64 groupID BE][uint32 msgLen BE].
+const frameHeaderLen = 12
+
 // maxRaftFrameSize caps an inbound raft-message frame. Generous headroom over
 // the 2MB MaxSizePerMsg; an oversized length is treated as a corrupt stream.
 const maxRaftFrameSize = 64 * 1024 * 1024
+
+// defaultHeartbeatFlushInterval is the coalescer flush cadence used when
+// NewMuxTransport is given no explicit interval; it matches the Store tick rate.
+const defaultHeartbeatFlushInterval = 100 * time.Millisecond
 
 // Transport sends raft messages to peer nodes for any group. Send is
 // fire-and-forget: raft tolerates message loss and retries on the next tick.
@@ -78,6 +86,64 @@ type peerConn struct {
 	stream net.Conn
 }
 
+// heartbeatCoalescer batches heartbeat frames per destination so the flush loop
+// writes once per peer per tick rather than once per group. Delaying a
+// heartbeat is safe: it carries only a commit index and raft tolerates loss.
+// Buffers are reused in place (alloc-free in steady state); buf is accessed
+// only under mu.
+type heartbeatCoalescer struct {
+	mu  sync.Mutex
+	buf map[uint64][]byte // dest nodeID -> accumulated encoded frames
+}
+
+func newHeartbeatCoalescer() *heartbeatCoalescer {
+	return &heartbeatCoalescer{buf: make(map[uint64][]byte)}
+}
+
+// enqueue marshals a heartbeat frame straight onto the destination buffer — no
+// intermediate allocation; slices.Grow stops allocating once the buffer reaches
+// steady-state size.
+func (c *heartbeatCoalescer) enqueue(to, groupID uint64, msg *raftpb.Message) error {
+	sz := msg.Size()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b := c.buf[to]
+	off := len(b)
+	b = slices.Grow(b, frameHeaderLen+sz)
+	b = b[:off+frameHeaderLen+sz]
+	putFrameHeader(b[off:], groupID, sz)
+	if _, err := msg.MarshalTo(b[off+frameHeaderLen:]); err != nil {
+		c.buf[to] = b[:off] // discard the partial frame
+		return fmt.Errorf("marshal heartbeat: %w", err)
+	}
+	c.buf[to] = b
+	return nil
+}
+
+// peers returns the destinations with buffered heartbeats, appended to dst so
+// the caller can reuse its backing array.
+func (c *heartbeatCoalescer) peers(dst []uint64) []uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for to, b := range c.buf {
+		if len(b) > 0 {
+			dst = append(dst, to)
+		}
+	}
+	return dst
+}
+
+// take copies a destination's frames into dst and resets the buffer in place
+// (keeping its capacity). The copy lets the caller write outside the lock.
+func (c *heartbeatCoalescer) take(to uint64, dst []byte) []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b := c.buf[to]
+	dst = append(dst[:0], b...)
+	c.buf[to] = b[:0]
+	return dst
+}
+
 // MuxTransport is a per-node singleton that manages a shared TCP listener and
 // yamux session pool, multiplexing every shard's RAFT traffic. It implements
 // Transport: outbound messages are framed (groupID, raftpb.Message) over a
@@ -99,15 +165,20 @@ type MuxTransport struct {
 	peers   map[uint64]*peerConn // peer uint64 nodeID -> outbound raft stream
 	peersMu sync.RWMutex
 
+	coalescer     *heartbeatCoalescer
+	flushInterval time.Duration
+
 	shutdownCh chan struct{}
 	acceptDone chan struct{}  // closed when acceptLoop exits
+	flushDone  chan struct{}  // closed when flushLoop exits
 	wg         sync.WaitGroup // handleSession + readStream goroutines
 }
 
 // NewMuxTransport creates a new multiplexed transport. It binds a TCP listener
 // on bindAddr and starts an accept loop for incoming connections. router
 // receives every inbound raft message; nodeIDs translates raft uint64 IDs back
-// to string node IDs for address resolution.
+// to string node IDs for address resolution. flushInterval sets the heartbeat
+// coalescer's flush cadence; a non-positive value takes the default.
 func NewMuxTransport(
 	bindAddr string,
 	advertise net.Addr,
@@ -115,10 +186,15 @@ func NewMuxTransport(
 	nodeIDs *nodeIDMap,
 	router MessageRouter,
 	logger logrus.FieldLogger,
+	flushInterval time.Duration,
 ) (*MuxTransport, error) {
 	ln, err := net.Listen("tcp", bindAddr)
 	if err != nil {
 		return nil, fmt.Errorf("bind shard raft transport on %s: %w", bindAddr, err)
+	}
+
+	if flushInterval <= 0 {
+		flushInterval = defaultHeartbeatFlushInterval
 	}
 
 	yamuxCfg := yamux.DefaultConfig()
@@ -128,20 +204,24 @@ func NewMuxTransport(
 	yamuxCfg.LogOutput = io.Discard
 
 	m := &MuxTransport{
-		listener:     ln,
-		advertise:    advertise,
-		addrProvider: provider,
-		nodeIDs:      nodeIDs,
-		router:       router,
-		logger:       logger,
-		yamuxCfg:     yamuxCfg,
-		sessions:     make(map[string]*yamux.Session),
-		peers:        make(map[uint64]*peerConn),
-		shutdownCh:   make(chan struct{}),
-		acceptDone:   make(chan struct{}),
+		listener:      ln,
+		advertise:     advertise,
+		addrProvider:  provider,
+		nodeIDs:       nodeIDs,
+		router:        router,
+		logger:        logger,
+		yamuxCfg:      yamuxCfg,
+		sessions:      make(map[string]*yamux.Session),
+		peers:         make(map[uint64]*peerConn),
+		coalescer:     newHeartbeatCoalescer(),
+		flushInterval: flushInterval,
+		shutdownCh:    make(chan struct{}),
+		acceptDone:    make(chan struct{}),
+		flushDone:     make(chan struct{}),
 	}
 
 	enterrors.GoWrapper(m.acceptLoop, logger)
+	enterrors.GoWrapper(m.flushLoop, logger)
 
 	logger.WithFields(logrus.Fields{
 		"bind":      bindAddr,
@@ -251,12 +331,16 @@ func (m *MuxTransport) readStream(stream net.Conn) {
 
 // Send frames each raft message and writes it on the destination peer's
 // stream. Fire-and-forget: unresolvable peers and write failures are dropped
-// (raft re-sends on the next tick).
+// (raft re-sends on the next tick). Heartbeats are buffered into the coalescer
+// and flushed in one write per peer per tick; all other messages send
+// immediately so append-entries latency is unaffected.
 func (m *MuxTransport) Send(groupID uint64, msgs []raftpb.Message) {
 	for i := range msgs {
 		msg := msgs[i]
-		pc := m.peerStream(msg.To)
-		if pc == nil {
+		if isCoalescableHeartbeat(msg.Type) {
+			if err := m.coalescer.enqueue(msg.To, groupID, &msg); err != nil {
+				m.logger.WithError(err).Warn("shard mux transport: enqueue heartbeat")
+			}
 			continue
 		}
 		frame, err := encodeFrame(groupID, &msg)
@@ -264,14 +348,63 @@ func (m *MuxTransport) Send(groupID uint64, msgs []raftpb.Message) {
 			m.logger.WithError(err).Warn("shard mux transport: encode frame")
 			continue
 		}
-		pc.mu.Lock()
-		_, werr := pc.stream.Write(frame)
-		pc.mu.Unlock()
-		if werr != nil {
-			m.logger.WithError(werr).WithField("to", msg.To).Debug("shard mux transport: write failed, dropping peer")
-			m.dropPeer(msg.To)
+		m.writeFrame(msg.To, frame)
+	}
+}
+
+func isCoalescableHeartbeat(t raftpb.MessageType) bool {
+	return t == raftpb.MsgHeartbeat || t == raftpb.MsgHeartbeatResp
+}
+
+// writeFrame writes one frame — a single message or several concatenated — to
+// the destination peer, dropping the peer on failure so the next write re-dials.
+func (m *MuxTransport) writeFrame(to uint64, frame []byte) {
+	pc := m.peerStream(to)
+	if pc == nil {
+		return
+	}
+	pc.mu.Lock()
+	_, werr := pc.stream.Write(frame)
+	pc.mu.Unlock()
+	if werr != nil {
+		m.logger.WithError(werr).WithField("to", to).Debug("shard mux transport: write failed, dropping peer")
+		m.dropPeer(to)
+	}
+}
+
+// flushLoop flushes the heartbeat coalescer on a fixed cadence until shutdown.
+// peers and scratch are reused across ticks; the flush loop is the only
+// goroutine that touches them.
+func (m *MuxTransport) flushLoop() {
+	defer close(m.flushDone)
+	ticker := time.NewTicker(m.flushInterval)
+	defer ticker.Stop()
+	var (
+		peers   []uint64
+		scratch []byte
+	)
+	for {
+		select {
+		case <-m.shutdownCh:
+			return
+		case <-ticker.C:
+			peers, scratch = m.flushHeartbeats(peers, scratch)
 		}
 	}
+}
+
+// flushHeartbeats writes each peer's buffered heartbeats in a single write.
+// peers and scratch are reused buffers; they are returned so the caller retains
+// their grown capacity for the next call.
+func (m *MuxTransport) flushHeartbeats(peers []uint64, scratch []byte) ([]uint64, []byte) {
+	peers = m.coalescer.peers(peers[:0])
+	for _, to := range peers {
+		scratch = m.coalescer.take(to, scratch)
+		if len(scratch) > 0 {
+			m.writeFrame(to, scratch)
+		}
+	}
+	return peers, scratch
 }
 
 // peerStream returns the outbound stream for a peer, dialing one if needed.
@@ -362,9 +495,9 @@ func (m *MuxTransport) getOrDialSession(addr string) (*yamux.Session, error) {
 	return session, nil
 }
 
-// Close shuts down the mux transport: stops the accept loop, closes every
-// yamux session (inbound and outbound) and peer stream — which unblocks the
-// handleSession/readStream goroutines — then waits for them to stop.
+// Close shuts down the mux transport: stops the accept and flush loops, closes
+// every yamux session (inbound and outbound) and peer stream — which unblocks
+// the handleSession/readStream goroutines — then waits for them to stop.
 func (m *MuxTransport) Close() error {
 	close(m.shutdownCh)
 
@@ -372,9 +505,11 @@ func (m *MuxTransport) Close() error {
 		m.logger.WithError(err).Warn("shard mux transport: error closing listener")
 	}
 
-	// Wait for the accept loop to exit before closing inbound sessions, so no
-	// session is registered after this point.
+	// Wait for the accept loop to exit before closing inbound sessions, and for
+	// the flush loop to exit before closing peer streams, so neither registers
+	// a session nor writes to a stream after this point.
 	<-m.acceptDone
+	<-m.flushDone
 
 	m.peersMu.Lock()
 	for to, pc := range m.peers {
@@ -402,15 +537,20 @@ func (m *MuxTransport) Close() error {
 	return nil
 }
 
+// putFrameHeader writes the frameHeaderLen-byte wire-frame prefix into dst.
+func putFrameHeader(dst []byte, groupID uint64, msgLen int) {
+	binary.BigEndian.PutUint64(dst[:8], groupID)
+	binary.BigEndian.PutUint32(dst[8:12], uint32(msgLen))
+}
+
 // encodeFrame builds a wire frame: [uint64 groupID BE][uint32 msgLen BE][msg].
 func encodeFrame(groupID uint64, msg *raftpb.Message) ([]byte, error) {
 	body, err := msg.Marshal()
 	if err != nil {
 		return nil, fmt.Errorf("marshal raft message: %w", err)
 	}
-	frame := make([]byte, 12+len(body))
-	binary.BigEndian.PutUint64(frame[:8], groupID)
-	binary.BigEndian.PutUint32(frame[8:12], uint32(len(body)))
-	copy(frame[12:], body)
+	frame := make([]byte, frameHeaderLen+len(body))
+	putFrameHeader(frame, groupID, len(body))
+	copy(frame[frameHeaderLen:], body)
 	return frame, nil
 }
