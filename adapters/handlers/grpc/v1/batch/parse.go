@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const BEACON_START = "weaviate://localhost/"
@@ -145,7 +146,14 @@ func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_Si
 		if len(prop.DataType) > 1 {
 			return fmt.Errorf("target is a multi-target reference, need single target %v", prop.DataType)
 		}
-		toClass := prop.DataType[0]
+		// DataType is qualified by QualifyPropertyDataTypes upstream on
+		// NS clusters; strip back to short so the constructed beacon
+		// stays in the portable on-disk form and properties_validation's
+		// parseAndValidateSingleRef accepts it from a namespaced
+		// principal (ValidateNamespacePrefix rejects qualified beacons).
+		// Same pattern as properties_validation.go and
+		// batch_references_add.go autodetect sites.
+		toClass := namespacing.StripQualification(prop.DataType[0])
 		beacons := make([]interface{}, len(refSingle.Uuids))
 		for j, uuid := range refSingle.Uuids {
 			beacons[j] = map[string]interface{}{"beacon": BEACON_START + toClass + "/" + uuid}
