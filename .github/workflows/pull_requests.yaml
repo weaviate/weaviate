@@ -863,17 +863,25 @@ jobs:
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
-      - name: Acceptance tests reindex
-        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
-        with:
-          # Flat 45-minute timeout for every reindex matrix entry — these are
-          # multi-node testcontainer suites that occasionally need the full
-          # window. Avoids the per-test if-chain Acceptance-Tests-4-cores
-          # carried before the split.
-          timeout_minutes: 45
-          max_attempts: 1
-          command: ./test/run.sh ${{ matrix.test }}
-          on_retry_command: ./test/run.sh --cleanup
+      - name: Build weaviate test image (qa-240 stress)
+        run: |
+          GIT_REVISION=$(git rev-parse --short HEAD)
+          GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          docker compose -f docker-compose-test.yml build \
+            --build-arg GIT_REVISION="$GIT_REVISION" \
+            --build-arg GIT_BRANCH="$GIT_BRANCH" \
+            --build-arg EXTRA_BUILD_ARGS="-race" \
+            weaviate
+          echo "TEST_WEAVIATE_IMAGE=weaviate/test-server" >> "$GITHUB_ENV"
+      - name: Acceptance tests reindex (qa-240 isolated stress)
+        timeout-minutes: 45
+        # QA-only quick&dirty: run JUST TestMultiNode_RollingRestartMidMigration
+        # with -count=10 per runner. 30 runners × 10 = 300 attempts per push.
+        # Bypasses test/run.sh entirely (no shell mode added).
+        run: |
+          go test -count=10 -timeout=45m -race \
+            -run '^TestMultiNode_RollingRestartMidMigration$' \
+            -v ./test/acceptance/reindex_multinode
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
