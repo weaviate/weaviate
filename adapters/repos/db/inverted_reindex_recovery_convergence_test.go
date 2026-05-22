@@ -663,6 +663,35 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 			},
 		},
 		{
+			name: "Retokenize_IsPrepended_synthetic_merged_removed",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				ftr := rt.(*fileReindexTracker)
+				require.NoError(t, os.Remove(filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": false, "swapped": false, "tidied": false,
+			},
+		},
+		{
+			name: "Retokenize_IsSwapped_synthetic_tidied_removed",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+				require.NoError(t, task.RunSwapOnShard(ctx, shard))
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				ftr := rt.(*fileReindexTracker)
+				require.NoError(t, os.Remove(filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false,
+			},
+		},
+		{
 			name: "Retokenize_IsMerged_via_RunPrepareOnShard",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
