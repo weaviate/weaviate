@@ -55,9 +55,17 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		input.Class = class
 	}
 
-	// Parse and prefix-validate the target beacon up front so a namespaced
-	// caller submitting "<otherNS>:Animal" gets a 422 before any object
-	// lookup work — same contract as add/update.
+	// We are fetching the existing object and get to know if the UUID exists
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+
+	// Parse and prefix-validate the target beacon. Runs AFTER authz so a
+	// caller without permission gets a 403 instead of a body-shape 422
+	// (see TestAuthzViewerEndpoints which posts a malformed delete body).
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())
 	if err != nil {
 		return &Error{"cannot parse beacon", StatusBadRequest, err}
@@ -66,14 +74,6 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		if err := namespacing.ValidateNamespacePrefix(principal, m.config.Config.Namespaces.Enabled, beacon.Class, "class"); err != nil {
 			return &Error{err.Error(), StatusUnprocessableEntity, err}
 		}
-	}
-
-	// We are fetching the existing object and get to know if the UUID exists
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
-	}
-	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	deprecatedEndpoint := input.Class == ""

@@ -1240,4 +1240,399 @@ func TestNamespaces_References(t *testing.T) {
 		}, adminKey)
 		require.Error(t, err, "admin inline cross-NS target must 422")
 	})
+
+	t.Run("UPDATE references admin qualified plus namespaced cross-NS reject", func(t *testing.T) {
+		// references_update.go has the same QualifyRefTarget call site
+		// as references_add.go, but no NS-aware test covered the PUT
+		// (replace-all) path. Two assertions:
+		//   1. Admin PUT with a qualified-target beacon must succeed
+		//      and persist the stored beacon SHORT (same portability
+		//      property as POST/add).
+		//   2. A namespaced user PUT with a foreign-NS qualified target
+		//      must 422 — QualifyRefTarget rejects qualified targets
+		//      from namespaced principals.
+		zooID, a1, a2 := newID(), newID(), newID()
+		createIn(t, user1Key, "Animal", a1, map[string]any{"name": "before"})
+		createIn(t, user1Key, "Animal", a2, map[string]any{"name": "after"})
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "ze"})
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(a1))},
+			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		// 1. Admin PUT replaces with a qualified-target beacon and
+		//    storage normalizes back to short.
+		_, err = helper.ReplaceReferencesReturn(t,
+			[]*models.SingleRef{{Beacon: strfmt.URI("weaviate://localhost/customer1:Animal/" + string(a2))}},
+			zooID, "customer1:Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
+		require.NoError(t, err, "admin PUT with qualified-target beacon must succeed")
+
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.Len(t, refs, 1, "PUT must replace, not append")
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t,
+			"weaviate://localhost/Animal/"+string(a2), beaconStr,
+			"PUT must persist beacon SHORT for portability")
+
+		// 2. Namespaced user PUT with a foreign-NS qualified target →
+		//    QualifyRefTarget rejects qualified targets from namespaced
+		//    principals (422).
+		_, err = helper.ReplaceReferencesReturn(t,
+			[]*models.SingleRef{{Beacon: strfmt.URI("weaviate://localhost/customer2:Animal/" + string(a1))}},
+			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.Error(t, err,
+			"namespaced PUT with foreign-NS qualified target must be rejected")
+	})
+
+	t.Run("gRPC BatchObjects with MultiTargetRefProps on NS cluster", func(t *testing.T) {
+		// Mirror of the SingleTargetRefProps subtest but exercising
+		// the MultiTargetRefProps branch in extractMultiRefTarget. In
+		// the multi-target branch the target class comes from
+		// TargetCollection (user-supplied), not Property.DataType,
+		// so QualifyRefTarget must apply equally to the
+		// user-supplied form. Untested before: the existing
+		// "multi-target ref DataType on NS cluster" exercises the
+		// REST path only, not the gRPC batch parser.
+		const src = "GrpcMTBatchSrc"
+		const a = "GrpcMTBatchA"
+		const b = "GrpcMTBatchB"
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      a,
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      b,
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class: src,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "linkedTo", DataType: []string{a, b}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+src, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+a, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+b, adminKey)
+		})
+
+		aID := newID()
+		createIn(t, user1Key, a, aID, map[string]any{"name": "grpc-multi-a"})
+
+		srcID := newID()
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		resp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{{
+				Uuid:       srcID.String(),
+				Collection: src,
+				Properties: &pb.BatchObject_Properties{
+					NonRefProperties: &structpb.Struct{
+						Fields: map[string]*structpb.Value{
+							"name": structpb.NewStringValue("grpc-multi-src"),
+						},
+					},
+					MultiTargetRefProps: []*pb.BatchObject_MultiTargetRefProps{{
+						PropName:         "linkedTo",
+						TargetCollection: a,
+						Uuids:            []string{aID.String()},
+					}},
+				},
+			}},
+		})
+		require.NoError(t, err)
+		require.Empty(t, resp.Errors,
+			"gRPC BatchObjects with MultiTargetRefProps must succeed on NS clusters; got %+v",
+			resp.Errors)
+
+		got, err := helper.GetObjectAuth(t, "customer1:"+src, srcID, adminKey)
+		require.NoError(t, err)
+		refs, ok := got.Properties.(map[string]any)["linkedTo"].([]interface{})
+		require.True(t, ok, "linkedTo should be a list, got %T",
+			got.Properties.(map[string]any)["linkedTo"])
+		require.Len(t, refs, 1)
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t,
+			"weaviate://localhost/"+a+"/"+string(aID), beaconStr,
+			"stored beacon from gRPC MultiTargetRefProps must be short")
+	})
+
+	t.Run("inline ref via REST PUT and PATCH on NS cluster", func(t *testing.T) {
+		// The merge.go and update.go paths both flow through
+		// validateObjectAndNormalizeNames → QualifyRefTarget, but only
+		// the POST (add) path had an inline-ref regression test on
+		// the NS cluster. This covers the other two write entrypoints
+		// for an existing object that get inline refs:
+		//   - PUT (replace whole object) — update.go
+		//   - PATCH (merge) — merge.go splitPrimitiveAndRefs
+		// Both must accept short and qualified-by-admin targets, and
+		// both must reject foreign-NS targets from namespaced callers.
+		zooID, a1, a2 := newID(), newID(), newID()
+		createIn(t, user1Key, "Animal", a1, map[string]any{"name": "put-a"})
+		createIn(t, user1Key, "Animal", a2, map[string]any{"name": "patch-a"})
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z-mut"})
+
+		// PUT replaces the whole object including the inline ref. The
+		// REST client rejects ":" in Class, so a namespaced user PUT
+		// must use the short class. helper.UpdateObjectCL has no auth
+		// flavour — call the client directly with namespaced auth.
+		putParams := objects.NewObjectsClassPutParams().WithClassName("Zoo").
+			WithID(zooID).WithBody(&models.Object{
+			ID:    zooID,
+			Class: "Zoo",
+			Properties: map[string]any{
+				"name": "z-put",
+				"hasAnimals": []any{
+					map[string]any{"beacon": "weaviate://localhost/Animal/" + string(a1)},
+				},
+			},
+		})
+		_, err := helper.Client(t).Objects.ObjectsClassPut(putParams, helper.CreateAuth(user1Key))
+		require.NoError(t, err, "PUT with inline short ref from namespaced user must succeed")
+
+		// Namespace-handling focus: every stored beacon must be SHORT
+		// (no customer1: prefix), and the new target must be present.
+		// PUT's ref-cardinality semantics (whether it appends or
+		// replaces inline refs vs the prior stored refs) are a
+		// separate concern from namespace handling.
+		assertShortBeaconPresent := func(t *testing.T, refs []interface{}, class, id string) {
+			t.Helper()
+			want := "weaviate://localhost/" + class + "/" + id
+			var found bool
+			for _, r := range refs {
+				b, _ := r.(map[string]any)["beacon"].(string)
+				assert.NotContains(t, b, "customer",
+					"stored beacon must be SHORT (no namespace prefix); got %q", b)
+				if b == want {
+					found = true
+				}
+			}
+			assert.True(t, found,
+				"expected SHORT beacon %q to be present in %v", want, refs)
+		}
+
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		assertShortBeaconPresent(t, refs, "Animal", string(a1))
+
+		// PATCH (merge) — namespaced user adds an inline ref to a2.
+		// splitPrimitiveAndRefs runs after QualifyRefTarget normalizes
+		// the beacon in properties_validation, so storage stays short.
+		patchParams := objects.NewObjectsClassPatchParams().
+			WithClassName("Zoo").WithID(zooID).WithBody(&models.Object{
+			ID:    zooID,
+			Class: "Zoo",
+			Properties: map[string]any{
+				"hasAnimals": []any{
+					map[string]any{"beacon": "weaviate://localhost/Animal/" + string(a2)},
+				},
+			},
+		})
+		_, err = helper.Client(t).Objects.ObjectsClassPatch(patchParams, helper.CreateAuth(user1Key))
+		require.NoError(t, err, "PATCH with inline short ref from namespaced user must succeed")
+
+		got, err = helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs = got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		assertShortBeaconPresent(t, refs, "Animal", string(a2))
+
+		// Admin PATCH with qualified-target inline beacon — must
+		// normalize via QualifyRefTarget without double-qualifying.
+		adminPatch := objects.NewObjectsClassPatchParams().
+			WithClassName("customer1:Zoo").WithID(zooID).WithBody(&models.Object{
+			ID:    zooID,
+			Class: "customer1:Zoo",
+			Properties: map[string]any{
+				"hasAnimals": []any{
+					map[string]any{"beacon": "weaviate://localhost/customer1:Animal/" + string(a1)},
+				},
+			},
+		})
+		_, err = helper.Client(t).Objects.ObjectsClassPatch(adminPatch, helper.CreateAuth(adminKey))
+		require.NoError(t, err,
+			"admin PATCH with qualified inline ref must succeed (no double-qualify)")
+
+		got, err = helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs = got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		assertShortBeaconPresent(t, refs, "Animal", string(a1))
+
+		// Namespaced PATCH with foreign-NS target → 422.
+		badPatch := objects.NewObjectsClassPatchParams().
+			WithClassName("Zoo").WithID(zooID).WithBody(&models.Object{
+			ID:    zooID,
+			Class: "Zoo",
+			Properties: map[string]any{
+				"hasAnimals": []any{
+					map[string]any{"beacon": "weaviate://localhost/customer2:Animal/" + string(a1)},
+				},
+			},
+		})
+		_, err = helper.Client(t).Objects.ObjectsClassPatch(badPatch, helper.CreateAuth(user1Key))
+		require.Error(t, err,
+			"namespaced PATCH with foreign-NS inline ref must be rejected")
+	})
+
+	t.Run("gRPC BatchReferences RPC on NS cluster", func(t *testing.T) {
+		// The REST /v1/batch/references path is covered by the
+		// "batch references each pair resolves cross-node" test, but
+		// the gRPC BatchReferences RPC has its own parser
+		// (batch_references.go in adapters/handlers/grpc) — it
+		// builds models.BatchReference values from BatchReference
+		// proto messages, so namespace handling has its own path.
+		// Two assertions:
+		//   1. Happy path — namespaced caller writes a batch ref, the
+		//      stored beacon is short, the ref resolves to the
+		//      caller's namespace via downstream gRPC search.
+		//   2. Foreign-NS target collection on a namespaced caller
+		//      must be rejected (per-row error in the reply, since
+		//      the batch RPC does not fail the whole call).
+		zooID, animalID, foreignID := newID(), newID(), newID()
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "grpc-br-leo"})
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z-grpc-br"})
+		createIn(t, user2Key, "Animal", foreignID, map[string]any{"name": "ns2-leo"})
+
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		animalTarget := "Animal"
+		foreignTarget := "customer2:Animal"
+		resp, err := grpcClient.BatchReferences(authCtx(user1Key), &pb.BatchReferencesRequest{
+			References: []*pb.BatchReference{
+				{
+					FromCollection: "Zoo",
+					FromUuid:       zooID.String(),
+					Name:           "hasAnimals",
+					ToCollection:   &animalTarget,
+					ToUuid:         animalID.String(),
+				},
+				{
+					FromCollection: "Zoo",
+					FromUuid:       zooID.String(),
+					Name:           "hasAnimals",
+					ToCollection:   &foreignTarget,
+					ToUuid:         foreignID.String(),
+				},
+			},
+		})
+		require.NoError(t, err, "gRPC BatchReferences must not fail the whole call")
+		require.NotEmpty(t, resp.Errors,
+			"foreign-NS row must produce a per-row error in BatchReferences reply")
+
+		// Happy path: confirm the short-target row landed and is short
+		// in storage.
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.True(t, ok)
+		var foundShort bool
+		for _, r := range refs {
+			beaconStr, _ := r.(map[string]any)["beacon"].(string)
+			if beaconStr == "weaviate://localhost/Animal/"+string(animalID) {
+				foundShort = true
+			}
+			// Beacon class segment must not carry a customer namespace
+			// prefix — beacon scheme is "weaviate://" so a bare `:`
+			// check would always fail.
+			assert.NotContains(t, beaconStr, "customer",
+				"no stored beacon should carry a namespace prefix; got %q", beaconStr)
+		}
+		assert.True(t, foundShort,
+			"happy-path BatchReferences row must persist beacon SHORT")
+	})
+
+	t.Run("classless beacon autodetect on NS cluster", func(t *testing.T) {
+		// crossref.NewLocalhost-style beacons can omit the class
+		// (weaviate://localhost/<uuid>); the autodetect path in
+		// references_add.go (autodetectToClass) infers the class
+		// from the property schema. The autodetect runs BEFORE
+		// QualifyRefTarget, so the inferred toClass goes through
+		// the same qualification flow. This subtest pins:
+		//   1. namespaced user can submit a classless beacon and
+		//      autodetect resolves to the customer1 Animal target.
+		//   2. stored beacon is SHORT (autodetect inferred class
+		//      should not leak the qualified form into storage).
+		zooID, animalID := newID(), newID()
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "auto-leo"})
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z-auto"})
+
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + string(animalID))},
+			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err,
+			"namespaced classless beacon autodetect must succeed")
+
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.Len(t, refs, 1)
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t,
+			"weaviate://localhost/Animal/"+string(animalID), beaconStr,
+			"autodetected target class must be stored in beacon as SHORT")
+	})
+
+	t.Run("gRPC Aggregate with by-ref filter on NS cluster", func(t *testing.T) {
+		// Aggregate goes through parse_aggregate_request.go which has
+		// its own filter parser. by-ref filter uses
+		// FilterReferenceSingleTarget/MultiTarget on the SOURCE side;
+		// the source class is already qualified upstream, but the
+		// filter target may resolve refs by class name — pin that
+		// Aggregate continues to work on NS clusters with a
+		// by-ref filter.
+		const class = "AggSrc"
+		const tgt = "AggTgt"
+		helper.CreateClassAuth(t, &models.Class{
+			Class: tgt,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+			},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class: class,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "ref", DataType: []string{tgt}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+class, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+tgt, adminKey)
+		})
+
+		tID, srcWith, srcWithout := newID(), newID(), newID()
+		createIn(t, user1Key, tgt, tID, map[string]any{"name": "tgt1"})
+		createIn(t, user1Key, class, srcWith, map[string]any{"name": "with-ref"})
+		createIn(t, user1Key, class, srcWithout, map[string]any{"name": "no-ref"})
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + tgt + "/" + string(tID))},
+			srcWith, class, "ref", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		resp, err := grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
+			Collection:   class,
+			ObjectsCount: true,
+			Filters: &pb.Filters{
+				Operator: pb.Filters_OPERATOR_GREATER_THAN,
+				Target: &pb.FilterTarget{
+					Target: &pb.FilterTarget_Count{
+						Count: &pb.FilterReferenceCount{On: "ref"},
+					},
+				},
+				TestValue: &pb.Filters_ValueInt{ValueInt: 0},
+			},
+		})
+		require.NoError(t, err, "gRPC Aggregate with by-ref filter must succeed on NS cluster")
+		require.NotNil(t, resp.GetSingleResult())
+		assert.Equal(t, int64(1), resp.GetSingleResult().GetObjectsCount(),
+			"only the row with a ref should be counted by by-ref-count > 0")
+	})
 }
