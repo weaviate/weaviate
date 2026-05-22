@@ -403,6 +403,22 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			fmt.Sprintf("unit %s in task %s/%s/%d is already terminal", r.UnitId, r.Namespace, r.Id, task.Version))
 	}
 
+	// Defense-in-depth for weaviate/0-weaviate-issues#240: ensure NodeID
+	// is set on completion. The primary path that sets NodeID is
+	// [Manager.UpdateUnitProgress] via the initial progress=0.0 call
+	// from each provider's per-unit worker. If that call is silently
+	// dropped (e.g. the [ThrottledRecorder] silent-drop-after-error bug
+	// closed in 03e461aabc), the unit reaches RecordUnitCompletion with
+	// NodeID="". [Task.LocalGroupUnitIDs] then filters by `u.NodeID ==
+	// nodeID`, excluding the orphan from every node's local group, and
+	// the post-completion callbacks (OnGroupCompleted / OnSwapRequested)
+	// never run for that (shard, replica). Setting NodeID here closes
+	// the orphan-on-empty-NodeID window even if a future path also
+	// silently drops the initial claim.
+	if u.NodeID == "" {
+		u.NodeID = r.NodeId
+	}
+
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
 
 	if r.Error != "" {
