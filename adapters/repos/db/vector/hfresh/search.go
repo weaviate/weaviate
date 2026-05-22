@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -150,6 +151,12 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	for id := range q.Iter() {
 		vec, err := h.vectorForId(ctx, id)
 		if err != nil {
+			// The object may have been deleted between the posting scan and the
+			// rescore step (race condition). Skip stale entries gracefully.
+			var notFound storobj.ErrNotFound
+			if errors.As(err, &notFound) {
+				continue
+			}
 			return nil, nil, err
 		}
 		vec = h.normalizeVec(vec)
