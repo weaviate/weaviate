@@ -105,6 +105,15 @@ type Scheduler struct {
 	// already-half-torn-down node.
 	loopDone chan struct{}
 
+	// loopCtx is the context the tick path threads through every RAFT
+	// round-trip (currently listTasks, plus the existing
+	// TaskFinalizer / TaskCleaner / AckRecorder calls). loopCancel is
+	// invoked by Close() before <-loopDone so a tick that is stuck
+	// in a RAFT Query (leader unavailable, network partition) does
+	// not hold shutdown indefinitely.
+	loopCtx    context.Context
+	loopCancel context.CancelFunc
+
 	// wakeCh signals the run loop to fire a scheduling cycle immediately
 	// instead of waiting for the next periodic tick. Sized 1 so concurrent
 	// callers coalesce — a pending wake-up is equivalent to any number of
@@ -229,6 +238,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	}
 
 	s.loopDone = make(chan struct{})
+	s.loopCtx, s.loopCancel = context.WithCancel(context.Background())
 	enterrors.GoWrapper(s.loop, s.logger)
 
 	return nil
@@ -438,7 +448,7 @@ func (s *Scheduler) loop() {
 }
 
 func (s *Scheduler) tick() {
-	tasksByNamespace, err := s.listTasks(context.Background())
+	tasksByNamespace, err := s.listTasks(s.loopCtx)
 	if err != nil {
 		s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 			l.Errorf("failed to list distributed tasks: %v", err)
@@ -834,6 +844,14 @@ func (s *Scheduler) setRunningTaskHandleWithLock(namespace string, desc TaskDesc
 // SchemaMutationDetector was added to catch.
 func (s *Scheduler) Close() {
 	close(s.stopCh)
+	// Cancel the loop context BEFORE waiting on loopDone so a tick
+	// blocked in a RAFT round-trip (leader unavailable, network
+	// partition) unwinds quickly rather than holding shutdown
+	// indefinitely. The wait still synchronises us against the tick
+	// finishing its current step.
+	if s.loopCancel != nil {
+		s.loopCancel()
+	}
 	// loopDone is nil when Close runs on a never-started Scheduler
 	// (the test harness exercises this for symmetry). Only wait on it
 	// when Start actually spawned the loop.

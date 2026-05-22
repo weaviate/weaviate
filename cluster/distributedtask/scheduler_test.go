@@ -676,25 +676,35 @@ func (h *testHarness) startScheduler(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 }
 
-// TestScheduler_Close_WaitsForLoopExit pins the synchronisation
-// contract Close() owes its callers: when Close returns, no
-// background tick is still in flight. Without the loopDone barrier
-// an in-flight tick can land a RAFT apply (StartTask /
-// MarkDistributedTaskFinalized) AFTER the caller has started tearing
-// down DB / schema, racing with shutdown and producing the same
-// family of bug SchemaMutationDetector exists to catch.
+// TestScheduler_Close_WaitsForLoopExit pins the two-part contract
+// Close() owes its callers:
 //
-// Repro shape: tick()'s first step is listTasks(), which is called
-// BEFORE the tick acquires s.mu — so a tick stuck inside listTasks
-// does not block a concurrent Close() on s.mu. Inject a TaskLister
-// that blocks on a release channel. Without loopDone, Close()
-// returns while tick() is still inside listTasks.
+//  1. SYNC: when Close returns, the loop goroutine has exited and no
+//     tick is still in flight. Without this, a tick mid-RAFT-apply
+//     (provider.StartTask / MarkDistributedTaskFinalized /
+//     listTasks) lands AFTER the caller has started tearing down DB /
+//     schema — racing with shutdown and producing the same family of
+//     bug SchemaMutationDetector exists to catch.
+//
+//  2. CANCEL: an in-flight tick stuck in a RAFT round-trip (leader
+//     unavailable, partition) must NOT hold shutdown indefinitely.
+//     Close cancels the loop's ctx so a context-aware tick step
+//     (listTasks, finalizer, cleaner, ack recorder) unwinds promptly,
+//     then waits on loopDone for the actual exit.
+//
+// Repro shape: tick()'s first step is listTasks(), called BEFORE the
+// tick acquires s.mu, so a tick stuck inside listTasks does not block
+// a concurrent Close() on s.mu. The bug presented as Close returning
+// while listTasks was still in flight. Test verifies BOTH that the
+// lister observes ctx cancellation AND that Close does not return
+// before that observation lands.
 func TestScheduler_Close_WaitsForLoopExit(t *testing.T) {
 	defer leaktest.Check(t)()
 
 	lister := &blockingTaskLister{
 		entered: make(chan struct{}, 1),
 		release: make(chan struct{}),
+		ctxDone: make(chan struct{}),
 	}
 
 	h := newTestHarness(t).init(t)
@@ -729,35 +739,43 @@ func TestScheduler_Close_WaitsForLoopExit(t *testing.T) {
 		close(closed)
 	}()
 
-	// Bug shape: Close returns while listTasks (and therefore tick)
-	// is still in flight, because nothing waits for the loop goroutine
-	// to exit. With the loopDone barrier Close MUST block until
-	// listTasks releases and the loop's next select sees stopCh.
+	// CANCEL contract: the lister's ctx must be cancelled by Close so
+	// a stuck RAFT round-trip unwinds.
 	select {
-	case <-closed:
+	case <-lister.ctxDone:
+	case <-time.After(2 * time.Second):
 		close(lister.release)
-		t.Fatal("Scheduler.Close returned while a tick was mid-listTasks — caller would race with DB/schema teardown")
-	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Scheduler.Close did not cancel the in-flight tick's context within 2s — a stuck RAFT round-trip would hold shutdown indefinitely")
 	}
 
-	close(lister.release)
+	// SYNC contract: Close must not return BEFORE the lister observes
+	// cancellation. Without the loopDone barrier the bug shape is the
+	// inverse — Close returns immediately after close(stopCh), well
+	// before the cancel propagates anywhere.
 	select {
 	case <-closed:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Scheduler.Close did not return after releasing the in-flight tick")
+		t.Fatal("Scheduler.Close did not return after the in-flight tick observed ctx cancellation — barrier deadlock")
 	}
+
+	// release is unused on the success path (ctx cancellation drove
+	// the lister out) but closing keeps a stalled lister from leaking
+	// if the test fails partway.
+	close(lister.release)
 }
 
 // blockingTaskLister is a minimal TaskLister whose
 // ListDistributedTasks returns immediately on the first call (so the
 // scheduler's Start-time bootstrap can complete) and then blocks every
-// subsequent call until `release` closes. Used by
-// TestScheduler_Close_WaitsForLoopExit to hold a tick mid-flight in
-// the pre-mu code path.
+// subsequent call until either `release` closes or its context is
+// cancelled. Closes `ctxDone` the moment cancellation is observed —
+// used by TestScheduler_Close_WaitsForLoopExit to verify the CANCEL
+// half of the Close contract.
 type blockingTaskLister struct {
 	calls   atomic.Int32
 	entered chan struct{}
 	release chan struct{}
+	ctxDone chan struct{}
 }
 
 func (l *blockingTaskLister) ListDistributedTasks(ctx context.Context) (map[string][]*Task, error) {
@@ -774,6 +792,7 @@ func (l *blockingTaskLister) ListDistributedTasks(ctx context.Context) (map[stri
 	select {
 	case <-l.release:
 	case <-ctx.Done():
+		close(l.ctxDone)
 	}
 	return map[string][]*Task{}, nil
 }
