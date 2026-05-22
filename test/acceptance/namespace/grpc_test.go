@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -760,18 +761,44 @@ func TestNamespaces_GRPC_QueryProfile(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp.QueryProfile, "expected query_profile to be populated")
 		require.NotEmpty(t, resp.QueryProfile.Shards)
+		// Scan every string field of the profile, not just shard Name: the
+		// prefix must not surface anywhere a future detail could embed a
+		// qualified name (search-type keys, detail keys, detail values).
+		notLeak := func(field, val string) {
+			assert.NotContainsf(t, val, "customer1:",
+				"query_profile leaks the caller's namespace prefix via %s: %q", field, val)
+		}
 		for _, sh := range resp.QueryProfile.Shards {
-			assert.NotContainsf(t, sh.Name, "customer1:",
-				"query_profile leaks the caller's namespace prefix via shard name: %q", sh.Name)
+			notLeak("shard name", sh.Name)
+			notLeak("shard node", sh.Node)
+			for searchType, sp := range sh.Searches {
+				notLeak("search type", searchType)
+				for k, v := range sp.Details {
+					notLeak("detail key", k)
+					notLeak("detail value", v)
+				}
+			}
 		}
 	})
 
 	t.Run("global admin keeps the raw profile (raw mode)", func(t *testing.T) {
-		// Admin has no namespace, so it keeps the raw internal names.
+		// Admin has no namespace, so it keeps the raw internal names: at least
+		// one shard name must still carry the qualified "customer1:" prefix.
+		// This is the positive control for the stripping above — without it a
+		// regression that strips global names too would go unnoticed.
 		resp, err := grpcClient.Search(authCtx(adminKey), profReq("customer1:"+class))
 		require.NoError(t, err)
 		require.NotNil(t, resp.QueryProfile)
 		require.NotEmpty(t, resp.QueryProfile.Shards)
+		hasPrefix := false
+		for _, sh := range resp.QueryProfile.Shards {
+			if strings.Contains(sh.Name, "customer1:") {
+				hasPrefix = true
+			}
+		}
+		assert.True(t, hasPrefix,
+			"admin should see the raw qualified shard name with the customer1: prefix, got %v",
+			resp.QueryProfile.Shards)
 	})
 }
 
