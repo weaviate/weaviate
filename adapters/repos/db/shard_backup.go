@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -65,9 +65,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	if err = s.store.PauseCompaction(ctx); err != nil {
 		return fmt.Errorf("pause compaction: %w", err)
 	}
-	if err = s.store.FlushMemtables(ctx); err != nil {
-		return fmt.Errorf("flush memtables: %w", err)
-	}
 	if err = s.cycleCallbacks.vectorCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause vector maintenance: %w", err)
 	}
@@ -75,21 +72,49 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
 
-	// pause indexing
-	_ = s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-		q.Pause()
+	// get the queues ready for backup (e.g. enable maintenance mode, switch to new chunks)
+	_ = s.ForEachVectorQueue(func(targetVector string, q *VectorIndexQueue) error {
+		if err = q.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
+		}
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("flush vector index queues: %w", err)
+	}
+	err = s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
+		if err = q.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of geo index: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("flush geo index queues: %w", err)
+	}
 
+	// get the index ready for backup (e.g switch commit logs, pause operation queues), ensuring all data is flushed to disk
 	err = s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		if err = index.SwitchCommitLogs(ctx); err != nil {
-			return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
+		if err = index.PrepareForBackup(ctx); err != nil {
+			return fmt.Errorf("prepare for backup of vector %q: %w", targetVector, err)
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+
+	// Flush memtables after draining the queues and preparing the indexes.
+	// Queue tasks (e.g. HNSW insertions) and index PrepareForBackup (e.g.
+	// HFresh queue drains) may have written compressed vectors to the LSM
+	// store after the initial FlushMemtables call above. Without this flush
+	// those compressed vectors stay in the memtable (WAL only) and are absent
+	// from the backup while the HNSW commit log references them — including
+	// potentially as the entrypoint. On restore this leads to "entrypoint was
+	// deleted in the object store" errors on every search.
+	if err = s.store.FlushMemtables(ctx); err != nil {
+		return fmt.Errorf("flush memtables after queue drain: %w", err)
+	}
+
 	return nil
 }
 
@@ -105,14 +130,26 @@ func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 }
 
 func (s *Shard) mayResetInactivityTimer() {
-	if s.haltForTransferInactivityTimer == nil {
+	resetTimer(s.haltForTransferInactivityTimer, s.haltForTransferInactivityTimeout)
+}
+
+func resetTimer(t *time.Timer, d time.Duration) {
+	if t == nil {
 		return
 	}
 
-	if !s.haltForTransferInactivityTimer.Stop() {
-		<-s.haltForTransferInactivityTimer.C // drain the channel if necessary
+	// if Stop returns false, the timer has either already fired or been stopped.
+	// in the "already fired" case, there may be a value in t.C that we need to drain.
+	if !t.Stop() {
+		select {
+		case <-t.C:
+			// drained a pending tick.
+		default:
+			// channel was already drained; nothing to do.
+		}
 	}
-	s.haltForTransferInactivityTimer.Reset(s.haltForTransferInactivityTimeout)
+
+	t.Reset(d)
 }
 
 func (s *Shard) mayInitInactivityMonitoring() {
@@ -147,34 +184,91 @@ func (s *Shard) mayInitInactivityMonitoring() {
 	}, s.index.logger)
 }
 
+// CreateBackupSnapshot halts compaction, lists backup files, hardlinks them into
+// a staging directory, then immediately resumes compaction. This minimizes the
+// compaction pause to just the time needed for enumeration and hardlink creation
+// (typically 2-5s), rather than blocking for the entire upload duration.
+func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
+	if err := s.HaltForTransfer(ctx, false, 0); err != nil {
+		return nil, fmt.Errorf("halt for snapshot: %w", err)
+	}
+	defer s.resumeMaintenanceCycles(ctx)
+
+	files, err := s.ListBackupFiles(ctx, sd)
+	if err != nil {
+		return nil, fmt.Errorf("list backup files: %w", err)
+	}
+
+	for _, relPath := range files {
+		src := filepath.Join(s.index.Config.RootPath, relPath)
+		dst := filepath.Join(stagingRoot, relPath)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return nil, fmt.Errorf("create staging subdir for %s: %w", relPath, err)
+		}
+		if err := os.Link(src, dst); err != nil {
+			return nil, fmt.Errorf("hardlink %s to staging: %w", relPath, err)
+		}
+	}
+
+	return files, nil
+}
+
 // ListBackupFiles lists all files used to backup a shard
-func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
+func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
 	if s.haltForTransferCount == 0 {
-		return fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
+		return nil, fmt.Errorf("can not list files: illegal state: shard %q is not paused for transfer", s.name)
 	}
 
 	s.mayResetInactivityTimer()
 
-	var err error
 	if err := s.readBackupMetadata(ret); err != nil {
-		return err
+		return nil, err
 	}
 
-	if ret.Files, err = s.store.ListFiles(ctx, s.index.Config.RootPath); err != nil {
-		return err
+	files, err := s.store.ListFiles(ctx, s.index.Config.RootPath)
+	if err != nil {
+		return nil, err
 	}
 
-	return s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
-		files, err := idx.ListFiles(ctx, s.index.Config.RootPath)
+	err = s.ForEachVectorIndex(func(targetVector string, idx VectorIndex) error {
+		filesIdx, err := idx.ListFiles(ctx, s.index.Config.RootPath)
 		if err != nil {
 			return fmt.Errorf("list files of vector %q: %w", targetVector, err)
 		}
-		ret.Files = append(ret.Files, files...)
+		files = append(files, filesIdx...)
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		filesVq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of queue %q: %w", targetVector, err)
+		}
+		files = append(files, filesVq...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		filesGq, err := queue.ForceSwitch(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return fmt.Errorf("list files of geo queue %q: %w", propName, err)
+		}
+		files = append(files, filesGq...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
@@ -220,7 +314,26 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	g.Go(func() error {
 		return s.ForEachVectorQueue(func(_ string, q *VectorIndexQueue) error {
-			q.Resume()
+			if err := q.DisableMaintenanceMode(); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
+
+			return nil
+		})
+	})
+	g.Go(func() error {
+		return s.ForEachGeoQueue(func(_ string, q *VectorIndexQueue) error {
+			if err := q.DisableMaintenanceMode(); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
+			return nil
+		})
+	})
+	g.Go(func() error {
+		return s.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+			if err := index.ResumeAfterBackup(ctx); err != nil {
+				return fmt.Errorf("resuming after backup: %w", err)
+			}
 			return nil
 		})
 	})
@@ -235,10 +348,7 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	d.Name = s.name
 
-	d.Node, err = s.nodeName()
-	if err != nil {
-		return fmt.Errorf("node name: %w", err)
-	}
+	d.Node = s.index.getSchema.NodeName()
 
 	fpath := s.counter.FileName()
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
@@ -265,12 +375,6 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 		return fmt.Errorf("shard version path: %w", err)
 	}
 	return nil
-}
-
-func (s *Shard) nodeName() (string, error) {
-	node, err := s.index.getSchema.ShardOwner(
-		s.index.Config.ClassName.String(), s.name)
-	return node, err
 }
 
 func (s *Shard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {

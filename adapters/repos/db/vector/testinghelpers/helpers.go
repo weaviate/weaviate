@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -296,7 +296,7 @@ func MatchesInLists(control []uint64, results []uint64) uint64 {
 func NewDummyStore(t testing.TB) *lsmkv.Store {
 	logger, _ := test.NewNullLogger()
 	storeDir := t.TempDir()
-	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -306,7 +306,7 @@ func NewDummyStore(t testing.TB) *lsmkv.Store {
 
 func NewDummyStoreFromFolder(storeDir string, t testing.TB) *lsmkv.Store {
 	logger, _ := test.NewNullLogger()
-	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil, nil,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
@@ -329,7 +329,11 @@ func RecallAndLatency(ctx context.Context, queries [][]float32, k int, index Vec
 		before := time.Now()
 		results, _, _ := index.SearchByVector(ctx, queries[i], k, nil)
 		ellapsed := time.Since(before)
-		hits := MatchesInLists(truths[i], results)
+		matches := truths[i]
+		if len(matches) > k {
+			matches = matches[:k]
+		}
+		hits := MatchesInLists(matches, results)
 		mutex.Lock()
 		querying += ellapsed
 		relevant += hits

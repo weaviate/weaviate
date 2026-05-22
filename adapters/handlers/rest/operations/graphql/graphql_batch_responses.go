@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -134,6 +134,51 @@ func (o *GraphqlBatchForbidden) SetPayload(payload *models.ErrorResponse) {
 func (o *GraphqlBatchForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// GraphqlBatchGoneCode is the HTTP code returned for type GraphqlBatchGone
+const GraphqlBatchGoneCode int = 410
+
+/*
+GraphqlBatchGone Endpoint not available in the current cluster configuration.
+
+swagger:response graphqlBatchGone
+*/
+type GraphqlBatchGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewGraphqlBatchGone creates GraphqlBatchGone with default headers values
+func NewGraphqlBatchGone() *GraphqlBatchGone {
+
+	return &GraphqlBatchGone{}
+}
+
+// WithPayload adds the payload to the graphql batch gone response
+func (o *GraphqlBatchGone) WithPayload(payload *models.ErrorResponse) *GraphqlBatchGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the graphql batch gone response
+func (o *GraphqlBatchGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *GraphqlBatchGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

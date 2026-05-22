@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,7 +59,7 @@ func testAddObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeS
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -79,7 +79,7 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -98,7 +98,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 	}
 
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -154,7 +154,7 @@ func testRemoveObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fa
 	}
 
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.Nil(t, err)
 
@@ -180,7 +180,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 
@@ -197,7 +197,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.ExpectedCalls = fakeSchemaManager.ExpectedCalls[:0]
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(ErrNotFound)
 
 	// Add it again
@@ -218,7 +218,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fak
 		},
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(ctx, nil, class)
 	assert.Nil(t, err)
@@ -293,7 +293,7 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
@@ -323,7 +323,7 @@ func testAddPropertyWithTargetVectorConfig(t *testing.T, handler *Handler, fakeS
 		},
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.NoError(t, err)
@@ -377,7 +377,7 @@ func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSch
 		Properties:        properties,
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
-	fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
@@ -402,94 +402,80 @@ func TestSchema(t *testing.T) {
 	})
 }
 
-func TestShardsStatus_WithAlias(t *testing.T) {
+func TestShardsStatus(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+	const shardName = "shard1"
+	expectedStatus := models.ShardStatusList{
+		&models.ShardStatusGetResponse{Name: shardName, Status: "READY"},
+	}
 
-	t.Run("get shard status via alias - alias resolves to existing class", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	cases := []struct {
+		name              string
+		namespacesEnabled bool
+		principal         *models.Principal
+		aliasMap          map[string]string
+		inputClass        string
+		resolvedClass     string
+	}{
+		{
+			name:          "alias resolves to existing class",
+			aliasMap:      map[string]string{"TestAlias": "RealClass"},
+			inputClass:    "TestAlias",
+			resolvedClass: "RealClass",
+		},
+		{
+			name:          "alias resolution empty falls back to input name",
+			aliasMap:      map[string]string{},
+			inputClass:    "NonExistentAlias",
+			resolvedClass: "NonExistentAlias",
+		},
+		{
+			name:          "direct class name needs no alias resolution",
+			aliasMap:      map[string]string{},
+			inputClass:    "RealClass",
+			resolvedClass: "RealClass",
+		},
+		{
+			name:              "namespaced principal + alias short name resolves to qualified alias",
+			namespacesEnabled: true,
+			principal:         namespacedPrincipal("customer1"),
+			aliasMap:          map[string]string{"customer1:Films": "customer1:Movies"},
+			inputClass:        "Films",
+			resolvedClass:     "customer1:Movies",
+		},
+		{
+			name:              "namespaced principal + raw class short name qualifies to <ns>:<class>",
+			namespacesEnabled: true,
+			principal:         namespacedPrincipal("customer1"),
+			aliasMap:          map[string]string{},
+			inputClass:        "Movies",
+			resolvedClass:     "customer1:Movies",
+		},
+		{
+			name:              "namespacesEnabled with nil principal skips qualification",
+			namespacesEnabled: true,
+			aliasMap:          map[string]string{"TestAlias": "RealClass"},
+			inputClass:        "TestAlias",
+			resolvedClass:     "RealClass",
+		},
+	}
 
-		className := "RealClass"
-		aliasName := "TestAlias"
-		shardName := "shard1"
-		expectedStatus := models.ShardStatusList{
-			&models.ShardStatusGetResponse{
-				Name:   shardName,
-				Status: "READY",
-			},
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, fakeSchemaManager := newTestHandlerWithNamespaces(t, tc.namespacesEnabled)
+			fakeSchemaManager.On("GetShardsStatus", tc.resolvedClass, shardName).Return(expectedStatus, nil)
+			handler.schemaReader = &fakeSchemaManagerWithAlias{
+				fakeSchemaManager: fakeSchemaManager,
+				aliasMap:          tc.aliasMap,
+			}
 
-		// Mock the shard status retrieval with the resolved class name
-		fakeSchemaManager.On("GetShardsStatus", className, shardName).Return(expectedStatus, nil)
-
-		// Create a custom fakeSchemaManager with alias support
-		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
-			fakeSchemaManager: fakeSchemaManager,
-			aliasMap:          map[string]string{aliasName: className},
-		}
-		handler.schemaReader = fakeSchemaManagerWithAlias
-
-		status, err := handler.ShardsStatus(ctx, nil, aliasName, shardName)
-		require.NoError(t, err)
-		assert.Equal(t, expectedStatus, status)
-		fakeSchemaManager.AssertExpectations(t)
-	})
-
-	t.Run("get shard status via alias - alias resolves to empty (fallback to direct name)", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-
-		aliasName := "NonExistentAlias"
-		shardName := "shard1"
-		expectedStatus := models.ShardStatusList{
-			&models.ShardStatusGetResponse{
-				Name:   shardName,
-				Status: "READY",
-			},
-		}
-
-		// Mock the shard status retrieval with the alias name (will be called since alias doesn't resolve)
-		fakeSchemaManager.On("GetShardsStatus", aliasName, shardName).Return(expectedStatus, nil)
-
-		// Create a custom fakeSchemaManager with empty alias resolution
-		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
-			fakeSchemaManager: fakeSchemaManager,
-			aliasMap:          map[string]string{}, // empty map
-		}
-		handler.schemaReader = fakeSchemaManagerWithAlias
-
-		status, err := handler.ShardsStatus(ctx, nil, aliasName, shardName)
-		require.NoError(t, err)
-		assert.Equal(t, expectedStatus, status)
-		fakeSchemaManager.AssertExpectations(t)
-	})
-
-	t.Run("get shard status via direct class name - no alias resolution needed", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-
-		className := "RealClass"
-		shardName := "shard1"
-		expectedStatus := models.ShardStatusList{
-			&models.ShardStatusGetResponse{
-				Name:   shardName,
-				Status: "READY",
-			},
-		}
-
-		// Mock the direct shard status retrieval
-		fakeSchemaManager.On("GetShardsStatus", className, shardName).Return(expectedStatus, nil)
-
-		// Create a custom fakeSchemaManager (alias resolution returns empty for direct class names)
-		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
-			fakeSchemaManager: fakeSchemaManager,
-			aliasMap:          map[string]string{}, // empty map
-		}
-		handler.schemaReader = fakeSchemaManagerWithAlias
-
-		status, err := handler.ShardsStatus(ctx, nil, className, shardName)
-		require.NoError(t, err)
-		assert.Equal(t, expectedStatus, status)
-		fakeSchemaManager.AssertExpectations(t)
-	})
+			status, err := handler.ShardsStatus(ctx, tc.principal, tc.inputClass, shardName)
+			require.NoError(t, err)
+			assert.Equal(t, expectedStatus, status)
+			fakeSchemaManager.AssertExpectations(t)
+		})
+	}
 }
 
 func TestGetAliases_WithNonExistentClass(t *testing.T) {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -203,6 +203,110 @@ func Test_schemaShardMetrics(t *testing.T) {
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
 	require.NoError(t, s.addClass(c2, ss, 0))
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
+}
+
+// Test_UpdateTenants_TransitionalStateRejection verifies that status changes are
+// rejected when a tenant is mid-freeze (FREEZING) or mid-unfreeze (UNFREEZING).
+// Without this guard a HOT request arriving while FREEZING would immediately
+// trigger UNFREEZE, creating a race that can result in permanent data loss.
+func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
+	const (
+		nodeID     = "testNode"
+		tenantName = "tenant1"
+		className  = "TestClass"
+	)
+	newSchema := func() *schema {
+		return NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+	}
+	newClass := func() *models.Class {
+		return &models.Class{
+			Class:              className,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
+		}
+	}
+	fsm := NewMockreplicationFSM(t)
+	fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+
+	t.Run("FREEZING rejects HOT", func(t *testing.T) {
+		s := newSchema()
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+		}))
+		// HOT → FROZEN puts the tenant into FREEZING
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+
+		// HOT request while FREEZING must be rejected
+		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm)
+		require.ErrorIs(t, err, ErrTenantTransitionalState)
+	})
+
+	t.Run("FREEZING rejects COLD", func(t *testing.T) {
+		s := newSchema()
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+		}))
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+
+		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "COLD"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm)
+		require.ErrorIs(t, err, ErrTenantTransitionalState)
+	})
+
+	t.Run("FREEZING allows FROZEN (idempotent)", func(t *testing.T) {
+		s := newSchema()
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+		}))
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+
+		// Second FROZEN request while already FREEZING must succeed (idempotent)
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+	})
+
+	t.Run("UNFREEZING rejects conflicting status", func(t *testing.T) {
+		s := newSchema()
+		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
+		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
+			ClusterNodes: []string{nodeID},
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "FROZEN"}},
+		}))
+		// FROZEN → HOT puts the tenant into UNFREEZING
+		require.NoError(t, s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "HOT"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm))
+
+		// COLD request while UNFREEZING-to-HOT must be rejected
+		err := s.updateTenants(className, 0, &api.UpdateTenantsRequest{
+			Tenants:      []*api.Tenant{{Name: tenantName, Status: "COLD"}},
+			ClusterNodes: []string{nodeID},
+		}, fsm)
+		require.ErrorIs(t, err, ErrTenantTransitionalState)
+	})
 }
 
 func Test_schemaDeepCopy(t *testing.T) {
@@ -555,4 +659,36 @@ func TestGetAlias(t *testing.T) {
 		}
 		assert.EqualValues(t, expected, aliases)
 	})
+}
+
+// TestAliasNamespacePrefixPreserved checks that creating an alias with a
+// namespace-qualified name stores it under a key whose namespace prefix is
+// kept lowercase, and that ResolveAlias still finds it under that key. Only
+// the class portion of the name is normalized.
+func TestAliasNamespacePrefixPreserved(t *testing.T) {
+	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
+	require.NoError(t, sc.addClass(&models.Class{Class: "delhappy:Movies"}, ss, 1))
+	require.NoError(t, sc.createAlias("delhappy:Movies", "delhappy:Films"))
+
+	stored := sc.getAliases("", "")
+	require.Contains(t, stored, "delhappy:Films",
+		"alias stored under lowercase-namespace key; got %v", stored)
+
+	require.Equal(t, "delhappy:Movies", sc.ResolveAlias("delhappy:Films"))
+}
+
+func TestCollectionsCount_Namespaced(t *testing.T) {
+	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
+
+	require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+	require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, ss, 2))
+	require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Movies"}, ss, 3))
+	require.NoError(t, sc.addClass(&models.Class{Class: "Global"}, ss, 4))
+
+	assert.Equal(t, 4, sc.CollectionsCount(""), "empty namespace returns total")
+	assert.Equal(t, 2, sc.CollectionsCount("customer1"))
+	assert.Equal(t, 1, sc.CollectionsCount("customer2"))
+	assert.Equal(t, 0, sc.CollectionsCount("unknown"))
 }

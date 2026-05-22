@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,7 +40,7 @@ func TestSuccessDeactivate(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user", Active: true}}, nil)
-			dynUser.On("DeactivateUser", "user", test.revokeKey).Return(nil)
+			dynUser.On("DeactivateUser", mock.Anything, "user", test.revokeKey).Return(nil)
 
 			h := dynUserHandler{
 				dbUsers:    dynUser,

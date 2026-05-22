@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -49,7 +49,7 @@ type client struct {
 func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
 		apiKey:       apiKey,
-		httpClient:   &http.Client{Timeout: timeout},
+		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
 		host:         "https://api.jina.ai",
 		path:         "/v1/rerank",
 		maxDocuments: 1000,
@@ -149,7 +149,7 @@ func (c *client) performRank(ctx context.Context, query string, documents []stri
 
 	var rankResponse RankResponse
 	if err := json.Unmarshal(bodyBytes, &rankResponse); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
+		return nil, fmt.Errorf("failed to parse reranker response (status %d): %w", res.StatusCode, err)
 	}
 	return c.toDocumentScores(documents, rankResponse.Results), nil
 }
@@ -218,14 +218,10 @@ type RankInput struct {
 	TopN      int      `json:"top_n,omitempty"`
 }
 
-type Document struct {
-	Text string `json:"text"`
-}
-
 type Result struct {
-	Index          int      `json:"index"`
-	RelevanceScore float64  `json:"relevance_score"`
-	Document       Document `json:"document"`
+	Index          int     `json:"index"`
+	RelevanceScore float64 `json:"relevance_score"`
+	Document       string  `json:"document"`
 }
 
 type APIVersion struct {

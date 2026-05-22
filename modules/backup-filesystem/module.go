@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,13 +13,12 @@ package modstgfs
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -34,9 +33,10 @@ const (
 )
 
 type Module struct {
-	logger      logrus.FieldLogger
-	dataPath    string // path to the current (operational) data
-	backupsPath string // complete(?) path to the directory that holds all the backups
+	logger        logrus.FieldLogger
+	dataPath      string  // path to the current (operational) data
+	backupsPath   string  // complete(?) path to the directory that holds all the backups
+	exportBackend *Module // export-only backend: no default bucket or path; the scheduler supplies both
 }
 
 func New() *Module {
@@ -66,7 +66,15 @@ func (m *Module) Init(ctx context.Context,
 	m.dataPath = params.GetStorageProvider().DataPath()
 	backupsPath := os.Getenv(backupsPathName)
 	if err := m.initBackupBackend(ctx, backupsPath); err != nil {
-		return errors.Wrap(err, "init backup backend")
+		return fmt.Errorf("init backup backend: %w", err)
+	}
+
+	// Create a separate export backend with no default bucket or path.
+	// The export scheduler supplies both via EXPORT_DEFAULT_BUCKET
+	// and EXPORT_DEFAULT_PATH.
+	m.exportBackend = &Module{
+		logger:   m.logger,
+		dataPath: m.dataPath,
 	}
 
 	return nil
@@ -80,39 +88,30 @@ func (m *Module) HomeDir(backupID, overrideBucket, overridePath string) string {
 	}
 }
 
-func (m *Module) AllBackups(context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	var meta []*backup.DistributedBackupDescriptor
+func (m *Module) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
 	backups, err := os.ReadDir(m.backupsPath)
 	if err != nil {
 		return nil, fmt.Errorf("open backups path: %w", err)
 	}
+
+	var keys []string
 	for _, bak := range backups {
 		if !bak.IsDir() {
 			continue
 		}
-		backupPath := path.Join(m.backupsPath, bak.Name())
-		contents, err := os.ReadDir(backupPath)
-		if err != nil {
-			return nil, fmt.Errorf("read backup contents: %w", err)
-		}
-		for _, file := range contents {
-			if file.Name() == ubak.GlobalBackupFile {
-				fileName := path.Join(backupPath, file.Name())
-				bytes, err := os.ReadFile(fileName)
-				if err != nil {
-					return nil, fmt.Errorf("read backup meta file %q: %w",
-						fileName, err)
-				}
-				var desc backup.DistributedBackupDescriptor
-				if err := json.Unmarshal(bytes, &desc); err != nil {
-					return nil, fmt.Errorf("unmarshal backup meta file %q: %w",
-						path.Join(backupPath, file.Name()), err)
-				}
-				meta = append(meta, &desc)
+		fileName := path.Join(m.backupsPath, bak.Name(), ubak.GlobalBackupFile)
+		if _, err := os.Stat(fileName); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("stat backup file %q: %w", fileName, err)
 			}
+			continue
 		}
+		keys = append(keys, fileName)
 	}
-	return meta, nil
+
+	return ubak.FetchBackupDescriptors(ctx, m.logger, keys, func(_ context.Context, key string) ([]byte, error) {
+		return os.ReadFile(key)
+	})
 }
 
 func (m *Module) MetaInfo() (map[string]interface{}, error) {
@@ -125,9 +124,17 @@ func (m *Module) makeBackupDirPath(path, id string) string {
 	return filepath.Join(path, id)
 }
 
+// ExportBackend returns the export-specific backend. It has no default
+// bucket or path; the export scheduler supplies both via
+// EXPORT_DEFAULT_BUCKET and EXPORT_DEFAULT_PATH.
+func (m *Module) ExportBackend() modulecapabilities.BackupBackend {
+	return m.exportBackend
+}
+
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.BackupBackend(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.ExportBackendProvider(New())
 )

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -126,7 +126,7 @@ func TestValidDynamicKey(t *testing.T) {
 			apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
 			require.NoError(t, err)
 
-			require.NoError(t, wrapper.Dynamic.CreateUser(userId, hash, identifier, "", time.Now()))
+			require.NoError(t, wrapper.Dynamic.CreateUser(userId, hash, identifier, "", "", time.Now()))
 
 			principal, err := wrapper.ValidateAndExtract(apiKey, nil)
 			if testCase.expectError {

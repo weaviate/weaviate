@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -28,13 +29,14 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
+	// Wait for hashtree initialization before acquiring the RLock.
+	// See shard_write_put.go for the deadlock explanation.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return err
 	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
@@ -66,10 +68,13 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
 
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	withSecondary := lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
 	if deletionTime.IsZero() {
-		err = bucket.Delete(idBytes)
+		err = bucket.Delete(idBytes, withSecondary)
 	} else {
-		err = bucket.DeleteWith(idBytes, deletionTime)
+		err = bucket.DeleteWith(idBytes, deletionTime, withSecondary)
 	}
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
@@ -98,9 +103,29 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from geo index queue of prop %q: %w", propName, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
 	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
 		if err = queue.Flush(); err != nil {
 			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+		if err = queue.Flush(); err != nil {
+			return fmt.Errorf("flush geo index queue WALs of prop %q: %w", propName, err)
 		}
 		return nil
 	})
@@ -112,12 +137,16 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
-	previousObject, err := storobj.FromBinary(previous)
+	className, err := s.store.Bucket(helpers.ObjectsBucketLSM).ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
+	previousObject, err := storobj.FromBinaryDisk(previous, className)
 	if err != nil {
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	previousProps, previousNilProps, err := s.AnalyzeObject(previousObject)
+	previousProps, previousNilProps, _, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}
@@ -125,6 +154,13 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	if err = s.subtractPropLengths(previousProps); err != nil {
 		return fmt.Errorf("subtract prop lengths: %w", err)
 	}
+
+	// Removing the old docId from the factory solves an issue,
+	// where, if using a NotEquals filter on a property,
+	// there is a possible time period where that docId has been deleted from the inverted index,
+	// but is still present in HNSW or other vector indices.
+	// For any NotEquals filter, we do an Equals filter and invert it's results.
+	s.bitmapFactory.RemoveIds(docID)
 
 	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID)
 	if err != nil {
@@ -170,9 +206,8 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	copy(objectDigest[:], uuidBytes)
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
 
-	// object deletion is treated as non-existent,
-	// that because deletion time or tombstone may not be available
-
+	// object deletion is treated as non-existent because the deletion time or
+	// tombstone may not be available
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
 	return nil

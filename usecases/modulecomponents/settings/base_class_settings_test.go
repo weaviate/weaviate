@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -178,8 +178,8 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			Class: "MyClass",
 			VectorConfig: map[string]models.VectorConfig{
 				"targetVector": {
-					Vectorizer: map[string]interface{}{
-						"my-module": map[string]interface{}{
+					Vectorizer: map[string]any{
+						"my-module": map[string]any{
 							"vectorizeClassName": false,
 						},
 					},
@@ -192,8 +192,8 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			Class: "MyClass",
 			VectorConfig: map[string]models.VectorConfig{
 				"targetVector": {
-					Vectorizer: map[string]interface{}{
-						"my-module": map[string]interface{}{
+					Vectorizer: map[string]any{
+						"my-module": map[string]any{
 							"vectorizeClassName": false,
 							"properties":         []string{"property_should_be_created_autoschema"},
 						},
@@ -207,8 +207,8 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			Class: "MyClass",
 			VectorConfig: map[string]models.VectorConfig{
 				"targetVector": {
-					Vectorizer: map[string]interface{}{
-						"my-module": map[string]interface{}{
+					Vectorizer: map[string]any{
+						"my-module": map[string]any{
 							"vectorizeClassName": false,
 							"properties":         []string{"predefined_property"},
 						},
@@ -232,8 +232,8 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			Class: "MyClass",
 			VectorConfig: map[string]models.VectorConfig{
 				"targetVector": {
-					Vectorizer: map[string]interface{}{
-						"my-module": map[string]interface{}{
+					Vectorizer: map[string]any{
+						"my-module": map[string]any{
 							"vectorizeClassName": false,
 							"properties":         []string{"nonexistent_property"},
 						},

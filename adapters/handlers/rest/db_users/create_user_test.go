@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package db_users
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -25,9 +26,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 func TestCreateUnprocessableEntity(t *testing.T) {
@@ -84,7 +87,7 @@ func TestCreateInternalServerError(t *testing.T) {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(tt.CheckUserIdentifierExistsValueReturn, tt.CheckUserIdentifierExistsErrorReturn)
 			}
 			if tt.CheckUserIdentifierExistsErrorReturn == nil && !tt.CheckUserIdentifierExistsValueReturn && tt.GetUserReturn == nil {
-				dynUser.On("CreateUser", "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
+				dynUser.On("CreateUser", mock.Anything, "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.CreateUserReturn)
 			}
 
 			h := dynUserHandler{
@@ -144,7 +147,7 @@ func TestCreateSuccess(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-	dynUser.On("CreateUser", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("CreateUser", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -164,7 +167,7 @@ func TestCreateSuccessWithKey(t *testing.T) {
 	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("CreateUserWithKey", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("CreateUserWithKey", mock.Anything, user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:              dynUser,
@@ -283,4 +286,246 @@ func TestCreateNoDynamic(t *testing.T) {
 	res := h.createUser(users.CreateUserParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.CreateUserUnprocessableEntity)
 	assert.True(t, ok)
+}
+
+func TestCreateUser_Namespaces(t *testing.T) {
+	const userID = "user"
+	tp := true
+
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		known             []string
+		body              users.CreateUserBody
+		isGlobalOperator  bool
+		wantStatus        any
+	}{
+		{
+			name:              "ns-disabled + namespace set rejects",
+			namespacesEnabled: false,
+			body:              users.CreateUserBody{Namespace: "ns1"},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "ns-enabled + missing namespace rejects",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "ns-enabled + unknown namespace rejects",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{Namespace: "ns404"},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "ns-enabled + import rejects",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{Import: &tp, Namespace: "ns1"},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "namespace set by non-operator forbidden",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{Namespace: "ns1"},
+			isGlobalOperator:  false,
+			wantStatus:        &users.CreateUserForbidden{},
+		},
+		{
+			name:              "ns-enabled + valid namespace + operator succeeds",
+			namespacesEnabled: true,
+			known:             []string{"ns1"},
+			body:              users.CreateUserBody{Namespace: "ns1"},
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserCreated{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{IsGlobalOperator: tt.isGlobalOperator}
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			if _, ok := tt.wantStatus.(*users.CreateUserCreated); ok {
+				expectedKey := apikey.MakeUserKey(userID, tt.body.Namespace)
+				dynUser.On("GetUsers", expectedKey).Return(map[string]*apikey.User{}, nil)
+				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
+				dynUser.On("CreateUser", mock.Anything, expectedKey, mock.Anything, mock.Anything, mock.Anything, tt.body.Namespace, mock.Anything).Return(nil)
+			}
+
+			ns := namespaces.NewMockExister(t)
+			known := map[string]struct{}{}
+			for _, n := range tt.known {
+				known[n] = struct{}{}
+			}
+			ns.On("Exists", mock.AnythingOfType("string")).Return(func(name string) bool {
+				_, ok := known[name]
+				return ok
+			}).Maybe()
+			ns.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
+				_, ok := known[name]
+				return ok
+			}).Maybe()
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				dbUserEnabled:     true,
+				namespacesEnabled: tt.namespacesEnabled,
+				namespaces:        ns,
+			}
+
+			res := h.createUser(users.CreateUserParams{UserID: userID, HTTPRequest: req, Body: tt.body}, principal)
+			assert.IsType(t, tt.wantStatus, res)
+		})
+	}
+}
+
+// TestCreateUser_DeletingNamespaceFastPath asserts the handler returns
+// 422 without dispatching to RAFT when the namespace exists but is
+// being deleted. The apply path would catch this too, but the local
+// IsActive check avoids the round-trip on a guaranteed-failed request.
+func TestCreateUser_DeletingNamespaceFastPath(t *testing.T) {
+	const userID = "user"
+	principal := &models.Principal{IsGlobalOperator: true}
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
+
+	// dynUser must not be called: the local check has to short-circuit.
+	dynUser := NewMockDbUserAndRolesGetter(t)
+
+	ns := namespaces.NewMockExister(t)
+	ns.On("Exists", "ns1").Return(true)
+	ns.On("IsActive", "ns1").Return(false)
+
+	h := dynUserHandler{
+		dbUsers:           dynUser,
+		authorizer:        authorizer,
+		dbUserEnabled:     true,
+		namespacesEnabled: true,
+		namespaces:        ns,
+	}
+
+	res := h.createUser(users.CreateUserParams{
+		UserID:      userID,
+		HTTPRequest: req,
+		Body:        users.CreateUserBody{Namespace: "ns1"},
+	}, principal)
+	parsed, ok := res.(*users.CreateUserUnprocessableEntity)
+	assert.True(t, ok, "expected 422, got %T", res)
+	require.NotNil(t, parsed.Payload)
+	require.Len(t, parsed.Payload.Error, 1)
+	assert.Contains(t, parsed.Payload.Error[0].Message, "being deleted")
+}
+
+// TestCreateUser_MapsApplyNamespaceErrorsTo422 asserts the createUser
+// handler classifies apply-layer namespace sentinels as retryable client
+// errors (422) and everything else as 500. The handler's pre-flight
+// Exists check can race with a concurrent namespace delete, so a 500
+// would be misleading: the request is well-formed, the namespace just
+// vanished underneath it.
+func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
+	const userID = "user"
+
+	tests := []struct {
+		name     string
+		applyErr error
+		expect   any
+	}{
+		{
+			name:     "ErrNamespaceGone returns 422",
+			applyErr: fmt.Errorf("apply: %w", namespaces.ErrNamespaceGone),
+			expect:   &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:     "ErrNamespaceDeleting returns 422",
+			applyErr: fmt.Errorf("apply: %w", namespaces.ErrNamespaceDeleting),
+			expect:   &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:     "unrelated error returns 500",
+			applyErr: errors.New("disk full"),
+			expect:   &users.CreateUserInternalServerError{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{IsGlobalOperator: true}
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			expectedKey := apikey.MakeUserKey(userID, "ns1")
+			dynUser.On("GetUsers", expectedKey).Return(map[string]*apikey.User{}, nil)
+			dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
+			dynUser.On("CreateUser", mock.Anything, expectedKey, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
+
+			ns := namespaces.NewMockExister(t)
+			ns.On("Exists", mock.AnythingOfType("string")).Return(true).Maybe()
+			ns.On("IsActive", mock.AnythingOfType("string")).Return(true).Maybe()
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				dbUserEnabled:     true,
+				namespacesEnabled: true,
+				namespaces:        ns,
+			}
+
+			res := h.createUser(users.CreateUserParams{
+				UserID:      userID,
+				HTTPRequest: req,
+				Body:        users.CreateUserBody{Namespace: "ns1"},
+			}, principal)
+			assert.IsType(t, tt.expect, res)
+		})
+	}
+}
+
+func TestListAndGetUser_NamespaceVisibility(t *testing.T) {
+	const userID = "u1"
+	storedUser := &apikey.User{Id: userID, Namespace: "ns1", Active: true, ApiKeyFirstLetters: "abc"}
+
+	tests := []struct {
+		name             string
+		isGlobalOperator bool
+		wantNamespace    string
+	}{
+		{name: "operator sees namespace", isGlobalOperator: true, wantNamespace: "ns1"},
+		{name: "non-operator does not see namespace", isGlobalOperator: false, wantNamespace: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{IsGlobalOperator: tt.isGlobalOperator}
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: storedUser}, nil)
+			dynUser.On("GetRolesForUserOrGroup", userID, mock.Anything, false).Return(map[string][]authorization.Policy{}, nil)
+
+			h := dynUserHandler{
+				dbUsers:       dynUser,
+				authorizer:    authorizer,
+				dbUserEnabled: true,
+			}
+
+			res := h.getUser(users.GetUserInfoParams{UserID: userID, HTTPRequest: req}, principal)
+			parsed, ok := res.(*users.GetUserInfoOK)
+			assert.True(t, ok)
+			assert.Equal(t, tt.wantNamespace, parsed.Payload.Namespace)
+		})
+	}
 }

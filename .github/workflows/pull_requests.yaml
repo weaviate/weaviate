@@ -13,19 +13,24 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  # Paths excluded from Orca SAST scans (auto-generated code + mocks).
+  # Centralized here so both SAST steps stay in sync.
+  ORCA_SAST_EXCLUDE_PATHS: "grpc/generated/*,adapters/handlers/rest/operations/*,adapters/handlers/rest/embedded_spec.go,client/*,entities/models/*,**/mock_*.go"
+
 jobs:
   Multi-Arch-Docker-Build:
     name: docker build (multi-arch)
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'push' }}
+    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
     timeout-minutes: 45
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Get build date
         id: date
@@ -33,7 +38,7 @@ jobs:
 
       - name: Build and cache Docker image
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
         env:
           DOCKER_BUILD_SUMMARY: false
         with:
@@ -60,7 +65,7 @@ jobs:
 
       - name: Run Orca Container Image Scan
         id: vuln-scan
-        uses: orcasecurity/shiftleft-container-image-action@v1
+        uses: orcasecurity/shiftleft-container-image-action@9cceca839ca144e6bb160a1d974d0656bcf71f22 # v1
         continue-on-error: true
         with:
           api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
@@ -72,19 +77,20 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
         with:
           sarif_file: results/image.sarif
 
       - name: Run Orca SAST Scan
         id: sast-scan
-        uses: orcasecurity/shiftleft-sast-action@v1
+        uses: orcasecurity/shiftleft-sast-action@9243198fba5faa2f7711f53df251084c601a90cb # v1
         continue-on-error: true
         with:
           api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
           project_key: ${{ env.PROJECT_KEY }}
           fetch-depth: 0
           path: "."
+          exclude_paths: ${{ env.ORCA_SAST_EXCLUDE_PATHS }}
 
       - name: Check security scan results
         run: |
@@ -99,7 +105,7 @@ jobs:
           echo "All security scans passed - proceeding with push"
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -117,7 +123,7 @@ jobs:
           echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
 
       - name: Upload outputs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: docker-outputs-multi-arch
           path: /tmp/docker-outputs/
@@ -127,54 +133,26 @@ jobs:
     name: docker build (${{ matrix.arch }})
     # ARM builds run on specific runners to avoid cross-compilation.
     runs-on: ${{ matrix.runner }}
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && github.event_name == 'pull_request' }}
+    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: "amd64"
-            runner: ubuntu-latest
-            platforms: "linux/amd64"
+            runner: ubicloud-standard-2
             push-args: "--amd64-only"
           - arch: "arm64"
             runner: ubuntu-24.04-arm
-            platforms: "linux/arm64"
             push-args: "--arm64-only"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and cache Docker image
-        id: build
-        uses: docker/build-push-action@v6
-        env:
-          DOCKER_BUILD_SUMMARY: false
-        with:
-          context: .
-          push: false
-          tags: weaviate:${{ github.sha }}
-          platforms: ${{ matrix.platforms }}
-          # Load the result into the local Docker engine only for amd64. Avoids slow emulation on arm64.
-          load: ${{ matrix.arch == 'amd64' }}
-          # Use both arch caches as "read" sources, so BuildKit can reuse whatever matches.
-          cache-from: |
-            type=gha,scope=weaviate-multi
-            type=gha,scope=weaviate-${{ matrix.arch }}
-          # Write back only to this job's cache scope to keep per-arch caches clean.
-          # ignore-error=true prevents the build from failing if the cache export flakes.
-          cache-to: |
-            type=gha,scope=weaviate-${{ matrix.arch }},mode=max,ignore-error=true
-          # CGO disabled for faster cross-compilation and better cache consistency.
-          # No build metadata for PR builds to maximize cache reuse across PRs.
-          build-args: |
-            CGO_ENABLED=0
-            TARGETARCH=${{ matrix.arch }}
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -192,24 +170,94 @@ jobs:
           echo "${{ steps.push.outputs.PREVIEW_SEMVER_TAG }}" > /tmp/docker-outputs/preview-semver-tag.txt
 
       - name: Upload outputs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: docker-outputs-pr-${{ matrix.arch }}
           path: /tmp/docker-outputs/
           retention-days: 1
 
+  PR-Vulnerability-Check:
+    name: vulnerability check
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }}
+    timeout-minutes: 45
+    env:
+      PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Build Docker image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: .
+          push: false
+          tags: weaviate:${{ github.sha }}
+          platforms: linux/amd64
+          load: true
+          cache-from: |
+            type=gha,scope=weaviate-multi
+            type=gha,scope=weaviate-amd64
+          build-args: |
+            CGO_ENABLED=0
+
+      - name: Run Orca Container Image Scan
+        id: vuln-scan
+        uses: orcasecurity/shiftleft-container-image-action@9cceca839ca144e6bb160a1d974d0656bcf71f22 # v1
+        continue-on-error: true
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          image: weaviate:${{ github.sha }}
+          console_output: "table"
+          format: "sarif"
+          output: "results/"
+
+      - name: Upload SARIF file
+        if: always() && steps.vuln-scan.outputs.exit_code != 1
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        with:
+          sarif_file: results/image.sarif
+
+      - name: Run Orca SAST Scan
+        id: sast-scan
+        uses: orcasecurity/shiftleft-sast-action@9243198fba5faa2f7711f53df251084c601a90cb # v1
+        continue-on-error: true
+        with:
+          api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
+          project_key: ${{ env.PROJECT_KEY }}
+          fetch-depth: 0
+          path: "."
+          exclude_paths: ${{ env.ORCA_SAST_EXCLUDE_PATHS }}
+
+      - name: Check security scan results
+        run: |
+          if [[ "${{ steps.vuln-scan.outcome }}" == "failure" ]]; then
+            echo "::error::Vulnerability scan failed"
+            exit 1
+          fi
+          if [[ "${{ steps.sast-scan.outcome }}" == "failure" ]]; then
+            echo "::error::SAST scan failed"
+            exit 1
+          fi
+          echo "All security scans passed"
+
   Generate-Docker-Report:
     name: docker report
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     # Depends on both production and PR jobs, but only one will run based on the event type
     needs: [Multi-Arch-Docker-Build, PR-Docker-Build]
     # Always run if either dependency succeeded (pr or production build)
     if: always() && (needs.Multi-Arch-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Download all build outputs
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: docker-outputs-*
           path: /tmp/all-outputs/
@@ -249,14 +297,14 @@ jobs:
     name: buf checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: bufbuild/buf-setup-action@v1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
         with:
           github_token: ${{ github.token }}
-      - uses: bufbuild/buf-lint-action@v1
+      - uses: bufbuild/buf-lint-action@06f9dd823d873146471cfaaf108a993fe00e5325 # v1.1.1
         with:
           input: "cluster/proto"
-      - uses: bufbuild/buf-breaking-action@v1
+      - uses: bufbuild/buf-breaking-action@c57b3d842a5c3f3b454756ef65305a50a587c5ba # v1.1.4
         if: github.event_name == 'pull_request'
         with:
           input: "cluster/proto"
@@ -265,11 +313,11 @@ jobs:
     name: swagger
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
@@ -288,16 +336,16 @@ jobs:
     name: unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-report-unit
           path: coverage-unit.txt
@@ -313,16 +361,24 @@ jobs:
           - name: "without vector"
             test: "--integration-without-vector-package"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
+      - name: Cache vector datasets
+        if: matrix.name == 'with vectors'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.cache/huggingface/hub
+          key: huggingface-cache-${{ runner.os }}-${{ hashFiles('adapters/repos/db/vector/hfresh/recall_test.go') }}
+          restore-keys: |
+            huggingface-cache-${{ runner.os }}-
       - name: Integration test
         run: ./test/run.sh ${{ matrix.test }}
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-report-integration${{ matrix.test }}
           path: coverage-integration.txt
@@ -341,34 +397,40 @@ jobs:
             test: "--only-module-backup-gcs"
           - name: "backup-s3"
             test: "--only-module-backup-s3"
+          - name: "export-filesystem"
+            test: "--only-module-export-filesystem"
+          - name: "export-s3"
+            test: "--only-module-export-s3"
           - name: "offload-s3"
             test: "--only-module-offload-s3"
-          - name: "text2vec-transformers"
-            test: "--only-module-text2vec-transformers"
-          - name: "text2vec-ollama"
-            test: "--only-module-text2vec-ollama"
-          - name: "generative-ollama"
-            test: "--only-module-generative-ollama"
           - name: "text2vec-model2vec"
             test: "--only-module-text2vec-model2vec"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
-        uses: docker/login-action@v3
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Determine timeout for test
+        env:
+          MATRIX_TEST: ${{ matrix.name }}
+        run: |
+          if [[ "$MATRIX_TEST" == "offload-s3" ]]; then
+            echo "test_timeout_minutes=45" >> $GITHUB_ENV
+          else
+            echo "test_timeout_minutes=15" >> $GITHUB_ENV
+          fi
       - name: Acceptance tests (modules)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
-          # 15 Minute is a large enough timeout for most of our tests
-          timeout_minutes: 15
+          timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: 2
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
@@ -379,7 +441,7 @@ jobs:
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 2
       - id: check
@@ -404,29 +466,39 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "qna-trans"
+          - name: "qna-transformers"
             test: "--only-module-qna-transformers"
-          - name: "sum-trans"
+          - name: "sum-transformers"
             test: "--only-module-sum-transformers"
           - name: "multi2vec-clip"
             test: "--only-module-multi2vec-clip"
-          - name: "reranker-trans"
+          - name: "reranker-transformers"
             test: "--only-module-reranker-transformers"
+          - name: "text2vec-transformers"
+            test: "--only-module-text2vec-transformers"
+          - name: "text2vec-ollama"
+            test: "--only-module-text2vec-ollama"
+          - name: "generative-ollama"
+            test: "--only-module-generative-ollama"
+          - name: "many-modules"
+            test: "--only-module-many-modules"
+          - name: "img2vec-neural"
+            test: "--only-module-img2vec-neural"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests Large (modules)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -435,7 +507,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-light:
     name: modules light (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -444,29 +516,25 @@ jobs:
         include:
           - name: "text2vec-contextionary"
             test: "--only-module-text2vec-contextionary"
-          - name: "img2vec-neural"
-            test: "--only-module-img2vec-neural"
           - name: "ref2vec-centroid"
             test: "--only-module-ref2vec-centroid"
-          - name: "many-modules"
-            test: "--only-module-many-modules"
           - name: "many-generative"
             test: "--only-module-many-generative"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Acceptance tests Large (modules)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -475,7 +543,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
     name: modules api (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') }}  # no PRs from fork
     strategy:
@@ -506,18 +574,28 @@ jobs:
             test: "--only-module-text2multivec-jinaai"
           - name: "multi2multivec-jinaai"
             test: "--only-module-multi2multivec-jinaai"
+          - name: "reranker-jinaai"
+            test: "--only-module-reranker-jinaai"
           - name: "multi2vec-aws"
             test: "--only-module-multi2vec-aws"
           - name: "text2vec-openai"
             test: "--only-module-text2vec-openai"
+          - name: "text2vec-cohere"
+            test: "--only-module-text2vec-cohere"
+          - name: "reranker-cohere"
+            test: "--only-module-reranker-cohere"
+          - name: "text2vec-voyageai"
+            test: "--only-module-text2vec-voyageai"
+          - name: "multi2vec-voyageai"
+            test: "--only-module-multi2vec-voyageai"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 2
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: check
         env:
@@ -545,7 +623,7 @@ jobs:
       - name: configure aws
         if: ${{ env.run_pipeline == 'true' }}
         id: creds-aws
-        uses: aws-actions/configure-aws-credentials@v5
+        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -581,37 +659,42 @@ jobs:
           - name: "fast-group-2"
             test: "--acceptance-only-fast-group-2"
           - name: "fast-group-3"
-            test: "--acceptance-only-fast-group-3"
-          - name: "fast-group-4"
-            test: "--acceptance-only-fast-group-4"
+            test: "--acceptance-only-fast-group-3"          
           - name: "graphql"
             test: "--acceptance-only-graphql"
           - name: "authz"
             test: "--acceptance-only-authz"
+          - name: "mcp"
+            test: "--acceptance-only-mcp"
           - name: "replication"
             test: "--acceptance-only-replication"
+          - name: "replication-grpc"
+            test: "--acceptance-only-replication"
+            grpc_replication: "true"
           - name: "async-replication"
             test: "--acceptance-only-async-replication"
+          - name: "async-replication-grpc"
+            test: "--acceptance-only-async-replication"
+            grpc_replication: "true"
           - name: "replica-fast"
             test: "--acceptance-only-replica-replication-fast"
-          - name: "replica-slow"
-            test: "--acceptance-only-replica-replication-slow"
+          - name: "replica-fast-grpc"
+            test: "--acceptance-only-replica-replication-fast"
+            grpc_replication: "true"
           - name: "go-client-group-1"
             test: "--acceptance-go-client-only-fast-group-1"
           - name: "go-client-group-2"
             test: "--acceptance-go-client-only-fast-group-2"
-          - name: "python"
-            test: "--acceptance-only-python"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -619,6 +702,7 @@ jobs:
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+          REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication || '' }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-4-cores:
     name: acceptance large (${{ matrix.name }})
@@ -627,20 +711,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: "replica-slow"
+            test: "--acceptance-only-replica-replication-slow"
+          - name: "replica-slow-grpc"
+            test: "--acceptance-only-replica-replication-slow"
+            grpc_replication: "true"
           - name: "vector-single"
             test: "--acceptance-go-client-named-vectors-single-node"
           - name: "vector-cluster"
             test: "--acceptance-go-client-named-vectors-cluster"
+          - name: "fast-group-4"
+            test: "--acceptance-only-fast-group-4"
+          - name: "distributed-tasks"
+            test: "--acceptance-distributed-tasks"
+          - name: "compaction"
+            test: "--acceptance-compaction"
+          - name: "recovery"
+            test: "--acceptance-recovery"
+          - name: "python"
+            test: "--acceptance-only-python"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -653,12 +752,75 @@ jobs:
           else
             echo "retry_max_attempts=1" >> $GITHUB_ENV
           fi
+      - name: Determine timeout for test
+        env:
+          MATRIX_TEST: ${{ matrix.name }}
+        run: |
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" ]]; then
+            echo "test_timeout_minutes=45" >> $GITHUB_ENV
+          else
+            echo "test_timeout_minutes=15" >> $GITHUB_ENV
+          fi
       - name: Acceptance tests Large
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+        env:
+          REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication || '' }}
         with:
-          # 15 Minute is a large enough timeout for most of our tests
-          timeout_minutes: 15
+          timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: ${{ env.retry_max_attempts }}
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
+  Acceptance-Reindex-Tests:
+    name: reindex (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "multinode"
+            test: "--acceptance-reindex-multinode"
+          - name: "multinode-aj"
+            test: "--acceptance-reindex-multinode-aj"
+          - name: "multinode-rm"
+            test: "--acceptance-reindex-multinode-rm"
+          - name: "multinode-restart-a"
+            test: "--acceptance-reindex-multinode-restart-a"
+          - name: "multinode-restart-b"
+            test: "--acceptance-reindex-multinode-restart-b"
+          - name: "multinode-scale"
+            test: "--acceptance-reindex-multinode-scale"
+          - name: "multinode-changetok"
+            test: "--acceptance-reindex-multinode-changetok"
+          - name: "singlenode-a"
+            test: "--acceptance-reindex-singlenode-a"
+          - name: "singlenode-b"
+            test: "--acceptance-reindex-singlenode-b"
+          - name: "concurrent"
+            test: "--acceptance-reindex-concurrent"
+          - name: "mt"
+            test: "--acceptance-reindex-mt"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests reindex
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+        with:
+          # Flat 45-minute timeout for every reindex matrix entry — these are
+          # multi-node testcontainer suites that occasionally need the full
+          # window. Avoids the per-test if-chain Acceptance-Tests-4-cores
+          # carried before the split.
+          timeout_minutes: 45
+          max_attempts: 1
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Acceptance-Tests-github-4-cores:
@@ -671,15 +833,15 @@ jobs:
           - name: "lsmkv"
             test: "--acceptance-lsmkv"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache: true
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -693,7 +855,7 @@ jobs:
             echo "retry_max_attempts=1" >> $GITHUB_ENV
           fi
       - name: Acceptance tests Large
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -706,23 +868,23 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Download coverage artifacts integration
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: coverage-report-unit
       - name: Download coverage integration without vector package
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: coverage-report-integration--integration-without-vector-package
           path: coverage-integration-without-vector-package.txt
       - name: Download coverage integration vector package only
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
       - name: Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
         with:
           fail_ci_if_error: false
           files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt
@@ -731,41 +893,41 @@ jobs:
     name: compile and upload binaries
     runs-on: ubicloud-standard-4-ubuntu-2404
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7
         with:
           install-only: true
       - name: goreleaser
         run: |
           GIT_REVISION=$(git rev-parse --short HEAD) GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) BUILD_USER=ci BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
       - name: Upload macos
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: binaries-macos-unsigned
           path: dist/weaviate_darwin_all
       - name: Upload windows
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: binaries-windows-amd64
           path: dist/weaviate_windows_amd64_v1
       - name: Upload windows
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: binaries-windows-arm64
           path: dist/weaviate_windows_arm64
       - name: Upload linux amd64
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: binaries-linux-amd64
           path: dist/weaviate_linux_amd64_v1
       - name: Upload linux arm64
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
@@ -782,15 +944,15 @@ jobs:
       RAFT_JOIN: node1
       GRPC_PORT: 50052
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Download binaries
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: binaries-windows-amd64
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version: '1.24'
+          go-version: '1.26'
           cache: true
       - name: start weaviate
         shell: bash

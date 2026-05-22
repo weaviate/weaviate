@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -221,6 +221,51 @@ func (o *ObjectsCreateUnprocessableEntity) SetPayload(payload *models.ErrorRespo
 func (o *ObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ObjectsCreateTooManyRequestsCode is the HTTP code returned for type ObjectsCreateTooManyRequests
+const ObjectsCreateTooManyRequestsCode int = 429
+
+/*
+ObjectsCreateTooManyRequests The configured object-count usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.
+
+swagger:response objectsCreateTooManyRequests
+*/
+type ObjectsCreateTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.UsageLimitExceededResponse `json:"body,omitempty"`
+}
+
+// NewObjectsCreateTooManyRequests creates ObjectsCreateTooManyRequests with default headers values
+func NewObjectsCreateTooManyRequests() *ObjectsCreateTooManyRequests {
+
+	return &ObjectsCreateTooManyRequests{}
+}
+
+// WithPayload adds the payload to the objects create too many requests response
+func (o *ObjectsCreateTooManyRequests) WithPayload(payload *models.UsageLimitExceededResponse) *ObjectsCreateTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects create too many requests response
+func (o *ObjectsCreateTooManyRequests) SetPayload(payload *models.UsageLimitExceededResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsCreateTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

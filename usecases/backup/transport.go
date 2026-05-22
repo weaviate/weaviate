@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,10 +55,17 @@ type Request struct {
 	// Additional path prefix override
 	Path string
 
+	// NodeName is the target node name for this backup operation
+	NodeName string
+	// NodeHost is the target node's hostname for this backup operation
+	NodeHost string
+
 	RbacRestoreOption string
 	UserRestoreOption string
 
 	RestoreOverwriteAlias bool
+
+	BaseBackupID string
 }
 
 type CanCommitResponse struct {
@@ -83,6 +90,8 @@ type StatusRequest struct {
 	Bucket string
 	// Path specify the path
 	Path string
+
+	BaseBackupID string
 }
 
 type StatusResponse struct {

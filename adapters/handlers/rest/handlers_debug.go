@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,21 +17,26 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -125,88 +130,6 @@ func setupDebugHandlers(appState *state.State) {
 		props := []byte(strings.Join(propertiesToMigrate, ","))
 
 		changeFile("properties.mig", false, props, logger, appState, r, w)
-	}))
-
-	http.HandleFunc("/debug/index/rebuild/inverted/reload", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		colName := r.URL.Query().Get("collection")
-
-		if colName == "" {
-			http.Error(w, "collection name is required", http.StatusBadRequest)
-			return
-		}
-
-		shardsToMigrateString := strings.TrimSpace(r.URL.Query().Get("shards"))
-
-		shardsToMigrate := []string{}
-		if shardsToMigrateString != "" {
-			shardsToMigrate = strings.Split(shardsToMigrateString, ",")
-		}
-
-		className := schema.ClassName(colName)
-		idx := appState.DB.GetIndex(className)
-
-		if idx == nil {
-			logger.WithField("collection", colName).Error("collection not found or not ready")
-			http.Error(w, "collection not found or not ready", http.StatusNotFound)
-			return
-		}
-
-		output := make(map[string]map[string]string)
-		// shards will not be force loaded, as we are only getting the name
-		err := idx.ForEachShard(
-			func(shardName string, shard db.ShardLike) error {
-				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
-					err := idx.IncomingReinitShard(
-						context.Background(),
-						shardName,
-					)
-					if err != nil {
-						logger.WithField("shard", shardName).Error("failed to reinit shard " + err.Error())
-						output[shardName] = map[string]string{
-							"shard":       shardName,
-							"shardStatus": shard.GetStatus().String(),
-							"status":      "error",
-							"message":     "failed to reinit shard",
-							"error":       err.Error(),
-						}
-						return nil
-					}
-					output[shardName] = map[string]string{
-						"shard":       shardName,
-						"shardStatus": shard.GetStatus().String(),
-						"status":      "reinit",
-						"message":     "reinit shard started",
-					}
-				} else {
-					output[shardName] = map[string]string{
-						"shard":       shardName,
-						"shardStatus": shard.GetStatus().String(),
-						"status":      "skipped",
-						"message":     fmt.Sprintf("shard %s not selected", shardName),
-					}
-				}
-				return nil
-			},
-		)
-
-		response := map[string]interface{}{
-			"shards": output,
-		}
-
-		if err != nil {
-			logger.WithField("collection", colName).Error("failed to get shard names")
-			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
-			response["error"] = "failed to get shard names: " + err.Error()
-		}
-
-		jsonBytes, err := json.Marshal(response)
-		if err != nil {
-			logger.WithError(err).Error("marshal failed on stats")
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(jsonBytes)
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -319,12 +242,6 @@ func setupDebugHandlers(appState *state.State) {
 				rt := db.NewFileMapToBlockmaxReindexTracker(path, keyParser)
 
 				status, message, action := rt.GetStatusStrings()
-
-				if appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.ConditionalStart && !rt.HasStartCondition() {
-					message = "reindexing not started, no start condition file found"
-					status = "not_started"
-					action = "call /start?collection=<> endpoint to start reindexing"
-				}
 
 				output[i]["status"] = status
 				output[i]["message"] = message
@@ -562,7 +479,7 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
+		if !appState.DB.AsyncIndexingEnabled {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
 			return
 		}
@@ -604,7 +521,7 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/repair/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
+		if !appState.DB.AsyncIndexingEnabled {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
 			return
 		}
@@ -716,12 +633,13 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		defer release()
+
 		if shard == nil {
 			logger.WithField("shard", shardName).Error("shard not found")
 			http.Error(w, "shard not found", http.StatusNotFound)
 			return
 		}
-		defer release()
 
 		vidx, ok := shard.GetVectorIndex(targetVector)
 		if !ok {
@@ -779,6 +697,88 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		if bytesToWrite != nil {
 			w.Write(bytesToWrite)
+		}
+	}))
+
+	// Call via something like:
+	// - current limit: curl -X GET localhost:6060/debug/config/gomemlimit
+	// - set limit: curl -X POST localhost:6060/debug/config/gomemlimit?limit=XXXMiB - can also be bytes or GiB
+	// The port is Weaviate's configured Go profiling port (defaults to 6060)
+	http.HandleFunc("/debug/config/gomemlimit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var prevLimit int64
+		switch r.Method {
+		case http.MethodGet:
+			prevLimit = debug.SetMemoryLimit(-1)
+		case http.MethodPost:
+			limitStr := r.URL.Query().Get("limit")
+			if limitStr == "" {
+				http.Error(w, "limit is required", http.StatusBadRequest)
+				return
+			}
+			limitBytes, err := humanize.ParseBytes(limitStr)
+			if err != nil {
+				http.Error(w, "invalid limit: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			prevLimit = debug.SetMemoryLimit(int64(limitBytes))
+			appState.Logger.
+				WithField("new_memory_limit_in_bytes", limitBytes).
+				WithField("previous_memory_limit_in_bytes", prevLimit).
+				Info("updating go-runtime memory limit")
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		w.WriteHeader(http.StatusOK)
+		jsonBytes, err := json.Marshal(prevLimit)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if jsonBytes != nil {
+			w.Write(jsonBytes)
+		}
+	}))
+
+	// Call via something like:
+	// - current limit: curl -X GET localhost:6060/debug/config/gomemlimit
+	// - set limit: curl -X POST localhost:6060/debug/config/gomemlimit?limit=XXXMiB - can also be bytes or GiB
+	// The port is Weaviate's configured Go profiling port (defaults to 6060)
+	http.HandleFunc("/debug/config/gomaxprocs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var prevMaxProcs int
+		switch r.Method {
+		case http.MethodGet:
+			prevMaxProcs = runtime.GOMAXPROCS(-1)
+		case http.MethodPost:
+			procsStr := r.URL.Query().Get("procs")
+			if procsStr == "" {
+				http.Error(w, "procs is required", http.StatusBadRequest)
+				return
+			}
+			procsInt, err := strconv.Atoi(procsStr)
+			if err != nil {
+				http.Error(w, "invalid procs value: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			prevMaxProcs = runtime.GOMAXPROCS(procsInt)
+			appState.Logger.
+				WithField("new_cpu_limit", procsInt).
+				WithField("previous_cpu_limit", prevMaxProcs).
+				Info("updating go-runtime CPU limit")
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		w.WriteHeader(http.StatusOK)
+		jsonBytes, err := json.Marshal(prevMaxProcs)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if jsonBytes != nil {
+			w.Write(jsonBytes)
 		}
 	}))
 
@@ -970,7 +970,271 @@ func setupDebugHandlers(appState *state.State) {
 		}
 		w.Write(jsonBytes)
 	}))
+
+	// This endpoint dumps all server configuration from environment.go
+	// e.g. curl -X GET localhost:6060/debug/config
+	// Note: Authentication and Authorization sections are skipped for security
+	http.HandleFunc("/debug/config", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		jsonBytes, err := json.Marshal(appState.ServerConfig.Config)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on config")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Unmarshal to map to clean up empty values
+		var configMap map[string]any
+		if err := json.Unmarshal(jsonBytes, &configMap); err != nil {
+			logger.WithError(err).Error("unmarshal failed on config")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// for human readability
+		jsonBytes, err = json.MarshalIndent(cleanEmptyValues(configMap), "", "  ")
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on cleaned config")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonBytes)
+	}))
+
+	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		expiration := r.URL.Query().Get("expiration")
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
+
+		var err error
+		var expirationTime time.Time
+
+		if expiration != "" {
+			expirationTime, err = time.Parse(time.RFC3339, expiration)
+			if err != nil {
+				http.Error(w, fmt.Errorf("invalid expiration: %w", err).Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			expirationTime = time.Now()
+		}
+
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
+
+		err = appState.ObjectTTLCoordinator.Start(context.Background(), targetOwnNode, expirationTime, expirationTime)
+		if err != nil {
+			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/ttl/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
+
+		aborted, err := appState.ObjectTTLCoordinator.Abort(context.Background(), targetOwnNode)
+		var errMsg string
+		if err != nil {
+			errMsg = err.Error()
+		}
+		resp := map[string]any{"aborted": aborted, "error": errMsg}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+			return
+		}
+	}))
+
+	// Debug endpoint to hold/release/check a consistent view of segments on a bucket.
+	// Holding a consistent view increments ref counts on all segments, blocking compaction
+	// from deleting old segments. Useful for debugging compaction scheduling.
+	//
+	// POST   /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket} → hold view
+	// DELETE /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket} → release view
+	// GET    /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket} → check if held
+	http.HandleFunc("/debug/consistent-view/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		path := strings.TrimPrefix(r.URL.Path, "/debug/consistent-view/")
+		parts := strings.Split(path, "/")
+		// expect: [collection, "shards", shard, "buckets", bucket]
+		if len(parts) != 5 || parts[1] != "shards" || parts[3] != "buckets" {
+			http.Error(w, `{"error":"invalid path, expected /debug/consistent-view/{collection}/shards/{shard}/buckets/{bucket}"}`, http.StatusBadRequest)
+			return
+		}
+		colName, shardName, bucketName := parts[0], parts[2], parts[4]
+		key := colName + "/" + shardName + "/" + bucketName
+
+		switch r.Method {
+		case http.MethodPost:
+			// Resolve bucket
+			idx := appState.DB.GetIndex(schema.ClassName(colName))
+			if idx == nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "collection not found"})
+				return
+			}
+			shard, release, err := idx.GetShard(context.Background(), shardName)
+			if err != nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+				return
+			}
+			defer release()
+			if shard == nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "shard not found"})
+				return
+			}
+			b := shard.Store().Bucket(bucketName)
+			if b == nil {
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": fmt.Sprintf("bucket %q not found", bucketName)})
+				return
+			}
+
+			debugConsistentViewsLock.Lock()
+			if _, exists := debugConsistentViews[key]; exists {
+				debugConsistentViewsLock.Unlock()
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "view already held"})
+				return
+			}
+			view := b.GetConsistentView()
+			debugConsistentViews[key] = view
+			debugConsistentViewsLock.Unlock()
+
+			addr := "empty"
+			if len(view.Disk) > 0 {
+				addr = fmt.Sprintf("%p", &view.Disk[0])
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"held":     true,
+				"segments": len(view.Disk),
+				"address":  addr,
+			})
+
+		case http.MethodDelete:
+			debugConsistentViewsLock.Lock()
+			view, exists := debugConsistentViews[key]
+			if !exists {
+				debugConsistentViewsLock.Unlock()
+				writeJSON(w, http.StatusNotFound, map[string]any{"error": "no view held for this bucket"})
+				return
+			}
+			view.ReleaseView()
+			delete(debugConsistentViews, key)
+			debugConsistentViewsLock.Unlock()
+
+			writeJSON(w, http.StatusOK, map[string]any{"released": true})
+
+		case http.MethodGet:
+			debugConsistentViewsLock.Lock()
+			view, exists := debugConsistentViews[key]
+			debugConsistentViewsLock.Unlock()
+
+			if !exists {
+				writeJSON(w, http.StatusOK, map[string]any{"held": false})
+				return
+			}
+			addr := "empty"
+			if len(view.Disk) > 0 {
+				addr = fmt.Sprintf("%p", &view.Disk[0])
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"held":     true,
+				"segments": len(view.Disk),
+				"address":  addr,
+			})
+
+		default:
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		}
+	}))
 }
+
+// cleanEmptyValues recursively removes empty values from a JSON map.
+//
+// TODO: This is a workaround because:
+//   - The config struct doesn't use omitempty tags for all fields
+//   - Composed structs are not defined as pointers, so empty structs still marshal as {}
+//
+// See: https://github.com/weaviate/weaviate/blob/main/usecases/config/config_handler.go#L106
+func cleanEmptyValues(m map[string]any) map[string]any {
+	result := make(map[string]any)
+	for k, v := range m {
+		cleaned := cleanValue(v)
+		if cleaned != nil {
+			result[k] = cleaned
+		}
+	}
+	return result
+}
+
+// cleanValue recursively cleans a JSON value, removing empty nested structures
+func cleanValue(v any) any {
+	if v == nil {
+		return nil
+	}
+
+	switch val := v.(type) {
+	case map[string]any:
+		cleaned := cleanEmptyValues(val)
+		if len(cleaned) == 0 {
+			return nil
+		}
+		return cleaned
+	case []any:
+		cleaned := make([]any, 0, len(val))
+		for _, item := range val {
+			if cleanedItem := cleanValue(item); cleanedItem != nil {
+				cleaned = append(cleaned, cleanedItem)
+			}
+		}
+		if len(cleaned) == 0 {
+			return nil
+		}
+		return cleaned
+	case string:
+		if val == "" {
+			return nil
+		}
+		return val
+	case bool:
+		// Keep bool values (false is a valid value, but we can omit it if desired)
+		// For now, keep all bools to preserve configuration state
+		return val
+	case float64:
+		// JSON numbers are unmarshaled as float64
+		if val == 0 {
+			return nil
+		}
+		return val
+	default:
+		// For any other type, preserve the value
+		return v
+	}
+}
+
+var (
+	debugConsistentViews     = map[string]lsmkv.BucketConsistentView{}
+	debugConsistentViewsLock sync.Mutex
+)
 
 type MaintenanceMode struct {
 	Enabled bool `json:"enabled"`
@@ -978,4 +1242,14 @@ type MaintenanceMode struct {
 
 type hnswStats interface {
 	Stats() (*hnsw.HnswStats, error)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	jsonBytes, err := json.Marshal(v)
+	if err != nil {
+		http.Error(w, `{"error":"json marshal failed"}`, http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(status)
+	w.Write(jsonBytes)
 }

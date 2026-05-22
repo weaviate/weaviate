@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -188,7 +188,7 @@ func validateMapPairListVsWandSearch(ctx context.Context, bucket *Bucket, expect
 			Count: 1,
 		}
 
-		topKHeap := DoWand(ctx, N, terms, avgPropLen, true, 1)
+		topKHeap := DoWand(ctx, N, terms, avgPropLen, true, 1, logger)
 
 		for topKHeap.Len() > 0 {
 			item := topKHeap.Pop()
@@ -894,7 +894,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 
 	t.Run("init bucket", func(t *testing.T) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
-			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithStrategy(StrategyInverted))
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
 		// so big it effectively never triggers as part of this test

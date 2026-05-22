@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package clients
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,9 +40,7 @@ type ollama struct {
 
 func New(timeout time.Duration, logger logrus.FieldLogger) *ollama {
 	return &ollama{
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		httpClient:   modulecomponents.NewBaseHttpClient(timeout),
 		urlBuilderFn: buildURL,
 		logger:       logger,
 	}
@@ -60,22 +57,6 @@ func (v *ollama) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	return v.vectorize(ctx, input, cfg)
-}
-
-func (v *ollama) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
-	return sha256.Sum256([]byte("ollama"))
-}
-
-func (v *ollama) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return &modulecomponents.RateLimits{
-		LimitRequests:        100,
-		LimitTokens:          1000000,
-		RemainingRequests:    100,
-		RemainingTokens:      1000000,
-		ResetRequests:        time.Now(),
-		ResetTokens:          time.Now(),
-		AfterRequestFunction: func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {},
-	}
 }
 
 func (v *ollama) vectorize(ctx context.Context, input []string,
@@ -117,7 +98,7 @@ func (v *ollama) parseEmbeddingsResponse(statusCode int,
 ) (*modulecomponents.VectorizationResult[[]float32], error) {
 	var resBody embeddingsResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrapf(err, "unmarshal response body. Got: %v", string(bodyBytes))
+		return nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
 	}
 
 	if resBody.Error != "" {

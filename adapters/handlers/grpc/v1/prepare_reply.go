@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -32,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/search"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type mapper interface {
@@ -47,6 +49,7 @@ type generativeReplier interface {
 type Replier struct {
 	generative generativeReplier
 	mapper     mapper
+	principal  *models.Principal
 	logger     logrus.FieldLogger
 }
 
@@ -61,11 +64,13 @@ type generativeQueryParams interface {
 func NewReplier(
 	uses127 bool,
 	generativeQueryParams generativeQueryParams,
+	principal *models.Principal,
 	logger logrus.FieldLogger,
 ) *Replier {
 	return &Replier{
 		generative: generative.NewReplier(logger, generativeQueryParams, uses127),
 		mapper:     &Mapper{},
+		principal:  principal,
 		logger:     logger,
 	}
 }
@@ -98,7 +103,50 @@ func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.Ge
 		out.GenerativeGroupedResults = generativeGroupedResults
 		out.Results = objects
 	}
+	if searchParams.AdditionalProperties.QueryProfile {
+		out.QueryProfile = r.extractQueryProfile(res)
+	}
 	return out, nil
+}
+
+// extractQueryProfile converts the raw profile data from the first search result's
+// additional properties into a [pb.QueryProfile] for the gRPC response.
+func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
+	if len(res) == 0 {
+		return nil
+	}
+	asMap, ok := res[0].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	add, ok := asMap["_additional"]
+	if !ok {
+		return nil
+	}
+	additional, ok := add.(models.AdditionalProperties)
+	if !ok {
+		additional, ok = add.(map[string]interface{})
+	}
+	if !ok {
+		return nil
+	}
+	queryProfiles, ok := additional["queryProfileRaw"].([]helpers.ShardQueryProfile)
+	if !ok {
+		return nil
+	}
+	shards := make([]*pb.QueryProfile_ShardProfile, len(queryProfiles))
+	for i, p := range queryProfiles {
+		searches := make(map[string]*pb.QueryProfile_SearchProfile, len(p.Searches))
+		for searchType, sp := range p.Searches {
+			searches[searchType] = &pb.QueryProfile_SearchProfile{Details: sp.Details}
+		}
+		shards[i] = &pb.QueryProfile_ShardProfile{
+			Name:     p.Name,
+			Node:     p.Node,
+			Searches: searches,
+		}
+	}
+	return &pb.QueryProfile{Shards: shards}
 }
 
 func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, *pb.GenerativeResult, error) {
@@ -115,7 +163,7 @@ func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.Ge
 		var props *pb.PropertiesResult
 		var err error
 
-		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.Alias, searchParams.AdditionalProperties)
+		props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -480,7 +528,33 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 	return ret, groupedGenerativeResults, nil
 }
 
-func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className, alias string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+// extractPropertiesAnswer fills the top-level result for one hit.
+// TargetCollection is the resolved class name, stripped of the caller's own
+// namespace prefix.
+func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+	props, err := r.buildPropertiesResult(scheme, results, properties, className, additionalPropsParams)
+	if err != nil {
+		return nil, err
+	}
+	props.TargetCollection = namespacing.StripOwnNamespace(r.principal, className)
+	return props, nil
+}
+
+// extractRefPropertiesAnswer fills the result for a nested reference hit.
+// The ref's qualified class name is echoed verbatim — ref-shape stripping
+// lives in a later slice.
+func (r *Replier) extractRefPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+	props, err := r.buildPropertiesResult(scheme, results, properties, className, additionalPropsParams)
+	if err != nil {
+		return nil, err
+	}
+	props.TargetCollection = className
+	return props, nil
+}
+
+// buildPropertiesResult assembles the per-hit non-ref + ref properties.
+// TargetCollection is set by the calling wrapper.
+func (r *Replier) buildPropertiesResult(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
 	nonRefProps := &pb.Properties{
 		Fields: make(map[string]*pb.Value, 0),
 	}
@@ -536,7 +610,7 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := r.extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, "", additionalPropsParams)
+			extractedRefProp, err := r.extractRefPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
 			if err != nil {
 				continue
 			}
@@ -554,7 +628,7 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 		refProp := pb.RefPropertiesResult{PropName: prop.Name, Properties: extractedRefProps}
 		refProps = append(refProps, &refProp)
 	}
-	props := pb.PropertiesResult{}
+	props := &pb.PropertiesResult{}
 	if len(nonRefProps.Fields) != 0 {
 		props.NonRefProps = nonRefProps
 	}
@@ -562,12 +636,7 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 		props.RefProps = refProps
 	}
 	props.RefPropsRequested = properties.HasRefs()
-	if alias != "" {
-		props.TargetCollection = alias
-	} else {
-		props.TargetCollection = className
-	}
-	return &props, nil
+	return props, nil
 }
 
 func extractGenerateResult(additionalPropertiesMap map[string]interface{}) (*additionalModels.GenerateResult, error) {

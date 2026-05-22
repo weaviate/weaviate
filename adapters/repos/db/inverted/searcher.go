@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,19 +42,67 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
+// IsRangeableLocallyReady returns true when this shard's local rangeable
+// bucket for the given property is fully populated and safe to query.
+// During an enable-rangeable migration the cluster-wide schema flag
+// `IndexRangeFilters` can flip to true as soon as the first replica
+// completes its swap, but other replicas may still be mid-iteration
+// with an empty PreReindexHook-created rangeable bucket — so a query
+// using the rangeable bucket on those replicas would return partial /
+// zero counts. When this callback returns false, the filter resolver
+// treats the property as if it had no rangeable index for THIS shard
+// only and falls back to the filterable bucket walk (slow but correct).
+// Returns true for properties that have no in-flight migration on disk
+// — i.e. either never migrated (native rangeable from collection
+// creation) or already-completed migrations.
+type IsRangeableLocallyReady func(propName string) bool
+
 type Searcher struct {
-	logger                 logrus.FieldLogger
-	store                  *lsmkv.Store
-	getClass               func(string) *models.Class
-	classSearcher          ClassSearcher // to allow recursive searches on ref-props
-	propIndices            propertyspecific.Indices
-	stopwords              stopwords.StopwordDetector
-	shardVersion           uint16
-	isFallbackToSearchable IsFallbackToSearchable
-	tenant                 string
+	logger                  logrus.FieldLogger
+	store                   *lsmkv.Store
+	getClass                func(string) *models.Class
+	classSearcher           ClassSearcher // to allow recursive searches on ref-props
+	propIndices             propertyspecific.Indices
+	stopwordProvider        *stopwords.Provider
+	shardVersion            uint16
+	isFallbackToSearchable  IsFallbackToSearchable
+	isRangeableLocallyReady IsRangeableLocallyReady
+	tenant                  string
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
+	// tokResolver, when non-nil, overrides prop.Tokenization on query
+	// input analysis. Used by the per-shard tokenization overlay to
+	// keep query tokenization aligned with the bucket content during
+	// the FINALIZING window of a change-tokenization migration. Nil =
+	// use prop.Tokenization directly (tests and callers with no
+	// in-flight migration).
+	tokResolver TokenizationResolver
+}
+
+// WithTokenizationResolver attaches a [TokenizationResolver] used by query
+// input analysis to consult a per-shard tokenization overlay before
+// falling back to the schema-stored `prop.Tokenization`. Returns the
+// receiver for fluent chaining at construction sites.
+//
+// Production callers wire `Shard.TokenizationFor` here so a
+// change-tokenization migration's FINALIZING-window overlay routes
+// query input to the post-swap tokenization. See [TokenizationResolver]
+// for the misalignment this closes.
+//
+// Pass nil (the default) to use the schema-stored value directly.
+func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
+	s.tokResolver = r
+	return s
+}
+
+// hasUsableRangeableIndex combines the schema-level [HasRangeableIndex] check
+// with the runtime [Searcher.isRangeableLocallyReady] gate. Always pair them
+// at query-extraction sites: schema may say the rangeable bucket exists, but
+// a swap-recovery window on this node may have it offline. Folding the two
+// removes the per-call-site reminder.
+func (s *Searcher) hasUsableRangeableIndex(prop *models.Property) bool {
+	return HasRangeableIndex(prop) && s.isRangeableLocallyReady(prop.Name)
 }
 
 var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided. " +
@@ -62,22 +110,32 @@ var ErrOnlyStopwords = fmt.Errorf("invalid search term, only stopwords provided.
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
+	classSearcher ClassSearcher, stopwordProvider *stopwords.Provider,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
+	isRangeableLocallyReady IsRangeableLocallyReady,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
+	if isRangeableLocallyReady == nil {
+		// Default: always ready. Callers that don't know about the per-shard
+		// rangeable-readiness state (e.g. tests without a migration in
+		// flight, or the brief gap between Searcher construction and the
+		// migration hook being wired) get the historical behavior of
+		// trusting the schema flag verbatim.
+		isRangeableLocallyReady = func(string) bool { return true }
+	}
 	return &Searcher{
-		logger:                 logger,
-		store:                  store,
-		getClass:               getClass,
-		propIndices:            propIndices,
-		classSearcher:          classSearcher,
-		stopwords:              stopwords,
-		shardVersion:           shardVersion,
-		isFallbackToSearchable: isFallbackToSearchable,
-		tenant:                 tenant,
-		nestedCrossRefLimit:    nestedCrossRefLimit,
-		bitmapFactory:          bitmapFactory,
+		logger:                  logger,
+		store:                   store,
+		getClass:                getClass,
+		propIndices:             propIndices,
+		classSearcher:           classSearcher,
+		stopwordProvider:        stopwordProvider,
+		shardVersion:            shardVersion,
+		isFallbackToSearchable:  isFallbackToSearchable,
+		isRangeableLocallyReady: isRangeableLocallyReady,
+		tenant:                  tenant,
+		nestedCrossRefLimit:     nestedCrossRefLimit,
+		bitmapFactory:           bitmapFactory,
 	}
 }
 
@@ -87,7 +145,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	className schema.ClassName, properties []string,
 	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesGOMAXPROCS(2))
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, className, limit)
 	if err != nil {
@@ -108,6 +166,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
 		it = allowList.Iterator()
+		defer it.Stop()
 	}
 
 	beforeObjects := time.Now()
@@ -132,8 +191,14 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
+	}
+
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting objects bucket class name: %w", err)
 	}
 
 	// Prevent unbounded iteration
@@ -195,9 +260,9 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 
 		var unmarshalled *storobj.Object
 		if additional.ReferenceQuery {
-			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
+			unmarshalled, err = storobj.FromBinaryUUIDOnlyDisk(res, className)
 		} else {
-			unmarshalled, err = storobj.FromBinaryOptional(res, additional, props)
+			unmarshalled, err = storobj.FromBinaryOptionalDisk(res, className, additional, props)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
@@ -227,8 +292,15 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 func (s *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	additional additional.Properties, className schema.ClassName,
 ) (helpers.AllowList, error) {
-	ctx = concurrency.CtxWithBudget(ctx, concurrency.TimesNUMCPU(2))
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
 	return s.docIDs(ctx, filter, className, 0)
+}
+
+func (s *Searcher) DocIDsLimited(ctx context.Context, filter *filters.LocalFilter,
+	additional additional.Properties, className schema.ClassName, limit int,
+) (helpers.AllowList, error) {
+	ctx = concurrency.CtxWithBudget(ctx, concurrency.GOMAXPROCSx2)
+	return s.docIDs(ctx, filter, className, max(0, limit))
 }
 
 func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
@@ -246,6 +318,14 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, fmt.Errorf("resolve doc ids for prop/value pair: %w", err)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_resolve_took", time.Since(beforeResolve))
+
+	// invert once at the end if it's a deny list, to avoid multiple inversions in case of nested ORs
+	if dbm.isDenyList {
+		universe, universeRelease := s.bitmapFactory.GetBitmap()
+		universe.AndNotConc(dbm.docIDs, concurrency.SROAR_MERGE)
+		dbm.release()
+		return helpers.NewAllowListCloseableFromBitmap(universe, universeRelease), nil
+	}
 
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
@@ -339,7 +419,7 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 ) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
-	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.NUMCPU)
+	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
 	eg.SetLimit(outerConcurrencyLimit)
 
 	concurrencyReductionFactor := min(len(operands), outerConcurrencyLimit)
@@ -347,7 +427,7 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	for i, clause := range operands {
 		i, clause := i, clause
 		eg.Go(func() error {
-			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.NUMCPU)
+			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
 			child, err := s.extractPropValuePair(ctx, &clause, className)
 			// check for stopword errors on ContainsAny operator only at the end
 			if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {
@@ -424,7 +504,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
@@ -485,7 +565,7 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndex(prop),
 		hasSearchableIndex: HasSearchableIndex(prop),
-		hasRangeableIndex:  HasRangeableIndex(prop),
+		hasRangeableIndex:  s.hasUsableRangeableIndex(prop),
 		Class:              class,
 	}, nil
 }
@@ -513,7 +593,7 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
@@ -588,19 +668,27 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		}
 		byteValue = []byte(v)
 	case schema.DataTypeDate:
-		v, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected value to be string, got '%T'", value)
-		}
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
+		var asInt64 int64
+
+		switch t := value.(type) {
+		case string:
+			parsed, err := time.Parse(time.RFC3339, t)
+			if err != nil {
+				return nil, fmt.Errorf("trying parse time as RFC3339 string: %w", err)
+			}
+			asInt64 = parsed.UnixMilli()
+
+		case time.Time:
+			asInt64 = t.UnixMilli()
+
+		default:
+			return nil, fmt.Errorf("expected value to be string or time.Time, got '%T'", value)
 		}
 
 		// if propType is a `valueDate`, we need to convert
 		// it to ms before fetching. this is the format by
 		// which our timestamps are indexed
-		byteValue = []byte(strconv.FormatInt(t.UnixMilli(), 10))
+		byteValue = []byte(strconv.FormatInt(asInt64, 10))
 	default:
 		return nil, fmt.Errorf(
 			"failed to extract timestamp prop, unsupported type '%T' for prop '%s'", propType, propName)
@@ -619,21 +707,44 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema.DataType,
 	value interface{}, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	var terms []string
-
 	valueString, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be string, got '%T'", value)
 	}
 
+	var terms []string
 	switch propType {
 	case schema.DataTypeText:
+		// effectiveTok consults the per-shard tokenization overlay (set
+		// during the FINALIZING window of a change-tokenization
+		// migration) before falling back to the schema-stored value.
+		// Both the LIKE wildcard path and the standard analyze path
+		// tokenize query input against effectiveTok so the resulting
+		// terms match the bucket content on this shard.
+		effectiveTok := ResolveTokenization(s.tokResolver, prop.Name, prop.Tokenization)
 		// if the operator is like, we cannot apply the regular text-splitting
 		// logic as it would remove all wildcard symbols
 		if operator == filters.OperatorLike {
-			terms = tokenizer.TokenizeWithWildcards(prop.Tokenization, valueString)
+			// LIKE queries need special wildcard-preserving tokenization;
+			// fold manually then use the wildcard tokenizer.
+			text := valueString
+			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
+				ignore := tokenizer.BuildIgnoreSet(prop.TextAnalyzer.ASCIIFoldIgnore)
+				text = tokenizer.FoldASCII(text, ignore)
+			}
+			terms = tokenizer.TokenizeWithWildcardsForClass(effectiveTok, text, class.Class)
 		} else {
-			terms = tokenizer.Tokenize(prop.Tokenization, valueString)
+			var sw tokenizer.StopwordDetector
+			if effectiveTok == models.PropertyTokenizationWord {
+				d, err := s.stopwordProvider.Get(prop)
+				if err != nil {
+					return nil, err
+				}
+				sw = d
+			}
+			prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
+			result := tokenizer.Analyze(valueString, effectiveTok, class.Class, prepared, sw)
+			terms = result.Query
 		}
 	default:
 		return nil, fmt.Errorf("expected value type to be text, got %v", propType)
@@ -641,7 +752,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
+	hasRangeableIndex := s.hasUsableRangeableIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
@@ -649,9 +760,6 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
-		if s.stopwords.IsStopword(term) && prop.Tokenization == models.PropertyTokenizationWord {
-			continue
-		}
 		propValuePairs = append(propValuePairs, &propValuePair{
 			value:              []byte(term),
 			prop:               prop.Name,
@@ -942,6 +1050,7 @@ func getContainsOperands[T any](propType schema.DataType, path *filters.Path, va
 type docIDsIterator interface {
 	Next() (uint64, bool)
 	Len() int
+	Stop()
 }
 
 type sliceDocIDsIterator struct {
@@ -962,13 +1071,18 @@ func (it *sliceDocIDsIterator) Next() (uint64, bool) {
 	return it.docIDs[pos], true
 }
 
+func (it *sliceDocIDsIterator) Stop() {
+	// No-op for slice iterator as there's no cleanup needed
+}
+
 func (it *sliceDocIDsIterator) Len() int {
 	return len(it.docIDs)
 }
 
 type docBitmap struct {
-	docIDs  *sroar.Bitmap
-	release func()
+	docIDs     *sroar.Bitmap
+	isDenyList bool
+	release    func()
 }
 
 // newUninitializedDocBitmap can be used whenever we can be sure that the first
@@ -978,7 +1092,7 @@ func newUninitializedDocBitmap() docBitmap {
 }
 
 func newDocBitmap() docBitmap {
-	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}}
+	return docBitmap{docIDs: sroar.NewBitmap(), release: func() {}, isDenyList: false}
 }
 
 func (dbm *docBitmap) count() int {
@@ -1009,4 +1123,8 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 	}
 
 	return out
+}
+
+func (dbm *docBitmap) IsDenyList() bool {
+	return dbm.isDenyList
 }

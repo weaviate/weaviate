@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -57,7 +57,7 @@ type txHandler struct {
 
 func newTxHandler(manager txManager, auth auth, handlerType handlerType) txHandler {
 	if handlerType != schemaTX && handlerType != classifyTX {
-		panic(fmt.Sprintf("unknown handler type: %q", handlerType))
+		panic(fmt.Sprintf("unknown handler type: %v", handlerType))
 	}
 	return txHandler{
 		manager:     manager,

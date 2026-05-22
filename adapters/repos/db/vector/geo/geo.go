@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,12 +19,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 const DefaultHNSWEF = 800
@@ -46,7 +48,10 @@ type vectorIndex interface {
 	KnnSearchByVectorMaxDist(ctx context.Context, query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]uint64, error)
 	Delete(id ...uint64) error
-	Drop(ctx context.Context) error
+	Dump(...string)
+	Drop(ctx context.Context, keepFiles bool) error
+	Flush() error
+	Shutdown(ctx context.Context) error
 	PostStartup(ctx context.Context)
 }
 
@@ -65,6 +70,7 @@ type Config struct {
 	SnapshotCreateInterval                   time.Duration
 	SnapshotMinDeltaCommitlogsNumer          int
 	SnapshotMinDeltaCommitlogsSizePercentage int
+	AllocChecker                             memwatch.AllocChecker
 }
 
 func (c Config) hnswEF() int {
@@ -85,6 +91,8 @@ func NewIndex(config Config,
 		DistanceProvider:      distancer.NewGeoProvider(),
 		DisableSnapshots:      config.SnapshotDisabled,
 		SnapshotOnStartup:     config.SnapshotOnStartup,
+		AllocChecker:          config.AllocChecker,
+		GetViewThunk:          func() common.BucketView { return nil },
 	}, hnswent.UserConfig{
 		MaxConnections:         64,
 		EFConstruction:         128,
@@ -102,8 +110,8 @@ func NewIndex(config Config,
 	return i, nil
 }
 
-func (i *Index) Drop(ctx context.Context) error {
-	if err := i.vectorIndex.Drop(ctx); err != nil {
+func (i *Index) Drop(ctx context.Context, keepFiles bool) error {
+	if err := i.vectorIndex.Drop(ctx, keepFiles); err != nil {
 		return err
 	}
 
@@ -161,4 +169,18 @@ func (i *Index) WithinRange(ctx context.Context,
 
 func (i *Index) Delete(id uint64) error {
 	return i.vectorIndex.Delete(id)
+}
+
+func (i *Index) Flush() error {
+	return i.vectorIndex.Flush()
+}
+
+func (i *Index) Shutdown(ctx context.Context) error {
+	return i.vectorIndex.Shutdown(ctx)
+}
+
+// UnderlyingVectorIndex returns the underlying vector index (typically HNSW)
+// so it can be wrapped in a VectorIndexQueue for async indexing.
+func (i *Index) UnderlyingVectorIndex() interface{} {
+	return i.vectorIndex
 }

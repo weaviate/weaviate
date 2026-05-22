@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,6 +31,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type objectHandlers struct {
@@ -91,6 +93,10 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	object, err := h.manager.AddObject(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return objects.NewObjectsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -111,6 +117,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(className)
 	return objects.NewObjectsCreateOK().WithPayload(object)
 }
@@ -197,6 +204,9 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &uco.ErrNotFound{}):
 			return objects.NewObjectsClassGetNotFound()
+		case errors.As(err, &uco.ErrInvalidUserInput{}):
+			return objects.NewObjectsClassGetUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		case errors.As(err, &uco.ErrMultiTenancy{}):
 			return objects.NewObjectsClassGetUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -211,6 +221,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(getClassName(object))
 	return objects.NewObjectsClassGetOK().WithPayload(object)
 }
@@ -243,6 +254,9 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		case errors.As(err, &uco.ErrMultiTenancy{}):
 			return objects.NewObjectsListUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.As(err, &uco.ErrEndpointGone{}):
+			return objects.NewObjectsListGone().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
 			return objects.NewObjectsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -254,6 +268,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		if ok {
 			list[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
+		namespacing.StripObjectResponseClass(principal, list[i])
 	}
 
 	h.metricRequestsTotal.logOk("")
@@ -311,6 +326,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		if ok {
 			resultSet[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
+		namespacing.StripObjectResponseClass(principal, resultSet[i])
 	}
 
 	h.metricRequestsTotal.logOk(req.Class)
@@ -375,6 +391,10 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		principal, params.ClassName, params.ID, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return objects.NewObjectsClassPutTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -395,6 +415,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(className)
 	return objects.NewObjectsClassPutOK().WithPayload(object)
 }
@@ -661,6 +682,11 @@ func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "GET "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
+		return objects.NewObjectsGetGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("getting an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	ps := objects.ObjectsClassGetParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -673,6 +699,11 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "HEAD "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
+		return objects.NewObjectsHeadGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("checking an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	r := objects.ObjectsClassHeadParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -682,6 +713,11 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 
 func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams, principal *models.Principal) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PATCH "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
+		return objects.NewObjectsPatchGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("patching an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	args := objects.ObjectsClassPatchParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -697,6 +733,11 @@ func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdatePara
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
+		return objects.NewObjectsUpdateGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("updating an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	ps := objects.ObjectsClassPutParams{
 		HTTPRequest: params.HTTPRequest,
 		ClassName:   params.Body.Class,
@@ -710,6 +751,11 @@ func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeletePara
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
+		return objects.NewObjectsDeleteGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("deleting an object without a class is not supported; use /objects/{className}/{id}")))
+	}
 	ps := objects.ObjectsClassDeleteParams{
 		HTTPRequest: params.HTTPRequest,
 		ID:          params.ID,
@@ -721,6 +767,11 @@ func (h *objectHandlers) addObjectReferenceDeprecated(params objects.ObjectsRefe
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "POST "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
+		return objects.NewObjectsReferencesCreateGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("adding a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
+	}
 	req := objects.ObjectsClassReferencesCreateParams{
 		HTTPRequest:  params.HTTPRequest,
 		Body:         params.Body,
@@ -734,6 +785,11 @@ func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.Objects
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "PUT "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
+		return objects.NewObjectsReferencesUpdateGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("replacing references without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
+	}
 	req := objects.ObjectsClassReferencesPutParams{
 		HTTPRequest:  params.HTTPRequest,
 		ID:           params.ID,
@@ -747,6 +803,11 @@ func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsR
 	principal *models.Principal,
 ) middleware.Responder {
 	h.logger.Warn("deprecated endpoint: ", "DELETE "+params.HTTPRequest.URL.Path)
+	if h.config.Namespaces.Enabled {
+		h.metricRequestsTotal.logUserError("")
+		return objects.NewObjectsReferencesDeleteGone().
+			WithPayload(errPayloadFromSingleErr(fmt.Errorf("deleting a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
+	}
 	req := objects.ObjectsClassReferencesDeleteParams{
 		HTTPRequest:  params.HTTPRequest,
 		Body:         params.Body,
@@ -822,6 +883,8 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 	case errors.As(err, &authzerrors.Forbidden{}):
 		e.logUserError(className)
 	case errors.As(err, &uco.ErrInvalidUserInput{}), errors.As(err, &uco.ErrNotFound{}):
+		e.logUserError(className)
+	case errors.As(err, &uco.ErrEndpointGone{}):
 		e.logUserError(className)
 	case errors.As(err, &customError):
 		switch customError.Code {

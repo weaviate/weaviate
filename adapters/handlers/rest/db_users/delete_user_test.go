@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,7 +38,7 @@ func TestDeleteSuccess(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetRolesForUserOrGroup", "user", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", authentication.AuthType(models.UserTypeInputDb)), "role").Return(nil)
-	dynUser.On("DeleteUser", "user").Return(nil)
+	dynUser.On("DeleteUser", mock.Anything, "user").Return(nil)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
 
 	h := dynUserHandler{
@@ -85,6 +85,22 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	}
 
 	res := h.deleteUser(users.DeleteUserParams{UserID: "user", HTTPRequest: req}, principal)
+	_, ok := res.(*users.DeleteUserUnprocessableEntity)
+	assert.True(t, ok)
+}
+
+func TestDeleteUnprocessableEntitySelf(t *testing.T) {
+	user := "myself"
+	principal := &models.Principal{Username: user}
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users(user)[0]).Return(nil)
+
+	h := dynUserHandler{
+		authorizer:    authorizer,
+		dbUserEnabled: true,
+	}
+
+	res := h.deleteUser(users.DeleteUserParams{UserID: user, HTTPRequest: req}, principal)
 	_, ok := res.(*users.DeleteUserUnprocessableEntity)
 	assert.True(t, ok)
 }

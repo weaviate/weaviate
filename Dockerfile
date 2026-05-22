@@ -5,7 +5,7 @@
 
 ###############################################################################
 # Base build image
-FROM golang:1.24-alpine3.22 AS build_base
+FROM golang:1.26-alpine AS build_base
 ENV GO111MODULE=on
 RUN apk add --no-cache bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
@@ -49,7 +49,8 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine:3.22 AS weaviate
-RUN apk add --no-cache bc ca-certificates openssl && mkdir ./modules
+RUN apk upgrade --no-cache libcrypto3 libssl3 openssl musl musl-utils zlib && \
+    apk add --no-cache bc ca-certificates openssl && mkdir ./modules
 COPY --from=server_builder /weaviate-server /bin/weaviate
 COPY --from=server_builder /runtime/go-ego/ /go/pkg/mod/github.com/go-ego/
 ENTRYPOINT ["/bin/weaviate"]

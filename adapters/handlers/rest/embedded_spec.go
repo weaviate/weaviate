@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0-dev"
+    "version": "1.38.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -1793,11 +1793,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes a backup identified by its ID from the specified backend storage.",
+        "description": "Cancels an ongoing backup operation identified by its ID.",
         "tags": [
           "backups"
         ],
-        "summary": "Delete a backup",
+        "summary": "Cancel a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -1809,7 +1809,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "description": "The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
@@ -1829,7 +1829,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Backup deleted successfully."
+            "description": "Backup canceled successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1841,13 +1841,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup deletion request.",
+            "description": "Invalid backup cancellation request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
+            "description": "An internal server error occurred during backup cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1997,6 +1997,71 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.backup"
         ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing backup restoration process identified by its ID on the specified backend storage.",
+        "tags": [
+          "backups"
+        ],
+        "summary": "Cancel a backup restoration",
+        "operationId": "backups.restore.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the backup restoration to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Backup restoration cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration cancellation request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An internal server error occurred during backup restoration cancellation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
       }
     },
     "/batch/objects": {
@@ -2075,6 +2140,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -2269,6 +2340,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
@@ -2316,6 +2393,12 @@ func init() {
           },
           "404": {
             "description": "Classification with the given ID not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
@@ -2371,6 +2454,200 @@ func init() {
         ]
       }
     },
+    "/export/{backend}": {
+      "post": {
+        "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Start a new export",
+        "operationId": "export.create",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system to use for the export (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ExportCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully started export operation",
+            "schema": {
+              "$ref": "#/definitions/ExportCreateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials"
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid export request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while starting export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.create"
+        ]
+      }
+    },
+    "/export/{backend}/{id}": {
+      "get": {
+        "description": "Retrieves the current status of an export operation, including progress for each collection being exported.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Get export status",
+        "operationId": "export.status",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system where the export is stored.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the export.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved export status",
+            "schema": {
+              "$ref": "#/definitions/ExportStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials"
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while retrieving export status",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.status"
+        ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing export operation identified by its ID.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Cancel an export",
+        "operationId": "export.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system where the export is stored.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the export to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Export cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while cancelling export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.cancel"
+        ]
+      }
+    },
     "/graphql": {
       "post": {
         "description": "Executes a single GraphQL query provided in the request body. Use this endpoint for all Weaviate data queries and exploration.",
@@ -2402,6 +2679,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2464,6 +2747,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -2485,6 +2774,54 @@ func init() {
           "weaviate.network.query",
           "weaviate.network.query.meta"
         ]
+      }
+    },
+    "/mcp": {
+      "get": {
+        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "produces": [
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.get",
+        "responses": {
+          "200": {
+            "description": "SSE event stream"
+          }
+        }
+      },
+      "post": {
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json",
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.post",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response or SSE stream"
+          }
+        }
+      },
+      "delete": {
+        "description": "Terminates an MCP session.",
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.delete",
+        "responses": {
+          "200": {
+            "description": "Session terminated"
+          }
+        }
       }
     },
     "/meta": {
@@ -2523,6 +2860,281 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.query.meta"
         ]
+      }
+    },
+    "/namespaces": {
+      "get": {
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "List namespaces",
+        "operationId": "listNamespaces",
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of namespaces (possibly empty).",
+            "schema": {
+              "$ref": "#/definitions/NamespaceListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}": {
+      "get": {
+        "description": "Retrieve details about a specific namespace by its name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Get a namespace",
+        "operationId": "getNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the namespace.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Update a namespace",
+        "operationId": "updateNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/NamespaceUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace updated successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Create a new namespace",
+        "operationId": "createNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace. Must start with a lowercase letter, contain only lowercase letters and digits, length 3-36, and not be a reserved name.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/NamespaceCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Namespace created successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Delete a namespace",
+        "operationId": "deleteNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/nodes": {
@@ -2702,6 +3314,12 @@ func init() {
           "404": {
             "description": "Successful query result but no matching objects were found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the specified collection exists.",
             "schema": {
@@ -2768,6 +3386,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -2976,6 +3600,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -3517,6 +4147,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -3579,6 +4215,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
@@ -3638,6 +4280,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -3684,6 +4332,12 @@ func init() {
           },
           "404": {
             "description": "Object does not exist."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
@@ -3745,6 +4399,12 @@ func init() {
           },
           "404": {
             "description": "Object not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).",
@@ -3817,6 +4477,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
@@ -3882,6 +4548,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3957,6 +4629,12 @@ func init() {
           },
           "404": {
             "description": "Object or reference not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4416,6 +5094,149 @@ func init() {
         ]
       }
     },
+    "/replication/scale": {
+      "get": {
+        "description": "Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get replication scale plan",
+        "operationId": "getReplicationScalePlan",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The collection name to get the scaling plan for.",
+            "name": "collection",
+            "in": "query",
+            "required": true
+          },
+          {
+            "minimum": 1,
+            "type": "integer",
+            "description": "The desired replication factor to scale to. Must be a positive integer greater than zero.",
+            "name": "replicationFactor",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication scale plan showing node additions and removals per shard.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePlan"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.scale.get"
+        ]
+      },
+      "post": {
+        "description": "Apply a replication scaling plan that specifies nodes to add or remove per shard for a given collection.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "summary": "Apply replication scaling plan",
+        "operationId": "applyReplicationScalePlan",
+        "parameters": [
+          {
+            "description": "The replication scaling plan specifying the collection and its shard-level replica adjustments.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePlan"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of replication shard copy operation IDs initiated for the scale operation",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScaleApplyResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.scale.post"
+        ]
+      }
+    },
     "/replication/sharding-state": {
       "get": {
         "description": "Fetches the current sharding state, including replica locations and statuses, for all collections or a specified collection. If a shard name is provided along with a collection, the state for that specific shard is returned.",
@@ -4568,6 +5389,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the ` + "`" + `UsageLimitExceededResponse` + "`" + ` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
@@ -4622,6 +5449,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found."
+          },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
@@ -4745,6 +5578,135 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/indexes": {
+      "get": {
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get index status for all properties of a collection",
+        "operationId": "schema.objects.indexes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index status for all properties.",
+            "schema": {
+              "$ref": "#/definitions/IndexStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found."
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/indexes/{propertyName}": {
+      "put": {
+        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update index configuration for a property (triggers reindex)",
+        "operationId": "schema.objects.indexes.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "409": {
+            "description": "Conflicting reindex task already running.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Distributed tasks not enabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}/properties": {
       "post": {
         "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
@@ -4802,6 +5764,145 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "delete": {
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a property's inverted index",
+        "operationId": "schema.objects.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be deleted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters"
+            ],
+            "type": "string",
+            "description": "The name of the inverted index to delete from the property.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid index, property or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/tokenize": {
+      "post": {
+        "description": "Tokenizes the provided text using the tokenization method configured for the specified property. This endpoint automatically applies the property's tokenization setting and the collection's stopword configuration, making it useful for understanding exactly how text will be processed for a given property during indexing and querying.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Tokenize text using a property's configuration",
+        "operationId": "schema.objects.properties.tokenize",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose tokenization configuration should be used.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PropertyTokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text using the property's configuration.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request body, missing required fields, or property does not have tokenization configured."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "422": {
+            "description": "Validation error, such as invalid class or property configuration for tokenization.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Unexpected server error while tokenizing the text.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -5106,6 +6207,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while creating tenants. Check the ErrorResponse for details.",
             "schema": {
@@ -5296,6 +6403,61 @@ func init() {
         }
       }
     },
+    "/schema/{className}/vectors/{vectorIndexName}/index": {
+      "delete": {
+        "description": "Deletes a specific vector index within a collection (` + "`" + `className` + "`" + `). The vector index to delete is identified by ` + "`" + `vectorIndexName` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a collection's vector index.",
+        "operationId": "schema.objects.vectors.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the vector index.",
+            "name": "vectorIndexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid vector index or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the vector index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -5326,6 +6488,58 @@ func init() {
         "x-serviceIds": [
           "weaviate.distributedTasks.get"
         ]
+      }
+    },
+    "/tokenize": {
+      "post": {
+        "description": "Tokenizes the provided text using the specified tokenization method. This is a stateless utility endpoint useful for debugging and understanding how text will be processed during indexing and querying. The response includes both the indexed tokens (as stored in the inverted index) and query tokens (after optional stopword removal).",
+        "tags": [
+          "tokenize"
+        ],
+        "summary": "Tokenize text",
+        "operationId": "tokenize",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or malformed request body."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request binding or validation error. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/users/db": {
@@ -5466,6 +6680,10 @@ func init() {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
                   "default": false
+                },
+                "namespace": {
+                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.",
+                  "type": "string"
                 }
               }
             }
@@ -5896,11 +7114,9 @@ func init() {
           "x-nullable": false
         },
         "ChunkSize": {
-          "description": "Aimed chunk size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB. The actual chunk size may vary.",
+          "description": "Deprecated, has no effect.",
           "type": "integer",
-          "default": 128,
-          "maximum": 512,
-          "minimum": 2,
+          "x-deprecated": true,
           "x-nullable": false
         },
         "CompressionLevel": {
@@ -5910,7 +7126,11 @@ func init() {
           "enum": [
             "DefaultCompression",
             "BestSpeed",
-            "BestCompression"
+            "BestCompression",
+            "ZstdDefaultCompression",
+            "ZstdBestSpeed",
+            "ZstdBestCompression",
+            "NoCompression"
           ],
           "x-nullable": false
         },
@@ -5949,6 +7169,11 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "incremental_base_backup_id": {
+          "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
+          "type": "string",
+          "x-nullable": true
         }
       }
     },
@@ -5990,8 +7215,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6021,6 +7248,11 @@ func init() {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
         "startedAt": {
           "description": "Timestamp when the backup process started",
           "type": "string",
@@ -6034,8 +7266,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6080,8 +7314,10 @@ func init() {
               "STARTED",
               "TRANSFERRING",
               "TRANSFERRED",
+              "FINALIZING",
               "SUCCESS",
               "FAILED",
+              "CANCELLING",
               "CANCELED"
             ]
           }
@@ -6157,8 +7393,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6191,8 +7429,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -6439,47 +7679,6 @@ func init() {
         "format": "float"
       }
     },
-    "C11yVectorBasedQuestion": {
-      "description": "Receive question based on array of collection names (classes), properties and values.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "classVectors": {
-            "description": "Vectorized collection (class) name.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "number",
-              "format": "float"
-            }
-          }
-        }
-      }
-    },
     "C11yWordsResponse": {
       "description": "An array of available words and contexts.",
       "properties": {
@@ -6552,6 +7751,9 @@ func init() {
         },
         "multiTenancyConfig": {
           "$ref": "#/definitions/MultiTenancyConfig"
+        },
+        "objectTtlConfig": {
+          "$ref": "#/definitions/ObjectTtlConfig"
         },
         "properties": {
           "description": "Define properties of the collection.",
@@ -6768,6 +7970,10 @@ func init() {
           ],
           "format": "date-time"
         },
+        "namespace": {
+          "description": "The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise.",
+          "type": "string"
+        },
         "roles": {
           "description": "The roles associated with the user.",
           "type": "array",
@@ -6875,9 +8081,55 @@ func init() {
           "description": "The status of the task.",
           "type": "string"
         },
+        "units": {
+          "description": "Units of the task. Only present for tasks that use unit tracking.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DistributedTaskUnit"
+          },
+          "x-omitempty": true
+        },
         "version": {
           "description": "The version of the task.",
           "type": "integer"
+        }
+      }
+    },
+    "DistributedTaskUnit": {
+      "description": "A unit of a distributed task.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "The error message if the unit failed.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "finishedAt": {
+          "description": "The time when the unit finished.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "The ID of the unit.",
+          "type": "string"
+        },
+        "nodeId": {
+          "description": "The node that owns this unit.",
+          "type": "string"
+        },
+        "progress": {
+          "description": "The progress of the unit (0.0 to 1.0).",
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "description": "The status of the unit.",
+          "type": "string"
+        },
+        "updatedAt": {
+          "description": "The time when the unit was last updated.",
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
@@ -6905,6 +8157,143 @@ func init() {
               }
             }
           }
+        }
+      }
+    },
+    "ExportCreateRequest": {
+      "description": "Request to create a new export operation",
+      "type": "object",
+      "required": [
+        "id",
+        "file_format"
+      ],
+      "properties": {
+        "exclude": {
+          "description": "List of collection names to exclude from the export. Cannot be used with 'include'.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file_format": {
+          "description": "Output file format for the export.",
+          "type": "string",
+          "enum": [
+            "parquet"
+          ]
+        },
+        "id": {
+          "description": "Unique identifier for this export. Must be URL-safe.",
+          "type": "string"
+        },
+        "include": {
+          "description": "List of collection names to include in the export. Cannot be used with 'exclude'.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ExportCreateResponse": {
+      "description": "Response from creating an export operation",
+      "type": "object",
+      "properties": {
+        "backend": {
+          "description": "The backend storage system used",
+          "type": "string"
+        },
+        "classes": {
+          "description": "List of collections being exported",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "Unique identifier for this export",
+          "type": "string"
+        },
+        "path": {
+          "description": "Full path where the export is being written",
+          "type": "string"
+        },
+        "startedAt": {
+          "description": "When the export started",
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "description": "Current status of the export",
+          "type": "string",
+          "enum": [
+            "STARTED"
+          ]
+        }
+      }
+    },
+    "ExportStatusResponse": {
+      "description": "Current status of an export operation",
+      "type": "object",
+      "properties": {
+        "backend": {
+          "description": "The backend storage system used",
+          "type": "string"
+        },
+        "classes": {
+          "description": "List of collections in this export",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completedAt": {
+          "description": "When the export completed (successfully, with failure, or was canceled)",
+          "type": "string",
+          "format": "date-time"
+        },
+        "error": {
+          "description": "Error message if export failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "Unique identifier for this export",
+          "type": "string"
+        },
+        "path": {
+          "description": "Full path where the export is stored",
+          "type": "string"
+        },
+        "shardStatus": {
+          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardProgress"
+            }
+          }
+        },
+        "startedAt": {
+          "description": "When the export started",
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "description": "Current status of the export",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED",
+            "CANCELED"
+          ]
+        },
+        "tookInMs": {
+          "description": "Duration of the export in milliseconds",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -7013,6 +8402,148 @@ func init() {
         "oidc"
       ]
     },
+    "IndexStatus": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "description": "BM25 algorithm currently backing this searchable index. 'wand' is the legacy map-based bucket strategy; 'blockmax' is the Block Max WAND inverted strategy. Only populated for ` + "`" + `type=searchable` + "`" + ` entries. Not populated for filterable or rangeable indexes.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
+        "progress": {
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "indexing",
+            "pending",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "targetAlgorithm": {
+          "description": "BM25 algorithm this searchable index is being rebuilt onto. Populated only while an in-flight rebuild is changing the algorithm; mirrors ` + "`" + `targetTokenization` + "`" + ` for the change-tokenization verb. Today the only supported transition is wand -\u003e blockmax.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
+        "targetTokenization": {
+          "type": "string"
+        },
+        "tokenization": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "filterable",
+            "searchable",
+            "rangeable"
+          ]
+        }
+      }
+    },
+    "IndexStatusResponse": {
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyIndexStatus"
+          }
+        }
+      }
+    },
+    "IndexUpdateFilterable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "type": "boolean"
+        },
+        "tokenization": {
+          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateRangeable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
+          "type": "boolean"
+        }
+      }
+    },
+    "IndexUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "filterable": {
+          "$ref": "#/definitions/IndexUpdateFilterable"
+        },
+        "rangeable": {
+          "$ref": "#/definitions/IndexUpdateRangeable"
+        },
+        "searchable": {
+          "$ref": "#/definitions/IndexUpdateSearchable"
+        }
+      }
+    },
+    "IndexUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateSearchable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -\u003e wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
+          "type": "boolean"
+        },
+        "tokenization": {
+          "type": "string"
+        }
+      }
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
@@ -7037,8 +8568,27 @@ func init() {
           "description": "Index each object by its internal timestamps (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
+        "stopwordPresets": {
+          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings. Preset names must not be empty or whitespace-only; each list must contain at least one word; individual words must not be empty or whitespace-only.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "x-omitempty": true
+        },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
+        },
+        "tokenizerUserDict": {
+          "description": "User-defined dictionary for tokenization.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfig"
+          },
+          "x-omitempty": true
         },
         "usingBlockMaxWAND": {
           "description": "Using BlockMax WAND for query execution (default: ` + "`" + `false` + "`" + `, will be ` + "`" + `true` + "`" + ` for new collections created after 1.30).",
@@ -7121,6 +8671,58 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "Namespace": {
+      "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+      "type": "object",
+      "properties": {
+        "home_node": {
+          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The unique name of the namespace.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "type": "string",
+          "enum": [
+            "active",
+            "deleting"
+          ]
+        }
+      }
+    },
+    "NamespaceCreateRequest": {
+      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "type": "object",
+      "properties": {
+        "home_node": {
+          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
+          "type": "string"
+        }
+      }
+    },
+    "NamespaceListResponse": {
+      "description": "Response object containing a list of namespaces.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Namespace"
+      }
+    },
+    "NamespaceUpdateRequest": {
+      "description": "Update payload for an existing namespace.",
+      "type": "object",
+      "required": [
+        "home_node"
+      ],
+      "properties": {
+        "home_node": {
+          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
+          "type": "string"
+        }
+      }
+    },
     "NestedProperty": {
       "type": "object",
       "properties": {
@@ -7155,6 +8757,9 @@ func init() {
             "$ref": "#/definitions/NestedProperty"
           },
           "x-omitempty": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "tokenization": {
           "type": "string",
@@ -7272,6 +8877,16 @@ func init() {
           "description": "The name of the node.",
           "type": "string"
         },
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "ReadWrite",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
+        },
         "shards": {
           "description": "The list of the shards with it's statistics.",
           "type": "array",
@@ -7358,6 +8973,31 @@ func init() {
         }
       }
     },
+    "ObjectTtlConfig": {
+      "description": "Configuration of objects' time-to-live",
+      "properties": {
+        "defaultTtl": {
+          "description": "Interval (in seconds) to be added to ` + "`" + `deleteOn` + "`" + ` value, denoting object's expiration time. Has to be positive for ` + "`" + `deleteOn` + "`" + ` set to ` + "`" + `_creationTimeUnix` + "`" + ` or ` + "`" + `_lastUpdateTimeUnix` + "`" + `, any for custom property (default: ` + "`" + `0` + "`" + `).",
+          "type": "integer",
+          "x-omitempty": false
+        },
+        "deleteOn": {
+          "description": "Name of the property holding base time to compute object's expiration time (ttl = value of deleteOn property + defaultTtl). Can be set to ` + "`" + `_creationTimeUnix` + "`" + `, ` + "`" + `_lastUpdateTimeUnix` + "`" + ` or custom property of ` + "`" + `date` + "`" + ` datatype.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "enabled": {
+          "description": "Whether or not object ttl is enabled for this collection (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "filterExpiredObjects": {
+          "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
     "ObjectsGetResponse": {
       "type": "object",
       "allOf": [
@@ -7421,78 +9061,6 @@ func init() {
         }
       }
     },
-    "PatchDocumentAction": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "required": [
-        "op",
-        "path"
-      ],
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "type": "string",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ]
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        }
-      }
-    },
-    "PatchDocumentObject": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "required": [
-        "op",
-        "path"
-      ],
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "type": "string",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ]
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        }
-      }
-    },
     "PeerUpdate": {
       "description": "A single peer in the network.",
       "properties": {
@@ -7514,13 +9082,6 @@ func init() {
           "type": "string",
           "format": "uri"
         }
-      }
-    },
-    "PeerUpdateList": {
-      "description": "List of known peers.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/PeerUpdate"
       }
     },
     "Permission": {
@@ -7567,7 +9128,11 @@ func init() {
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "create_mcp",
+            "read_mcp",
+            "update_mcp",
+            "manage_namespaces"
           ]
         },
         "aliases": {
@@ -7640,6 +9205,17 @@ func init() {
             },
             "groupType": {
               "$ref": "#/definitions/GroupType"
+            }
+          }
+        },
+        "namespaces": {
+          "description": "Resources applicable for namespace actions.",
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -7771,6 +9347,14 @@ func init() {
             "type": "string"
           }
         },
+        "isGlobalOperator": {
+          "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
+          "type": "boolean"
+        },
+        "namespace": {
+          "description": "The namespace this principal is bound to. Empty for global principals (e.g. static API keys).",
+          "type": "string"
+        },
         "userType": {
           "$ref": "#/definitions/UserTypeInput"
         },
@@ -7783,6 +9367,11 @@ func init() {
     "Property": {
       "type": "object",
       "properties": {
+        "bucketGeneration": {
+          "description": "Internal RAFT-replicated counter bumped by semantic runtime-reindex migrations (e.g. change-tokenization, enable-filterable, enable-searchable). Used by the data path to resolve the property's inverted-index bucket name; a single RAFT commit flipping the schema flag AND bumping this counter atomically cuts the cluster from the old bucket to the new one. Defaults to 0. Internal use; clients should not set this.",
+          "type": "integer",
+          "format": "int64"
+        },
         "dataType": {
           "description": "Data type of the property (required). If it starts with a capital (for example Person), may be a reference to another type.",
           "type": "array",
@@ -7793,6 +9382,12 @@ func init() {
         "description": {
           "description": "Description of the property.",
           "type": "string"
+        },
+        "disableDuplicatedReferences": {
+          "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
+          "type": "boolean",
+          "default": true,
+          "x-nullable": true
         },
         "indexFilterable": {
           "description": "Whether to include this property in the filterable, Roaring Bitmap index. If ` + "`" + `false` + "`" + `, this property cannot be used in ` + "`" + `where` + "`" + ` filters. \u003cbr/\u003e\u003cbr/\u003eNote: Unrelated to vectorization behavior.",
@@ -7830,6 +9425,9 @@ func init() {
           },
           "x-omitempty": true
         },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
@@ -7847,9 +9445,42 @@ func init() {
         }
       }
     },
+    "PropertyIndexStatus": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IndexStatus"
+          }
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
     "PropertySchema": {
       "description": "Names and values of an individual property. A returned response may also contain additional metadata, such as from classification or feature projection.",
       "type": "object"
+    },
+    "PropertyTokenizeRequest": {
+      "description": "Request body for the property-specific tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "description": "The text to tokenize using the property's configured tokenization.",
+          "type": "string"
+        }
+      }
     },
     "RaftStatistics": {
       "description": "The definition of Raft statistics.",
@@ -7969,10 +9600,105 @@ func init() {
         }
       }
     },
+    "ReplicationAsyncConfig": {
+      "description": "Configuration for asynchronous replication.",
+      "type": "object",
+      "properties": {
+        "diffBatchSize": {
+          "description": "Maximum number of object keys included in a single diff batch.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "diffPerNodeTimeout": {
+          "description": "Timeout in seconds for computing a diff against a single node.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "frequency": {
+          "description": "Base frequency in milliseconds at which async replication runs diff calculations.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "frequencyWhilePropagating": {
+          "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "hashtreeHeight": {
+          "description": "Height of the hashtree used for diffing.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "loggingFrequency": {
+          "description": "Interval in seconds at which async replication logs its status.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "prePropagationTimeout": {
+          "description": "Overall timeout in seconds for the pre-propagation phase.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationBatchSize": {
+          "description": "Number of objects to include in a single propagation batch.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationConcurrency": {
+          "description": "Maximum number of concurrent propagation workers.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationDelay": {
+          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationLimit": {
+          "description": "Maximum number of objects to propagate in a single async replication run.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationTimeout": {
+          "description": "Timeout in seconds for propagating batch of changes to a node.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        }
+      }
+    },
     "ReplicationConfig": {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncConfig": {
+          "description": "Configuration parameters for asynchronous replication.",
+          "x-omitempty": true,
+          "$ref": "#/definitions/ReplicationAsyncConfig"
+        },
         "asyncEnabled": {
           "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
@@ -7991,52 +9717,6 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
-        }
-      }
-    },
-    "ReplicationDeleteReplicaRequest": {
-      "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ],
-      "properties": {
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "node": {
-          "description": "The name of the Weaviate node from which the shard replica will be deleted.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be deleted.",
-          "type": "string"
-        }
-      }
-    },
-    "ReplicationDisableReplicaRequest": {
-      "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ],
-      "properties": {
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "node": {
-          "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be disabled.",
-          "type": "string"
         }
       }
     },
@@ -8254,6 +9934,86 @@ func init() {
         }
       }
     },
+    "ReplicationScaleApplyResponse": {
+      "description": "Response for the POST /replication/scale endpoint containing the list of initiated shard copy operation IDs.",
+      "type": "object",
+      "required": [
+        "operationIds",
+        "planId",
+        "collection"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The name of the collection associated with this replication scaling plan.",
+          "type": "string",
+          "x-nullable": false
+        },
+        "operationIds": {
+          "description": "List of shard copy operation IDs created during scaling.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "planId": {
+          "description": "The unique identifier of the replication scaling plan that generated these operations.",
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": false
+        }
+      }
+    },
+    "ReplicationScalePlan": {
+      "description": "Defines a complete plan for scaling replication within a collection. Each shard entry specifies nodes to remove and nodes to add. Added nodes may either be initialized empty (null) or created by replicating data from a source node specified as a string. If a source node is also marked for removal in the same shard, it represents a move operation and can only be used once as a source for that shard. If a source node is not marked for removal, it represents a copy operation and can be used as the source for multiple additions in that shard. Nodes listed in 'removeNodes' cannot also appear as targets in 'addNodes' for the same shard, and the same node cannot be specified for both addition and removal in a single shard.",
+      "type": "object",
+      "required": [
+        "planId",
+        "collection",
+        "shardScaleActions"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The name of the collection to which this replication scaling plan applies.",
+          "type": "string",
+          "x-nullable": false
+        },
+        "planId": {
+          "description": "A unique identifier for this replication scaling plan, useful for tracking and auditing purposes.",
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": false
+        },
+        "shardScaleActions": {
+          "description": "A mapping of shard names to their corresponding scaling actions. Each key corresponds to a shard name, and its value defines which nodes should be removed and which should be added for that shard. If a source node listed for an addition is also in 'removeNodes' for the same shard, that addition is treated as a move operation. Such a node can appear only once as a source in that shard. Otherwise, if the source node is not being removed, it represents a copy operation and can be referenced multiple times as a source for additions.",
+          "type": "object",
+          "additionalProperties": {
+            "description": "Scaling actions for a single shard, including which nodes to remove and which to add. Nodes listed in 'removeNodes' cannot appear as targets in 'addNodes' for the same shard. If a source node is also marked for removal, it is treated as a move operation and can only appear once as a source node in that shard. A source node that is not being removed can appear multiple times as a source node for additions in that shard (copy operations).",
+            "type": "object",
+            "properties": {
+              "addNodes": {
+                "description": "A mapping of target node identifiers to their addition configuration. Each key represents a target node where a new replica will be added. The value may be null, which means an empty replica will be created, or a string specifying the source node from which shard data will be copied. If the source node is also marked for removal in the same shard, this addition is treated as a move operation, and that source node can only appear once as a source node for that shard. If the source node is not being removed, it can be used as the source for multiple additions (copy operations).",
+                "type": "object",
+                "additionalProperties": {
+                  "description": "Defines how the new replica should be created. If null, an empty shard is created. If a string, it specifies the source node from which data for this shard should be replicated.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "removeNodes": {
+                "description": "List of node identifiers from which replicas of this shard should be removed. Nodes listed here must not appear in 'addNodes' for the same shard, and cannot be used as a source node for any addition in this shard except in the implicit move case, where they appear as both a source and a node to remove.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "ReplicationShardReplicas": {
       "description": "Represents a shard and lists the nodes that currently host its replicas.",
       "type": "object",
@@ -8389,39 +10149,34 @@ func init() {
         }
       }
     },
-    "SchemaClusterStatus": {
-      "description": "Indicates the health of the schema in a cluster.",
+    "ShardProgress": {
+      "description": "Progress information for exporting a single shard",
       "type": "object",
       "properties": {
         "error": {
-          "description": "Contains the sync check error if one occurred",
-          "type": "string",
-          "x-omitempty": true
-        },
-        "healthy": {
-          "description": "True if the cluster is in sync, false if there is an issue (see error).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
-        "hostname": {
-          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
+          "description": "Error message if this shard's export failed",
           "type": "string"
         },
-        "ignoreSchemaSync": {
-          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
-          "type": "boolean",
-          "x-omitempty": false
+        "objectsExported": {
+          "description": "Number of objects exported from this shard",
+          "type": "integer",
+          "format": "int64"
         },
-        "nodeCount": {
-          "description": "Number of nodes that participated in the sync check",
-          "type": "number",
-          "format": "int"
+        "skipReason": {
+          "description": "Reason why this shard was skipped (e.g. tenant status)",
+          "type": "string"
+        },
+        "status": {
+          "description": "Status of this shard's export",
+          "type": "string",
+          "enum": [
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED",
+            "SKIPPED"
+          ]
         }
       }
-    },
-    "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
-      "type": "object"
     },
     "ShardStatus": {
       "description": "The status of a single shard",
@@ -8588,6 +10343,160 @@ func init() {
         "name": {
           "description": "The name of the tenant (required).",
           "type": "string"
+        }
+      }
+    },
+    "TextAnalyzerConfig": {
+      "description": "Text analysis options for a property. These settings are immutable after the property is created. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "type": "object",
+      "properties": {
+        "asciiFold": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list is immutable after the property is created.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "stopwordPreset": {
+          "description": "Stopword preset name. Overrides the collection-level invertedIndexConfig.stopwords for this property. Only applies to properties using 'word' tokenization. Can be a built-in preset ('en', 'none') or a user-defined preset from invertedIndexConfig.stopwordPresets.",
+          "type": "string",
+          "x-omitempty": true
+        }
+      },
+      "x-omitempty": true
+    },
+    "TokenizeRequest": {
+      "description": "Request body for the generic tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text",
+        "tokenization"
+      ],
+      "properties": {
+        "analyzerConfig": {
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordPresets": {
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Preset names must not be empty or whitespace-only; each word list must contain at least one word; individual words must not be empty or whitespace-only. Mutually exclusive with stopwords — pass one or the other, not both.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "x-omitempty": true
+        },
+        "stopwords": {
+          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'. Mutually exclusive with stopwordPresets — pass one or the other, not both.",
+          "$ref": "#/definitions/StopwordConfig"
+        },
+        "text": {
+          "description": "The text to tokenize.",
+          "type": "string"
+        },
+        "tokenization": {
+          "description": "The tokenization method to apply.",
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field",
+            "trigram",
+            "gse",
+            "kagome_kr",
+            "kagome_ja",
+            "gse_ch"
+          ]
+        }
+      }
+    },
+    "TokenizeResponse": {
+      "description": "Response from the tokenize endpoints. Returns ` + "`" + `indexed` + "`" + ` text and text used at ` + "`" + `query` + "`" + ` time",
+      "type": "object",
+      "properties": {
+        "indexed": {
+          "description": "The tokens as they would be stored in the inverted index.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "TokenizerUserDictConfig": {
+      "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
+      "type": "object",
+      "properties": {
+        "replacements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "source",
+              "target"
+            ],
+            "properties": {
+              "source": {
+                "description": "The string to be replaced.",
+                "type": "string"
+              },
+              "target": {
+                "description": "The string to replace with.",
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tokenizer": {
+          "description": "The tokenizer to which the user dictionary should be applied. Currently, only the ` + "`" + `kagame` + "`" + ` ja and kr tokenizers supports user dictionaries.",
+          "type": "string"
+        }
+      }
+    },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `limit` + "`" + `, ` + "`" + `value` + "`" + `) are stable contract; the ` + "`" + `message` + "`" + ` text is operator-overridable via the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "description": "Machine-stable identifier. Always ` + "`" + `USAGE_LIMIT_EXCEEDED` + "`" + ` for this response.",
+          "type": "string",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "description": "Which limit was hit.",
+          "type": "string",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{limit}` + "`" + ` and ` + "`" + `{value}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The configured threshold value (the cap, not the current count).",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -8971,6 +10880,10 @@ func init() {
       "name": "backups"
     },
     {
+      "description": "Operations for exporting Weaviate data to external storage backends (S3, GCS, Azure, or filesystem). The output file format is specified via the 'file_format' field (currently only 'parquet' is supported). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate file containing object IDs, vectors, properties, and metadata.",
+      "name": "exports"
+    },
+    {
       "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\u003cbr/\u003e\u003cbr/\u003e**User Types:**\u003cbr/\u003e* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\u003cbr/\u003e* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
       "name": "users"
     },
@@ -8981,6 +10894,14 @@ func init() {
     {
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks.",
       "name": "replication"
+    },
+    {
+      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
+      "name": "mcp"
+    },
+    {
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "name": "namespaces"
     }
   ],
   "externalDocs": {
@@ -9007,7 +10928,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.35.0-dev"
+    "version": "1.38.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -10728,11 +12649,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes a backup identified by its ID from the specified backend storage.",
+        "description": "Cancels an ongoing backup operation identified by its ID.",
         "tags": [
           "backups"
         ],
-        "summary": "Delete a backup",
+        "summary": "Cancel a backup",
         "operationId": "backups.cancel",
         "parameters": [
           {
@@ -10744,7 +12665,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "description": "The unique identifier of the backup to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
             "name": "id",
             "in": "path",
             "required": true
@@ -10764,7 +12685,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Backup deleted successfully."
+            "description": "Backup canceled successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -10776,13 +12697,13 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid backup deletion request.",
+            "description": "Invalid backup cancellation request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
+            "description": "An internal server error occurred during backup cancellation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -10932,6 +12853,71 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.backup"
         ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing backup restoration process identified by its ID on the specified backend storage.",
+        "tags": [
+          "backups"
+        ],
+        "summary": "Cancel a backup restoration",
+        "operationId": "backups.restore.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Specifies the backend storage system where the backup resides (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the backup restoration to cancel. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed).",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root.",
+            "name": "path",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Backup restoration cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration cancellation request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An internal server error occurred during backup restoration cancellation. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.backup"
+        ]
       }
     },
     "/batch/objects": {
@@ -11013,6 +12999,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -11216,6 +13208,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
@@ -11263,6 +13261,12 @@ func init() {
           },
           "404": {
             "description": "Classification with the given ID not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
@@ -11318,6 +13322,200 @@ func init() {
         ]
       }
     },
+    "/export/{backend}": {
+      "post": {
+        "description": "Initiates an export operation on the specified backend storage (S3, GCS, Azure, or filesystem). The output format is controlled by the required 'file_format' field in the request body (currently only 'parquet' is supported). Each collection is exported to a separate file.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Start a new export",
+        "operationId": "export.create",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system to use for the export (e.g., ` + "`" + `filesystem` + "`" + `, ` + "`" + `gcs` + "`" + `, ` + "`" + `s3` + "`" + `, ` + "`" + `azure` + "`" + `).",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ExportCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully started export operation",
+            "schema": {
+              "$ref": "#/definitions/ExportCreateResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials"
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export already exists or another export is already in progress",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid export request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while starting export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.create"
+        ]
+      }
+    },
+    "/export/{backend}/{id}": {
+      "get": {
+        "description": "Retrieves the current status of an export operation, including progress for each collection being exported.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Get export status",
+        "operationId": "export.status",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system where the export is stored.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the export.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved export status",
+            "schema": {
+              "$ref": "#/definitions/ExportStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials"
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while retrieving export status",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.status"
+        ]
+      },
+      "delete": {
+        "description": "Cancels an ongoing export operation identified by its ID.",
+        "tags": [
+          "export"
+        ],
+        "summary": "Cancel an export",
+        "operationId": "export.cancel",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The backend storage system where the export is stored.",
+            "name": "backend",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The unique identifier of the export to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Export cancelled successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden - insufficient permissions",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Export not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "Export has already finished and cannot be cancelled",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid request (e.g., unsupported backend)",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error occurred while cancelling export",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.export.cancel"
+        ]
+      }
+    },
     "/graphql": {
       "post": {
         "description": "Executes a single GraphQL query provided in the request body. Use this endpoint for all Weaviate data queries and exploration.",
@@ -11349,6 +13547,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11411,6 +13615,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
             "schema": {
@@ -11432,6 +13642,54 @@ func init() {
           "weaviate.network.query",
           "weaviate.network.query.meta"
         ]
+      }
+    },
+    "/mcp": {
+      "get": {
+        "description": "Opens an SSE stream for receiving MCP server-sent events.",
+        "produces": [
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.get",
+        "responses": {
+          "200": {
+            "description": "SSE event stream"
+          }
+        }
+      },
+      "post": {
+        "description": "MCP Streamable HTTP endpoint. Handles JSON-RPC requests for tool discovery and invocation.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json",
+          "text/event-stream"
+        ],
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.post",
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response or SSE stream"
+          }
+        }
+      },
+      "delete": {
+        "description": "Terminates an MCP session.",
+        "tags": [
+          "mcp"
+        ],
+        "operationId": "mcp.delete",
+        "responses": {
+          "200": {
+            "description": "Session terminated"
+          }
+        }
       }
     },
     "/meta": {
@@ -11470,6 +13728,281 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.query.meta"
         ]
+      }
+    },
+    "/namespaces": {
+      "get": {
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "List namespaces",
+        "operationId": "listNamespaces",
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the list of namespaces (possibly empty).",
+            "schema": {
+              "$ref": "#/definitions/NamespaceListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/namespaces/{namespace_id}": {
+      "get": {
+        "description": "Retrieve details about a specific namespace by its name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Get a namespace",
+        "operationId": "getNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved the namespace.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Update a namespace's ` + "`" + `home_node` + "`" + `. The new value applies to future placement decisions only (new collection create, new tenant create, tenant reactivation). Existing live shards are not moved.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Update a namespace",
+        "operationId": "updateNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Required body. ` + "`" + `home_node` + "`" + ` is the new placement target.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/NamespaceUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Namespace updated successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "The namespace is being deleted; ` + "`" + `home_node` + "`" + ` cannot be updated while the namespace is in the ` + "`" + `deleting` + "`" + ` state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format, reserved name, or unknown home_node).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new cluster-level namespace with the given name. Names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Create a new namespace",
+        "operationId": "createNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace. Must start with a lowercase letter, contain only lowercase letters and digits, length 3-36, and not be a reserved name.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Optional body. When omitted, ` + "`" + `home_node` + "`" + ` is picked automatically.",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/NamespaceCreateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Namespace created successfully.",
+            "schema": {
+              "$ref": "#/definitions/Namespace"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - The namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "409": {
+            "description": "A namespace with the specified name already exists, or a namespace with the same name is currently being deleted. Differentiate by reading the human-readable message in the error payload.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Mark a namespace for deletion. The endpoint is asynchronous: the namespace is flipped to the \"deleting\" state and its dynamic users are removed synchronously; classes and aliases are torn down by the leader on a periodic cleanup tick. Repeated calls while the namespace is still in the \"deleting\" state are idempotent and return 202.",
+        "tags": [
+          "namespaces"
+        ],
+        "summary": "Delete a namespace",
+        "operationId": "deleteNamespace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the namespace.",
+            "name": "namespace_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "The namespace has been marked for deletion. Cleanup of its classes, aliases, and users completes asynchronously."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Namespace does not exist, or the namespaces feature is not enabled on this cluster.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "The request syntax is correct, but the server couldn't process it due to semantic issues (e.g. invalid name format or reserved name).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/nodes": {
@@ -11684,6 +14217,12 @@ func init() {
           "404": {
             "description": "Successful query result but no matching objects were found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the specified collection exists.",
             "schema": {
@@ -11753,6 +14292,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -11976,6 +14521,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -12553,6 +15104,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -12617,6 +15174,12 @@ func init() {
           },
           "404": {
             "description": "Object not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
@@ -12683,6 +15246,12 @@ func init() {
           "404": {
             "description": "Object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -12729,6 +15298,12 @@ func init() {
           },
           "404": {
             "description": "Object does not exist."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
@@ -12793,6 +15368,12 @@ func init() {
           },
           "404": {
             "description": "Object not found."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "The patch object is valid JSON but is unprocessable for other reasons (e.g., invalid schema).",
@@ -12868,6 +15449,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
@@ -12936,6 +15523,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13014,6 +15607,12 @@ func init() {
           },
           "404": {
             "description": "Object or reference not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13473,6 +16072,149 @@ func init() {
         ]
       }
     },
+    "/replication/scale": {
+      "get": {
+        "description": "Computes and returns a replication scale plan for a given collection and desired replication factor. The plan includes, for each shard, a list of nodes to be added and a list of nodes to be removed.",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get replication scale plan",
+        "operationId": "getReplicationScalePlan",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The collection name to get the scaling plan for.",
+            "name": "collection",
+            "in": "query",
+            "required": true
+          },
+          {
+            "minimum": 1,
+            "type": "integer",
+            "description": "The desired replication factor to scale to. Must be a positive integer greater than zero.",
+            "name": "replicationFactor",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication scale plan showing node additions and removals per shard.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePlan"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.scale.get"
+        ]
+      },
+      "post": {
+        "description": "Apply a replication scaling plan that specifies nodes to add or remove per shard for a given collection.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "summary": "Apply replication scaling plan",
+        "operationId": "applyReplicationScalePlan",
+        "parameters": [
+          {
+            "description": "The replication scaling plan specifying the collection and its shard-level replica adjustments.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ReplicationScalePlan"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of replication shard copy operation IDs initiated for the scale operation",
+            "schema": {
+              "$ref": "#/definitions/ReplicationScaleApplyResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.scale.post"
+        ]
+      }
+    },
     "/replication/sharding-state": {
       "get": {
         "description": "Fetches the current sharding state, including replica locations and statuses, for all collections or a specified collection. If a shard name is provided along with a collection, the state for that specific shard is returned.",
@@ -13625,6 +16367,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the ` + "`" + `UsageLimitExceededResponse` + "`" + ` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
@@ -13679,6 +16427,12 @@ func init() {
           },
           "404": {
             "description": "Collection not found."
+          },
+          "422": {
+            "description": "Invalid collection name provided (e.g. malformed namespace prefix). Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
@@ -13802,6 +16556,135 @@ func init() {
         ]
       }
     },
+    "/schema/{className}/indexes": {
+      "get": {
+        "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get index status for all properties of a collection",
+        "operationId": "schema.objects.indexes.get",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index status for all properties.",
+            "schema": {
+              "$ref": "#/definitions/IndexStatusResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection not found."
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/{className}/indexes/{propertyName}": {
+      "put": {
+        "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update index configuration for a property (triggers reindex)",
+        "operationId": "schema.objects.indexes.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants.",
+            "name": "tenants",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Reindex task submitted.",
+            "schema": {
+              "$ref": "#/definitions/IndexUpdateResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "409": {
+            "description": "Conflicting reindex task already running.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "Distributed tasks not enabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/schema/{className}/properties": {
       "post": {
         "description": "Adds a new property definition to an existing collection (` + "`" + `className` + "`" + `) definition.",
@@ -13859,6 +16742,145 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/index/{indexName}": {
+      "delete": {
+        "description": "Deletes an inverted index of a specific property within a collection (` + "`" + `className` + "`" + `). The index to delete is identified by ` + "`" + `indexName` + "`" + ` and must be one of ` + "`" + `filterable` + "`" + `, ` + "`" + `searchable` + "`" + `, or ` + "`" + `rangeFilters` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a property's inverted index",
+        "operationId": "schema.objects.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose inverted index should be deleted.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "filterable",
+              "searchable",
+              "rangeFilters"
+            ],
+            "type": "string",
+            "description": "The name of the inverted index to delete from the property.",
+            "name": "indexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid index, property or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
+    "/schema/{className}/properties/{propertyName}/tokenize": {
+      "post": {
+        "description": "Tokenizes the provided text using the tokenization method configured for the specified property. This endpoint automatically applies the property's tokenization setting and the collection's stopword configuration, making it useful for understanding exactly how text will be processed for a given property during indexing and querying.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Tokenize text using a property's configuration",
+        "operationId": "schema.objects.properties.tokenize",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the property whose tokenization configuration should be used.",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PropertyTokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text using the property's configuration.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid request body, missing required fields, or property does not have tokenization configured."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or property not found."
+          },
+          "422": {
+            "description": "Validation error, such as invalid class or property configuration for tokenization.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Unexpected server error while tokenizing the text.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -14163,6 +17185,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while creating tenants. Check the ErrorResponse for details.",
             "schema": {
@@ -14353,6 +17381,61 @@ func init() {
         }
       }
     },
+    "/schema/{className}/vectors/{vectorIndexName}/index": {
+      "delete": {
+        "description": "Deletes a specific vector index within a collection (` + "`" + `className` + "`" + `). The vector index to delete is identified by ` + "`" + `vectorIndexName` + "`" + `.",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Delete a collection's vector index.",
+        "operationId": "schema.objects.vectors.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name of the collection (class) containing the property.",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the vector index.",
+            "name": "vectorIndexName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Vector index deleted successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid vector index or collection provided.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error occurred while deleting the vector index. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -14383,6 +17466,58 @@ func init() {
         "x-serviceIds": [
           "weaviate.distributedTasks.get"
         ]
+      }
+    },
+    "/tokenize": {
+      "post": {
+        "description": "Tokenizes the provided text using the specified tokenization method. This is a stateless utility endpoint useful for debugging and understanding how text will be processed during indexing and querying. The response includes both the indexed tokens (as stored in the inverted index) and query tokens (after optional stopword removal).",
+        "tags": [
+          "tokenize"
+        ],
+        "summary": "Tokenize text",
+        "operationId": "tokenize",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/TokenizeRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully tokenized the text.",
+            "schema": {
+              "$ref": "#/definitions/TokenizeResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid or malformed request body."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request binding or validation error. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An unexpected error occurred while tokenizing the text. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/users/db": {
@@ -14523,6 +17658,10 @@ func init() {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
                   "default": false
+                },
+                "namespace": {
+                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.",
+                  "type": "string"
                 }
               }
             }
@@ -14953,11 +18092,9 @@ func init() {
           "x-nullable": false
         },
         "ChunkSize": {
-          "description": "Aimed chunk size, with a minimum of 2MB, default of 128MB, and a maximum of 512MB. The actual chunk size may vary.",
+          "description": "Deprecated, has no effect.",
           "type": "integer",
-          "default": 128,
-          "maximum": 512,
-          "minimum": 2,
+          "x-deprecated": true,
           "x-nullable": false
         },
         "CompressionLevel": {
@@ -14967,7 +18104,11 @@ func init() {
           "enum": [
             "DefaultCompression",
             "BestSpeed",
-            "BestCompression"
+            "BestCompression",
+            "ZstdDefaultCompression",
+            "ZstdBestSpeed",
+            "ZstdBestCompression",
+            "NoCompression"
           ],
           "x-nullable": false
         },
@@ -15006,6 +18147,11 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "incremental_base_backup_id": {
+          "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
+          "type": "string",
+          "x-nullable": true
         }
       }
     },
@@ -15047,8 +18193,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -15078,6 +18226,11 @@ func init() {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
         },
+        "size": {
+          "description": "Size of the backup in Gibs",
+          "type": "number",
+          "format": "float64"
+        },
         "startedAt": {
           "description": "Timestamp when the backup process started",
           "type": "string",
@@ -15091,8 +18244,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -15141,8 +18296,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -15217,8 +18374,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -15251,8 +18410,10 @@ func init() {
             "STARTED",
             "TRANSFERRING",
             "TRANSFERRED",
+            "FINALIZING",
             "SUCCESS",
             "FAILED",
+            "CANCELLING",
             "CANCELED"
           ]
         }
@@ -15590,53 +18751,6 @@ func init() {
         "format": "float"
       }
     },
-    "C11yVectorBasedQuestion": {
-      "description": "Receive question based on array of collection names (classes), properties and values.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/C11yVectorBasedQuestionItems0"
-      }
-    },
-    "C11yVectorBasedQuestionItems0": {
-      "type": "object",
-      "properties": {
-        "classProps": {
-          "description": "Vectorized properties.",
-          "type": "array",
-          "maxItems": 300,
-          "minItems": 300,
-          "items": {
-            "$ref": "#/definitions/C11yVectorBasedQuestionItems0ClassPropsItems0"
-          }
-        },
-        "classVectors": {
-          "description": "Vectorized collection (class) name.",
-          "type": "array",
-          "maxItems": 300,
-          "minItems": 300,
-          "items": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
-    },
-    "C11yVectorBasedQuestionItems0ClassPropsItems0": {
-      "type": "object",
-      "properties": {
-        "propsVectors": {
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float"
-          }
-        },
-        "value": {
-          "description": "String with valuename.",
-          "type": "string"
-        }
-      }
-    },
     "C11yWordsResponse": {
       "description": "An array of available words and contexts.",
       "properties": {
@@ -15744,6 +18858,9 @@ func init() {
         },
         "multiTenancyConfig": {
           "$ref": "#/definitions/MultiTenancyConfig"
+        },
+        "objectTtlConfig": {
+          "$ref": "#/definitions/ObjectTtlConfig"
         },
         "properties": {
           "description": "Define properties of the collection.",
@@ -15980,6 +19097,10 @@ func init() {
           ],
           "format": "date-time"
         },
+        "namespace": {
+          "description": "The namespace this user is bound to. Only populated for callers with global-operator privileges; omitted otherwise.",
+          "type": "string"
+        },
         "roles": {
           "description": "The roles associated with the user.",
           "type": "array",
@@ -16087,9 +19208,55 @@ func init() {
           "description": "The status of the task.",
           "type": "string"
         },
+        "units": {
+          "description": "Units of the task. Only present for tasks that use unit tracking.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DistributedTaskUnit"
+          },
+          "x-omitempty": true
+        },
         "version": {
           "description": "The version of the task.",
           "type": "integer"
+        }
+      }
+    },
+    "DistributedTaskUnit": {
+      "description": "A unit of a distributed task.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "The error message if the unit failed.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "finishedAt": {
+          "description": "The time when the unit finished.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "The ID of the unit.",
+          "type": "string"
+        },
+        "nodeId": {
+          "description": "The node that owns this unit.",
+          "type": "string"
+        },
+        "progress": {
+          "description": "The progress of the unit (0.0 to 1.0).",
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "description": "The status of the unit.",
+          "type": "string"
+        },
+        "updatedAt": {
+          "description": "The time when the unit was last updated.",
+          "type": "string",
+          "format": "date-time"
         }
       }
     },
@@ -16120,6 +19287,143 @@ func init() {
       "properties": {
         "message": {
           "type": "string"
+        }
+      }
+    },
+    "ExportCreateRequest": {
+      "description": "Request to create a new export operation",
+      "type": "object",
+      "required": [
+        "id",
+        "file_format"
+      ],
+      "properties": {
+        "exclude": {
+          "description": "List of collection names to exclude from the export. Cannot be used with 'include'.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "file_format": {
+          "description": "Output file format for the export.",
+          "type": "string",
+          "enum": [
+            "parquet"
+          ]
+        },
+        "id": {
+          "description": "Unique identifier for this export. Must be URL-safe.",
+          "type": "string"
+        },
+        "include": {
+          "description": "List of collection names to include in the export. Cannot be used with 'exclude'.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ExportCreateResponse": {
+      "description": "Response from creating an export operation",
+      "type": "object",
+      "properties": {
+        "backend": {
+          "description": "The backend storage system used",
+          "type": "string"
+        },
+        "classes": {
+          "description": "List of collections being exported",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "Unique identifier for this export",
+          "type": "string"
+        },
+        "path": {
+          "description": "Full path where the export is being written",
+          "type": "string"
+        },
+        "startedAt": {
+          "description": "When the export started",
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "description": "Current status of the export",
+          "type": "string",
+          "enum": [
+            "STARTED"
+          ]
+        }
+      }
+    },
+    "ExportStatusResponse": {
+      "description": "Current status of an export operation",
+      "type": "object",
+      "properties": {
+        "backend": {
+          "description": "The backend storage system used",
+          "type": "string"
+        },
+        "classes": {
+          "description": "List of collections in this export",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completedAt": {
+          "description": "When the export completed (successfully, with failure, or was canceled)",
+          "type": "string",
+          "format": "date-time"
+        },
+        "error": {
+          "description": "Error message if export failed",
+          "type": "string"
+        },
+        "id": {
+          "description": "Unique identifier for this export",
+          "type": "string"
+        },
+        "path": {
+          "description": "Full path where the export is stored",
+          "type": "string"
+        },
+        "shardStatus": {
+          "description": "Per-shard progress: className -\u003e shardName -\u003e status",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ShardProgress"
+            }
+          }
+        },
+        "startedAt": {
+          "description": "When the export started",
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "description": "Current status of the export",
+          "type": "string",
+          "enum": [
+            "STARTED",
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED",
+            "CANCELED"
+          ]
+        },
+        "tookInMs": {
+          "description": "Duration of the export in milliseconds",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -16261,6 +19565,148 @@ func init() {
         "oidc"
       ]
     },
+    "IndexStatus": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "description": "BM25 algorithm currently backing this searchable index. 'wand' is the legacy map-based bucket strategy; 'blockmax' is the Block Max WAND inverted strategy. Only populated for ` + "`" + `type=searchable` + "`" + ` entries. Not populated for filterable or rangeable indexes.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
+        "progress": {
+          "type": "number",
+          "format": "float"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "indexing",
+            "pending",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "targetAlgorithm": {
+          "description": "BM25 algorithm this searchable index is being rebuilt onto. Populated only while an in-flight rebuild is changing the algorithm; mirrors ` + "`" + `targetTokenization` + "`" + ` for the change-tokenization verb. Today the only supported transition is wand -\u003e blockmax.",
+          "type": "string",
+          "enum": [
+            "wand",
+            "blockmax"
+          ]
+        },
+        "targetTokenization": {
+          "type": "string"
+        },
+        "tokenization": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "filterable",
+            "searchable",
+            "rangeable"
+          ]
+        }
+      }
+    },
+    "IndexStatusResponse": {
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PropertyIndexStatus"
+          }
+        }
+      }
+    },
+    "IndexUpdateFilterable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's filterable index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "type": "boolean"
+        },
+        "tokenization": {
+          "description": "Change the tokenization used by the filterable index on this text/text[] property. Only valid when the property already has a filterable index. Use this for filterable-only properties; for properties that ALSO have a searchable index, prefer searchable.tokenization since it retokenizes both buckets in a single coordinated migration.",
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateRangeable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's rangeable index.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the rangeable index from the existing filterable bucket (same source-of-truth as enable-rangeable).",
+          "type": "boolean"
+        }
+      }
+    },
+    "IndexUpdateRequest": {
+      "type": "object",
+      "properties": {
+        "filterable": {
+          "$ref": "#/definitions/IndexUpdateFilterable"
+        },
+        "rangeable": {
+          "$ref": "#/definitions/IndexUpdateRangeable"
+        },
+        "searchable": {
+          "$ref": "#/definitions/IndexUpdateSearchable"
+        }
+      }
+    },
+    "IndexUpdateResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      }
+    },
+    "IndexUpdateSearchable": {
+      "type": "object",
+      "properties": {
+        "cancel": {
+          "description": "When true, cancels the in-flight reindex task targeting this property's searchable index. The task transitions to CANCELLED; partial state is left on disk for the next-restart finalize.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "rebuild": {
+          "description": "When true, rebuilds the searchable index for this property. The rebuild also switches the BM25 backing algorithm from WAND (the legacy map strategy) to Block Max WAND (the inverted strategy). The reverse direction (blockmax -\u003e wand) is intentionally not supported at this time: callers cannot revert a property to WAND once it has been rebuilt onto blockmax. Read the current algorithm from GET /v1/schema/{className}/indexes (IndexStatus.algorithm) before issuing this verb.",
+          "type": "boolean"
+        },
+        "tokenization": {
+          "type": "string"
+        }
+      }
+    },
     "InvertedIndexConfig": {
       "description": "Configure the inverted index built into Weaviate. See [Reference: Inverted index](https://docs.weaviate.io/weaviate/config-refs/indexing/inverted-index#inverted-index-parameters) for details.",
       "type": "object",
@@ -16285,8 +19731,27 @@ func init() {
           "description": "Index each object by its internal timestamps (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean"
         },
+        "stopwordPresets": {
+          "description": "User-defined named stopword lists. Each key is a preset name that can be referenced by a property's textAnalyzer.stopwordPreset field. The value is an array of stopword strings. Preset names must not be empty or whitespace-only; each list must contain at least one word; individual words must not be empty or whitespace-only.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "x-omitempty": true
+        },
         "stopwords": {
           "$ref": "#/definitions/StopwordConfig"
+        },
+        "tokenizerUserDict": {
+          "description": "User-defined dictionary for tokenization.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfig"
+          },
+          "x-omitempty": true
         },
         "usingBlockMaxWAND": {
           "description": "Using BlockMax WAND for query execution (default: ` + "`" + `false` + "`" + `, will be ` + "`" + `true` + "`" + ` for new collections created after 1.30).",
@@ -16369,6 +19834,58 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "Namespace": {
+      "description": "A cluster-level namespace used to group resources under a common administrative unit. Namespace names must contain only lowercase letters, digits, and hyphens, must start and end with a letter or digit, must be 3-36 characters long, and must not be a reserved name.",
+      "type": "object",
+      "properties": {
+        "home_node": {
+          "description": "The cluster node where this namespace's shards are placed. Set at create time and updatable later. Updating it only affects future placement decisions; existing live shards are not moved.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The unique name of the namespace.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
+          "type": "string",
+          "enum": [
+            "active",
+            "deleting"
+          ]
+        }
+      }
+    },
+    "NamespaceCreateRequest": {
+      "description": "Optional body for namespace creation. When ` + "`" + `home_node` + "`" + ` is omitted, the cluster picks one automatically.",
+      "type": "object",
+      "properties": {
+        "home_node": {
+          "description": "Optional. Cluster node to place this namespace's shards on. Must be a current storage candidate. When omitted, the cluster picks one.",
+          "type": "string"
+        }
+      }
+    },
+    "NamespaceListResponse": {
+      "description": "Response object containing a list of namespaces.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Namespace"
+      }
+    },
+    "NamespaceUpdateRequest": {
+      "description": "Update payload for an existing namespace.",
+      "type": "object",
+      "required": [
+        "home_node"
+      ],
+      "properties": {
+        "home_node": {
+          "description": "Cluster node to use for future placements in this namespace. Must be a current storage candidate. Existing live shards are not moved.",
+          "type": "string"
+        }
+      }
+    },
     "NestedProperty": {
       "type": "object",
       "properties": {
@@ -16403,6 +19920,9 @@ func init() {
             "$ref": "#/definitions/NestedProperty"
           },
           "x-omitempty": true
+        },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
         },
         "tokenization": {
           "type": "string",
@@ -16520,6 +20040,16 @@ func init() {
           "description": "The name of the node.",
           "type": "string"
         },
+        "operationalMode": {
+          "description": "Which mode of operation the node is running in.",
+          "type": "string",
+          "enum": [
+            "ReadWrite",
+            "WriteOnly",
+            "ReadOnly",
+            "ScaleOut"
+          ]
+        },
         "shards": {
           "description": "The list of the shards with it's statistics.",
           "type": "array",
@@ -16606,6 +20136,31 @@ func init() {
         }
       }
     },
+    "ObjectTtlConfig": {
+      "description": "Configuration of objects' time-to-live",
+      "properties": {
+        "defaultTtl": {
+          "description": "Interval (in seconds) to be added to ` + "`" + `deleteOn` + "`" + ` value, denoting object's expiration time. Has to be positive for ` + "`" + `deleteOn` + "`" + ` set to ` + "`" + `_creationTimeUnix` + "`" + ` or ` + "`" + `_lastUpdateTimeUnix` + "`" + `, any for custom property (default: ` + "`" + `0` + "`" + `).",
+          "type": "integer",
+          "x-omitempty": false
+        },
+        "deleteOn": {
+          "description": "Name of the property holding base time to compute object's expiration time (ttl = value of deleteOn property + defaultTtl). Can be set to ` + "`" + `_creationTimeUnix` + "`" + `, ` + "`" + `_lastUpdateTimeUnix` + "`" + ` or custom property of ` + "`" + `date` + "`" + ` datatype.",
+          "type": "string",
+          "x-omitempty": false
+        },
+        "enabled": {
+          "description": "Whether or not object ttl is enabled for this collection (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "filterExpiredObjects": {
+          "description": "Whether remove from resultset expired, but not yet deleted by background process objects (default: ` + "`" + `false` + "`" + `).",
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
     "ObjectsGetResponse": {
       "type": "object",
       "allOf": [
@@ -16686,78 +20241,6 @@ func init() {
         }
       }
     },
-    "PatchDocumentAction": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "required": [
-        "op",
-        "path"
-      ],
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "type": "string",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ]
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        }
-      }
-    },
-    "PatchDocumentObject": {
-      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
-      "required": [
-        "op",
-        "path"
-      ],
-      "properties": {
-        "from": {
-          "description": "A string containing a JSON Pointer value.",
-          "type": "string"
-        },
-        "merge": {
-          "$ref": "#/definitions/Object"
-        },
-        "op": {
-          "description": "The operation to be performed.",
-          "type": "string",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ]
-        },
-        "path": {
-          "description": "A JSON-Pointer.",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value to be used within the operations.",
-          "type": "object"
-        }
-      }
-    },
     "PeerUpdate": {
       "description": "A single peer in the network.",
       "properties": {
@@ -16779,13 +20262,6 @@ func init() {
           "type": "string",
           "format": "uri"
         }
-      }
-    },
-    "PeerUpdateList": {
-      "description": "List of known peers.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/PeerUpdate"
       }
     },
     "Permission": {
@@ -16832,7 +20308,11 @@ func init() {
             "update_aliases",
             "delete_aliases",
             "assign_and_revoke_groups",
-            "read_groups"
+            "read_groups",
+            "create_mcp",
+            "read_mcp",
+            "update_mcp",
+            "manage_namespaces"
           ]
         },
         "aliases": {
@@ -16905,6 +20385,17 @@ func init() {
             },
             "groupType": {
               "$ref": "#/definitions/GroupType"
+            }
+          }
+        },
+        "namespaces": {
+          "description": "Resources applicable for namespace actions.",
+          "type": "object",
+          "properties": {
+            "namespace": {
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -17066,6 +20557,17 @@ func init() {
         }
       }
     },
+    "PermissionNamespaces": {
+      "description": "Resources applicable for namespace actions.",
+      "type": "object",
+      "properties": {
+        "namespace": {
+          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+          "type": "string",
+          "default": "*"
+        }
+      }
+    },
     "PermissionNodes": {
       "description": "Resources applicable for cluster actions.",
       "type": "object",
@@ -17192,6 +20694,14 @@ func init() {
             "type": "string"
           }
         },
+        "isGlobalOperator": {
+          "description": "True for principals that operate across all namespaces (e.g. static API keys). Authoritative marker for operator-level principals; do not infer from an empty namespace.",
+          "type": "boolean"
+        },
+        "namespace": {
+          "description": "The namespace this principal is bound to. Empty for global principals (e.g. static API keys).",
+          "type": "string"
+        },
         "userType": {
           "$ref": "#/definitions/UserTypeInput"
         },
@@ -17204,6 +20714,11 @@ func init() {
     "Property": {
       "type": "object",
       "properties": {
+        "bucketGeneration": {
+          "description": "Internal RAFT-replicated counter bumped by semantic runtime-reindex migrations (e.g. change-tokenization, enable-filterable, enable-searchable). Used by the data path to resolve the property's inverted-index bucket name; a single RAFT commit flipping the schema flag AND bumping this counter atomically cuts the cluster from the old bucket to the new one. Defaults to 0. Internal use; clients should not set this.",
+          "type": "integer",
+          "format": "int64"
+        },
         "dataType": {
           "description": "Data type of the property (required). If it starts with a capital (for example Person), may be a reference to another type.",
           "type": "array",
@@ -17214,6 +20729,12 @@ func init() {
         "description": {
           "description": "Description of the property.",
           "type": "string"
+        },
+        "disableDuplicatedReferences": {
+          "description": "If set to false, allows multiple references to the same target object within this property. Setting it to true will enforce uniqueness of references within this property. By default, this is set to true.",
+          "type": "boolean",
+          "default": true,
+          "x-nullable": true
         },
         "indexFilterable": {
           "description": "Whether to include this property in the filterable, Roaring Bitmap index. If ` + "`" + `false` + "`" + `, this property cannot be used in ` + "`" + `where` + "`" + ` filters. \u003cbr/\u003e\u003cbr/\u003eNote: Unrelated to vectorization behavior.",
@@ -17251,6 +20772,9 @@ func init() {
           },
           "x-omitempty": true
         },
+        "textAnalyzer": {
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
         "tokenization": {
           "description": "Determines how a property is indexed. This setting applies to ` + "`" + `text` + "`" + ` and ` + "`" + `text[]` + "`" + ` data types. The following tokenization methods are available:\u003cbr/\u003e\u003cbr/\u003e- ` + "`" + `word` + "`" + ` (default): Splits the text on any non-alphanumeric characters and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `lowercase` + "`" + `: Splits the text on whitespace and lowercases the tokens.\u003cbr/\u003e- ` + "`" + `whitespace` + "`" + `: Splits the text on whitespace. This tokenization is case-sensitive.\u003cbr/\u003e- ` + "`" + `field` + "`" + `: Indexes the entire property value as a single token after trimming whitespace.\u003cbr/\u003e- ` + "`" + `trigram` + "`" + `: Splits the property into rolling trigrams (three-character sequences).\u003cbr/\u003e- ` + "`" + `gse` + "`" + `: Uses the ` + "`" + `gse` + "`" + ` tokenizer, suitable for Chinese language text. [See ` + "`" + `gse` + "`" + ` docs](https://pkg.go.dev/github.com/go-ego/gse#section-readme).\u003cbr/\u003e- ` + "`" + `kagome_ja` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Japanese (IPA) dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e- ` + "`" + `kagome_kr` + "`" + `: Uses the ` + "`" + `Kagome` + "`" + ` tokenizer with a Korean dictionary. [See ` + "`" + `kagome` + "`" + ` docs](https://github.com/ikawaha/kagome).\u003cbr/\u003e\u003cbr/\u003eSee [Reference: Tokenization](https://docs.weaviate.io/weaviate/config-refs/collections#tokenization) for details.",
           "type": "string",
@@ -17268,9 +20792,42 @@ func init() {
         }
       }
     },
+    "PropertyIndexStatus": {
+      "type": "object",
+      "properties": {
+        "dataType": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "indexes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/IndexStatus"
+          }
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
     "PropertySchema": {
       "description": "Names and values of an individual property. A returned response may also contain additional metadata, such as from classification or feature projection.",
       "type": "object"
+    },
+    "PropertyTokenizeRequest": {
+      "description": "Request body for the property-specific tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text"
+      ],
+      "properties": {
+        "text": {
+          "description": "The text to tokenize using the property's configured tokenization.",
+          "type": "string"
+        }
+      }
     },
     "RaftStatistics": {
       "description": "The definition of Raft statistics.",
@@ -17390,10 +20947,105 @@ func init() {
         }
       }
     },
+    "ReplicationAsyncConfig": {
+      "description": "Configuration for asynchronous replication.",
+      "type": "object",
+      "properties": {
+        "diffBatchSize": {
+          "description": "Maximum number of object keys included in a single diff batch.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "diffPerNodeTimeout": {
+          "description": "Timeout in seconds for computing a diff against a single node.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "frequency": {
+          "description": "Base frequency in milliseconds at which async replication runs diff calculations.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "frequencyWhilePropagating": {
+          "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "hashtreeHeight": {
+          "description": "Height of the hashtree used for diffing.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "loggingFrequency": {
+          "description": "Interval in seconds at which async replication logs its status.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "prePropagationTimeout": {
+          "description": "Overall timeout in seconds for the pre-propagation phase.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationBatchSize": {
+          "description": "Number of objects to include in a single propagation batch.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationConcurrency": {
+          "description": "Maximum number of concurrent propagation workers.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationDelay": {
+          "description": "Delay in milliseconds before newly added or updated objects are propagated.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationLimit": {
+          "description": "Maximum number of objects to propagate in a single async replication run.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        },
+        "propagationTimeout": {
+          "description": "Timeout in seconds for propagating batch of changes to a node.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "x-omitempty": true
+        }
+      }
+    },
     "ReplicationConfig": {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncConfig": {
+          "description": "Configuration parameters for asynchronous replication.",
+          "x-omitempty": true,
+          "$ref": "#/definitions/ReplicationAsyncConfig"
+        },
         "asyncEnabled": {
           "description": "Enable asynchronous replication (default: ` + "`" + `false` + "`" + `).",
           "type": "boolean",
@@ -17412,52 +21064,6 @@ func init() {
         "factor": {
           "description": "Number of times a collection (class) is replicated (default: 1).",
           "type": "integer"
-        }
-      }
-    },
-    "ReplicationDeleteReplicaRequest": {
-      "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ],
-      "properties": {
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "node": {
-          "description": "The name of the Weaviate node from which the shard replica will be deleted.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be deleted.",
-          "type": "string"
-        }
-      }
-    },
-    "ReplicationDisableReplicaRequest": {
-      "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
-      "type": "object",
-      "required": [
-        "node",
-        "collection",
-        "shard"
-      ],
-      "properties": {
-        "collection": {
-          "description": "The name of the collection to which the shard replica belongs.",
-          "type": "string"
-        },
-        "node": {
-          "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
-          "type": "string"
-        },
-        "shard": {
-          "description": "The ID of the shard whose replica is to be disabled.",
-          "type": "string"
         }
       }
     },
@@ -17675,6 +21281,89 @@ func init() {
         }
       }
     },
+    "ReplicationScaleApplyResponse": {
+      "description": "Response for the POST /replication/scale endpoint containing the list of initiated shard copy operation IDs.",
+      "type": "object",
+      "required": [
+        "operationIds",
+        "planId",
+        "collection"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The name of the collection associated with this replication scaling plan.",
+          "type": "string",
+          "x-nullable": false
+        },
+        "operationIds": {
+          "description": "List of shard copy operation IDs created during scaling.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "planId": {
+          "description": "The unique identifier of the replication scaling plan that generated these operations.",
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": false
+        }
+      }
+    },
+    "ReplicationScalePlan": {
+      "description": "Defines a complete plan for scaling replication within a collection. Each shard entry specifies nodes to remove and nodes to add. Added nodes may either be initialized empty (null) or created by replicating data from a source node specified as a string. If a source node is also marked for removal in the same shard, it represents a move operation and can only be used once as a source for that shard. If a source node is not marked for removal, it represents a copy operation and can be used as the source for multiple additions in that shard. Nodes listed in 'removeNodes' cannot also appear as targets in 'addNodes' for the same shard, and the same node cannot be specified for both addition and removal in a single shard.",
+      "type": "object",
+      "required": [
+        "planId",
+        "collection",
+        "shardScaleActions"
+      ],
+      "properties": {
+        "collection": {
+          "description": "The name of the collection to which this replication scaling plan applies.",
+          "type": "string",
+          "x-nullable": false
+        },
+        "planId": {
+          "description": "A unique identifier for this replication scaling plan, useful for tracking and auditing purposes.",
+          "type": "string",
+          "format": "uuid",
+          "x-nullable": false
+        },
+        "shardScaleActions": {
+          "description": "A mapping of shard names to their corresponding scaling actions. Each key corresponds to a shard name, and its value defines which nodes should be removed and which should be added for that shard. If a source node listed for an addition is also in 'removeNodes' for the same shard, that addition is treated as a move operation. Such a node can appear only once as a source in that shard. Otherwise, if the source node is not being removed, it represents a copy operation and can be referenced multiple times as a source for additions.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ReplicationScalePlanShardScaleActionsAnon"
+          }
+        }
+      }
+    },
+    "ReplicationScalePlanShardScaleActionsAnon": {
+      "description": "Scaling actions for a single shard, including which nodes to remove and which to add. Nodes listed in 'removeNodes' cannot appear as targets in 'addNodes' for the same shard. If a source node is also marked for removal, it is treated as a move operation and can only appear once as a source node in that shard. A source node that is not being removed can appear multiple times as a source node for additions in that shard (copy operations).",
+      "type": "object",
+      "properties": {
+        "addNodes": {
+          "description": "A mapping of target node identifiers to their addition configuration. Each key represents a target node where a new replica will be added. The value may be null, which means an empty replica will be created, or a string specifying the source node from which shard data will be copied. If the source node is also marked for removal in the same shard, this addition is treated as a move operation, and that source node can only appear once as a source node for that shard. If the source node is not being removed, it can be used as the source for multiple additions (copy operations).",
+          "type": "object",
+          "additionalProperties": {
+            "description": "Defines how the new replica should be created. If null, an empty shard is created. If a string, it specifies the source node from which data for this shard should be replicated.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "removeNodes": {
+          "description": "List of node identifiers from which replicas of this shard should be removed. Nodes listed here must not appear in 'addNodes' for the same shard, and cannot be used as a source node for any addition in this shard except in the implicit move case, where they appear as both a source and a node to remove.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "ReplicationShardReplicas": {
       "description": "Represents a shard and lists the nodes that currently host its replicas.",
       "type": "object",
@@ -17810,39 +21499,34 @@ func init() {
         }
       }
     },
-    "SchemaClusterStatus": {
-      "description": "Indicates the health of the schema in a cluster.",
+    "ShardProgress": {
+      "description": "Progress information for exporting a single shard",
       "type": "object",
       "properties": {
         "error": {
-          "description": "Contains the sync check error if one occurred",
-          "type": "string",
-          "x-omitempty": true
-        },
-        "healthy": {
-          "description": "True if the cluster is in sync, false if there is an issue (see error).",
-          "type": "boolean",
-          "x-omitempty": false
-        },
-        "hostname": {
-          "description": "Hostname of the coordinating node, i.e. the one that received the cluster. This can be useful information if the error message contains phrases such as 'other nodes agree, but local does not', etc.",
+          "description": "Error message if this shard's export failed",
           "type": "string"
         },
-        "ignoreSchemaSync": {
-          "description": "The cluster check at startup can be ignored (to recover from an out-of-sync situation).",
-          "type": "boolean",
-          "x-omitempty": false
+        "objectsExported": {
+          "description": "Number of objects exported from this shard",
+          "type": "integer",
+          "format": "int64"
         },
-        "nodeCount": {
-          "description": "Number of nodes that participated in the sync check",
-          "type": "number",
-          "format": "int"
+        "skipReason": {
+          "description": "Reason why this shard was skipped (e.g. tenant status)",
+          "type": "string"
+        },
+        "status": {
+          "description": "Status of this shard's export",
+          "type": "string",
+          "enum": [
+            "TRANSFERRING",
+            "SUCCESS",
+            "FAILED",
+            "SKIPPED"
+          ]
         }
       }
-    },
-    "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
-      "type": "object"
     },
     "ShardStatus": {
       "description": "The status of a single shard",
@@ -18009,6 +21693,163 @@ func init() {
         "name": {
           "description": "The name of the tenant (required).",
           "type": "string"
+        }
+      }
+    },
+    "TextAnalyzerConfig": {
+      "description": "Text analysis options for a property. These settings are immutable after the property is created. Applies only to text and text[] data types that use an inverted index (searchable or filterable).",
+      "type": "object",
+      "properties": {
+        "asciiFold": {
+          "description": "If true, accent/diacritic marks are folded to their base characters during indexing and search. For example, 'école' matches 'ecole'. Defaults to false.",
+          "type": "boolean"
+        },
+        "asciiFoldIgnore": {
+          "description": "If provided, specifies a list of characters that should be excluded from ascii folding. For example, if ['é'] is provided, then 'é' will not be folded to 'e' during indexing and search. This list is immutable after the property is created.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-omitempty": true
+        },
+        "stopwordPreset": {
+          "description": "Stopword preset name. Overrides the collection-level invertedIndexConfig.stopwords for this property. Only applies to properties using 'word' tokenization. Can be a built-in preset ('en', 'none') or a user-defined preset from invertedIndexConfig.stopwordPresets.",
+          "type": "string",
+          "x-omitempty": true
+        }
+      },
+      "x-omitempty": true
+    },
+    "TokenizeRequest": {
+      "description": "Request body for the generic tokenize endpoint.",
+      "type": "object",
+      "required": [
+        "text",
+        "tokenization"
+      ],
+      "properties": {
+        "analyzerConfig": {
+          "description": "Optional text analyzer configuration (e.g. ASCII folding).",
+          "$ref": "#/definitions/TextAnalyzerConfig"
+        },
+        "stopwordPresets": {
+          "description": "Optional user-defined named stopword presets. Shape matches InvertedIndexConfig.stopwordPresets on a collection: each key is a preset name, each value is a plain list of stopwords. A preset name that matches a built-in ('en', 'none') fully replaces the built-in. Preset names must not be empty or whitespace-only; each word list must contain at least one word; individual words must not be empty or whitespace-only. Mutually exclusive with stopwords — pass one or the other, not both.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "x-omitempty": true
+        },
+        "stopwords": {
+          "description": "Optional fallback stopword configuration. Used when analyzerConfig.stopwordPreset is not set. Shape matches InvertedIndexConfig.stopwords on a collection. When analyzerConfig.stopwordPreset is not set and this field is omitted, word tokenization defaults to preset 'en'. Mutually exclusive with stopwordPresets — pass one or the other, not both.",
+          "$ref": "#/definitions/StopwordConfig"
+        },
+        "text": {
+          "description": "The text to tokenize.",
+          "type": "string"
+        },
+        "tokenization": {
+          "description": "The tokenization method to apply.",
+          "type": "string",
+          "enum": [
+            "word",
+            "lowercase",
+            "whitespace",
+            "field",
+            "trigram",
+            "gse",
+            "kagome_kr",
+            "kagome_ja",
+            "gse_ch"
+          ]
+        }
+      }
+    },
+    "TokenizeResponse": {
+      "description": "Response from the tokenize endpoints. Returns ` + "`" + `indexed` + "`" + ` text and text used at ` + "`" + `query` + "`" + ` time",
+      "type": "object",
+      "properties": {
+        "indexed": {
+          "description": "The tokens as they would be stored in the inverted index.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "query": {
+          "description": "The tokens as they would be used for query matching (e.g., after stopword removal).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "TokenizerUserDictConfig": {
+      "description": "A list of pairs of strings that should be replaced with another string during tokenization.",
+      "type": "object",
+      "properties": {
+        "replacements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TokenizerUserDictConfigReplacementsItems0"
+          }
+        },
+        "tokenizer": {
+          "description": "The tokenizer to which the user dictionary should be applied. Currently, only the ` + "`" + `kagame` + "`" + ` ja and kr tokenizers supports user dictionaries.",
+          "type": "string"
+        }
+      }
+    },
+    "TokenizerUserDictConfigReplacementsItems0": {
+      "type": "object",
+      "required": [
+        "source",
+        "target"
+      ],
+      "properties": {
+        "source": {
+          "description": "The string to be replaced.",
+          "type": "string"
+        },
+        "target": {
+          "description": "The string to replace with.",
+          "type": "string"
+        }
+      }
+    },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `limit` + "`" + `, ` + "`" + `value` + "`" + `) are stable contract; the ` + "`" + `message` + "`" + ` text is operator-overridable via the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "description": "Machine-stable identifier. Always ` + "`" + `USAGE_LIMIT_EXCEEDED` + "`" + ` for this response.",
+          "type": "string",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "description": "Which limit was hit.",
+          "type": "string",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{limit}` + "`" + ` and ` + "`" + `{value}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The configured threshold value (the cap, not the current count).",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -18401,6 +22242,10 @@ func init() {
       "name": "backups"
     },
     {
+      "description": "Operations for exporting Weaviate data to external storage backends (S3, GCS, Azure, or filesystem). The output file format is specified via the 'file_format' field (currently only 'parquet' is supported). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate file containing object IDs, vectors, properties, and metadata.",
+      "name": "exports"
+    },
+    {
       "description": "Endpoints for user account management in Weaviate. This includes operations specific to Weaviate-managed database users (` + "`" + `db` + "`" + ` users), such as creation (which generates an API key), listing, deletion, activation/deactivation, and API key rotation. It also provides operations applicable to any authenticated user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `), like retrieving their own information (username and assigned roles).\u003cbr/\u003e\u003cbr/\u003e**User Types:**\u003cbr/\u003e* **` + "`" + `db` + "`" + ` users:** Managed entirely within Weaviate (creation, deletion, API keys). Use these endpoints for full lifecycle management.\u003cbr/\u003e* **` + "`" + `oidc` + "`" + ` users:** Authenticated via an external OpenID Connect provider. Their lifecycle (creation, credentials) is managed externally, but their role assignments *within Weaviate* are managed via the ` + "`" + `authz` + "`" + ` endpoints.",
       "name": "users"
     },
@@ -18411,6 +22256,14 @@ func init() {
     {
       "description": "Operations related to managing data replication, including initiating and monitoring shard replica movements between nodes, querying current sharding states, and managing the lifecycle of replication tasks.",
       "name": "replication"
+    },
+    {
+      "description": "Model Context Protocol (MCP) endpoint. Provides tool discovery and invocation for LLM agents via the MCP Streamable HTTP transport.",
+      "name": "mcp"
+    },
+    {
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "name": "namespaces"
     }
   ],
   "externalDocs": {

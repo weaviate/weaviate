@@ -22,11 +22,11 @@ repos:
         language: system
         types: [ go ]
   - repo: https://github.com/golangci/golangci-lint
-    rev: v2.4.0
+    rev: v2.11.3
     hooks:
       - id: golangci-lint
         args: [--new-from-rev=HEAD]
   - repo: https://github.com/psf/black
-    rev: 25.1.0
+    rev: 26.3.1
     hooks:
       - id: black

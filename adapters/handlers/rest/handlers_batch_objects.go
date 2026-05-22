@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,6 +26,8 @@ import (
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 type batchObjectHandlers struct {
@@ -48,6 +50,10 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return batch.NewBatchObjectsCreateTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		switch {
 		case errors.As(err, &autherrs.Forbidden{}):
 			return batch.NewBatchObjectsCreateForbidden().
@@ -66,10 +72,10 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 
 	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchObjectsCreateOK().
-		WithPayload(h.objectsResponse(objs))
+		WithPayload(h.objectsResponse(principal, objs))
 }
 
-func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*models.ObjectsGetResponse {
+func (h *batchObjectHandlers) objectsResponse(principal *models.Principal, input objects.BatchObjects) []*models.ObjectsGetResponse {
 	response := make([]*models.ObjectsGetResponse, len(input))
 	for i, object := range input {
 		var errorResponse *models.ErrorResponse
@@ -80,6 +86,7 @@ func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*mod
 		}
 
 		object.Object.ID = object.UUID
+		namespacing.StripObjectResponseClass(principal, object.Object)
 		response[i] = &models.ObjectsGetResponse{
 			Object: *object.Object,
 			Result: &models.ObjectsGetResponseAO2Result{
@@ -188,10 +195,10 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 
 	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchObjectsDeleteOK().
-		WithPayload(h.objectsDeleteResponse(res))
+		WithPayload(h.objectsDeleteResponse(principal, res))
 }
 
-func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteResponse) *models.BatchDeleteResponse {
+func (h *batchObjectHandlers) objectsDeleteResponse(principal *models.Principal, input *objects.BatchDeleteResponse) *models.BatchDeleteResponse {
 	var successful, failed int64
 	output := input.Output
 	var objects []*models.BatchDeleteResponseResultsObjectsItems0
@@ -227,7 +234,7 @@ func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteRe
 
 	response := &models.BatchDeleteResponse{
 		Match: &models.BatchDeleteResponseMatch{
-			Class: input.Match.Class,
+			Class: namespacing.StripOwnNamespace(principal, input.Match.Class),
 			Where: input.Match.Where,
 		},
 		DeletionTimeUnixMilli: &deletionTimeUnixMilli,

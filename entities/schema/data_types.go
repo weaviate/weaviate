@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -43,6 +43,8 @@ const (
 	DataTypePhoneNumber DataType = "phoneNumber"
 	// DataTypeBlob represents a base64 encoded data
 	DataTypeBlob DataType = "blob"
+	// DataTypeBlobHash accepts base64 encoded data but stores only a SHA-256 hash
+	DataTypeBlobHash DataType = "blobHash"
 	// DataTypeTextArray The data type is a value of type string array
 	DataTypeTextArray DataType = "text[]"
 	// DataTypeIntArray The data type is a value of type int array
@@ -89,7 +91,7 @@ func (dt DataType) IsPrimitive() bool {
 
 var PrimitiveDataTypes []DataType = []DataType{
 	DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate,
-	DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob, DataTypeTextArray,
+	DataTypeGeoCoordinates, DataTypePhoneNumber, DataTypeBlob, DataTypeBlobHash, DataTypeTextArray,
 	DataTypeIntArray, DataTypeNumberArray, DataTypeBooleanArray, DataTypeDateArray,
 	DataTypeUUID, DataTypeUUIDArray,
 }
@@ -279,12 +281,12 @@ func FindPropertyDataTypeWithRefsAndAuth(authorizedGetClass func(string) (*model
 			return nil, err
 		}
 
-		if beloningToClass != className && !relaxCrossRefValidation {
+		if beloningToClass != className {
 			class, err := authorizedGetClass(className.String())
 			if err != nil {
 				return nil, err
 			}
-			if class == nil {
+			if !relaxCrossRefValidation && class == nil {
 				return nil, ErrRefToNonexistentClass
 			}
 		}
@@ -330,4 +332,33 @@ func IsNested(dataType DataType) bool {
 		}
 	}
 	return false
+}
+
+func IsScalarArrayType(dt DataType) bool {
+	switch dt {
+	case DataTypeTextArray, DataTypeIntArray, DataTypeNumberArray,
+		DataTypeBooleanArray, DataTypeDateArray, DataTypeUUIDArray:
+		return true
+	default:
+		return false
+	}
+}
+
+func ScalarFromArrayType(dt DataType) DataType {
+	switch dt {
+	case DataTypeTextArray:
+		return DataTypeText
+	case DataTypeIntArray:
+		return DataTypeInt
+	case DataTypeNumberArray:
+		return DataTypeNumber
+	case DataTypeBooleanArray:
+		return DataTypeBoolean
+	case DataTypeDateArray:
+		return DataTypeDate
+	case DataTypeUUIDArray:
+		return DataTypeUUID
+	default:
+		return dt
+	}
 }

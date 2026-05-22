@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -224,6 +224,51 @@ func (o *BatchObjectsCreateUnprocessableEntity) SetPayload(payload *models.Error
 func (o *BatchObjectsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// BatchObjectsCreateTooManyRequestsCode is the HTTP code returned for type BatchObjectsCreateTooManyRequests
+const BatchObjectsCreateTooManyRequestsCode int = 429
+
+/*
+BatchObjectsCreateTooManyRequests The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See `UsageLimitExceededResponse` for the limit value.
+
+swagger:response batchObjectsCreateTooManyRequests
+*/
+type BatchObjectsCreateTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.UsageLimitExceededResponse `json:"body,omitempty"`
+}
+
+// NewBatchObjectsCreateTooManyRequests creates BatchObjectsCreateTooManyRequests with default headers values
+func NewBatchObjectsCreateTooManyRequests() *BatchObjectsCreateTooManyRequests {
+
+	return &BatchObjectsCreateTooManyRequests{}
+}
+
+// WithPayload adds the payload to the batch objects create too many requests response
+func (o *BatchObjectsCreateTooManyRequests) WithPayload(payload *models.UsageLimitExceededResponse) *BatchObjectsCreateTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the batch objects create too many requests response
+func (o *BatchObjectsCreateTooManyRequests) SetPayload(payload *models.UsageLimitExceededResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *BatchObjectsCreateTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

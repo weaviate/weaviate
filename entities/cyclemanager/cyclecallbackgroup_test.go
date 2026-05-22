@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -238,7 +238,7 @@ func TestCycleCallback_Parallel(t *testing.T) {
 		// should be called with 60, 60, ... intervals
 		callbacks.Register("c3", callback3, WithIntervals(intervals3))
 
-		cm := NewManager(ticker, callbacks.CycleCallback, logger)
+		cm := NewManager("test", ticker, callbacks.CycleCallback, logger)
 		cm.Start()
 		time.Sleep(400 * time.Millisecond)
 		cm.StopAndWait(context.Background())
@@ -1233,7 +1233,7 @@ func TestCycleCallback_Sequential(t *testing.T) {
 		// should be called with 60, 60, ... intervals
 		callbacks.Register("c3", callback3, WithIntervals(intervals3))
 
-		cm := NewManager(ticker, callbacks.CycleCallback, logger)
+		cm := NewManager("test", ticker, callbacks.CycleCallback, logger)
 		cm.Start()
 		time.Sleep(400 * time.Millisecond)
 		cm.StopAndWait(context.Background())

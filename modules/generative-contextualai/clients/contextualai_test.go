@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -212,13 +212,8 @@ func TestAPIErrorHandling(t *testing.T) {
 			name:       "error with detail field",
 			statusCode: 422,
 			responseBody: map[string]any{
-				"detail": []map[string]any{
-					{
-						"loc":  []string{"body", "model"},
-						"msg":  "Validation failed",
-						"type": "value_error",
-					},
-				},
+				"detail":     "Validation failed",
+				"error_code": "value_error",
 			},
 			expectedErr: "Validation failed",
 		},

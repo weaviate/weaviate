@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,7 +35,11 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 ) (*BatchDeleteResponse, error) {
 	class := "*"
 	if match != nil {
-		match.Class, _ = b.resolveAlias(match.Class)
+		resolved, _, err := b.resolveNS(principal, match.Class)
+		if err != nil {
+			return nil, NewErrInvalidUserInput("%v", err)
+		}
+		match.Class = resolved
 		class = match.Class
 	}
 
@@ -73,10 +77,19 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		return nil, errors.Wrap(err, "validate")
 	}
 
-	// Ensure that the local schema has caught up to the version we used to validate
+	if tenant != "" {
+		tenantSchemaVersion, err := b.schemaManager.EnsureTenantActiveForWrite(ctx, string(params.ClassName), tenant)
+		if err != nil {
+			return nil, fmt.Errorf("error ensuring tenant active for write: %w", err)
+		}
+		schemaVersion = max(schemaVersion, tenantSchemaVersion)
+	}
+
+	// Wait so tenant activation is visible locally before shard resolution and delete.
 	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 	}
+
 	var deletionTime time.Time
 	if deletionTimeUnixMilli != nil {
 		deletionTime = time.UnixMilli(*deletionTimeUnixMilli)
@@ -132,7 +145,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 	class := vclasses[match.Class].Class
 
-	filter, err := filterext.Parse(match.Where, class.Class)
+	filter, err := filterext.Parse(match.Where, class.Class, b.config.Config.Namespaces.Enabled)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to parse where filter: %w", err)
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -197,22 +197,38 @@ func (n *binarySearchNodeMap) get(key []byte) ([]MapPair, error) {
 }
 
 func (n *binarySearchNodeMap) flattenInOrder() []*binarySearchNodeMap {
-	var left []*binarySearchNodeMap
-	var right []*binarySearchNodeMap
+	// preallocate capacity to avoid repeated reallocations
+	size := n.subtreeSize()
+	res := make([]*binarySearchNodeMap, 0, size)
+	return n.appendInOrder(res)
+}
 
+func (n *binarySearchNodeMap) appendInOrder(dst []*binarySearchNodeMap) []*binarySearchNodeMap {
+	if n == nil {
+		return dst
+	}
 	if n.left != nil {
-		left = n.left.flattenInOrder()
+		dst = n.left.appendInOrder(dst)
 	}
-
+	dst = append(dst, n.shallowCopy())
 	if n.right != nil {
-		right = n.right.flattenInOrder()
+		dst = n.right.appendInOrder(dst)
 	}
+	return dst
+}
 
-	// the values are sorted on read for performance reasons, the assumption is
-	// that while a memtable is open writes a much more common, thus we write map
-	// KVs unsorted and only sort/dedup them on read.
-	right = append([]*binarySearchNodeMap{n.shallowCopy()}, right...)
-	return append(left, right...)
+func (n *binarySearchNodeMap) subtreeSize() int {
+	if n == nil {
+		return 0
+	}
+	s := 1
+	if n.left != nil {
+		s += n.left.subtreeSize()
+	}
+	if n.right != nil {
+		s += n.right.subtreeSize()
+	}
+	return s
 }
 
 // takes a list of MapPair and sorts it while keeping the original order. Then

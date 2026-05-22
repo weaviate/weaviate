@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,7 +33,9 @@ func ExtractFilters(args map[string]interface{}, rootClass string) (*filters.Loc
 			return nil, fmt.Errorf("failed to extract filters: %w", err)
 		}
 
-		return filterext.Parse(filter, rootClass)
+		// GraphQL is disabled on namespace-enabled clusters, so the
+		// namespacesEnabled flag is hard-wired to false here.
+		return filterext.Parse(filter, rootClass, false)
 	}
 }
 

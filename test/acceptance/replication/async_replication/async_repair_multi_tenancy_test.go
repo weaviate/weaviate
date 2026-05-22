@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
@@ -137,5 +138,123 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 			resp := common.GQLTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, types.ConsistencyLevelOne, tenantName)
 			require.Len(ct, resp, objectCount)
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
+	})
+}
+
+// In this scenario, we are testing that a tenant in COLD state fetches the latest
+// async replication config when it is loaded (activated). The scenario is:
+//
+//   - Create a class with multi-tenancy enabled, replicated by a factor of 3,
+//     with async replication DISABLED
+//   - Create a tenant in COLD state
+//   - Enable async replication on the class (while tenant is still in COLD state)
+//   - Stop one node
+//   - Insert data into the surviving nodes (this will activate the tenant)
+//   - Restart the stopped node
+//   - Verify that the restarted node eventually receives all the data,
+//     demonstrating that the tenant fetched the latest async replication config
+//     when it was loaded/activated
+func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyColdTenantConfigUpdate() {
+	t := suite.T()
+	mainCtx := context.Background()
+
+	var (
+		clusterSize = 3
+		tenantName  = "tenant-0"
+		objectCount = 100
+	)
+
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(clusterSize).
+		WithText2VecContextionary().
+		Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	paragraphClass := articles.ParagraphsClass()
+
+	t.Run("create schema with async replication disabled", func(t *testing.T) {
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
+			Factor:       int64(clusterSize),
+			AsyncEnabled: false,
+		}
+		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
+			AutoTenantActivation: true,
+			Enabled:              true,
+		}
+
+		helper.SetupClient(compose.GetWeaviate().URI())
+		helper.CreateClass(t, paragraphClass)
+	})
+
+	t.Run("add tenant in cold state", func(t *testing.T) {
+		tenants := []*models.Tenant{{Name: tenantName, ActivityStatus: "COLD"}}
+		helper.CreateTenants(t, paragraphClass.Class, tenants)
+	})
+
+	t.Run("enable async replication on class", func(t *testing.T) {
+		// Get the current class
+		getParams := schema.NewSchemaObjectsGetParams().WithClassName(paragraphClass.Class)
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(getParams, nil)
+		require.NoError(t, err)
+		require.NotNil(t, res.Payload)
+
+		// Update to enable async replication
+		class := res.Payload
+		class.ReplicationConfig.AsyncEnabled = true
+
+		// Update the class
+		helper.UpdateClass(t, class)
+	})
+
+	t.Run("stop node 2", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 2)
+	})
+
+	t.Run("insert paragraphs (this will activate the tenant)", func(t *testing.T) {
+		batch := make([]*models.Object, objectCount)
+		for i := 0; i < objectCount; i++ {
+			batch[i] = articles.NewParagraph().
+				WithContents(fmt.Sprintf("paragraph#%d", i)).
+				WithTenant(tenantName).
+				Object()
+		}
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelOne)
+	})
+
+	t.Run("start node 2", func(t *testing.T) {
+		common.StartNodeAt(ctx, t, compose, 2)
+	})
+
+	t.Run("verify that all nodes are running", func(t *testing.T) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+
+			resp := body.Payload
+			require.Len(ct, resp.Nodes, clusterSize)
+			for _, n := range resp.Nodes {
+				require.NotNil(ct, n.Status)
+				require.Equal(ct, "HEALTHY", *n.Status)
+			}
+		}, 15*time.Second, 500*time.Millisecond)
+	})
+
+	t.Run("validate async object propagation to restarted node", func(t *testing.T) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp := common.GQLTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, types.ConsistencyLevelOne, tenantName)
+			require.Len(ct, resp, objectCount)
+		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated to the restarted node")
 	})
 }

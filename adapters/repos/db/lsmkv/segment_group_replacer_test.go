@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,9 +41,8 @@ func TestSegmentReplacer_OnDisk(t *testing.T) {
 		segD.setPath("directory/segment-0004.db")
 
 		diskSegments := &SegmentGroup{
-			logger:           logger,
-			segments:         []Segment{segA, segB, segC, segD},
-			segmentsWithRefs: map[string]Segment{},
+			logger:   logger,
+			segments: []Segment{segA, segB, segC, segD},
 		}
 
 		return diskSegments, segA, segB, segC, segD

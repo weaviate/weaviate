@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,6 +20,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+type SelectionMMR struct {
+	Limit   uint32  `json:"limit"`
+	Balance float32 `json:"balance"`
+}
+
+type Selection struct {
+	MMR *SelectionMMR `json:"mmr,omitempty"`
+}
 
 type NearVector struct {
 	Certainty     float64         `json:"certainty"`

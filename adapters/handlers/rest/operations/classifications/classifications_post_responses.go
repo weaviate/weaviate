@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -176,6 +176,51 @@ func (o *ClassificationsPostForbidden) SetPayload(payload *models.ErrorResponse)
 func (o *ClassificationsPostForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ClassificationsPostGoneCode is the HTTP code returned for type ClassificationsPostGone
+const ClassificationsPostGoneCode int = 410
+
+/*
+ClassificationsPostGone Endpoint not available in the current cluster configuration.
+
+swagger:response classificationsPostGone
+*/
+type ClassificationsPostGone struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewClassificationsPostGone creates ClassificationsPostGone with default headers values
+func NewClassificationsPostGone() *ClassificationsPostGone {
+
+	return &ClassificationsPostGone{}
+}
+
+// WithPayload adds the payload to the classifications post gone response
+func (o *ClassificationsPostGone) WithPayload(payload *models.ErrorResponse) *ClassificationsPostGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the classifications post gone response
+func (o *ClassificationsPostGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ClassificationsPostGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(410)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

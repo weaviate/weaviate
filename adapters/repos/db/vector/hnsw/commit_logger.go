@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,11 +25,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -286,6 +286,13 @@ func skipTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
 			continue
 		}
 
+		// Skip snapshot files — they are handled by the snapshot system,
+		// not the WAL deserializer. This includes compact v2 snapshots
+		// that may appear in the commitlog directory before migration.
+		if strings.HasSuffix(entry.Name(), ".snapshot") {
+			continue
+		}
+
 		out[i] = entry
 		i++
 	}
@@ -338,7 +345,10 @@ func filterNewerCommitLogFiles(in []os.DirEntry, createdAfter int64) ([]os.DirEn
 	out := make([]os.DirEntry, len(in))
 	i := 0
 	for _, entry := range in {
-		ts, err := asTimeStamp(entry.Name())
+		// Use endTimeStamp so that range files (e.g. 1400_1600.sorted) are
+		// included when the snapshot covers only up to 1500. The file contains
+		// data beyond the snapshot and must be loaded.
+		ts, err := endTimeStamp(entry.Name())
 		if err != nil {
 			return nil, errors.Wrapf(err, "read commitlog timestamp %q", entry.Name())
 		}
@@ -355,7 +365,29 @@ func filterNewerCommitLogFiles(in []os.DirEntry, createdAfter int64) ([]os.DirEn
 }
 
 func asTimeStamp(in string) (int64, error) {
-	return strconv.ParseInt(strings.TrimSuffix(in, ".condensed"), 10, 64)
+	s := in
+	for _, suffix := range []string{".condensed", ".sorted", ".snapshot"} {
+		s = strings.TrimSuffix(s, suffix)
+	}
+	// Handle range format: {start}_{end} — use start timestamp for sorting
+	if idx := strings.Index(s, "_"); idx != -1 {
+		s = s[:idx]
+	}
+	return strconv.ParseInt(s, 10, 64)
+}
+
+// endTimeStamp returns the end timestamp from a commit log filename.
+// For single-timestamp files, it returns the same value as asTimeStamp.
+// For range-format files ({start}_{end}), it returns the end timestamp.
+func endTimeStamp(in string) (int64, error) {
+	s := in
+	for _, suffix := range []string{".condensed", ".sorted", ".snapshot"} {
+		s = strings.TrimSuffix(s, suffix)
+	}
+	if _, end, ok := strings.Cut(s, "_"); ok {
+		return strconv.ParseInt(end, 10, 64)
+	}
+	return strconv.ParseInt(s, 10, 64)
 }
 
 type Condensor interface {
@@ -425,21 +457,21 @@ func (l *hnswCommitLogger) ID() string {
 	return l.id
 }
 
-func (l *hnswCommitLogger) AddPQCompression(data compressionhelpers.PQData) error {
+func (l *hnswCommitLogger) AddPQCompression(data compression.PQData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddPQCompression(data)
 }
 
-func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
+func (l *hnswCommitLogger) AddSQCompression(data compression.SQData) error {
 	l.Lock()
 	defer l.Unlock()
 
 	return l.commitLogger.AddSQCompression(data)
 }
 
-func (l *hnswCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+func (l *hnswCommitLogger) AddRQCompression(data compression.RQData) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -453,7 +485,7 @@ func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	return l.commitLogger.AddMuvera(data)
 }
 
-func (l *hnswCommitLogger) AddBRQCompression(data compressionhelpers.BRQData) error {
+func (l *hnswCommitLogger) AddBRQCompression(data compression.BRQData) error {
 	l.Lock()
 	defer l.Unlock()
 
@@ -559,6 +591,8 @@ func (l *hnswCommitLogger) startSwitchLogs(shouldAbort cyclemanager.ShouldAbortC
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_switch").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log switch failed")
 	}
 	return executed
@@ -576,6 +610,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_combining").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (combining) failed")
 	}
 
@@ -583,6 +619,8 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_commit_log_condensing").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (condensing) failed")
 	}
 
@@ -590,15 +628,22 @@ func (l *hnswCommitLogger) startCommitLogsMaintenance(shouldAbort cyclemanager.S
 	if err != nil {
 		l.logger.WithError(err).
 			WithField("action", "hnsw_snapshot_creating").
+			WithField("file", l.rootPath).
+			WithField("id", l.id).
 			Error("hnsw commit log maintenance (snapshot) failed")
 	}
 
 	return executedCombine || executedCondense || executedSnapshot
 }
 
-func (l *hnswCommitLogger) SwitchCommitLogs(force bool) error {
+func (l *hnswCommitLogger) PrepareForBackup(force bool) error {
 	_, err := l.switchCommitLogs(force)
 	return err
+}
+
+func (l *hnswCommitLogger) ResumeAfterBackup(ctx context.Context) error {
+	// nothing to do, as we always write to new files and never modify existing ones, so backup files are always consistent and up-to-date
+	return nil
 }
 
 func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
@@ -736,7 +781,7 @@ func (l *hnswCommitLogger) logCombiningThreshold() int64 {
 	return int64(float64(l.maxSizeCombining) * 1.75)
 }
 
-func (l *hnswCommitLogger) Drop(ctx context.Context) error {
+func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {
 	l.Lock()
 	defer l.Unlock()
 	if err := l.commitLogger.Close(); err != nil {
@@ -748,14 +793,26 @@ func (l *hnswCommitLogger) Drop(ctx context.Context) error {
 		return errors.Wrap(err, "drop commitlog")
 	}
 
+	if keepFiles {
+		return nil
+	}
+
 	// remove commit log directory if exists
 	dir := commitLogDirectory(l.rootPath, l.id)
 	if _, err := l.fs.Stat(dir); err == nil {
-		err := l.fs.RemoveAll(dir)
-		if err != nil {
+		if err := l.fs.RemoveAll(dir); err != nil {
 			return errors.Wrap(err, "delete commit files directory")
 		}
 	}
+
+	// remove snapshot directory if exists
+	sDir := snapshotDirectory(l.rootPath, l.id)
+	if _, err := l.fs.Stat(sDir); err == nil {
+		if err := l.fs.RemoveAll(sDir); err != nil {
+			return errors.Wrap(err, "delete snapshot directory")
+		}
+	}
+
 	return nil
 }
 

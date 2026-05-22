@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -100,19 +101,19 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replicationEngineShutdownTimeout,
 		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
 	)
-	svr := rpc.NewServer(&fsm, raft, fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
+	svr := rpc.NewServer(&fsm, raft, net.JoinHostPort(cfg.BindAddr, fmt.Sprintf("%d", cfg.RPCPort)), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
 		Raft:               raft,
 		replicationEngine:  replicationEngine,
-		raftAddr:           fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
+		raftAddr:           net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		config:             &cfg,
 		rpcClient:          client,
 		rpcServer:          svr,
 		logger:             cfg.Logger,
-		closeBootstrapper:  make(chan struct{}),
-		closeOnFSMCaughtUp: make(chan struct{}),
-		closeWaitForDB:     make(chan struct{}),
+		closeBootstrapper:  make(chan struct{}, 1),
+		closeOnFSMCaughtUp: make(chan struct{}, 1),
+		closeWaitForDB:     make(chan struct{}, 1),
 	}
 }
 
@@ -198,7 +199,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		}
 	}
 
-	if err := c.WaitUntilDBRestored(ctx, 10*time.Second, c.closeWaitForDB); err != nil {
+	if err := c.WaitUntilDBRestored(ctx, 1*time.Second, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
 

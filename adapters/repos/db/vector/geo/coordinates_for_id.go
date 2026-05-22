@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,6 +32,11 @@ func (cfid CoordinatesForID) VectorForID(ctx context.Context, id uint64) ([]floa
 	}
 
 	return geoCoordiantesToVector(coordinates)
+}
+
+// GeoCoordinatesToVector converts geo coordinates to a vector of [lat, lon].
+func GeoCoordinatesToVector(in *models.GeoCoordinates) ([]float32, error) {
+	return geoCoordiantesToVector(in)
 }
 
 func geoCoordiantesToVector(in *models.GeoCoordinates) ([]float32, error) {

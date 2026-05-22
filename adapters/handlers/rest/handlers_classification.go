@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,8 @@
 package rest
 
 import (
+	"fmt"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -26,11 +28,17 @@ import (
 )
 
 func setupClassificationHandlers(api *operations.WeaviateAPI,
-	classifier *classification.Classifier, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
+	classifier *classification.Classifier, namespacesEnabled bool,
+	metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
 	metricRequestsTotal := newClassificationRequestsTotal(metrics, logger)
 	api.ClassificationsClassificationsGetHandler = classifications.ClassificationsGetHandlerFunc(
 		func(params classifications.ClassificationsGetParams, principal *models.Principal) middleware.Responder {
+			if namespacesEnabled {
+				metricRequestsTotal.logUserError("")
+				return classifications.NewClassificationsGetGone().
+					WithPayload(errPayloadFromSingleErr(fmt.Errorf("classifications are not supported in the current cluster configuration")))
+			}
 			res, err := classifier.Get(params.HTTPRequest.Context(), principal, strfmt.UUID(params.ID))
 			if err != nil {
 				metricRequestsTotal.logError("", err)
@@ -56,6 +64,11 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 
 	api.ClassificationsClassificationsPostHandler = classifications.ClassificationsPostHandlerFunc(
 		func(params classifications.ClassificationsPostParams, principal *models.Principal) middleware.Responder {
+			if namespacesEnabled {
+				metricRequestsTotal.logUserError("")
+				return classifications.NewClassificationsPostGone().
+					WithPayload(errPayloadFromSingleErr(fmt.Errorf("classifications are not supported in the current cluster configuration")))
+			}
 			res, err := classifier.Schedule(params.HTTPRequest.Context(), principal, *params.Params)
 			if err != nil {
 				metricRequestsTotal.logUserError("")

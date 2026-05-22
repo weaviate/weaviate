@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,21 +22,59 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/tokenizer"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
+
+func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
+	class := &models.Class{
+		Class:      "TTLClass",
+		Vectorizer: "none",
+		ObjectTTLConfig: &models.ObjectTTLConfig{
+			Enabled:    true,
+			DeleteOn:   filters.InternalPropCreationTimeUnix,
+			DefaultTTL: 3600,
+		},
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+	}
+	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+
+	classValidated, _, err := handler.AddClass(ctx, nil, class)
+	assert.NoError(t, err)
+	assert.NotNil(t, classValidated.InvertedIndexConfig)
+	expectedInvertedConfig := models.InvertedIndexConfig{
+		Bm25:                   &models.BM25Config{K1: config.DefaultBM25k1, B: config.DefaultBM25b},
+		CleanupIntervalSeconds: 60,
+		Stopwords:              &models.StopwordConfig{Preset: stopwords.EnglishPreset},
+		UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
+		IndexTimestamps:        true,
+	}
+	assert.Equal(t, expectedInvertedConfig, *classValidated.InvertedIndexConfig)
+}
 
 func Test_AddClass(t *testing.T) {
 	t.Parallel()
@@ -55,7 +93,7 @@ func Test_AddClass(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		assert.Nil(t, err)
@@ -82,7 +120,7 @@ func Test_AddClass(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		require.NoError(t, err)
@@ -113,6 +151,27 @@ func Test_AddClass(t *testing.T) {
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		require.ErrorContains(t, err, "creating a class with both a class level vector index and named vectors is forbidden")
+	})
+
+	t.Run("reject none vector index type on new class", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+
+		class := &models.Class{
+			Class: "NewClass",
+			VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: vectorindex.VectorIndexTypeNone,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		_, _, err := handler.AddClass(ctx, nil, class)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "internal sentinel for dropped indexes")
 	})
 
 	t.Run("with empty class name", func(t *testing.T) {
@@ -168,7 +227,7 @@ func Test_AddClass(t *testing.T) {
 			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -203,7 +262,7 @@ func Test_AddClass(t *testing.T) {
 			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -264,7 +323,7 @@ func Test_AddClass(t *testing.T) {
 					// fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(&models.Class{Class: classes[tc.dataType[0]].Class, Vectorizer: classes[tc.dataType[0]].Vectorizer})
 					if tc.expectedErrMsg == "" {
 						fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 
 					_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -441,36 +500,18 @@ func Test_AddClassWithLimits(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("with max collections limit", func(t *testing.T) {
+		// Asserts the typed *usagelimits.LimitExceededError on miss; the
+		// REST/gRPC layer maps it to HTTP 429 / RESOURCE_EXHAUSTED.
 		tests := []struct {
 			name          string
 			existingCount int
 			maxAllowed    int
-			expectedError error
+			expectExceed  bool
 		}{
-			{
-				name:          "under the limit",
-				existingCount: 5,
-				maxAllowed:    10,
-				expectedError: nil,
-			},
-			{
-				name:          "at the limit",
-				existingCount: 10,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "over the limit",
-				existingCount: 11,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "no limit set",
-				existingCount: 100,
-				maxAllowed:    -1,
-				expectedError: nil,
-			},
+			{name: "under the limit", existingCount: 5, maxAllowed: 10, expectExceed: false},
+			{name: "at the limit", existingCount: 10, maxAllowed: 10, expectExceed: true},
+			{name: "over the limit", existingCount: 11, maxAllowed: 10, expectExceed: true},
+			{name: "no limit set", existingCount: 100, maxAllowed: -1, expectExceed: false},
 		}
 
 		for _, tt := range tests {
@@ -478,7 +519,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 				// Mock the schema count
-				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(tt.existingCount, nil)
 
 				// Set the max collections limit in config
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.maxAllowed)
@@ -489,15 +530,19 @@ func Test_AddClassWithLimits(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				}
 
-				if tt.expectedError == nil {
+				if !tt.expectExceed {
 					fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+					fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				}
 
 				_, _, err := handler.AddClass(ctx, nil, class)
-				if tt.expectedError != nil {
+				if tt.expectExceed {
 					require.NotNil(t, err)
-					assert.Contains(t, err.Error(), tt.expectedError.Error())
+					le, ok := usagelimits.AsLimitExceeded(err)
+					require.True(t, ok, "expected *LimitExceededError, got %T: %v", err, err)
+					assert.Equal(t, usagelimits.LimitCollections, le.Limit)
+					assert.Equal(t, int64(tt.maxAllowed), le.Value)
+					assert.NotEmpty(t, le.RenderedMessage)
 				} else {
 					require.Nil(t, err)
 				}
@@ -517,7 +562,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 				name:                 "async indexing disabled",
 				asyncIndexingEnabled: false,
 
-				expectError: "the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)",
+				expectError: "the dynamic index can only be created when async indexing is enabled",
 			},
 			{
 				name:                 "async indexing enabled",
@@ -530,7 +575,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 
 				if tt.expectError == "" {
 					schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-					schemaManager.On("QueryCollectionsCount").Return(0, nil)
+					schemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					defer schemaManager.AssertExpectations(t)
 				}
 
@@ -658,20 +703,18 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
 
 		t.Run("add properties to existing class", func(t *testing.T) {
+			fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 			for _, tc := range testCases {
-				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 				fakeSchemaManager.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
 				t.Run("added_"+tc.propName, func(t *testing.T) {
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, &models.Property{
+					_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, &models.Property{
 						Name:         "added_" + tc.propName,
 						DataType:     tc.dataType.PropString(),
 						Tokenization: tc.tokenization,
@@ -827,7 +870,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 			fakeSchemaManager.AssertExpectations(t)
@@ -835,6 +878,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 		t.Run("add properties to existing class", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(&class)
 			for _, tc := range testCases {
 				t.Run("added_"+tc.propName, func(t *testing.T) {
 					prop := &models.Property{
@@ -845,13 +889,139 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 						IndexSearchable: tc.indexSearchable,
 					}
 					fakeSchemaManager.On("AddProperty", className, []*models.Property{prop}).Return(nil)
-					_, _, err := handler.AddClassProperty(ctx, nil, &class, class.Class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, class.Class, false, prop)
 
 					require.Nil(t, err)
 				})
 			}
 			fakeSchemaManager.AssertExpectations(t)
 		})
+	})
+}
+
+func Test_AddClass_ObjectTTLConfig(t *testing.T) {
+	vFalse := false
+	vTrue := true
+
+	createCollection := func() *models.Class {
+		return &models.Class{
+			Class: "CollectionWithTTL",
+			ObjectTTLConfig: &models.ObjectTTLConfig{
+				Enabled:    true,
+				DeleteOn:   filters.InternalPropCreationTimeUnix,
+				DefaultTTL: 3600,
+			},
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "customPropertyDate",
+					DataType: schema.DataTypeDate.PropString(),
+				},
+				{
+					Name:              "customPropertyDateRangeable",
+					DataType:          schema.DataTypeDate.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexRangeFilters: &vTrue,
+				},
+				{
+					Name:            "customPropertyDateNoIndex",
+					DataType:        schema.DataTypeDate.PropString(),
+					IndexFilterable: &vFalse,
+				},
+				{
+					Name:     "customPropertyInt",
+					DataType: schema.DataTypeInt.PropString(),
+				},
+			},
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+	}
+
+	t.Run("valid config", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			reconfigure func(c *models.Class)
+		}{
+			{
+				name:        "deleteOn creation time",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropCreationTimeUnix },
+			},
+			{
+				name:        "deleteOn update time",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropLastUpdateTimeUnix },
+			},
+			{
+				name:        "deleteOn custom property (implicit filterable)",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDate" },
+			},
+			{
+				name:        "deleteOn custom property (explicit rangeable)",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateRangeable" },
+			},
+			{
+				name:        "no ttl config",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig = nil },
+			},
+			{
+				name:        "ttl disabled",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.Enabled = false },
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				collection := createCollection()
+				tc.reconfigure(collection)
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+
+				_, _, err := handler.AddClass(context.Background(), nil, collection)
+
+				assert.NoError(t, err)
+				fakeSchemaManager.AssertExpectations(t)
+			})
+		}
+	})
+
+	t.Run("invalid config returns error", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			reconfigure func(c *models.Class)
+		}{
+			{
+				name:        "non existing property",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyNotExistent" },
+			},
+			{
+				name:        "property without index",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDateNoIndex" },
+			},
+			{
+				name:        "property invalid datatype",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyInt" },
+			},
+			{
+				name:        "ttl too small",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DefaultTTL = 42 },
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				collection := createCollection()
+				tc.reconfigure(collection)
+				handler, _ := newTestHandler(t, &fakeDB{})
+
+				_, _, err := handler.AddClass(context.Background(), nil, collection)
+
+				assert.ErrorContains(t, err, "ObjectTTLConfig")
+			})
+		}
 	})
 }
 
@@ -901,7 +1071,7 @@ func Test_Defaults_NestedProperties(t *testing.T) {
 								require.NotNil(t, np.IndexSearchable)
 								assert.True(t, *np.IndexSearchable)
 								assert.Equal(t, models.PropertyTokenizationWord, np.Tokenization)
-							case schema.DataTypeBlob:
+							case schema.DataTypeBlob, schema.DataTypeBlobHash:
 								require.NotNil(t, np.IndexFilterable)
 								assert.False(t, *np.IndexFilterable)
 								require.NotNil(t, np.IndexSearchable)
@@ -993,7 +1163,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1015,7 +1185,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1113,7 +1283,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -1139,7 +1309,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1168,7 +1338,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+					fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+					fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
@@ -1179,7 +1350,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeSchemaManager.On("AddProperty", class.Class, []*models.Property{property}).Return(nil)
 					}
-					_, _, err = handler.AddClassProperty(context.Background(), nil, class, class.Class, false, property)
+					_, _, err = handler.AddClassProperty(context.Background(), nil, class.Class, false, property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
@@ -1203,7 +1374,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(ctx, nil, class)
 					t.Log(err)
@@ -1221,11 +1392,133 @@ func Test_UpdateClass(t *testing.T) {
 	t.Run("class not found", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 		fakeSchemaManager.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
-		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(ErrNotFound)
 
 		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}})
 		require.ErrorIs(t, err, ErrNotFound)
 		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("immutable vectorizer properties", func(t *testing.T) {
+		deepCopy := func(t *testing.T, vc *models.Class) *models.Class {
+			t.Helper()
+
+			b, err := json.Marshal(vc)
+			require.NoError(t, err, "deep copy %+v", vc)
+
+			var dest models.Class
+			err = json.Unmarshal(b, &dest)
+			require.NoError(t, err, "deep copy %s", string(b))
+
+			return &dest
+		}
+
+		for _, tt := range []struct {
+			indexType                string
+			initial, updated         any
+			skipDefaultQuantization  func(cfg any) bool
+			trackDefaultQuantization func(cfg any) bool
+		}{
+			{
+				indexType: "hnsw",
+				initial: hnsw.UserConfig{
+					SkipDefaultQuantization:  true,
+					TrackDefaultQuantization: true,
+				},
+				updated: *new(hnsw.UserConfig),
+				skipDefaultQuantization: func(cfg any) bool {
+					return cfg.(hnsw.UserConfig).SkipDefaultQuantization
+				},
+				trackDefaultQuantization: func(cfg any) bool {
+					return cfg.(hnsw.UserConfig).TrackDefaultQuantization
+				},
+			},
+			{
+				indexType: "flat",
+				initial: flat.UserConfig{
+					SkipDefaultQuantization:  true,
+					TrackDefaultQuantization: true,
+				},
+				updated: *new(flat.UserConfig),
+				skipDefaultQuantization: func(cfg any) bool {
+					return cfg.(flat.UserConfig).SkipDefaultQuantization
+				},
+				trackDefaultQuantization: func(cfg any) bool {
+					return cfg.(flat.UserConfig).TrackDefaultQuantization
+				},
+			},
+			{
+				indexType: "dynamic hnsw",
+				initial: dynamic.UserConfig{
+					HnswUC: hnsw.UserConfig{
+						SkipDefaultQuantization:  true,
+						TrackDefaultQuantization: true,
+					},
+				},
+				updated: *new(dynamic.UserConfig),
+				skipDefaultQuantization: func(cfg any) bool {
+					return cfg.(dynamic.UserConfig).HnswUC.SkipDefaultQuantization
+				},
+				trackDefaultQuantization: func(cfg any) bool {
+					return cfg.(dynamic.UserConfig).HnswUC.TrackDefaultQuantization
+				},
+			},
+			{
+				indexType: "dynamic flat",
+				initial: dynamic.UserConfig{
+					FlatUC: flat.UserConfig{
+						SkipDefaultQuantization:  true,
+						TrackDefaultQuantization: true,
+					},
+				},
+				updated: *new(dynamic.UserConfig),
+				skipDefaultQuantization: func(cfg any) bool {
+					return cfg.(dynamic.UserConfig).FlatUC.SkipDefaultQuantization
+				},
+				trackDefaultQuantization: func(cfg any) bool {
+					return cfg.(dynamic.UserConfig).FlatUC.TrackDefaultQuantization
+				},
+			},
+		} {
+			t.Run(tt.indexType, func(t *testing.T) {
+				initial := &models.Class{
+					Class: "Immutable",
+					ReplicationConfig: &models.ReplicationConfig{
+						Factor: 1,
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"example": {
+							VectorIndexType:   tt.indexType,
+							VectorIndexConfig: tt.initial,
+							Vectorizer: map[string]any{
+								"none": map[string]any{},
+							},
+						},
+					},
+				}
+
+				updated := deepCopy(t, initial)
+				updated.VectorConfig["example"] = models.VectorConfig{
+					VectorIndexType:   tt.indexType,
+					VectorIndexConfig: tt.updated,
+					Vectorizer: map[string]any{
+						"none": map[string]any{},
+					},
+				}
+
+				err := validateImmutableFields(initial, updated, nil)
+				require.NoError(t, err, "validate immutable fields")
+
+				assert.Equal(t,
+					tt.skipDefaultQuantization(updated.VectorConfig["example"].VectorIndexConfig),
+					tt.skipDefaultQuantization(initial.VectorConfig["example"].VectorIndexConfig),
+					"skipDefaultQuantization")
+
+				assert.Equal(t,
+					tt.trackDefaultQuantization(updated.VectorConfig["example"].VectorIndexConfig),
+					tt.trackDefaultQuantization(initial.VectorConfig["example"].VectorIndexConfig),
+					"trackDefaultQuantization")
+			})
+		}
 	})
 
 	t.Run("fields validation", func(t *testing.T) {
@@ -1486,6 +1779,128 @@ func Test_UpdateClass(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 			},
+
+			{
+				name: "attempting to update the inverted IndexTimestamps true->false",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexTimestamps: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexTimestamps: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexTimestamp\" setting is immutable. Value changed from \"true\" to \"false\""),
+			},
+			{
+				name: "attempting to update the inverted IndexTimestamps false->true",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexTimestamps: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexTimestamps: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexTimestamp\" setting is immutable. Value changed from \"false\" to \"true\""),
+			},
+			{
+				name: "attempting to update the inverted IndexNullState true->false",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexNullState: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexNullState: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexNullState\" setting is immutable. Value changed from \"true\" to \"false\""),
+			},
+			{
+				name: "attempting to update the inverted IndexNullState false->true",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexNullState: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexNullState: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexNullState\" setting is immutable. Value changed from \"false\" to \"true\""),
+			},
+			{
+				name: "attempting to update the inverted IndexPropertyLength true->false",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexPropertyLength\" setting is immutable. Value changed from \"true\" to \"false\""),
+			},
+			{
+				name: "attempting to update the inverted IndexPropertyLength false->true",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: false,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					InvertedIndexConfig: &models.InvertedIndexConfig{
+						IndexPropertyLength: true,
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("\"indexPropertyLength\" setting is immutable. Value changed from \"false\" to \"true\""),
+			},
+
 			{
 				name: "attempting to update module config",
 				initial: &models.Class{
@@ -1920,10 +2335,10 @@ func Test_UpdateClass(t *testing.T) {
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
-				fakeSchemaManager.On("QueryShardingState", mock.Anything).Return(nil, nil)
+				fakeSchemaManager.On("CopyShardingState", mock.Anything).Return(&sharding.State{}, nil)
 				if len(test.initial.Properties) > 0 {
 					fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}
@@ -1943,6 +2358,165 @@ func Test_UpdateClass(t *testing.T) {
 				} else {
 					assert.ErrorContains(t, err, test.expectedError.Error())
 				}
+			})
+		}
+	})
+}
+
+func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
+	vFalse := false
+
+	createCollection := func() *models.Class {
+		return &models.Class{
+			Class: "CollectionWithTTL",
+			ObjectTTLConfig: &models.ObjectTTLConfig{
+				Enabled:    true,
+				DeleteOn:   filters.InternalPropCreationTimeUnix,
+				DefaultTTL: 3600,
+			},
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
+			Properties: []*models.Property{
+				{
+					Name:     "customPropertyDate",
+					DataType: schema.DataTypeDate.PropString(),
+				},
+				{
+					Name:            "customPropertyDateNoIndex",
+					DataType:        schema.DataTypeDate.PropString(),
+					IndexFilterable: &vFalse,
+				},
+				{
+					Name:     "customPropertyInt",
+					DataType: schema.DataTypeInt.PropString(),
+				},
+			},
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+	}
+
+	t.Run("valid config", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			reconfigure func(c *models.Class)
+		}{
+			{
+				name:        "deleteOn creation time",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropCreationTimeUnix },
+			},
+			{
+				name:        "deleteOn update time",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = filters.InternalPropLastUpdateTimeUnix },
+			},
+			{
+				name:        "deleteOn custom property",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyDate" },
+			},
+			{
+				name:        "no ttl config",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig = nil },
+			},
+			{
+				name:        "ttl disabled",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.Enabled = false },
+			},
+		}
+
+		run := func(t *testing.T, initial, updated *models.Class) {
+			t.Helper()
+
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
+			store := NewFakeStore()
+			store.parser = handler.parser
+
+			fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
+			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
+
+			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
+			_, _, err := handler.AddClass(context.Background(), nil, initial)
+			assert.NoError(t, err)
+			store.AddClass(initial)
+
+			err = handler.UpdateClass(context.Background(), nil, initial.Class, updated)
+
+			assert.NoError(t, err)
+			fakeSchemaManager.AssertExpectations(t)
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Run("reconfigured initial", func(t *testing.T) {
+					initial := createCollection()
+					tc.reconfigure(initial)
+					updated := createCollection()
+
+					run(t, initial, updated)
+				})
+				t.Run("reconfigured updated", func(t *testing.T) {
+					initial := createCollection()
+					updated := createCollection()
+					tc.reconfigure(updated)
+
+					run(t, initial, updated)
+				})
+			})
+		}
+	})
+
+	t.Run("invalid config returns error", func(t *testing.T) {
+		testCases := []struct {
+			name        string
+			reconfigure func(c *models.Class)
+		}{
+			{
+				name:        "non existing property",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyNotExistent" },
+			},
+			{
+				name:        "property without index",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyNoIndex" },
+			},
+			{
+				name:        "property invalid datatype",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DeleteOn = "customPropertyInt" },
+			},
+			{
+				name:        "ttl too small",
+				reconfigure: func(c *models.Class) { c.ObjectTTLConfig.DefaultTTL = 42 },
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				initial := createCollection()
+				updated := createCollection()
+				tc.reconfigure(updated)
+
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
+
+				store := NewFakeStore()
+				store.parser = handler.parser
+
+				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+				fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
+
+				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
+				_, _, err := handler.AddClass(context.Background(), nil, initial)
+				assert.NoError(t, err)
+				store.AddClass(initial)
+
+				err = handler.UpdateClass(context.Background(), nil, initial.Class, updated)
+
+				assert.ErrorContains(t, err, "ObjectTTLConfig")
+				fakeSchemaManager.AssertExpectations(t)
 			})
 		}
 	})
@@ -1995,6 +2569,9 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		},
 	}
 
+	fakeSchemaManager.On("ReadOnlyClass", "Class_A").Return(classes[0]).Maybe()
+	fakeSchemaManager.On("ReadOnlyClass", "Class_B").Return(classes[1]).Maybe()
+	fakeSchemaManager.On("ReadOnlyClass", "Class_C").Return(classes[2]).Maybe()
 	for _, classRaw := range classes {
 		schemaBytes, err := json.Marshal(classRaw)
 		require.Nil(t, err)
@@ -2214,7 +2791,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
@@ -2236,7 +2813,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
@@ -2254,7 +2831,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
@@ -2270,7 +2847,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
@@ -2333,6 +2910,70 @@ func Test_SetClassDefaults(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tt.expectedFactor, tt.class.ReplicationConfig.Factor)
+		})
+	}
+}
+
+func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
+	t.Parallel()
+	globalCfg := replication.GlobalConfig{MinimumFactor: 1}
+
+	tests := []struct {
+		name              string
+		defaultIndexType  string
+		classIndexType    string
+		expectedIndexType string
+	}{
+		{
+			name:              "no env, no class type => hnsw default",
+			defaultIndexType:  "",
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to flat, no class type => flat",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeFLAT,
+		},
+		{
+			name:              "env set to dynamic, no class type => dynamic",
+			defaultIndexType:  vectorindex.VectorIndexTypeDYNAMIC,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeDYNAMIC,
+		},
+		{
+			name:              "env set to hfresh, no class type => hfresh",
+			defaultIndexType:  vectorindex.VectorIndexTypeHFresh,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeHFresh,
+		},
+		{
+			name:              "env set to flat, class explicitly hnsw => hnsw preserved",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			classIndexType:    vectorindex.VectorIndexTypeHNSW,
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to hnsw, no class type => hnsw",
+			defaultIndexType:  vectorindex.VectorIndexTypeHNSW,
+			classIndexType:    "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t, &fakeDB{})
+			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
+
+			class := &models.Class{
+				VectorIndexType:   tt.classIndexType,
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			err := handler.setClassDefaults(class, globalCfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedIndexType, class.VectorIndexType)
 		})
 	}
 }
@@ -2413,5 +3054,538 @@ func Test_GetConsistentClass_WithAlias(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, expectedClass, class)
 		fakeSchemaManager.AssertExpectations(t)
+	})
+}
+
+func Test_deepEqualVectorizerSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		initial any
+		updated any
+		want    bool
+	}{
+		{
+			name: "all empty",
+			want: true,
+		},
+		{
+			name: "initial is empty, updated is not empty",
+			updated: map[string]any{
+				"model": "name",
+			},
+			want: false,
+		},
+		{
+			name: "initial is not empty, updated is empty",
+			initial: map[string]any{
+				"model": "name",
+			},
+			want: false,
+		},
+		{
+			name: "both are equal",
+			initial: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+			},
+			updated: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+			},
+			want: true,
+		},
+		{
+			name: "both are equal, but dimensions is json.Number type",
+			initial: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+			},
+			updated: map[string]any{
+				"model":      "name",
+				"dimensions": json.Number("1024"),
+			},
+			want: true,
+		},
+		{
+			name: "both are equal, but weights ares of json.Number type",
+			initial: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+				"weights": map[string]any{
+					"image": 0.9,
+				},
+			},
+			updated: map[string]any{
+				"model":      "name",
+				"dimensions": 1024,
+				"weights": map[string]any{
+					"image": json.Number("0.9"),
+				},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, deepEqualVectorizerSettings(tt.initial, tt.updated))
+		})
+	}
+}
+
+func TestValidatePropertyProcessing_EmptyConfigNormalized(t *testing.T) {
+	searchable := true
+	intPDT := newFakePrimitivePDT(schema.DataTypeInt)
+	textPDT := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("empty textAnalyzer on non-text property is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "count",
+			IndexSearchable: &searchable,
+			TextAnalyzer:    &models.TextAnalyzerConfig{},
+		}
+		err := validatePropertyProcessing(prop, intPDT, nil)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("empty textAnalyzer on text property is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer:    &models.TextAnalyzerConfig{},
+		}
+		err := validatePropertyProcessing(prop, textPDT, nil)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("empty ignore list with asciiFold=false is normalized", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       false,
+				ASCIIFoldIgnore: []string{},
+			},
+		}
+		err := validatePropertyProcessing(prop, textPDT, nil)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "zero-value config should be normalized to nil")
+	})
+
+	t.Run("non-empty config is NOT normalized", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "title",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold: true,
+			},
+		}
+		err := validatePropertyProcessing(prop, textPDT, nil)
+		require.NoError(t, err)
+		assert.NotNil(t, prop.TextAnalyzer, "active config should be preserved")
+	})
+}
+
+func TestValidatePropertyProcessing_Tokenization(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	tests := []struct {
+		name         string
+		tokenization string
+		expectError  bool
+	}{
+		{
+			name:         "word tokenization accepted",
+			tokenization: models.PropertyTokenizationWord,
+			expectError:  false,
+		},
+		{
+			name:         "lowercase tokenization accepted",
+			tokenization: models.PropertyTokenizationLowercase,
+			expectError:  false,
+		},
+		{
+			name:         "whitespace tokenization accepted",
+			tokenization: models.PropertyTokenizationWhitespace,
+			expectError:  false,
+		},
+		{
+			name:         "field tokenization accepted",
+			tokenization: models.PropertyTokenizationField,
+			expectError:  false,
+		},
+		{
+			name:         "trigram tokenization accepted",
+			tokenization: models.PropertyTokenizationTrigram,
+			expectError:  false,
+		},
+		{
+			name:         "empty tokenization accepted",
+			tokenization: "",
+			expectError:  false,
+		},
+		{
+			name:         "gse tokenization rejected",
+			tokenization: models.PropertyTokenizationGse,
+			expectError:  true,
+		},
+		{
+			name:         "kagome_kr tokenization rejected",
+			tokenization: models.PropertyTokenizationKagomeKr,
+			expectError:  true,
+		},
+		{
+			name:         "kagome_ja tokenization rejected",
+			tokenization: models.PropertyTokenizationKagomeJa,
+			expectError:  true,
+		},
+		{
+			name:         "gse_ch tokenization rejected",
+			tokenization: models.PropertyTokenizationGseCh,
+			expectError:  true,
+		},
+		{
+			name:         "unknown tokenization rejected",
+			tokenization: "unknown",
+			expectError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prop := &models.Property{
+				Name:            "test",
+				Tokenization:    tt.tokenization,
+				IndexSearchable: &searchable,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold: true,
+				},
+			}
+			err := validatePropertyProcessing(prop, pdt, nil)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unsupported tokenization")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidatePropertyProcessing_ASCIIFoldIgnore(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	tests := []struct {
+		name        string
+		ignore      []string
+		expectError bool
+	}{
+		{
+			name:        "single NFC character accepted",
+			ignore:      []string{"é"},
+			expectError: false,
+		},
+		{
+			name:        "multiple single characters accepted",
+			ignore:      []string{"é", "ñ", "ü"},
+			expectError: false,
+		},
+		{
+			name:        "NFD character normalized to single codepoint accepted",
+			ignore:      []string{"e\u0301"}, // é in NFD form
+			expectError: false,
+		},
+		{
+			name:        "multi-character string rejected",
+			ignore:      []string{"ab"},
+			expectError: true,
+		},
+		{
+			name:        "empty ignore list accepted",
+			ignore:      nil,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prop := &models.Property{
+				Name:            "test",
+				IndexSearchable: &searchable,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: tt.ignore,
+				},
+			}
+			err := validatePropertyProcessing(prop, pdt, nil)
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "single character")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidatePropertyProcessing_StopwordPreset(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("valid preset en is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "en",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("valid preset none is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "none",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("invalid preset is rejected", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "invalid_language",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown stopword preset")
+		assert.Contains(t, err.Error(), "invalid_language")
+	})
+
+	t.Run("empty preset is accepted and config normalized to nil", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+		assert.Nil(t, prop.TextAnalyzer, "empty stopwordPreset means empty config -> normalized to nil")
+	})
+
+	t.Run("stopwordPreset combined with asciiFold is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:      true,
+				StopwordPreset: "en",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("stopwordPreset only keeps config non-nil", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "none",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
+		require.NotNil(t, prop.TextAnalyzer, "config with stopwordPreset should not be normalized to nil")
+		assert.Equal(t, "none", prop.TextAnalyzer.StopwordPreset)
+	})
+
+	t.Run("user-defined preset is accepted", func(t *testing.T) {
+		userPresets := map[string][]string{
+			"medical": {"patient", "diagnosis", "treatment"},
+		}
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "medical",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, userPresets)
+		require.NoError(t, err)
+	})
+
+	t.Run("unknown preset rejected even with user presets", func(t *testing.T) {
+		userPresets := map[string][]string{
+			"medical": {"patient", "diagnosis"},
+		}
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			Tokenization:    models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				StopwordPreset: "nonexistent",
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, userPresets)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown stopword preset")
+	})
+
+	t.Run("stopwordPreset with non-word tokenization is rejected", func(t *testing.T) {
+		for _, tok := range []string{
+			models.PropertyTokenizationLowercase,
+			models.PropertyTokenizationWhitespace,
+			models.PropertyTokenizationField,
+			models.PropertyTokenizationTrigram,
+		} {
+			t.Run(tok, func(t *testing.T) {
+				prop := &models.Property{
+					Name:            "test",
+					IndexSearchable: &searchable,
+					Tokenization:    tok,
+					TextAnalyzer: &models.TextAnalyzerConfig{
+						StopwordPreset: "en",
+					},
+				}
+				err := validatePropertyProcessing(prop, pdt, nil)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "stopwordPreset is only supported with tokenization")
+			})
+		}
+	})
+}
+
+func TestValidateStopwordPresetsStillReferenced(t *testing.T) {
+	propWithPreset := func(name, preset string) *models.Property {
+		return &models.Property{
+			Name:         name,
+			Tokenization: models.PropertyTokenizationWord,
+			TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: preset},
+		}
+	}
+
+	t.Run("removed preset still referenced by top-level property is rejected", func(t *testing.T) {
+		props := []*models.Property{propWithPreset("title", "fr")}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `cannot remove preset "fr"`)
+		assert.Contains(t, err.Error(), `property "title"`)
+	})
+
+	t.Run("removed preset replaced by built-in is rejected", func(t *testing.T) {
+		// 'en' is built-in so even an empty updated map should be fine for it.
+		props := []*models.Property{propWithPreset("title", "en")}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("preset still present in updated config is accepted", func(t *testing.T) {
+		props := []*models.Property{propWithPreset("title", "fr")}
+		updated := map[string][]string{"fr": {"le", "la"}}
+		err := validateStopwordPresetsStillReferenced(props, updated)
+		require.NoError(t, err)
+	})
+
+	t.Run("property with no stopwordPreset is ignored", func(t *testing.T) {
+		props := []*models.Property{
+			{Name: "title", Tokenization: models.PropertyTokenizationWord},
+		}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("removed preset still referenced by nested property is rejected", func(t *testing.T) {
+		props := []*models.Property{
+			{
+				Name: "doc",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:         "body",
+						Tokenization: models.PropertyTokenizationWord,
+						TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: "fr"},
+					},
+				},
+			},
+		}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `cannot remove preset "fr"`)
+		assert.Contains(t, err.Error(), `property "doc.body"`)
+	})
+
+	t.Run("removed preset still referenced by deeply nested property is rejected", func(t *testing.T) {
+		props := []*models.Property{
+			{
+				Name: "doc",
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name: "section",
+						NestedProperties: []*models.NestedProperty{
+							{
+								Name:         "title",
+								Tokenization: models.PropertyTokenizationWord,
+								TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: "fr"},
+							},
+						},
+					},
+				},
+			},
+		}
+		err := validateStopwordPresetsStillReferenced(props, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `property "doc.section.title"`)
+	})
+}
+
+func TestValidatePropertyProcessing_ASCIIFoldIgnoreRequiresFold(t *testing.T) {
+	searchable := true
+	pdt := newFakePrimitivePDT(schema.DataTypeText)
+
+	t.Run("ignore with fold disabled is rejected", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       false,
+				ASCIIFoldIgnore: []string{"é"},
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "asciiFoldIgnore requires asciiFold to be enabled")
+	})
+
+	t.Run("ignore with fold enabled is accepted", func(t *testing.T) {
+		prop := &models.Property{
+			Name:            "test",
+			IndexSearchable: &searchable,
+			TextAnalyzer: &models.TextAnalyzerConfig{
+				ASCIIFold:       true,
+				ASCIIFoldIgnore: []string{"é"},
+			},
+		}
+		err := validatePropertyProcessing(prop, pdt, nil)
+		require.NoError(t, err)
 	})
 }

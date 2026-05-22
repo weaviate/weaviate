@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -74,7 +74,7 @@ func Test_UpdateAction(t *testing.T) {
 		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
 		manager = NewManager(schemaManager, cfg,
 			logger, authorizer, db, modulesProvider, metrics, nil,
-			NewAutoSchemaManager(schemaManager, db, cfg, authorizer, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, db, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {
@@ -91,7 +91,7 @@ func Test_UpdateAction(t *testing.T) {
 			Created:   beforeUpdate,
 			Updated:   beforeUpdate,
 		}
-		db.On("ObjectByID", id, mock.Anything, mock.Anything).Return(result, nil).Once()
+		db.On("Object", "ActionClass", id, mock.Anything, mock.Anything, "").Return(result, nil).Once()
 		modulesProvider.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
 			Return(vec, nil)
 		db.On("PutObject", mock.Anything, mock.Anything).Return(nil).Once()

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,8 +18,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// Parse Filter from REST construct to entities filter
-func Parse(in *models.WhereFilter, rootClass string) (*filters.LocalFilter, error) {
+// Parse Filter from REST construct to entities filter.
+//
+// When namespacesEnabled is true, reference-path filters (Path with more
+// than one element) are rejected. Inner class segments in such paths are
+// taken from caller input and are not auto-qualified by the resolver, so
+// allowing them through would silently fail downstream when the schema
+// lookup misses the unqualified inner class. Direct-property filters
+// (single-element Path) are unaffected.
+func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool) (*filters.LocalFilter, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -30,14 +37,14 @@ func Parse(in *models.WhereFilter, rootClass string) (*filters.LocalFilter, erro
 	}
 
 	if operator.OnValue() {
-		filter, err := parseValueFilter(in, operator, rootClass)
+		filter, err := parseValueFilter(in, operator, rootClass, namespacesEnabled)
 		if err != nil {
 			return nil, fmt.Errorf("invalid where filter: %w", err)
 		}
 		return filter, nil
 	}
 
-	filter, err := parseNestedFilter(in, operator, rootClass)
+	filter, err := parseNestedFilter(in, operator, rootClass, namespacesEnabled)
 	if err != nil {
 		return nil, fmt.Errorf("invalid where filter: %w", err)
 	}
@@ -45,14 +52,14 @@ func Parse(in *models.WhereFilter, rootClass string) (*filters.LocalFilter, erro
 }
 
 func parseValueFilter(in *models.WhereFilter,
-	operator filters.Operator, rootClass string,
+	operator filters.Operator, rootClass string, namespacesEnabled bool,
 ) (*filters.LocalFilter, error) {
 	value, err := parseValue(in)
 	if err != nil {
 		return nil, err
 	}
 
-	path, err := parsePath(in.Path, rootClass)
+	path, err := parsePath(in.Path, rootClass, namespacesEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +74,7 @@ func parseValueFilter(in *models.WhereFilter,
 }
 
 func parseNestedFilter(in *models.WhereFilter,
-	operator filters.Operator, rootClass string,
+	operator filters.Operator, rootClass string, namespacesEnabled bool,
 ) (*filters.LocalFilter, error) {
 	if in.Path != nil {
 		return nil, fmt.Errorf(
@@ -90,7 +97,7 @@ func parseNestedFilter(in *models.WhereFilter,
 			operator.Name())
 	}
 
-	operands, err := parseOperands(in.Operands, rootClass)
+	operands, err := parseOperands(in.Operands, rootClass, namespacesEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -103,10 +110,10 @@ func parseNestedFilter(in *models.WhereFilter,
 	}, nil
 }
 
-func parseOperands(ops []*models.WhereFilter, rootClass string) ([]filters.Clause, error) {
+func parseOperands(ops []*models.WhereFilter, rootClass string, namespacesEnabled bool) ([]filters.Clause, error) {
 	out := make([]filters.Clause, len(ops))
 	for i, operand := range ops {
-		res, err := Parse(operand, rootClass)
+		res, err := Parse(operand, rootClass, namespacesEnabled)
 		if err != nil {
 			return nil, fmt.Errorf("operand %d: %w", i, err)
 		}
@@ -154,9 +161,13 @@ func parseOperator(in string) (filters.Operator, error) {
 	}
 }
 
-func parsePath(in []string, rootClass string) (*filters.Path, error) {
+func parsePath(in []string, rootClass string, namespacesEnabled bool) (*filters.Path, error) {
 	if len(in) == 0 {
 		return nil, fmt.Errorf("field 'path': must have at least one element")
+	}
+
+	if namespacesEnabled && len(in) > 1 {
+		return nil, fmt.Errorf("field 'path': reference-path filters (path with more than one element) are not supported on namespace-enabled clusters")
 	}
 
 	pathElements := make([]interface{}, len(in))

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -96,6 +96,20 @@ func (e ErrNotFound) Error() string {
 // NewErrNotFound with Errorf signature
 func NewErrNotFound(format string, args ...interface{}) ErrNotFound {
 	return ErrNotFound{msg: fmt.Sprintf(format, args...)}
+}
+
+// ErrEndpointGone marks an operation that is no longer available in the
+// current cluster configuration. The REST layer maps this to HTTP 410.
+type ErrEndpointGone struct {
+	msg string
+}
+
+func (e ErrEndpointGone) Error() string {
+	return e.msg
+}
+
+func NewErrEndpointGone(format string, args ...interface{}) ErrEndpointGone {
+	return ErrEndpointGone{msg: fmt.Sprintf(format, args...)}
 }
 
 type ErrMultiTenancy struct {

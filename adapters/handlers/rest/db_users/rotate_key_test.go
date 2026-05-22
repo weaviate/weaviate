@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,7 +34,7 @@ func TestSuccessRotate(t *testing.T) {
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user"}}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-	dynUser.On("RotateKey", "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	dynUser.On("RotateKey", mock.Anything, "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:       dynUser,
@@ -70,7 +70,7 @@ func TestRotateInternalServerError(t *testing.T) {
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-				dynUser.On("RotateKey", "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.RotateKeyError)
+				dynUser.On("RotateKey", mock.Anything, "user", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tt.RotateKeyError)
 			}
 
 			h := dynUserHandler{

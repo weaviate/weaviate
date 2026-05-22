@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,7 +24,7 @@ type PropertyInterface interface {
 	GetNestedProperties() []*models.NestedProperty
 }
 
-// GetClassByName returns the class by its name
+// GetClassByName returns the class by its name.
 func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	if s == nil {
 		return nil, fmt.Errorf(ErrorNoSuchClass, className)
@@ -39,7 +39,9 @@ func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	return nil, fmt.Errorf(ErrorNoSuchClass, className)
 }
 
-// GetPropertyByName returns the class by its name
+// GetPropertyByName returns a frst-order property by its name.
+// If propName is a name of the nested property, then this property is returned.
+// It is not possible to retrieve deeply nested properties using the dot-notation.
 func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
 	for _, prop := range c.Properties {
 		// Check if the name of the property is the given name, that's the property we need
@@ -151,6 +153,7 @@ func IsValidValueDataType(dt string) bool {
 		string(DataTypeGeoCoordinates),
 		string(DataTypePhoneNumber),
 		string(DataTypeBlob),
+		string(DataTypeBlobHash),
 		string(DataTypeUUID),
 		string(DataTypeUUIDArray),
 		string(DataTypeStringArray),
@@ -178,6 +181,20 @@ func IsBlobDataType(dt []string) bool {
 		}
 	}
 	return false
+}
+
+func IsBlobHashDataType(dt []string) bool {
+	for i := range dt {
+		if dt[i] == string(DataTypeBlobHash) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsBlobLikeDataType returns true for both blob and blobHash data types.
+func IsBlobLikeDataType(dt []string) bool {
+	return IsBlobDataType(dt) || IsBlobHashDataType(dt)
 }
 
 func IsArrayDataType(dt []string) bool {

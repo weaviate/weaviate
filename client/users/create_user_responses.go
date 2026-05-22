@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -635,6 +635,9 @@ type CreateUserBody struct {
 
 	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user
 	Import *bool `json:"import,omitempty"`
+
+	// Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // Validate validates this create user body

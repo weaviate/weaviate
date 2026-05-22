@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -104,7 +104,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 			return nil, fmt.Errorf("element %v is not a string", i+2)
 		}
 
-		className, err := schema.ValidateClassName(rawClassName)
+		className, err := schema.ValidateQualifiedClassName(rawClassName)
 		if err != nil {
 			return nil, fmt.Errorf("expected a valid class name in 'path' field for the filter but got '%s'", rawClassName)
 		}
@@ -121,7 +121,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 		} else {
 			propertyName, err = schema.ValidatePropertyName(rawPropertyName)
 			// Invalid property name?
-			// Try to parse it as as a reference or a length.
+			// Try to parse it as a reference or a length.
 			if err != nil {
 				untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:]
 				propertyName, err = schema.ValidatePropertyName(untitlizedPropertyName)

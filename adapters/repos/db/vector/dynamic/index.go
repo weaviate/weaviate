@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,6 @@ import (
 	simpleErrors "errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -34,11 +33,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -63,10 +63,11 @@ type VectorIndex interface {
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
 	UpdateUserConfig(updated schemaconfig.VectorIndexConfig, callback func()) error
-	Drop(ctx context.Context) error
+	Drop(ctx context.Context, keepFiles bool) error
 	Shutdown(ctx context.Context) error
 	Flush() error
-	SwitchCommitLogs(ctx context.Context) error
+	PrepareForBackup(ctx context.Context) error
+	ResumeAfterBackup(ctx context.Context) error
 	ListFiles(ctx context.Context, basePath string) ([]string, error)
 	PostStartup(ctx context.Context)
 	Compressed() bool
@@ -100,7 +101,8 @@ type dynamic struct {
 	className                    string
 	prometheusMetrics            *monitoring.PrometheusMetrics
 	vectorForIDThunk             common.VectorForID[float32]
-	tempVectorForIDThunk         common.TempVectorForID[float32]
+	getViewThunk                 common.GetViewThunk
+	tempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
 	distanceProvider             distancer.Provider
 	makeCommitLoggerThunk        hnsw.MakeCommitLogger
 	threshold                    uint64
@@ -115,15 +117,12 @@ type dynamic struct {
 	hnswDisableSnapshots         bool
 	hnswSnapshotOnStartup        bool
 	hnswWaitForCachePrefill      bool
-	LazyLoadSegments             bool
-	WriteSegmentInfoIntoFileName bool
-	WriteMetadataFilesEnabled    bool
+	AllocChecker                 memwatch.AllocChecker
+	MakeBucketOptions            lsmkv.MakeBucketOptions
+	AsyncIndexingEnabled         bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
-	if !entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
-		return nil, errors.New("the dynamic index can only be created under async indexing environment")
-	}
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}
@@ -136,17 +135,13 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	flatConfig := flat.Config{
-		ID:                           cfg.ID,
-		RootPath:                     cfg.RootPath,
-		TargetVector:                 cfg.TargetVector,
-		Logger:                       cfg.Logger,
-		DistanceProvider:             cfg.DistanceProvider,
-		MinMMapSize:                  cfg.MinMMapSize,
-		MaxWalReuseSize:              cfg.MaxWalReuseSize,
-		LazyLoadSegments:             cfg.LazyLoadSegments,
-		AllocChecker:                 cfg.AllocChecker,
-		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
-		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
+		ID:                cfg.ID,
+		RootPath:          cfg.RootPath,
+		TargetVector:      cfg.TargetVector,
+		Logger:            cfg.Logger,
+		DistanceProvider:  cfg.DistanceProvider,
+		AllocChecker:      cfg.AllocChecker,
+		MakeBucketOptions: cfg.MakeBucketOptions,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -160,7 +155,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		className:                    cfg.ClassName,
 		prometheusMetrics:            cfg.PrometheusMetrics,
 		vectorForIDThunk:             cfg.VectorForIDThunk,
-		tempVectorForIDThunk:         cfg.TempVectorForIDThunk,
+		getViewThunk:                 cfg.GetViewThunk,
+		tempVectorForIDWithViewThunk: cfg.TempVectorForIDWithViewThunk,
 		distanceProvider:             cfg.DistanceProvider,
 		makeCommitLoggerThunk:        cfg.MakeCommitLoggerThunk,
 		store:                        store,
@@ -173,9 +169,9 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		hnswDisableSnapshots:         cfg.HNSWDisableSnapshots,
 		hnswSnapshotOnStartup:        cfg.HNSWSnapshotOnStartup,
 		hnswWaitForCachePrefill:      cfg.HNSWWaitForCachePrefill,
-		LazyLoadSegments:             cfg.LazyLoadSegments,
-		WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
-		WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
+		AllocChecker:                 cfg.AllocChecker,
+		MakeBucketOptions:            cfg.MakeBucketOptions,
+		AsyncIndexingEnabled:         cfg.AsyncIndexingEnabled,
 	}
 
 	upgraded, err := index.init(&cfg)
@@ -194,15 +190,16 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				ClassName:                    index.className,
 				PrometheusMetrics:            index.prometheusMetrics,
 				VectorForIDThunk:             index.vectorForIDThunk,
-				TempVectorForIDThunk:         index.tempVectorForIDThunk,
+				GetViewThunk:                 index.getViewThunk,
+				TempVectorForIDWithViewThunk: index.tempVectorForIDWithViewThunk,
 				DistanceProvider:             index.distanceProvider,
 				MakeCommitLoggerThunk:        index.makeCommitLoggerThunk,
 				DisableSnapshots:             index.hnswDisableSnapshots,
 				SnapshotOnStartup:            index.hnswSnapshotOnStartup,
-				LazyLoadSegments:             index.LazyLoadSegments,
 				WaitForCachePrefill:          index.hnswWaitForCachePrefill,
-				WriteSegmentInfoIntoFileName: cfg.WriteSegmentInfoIntoFileName,
-				WriteMetadataFilesEnabled:    cfg.WriteMetadataFilesEnabled,
+				AllocChecker:                 index.AllocChecker,
+				MakeBucketOptions:            index.MakeBucketOptions,
+				AsyncIndexingEnabled:         index.AsyncIndexingEnabled,
 			},
 			index.uc.HnswUC,
 			index.tombstoneCallbacks,
@@ -374,7 +371,7 @@ func (dynamic *dynamic) UpdateUserConfig(updated schemaconfig.VectorIndexConfig,
 	return nil
 }
 
-func (dynamic *dynamic) Drop(ctx context.Context) error {
+func (dynamic *dynamic) Drop(ctx context.Context, keepFiles bool) error {
 	if dynamic.ctx.Err() != nil {
 		// already dropped
 		return nil
@@ -389,8 +386,11 @@ func (dynamic *dynamic) Drop(ctx context.Context) error {
 	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
-	os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
-	return dynamic.index.Drop(ctx)
+	if !keepFiles {
+		os.Remove(filepath.Join(dynamic.rootPath, "index.db"))
+	}
+
+	return dynamic.index.Drop(ctx, keepFiles)
 }
 
 func (dynamic *dynamic) Flush() error {
@@ -415,10 +415,16 @@ func (dynamic *dynamic) Shutdown(ctx context.Context) error {
 	return dynamic.index.Shutdown(ctx)
 }
 
-func (dynamic *dynamic) SwitchCommitLogs(ctx context.Context) error {
+func (dynamic *dynamic) PrepareForBackup(ctx context.Context) error {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.SwitchCommitLogs(ctx)
+	return dynamic.index.PrepareForBackup(ctx)
+}
+
+func (dynamic *dynamic) ResumeAfterBackup(ctx context.Context) error {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.ResumeAfterBackup(ctx)
 }
 
 func (dynamic *dynamic) ListFiles(ctx context.Context, basePath string) ([]string, error) {
@@ -479,9 +485,7 @@ func (dynamic *dynamic) Upgraded() bool {
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
-	for i := range slice {
-		slice[i] = math.Float32frombits(binary.LittleEndian.Uint32(vector[i*4:]))
-	}
+	byteops.CopyBytesToSlice(slice, vector[:len(slice)*4])
 	return slice
 }
 
@@ -528,14 +532,16 @@ func (dynamic *dynamic) doUpgrade() error {
 			ClassName:                    dynamic.className,
 			PrometheusMetrics:            dynamic.prometheusMetrics,
 			VectorForIDThunk:             dynamic.vectorForIDThunk,
-			TempVectorForIDThunk:         dynamic.tempVectorForIDThunk,
+			GetViewThunk:                 dynamic.getViewThunk,
+			TempVectorForIDWithViewThunk: dynamic.tempVectorForIDWithViewThunk,
 			DistanceProvider:             dynamic.distanceProvider,
 			MakeCommitLoggerThunk:        dynamic.makeCommitLoggerThunk,
 			DisableSnapshots:             dynamic.hnswDisableSnapshots,
 			SnapshotOnStartup:            dynamic.hnswSnapshotOnStartup,
 			WaitForCachePrefill:          dynamic.hnswWaitForCachePrefill,
-			WriteSegmentInfoIntoFileName: dynamic.WriteSegmentInfoIntoFileName,
-			WriteMetadataFilesEnabled:    dynamic.WriteMetadataFilesEnabled,
+			AllocChecker:                 dynamic.AllocChecker,
+			MakeBucketOptions:            dynamic.MakeBucketOptions,
+			AsyncIndexingEnabled:         dynamic.AsyncIndexingEnabled,
 		},
 		dynamic.uc.HnswUC,
 		dynamic.tombstoneCallbacks,
@@ -551,6 +557,11 @@ func (dynamic *dynamic) doUpgrade() error {
 		dynamic.RUnlock()
 		return err
 	}
+
+	// Start commit-log maintenance on the new HNSW index. The cache prefill
+	// is a no-op because cachePrefilled was already set during init (fresh
+	// index with no commit-log state) and the cache is populated by AddBatch.
+	index.PostStartup(dynamic.ctx)
 
 	// end of read-only zone
 	dynamic.RUnlock()
@@ -573,7 +584,7 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "update dynamic")
 	}
 
-	dynamic.index.Drop(dynamic.ctx)
+	dynamic.index.Drop(dynamic.ctx, false)
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
 

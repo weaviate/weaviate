@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 )
 
 func (h *hnsw) init(cfg Config) error {
@@ -104,10 +105,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		return errors.Wrap(err, "load commit logger state")
 	}
 
-	h.cachePrefilled.Store(state == nil)
-
 	if state == nil {
-		// nothing to do
+		// Mark the cache as prefilled for fresh indexes so that compression
+		// (e.g. RQ via checkAndCompress) can proceed immediately.
+		h.cachePrefilled.Store(true)
 		return nil
 	}
 
@@ -141,7 +142,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		h.cache.Drop()
 		if state.CompressionPQData != nil {
 			data := state.CompressionPQData
-			h.dims = int32(data.Dimensions)
+			h.dims.Store(int32(data.Dimensions))
 
 			if len(data.Encoders) > 0 {
 				// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
@@ -158,10 +159,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.logger,
 						data.Encoders,
 						h.store,
-						h.MinMMapSize,
-						h.MaxWalReuseSize,
+						h.makeBucketOptions,
 						h.allocChecker,
 						h.getTargetVector(),
+						h.vectorForID,
 					)
 				} else {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQMultiCompressor(
@@ -172,10 +173,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 						h.logger,
 						data.Encoders,
 						h.store,
-						h.MinMMapSize,
-						h.MaxWalReuseSize,
+						h.makeBucketOptions,
 						h.allocChecker,
 						h.getTargetVector(),
+						h.multiVectorForNodeID,
 					)
 				}
 				if err != nil {
@@ -184,7 +185,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			}
 		} else if state.CompressionSQData != nil {
 			data := state.CompressionSQData
-			h.dims = int32(data.Dimensions)
+			h.dims.Store(int32(data.Dimensions))
 			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 					h.distancerProvider,
@@ -194,10 +195,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.B,
 					data.Dimensions,
 					h.store,
-					h.MinMMapSize,
-					h.MaxWalReuseSize,
+					h.makeBucketOptions,
 					h.allocChecker,
 					h.getTargetVector(),
+					h.vectorForID,
 				)
 			} else {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQMultiCompressor(
@@ -208,10 +209,10 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					data.B,
 					data.Dimensions,
 					h.store,
-					h.MinMMapSize,
-					h.MaxWalReuseSize,
+					h.makeBucketOptions,
 					h.allocChecker,
 					h.getTargetVector(),
+					h.multiVectorForNodeID,
 				)
 			}
 			if err != nil {
@@ -237,13 +238,12 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		if h.multivector.Load() && !h.muvera.Load() {
 			h.populateKeys()
 		}
-		if len(h.nodes) > 0 {
-			if vec, err := h.vectorForID(context.Background(), h.entryPointID); err == nil {
-				h.dims = int32(len(vec))
-			}
-		}
 	} else {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
+	}
+
+	if h.dims.Load() == 0 {
+		h.setDimensionsFromEntrypoint()
 	}
 
 	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
@@ -254,14 +254,21 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	h.resetTombstoneMetric()
 
 	// make sure the visited list pool fits the current size
-	h.pools.visitedLists.Destroy()
-	h.pools.visitedLists = nil
-	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512, h.visitedListPoolMaxSize)
+	h.pools.visitedLists = visited.NewPool(len(h.nodes) + 512)
 
 	return nil
 }
 
-func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) error {
+func (h *hnsw) setDimensionsFromEntrypoint() {
+	if len(h.nodes) > 0 {
+		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
+			h.dims.Store(int32(len(vec)))
+		}
+	}
+}
+
+func (h *hnsw) restoreRotationalQuantization(data *compression.RQData) error {
+	h.dims.Store(int32(data.InputDim))
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -278,7 +285,9 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
 				h.getTargetVector(),
+				h.vectorForID,
 			)
 		})
 	} else {
@@ -296,7 +305,9 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 				nil,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
 				h.getTargetVector(),
+				h.multiVectorForNodeID,
 			)
 		})
 	}
@@ -304,7 +315,7 @@ func (h *hnsw) restoreRotationalQuantization(data *compressionhelpers.RQData) er
 	return err
 }
 
-func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQData) error {
+func (h *hnsw) restoreBinaryRotationalQuantization(data *compression.BRQData) error {
 	var err error
 	if !h.multivector.Load() || h.muvera.Load() {
 		h.trackRQOnce.Do(func() {
@@ -321,7 +332,9 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
 				h.getTargetVector(),
+				h.vectorForID,
 			)
 		})
 	} else {
@@ -339,7 +352,9 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *compressionhelpers.BRQD
 				data.Rounding,
 				h.store,
 				h.allocChecker,
+				h.makeBucketOptions,
 				h.getTargetVector(),
+				h.multiVectorForNodeID,
 			)
 		})
 	}
@@ -426,34 +441,54 @@ func (h *hnsw) populateKeys() {
 	}
 }
 
+// multiVectorForNodeID resolves a nodeID to its raw float32 vector by looking
+// up the (docID, relativeID) mapping from the compressor's cache, then fetching
+// from the object store. Used as the recovery callback for compressed multi-vector
+// indexes instead of h.vectorForID, which points to the dropped float32 cache.
+func (h *hnsw) multiVectorForNodeID(ctx context.Context, nodeID uint64) ([]float32, error) {
+	docID, relativeID := h.compressor.GetKeys(nodeID)
+	vecs, err := h.MultiVectorForIDThunk(ctx, docID)
+	if err != nil {
+		return nil, errors.Wrapf(err, "multi-vector recovery for nodeID %d (docID %d)", nodeID, docID)
+	}
+	if int(relativeID) >= len(vecs) {
+		return nil, errors.Errorf("multi-vector recovery: relativeID %d out of bounds for docID %d (nodeID %d, got %d vecs)",
+			relativeID, docID, nodeID, len(vecs))
+	}
+	return vecs[relativeID], nil
+}
+
 func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	if !h.cachePrefilled.Load() {
+		return false
+	}
+
 	if h.allocChecker != nil {
 		// allocChecker is optional, we can only check if it was actually set
 
 		// It's hard to estimate how much memory we'd need to do a successful
-		// hnsw delete cleanup. The value below is probalby vastly overstated.
+		// hnsw delete cleanup. The value below is probably vastly overstated.
 		// However, without a doubt, delete cleanup could lead to temporary
 		// memory increases, either because it loads vectors into cache or
 		// because it rewrites connections in a way that they could need more
 		// memory than before. Either way, it's probably a good idea not to
 		// start a cleanup cycle if we are already this close to running out of
 		// memory.
-		memoryNeeded := int64(100 * 1024 * 1024)
+		memoryNeeded := int64(tombstoneCleanupMemoryNeeded)
 
 		if err := h.allocChecker.CheckAlloc(memoryNeeded); err != nil {
 			h.logger.WithFields(logrus.Fields{
 				"action": "hnsw_tombstone_cleanup",
 				"event":  "cleanup_skipped_oom",
 				"class":  h.className,
-			}).WithError(err).
-				Warnf("skipping hnsw cleanup due to memory pressure")
+			}).Warnf("skipping hnsw cleanup due to memory pressure: %v", err)
 			return false
 		}
 	}
 	executed, err := h.cleanUpTombstonedNodes(shouldAbort)
 	if err != nil {
 		h.logger.WithField("action", "hnsw_tombstone_cleanup").
-			WithError(err).Error("tombstone cleanup errord")
+			Error(err)
 	}
 	return executed
 }
@@ -480,6 +515,13 @@ func (h *hnsw) PostStartup(ctx context.Context) {
 }
 
 func (h *hnsw) prefillCache(ctx context.Context) {
+	// If the cache is already marked as prefilled (e.g. fresh index with no
+	// commit-log state), there is nothing to do. Skipping avoids launching a
+	// goroutine that could race with checkAndCompress on h.cache/h.compressor.
+	if h.cachePrefilled.Load() {
+		return
+	}
+
 	limit := 0
 	if h.compressed.Load() {
 		limit = int(h.compressor.GetCacheMaxSize())

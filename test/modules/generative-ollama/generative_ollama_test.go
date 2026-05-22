@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,9 +33,9 @@ func testGenerativeOllama(rest, grpc, ollamaApiEndpoint string) func(t *testing.
 		class := planets.BaseClass("PlanetsGenerativeTest")
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
-				Vectorizer: map[string]interface{}{
-					"text2vec-transformers": map[string]interface{}{
-						"properties":         []interface{}{"description"},
+				Vectorizer: map[string]any{
+					"text2vec-model2vec": map[string]any{
+						"properties":         []any{"description"},
 						"vectorizeClassName": false,
 					},
 				},
@@ -53,8 +53,8 @@ func testGenerativeOllama(rest, grpc, ollamaApiEndpoint string) func(t *testing.
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				class.ModuleConfig = map[string]interface{}{
-					"generative-ollama": map[string]interface{}{
+				class.ModuleConfig = map[string]any{
+					"generative-ollama": map[string]any{
 						"apiEndpoint": ollamaApiEndpoint,
 						"model":       tt.generativeModel,
 					},

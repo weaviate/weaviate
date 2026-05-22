@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,11 +28,13 @@ import (
 
 type AggregateParser struct {
 	authorizedGetClass classGetterWithAuthzFunc
+	namespacesEnabled  bool
 }
 
-func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc) *AggregateParser {
+func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool) *AggregateParser {
 	return &AggregateParser{
 		authorizedGetClass: authorizedGetClass,
+		namespacesEnabled:  namespacesEnabled,
 	}
 }
 
@@ -76,7 +78,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.namespacesEnabled)
 		if err != nil {
 			return nil, fmt.Errorf("extract filters: %w", err)
 		}
@@ -91,6 +93,10 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	targetVectors, _, _, err := extractTargetVectorsForAggregate(req, class)
 	if err != nil {
 		return nil, fmt.Errorf("extract target vectors: %w", err)
+	}
+
+	if len(targetVectors) > 1 {
+		return nil, fmt.Errorf("found more than one target vector for aggregation")
 	}
 
 	switch search := req.GetSearch().(type) {
@@ -278,11 +284,20 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 			}
 			nearVec := search.Hybrid.NearVector
 
+			var alpha float64
+			if !hs.UseAlphaParam {
+				alpha = float64(hs.Alpha)
+			} else if hs.AlphaParam != nil {
+				alpha = float64(*hs.AlphaParam)
+			} else {
+				alpha = common_filters.DefaultAlpha
+			}
+
 			params.Hybrid = &searchparams.HybridSearch{
 				Query:           hs.Query,
 				Properties:      schema.LowercaseFirstLetterOfStrings(hs.Properties),
 				Vector:          vector,
-				Alpha:           float64(hs.Alpha),
+				Alpha:           alpha,
 				FusionAlgorithm: fusionType,
 				TargetVectors:   targetVectors,
 				Distance:        distance,

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -88,6 +88,8 @@ func Test_APIKeyClient(t *testing.T) {
 				p, err := c.ValidateAndExtract("secret-key", nil)
 				require.Nil(t, err)
 				assert.Equal(t, "mrRoboto", p.Username)
+				assert.True(t, p.IsGlobalOperator, "static API keys must be global operators")
+				assert.Empty(t, p.Namespace)
 
 				_, err = c.ValidateAndExtract("", nil)
 				require.NotNil(t, err)

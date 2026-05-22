@@ -4,12 +4,22 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
 package backup
+
+import "io"
+
+// ReadCloserWithError extends io.ReadCloser with CloseWithError method.
+// CloseWithError closes the reader and signals the given error to the writer,
+// so the writer sees the actual error instead of a generic "closed pipe" error.
+type ReadCloserWithError interface {
+	io.ReadCloser
+	CloseWithError(error) error
+}
 
 type ErrUnprocessable struct {
 	err error

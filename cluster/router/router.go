@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,18 +23,13 @@ import (
 	"context"
 	"fmt"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	"github.com/weaviate/weaviate/usecases/objects"
-
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-
-	"github.com/weaviate/weaviate/entities/models"
-
-	"github.com/weaviate/weaviate/usecases/schema"
-
 	"github.com/weaviate/weaviate/cluster/router/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // Builder provides a builder for creating router instances based on configuration.

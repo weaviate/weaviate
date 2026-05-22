@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,12 +16,14 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type Scheduler struct {
@@ -54,6 +56,8 @@ type SchedulerOptions struct {
 	RetryInterval time.Duration
 	// Function to be called when the scheduler is closed
 	OnClose func()
+	// Prometheus metrics. Optional.
+	Metrics *monitoring.PrometheusMetrics
 }
 
 func NewScheduler(opts SchedulerOptions) *Scheduler {
@@ -107,7 +111,7 @@ func NewScheduler(opts SchedulerOptions) *Scheduler {
 		activeTasks:      common.NewSharedGauge(),
 	}
 	s.queues.m = make(map[string]*queueState)
-	s.triggerCh = make(chan chan struct{})
+	s.triggerCh = make(chan chan struct{}, 1)
 
 	return &s
 }
@@ -123,10 +127,10 @@ func (s *Scheduler) RegisterQueue(q Queue) {
 
 	s.queues.m[q.ID()] = newQueueState(s.ctx, q)
 
-	q.Metrics().Registered(q.ID())
+	s.updateQueueCountMetric()
 }
 
-func (s *Scheduler) UnregisterQueue(id string) {
+func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
 	if s.ctx == nil {
 		// scheduler not started
 		return
@@ -142,14 +146,14 @@ func (s *Scheduler) UnregisterQueue(id string) {
 	q.cancelFn()
 
 	// wait for the workers to finish processing the queue's tasks
-	s.Wait(id)
+	_ = s.Wait(ctx, id)
 
 	// the queue is paused, so it's safe to remove it
 	s.queues.Lock()
 	delete(s.queues.m, id)
 	s.queues.Unlock()
 
-	q.q.Metrics().Unregistered(q.q.ID())
+	s.updateQueueCountMetric()
 }
 
 func (s *Scheduler) Start() {
@@ -164,7 +168,7 @@ func (s *Scheduler) Start() {
 	chans := make([]chan *Batch, s.Workers)
 
 	for i := 0; i < s.Workers; i++ {
-		worker, ch := NewWorker(s.Logger, s.RetryInterval)
+		worker, ch := NewWorker(s.Logger.WithField("worker_id", i))
 		chans[i] = ch
 
 		s.wg.Add(1)
@@ -188,7 +192,7 @@ func (s *Scheduler) Start() {
 	enterrors.GoWrapper(f, s.Logger)
 }
 
-func (s *Scheduler) Close() error {
+func (s *Scheduler) Close(ctx context.Context) error {
 	if s == nil || s.ctx == nil {
 		// scheduler not initialized. No op.
 		return nil
@@ -203,7 +207,7 @@ func (s *Scheduler) Close() error {
 	s.cancelFn()
 
 	// wait for the workers to finish processing tasks
-	s.activeTasks.Wait()
+	_ = s.activeTasks.Wait(ctx)
 
 	// wait for the spawned goroutines to stop
 	s.wg.Wait()
@@ -237,7 +241,24 @@ func (s *Scheduler) PauseQueue(id string) {
 	q.paused = true
 	q.m.Unlock()
 
+	s.updatePausedMetric()
+
 	s.Logger.WithField("id", id).Debug("queue paused")
+}
+
+// IsQueuePaused returns true if the queue is paused.
+func (s *Scheduler) IsQueuePaused(id string) bool {
+	if s.ctx == nil {
+		// scheduler not started
+		return false
+	}
+
+	q := s.getQueue(id)
+	if q == nil {
+		return false
+	}
+
+	return q.Paused()
 }
 
 func (s *Scheduler) ResumeQueue(id string) {
@@ -255,31 +276,60 @@ func (s *Scheduler) ResumeQueue(id string) {
 	q.paused = false
 	q.m.Unlock()
 
+	s.updatePausedMetric()
+
 	s.Logger.WithField("id", id).Debug("queue resumed")
 }
 
-func (s *Scheduler) Wait(id string) {
+func (s *Scheduler) updatePausedMetric() {
+	if s.Metrics == nil {
+		return
+	}
+
+	var count int
+	s.queues.Lock()
+	for _, q := range s.queues.m {
+		if q.Paused() {
+			count++
+		}
+	}
+	s.queues.Unlock()
+
+	s.Metrics.QueuePaused.Set(float64(count))
+}
+
+func (s *Scheduler) updateQueueCountMetric() {
+	if s.Metrics == nil {
+		return
+	}
+
+	s.Metrics.QueueCount.Set(float64(len(s.queues.m)))
+}
+
+func (s *Scheduler) Wait(ctx context.Context, id string) error {
 	if s.ctx == nil {
 		// scheduler not started
-		return
+		return nil
 	}
 
 	q := s.getQueue(id)
 	if q == nil {
-		return
+		return nil
 	}
 
-	q.scheduled.Wait()
-	q.activeTasks.Wait()
+	if err := q.scheduled.Wait(ctx); err != nil {
+		return err
+	}
+	return q.activeTasks.Wait(ctx)
 }
 
-func (s *Scheduler) WaitAll() {
+func (s *Scheduler) WaitAll(ctx context.Context) error {
 	if s.ctx == nil {
 		// scheduler not started
-		return
+		return nil
 	}
 
-	s.activeTasks.Wait()
+	return s.activeTasks.Wait(ctx)
 }
 
 func (s *Scheduler) getQueue(id string) *queueState {
@@ -325,6 +375,15 @@ func (s *Scheduler) Schedule(ctx context.Context) {
 	}
 }
 
+func (s *Scheduler) triggerSchedule() {
+	ch := make(chan struct{})
+	select {
+	case s.triggerCh <- ch:
+	default:
+		close(ch)
+	}
+}
+
 func (s *Scheduler) schedule() {
 	// as long as there are tasks to schedule, keep running
 	// in a tight loop
@@ -360,6 +419,11 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 			continue
 		}
 
+		// skip if already scheduled
+		if q.activeTasks.Count() > 0 {
+			continue
+		}
+
 		// mark it as scheduled
 		q.MarkAsScheduled()
 
@@ -388,7 +452,9 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 
 		q.MarkAsUnscheduled()
 
-		nothingScheduled = count <= 0
+		if count > 0 {
+			nothingScheduled = false
+		}
 	}
 
 	return nothingScheduled
@@ -419,20 +485,19 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 
 	// compress the tasks before sending them to the workers
 	// i.e. group consecutive tasks with the same operation as a single task
+	// e.g. multiple index.Add into a single index.AddBatch
 	for i := range partitions {
 		partitions[i] = s.compressTasks(partitions[i])
 	}
 
 	// keep track of the number of active tasks
 	// for this chunk to remove it when all tasks are done
-	var counter int
+	var counter atomic.Int32
 	for i, partition := range partitions {
 		if len(partition) == 0 {
 			continue
 		}
-		q.m.Lock()
-		counter++
-		q.m.Unlock()
+		counter.Add(1)
 
 		// increment the global active tasks counter
 		s.activeTasks.Incr()
@@ -441,30 +506,17 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 
 		start := time.Now()
 
-		select {
-		case <-s.ctx.Done():
-			s.activeTasks.Decr()
-			q.activeTasks.Decr()
-			return taskCount, nil
-		case <-q.ctx.Done():
-			s.activeTasks.Decr()
-			q.activeTasks.Decr()
-			return taskCount, nil
-		case s.chans[i] <- &Batch{
+		// prepare the batch for the worker
+		wb := Batch{
 			Tasks: partitions[i],
 			Ctx:   q.ctx,
-			onDone: func() {
-				defer q.q.Metrics().TasksProcessed(start, int(taskCount))
-				defer q.activeTasks.Decr()
-				defer s.activeTasks.Decr()
+			OnDone: func() {
+				c := counter.Add(-1)
 
-				q.m.Lock()
-				counter--
-				c := counter
-				q.m.Unlock()
+				// once all tasks are done, notify the queue
+				// so that it can clean up its state and get ready
+				// for next scheduling.
 				if c == 0 {
-					// It is important to unlock the queue here
-					// to avoid a deadlock when the last worker calls Done.
 					batch.Done()
 					s.Logger.
 						WithField("queue_id", q.q.ID()).
@@ -472,18 +524,66 @@ func (s *Scheduler) dispatchQueue(q *queueState) (int64, error) {
 						WithField("count", taskCount).
 						Debug("tasks processed")
 				}
+
+				// decrement the global and queue active tasks counters
+				q.activeTasks.Decr()
+				s.activeTasks.Decr()
+				q.q.Metrics().TasksProcessed(start, int(taskCount))
+
+				// notify the scheduler to check for more tasks
+				if c == 0 {
+					s.triggerSchedule()
+				}
 			},
-			onCanceled: func() {
+			OnCanceled: func() {
 				q.activeTasks.Decr()
 				s.activeTasks.Decr()
 			},
-		}:
+		}
+
+		err = s.sendToAvailableWorker(q, &wb)
+		if err != nil {
+			s.activeTasks.Decr()
+			q.activeTasks.Decr()
+			return taskCount, errors.Wrap(err, "failed to send batch to worker")
 		}
 	}
 
 	s.logQueueStats(q.q, taskCount)
 
 	return taskCount, nil
+}
+
+// sendToAvailableWorker tries to send the batch to an available worker channel.
+// If no worker is available, it waits and retries until successful or until
+// the scheduler or queue context is done.
+func (s *Scheduler) sendToAvailableWorker(q *queueState, batch *Batch) error {
+	// pick the first available worker channel
+	for {
+		for _, ch := range s.chans {
+			select {
+			case <-s.ctx.Done():
+				return s.ctx.Err()
+			case <-q.ctx.Done():
+				return q.ctx.Err()
+			case ch <- batch:
+				return nil
+			default:
+			}
+		}
+
+		// wait a bit before retrying
+		t := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-s.ctx.Done():
+			t.Stop()
+			return s.ctx.Err()
+		case <-q.ctx.Done():
+			t.Stop()
+			return q.ctx.Err()
+		case <-t.C:
+		}
+	}
 }
 
 func (s *Scheduler) logQueueStats(q Queue, tasksDequeued int64) {

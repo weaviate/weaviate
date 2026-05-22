@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -21,6 +21,9 @@ import (
 type Manager interface {
 	QueryShardingStateByCollection(ctx context.Context, collection string) (api.ShardingState, error)
 	QueryShardingStateByCollectionAndShard(ctx context.Context, collection string, shard string) (api.ShardingState, error)
+
+	GetReplicationScalePlan(ctx context.Context, collection string, replicationFactor int) (api.ReplicationScalePlan, error)
+	ApplyReplicationScalePlan(ctx context.Context, scalePlan api.ReplicationScalePlan) ([]strfmt.UUID, error)
 
 	ReplicationReplicateReplica(ctx context.Context, opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error
 

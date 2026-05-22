@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,7 +29,7 @@ import (
 )
 
 func TestAnalyzeObject(t *testing.T) {
-	a := NewAnalyzer(nil)
+	a := NewAnalyzer(nil, "")
 
 	t.Run("with multiple properties", func(t *testing.T) {
 		id1 := uuid.New()
@@ -84,7 +84,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"uuid[]"},
 			},
 		}
-		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		res, _, err := a.Object(sch, props, strfmt.UUID(uuid))
 		require.Nil(t, err)
 
 		expectedDescription := []Countable{
@@ -275,7 +275,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"number[]"},
 			},
 		}
-		res, err := a.Object(sch, props, strfmt.UUID(uuid))
+		res, _, err := a.Object(sch, props, strfmt.UUID(uuid))
 		require.Nil(t, err)
 
 		expectedDescriptions := []Countable{
@@ -454,7 +454,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -513,7 +513,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -563,7 +563,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -619,7 +619,7 @@ func TestAnalyzeObject(t *testing.T) {
 					DataType: []string{"SomeClass"},
 				},
 			}
-			res, err := a.Object(sch, props, strfmt.UUID(uuid))
+			res, _, err := a.Object(sch, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedUUID := []Countable{
@@ -670,7 +670,7 @@ func TestAnalyzeObject(t *testing.T) {
 			},
 		}
 
-		res, err := a.Object(sch, props, uuid)
+		res, _, err := a.Object(sch, props, uuid)
 		require.Nil(t, err)
 		require.Len(t, res, 4)
 
@@ -967,6 +967,108 @@ func TestIndexInverted(t *testing.T) {
 				}
 			}
 		})
+	})
+}
+
+func TestAnalyzer_RawValues(t *testing.T) {
+	textProp := &models.Property{
+		Name:     "content",
+		DataType: schema.DataTypeText.PropString(),
+	}
+	textArrayProp := &models.Property{
+		Name:     "tags",
+		DataType: schema.DataTypeTextArray.PropString(),
+	}
+	intProp := &models.Property{
+		Name:     "count",
+		DataType: schema.DataTypeInt.PropString(),
+	}
+
+	uid := strfmt.UUID("2609f1bc-7693-48f3-b531-6ddc52cd2501")
+
+	t.Run("NewAnalyzer does not capture RawValues for text", func(t *testing.T) {
+		a := NewAnalyzer(nil, "TestClass")
+		props, _, err := a.Object(
+			map[string]interface{}{"content": "hello world"},
+			[]*models.Property{textProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "content" {
+				assert.Nil(t, p.RawValues, "RawValues should be nil for normal analyzer")
+				return
+			}
+		}
+		t.Fatal("content property not found")
+	})
+
+	t.Run("NewAnalyzer does not capture RawValues for text array", func(t *testing.T) {
+		a := NewAnalyzer(nil, "TestClass")
+		props, _, err := a.Object(
+			map[string]interface{}{"tags": []string{"foo", "bar"}},
+			[]*models.Property{textArrayProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "tags" {
+				assert.Nil(t, p.RawValues, "RawValues should be nil for normal analyzer")
+				return
+			}
+		}
+		t.Fatal("tags property not found")
+	})
+
+	t.Run("NewAnalyzerWithRawValues captures RawValues for text", func(t *testing.T) {
+		a := NewAnalyzerWithRawValues(nil, "TestClass")
+		props, _, err := a.Object(
+			map[string]interface{}{"content": "hello world"},
+			[]*models.Property{textProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "content" {
+				assert.Equal(t, []string{"hello world"}, p.RawValues)
+				return
+			}
+		}
+		t.Fatal("content property not found")
+	})
+
+	t.Run("NewAnalyzerWithRawValues captures RawValues for text array", func(t *testing.T) {
+		a := NewAnalyzerWithRawValues(nil, "TestClass")
+		props, _, err := a.Object(
+			map[string]interface{}{"tags": []string{"foo", "bar"}},
+			[]*models.Property{textArrayProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "tags" {
+				assert.Equal(t, []string{"foo", "bar"}, p.RawValues)
+				return
+			}
+		}
+		t.Fatal("tags property not found")
+	})
+
+	t.Run("non-text types never have RawValues regardless of analyzer", func(t *testing.T) {
+		a := NewAnalyzerWithRawValues(nil, "TestClass")
+		props, _, err := a.Object(
+			map[string]interface{}{"count": int64(42)},
+			[]*models.Property{intProp}, uid,
+		)
+		require.NoError(t, err)
+
+		for _, p := range props {
+			if p.Name == "count" {
+				assert.Nil(t, p.RawValues)
+				return
+			}
+		}
+		t.Fatal("count property not found")
 	})
 }
 

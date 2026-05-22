@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,7 +19,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -39,11 +41,11 @@ import (
 const DEFAULT_POLICY_VERSION = "1.29.0"
 
 const (
-	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
+	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns.
 	// docs: https://casbin.org/docs/syntax-for-models
 	MODEL = `
 	[request_definition]
-	r = sub, obj, act
+	r = sub, obj, act, ns
 
 	[policy_definition]
 	p = sub, obj, act, dom
@@ -55,7 +57,7 @@ const (
 	e = some(where (p.eft == allow))
 
 	[matchers]
-	m = g(r.sub, p.sub) && weaviateMatcher(r.obj, p.obj) && regexMatch(r.act, p.act)
+	m = g(r.sub, p.sub) && namespaceAwareMatcher(r.obj, p.obj, r.ns) && regexMatch(r.act, p.act)
 `
 )
 
@@ -81,7 +83,7 @@ func createStorage(filePath string) error {
 	return err
 }
 
-func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication) (*casbin.SyncedCachedEnforcer, error) {
+func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication, namespacesEnabled bool) (*casbin.SyncedCachedEnforcer, error) {
 	if !conf.Enabled {
 		return nil, nil
 	}
@@ -96,6 +98,11 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		return nil, fmt.Errorf("failed to create enforcer: %w", err)
 	}
 	enforcer.EnableCache(true)
+	// Set a TTL to prevent unbounded cache growth. Runtime policy updates via
+	// the Manager call InvalidateCache(); this TTL is an additional safeguard,
+	// including for init/upgrade paths that may modify policy without
+	// explicitly invalidating the cache.
+	enforcer.SetExpireTime(1 * time.Hour)
 
 	rbacStoragePath := fmt.Sprintf("%s/rbac", policyPath)
 	rbacStorageFilePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
@@ -130,9 +137,9 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		}
 	}
 	// docs: https://casbin.org/docs/function/
-	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
+	enforcer.AddFunction("namespaceAwareMatcher", namespaceAwareMatcherFunc)
 
-	if err := applyPredefinedRoles(enforcer, conf, authNconf); err != nil {
+	if err := applyPredefinedRoles(enforcer, conf, authNconf, namespacesEnabled); err != nil {
 		return nil, errors.Wrapf(err, "apply env config")
 	}
 
@@ -146,33 +153,50 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 
 // applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
 // local config
-func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication) error {
-	// remove preexisting root role including assignments
-	_, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
-	if err != nil {
-		return err
-	}
-	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.Root))
-	if err != nil {
-		return err
-	}
-
-	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.ReadOnly))
-	if err != nil {
-		return err
-	}
-	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.ReadOnly))
-	if err != nil {
-		return err
-	}
-
-	// add pre existing roles
-	for name, verb := range conv.BuiltInPolicies {
-		if verb == "" {
-			continue
+func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
+	// Wipe all four built-in role policies before re-registering. The
+	// canonical shape lives in code; rebuilding from scratch on every boot
+	// keeps the on-disk policy CSV honest.
+	for _, role := range authorization.BuiltInRoles {
+		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(role)); err != nil {
+			return err
 		}
-		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(name), "*", verb, "*"); err != nil {
+	}
+	// Only wipe groupings for env-var-only roles: those are reset from
+	// config on every boot. Admin/viewer groupings are API-managed and
+	// must survive restarts.
+	for _, role := range authorization.EnvVarRoles {
+		if _, err := enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(role)); err != nil {
+			return err
+		}
+	}
+
+	// Register wildcard policies. On NS-disabled all four built-ins get
+	// wildcards; on NS-enabled only root/read-only do — Casbin lacks deny
+	// semantics, so admin/viewer must be registered per-permission to be
+	// narrowable.
+	wildcardRoles := authorization.BuiltInRoles
+	if namespacesEnabled {
+		wildcardRoles = authorization.EnvVarRoles
+	}
+	for _, role := range wildcardRoles {
+		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), "*", conv.BuiltInWildcardVerb[role], "*"); err != nil {
 			return fmt.Errorf("add policy: %w", err)
+		}
+	}
+
+	if namespacesEnabled {
+		narrowed := authorization.BuiltInPermissionsFor(true)
+		for _, role := range []string{authorization.Admin, authorization.Viewer} {
+			policies, err := conv.PermissionToPolicies(narrowed[role]...)
+			if err != nil {
+				return fmt.Errorf("tenant-safe %s policies: %w", role, err)
+			}
+			for _, p := range policies {
+				if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), p.Resource, p.Verb, p.Domain); err != nil {
+					return fmt.Errorf("add tenant-safe policy: %w", err)
+				}
+			}
 		}
 	}
 
@@ -256,23 +280,205 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 	return nil
 }
 
-func WeaviateMatcher(key1 string, key2 string) bool {
-	// If we're dealing with a tenant-specific path (matches /shards/#$)
-	if strings.HasSuffix(key1, "/shards/#") {
-		// Don't allow matching with wildcard patterns
-		if strings.HasSuffix(key2, "/shards/.*") {
-			return false
+var (
+	schemaCollectionsPrefix  = authorization.SchemaDomain + "/collections/"
+	dataCollectionsPrefix    = authorization.DataDomain + "/collections/"
+	aliasesCollectionsPrefix = authorization.AliasesDomain + "/collections/"
+)
+
+const (
+	shardsMidSeg  = "/shards/"
+	aliasesMidSeg = "/aliases/"
+)
+
+// anyNamespacePattern matches exactly one `<ns>:` prefix.
+var anyNamespacePattern = "[^/" + schema.NamespaceSeparator + "]+" + schema.NamespaceSeparator
+
+// findNamespaceSegments returns the [start, end) bounds of the collection-name
+// segment in path for the known shapes (schema/data/aliases). end == 0 means
+// path is not namespaceable. hasAlias reports whether path also has a 2nd
+// namespace-bearing alias segment, located at
+// [end + len(aliasesMidSeg), len(path)).
+func findNamespaceSegments(path string) (start, end int, hasAlias bool) {
+	if rest, ok := strings.CutPrefix(path, schemaCollectionsPrefix); ok {
+		idx := strings.Index(rest, shardsMidSeg)
+		if idx == -1 {
+			return 0, 0, false
 		}
+		s := len(schemaCollectionsPrefix)
+		return s, s + idx, false
 	}
-	// For all other cases, use standard KeyMatch5
-	return casbinutil.KeyMatch5(key1, key2)
+	if rest, ok := strings.CutPrefix(path, dataCollectionsPrefix); ok {
+		idx := strings.Index(rest, shardsMidSeg)
+		if idx == -1 {
+			return 0, 0, false
+		}
+		s := len(dataCollectionsPrefix)
+		return s, s + idx, false
+	}
+	if rest, ok := strings.CutPrefix(path, aliasesCollectionsPrefix); ok {
+		idx := strings.Index(rest, aliasesMidSeg)
+		if idx == -1 {
+			return 0, 0, false
+		}
+		s := len(aliasesCollectionsPrefix)
+		return s, s + idx, true
+	}
+	return 0, 0, false
 }
 
-func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
-	name1 := args[0].(string)
-	name2 := args[1].(string)
+// segmentHasSeparator reports whether path[start:end] contains the namespace separator.
+func segmentHasSeparator(path string, start, end int) bool {
+	return strings.IndexByte(path[start:end], schema.NamespaceSeparator[0]) >= 0
+}
 
-	return (bool)(WeaviateMatcher(name1, name2)), nil
+// rewriteSegment appends prefix+seg to b (unqualified policy segment) or seg
+// verbatim (already-qualified). In fixedNs mode an already-qualified segment
+// must start with prefix exactly, otherwise ok=false.
+func rewriteSegment(b *strings.Builder, policy string, start, end int, prefix string, fixedNs bool) (ok bool) {
+	if segmentHasSeparator(policy, start, end) {
+		if fixedNs && !strings.HasPrefix(policy[start:end], prefix) {
+			return false
+		}
+		b.WriteString(policy[start:end])
+		return true
+	}
+	b.WriteString(prefix)
+	b.WriteString(policy[start:end])
+	return true
+}
+
+// rewritePolicy specializes (fixedNs=true, prefix=`<ns>:`) or widens
+// (fixedNs=false, prefix=anyNamespacePattern) the namespace-bearing segments
+// of policy. Returns ok=false in fixedNs mode if any already-qualified
+// segment names a different namespace.
+func rewritePolicy(policy string, colStart, colEnd int, hasAlias bool, prefix string, fixedNs bool) (string, bool) {
+	segCount := 1
+	if hasAlias {
+		segCount = 2
+	}
+	var b strings.Builder
+	b.Grow(len(policy) + segCount*len(prefix))
+
+	b.WriteString(policy[:colStart])
+	if !rewriteSegment(&b, policy, colStart, colEnd, prefix, fixedNs) {
+		return "", false
+	}
+	if !hasAlias {
+		b.WriteString(policy[colEnd:])
+		return b.String(), true
+	}
+
+	aliasStart := colEnd + len(aliasesMidSeg)
+	aliasEnd := len(policy)
+	b.WriteString(policy[colEnd:aliasStart])
+	if !rewriteSegment(&b, policy, aliasStart, aliasEnd, prefix, fixedNs) {
+		return "", false
+	}
+	return b.String(), true
+}
+
+// weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
+// KeyMatch5: a collection-level request must not match a per-tenant policy.
+func weaviateKeyMatch(reqObj, polObj string) bool {
+	if strings.HasSuffix(reqObj, "/shards/#") && strings.HasSuffix(polObj, "/shards/.*") {
+		return false
+	}
+	return casbinutil.KeyMatch5(reqObj, polObj)
+}
+
+// namespaceAwareMatcher reports whether policy resource pattern polObj
+// authorizes a request for reqObj issued in namespace ns ("" for
+// global/operator callers).
+//
+//   - ns != "": unqualified policy segments specialize to `<ns>:<segment>`;
+//     already-qualified segments must start with `<ns>:` exactly.
+//   - ns == "" with a qualified request segment: unqualified policy segments
+//     widen with anyNamespacePattern; qualified segments stay fixed.
+//   - ns == "" with an unqualified request segment, or a non-namespaceable
+//     path shape: no rewrite.
+func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
+	// Trivial passthrough: no rewrite is needed when the caller carries no
+	// namespace and the request resource is unqualified. This is the only
+	// path on namespace-disabled clusters (validation forbids `:` in any resource
+	// path) and also covers operator calls against unqualified resources
+	// on namespace-enabled clusters. The namespace separator never appears
+	// in any other part of a valid resource path
+	// (class/shard/tenant/role names all forbid `:`), so a single byte
+	// scan classifies the request.
+	if ns == "" && strings.IndexByte(reqObj, schema.NamespaceSeparator[0]) < 0 {
+		return weaviateKeyMatch(reqObj, polObj)
+	}
+
+	// Normalize `/*` to `/.*` before rewriting. KeyMatch5 applies this
+	// transform itself, but only at slash boundaries; once the rewrite
+	// prepends `<ns>:` to a bare `*` segment the `*` is no longer
+	// slash-bounded and KeyMatch5's transform stops firing. Producers like
+	// CollectionsMetadata, ShardsMetadata, and Objects emit literal `*`
+	// segments — without this normalization they would never match a
+	// qualified request after the rewrite.
+	polObj = strings.ReplaceAll(polObj, "/*", "/.*")
+
+	// Reaching this point means a rewrite is needed: either ns != "" (the
+	// caller is namespaced) or ns == "" with a qualified request (a global
+	// caller addressing a namespace-qualified resource).
+	//
+	// Casbin's KeyMatch5 has no notion of namespaces — it runs a plain regex
+	// match. The strategy is to rewrite the *policy* so its namespace-bearing
+	// segments speak in the same shape as the request, then hand the
+	// rewritten string to KeyMatch5. The request itself is never rewritten.
+	//
+	// Worked example, policy "schema/collections/Movies.*/shards/#" (operator
+	// template) vs request "schema/collections/customer1:Movies/shards/#":
+	//   - ns="customer1" → policy becomes "schema/collections/customer1:Movies.*/shards/#"
+	//     (specialize); KeyMatch5 matches.
+	//   - ns=""          → policy becomes "schema/collections/[^/:]+:Movies.*/shards/#"
+	//     (widen);       KeyMatch5 matches any namespace prefix.
+
+	// 1. Locate the collection segment in each path. findNamespaceSegments
+	//    returns its [start, end) bounds and a flag set on aliases paths,
+	//    which carry a *second* namespace-bearing segment after "/aliases/".
+	//    The request side only needs end+hasAlias (for the shape check
+	//    below); we don't rewrite the request, so its start is discarded.
+	polColStart, polColEnd, polHasAlias := findNamespaceSegments(polObj)
+	_, reqColEnd, reqHasAlias := findNamespaceSegments(reqObj)
+
+	// 2. Shape check. If either path isn't a namespaceable shape (end==0),
+	//    or the two disagree on alias-ness (one is schema/data, the other
+	//    aliases), there's nothing meaningful to rewrite — defer to plain
+	//    KeyMatch5 (which returns false on a shape mismatch anyway).
+	if reqColEnd == 0 || polColEnd == 0 || reqHasAlias != polHasAlias {
+		return weaviateKeyMatch(reqObj, polObj)
+	}
+
+	// 3a. Fixed-ns specialization. Unqualified policy segments become
+	//     "<ns>:<seg>". An already-qualified policy segment must start with
+	//     "<ns>:" exactly; otherwise the policy names a *different*
+	//     namespace and rewritePolicy returns ok=false → cross-namespace
+	//     deny.
+	if ns != "" {
+		rewritten, ok := rewritePolicy(polObj, polColStart, polColEnd, polHasAlias, ns+schema.NamespaceSeparator, true)
+		if !ok {
+			return false
+		}
+		return weaviateKeyMatch(reqObj, rewritten)
+	}
+
+	// 3b. Any-ns widening. Unqualified policy segments become
+	//     "anyNamespacePattern + <seg>" so they regex-match any single
+	//     namespace prefix; already-qualified segments stay fixed.
+	//
+	// 4.  Final KeyMatch5, with the /shards/# carve-out so a
+	//     collection-level request doesn't satisfy a per-tenant policy.
+	rewritten, _ := rewritePolicy(polObj, polColStart, polColEnd, polHasAlias, anyNamespacePattern, false)
+	return weaviateKeyMatch(reqObj, rewritten)
+}
+
+func namespaceAwareMatcherFunc(args ...any) (any, error) {
+	reqObj := args[0].(string)
+	polObj := args[1].(string)
+	ns := args[2].(string)
+	return namespaceAwareMatcher(reqObj, polObj, ns), nil
 }
 
 func getVersion(path string) (string, error) {

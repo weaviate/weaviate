@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,7 +12,9 @@
 package replication
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -32,6 +34,50 @@ type State struct {
 	Errors []api.ReplicationDetailsError
 	// Ms is the Unix timestamp in milliseconds when the state was first entered
 	StartTimeUnixMs int64
+}
+
+func (r *State) UnmarshalJSON(data []byte) error {
+	type rawState struct {
+		// State is the current state of the shard replication operation
+		State api.ShardReplicationState
+		// Errors is the list of errors that occurred during this state
+		Errors json.RawMessage
+		// Ms is the Unix timestamp in milliseconds when the state was first entered
+		StartTimeUnixMs int64
+	}
+	var raw rawState
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	r.State = raw.State
+	r.StartTimeUnixMs = raw.StartTimeUnixMs
+	// no errors in the message
+	if len(raw.Errors) == 0 || string(raw.Errors) == "null" || string(raw.Errors) == "[]" {
+		r.Errors = nil
+		return nil
+	}
+
+	// try to unmarshal as []ReplicationDetailsError
+	var replicationDetailsErrors []api.ReplicationDetailsError
+	if err := json.Unmarshal(raw.Errors, &replicationDetailsErrors); err == nil {
+		r.Errors = replicationDetailsErrors
+		return nil
+	}
+
+	// try to unmarshal as []string (legacy format)
+	var errors []string
+	if err := json.Unmarshal(raw.Errors, &errors); err == nil {
+		if len(errors) > 0 {
+			r.Errors = make([]api.ReplicationDetailsError, len(errors))
+			for i, msg := range errors {
+				r.Errors[i] = api.ReplicationDetailsError{Message: msg}
+			}
+		}
+		return nil
+	}
+
+	return fmt.Errorf("cannot unmarshal State.Errors field neither to []api.ReplicationDetailsError or []string: %v", string(raw.Errors))
 }
 
 // StateHistory is the history of the state changes of the shard replication operation

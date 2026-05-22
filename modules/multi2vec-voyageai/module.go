@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,12 +41,14 @@ type Module struct {
 	nearTextGraphqlProvider  modulecapabilities.GraphQLArguments
 	nearTextSearcher         modulecapabilities.Searcher[[]float32]
 	nearTextTransformer      modulecapabilities.TextTransform
+	nearVideoGraphqlProvider modulecapabilities.GraphQLArguments
+	nearVideoSearcher        modulecapabilities.Searcher[[]float32]
 	metaClient               metaClient
 	logger                   logrus.FieldLogger
 }
 
 type metaClient interface {
-	MetaInfo() (map[string]interface{}, error)
+	MetaInfo() (map[string]any, error)
 }
 
 func (m *Module) Name() string {
@@ -67,6 +69,10 @@ func (m *Module) Init(ctx context.Context,
 
 	if err := m.initNearImage(); err != nil {
 		return errors.Wrap(err, "init near image")
+	}
+
+	if err := m.initNearVideo(); err != nil {
+		return errors.Wrap(err, "init near video")
 	}
 
 	return nil
@@ -119,7 +125,7 @@ func (m *Module) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []st
 	return false, mediaProps, err
 }
 
-func (m *Module) MetaInfo() (map[string]interface{}, error) {
+func (m *Module) MetaInfo() (map[string]any, error) {
 	return m.metaClient.MetaInfo()
 }
 

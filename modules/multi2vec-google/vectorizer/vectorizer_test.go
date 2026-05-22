@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,6 +64,38 @@ func TestVectorizer(t *testing.T) {
 		vector, _, err := vectorizer.Object(context.Background(), object, config)
 
 		// then
+		require.Nil(t, err)
+		assert.NotNil(t, vector)
+	})
+}
+
+func TestVectorizeAudio(t *testing.T) {
+	t.Run("should vectorize audio", func(t *testing.T) {
+		client := &fakeClient{}
+		vectorizer := New(client)
+		config := newConfigBuilder().addSetting("audioFields", []interface{}{"audio"}).build()
+
+		vector, err := vectorizer.VectorizeAudio(context.Background(), "base64-encoded-audio", config)
+
+		require.Nil(t, err)
+		assert.Equal(t, []float32{100.0, 200.0, 300.0, 400.0, 500.0}, vector)
+	})
+
+	t.Run("should vectorize object with audio field", func(t *testing.T) {
+		client := &fakeClient{}
+		vectorizer := New(client)
+		config := newConfigBuilder().addSetting("audioFields", []interface{}{"audio"}).build()
+
+		props := map[string]interface{}{
+			"audio": "base64-encoded-audio",
+		}
+		object := &models.Object{
+			ID:         "some-uuid",
+			Properties: props,
+		}
+
+		vector, _, err := vectorizer.Object(context.Background(), object, config)
+
 		require.Nil(t, err)
 		assert.NotNil(t, vector)
 	})

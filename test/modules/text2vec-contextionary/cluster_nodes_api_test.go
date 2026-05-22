@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -75,14 +75,14 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 				require.NotNil(t, nodes)
 				require.Len(t, nodes, 3)
 
-				assert.Equal(t, "node1", nodes[0].Name)
-				assert.Equal(t, "node2", nodes[1].Name)
-				assert.Equal(t, "node3", nodes[2].Name)
+				assert.Equal(t, "weaviate-0", nodes[0].Name)
+				assert.Equal(t, "weaviate-1", nodes[1].Name)
+				assert.Equal(t, "weaviate-2", nodes[2].Name)
 
 				for i, nodeStatus := range nodes {
 					require.NotNil(t, nodeStatus)
 					assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
-					assert.Equal(t, fmt.Sprintf("node%d", i+1), nodeStatus.Name)
+					assert.Equal(t, fmt.Sprintf("weaviate-%d", i), nodeStatus.Name)
 					assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
 					assert.Len(t, nodeStatus.Shards, 2)
 					var objectCount int64

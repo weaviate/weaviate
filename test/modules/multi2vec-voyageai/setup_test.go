@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -34,6 +34,7 @@ func TestMulti2VecVoyageAI_SingleNode(t *testing.T) {
 	endpoint := compose.GetWeaviate().URI()
 
 	t.Run("multi2vec-voyageai", testMulti2VecVoyageAI(endpoint))
+	t.Run("multi2vec-voyageai-video", testMulti2VecVoyageAIWithVideo(endpoint))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey string,

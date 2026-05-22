@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -29,6 +29,17 @@ func FileExists(file string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func DirExists(path string) (bool, error) {
+	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return fi.IsDir(), nil
 }
 
 func IsDirEmpty(dir string) (bool, error) {
@@ -81,6 +92,21 @@ func GetFileWithSizes(dirPath string) (map[string]int64, []string, error) {
 	}
 
 	return fileSizes, dirs, nil
+}
+
+// GetDirSize calculates the total size of a directory recursively
+func GetDirSize(dirPath string) (uint64, error) {
+	var totalSize uint64
+	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			totalSize += uint64(info.Size())
+		}
+		return nil
+	})
+	return totalSize, err
 }
 
 // SanitizeFilePathJoin joins a root path and a relative file path, ensuring that the resulting path is within the root

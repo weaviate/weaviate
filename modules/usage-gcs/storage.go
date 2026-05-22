@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,13 +15,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"time"
 
+	"github.com/googleapis/gax-go/v2"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/gcpcommon"
 	common "github.com/weaviate/weaviate/usecases/modulecomponents/usage"
 )
 
@@ -40,6 +44,16 @@ func NewGCSStorage(ctx context.Context, logger logrus.FieldLogger, metrics *comm
 
 	if baseStorage.IsLocalhostEnvironment() {
 		options = append(options, option.WithoutAuthentication())
+	}
+
+	usageGCSAuthProxyEndpoint := os.Getenv("USAGE_GCS_AUTH_PROXY_ENDPOINT")
+	if usageGCSAuthProxyEndpoint != "" {
+		options = append(
+			options,
+			option.WithTokenSource(
+				oauth2.ReuseTokenSource(nil, gcpcommon.NewAuthBrokerTokenSource(usageGCSAuthProxyEndpoint)),
+			),
+		)
 	}
 
 	client, err := storageapi.NewService(ctx, options...)
@@ -108,7 +122,11 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 		Metadata: map[string]string{
 			"version": usage.Version,
 		},
-	}).Media(bytes.NewReader(data)).Context(ctx).Do()
+	}).WithRetry(&gax.Backoff{
+		Initial:    2 * time.Second, // Note: the client uses a jitter internally
+		Max:        60 * time.Second,
+		Multiplier: 3,
+	}, gcpcommon.RetryErrorFunc).Media(bytes.NewReader(data)).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("failed to upload to GCS: %w", err)
 	}

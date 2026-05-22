@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -77,8 +77,12 @@ func (s *backupStat) reset() {
 
 func (s *backupStat) set(st backup.Status) {
 	s.Lock()
+	defer s.Unlock()
+	// Cancelled is terminal - don't allow overwriting
+	if s.reqState.Status == backup.Cancelled {
+		return
+	}
 	s.reqState.Status = st
-	s.Unlock()
 }
 
 // shardSyncChan makes sure that a backup operation is mutually exclusive.
@@ -138,6 +142,15 @@ func (c *shardSyncChan) withCancellation(ctx context.Context, id string, done ch
 					if v.ID == id {
 						return
 					}
+					// Log unexpected abort request with different ID - this shouldn't happen
+					// since OnAbort checks the ID before sending, but log for debugging
+					if logger != nil {
+						logger.WithFields(map[string]interface{}{
+							"action":      "withCancellation",
+							"expected_id": id,
+							"received_id": v.ID,
+						}).Warn("received abort request for different backup ID, ignoring")
+					}
 				}
 			case <-done: // caller is done
 				return
@@ -164,5 +177,7 @@ func (c *shardSyncChan) OnAbort(_ context.Context, req *AbortRequest) error {
 		c.coordChan <- *req
 		return nil
 	}
+	// No active operation with this ID - this is not an error, the operation may have
+	// already completed or never started on this node. Return nil for idempotency.
 	return nil
 }

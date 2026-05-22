@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,7 +40,7 @@ func startT2VContextionary(ctx context.Context, networkName, contextionaryImage 
 			Env: map[string]string{
 				"OCCURRENCE_WEIGHT_LINEAR_FACTOR": "0.75",
 				"EXTENSIONS_STORAGE_MODE":         "weaviate",
-				"EXTENSIONS_STORAGE_ORIGIN":       fmt.Sprintf("http://%s:8080", Weaviate1),
+				"EXTENSIONS_STORAGE_ORIGIN":       fmt.Sprintf("http://%s:8080", Weaviate0),
 			},
 			ExposedPorts: []string{"9999/tcp"},
 			AutoRemove:   true,

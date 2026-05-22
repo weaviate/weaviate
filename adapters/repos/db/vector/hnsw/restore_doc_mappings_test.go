@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,12 +18,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
+
+type restoreDocNoopBucketView struct{}
+
+func (n *restoreDocNoopBucketView) ReleaseView() {}
 
 func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
 	rootPath := t.TempDir()
@@ -40,9 +45,11 @@ func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView { return &restoreDocNoopBucketView{} },
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			return nil, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
 
 	assert.Nil(t, err)
@@ -72,9 +79,11 @@ func TestRestoreDocMappingsWithNilData(t *testing.T) {
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 			return nil, nil
 		},
-		TempVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([]float32, error) {
+		GetViewThunk: func() common.BucketView { return &restoreDocNoopBucketView{} },
+		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
 			return nil, nil
 		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
 
 	assert.Nil(t, err)

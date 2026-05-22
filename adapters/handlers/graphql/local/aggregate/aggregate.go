@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,7 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/tailor-inc/graphql"
+	"github.com/tailor-platform/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
@@ -237,7 +237,7 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 	case schema.DataTypePhoneNumber:
 		// skipping for now, see gh-1088 where it was outscoped
 		return nil, nil
-	case schema.DataTypeBlob:
+	case schema.DataTypeBlob, schema.DataTypeBlobHash:
 		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeTextArray:
 		return makePropertyField(class, property, stringPropertyFields)

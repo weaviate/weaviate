@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -42,12 +42,12 @@ func (cl *Rpc) Address(raftAddr string) (string, error) {
 		return "", err
 	}
 	if !cl.isLocalCluster {
-		return fmt.Sprintf("%s:%d", host, cl.rpcPort), nil
+		return net.JoinHostPort(host, fmt.Sprintf("%d", cl.rpcPort)), nil
 	}
 	iPort, err := strconv.Atoi(port)
 	if err != nil {
 		return "", err
 	}
 
-	return fmt.Sprintf("%s:%d", host, iPort+1), nil
+	return net.JoinHostPort(host, fmt.Sprintf("%d", iPort+1)), nil
 }

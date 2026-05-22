@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type aliasesHandlers struct {
@@ -47,12 +48,22 @@ func (s *aliasesHandlers) getAliases(params schema.AliasesGetParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrValidation):
+			return schema.NewAliasesGetUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesGetForbidden().
+			return schema.NewAliasesGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
+	if principal != nil && principal.Namespace != "" && len(aliases) > 0 {
+		stripped := make([]*models.Alias, len(aliases))
+		for i, a := range aliases {
+			stripped[i] = namespacing.StripAliasResponse(principal, a)
+		}
+		aliases = stripped
+	}
 	aliasesResponse := &models.AliasResponse{Aliases: aliases}
 
 	s.metricRequestsTotal.logOk(className)
@@ -74,14 +85,17 @@ func (s *aliasesHandlers) getAlias(params schema.AliasesGetAliasParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesGetAliasForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrValidation):
+			return schema.NewAliasesGetAliasUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesGetAliasForbidden().
+			return schema.NewAliasesGetAliasInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.metricRequestsTotal.logOk("")
-	return schema.NewAliasesGetAliasOK().WithPayload(alias)
+	return schema.NewAliasesGetAliasOK().WithPayload(namespacing.StripAliasResponse(principal, alias))
 }
 
 func (s *aliasesHandlers) addAlias(params schema.AliasesCreateParams,
@@ -95,14 +109,17 @@ func (s *aliasesHandlers) addAlias(params schema.AliasesCreateParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		default:
+		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewAliasesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.metricRequestsTotal.logOk(params.Body.Class)
-	return schema.NewAliasesCreateOK().WithPayload(params.Body)
+	return schema.NewAliasesCreateOK().WithPayload(namespacing.StripAliasResponse(principal, params.Body))
 }
 
 func (s *aliasesHandlers) updateAlias(params schema.AliasesUpdateParams,
@@ -119,18 +136,22 @@ func (s *aliasesHandlers) updateAlias(params schema.AliasesUpdateParams,
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
-		default:
+		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewAliasesUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.metricRequestsTotal.logOk(params.Body.Class)
-	return schema.NewAliasesUpdateOK().WithPayload(alias)
+	return schema.NewAliasesUpdateOK().WithPayload(namespacing.StripAliasResponse(principal, alias))
 }
 
 func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, principal *models.Principal) middleware.Responder {
-	err := s.manager.DeleteAlias(params.HTTPRequest.Context(), principal, params.AliasName)
+	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	err := s.manager.DeleteAlias(ctx, principal, params.AliasName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.AliasName, err)
 		if errors.Is(err, schemaUC.ErrNotFound) {
@@ -140,8 +161,12 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
+		case errors.Is(err, schemaUC.ErrValidation):
+			return schema.NewAliasesDeleteUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewAliasesDeleteInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 

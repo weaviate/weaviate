@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,16 +17,19 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
 type fakeSchemaManger struct {
 	errRestoreClass error
 	nodeName        string
+	// Track NodeMapping passed to RestoreClass for testing
+	lastNodeMapping map[string]string
 }
 
-func (f *fakeSchemaManger) RestoreClass(context.Context, *backup.ClassDescriptor, map[string]string, bool,
-) error {
+func (f *fakeSchemaManger) RestoreClass(ctx context.Context, desc *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool) error {
+	f.lastNodeMapping = nodeMapping
 	return f.errRestoreClass
 }
 

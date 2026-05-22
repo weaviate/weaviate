@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -72,7 +72,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 							t.Run(prop.Name, func(t *testing.T) {
-								err := validateNestedProperties(prop.NestedProperties, prop.Name)
+								err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 								assert.ErrorContains(t, err, prop.Name)
 								assert.ErrorContains(t, err, "is not a valid nested property name")
 							})
@@ -140,7 +140,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 					t.Run(prop.Name, func(t *testing.T) {
-						err := validateNestedProperties(prop.NestedProperties, prop.Name)
+						err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 						assert.NoError(t, err)
 					})
 				}
@@ -195,7 +195,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 							t.Run(prop.Name, func(t *testing.T) {
-								err := validateNestedProperties(prop.NestedProperties, prop.Name)
+								err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 								assert.ErrorContains(t, err, prop.Name)
 								assert.ErrorContains(t, err, fmt.Sprintf("data type '%s' is deprecated and not allowed as nested property", pdt.String()))
 							})
@@ -253,7 +253,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 							t.Run(prop.Name, func(t *testing.T) {
-								err := validateNestedProperties(prop.NestedProperties, prop.Name)
+								err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 								assert.ErrorContains(t, err, prop.Name)
 								assert.ErrorContains(t, err, fmt.Sprintf("data type '%s' not allowed as nested property", pdt.String()))
 							})
@@ -309,7 +309,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 					t.Run(prop.Name, func(t *testing.T) {
-						err := validateNestedProperties(prop.NestedProperties, prop.Name)
+						err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 						assert.ErrorContains(t, err, prop.Name)
 						assert.ErrorContains(t, err, "reference data type not allowed")
 					})
@@ -350,7 +350,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 					t.Run(prop.Name, func(t *testing.T) {
-						err := validateNestedProperties(prop.NestedProperties, prop.Name)
+						err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 						assert.ErrorContains(t, err, prop.Name)
 						assert.ErrorContains(t, err, "At least one nested property is required for data type object/object[]")
 					})
@@ -416,7 +416,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 							t.Run(prop.Name, func(t *testing.T) {
-								err := validateNestedProperties(prop.NestedProperties, prop.Name)
+								err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 								assert.ErrorContains(t, err, prop.Name)
 								assert.ErrorContains(t, err, fmt.Sprintf("Tokenization is not allowed for data type '%s'", pdt.String()))
 							})
@@ -463,7 +463,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 				for _, prop := range []*models.Property{propLvl2Primitives} {
 					t.Run(prop.Name, func(t *testing.T) {
-						err := validateNestedProperties(prop.NestedProperties, prop.Name)
+						err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 						assert.ErrorContains(t, err, prop.Name)
 						assert.ErrorContains(t, err, "Tokenization is not allowed for object/object[] data types")
 					})
@@ -477,7 +477,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 		for _, pdt := range schema.PrimitiveDataTypes {
 			tokenization := ""
 			switch pdt {
-			case schema.DataTypeBlob:
+			case schema.DataTypeBlob, schema.DataTypeBlobHash:
 				// skip - not indexable
 				continue
 			case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber:
@@ -532,7 +532,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 					t.Run(prop.Name, func(t *testing.T) {
-						err := validateNestedProperties(prop.NestedProperties, prop.Name)
+						err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 						assert.NoError(t, err)
 					})
 				}
@@ -585,7 +585,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 					t.Run(prop.Name, func(t *testing.T) {
-						err := validateNestedProperties(prop.NestedProperties, prop.Name)
+						err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 						assert.ErrorContains(t, err, prop.Name)
 						assert.ErrorContains(t, err, "indexFilterable is not allowed for blob data type")
 					})
@@ -630,7 +630,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 				for _, prop := range []*models.Property{propLvl2Primitives} {
 					t.Run(prop.Name, func(t *testing.T) {
-						err := validateNestedProperties(prop.NestedProperties, prop.Name)
+						err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 						assert.NoError(t, err)
 					})
 				}
@@ -684,7 +684,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 				for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 					t.Run(prop.Name, func(t *testing.T) {
-						err := validateNestedProperties(prop.NestedProperties, prop.Name)
+						err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 						assert.NoError(t, err)
 					})
 				}
@@ -748,7 +748,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 						for _, prop := range []*models.Property{propPrimitives, propLvl2Primitives} {
 							t.Run(prop.Name, func(t *testing.T) {
-								err := validateNestedProperties(prop.NestedProperties, prop.Name)
+								err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 								assert.ErrorContains(t, err, prop.Name)
 								assert.ErrorContains(t, err, "`indexSearchable` is not allowed for other than text/text[] data types")
 							})
@@ -795,12 +795,151 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 				for _, prop := range []*models.Property{propLvl2Primitives} {
 					t.Run(prop.Name, func(t *testing.T) {
-						err := validateNestedProperties(prop.NestedProperties, prop.Name)
+						err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
 						assert.ErrorContains(t, err, prop.Name)
 						assert.ErrorContains(t, err, "`indexSearchable` is not allowed for other than text/text[] data types")
 					})
 				}
 			})
 		}
+	})
+
+	t.Run("validates textAnalyzer on nested text property", func(t *testing.T) {
+		nestedProperties := []*models.NestedProperty{
+			{
+				Name:              "nested_text",
+				DataType:          schema.DataTypeText.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vTrue,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      models.PropertyTokenizationWord,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: []string{"é"},
+				},
+			},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  nestedProperties,
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
+		assert.NoError(t, err)
+	})
+
+	t.Run("rejects multi-char asciiFoldIgnore on nested property", func(t *testing.T) {
+		nestedProperties := []*models.NestedProperty{
+			{
+				Name:              "nested_text",
+				DataType:          schema.DataTypeText.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vTrue,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      models.PropertyTokenizationWord,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold:       true,
+					ASCIIFoldIgnore: []string{"ab"},
+				},
+			},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  nestedProperties,
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
+		assert.ErrorContains(t, err, "single character")
+	})
+
+	t.Run("rejects textAnalyzer on nested non-text property", func(t *testing.T) {
+		nestedProperties := []*models.NestedProperty{
+			{
+				Name:              "nested_int",
+				DataType:          schema.DataTypeInt.PropString(),
+				IndexFilterable:   &vTrue,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      "",
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold: true,
+				},
+			},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  nestedProperties,
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
+		assert.ErrorContains(t, err, "processing options are only allowed for text")
+	})
+
+	t.Run("normalizes empty textAnalyzer on nested non-text property", func(t *testing.T) {
+		nestedProp := &models.NestedProperty{
+			Name:              "nested_int",
+			DataType:          schema.DataTypeInt.PropString(),
+			IndexFilterable:   &vTrue,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			TextAnalyzer:      &models.TextAnalyzerConfig{},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  []*models.NestedProperty{nestedProp},
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
+		assert.NoError(t, err)
+		assert.Nil(t, nestedProp.TextAnalyzer, "empty config should be normalized to nil")
+	})
+
+	t.Run("rejects textAnalyzer on nested property without inverted index", func(t *testing.T) {
+		nestedProperties := []*models.NestedProperty{
+			{
+				Name:              "nested_text",
+				DataType:          schema.DataTypeText.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      models.PropertyTokenizationWord,
+				TextAnalyzer: &models.TextAnalyzerConfig{
+					ASCIIFold: true,
+				},
+			},
+		}
+
+		prop := &models.Property{
+			Name:              "objectProp",
+			DataType:          schema.DataTypeObject.PropString(),
+			IndexFilterable:   &vFalse,
+			IndexSearchable:   &vFalse,
+			IndexRangeFilters: &vFalse,
+			Tokenization:      "",
+			NestedProperties:  nestedProperties,
+		}
+		err := validateNestedProperties(prop.NestedProperties, prop.Name, nil)
+		assert.ErrorContains(t, err, "processing options are only allowed for properties with an inverted index")
 	})
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -32,7 +32,10 @@ func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 	return true
 }
 
-func structToMap(obj interface{}) (newMap map[string]interface{}) {
+func structToMap(obj interface{}) (newMap interface{}) {
+	if obj == nil {
+		return nil
+	}
 	data, _ := json.Marshal(obj)  // Convert to a json string
 	json.Unmarshal(data, &newMap) // Convert to a map
 	return newMap

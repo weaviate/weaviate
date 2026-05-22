@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -296,6 +296,11 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		data, err = blobVal(pv)
 		if err != nil {
 			return nil, fmt.Errorf("invalid blob property '%s' on class '%s': %w", propertyName, className, err)
+		}
+	case schema.DataTypeBlobHash:
+		data, err = blobVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid blobHash property '%s' on class '%s': %w", propertyName, className, err)
 		}
 	case schema.DataTypeTextArray:
 		data, err = stringArrayVal(pv, "text")

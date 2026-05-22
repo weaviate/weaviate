@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,9 +55,10 @@ func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRa
 	kw.ChooseSearchableProperties(class)
 
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, a.getSchema.ReadOnlyClass,
-		propertyspecific.Indices{}, a.classSearcher, a.stopwords,
+		propertyspecific.Indices{}, a.classSearcher, a.stopwordProvider,
 		a.GetPropertyLengthTracker(), a.logger, a.shardVersion,
-	).BM25F(ctx, nil, a.params.ClassName, *a.params.ObjectLimit, *kw, additional.Properties{})
+	).WithTokenizationResolver(a.tokResolver).
+		BM25F(ctx, nil, a.params.ClassName, *a.params.ObjectLimit, *kw, additional.Properties{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
 	}

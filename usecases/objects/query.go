@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -71,7 +71,11 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	class := "*"
 
 	if params != nil && params.Class != "" {
-		params.Class, _ = m.resolveAlias(params.Class)
+		resolved, _, err := m.resolveNS(principal, params.Class)
+		if err != nil {
+			return nil, &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		params.Class = resolved
 		class = params.Class
 	}
 

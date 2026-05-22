@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -19,7 +19,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"golang.org/x/exp/maps"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -150,15 +149,15 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 // The lock onto the underlying data is *not acquired* by this function the callee must ensure the lock is held
 func (s *ShardReplicationFSM) resetState() {
 	// Reset data
-	maps.Clear(s.idsByUuid)
-	maps.Clear(s.opsByTarget)
-	maps.Clear(s.opsBySource)
-	maps.Clear(s.opsByCollection)
-	maps.Clear(s.opsByCollectionAndShard)
-	maps.Clear(s.opsByTargetFQDN)
-	maps.Clear(s.opsBySourceFQDN)
-	maps.Clear(s.opsById)
-	maps.Clear(s.statusById)
+	clear(s.idsByUuid)
+	clear(s.opsByTarget)
+	clear(s.opsBySource)
+	clear(s.opsByCollection)
+	clear(s.opsByCollectionAndShard)
+	clear(s.opsByTargetFQDN)
+	clear(s.opsBySourceFQDN)
+	clear(s.opsById)
+	clear(s.statusById)
 
 	s.opsByStateGauge.Reset()
 }

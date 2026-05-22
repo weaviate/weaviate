@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -23,6 +23,8 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 var paragraphs = []string{
@@ -76,7 +78,7 @@ func AddClassAndObjects(t *testing.T, className string, datatype string, c *clie
 
 func TestSearchOnArrays(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	c.Schema().AllDeleter().Do(ctx)
@@ -144,7 +146,7 @@ func TestSearchOnArrays(t *testing.T) {
 
 func TestSearchOnSomeProperties(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.Nil(t, err)
 
 	c.Schema().AllDeleter().Do(ctx)
@@ -212,7 +214,7 @@ func TestSearchOnSomeProperties(t *testing.T) {
 
 func TestAutocut(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	c.Schema().AllDeleter().Do(ctx)
 	className := "Paragraph453745"
 
@@ -242,7 +244,7 @@ func TestAutocut(t *testing.T) {
 
 func TestHybridWithPureVectorSearch(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	c.Schema().AllDeleter().Do(ctx)
 	className := "ParagraphWithManyWords"
 
@@ -257,7 +259,7 @@ func TestHybridWithPureVectorSearch(t *testing.T) {
 
 func TestHybridWithNearTextSubsearch(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	c.Schema().AllDeleter().Do(ctx)
 	className := "ParagraphWithManyWords"
 
@@ -272,7 +274,7 @@ func TestHybridWithNearTextSubsearch(t *testing.T) {
 
 func TestHybridWithOnlyVectorSearch(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	c.Schema().AllDeleter().Do(ctx)
 
 	className := "HybridVectorOnlySearch"
@@ -298,7 +300,7 @@ func TestHybridWithOnlyVectorSearch(t *testing.T) {
 
 func TestHybridWithVectorSubsearch(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	c.Schema().AllDeleter().Do(ctx)
 
 	className := "HybridVectorOnlySearch"
@@ -324,7 +326,7 @@ func TestHybridWithVectorSubsearch(t *testing.T) {
 
 func TestNearVectorAndObjectAutocut(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	c.Schema().AllDeleter().Do(ctx)
 	className := "YellowAndBlueTrain"
 
@@ -381,7 +383,7 @@ func TestNearVectorAndObjectAutocut(t *testing.T) {
 
 func TestHybridExplainScore(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	c.Schema().AllDeleter().Do(ctx)
 	className := "ParagraphWithManyWords"
 
@@ -440,7 +442,7 @@ func TestHybridExplainScore(t *testing.T) {
 
 func TestNearTextAutocut(t *testing.T) {
 	ctx := context.Background()
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	c.Schema().AllDeleter().Do(ctx)
 	className := "YellowAndBlueSub"
 
