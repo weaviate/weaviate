@@ -350,8 +350,9 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 	defer dumpContainerLogs(ctx, t, compose)
 
 	const className = "RollingMidMigration"
+	const propName = "text"
 	createCollection(t, compose.GetWeaviateNode(1).URI(), className, 3, 3, []*models.Property{
-		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+		{Name: propName, DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer func() { deleteCollection(t, compose.GetWeaviateNode(1).URI(), className) }()
 
@@ -359,9 +360,19 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 	_ = recordBaselineCounts(t, compose, className, testBM25Queries) // pre-flight sanity
 
 	// Start the migration.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text",
+	taskID := reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, propName,
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted migration: %s", taskID)
+
+	// QA #240 diagnostic dumper. Runs on failure BEFORE the container
+	// logs are dumped (defer LIFO order) and BEFORE the cluster is torn
+	// down, so docker exec into each container still works. See
+	// qa240_diagnostics_test.go for what it captures.
+	defer func() {
+		if t.Failed() {
+			dumpQA240Diagnostics(t, ctx, compose, className, propName, taskID)
+		}
+	}()
 
 	// Roll all 3 pods one at a time. Some may finish their unit before
 	// being stopped; others will recover via the rehydrate path. Either
@@ -371,7 +382,7 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 	// Wait for the migration to reach FINISHED on whichever node is
 	// reachable; awaitReindexFinished polls /v1/tasks.
 	reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
-	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
+	awaitTokenizationOnAllNodes(t, compose, className, propName, "field")
 
 	// Per-replica consistency check: every node must return the same
 	// counts for every query (FIELD tokenization, so values may be 0
