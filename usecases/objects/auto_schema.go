@@ -111,7 +111,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		if schemaClass == nil && !allowCreateClass {
 			return 0, ErrInvalidUserInput{"given class does not exist"}
 		}
-		properties, err := m.getProperties(object)
+		properties, err := m.getProperties(object, principal)
 		if err != nil {
 			return 0, err
 		}
@@ -159,7 +159,7 @@ func (m *AutoSchemaManager) createClass(ctx context.Context, principal *models.P
 	return newClass, schemaVersion, err
 }
 
-func (m *AutoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
+func (m *AutoSchemaManager) getProperties(object *models.Object, principal *models.Principal) ([]*models.Property, error) {
 	properties := []*models.Property{}
 	if props, ok := object.Properties.(map[string]interface{}); ok {
 		for name, value := range props {
@@ -191,6 +191,16 @@ func (m *AutoSchemaManager) getProperties(object *models.Object) ([]*models.Prop
 				NestedProperties: nestedProperties,
 			}
 			properties = append(properties, property)
+		}
+	}
+	// asRef's beacon-without-class path resolves the target via ObjectByID
+	// and returns res.ClassName, which is the qualified storage key on
+	// NS-enabled clusters. The downstream QualifyPropertyDataTypes rejects
+	// already-qualified entries, so strip the own-NS prefix. No-op for every
+	// other DataType (primitive, nested, short class from beacons-with-class).
+	for _, p := range properties {
+		for i, dt := range p.DataType {
+			p.DataType[i] = namespacing.StripOwnNamespace(principal, dt)
 		}
 	}
 	return properties, nil
