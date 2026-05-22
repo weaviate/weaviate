@@ -80,6 +80,14 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
+	// Never time.Now() — the target's LWW replay compares this against its
+	// local object's updateTime.
+	logTime := updateTime
+	if !deletionTime.IsZero() {
+		logTime = deletionTime.UnixMilli()
+	}
+	s.AppendChangeLogDelete(idBytes, logTime)
+
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
 		return fmt.Errorf("object deletion in hashtree: %w", err)
 	}

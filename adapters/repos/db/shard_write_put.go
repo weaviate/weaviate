@@ -293,6 +293,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		}
 		s.metrics.PutObjectUpsertObject(before)
 
+		// Tee before hashtree: the bucket is the SSOT for movement catchup.
+		s.AppendChangeLogPut(idBytes, obj.LastUpdateTimeUnix(), objBinary)
+
 		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
 			return errors.Wrap(err, "object creation in hashtree")
 		}

@@ -72,6 +72,7 @@ const (
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD                           ApplyRequest_Type = 210
 	ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION                        ApplyRequest_Type = 211
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD                 ApplyRequest_Type = 212
+	ApplyRequest_TYPE_REPLICATION_NODE_REACHED_STATE                             ApplyRequest_Type = 213
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL                     ApplyRequest_Type = 220
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION           ApplyRequest_Type = 221
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD ApplyRequest_Type = 222
@@ -138,6 +139,7 @@ var (
 		210: "TYPE_REPLICATION_REPLICATE_SYNC_SHARD",
 		211: "TYPE_REPLICATION_REGISTER_SCHEMA_VERSION",
 		212: "TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD",
+		213: "TYPE_REPLICATION_NODE_REACHED_STATE",
 		220: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL",
 		221: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION",
 		222: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD",
@@ -200,6 +202,7 @@ var (
 		"TYPE_REPLICATION_REPLICATE_SYNC_SHARD":                           210,
 		"TYPE_REPLICATION_REGISTER_SCHEMA_VERSION":                        211,
 		"TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD":                 212,
+		"TYPE_REPLICATION_NODE_REACHED_STATE":                             213,
 		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL":                     220,
 		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION":           221,
 		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD": 222,
@@ -2336,13 +2339,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xb2\x12\n" +
+	"\x12NotifyPeerResponse\"\xdc\x12\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\x8e\x11\n" +
+	"subCommand\"\xb8\x11\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -2390,7 +2393,8 @@ const file_api_message_proto_rawDesc = "" +
 	",TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS\x10\xd1\x01\x12*\n" +
 	"%TYPE_REPLICATION_REPLICATE_SYNC_SHARD\x10\xd2\x01\x12-\n" +
 	"(TYPE_REPLICATION_REGISTER_SCHEMA_VERSION\x10\xd3\x01\x124\n" +
-	"/TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD\x10\xd4\x01\x120\n" +
+	"/TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD\x10\xd4\x01\x12(\n" +
+	"#TYPE_REPLICATION_NODE_REACHED_STATE\x10\xd5\x01\x120\n" +
 	"+TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL\x10\xdc\x01\x12:\n" +
 	"5TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION\x10\xdd\x01\x12D\n" +
 	"?TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD\x10\xde\x01\x12;\n" +

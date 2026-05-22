@@ -174,6 +174,119 @@ func (fps *FileReplicationService) GetFile(req *pb.GetFileRequest, stream pb.Fil
 	}
 }
 
+func (fps *FileReplicationService) StartChangeCapture(ctx context.Context, req *pb.StartChangeCaptureRequest) (*pb.StartChangeCaptureResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	if err := index.IncomingStartChangeCapture(ctx, req.ShardName, req.OpId); err != nil {
+		return nil, status.Errorf(codes.Internal, "start change capture for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+
+	return &pb.StartChangeCaptureResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
+		OpId:      req.OpId,
+	}, nil
+}
+
+func (fps *FileReplicationService) GetChangeLog(req *pb.GetChangeLogRequest, stream pb.FileReplicationService_GetChangeLogServer) error {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	tailer, err := index.IncomingGetChangeLog(stream.Context(), req.ShardName, req.OpId, req.UntilLsn)
+	if err != nil {
+		return status.Errorf(codes.Internal, "open change-log tailer for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+	defer tailer.Close()
+
+	for {
+		entry, err := tailer.Next(stream.Context())
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return status.Errorf(codes.Canceled, "change-log stream cancelled for index %q, shard %q, op %q: %v", req.IndexName, req.ShardName, req.OpId, err)
+			}
+			return status.Errorf(codes.Internal, "next change-log entry for op %q: %v", req.OpId, err)
+		}
+
+		if err := stream.Send(&pb.ChangeLogStreamEntry{
+			Lsn:              entry.LSN,
+			IsDelete:         entry.IsDelete,
+			UpdateTimeMillis: entry.UpdateTimeMillis,
+			Uuid:             entry.UUID[:],
+			Payload:          entry.Payload,
+		}); err != nil {
+			return err
+		}
+	}
+}
+
+func (fps *FileReplicationService) SnapshotChangeLogLSN(ctx context.Context, req *pb.SnapshotChangeLogLSNRequest) (*pb.SnapshotChangeLogLSNResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	lsn, err := index.IncomingSnapshotChangeLogLSN(ctx, req.ShardName, req.OpId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "snapshot change-log LSN for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+
+	return &pb.SnapshotChangeLogLSNResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
+		OpId:      req.OpId,
+		Lsn:       lsn,
+	}, nil
+}
+
+func (fps *FileReplicationService) FinalizeChangeLog(ctx context.Context, req *pb.FinalizeChangeLogRequest) (*pb.FinalizeChangeLogResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	finalLSN, err := index.IncomingFinalizeChangeLog(ctx, req.ShardName, req.OpId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "finalize change log for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+
+	return &pb.FinalizeChangeLogResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
+		OpId:      req.OpId,
+		FinalLsn:  finalLSN,
+	}, nil
+}
+
+func (fps *FileReplicationService) StopChangeCapture(ctx context.Context, req *pb.StopChangeCaptureRequest) (*pb.StopChangeCaptureResponse, error) {
+	index := fps.repo.GetIndexForIncomingSharding(schema.ClassName(req.IndexName))
+	if index == nil {
+		return nil, status.Errorf(codes.Internal, "local index %q not found", req.IndexName)
+	}
+
+	if err := index.IncomingStopChangeCapture(ctx, req.ShardName, req.OpId); err != nil {
+		return nil, status.Errorf(codes.Internal, "stop change capture for index %q, shard %q, op %q: %v",
+			req.IndexName, req.ShardName, req.OpId, err)
+	}
+
+	return &pb.StopChangeCaptureResponse{
+		IndexName: req.IndexName,
+		ShardName: req.ShardName,
+		OpId:      req.OpId,
+	}, nil
+}
+
 func (fps *FileReplicationService) indexForIncomingWrite(ctx context.Context, indexName string,
 	schemaVersion uint64,
 ) (sharding.RemoteIndexIncomingRepo, error) {
