@@ -115,19 +115,30 @@ func dumpQA240Diagnostics(t *testing.T, ctx context.Context, compose *docker.Doc
 
 		// Disk dump via testcontainers Container.Exec (Docker container
 		// names from testcontainers are random; the Container interface
-		// hides that and goes via the Docker socket directly).
-		t.Logf("  on-disk LSM tree (top-level):")
+		// hides that and goes via the Docker socket directly). Data
+		// path is /data per the test image's PERSISTENCE_DATA_PATH=./data
+		// with WORKDIR=/. find uses BusyBox flags (no -printf).
+		classDir := "/data/" + lowerClassName(className)
+		t.Logf("  on-disk LSM tree (top-level at %s):", classDir)
 		dumpContainerExec(t, ctx, container,
-			"ls -la /var/lib/weaviate/"+lowerClassName(className)+"/ 2>&1 | head -40")
+			"ls -la "+classDir+"/ 2>&1 | head -40")
 
-		t.Logf("  per-shard searchable bucket + .migrations dirs:")
+		t.Logf("  per-shard searchable bucket + .migrations dirs (path + ls):")
 		dumpContainerExec(t, ctx, container,
-			"find /var/lib/weaviate/"+lowerClassName(className)+"/ -maxdepth 4 \\( -name 'property_"+
-				propName+"_searchable*' -o -name '.migrations' -o -path '*/.migrations/*' \\) -printf '%p\\t%s\\n' 2>&1 | head -80")
+			"find "+classDir+"/ -maxdepth 5 \\( -name 'property_"+
+				propName+"_searchable*' -o -name '.migrations' -o -path '*/.migrations/*' \\) 2>/dev/null | "+
+				"while read p; do echo \"$p\"; done | head -120")
 
 		t.Logf("  .migrations/*.mig sentinel contents:")
 		dumpContainerExec(t, ctx, container,
-			"for f in $(find /var/lib/weaviate/"+lowerClassName(className)+"/ -maxdepth 5 -path '*/.migrations/*' -name '*.mig' 2>/dev/null); do echo \"--- $f ---\"; cat \"$f\" 2>&1; done | head -200")
+			"find "+classDir+"/ -maxdepth 6 -path '*/.migrations/*' -name '*.mig' 2>/dev/null | "+
+				"while read f; do echo \"--- $f ($(wc -c < \"$f\") bytes) ---\"; cat \"$f\" 2>&1; done | head -200")
+
+		t.Logf("  segment files under searchable bucket dirs:")
+		dumpContainerExec(t, ctx, container,
+			"find "+classDir+"/ -maxdepth 6 -path '*/property_"+propName+"_searchable*/*' "+
+				"\\( -name '*.db' -o -name '*.wal' -o -name '*.tmp' \\) 2>/dev/null | "+
+				"while read s; do echo \"$s ($(wc -c < \"$s\" 2>/dev/null) bytes)\"; done | head -80")
 	}
 
 	t.Logf("=========================================================================")
