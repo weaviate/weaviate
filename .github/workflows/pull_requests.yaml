@@ -22,7 +22,7 @@ jobs:
   Multi-Arch-Docker-Build:
     name: docker build (multi-arch)
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
     timeout-minutes: 45
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
@@ -133,14 +133,14 @@ jobs:
     name: docker build (${{ matrix.arch }})
     # ARM builds run on specific runners to avoid cross-compilation.
     runs-on: ${{ matrix.runner }}
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: "amd64"
-            runner: ubuntu-latest
+            runner: ubicloud-standard-2
             push-args: "--amd64-only"
           - arch: "arm64"
             runner: ubuntu-24.04-arm
@@ -179,7 +179,7 @@ jobs:
   PR-Vulnerability-Check:
     name: vulnerability check
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }}
+    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }}
     timeout-minutes: 45
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
@@ -248,7 +248,7 @@ jobs:
 
   Generate-Docker-Report:
     name: docker report
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     # Depends on both production and PR jobs, but only one will run based on the event type
     needs: [Multi-Arch-Docker-Build, PR-Docker-Build]
     # Always run if either dependency succeeded (pr or production build)
@@ -413,7 +413,7 @@ jobs:
           go-version: '1.26'
           cache: true
       - name: Login to Docker Hub
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
         with:
           username: ${{secrets.DOCKER_USERNAME}}
@@ -493,7 +493,7 @@ jobs:
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -529,7 +529,7 @@ jobs:
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -588,6 +588,8 @@ jobs:
             test: "--only-module-text2vec-voyageai"
           - name: "multi2vec-voyageai"
             test: "--only-module-multi2vec-voyageai"
+          - name: "text2vec-digitalocean"
+            test: "--only-module-text2vec-digitalocean"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -646,6 +648,7 @@ jobs:
           COHERE_APIKEY: ${{ secrets.COHERE_APIKEY }}
           ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
+          DIGITALOCEAN_APIKEY: ${{ secrets.DIGITALOCEAN_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
@@ -694,7 +697,7 @@ jobs:
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -739,7 +742,7 @@ jobs:
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}
@@ -788,7 +791,7 @@ jobs:
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
-        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
         with:
           username: ${{secrets.DOCKER_USERNAME}}
           password: ${{secrets.DOCKER_PASSWORD}}

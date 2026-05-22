@@ -580,6 +580,86 @@
       },
       "type": "object"
     },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (`errorCode`, `limit`, `value`) are stable contract; the `message` text is operator-overridable via the `USAGE_LIMITS_ERROR_MESSAGE` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "type": "string",
+          "description": "Machine-stable identifier. Always `USAGE_LIMIT_EXCEEDED` for this response.",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "type": "string",
+          "description": "Which limit was hit.",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "value": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The configured threshold value (the cap, not the current count)."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable message rendered from the `USAGE_LIMITS_ERROR_MESSAGE` template with `{limit}` and `{value}` placeholders substituted."
+        }
+      }
+    },
+    "RestrictionViolationResponse": {
+      "description": "Returned with HTTP 422 from class create/update endpoints. For restriction violations (operator-disallowed config via ALLOWED_VECTOR_INDEX_TYPES or ALLOWED_COMPRESSION_TYPES) the structured fields (`errorCode`, `restriction`, `value`, `allowed`, `message`) are populated; the `message` text is rendered from the operator-overridable `RESTRICTIONS_ERROR_MESSAGE` template. For unrelated 422 errors the `error` array is populated (matching the legacy ErrorResponse shape) and the structured fields are omitted.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "Legacy ErrorResponse-style error list, populated for non-restriction 422 errors."
+        },
+        "errorCode": {
+          "type": "string",
+          "description": "Machine-stable identifier. Set to `CONFIG_NOT_ALLOWED` for restriction violations; omitted otherwise.",
+          "enum": [
+            "CONFIG_NOT_ALLOWED"
+          ]
+        },
+        "restriction": {
+          "type": "string",
+          "description": "Which restriction was violated.",
+          "enum": [
+            "vector_index_type",
+            "compression"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "description": "The disallowed value the client submitted."
+        },
+        "allowed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The operator-configured allow-list."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable message rendered from the `RESTRICTIONS_ERROR_MESSAGE` template with `{restriction}`, `{value}`, `{allowed}` placeholders substituted."
+        }
+      }
+    },
     "ExportCreateRequest": {
       "description": "Request to create a new export operation",
       "type": "object",
@@ -2303,13 +2383,6 @@
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
-        "maxWorkers": {
-          "description": "Maximum number of async replication workers.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "hashtreeHeight": {
           "description": "Height of the hashtree used for diffing.",
           "type": "integer",
@@ -2326,13 +2399,6 @@
         },
         "frequencyWhilePropagating": {
           "description": "Frequency in milliseconds at which async replication runs while propagation is active.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "aliveNodesCheckingFrequency": {
-          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,
@@ -3498,7 +3564,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.37.2"
+    "version": "1.37.4"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -6140,6 +6206,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -7424,6 +7496,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See `UsageLimitExceededResponse` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -7868,7 +7946,13 @@
           "422": {
             "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
+            }
+          },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the `UsageLimitExceededResponse` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -8034,7 +8118,7 @@
           "422": {
             "description": "Invalid update attempt.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -8094,7 +8178,7 @@
           "422": {
             "description": "Invalid property definition provided.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -8482,6 +8566,12 @@
             "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {

@@ -36,6 +36,11 @@ func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) err
 			globalCfg.MinimumFactor, class.ReplicationConfig.Factor)
 	}
 
+	if globalCfg.MaximumFactor > 0 && class.ReplicationConfig.Factor > int64(globalCfg.MaximumFactor) {
+		return fmt.Errorf("invalid replication factor: setup caps replication at %d: got %d",
+			globalCfg.MaximumFactor, class.ReplicationConfig.Factor)
+	}
+
 	if class.ReplicationConfig.Factor < 1 {
 		class.ReplicationConfig.Factor = int64(globalCfg.MinimumFactor)
 	}

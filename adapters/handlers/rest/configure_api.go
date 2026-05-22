@@ -128,6 +128,7 @@ import (
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	moddatabricks "github.com/weaviate/weaviate/modules/text2vec-databricks"
+	moddigitalocean "github.com/weaviate/weaviate/modules/text2vec-digitalocean"
 	modtext2vecgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
@@ -163,6 +164,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -510,9 +512,22 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
 		Replication: replication.GlobalConfig{
-			MinimumFactor:                     1,
-			AsyncReplicationDisabled:          appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
-			AsyncReplicationClusterMaxWorkers: appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers,
+			MinimumFactor:                             1,
+			AsyncReplicationDisabled:                  appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
+			AsyncReplicationSchedulerWorkers:          appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers,
+			AsyncReplicationHashtreeInitConcurrency:   appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency,
+			AsyncReplicationHashtreeHeight:            appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeHeight,
+			AsyncReplicationFrequency:                 appState.ServerConfig.Config.Replication.AsyncReplicationFrequency,
+			AsyncReplicationFrequencyWhilePropagating: appState.ServerConfig.Config.Replication.AsyncReplicationFrequencyWhilePropagating,
+			AsyncReplicationLoggingFrequency:          appState.ServerConfig.Config.Replication.AsyncReplicationLoggingFrequency,
+			AsyncReplicationDiffBatchSize:             appState.ServerConfig.Config.Replication.AsyncReplicationDiffBatchSize,
+			AsyncReplicationDiffPerNodeTimeout:        appState.ServerConfig.Config.Replication.AsyncReplicationDiffPerNodeTimeout,
+			AsyncReplicationPrePropagationTimeout:     appState.ServerConfig.Config.Replication.AsyncReplicationPrePropagationTimeout,
+			AsyncReplicationPropagationTimeout:        appState.ServerConfig.Config.Replication.AsyncReplicationPropagationTimeout,
+			AsyncReplicationPropagationLimit:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationLimit,
+			AsyncReplicationPropagationConcurrency:    appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency,
+			AsyncReplicationPropagationBatchSize:      appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize,
+			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
 		},
 		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		MaximumConcurrentBucketLoads:                 appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
@@ -545,6 +560,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.DB = repo
+	// Construct the usage-limits Manager now that its ObjectCounter (the
+	// DB) exists, then install it on the DB so each Index inherits it
+	// when loaded (init.go) or created at runtime (migrator.go). Both
+	// must happen *before* WaitForStartup loads the existing indices.
+	// See docs/usage_limits.md.
+	appState.UsageLimits = usagelimits.NewManager(usagelimits.Config{
+		ErrorMessage:    appState.ServerConfig.Config.UsageLimits.ErrorMessage,
+		MaxObjectsCount: appState.ServerConfig.Config.UsageLimits.MaxObjectsCount,
+	}, repo)
+	repo.SetUsageLimits(appState.UsageLimits)
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
@@ -1046,6 +1071,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger,
 		getTelemetryURL(appState),
 		appState.ServerConfig.Config.TelemetryPushInterval,
+		telemetryEnabled(appState),
 	)
 
 	var grpcInstrument []grpc.ServerOption
@@ -1379,6 +1405,7 @@ func registerModules(appState *state.State) error {
 		modmistral.Name,
 		modtext2vecoctoai.Name,
 		modopenai.Name,
+		moddigitalocean.Name,
 		modmorph.Name,
 		modvoyageai.Name,
 		modmulti2vecvoyageai.Name,
@@ -1647,6 +1674,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modopenai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[moddigitalocean.Name]; ok {
+		appState.Modules.Register(moddigitalocean.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", moddigitalocean.Name).
 			Debug("enabled module")
 	}
 
@@ -2182,8 +2217,25 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		// Runtimeconfig manager takes of keeping the `registered` config values upto date
 		registered := &config.WeaviateRuntimeConfig{}
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
+		registered.MaximumAllowedObjectsCount = appState.ServerConfig.Config.UsageLimits.MaxObjectsCount
+		registered.MaximumAllowedTenantsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection
+		registered.MaximumAllowedShardsPerCollection = appState.ServerConfig.Config.UsageLimits.MaxShardsPerCollection
+		registered.UsageLimitsErrorMessage = appState.ServerConfig.Config.UsageLimits.ErrorMessage
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
-		registered.AsyncReplicationClusterMaxWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationClusterMaxWorkers
+		registered.AsyncReplicationSchedulerWorkers = appState.ServerConfig.Config.Replication.AsyncReplicationSchedulerWorkers
+		registered.AsyncReplicationHashtreeInitConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeInitConcurrency
+		registered.AsyncReplicationHashtreeHeight = appState.ServerConfig.Config.Replication.AsyncReplicationHashtreeHeight
+		registered.AsyncReplicationFrequency = appState.ServerConfig.Config.Replication.AsyncReplicationFrequency
+		registered.AsyncReplicationFrequencyWhilePropagating = appState.ServerConfig.Config.Replication.AsyncReplicationFrequencyWhilePropagating
+		registered.AsyncReplicationLoggingFrequency = appState.ServerConfig.Config.Replication.AsyncReplicationLoggingFrequency
+		registered.AsyncReplicationDiffBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationDiffBatchSize
+		registered.AsyncReplicationDiffPerNodeTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationDiffPerNodeTimeout
+		registered.AsyncReplicationPrePropagationTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationPrePropagationTimeout
+		registered.AsyncReplicationPropagationTimeout = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationTimeout
+		registered.AsyncReplicationPropagationLimit = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationLimit
+		registered.AsyncReplicationPropagationConcurrency = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationConcurrency
+		registered.AsyncReplicationPropagationBatchSize = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationBatchSize
+		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
 		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
@@ -2196,6 +2248,9 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
+		registered.AllowedVectorIndexTypes = appState.ServerConfig.Config.Restrictions.AllowedVectorIndexTypes
+		registered.AllowedCompressionTypes = appState.ServerConfig.Config.Restrictions.AllowedCompressionTypes
+		registered.RestrictionsErrorMessage = appState.ServerConfig.Config.Restrictions.ErrorMessage
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
@@ -2264,6 +2319,18 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 			hooks["OIDC"] = appState.OIDC.Init
 		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
+
+		// Re-run cross-field restriction validation on runtime YAML pushes
+		// (per-value runs at SetValue time). Keys are exact struct-field
+		// names — matchUpdatedFields uses HasPrefix, so "Default" would
+		// also match DefaultShardingCount and friends.
+		restrictionHook := func() error {
+			return appState.ServerConfig.Config.ValidateRestrictionsRuntime(appState.Logger)
+		}
+		hooks["AllowedVectorIndexTypes"] = restrictionHook
+		hooks["AllowedCompressionTypes"] = restrictionHook
+		hooks["DefaultVectorIndexType"] = restrictionHook
+		hooks["DefaultQuantization"] = restrictionHook
 
 		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
 		cm.RegisterHooks(hooks)

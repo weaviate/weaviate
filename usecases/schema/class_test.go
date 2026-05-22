@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
@@ -201,6 +202,33 @@ func Test_AddClass(t *testing.T) {
 		class = models.Class{Class: "RAFT", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 		_, _, err = handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+	})
+
+	t.Run("with property name ending in reserved index suffix", func(t *testing.T) {
+		suffixes := []string{
+			"foo_searchable",
+			"foo_rangeable",
+			"foo_temp",
+			"foo__meta_count",
+			"foo_propertyLength",
+			"foo_nullState",
+		}
+		for _, propName := range suffixes {
+			t.Run(propName, func(t *testing.T) {
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				class := &models.Class{
+					Class: "NewClass",
+					Properties: []*models.Property{
+						{DataType: []string{"text"}, Name: propName},
+					},
+					Vectorizer:        "none",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				}
+				_, _, err := handler.AddClass(ctx, nil, class)
+				require.ErrorContains(t, err, "reserved for internal indices")
+				fakeSchemaManager.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
+			})
+		}
 	})
 
 	t.Run("with default params", func(t *testing.T) {
@@ -499,36 +527,18 @@ func Test_AddClassWithLimits(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("with max collections limit", func(t *testing.T) {
+		// Asserts the typed *usagelimits.LimitExceededError on miss; the
+		// REST/gRPC layer maps it to HTTP 429 / RESOURCE_EXHAUSTED.
 		tests := []struct {
 			name          string
 			existingCount int
 			maxAllowed    int
-			expectedError error
+			expectExceed  bool
 		}{
-			{
-				name:          "under the limit",
-				existingCount: 5,
-				maxAllowed:    10,
-				expectedError: nil,
-			},
-			{
-				name:          "at the limit",
-				existingCount: 10,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "over the limit",
-				existingCount: 11,
-				maxAllowed:    10,
-				expectedError: fmt.Errorf("maximum number of collections (10) reached"),
-			},
-			{
-				name:          "no limit set",
-				existingCount: 100,
-				maxAllowed:    -1,
-				expectedError: nil,
-			},
+			{name: "under the limit", existingCount: 5, maxAllowed: 10, expectExceed: false},
+			{name: "at the limit", existingCount: 10, maxAllowed: 10, expectExceed: true},
+			{name: "over the limit", existingCount: 11, maxAllowed: 10, expectExceed: true},
+			{name: "no limit set", existingCount: 100, maxAllowed: -1, expectExceed: false},
 		}
 
 		for _, tt := range tests {
@@ -547,15 +557,19 @@ func Test_AddClassWithLimits(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				}
 
-				if tt.expectedError == nil {
+				if !tt.expectExceed {
 					fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 					fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 				}
 
 				_, _, err := handler.AddClass(ctx, nil, class)
-				if tt.expectedError != nil {
+				if tt.expectExceed {
 					require.NotNil(t, err)
-					assert.Contains(t, err.Error(), tt.expectedError.Error())
+					le, ok := usagelimits.AsLimitExceeded(err)
+					require.True(t, ok, "expected *LimitExceededError, got %T: %v", err, err)
+					assert.Equal(t, usagelimits.LimitCollections, le.Limit)
+					assert.Equal(t, int64(tt.maxAllowed), le.Value)
+					assert.NotEmpty(t, le.RenderedMessage)
 				} else {
 					require.Nil(t, err)
 				}
@@ -2988,6 +3002,63 @@ func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
 			err := handler.setClassDefaults(class, globalCfg)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedIndexType, class.VectorIndexType)
+		})
+	}
+}
+
+func Test_SetClassDefaults_DefaultVectorIndexType_NamedVectors(t *testing.T) {
+	t.Parallel()
+	globalCfg := replication.GlobalConfig{MinimumFactor: 1}
+
+	tests := []struct {
+		name              string
+		defaultIndexType  string
+		vectorIndexType   string
+		expectedIndexType string
+	}{
+		{
+			name:              "no env, no vector type => hnsw default",
+			defaultIndexType:  "",
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to hfresh, no vector type => hfresh",
+			defaultIndexType:  vectorindex.VectorIndexTypeHFresh,
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeHFresh,
+		},
+		{
+			name:              "env set to flat, no vector type => flat",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeFLAT,
+		},
+		{
+			name:              "env set to flat, vector explicitly hnsw => hnsw preserved",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			vectorIndexType:   vectorindex.VectorIndexTypeHNSW,
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t, &fakeDB{})
+			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
+
+			class := &models.Class{
+				VectorConfig: map[string]models.VectorConfig{
+					"my_vector": {
+						VectorIndexType: tt.vectorIndexType,
+						Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+					},
+				},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			err := handler.setClassDefaults(class, globalCfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedIndexType, class.VectorConfig["my_vector"].VectorIndexType)
 		})
 	}
 }

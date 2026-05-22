@@ -42,6 +42,9 @@ type Replicator interface {
 	DigestObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, className, shardName string,
 		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
+	// CompareDigests accepts a batch of source digests and returns only those that require repair
+	// (missing, stale, or tombstoned on this node). Eliminates the two-round-trip pattern.
+	CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairResponse) ([]types.RepairResponse, error)
 	HashTreeLevel(ctx context.Context, className, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)

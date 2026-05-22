@@ -157,6 +157,70 @@ type Handler struct {
 	asyncIndexingEnabled bool
 }
 
+// errorMessageTemplate returns the operator-overridable usage-limit
+// message template, or "" when unset (in which case the usagelimits
+// package falls back to its built-in default). See docs/usage_limits.md.
+func (h *Handler) errorMessageTemplate() string {
+	if dv := h.config.UsageLimits.ErrorMessage; dv != nil {
+		return dv.Get()
+	}
+	return ""
+}
+
+// restrictionsErrorMessageTemplate returns RESTRICTIONS_ERROR_MESSAGE
+// or "" (callers fall back to the package default).
+func (h *Handler) restrictionsErrorMessageTemplate() string {
+	if dv := h.config.Restrictions.ErrorMessage; dv != nil {
+		return dv.Get()
+	}
+	return ""
+}
+
+// allowedVectorIndexTypes returns the configured allow-list (nil =
+// unrestricted; caller must not mutate). Entries are re-normalized at
+// read time so a runtime YAML push of mixed-case entries still matches.
+func (h *Handler) allowedVectorIndexTypes() []string {
+	if dv := h.config.Restrictions.AllowedVectorIndexTypes; dv != nil {
+		if v := dv.Get(); len(v) > 0 {
+			return normalizeAllowList(v, config.IsValidRestrictionVectorIndexType)
+		}
+	}
+	return nil
+}
+
+// allowedCompressionTypes is the compression sibling of allowedVectorIndexTypes.
+func (h *Handler) allowedCompressionTypes() []string {
+	if dv := h.config.Restrictions.AllowedCompressionTypes; dv != nil {
+		if v := dv.Get(); len(v) > 0 {
+			return normalizeAllowList(v, config.IsValidRestrictionCompressionType)
+		}
+	}
+	return nil
+}
+
+// normalizeAllowList lowercases/trims entries and drops invalid ones.
+// All-invalid input returns nil ("no restriction") — fail-safe for a
+// misconfigured runtime override.
+func normalizeAllowList(in []string, isValid func(string) bool) []string {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, v := range in {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" || !isValid(v) {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // NewHandler creates a new handler
 func NewHandler(
 	schemaReader SchemaReader,

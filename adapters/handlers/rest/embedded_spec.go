@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.2"
+    "version": "1.37.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -2142,6 +2142,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -3075,6 +3081,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -5015,7 +5027,13 @@ func init() {
           "422": {
             "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
+            }
+          },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the ` + "`" + `UsageLimitExceededResponse` + "`" + ` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -5134,7 +5152,7 @@ func init() {
           "422": {
             "description": "Invalid update attempt.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -5240,7 +5258,7 @@ func init() {
           "422": {
             "description": "Invalid property definition provided.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -5693,6 +5711,12 @@ func init() {
             "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -8839,13 +8863,6 @@ func init() {
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
-        "aliveNodesCheckingFrequency": {
-          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "diffBatchSize": {
           "description": "Maximum number of object keys included in a single diff batch.",
           "type": "integer",
@@ -8883,13 +8900,6 @@ func init() {
         },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "maxWorkers": {
-          "description": "Maximum number of async replication workers.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,
@@ -9348,6 +9358,54 @@ func init() {
         }
       }
     },
+    "RestrictionViolationResponse": {
+      "description": "Returned with HTTP 422 from class create/update endpoints. For restriction violations (operator-disallowed config via ALLOWED_VECTOR_INDEX_TYPES or ALLOWED_COMPRESSION_TYPES) the structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `restriction` + "`" + `, ` + "`" + `value` + "`" + `, ` + "`" + `allowed` + "`" + `, ` + "`" + `message` + "`" + `) are populated; the ` + "`" + `message` + "`" + ` text is rendered from the operator-overridable ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template. For unrelated 422 errors the ` + "`" + `error` + "`" + ` array is populated (matching the legacy ErrorResponse shape) and the structured fields are omitted.",
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "description": "The operator-configured allow-list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "Legacy ErrorResponse-style error list, populated for non-restriction 422 errors.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "errorCode": {
+          "description": "Machine-stable identifier. Set to ` + "`" + `CONFIG_NOT_ALLOWED` + "`" + ` for restriction violations; omitted otherwise.",
+          "type": "string",
+          "enum": [
+            "CONFIG_NOT_ALLOWED"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{restriction}` + "`" + `, ` + "`" + `{value}` + "`" + `, ` + "`" + `{allowed}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "restriction": {
+          "description": "Which restriction was violated.",
+          "type": "string",
+          "enum": [
+            "vector_index_type",
+            "compression"
+          ]
+        },
+        "value": {
+          "description": "The disallowed value the client submitted.",
+          "type": "string"
+        }
+      }
+    },
     "Role": {
       "type": "object",
       "required": [
@@ -9714,6 +9772,38 @@ func init() {
         "tokenizer": {
           "description": "The tokenizer to which the user dictionary should be applied. Currently, only the ` + "`" + `kagame` + "`" + ` ja and kr tokenizers supports user dictionaries.",
           "type": "string"
+        }
+      }
+    },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `limit` + "`" + `, ` + "`" + `value` + "`" + `) are stable contract; the ` + "`" + `message` + "`" + ` text is operator-overridable via the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "description": "Machine-stable identifier. Always ` + "`" + `USAGE_LIMIT_EXCEEDED` + "`" + ` for this response.",
+          "type": "string",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "description": "Which limit was hit.",
+          "type": "string",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{limit}` + "`" + ` and ` + "`" + `{value}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The configured threshold value (the cap, not the current count).",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -10141,7 +10231,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.37.2"
+    "version": "1.37.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -12214,6 +12304,12 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. The whole batch is rejected (no partial fill); the client decides what to retry. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
+            }
+          },
           "500": {
             "description": "An error occurred while trying to fulfill the request. Check the ErrorResponse for details.",
             "schema": {
@@ -13194,6 +13290,12 @@ func init() {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured object-count usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -15206,7 +15308,13 @@ func init() {
           "422": {
             "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
+            }
+          },
+          "429": {
+            "description": "A configured usage limit (collections/shards) was exceeded. See the ` + "`" + `UsageLimitExceededResponse` + "`" + ` body for which limit and the configured value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -15325,7 +15433,7 @@ func init() {
           "422": {
             "description": "Invalid update attempt.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -15431,7 +15539,7 @@ func init() {
           "422": {
             "description": "Invalid property definition provided.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -15884,6 +15992,12 @@ func init() {
             "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The configured tenant-per-collection usage limit was exceeded. See ` + "`" + `UsageLimitExceededResponse` + "`" + ` for the limit value.",
+            "schema": {
+              "$ref": "#/definitions/UsageLimitExceededResponse"
             }
           },
           "500": {
@@ -19388,13 +19502,6 @@ func init() {
       "description": "Configuration for asynchronous replication.",
       "type": "object",
       "properties": {
-        "aliveNodesCheckingFrequency": {
-          "description": "Interval in milliseconds at which liveness of target nodes is checked.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
         "diffBatchSize": {
           "description": "Maximum number of object keys included in a single diff batch.",
           "type": "integer",
@@ -19432,13 +19539,6 @@ func init() {
         },
         "loggingFrequency": {
           "description": "Interval in seconds at which async replication logs its status.",
-          "type": "integer",
-          "format": "int64",
-          "x-nullable": true,
-          "x-omitempty": true
-        },
-        "maxWorkers": {
-          "description": "Maximum number of async replication workers.",
           "type": "integer",
           "format": "int64",
           "x-nullable": true,
@@ -19900,6 +20000,57 @@ func init() {
         }
       }
     },
+    "RestrictionViolationResponse": {
+      "description": "Returned with HTTP 422 from class create/update endpoints. For restriction violations (operator-disallowed config via ALLOWED_VECTOR_INDEX_TYPES or ALLOWED_COMPRESSION_TYPES) the structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `restriction` + "`" + `, ` + "`" + `value` + "`" + `, ` + "`" + `allowed` + "`" + `, ` + "`" + `message` + "`" + `) are populated; the ` + "`" + `message` + "`" + ` text is rendered from the operator-overridable ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template. For unrelated 422 errors the ` + "`" + `error` + "`" + ` array is populated (matching the legacy ErrorResponse shape) and the structured fields are omitted.",
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "description": "The operator-configured allow-list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "Legacy ErrorResponse-style error list, populated for non-restriction 422 errors.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RestrictionViolationResponseErrorItems0"
+          }
+        },
+        "errorCode": {
+          "description": "Machine-stable identifier. Set to ` + "`" + `CONFIG_NOT_ALLOWED` + "`" + ` for restriction violations; omitted otherwise.",
+          "type": "string",
+          "enum": [
+            "CONFIG_NOT_ALLOWED"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{restriction}` + "`" + `, ` + "`" + `{value}` + "`" + `, ` + "`" + `{allowed}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "restriction": {
+          "description": "Which restriction was violated.",
+          "type": "string",
+          "enum": [
+            "vector_index_type",
+            "compression"
+          ]
+        },
+        "value": {
+          "description": "The disallowed value the client submitted.",
+          "type": "string"
+        }
+      }
+    },
+    "RestrictionViolationResponseErrorItems0": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      }
+    },
     "Role": {
       "type": "object",
       "required": [
@@ -20269,6 +20420,38 @@ func init() {
         "target": {
           "description": "The string to replace with.",
           "type": "string"
+        }
+      }
+    },
+    "UsageLimitExceededResponse": {
+      "description": "Returned with HTTP 429 when a configured Weaviate usage limit (objects/collections/tenants/shards) is exceeded. The structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `limit` + "`" + `, ` + "`" + `value` + "`" + `) are stable contract; the ` + "`" + `message` + "`" + ` text is operator-overridable via the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template.",
+      "type": "object",
+      "properties": {
+        "errorCode": {
+          "description": "Machine-stable identifier. Always ` + "`" + `USAGE_LIMIT_EXCEEDED` + "`" + ` for this response.",
+          "type": "string",
+          "enum": [
+            "USAGE_LIMIT_EXCEEDED"
+          ]
+        },
+        "limit": {
+          "description": "Which limit was hit.",
+          "type": "string",
+          "enum": [
+            "objects",
+            "collections",
+            "tenants",
+            "shards"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `USAGE_LIMITS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{limit}` + "`" + ` and ` + "`" + `{value}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The configured threshold value (the cap, not the current count).",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
