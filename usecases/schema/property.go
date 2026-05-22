@@ -64,6 +64,11 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		return nil, 0, nil
 	}
 
+	existingLowerNames := make(map[string]bool, len(class.Properties))
+	for _, prop := range class.Properties {
+		existingLowerNames[strings.ToLower(prop.Name)] = true
+	}
+
 	// validate new props
 	for _, prop := range newProps {
 		if prop.Name == "" {
@@ -73,6 +78,14 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 		if prop.DataType == nil {
 			return nil, 0, fmt.Errorf("property must contain dataType")
 		}
+		// Skip the suffix check when merging an already-existing property so
+		// legacy schemas created before the restriction remain upsert-able.
+		if merge && existingLowerNames[strings.ToLower(prop.Name)] {
+			continue
+		}
+		if err := schema.ValidateReservedPropertyNameSuffix(prop.Name); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	if err := h.setNewPropDefaults(class, newProps...); err != nil {
@@ -81,9 +94,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 	existingNames := make(map[string]bool, len(class.Properties))
 	if !merge {
-		for _, prop := range class.Properties {
-			existingNames[strings.ToLower(prop.Name)] = true
-		}
+		existingNames = existingLowerNames
 	}
 
 	if err := h.validateProperty(class, existingNames, false, classGetterWithAuth, newProps...); err != nil {

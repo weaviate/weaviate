@@ -2406,6 +2406,9 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.DefaultQuantization = appState.ServerConfig.Config.DefaultQuantization
 		registered.DefaultVectorIndexType = appState.ServerConfig.Config.DefaultVectorIndexType
 		registered.DefaultShardingCount = appState.ServerConfig.Config.DefaultShardingCount
+		registered.AllowedVectorIndexTypes = appState.ServerConfig.Config.Restrictions.AllowedVectorIndexTypes
+		registered.AllowedCompressionTypes = appState.ServerConfig.Config.Restrictions.AllowedCompressionTypes
+		registered.RestrictionsErrorMessage = appState.ServerConfig.Config.Restrictions.ErrorMessage
 		registered.ReplicatedIndicesRequestQueueEnabled = appState.ServerConfig.Config.Cluster.RequestQueueConfig.IsEnabled
 		registered.RaftDrainSleep = appState.ServerConfig.Config.Raft.DrainSleep
 		registered.RaftTimoutsMultiplier = appState.ServerConfig.Config.Raft.TimeoutsMultiplier
@@ -2477,6 +2480,18 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 			hooks["OIDC"] = appState.OIDC.Init
 		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
+
+		// Re-run cross-field restriction validation on runtime YAML pushes
+		// (per-value runs at SetValue time). Keys are exact struct-field
+		// names — matchUpdatedFields uses HasPrefix, so "Default" would
+		// also match DefaultShardingCount and friends.
+		restrictionHook := func() error {
+			return appState.ServerConfig.Config.ValidateRestrictionsRuntime(appState.Logger)
+		}
+		hooks["AllowedVectorIndexTypes"] = restrictionHook
+		hooks["AllowedCompressionTypes"] = restrictionHook
+		hooks["DefaultVectorIndexType"] = restrictionHook
+		hooks["DefaultQuantization"] = restrictionHook
 
 		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
 		cm.RegisterHooks(hooks)

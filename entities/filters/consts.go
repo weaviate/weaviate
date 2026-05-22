@@ -11,11 +11,17 @@
 
 package filters
 
+import "github.com/weaviate/weaviate/entities/schema"
+
 const (
-	InternalPropBackwardsCompatID  = "id"
-	InternalPropID                 = "_id"
-	InternalNullIndex              = "_nullState"
-	InternalPropertyLength         = "_propertyLength"
+	InternalPropBackwardsCompatID = "id"
+	InternalPropID                = "_id"
+	// InternalNullIndex and InternalPropertyLength are aliases for the
+	// canonical property-name suffix constants defined in entities/schema.
+	// They share a single source of truth so validation and bucket naming
+	// cannot drift out of sync.
+	InternalNullIndex              = schema.InternalNullStateSuffix
+	InternalPropertyLength         = schema.InternalPropertyLengthSuffix
 	InternalPropCreationTimeUnix   = "_creationTimeUnix"
 	InternalPropLastUpdateTimeUnix = "_lastUpdateTimeUnix"
 )

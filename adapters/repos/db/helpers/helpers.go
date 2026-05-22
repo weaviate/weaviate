@@ -15,8 +15,8 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -64,15 +64,15 @@ func GetHNSWSnapshotDirName(targetVector string) string {
 // don't explicitly exist in the user schema, but are required for proper
 // indexing, such as the count of arrays.
 func MetaCountProp(propName string) string {
-	return fmt.Sprintf("%s__meta_count", propName)
+	return propName + schema.InternalMetaCountSuffix
 }
 
 func PropLength(propName string) string {
-	return propName + filters.InternalPropertyLength
+	return propName + schema.InternalPropertyLengthSuffix
 }
 
 func PropNull(propName string) string {
-	return propName + filters.InternalNullIndex
+	return propName + schema.InternalNullStateSuffix
 }
 
 // BucketFromPropNameLSM creates string used as the bucket name
@@ -94,7 +94,7 @@ func BucketFromPropNameMetaCountLSM(propName string) string {
 }
 
 func TempBucketFromBucketName(bucketName string) string {
-	return bucketName + "_temp"
+	return bucketName + schema.InternalTempSuffix
 }
 
 func BucketNestedFromPropNameLSM(propName string) string {
@@ -106,11 +106,11 @@ func BucketNestedMetaFromPropNameLSM(propName string) string {
 }
 
 func BucketSearchableFromPropNameLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + "_searchable")
+	return BucketFromPropNameLSM(propName + schema.InternalSearchableSuffix)
 }
 
 func BucketRangeableFromPropNameLSM(propName string) string {
-	return BucketFromPropNameLSM(propName + "_rangeable")
+	return BucketFromPropNameLSM(propName + schema.InternalRangeableSuffix)
 }
 
 // propertyBucketGenSuffix returns the suffix appended to a property bucket

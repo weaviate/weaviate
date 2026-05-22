@@ -129,6 +129,72 @@ func TestHandler_AddProperty(t *testing.T) {
 	})
 }
 
+func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
+	ctx := context.Background()
+
+	suffixes := []string{
+		"foo_searchable",
+		"foo_rangeable",
+		"foo_temp",
+		"foo__meta_count",
+		"foo_propertyLength",
+		"foo_nullState",
+	}
+
+	t.Run("rejects new property with reserved suffix", func(t *testing.T) {
+		for _, propName := range suffixes {
+			t.Run(propName, func(t *testing.T) {
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				class := &models.Class{
+					Class:             "NewClass",
+					Vectorizer:        "none",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				}
+				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+				fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
+				_, _, err := handler.AddClass(ctx, nil, class)
+				require.NoError(t, err)
+
+				prop := &models.Property{
+					Name:     propName,
+					DataType: schema.DataTypeText.PropString(),
+				}
+				_, _, err = handler.AddClassProperty(ctx, nil, class.Class, false, prop)
+				require.ErrorContains(t, err, "reserved for internal indices")
+				fakeSchemaManager.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
+			})
+		}
+	})
+
+	t.Run("allows merge upsert of already-existing legacy property", func(t *testing.T) {
+		// Simulate a legacy schema that predates the suffix restriction by
+		// placing the property directly into class.Properties, bypassing AddClass.
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		legacyProp := &models.Property{
+			Name:     "foo_searchable",
+			DataType: schema.DataTypeText.PropString(),
+		}
+		class := &models.Class{
+			Class:             "LegacyClass",
+			Properties:        []*models.Property{legacyProp},
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+		}
+
+		// merge=true with a name matching an existing property must skip the
+		// suffix check (case-insensitively) so legacy schemas stay upsert-able.
+		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
+		fakeSchemaManager.On("AddProperty", class.Class, mock.Anything).Return(nil).Maybe()
+		upsert := &models.Property{
+			Name:     "Foo_searchable",
+			DataType: schema.DataTypeText.PropString(),
+		}
+		_, _, err := handler.AddClassProperty(ctx, nil, class.Class, true, upsert)
+		require.NoError(t, err)
+	})
+}
+
 // TestHandler_AddProperty_Object verifies that we can add properties on class with the Object and ObjectArray type.
 // This test is different than TestHandler_AddProperty because Object and ObjectArray require nested properties to be validated.
 func TestHandler_AddProperty_Object(t *testing.T) {

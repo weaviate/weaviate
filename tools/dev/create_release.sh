@@ -173,10 +173,10 @@ fi
 echo "==> Triggering QA pipeline via tools/dev/qa_pr.sh"
 QA_LOG="$(mktemp)"
 "$QA_PR_SH" "$PR_LINK" 2>&1 | tee "$QA_LOG"
-QA_SUMMARY="$(tail -n 2 "$QA_LOG")"
+QA_SUMMARY="$(tail -n 1 "$QA_LOG")"
 rm -f "$QA_LOG"
 
 echo ""
 echo "Success: prepare release PR opened and QA pipeline triggered for v$VERSION."
-echo "  PR: $PR_LINK"
+echo ">>>   Prepare release PR: $PR_LINK"
 echo "$QA_SUMMARY"

@@ -31,16 +31,16 @@ import (
 )
 
 type fakeClassConfig struct {
-	cfg map[string]interface{}
+	cfg map[string]any
 }
 
-func (f fakeClassConfig) Class() map[string]interface{} { return f.cfg }
-func (f fakeClassConfig) ClassByModuleName(string) map[string]interface{} {
+func (f fakeClassConfig) Class() map[string]any { return f.cfg }
+func (f fakeClassConfig) ClassByModuleName(string) map[string]any {
 	return f.cfg
 }
-func (f fakeClassConfig) Property(string) map[string]interface{} { return nil }
-func (f fakeClassConfig) Tenant() string                         { return "" }
-func (f fakeClassConfig) TargetVector() string                   { return "" }
+func (f fakeClassConfig) Property(string) map[string]any { return nil }
+func (f fakeClassConfig) Tenant() string                 { return "" }
+func (f fakeClassConfig) TargetVector() string           { return "" }
 func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 	return nil
 }
@@ -74,7 +74,7 @@ func TestClient_Vectorize_Success(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	c := New("test-key", 5*time.Second, logrus.New())
-	cfg := fakeClassConfig{cfg: map[string]interface{}{
+	cfg := fakeClassConfig{cfg: map[string]any{
 		"model":   "qwen3-embedding-0.6b",
 		"baseURL": server.URL,
 	}}
@@ -101,7 +101,7 @@ func TestClient_Vectorize_ErrorBody(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	c := New("test-key", 5*time.Second, logrus.New())
-	cfg := fakeClassConfig{cfg: map[string]interface{}{
+	cfg := fakeClassConfig{cfg: map[string]any{
 		"model":   "bogus",
 		"baseURL": server.URL,
 	}}
@@ -115,7 +115,7 @@ func TestClient_Vectorize_ErrorBody(t *testing.T) {
 
 func TestClient_Vectorize_MissingApiKey(t *testing.T) {
 	c := New("", 5*time.Second, logrus.New())
-	cfg := fakeClassConfig{cfg: map[string]interface{}{
+	cfg := fakeClassConfig{cfg: map[string]any{
 		"model":   "qwen3-embedding-0.6b",
 		"baseURL": "https://example.com",
 	}}
@@ -138,7 +138,7 @@ func TestClient_Vectorize_OutOfOrderResponse(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	c := New("test-key", 5*time.Second, logrus.New())
-	cfg := fakeClassConfig{cfg: map[string]interface{}{
+	cfg := fakeClassConfig{cfg: map[string]any{
 		"model":   "qwen3-embedding-0.6b",
 		"baseURL": server.URL,
 	}}
@@ -164,7 +164,7 @@ func TestClient_Vectorize_IndexOutOfRange(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	c := New("test-key", 5*time.Second, logrus.New())
-	cfg := fakeClassConfig{cfg: map[string]interface{}{
+	cfg := fakeClassConfig{cfg: map[string]any{
 		"model":   "qwen3-embedding-0.6b",
 		"baseURL": server.URL,
 	}}
@@ -187,7 +187,7 @@ func TestClient_Vectorize_PartialResponse(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	c := New("test-key", 5*time.Second, logrus.New())
-	cfg := fakeClassConfig{cfg: map[string]interface{}{
+	cfg := fakeClassConfig{cfg: map[string]any{
 		"model":   "qwen3-embedding-0.6b",
 		"baseURL": server.URL,
 	}}
@@ -211,7 +211,7 @@ func TestClient_Vectorize_DuplicateIndex(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	c := New("test-key", 5*time.Second, logrus.New())
-	cfg := fakeClassConfig{cfg: map[string]interface{}{
+	cfg := fakeClassConfig{cfg: map[string]any{
 		"model":   "qwen3-embedding-0.6b",
 		"baseURL": server.URL,
 	}}
@@ -234,7 +234,7 @@ func TestClient_Vectorize_EmptyEmbedding(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	c := New("test-key", 5*time.Second, logrus.New())
-	cfg := fakeClassConfig{cfg: map[string]interface{}{
+	cfg := fakeClassConfig{cfg: map[string]any{
 		"model":   "qwen3-embedding-0.6b",
 		"baseURL": server.URL,
 	}}
@@ -254,7 +254,7 @@ func TestClient_Vectorize_HeaderBaseURLOverride(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	c := New("test-key", 5*time.Second, logrus.New())
-	cfg := fakeClassConfig{cfg: map[string]interface{}{
+	cfg := fakeClassConfig{cfg: map[string]any{
 		"model":   "qwen3-embedding-0.6b",
 		"baseURL": "https://should-be-overridden.invalid",
 	}}

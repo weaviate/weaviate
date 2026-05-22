@@ -5386,7 +5386,7 @@ func init() {
           "422": {
             "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "429": {
@@ -5517,7 +5517,7 @@ func init() {
           "422": {
             "description": "Invalid update attempt.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -5752,7 +5752,7 @@ func init() {
           "422": {
             "description": "Invalid property definition provided.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -10103,6 +10103,54 @@ func init() {
             "noRestore",
             "all"
           ]
+        }
+      }
+    },
+    "RestrictionViolationResponse": {
+      "description": "Returned with HTTP 422 from class create/update endpoints. For restriction violations (operator-disallowed config via ALLOWED_VECTOR_INDEX_TYPES or ALLOWED_COMPRESSION_TYPES) the structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `restriction` + "`" + `, ` + "`" + `value` + "`" + `, ` + "`" + `allowed` + "`" + `, ` + "`" + `message` + "`" + `) are populated; the ` + "`" + `message` + "`" + ` text is rendered from the operator-overridable ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template. For unrelated 422 errors the ` + "`" + `error` + "`" + ` array is populated (matching the legacy ErrorResponse shape) and the structured fields are omitted.",
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "description": "The operator-configured allow-list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "Legacy ErrorResponse-style error list, populated for non-restriction 422 errors.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "errorCode": {
+          "description": "Machine-stable identifier. Set to ` + "`" + `CONFIG_NOT_ALLOWED` + "`" + ` for restriction violations; omitted otherwise.",
+          "type": "string",
+          "enum": [
+            "CONFIG_NOT_ALLOWED"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{restriction}` + "`" + `, ` + "`" + `{value}` + "`" + `, ` + "`" + `{allowed}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "restriction": {
+          "description": "Which restriction was violated.",
+          "type": "string",
+          "enum": [
+            "vector_index_type",
+            "compression"
+          ]
+        },
+        "value": {
+          "description": "The disallowed value the client submitted.",
+          "type": "string"
         }
       }
     },
@@ -16371,7 +16419,7 @@ func init() {
           "422": {
             "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "429": {
@@ -16502,7 +16550,7 @@ func init() {
           "422": {
             "description": "Invalid update attempt.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -16737,7 +16785,7 @@ func init() {
           "422": {
             "description": "Invalid property definition provided.",
             "schema": {
-              "$ref": "#/definitions/ErrorResponse"
+              "$ref": "#/definitions/RestrictionViolationResponse"
             }
           },
           "500": {
@@ -21460,6 +21508,57 @@ func init() {
             "noRestore",
             "all"
           ]
+        }
+      }
+    },
+    "RestrictionViolationResponse": {
+      "description": "Returned with HTTP 422 from class create/update endpoints. For restriction violations (operator-disallowed config via ALLOWED_VECTOR_INDEX_TYPES or ALLOWED_COMPRESSION_TYPES) the structured fields (` + "`" + `errorCode` + "`" + `, ` + "`" + `restriction` + "`" + `, ` + "`" + `value` + "`" + `, ` + "`" + `allowed` + "`" + `, ` + "`" + `message` + "`" + `) are populated; the ` + "`" + `message` + "`" + ` text is rendered from the operator-overridable ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template. For unrelated 422 errors the ` + "`" + `error` + "`" + ` array is populated (matching the legacy ErrorResponse shape) and the structured fields are omitted.",
+      "type": "object",
+      "properties": {
+        "allowed": {
+          "description": "The operator-configured allow-list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "description": "Legacy ErrorResponse-style error list, populated for non-restriction 422 errors.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/RestrictionViolationResponseErrorItems0"
+          }
+        },
+        "errorCode": {
+          "description": "Machine-stable identifier. Set to ` + "`" + `CONFIG_NOT_ALLOWED` + "`" + ` for restriction violations; omitted otherwise.",
+          "type": "string",
+          "enum": [
+            "CONFIG_NOT_ALLOWED"
+          ]
+        },
+        "message": {
+          "description": "Human-readable message rendered from the ` + "`" + `RESTRICTIONS_ERROR_MESSAGE` + "`" + ` template with ` + "`" + `{restriction}` + "`" + `, ` + "`" + `{value}` + "`" + `, ` + "`" + `{allowed}` + "`" + ` placeholders substituted.",
+          "type": "string"
+        },
+        "restriction": {
+          "description": "Which restriction was violated.",
+          "type": "string",
+          "enum": [
+            "vector_index_type",
+            "compression"
+          ]
+        },
+        "value": {
+          "description": "The disallowed value the client submitted.",
+          "type": "string"
+        }
+      }
+    },
+    "RestrictionViolationResponseErrorItems0": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
         }
       }
     },

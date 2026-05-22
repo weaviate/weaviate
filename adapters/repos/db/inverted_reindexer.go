@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -308,7 +309,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 	}
 
 	if isMetaCountProperty(property) {
-		propName := strings.TrimSuffix(property.Name, "__meta_count")
+		propName := strings.TrimSuffix(property.Name, schema.InternalMetaCountSuffix)
 		if checker.isReindexable(propName, IndexTypePropMetaCount) {
 			schemaProp := checker.getSchemaProp(propName)
 			if inverted.HasFilterableIndex(schemaProp) {

@@ -2367,58 +2367,55 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 	return file_v1_search_get_proto_rawDescData
 }
 
-var (
-	file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-	file_v1_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 25)
-	file_v1_search_get_proto_goTypes   = []any{
-		(Boost_PropertyValueModifier)(0),    // 0: weaviate.v1.Boost.PropertyValueModifier
-		(Boost_DecayCurve)(0),               // 1: weaviate.v1.Boost.DecayCurve
-		(*SearchRequest)(nil),               // 2: weaviate.v1.SearchRequest
-		(*GroupBy)(nil),                     // 3: weaviate.v1.GroupBy
-		(*SortBy)(nil),                      // 4: weaviate.v1.SortBy
-		(*MetadataRequest)(nil),             // 5: weaviate.v1.MetadataRequest
-		(*PropertiesRequest)(nil),           // 6: weaviate.v1.PropertiesRequest
-		(*ObjectPropertiesRequest)(nil),     // 7: weaviate.v1.ObjectPropertiesRequest
-		(*RefPropertiesRequest)(nil),        // 8: weaviate.v1.RefPropertiesRequest
-		(*Rerank)(nil),                      // 9: weaviate.v1.Rerank
-		(*SearchReply)(nil),                 // 10: weaviate.v1.SearchReply
-		(*QueryProfile)(nil),                // 11: weaviate.v1.QueryProfile
-		(*RerankReply)(nil),                 // 12: weaviate.v1.RerankReply
-		(*GroupByResult)(nil),               // 13: weaviate.v1.GroupByResult
-		(*SearchResult)(nil),                // 14: weaviate.v1.SearchResult
-		(*MetadataResult)(nil),              // 15: weaviate.v1.MetadataResult
-		(*PropertiesResult)(nil),            // 16: weaviate.v1.PropertiesResult
-		(*RefPropertiesResult)(nil),         // 17: weaviate.v1.RefPropertiesResult
-		(*Boost)(nil),                       // 18: weaviate.v1.Boost
-		(*QueryProfile_SearchProfile)(nil),  // 19: weaviate.v1.QueryProfile.SearchProfile
-		(*QueryProfile_ShardProfile)(nil),   // 20: weaviate.v1.QueryProfile.ShardProfile
-		nil,                                 // 21: weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
-		nil,                                 // 22: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
-		(*Boost_PropertyValueFunction)(nil), // 23: weaviate.v1.Boost.PropertyValueFunction
-		(*Boost_TimeDecayFunction)(nil),     // 24: weaviate.v1.Boost.TimeDecayFunction
-		(*Boost_NumericDecayFunction)(nil),  // 25: weaviate.v1.Boost.NumericDecayFunction
-		(*Boost_Condition)(nil),             // 26: weaviate.v1.Boost.Condition
-		(ConsistencyLevel)(0),               // 27: weaviate.v1.ConsistencyLevel
-		(*Filters)(nil),                     // 28: weaviate.v1.Filters
-		(*Hybrid)(nil),                      // 29: weaviate.v1.Hybrid
-		(*BM25)(nil),                        // 30: weaviate.v1.BM25
-		(*NearVector)(nil),                  // 31: weaviate.v1.NearVector
-		(*NearObject)(nil),                  // 32: weaviate.v1.NearObject
-		(*NearTextSearch)(nil),              // 33: weaviate.v1.NearTextSearch
-		(*NearImageSearch)(nil),             // 34: weaviate.v1.NearImageSearch
-		(*NearAudioSearch)(nil),             // 35: weaviate.v1.NearAudioSearch
-		(*NearVideoSearch)(nil),             // 36: weaviate.v1.NearVideoSearch
-		(*NearDepthSearch)(nil),             // 37: weaviate.v1.NearDepthSearch
-		(*NearThermalSearch)(nil),           // 38: weaviate.v1.NearThermalSearch
-		(*NearIMUSearch)(nil),               // 39: weaviate.v1.NearIMUSearch
-		(*GenerativeSearch)(nil),            // 40: weaviate.v1.GenerativeSearch
-		(*GenerativeResult)(nil),            // 41: weaviate.v1.GenerativeResult
-		(*GenerativeReply)(nil),             // 42: weaviate.v1.GenerativeReply
-		(*Vectors)(nil),                     // 43: weaviate.v1.Vectors
-		(*Properties)(nil),                  // 44: weaviate.v1.Properties
-	}
-)
-
+var file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_v1_search_get_proto_goTypes = []any{
+	(Boost_PropertyValueModifier)(0),    // 0: weaviate.v1.Boost.PropertyValueModifier
+	(Boost_DecayCurve)(0),               // 1: weaviate.v1.Boost.DecayCurve
+	(*SearchRequest)(nil),               // 2: weaviate.v1.SearchRequest
+	(*GroupBy)(nil),                     // 3: weaviate.v1.GroupBy
+	(*SortBy)(nil),                      // 4: weaviate.v1.SortBy
+	(*MetadataRequest)(nil),             // 5: weaviate.v1.MetadataRequest
+	(*PropertiesRequest)(nil),           // 6: weaviate.v1.PropertiesRequest
+	(*ObjectPropertiesRequest)(nil),     // 7: weaviate.v1.ObjectPropertiesRequest
+	(*RefPropertiesRequest)(nil),        // 8: weaviate.v1.RefPropertiesRequest
+	(*Rerank)(nil),                      // 9: weaviate.v1.Rerank
+	(*SearchReply)(nil),                 // 10: weaviate.v1.SearchReply
+	(*QueryProfile)(nil),                // 11: weaviate.v1.QueryProfile
+	(*RerankReply)(nil),                 // 12: weaviate.v1.RerankReply
+	(*GroupByResult)(nil),               // 13: weaviate.v1.GroupByResult
+	(*SearchResult)(nil),                // 14: weaviate.v1.SearchResult
+	(*MetadataResult)(nil),              // 15: weaviate.v1.MetadataResult
+	(*PropertiesResult)(nil),            // 16: weaviate.v1.PropertiesResult
+	(*RefPropertiesResult)(nil),         // 17: weaviate.v1.RefPropertiesResult
+	(*Boost)(nil),                       // 18: weaviate.v1.Boost
+	(*QueryProfile_SearchProfile)(nil),  // 19: weaviate.v1.QueryProfile.SearchProfile
+	(*QueryProfile_ShardProfile)(nil),   // 20: weaviate.v1.QueryProfile.ShardProfile
+	nil,                                 // 21: weaviate.v1.QueryProfile.SearchProfile.DetailsEntry
+	nil,                                 // 22: weaviate.v1.QueryProfile.ShardProfile.SearchesEntry
+	(*Boost_PropertyValueFunction)(nil), // 23: weaviate.v1.Boost.PropertyValueFunction
+	(*Boost_TimeDecayFunction)(nil),     // 24: weaviate.v1.Boost.TimeDecayFunction
+	(*Boost_NumericDecayFunction)(nil),  // 25: weaviate.v1.Boost.NumericDecayFunction
+	(*Boost_Condition)(nil),             // 26: weaviate.v1.Boost.Condition
+	(ConsistencyLevel)(0),               // 27: weaviate.v1.ConsistencyLevel
+	(*Filters)(nil),                     // 28: weaviate.v1.Filters
+	(*Hybrid)(nil),                      // 29: weaviate.v1.Hybrid
+	(*BM25)(nil),                        // 30: weaviate.v1.BM25
+	(*NearVector)(nil),                  // 31: weaviate.v1.NearVector
+	(*NearObject)(nil),                  // 32: weaviate.v1.NearObject
+	(*NearTextSearch)(nil),              // 33: weaviate.v1.NearTextSearch
+	(*NearImageSearch)(nil),             // 34: weaviate.v1.NearImageSearch
+	(*NearAudioSearch)(nil),             // 35: weaviate.v1.NearAudioSearch
+	(*NearVideoSearch)(nil),             // 36: weaviate.v1.NearVideoSearch
+	(*NearDepthSearch)(nil),             // 37: weaviate.v1.NearDepthSearch
+	(*NearThermalSearch)(nil),           // 38: weaviate.v1.NearThermalSearch
+	(*NearIMUSearch)(nil),               // 39: weaviate.v1.NearIMUSearch
+	(*GenerativeSearch)(nil),            // 40: weaviate.v1.GenerativeSearch
+	(*GenerativeResult)(nil),            // 41: weaviate.v1.GenerativeResult
+	(*GenerativeReply)(nil),             // 42: weaviate.v1.GenerativeReply
+	(*Vectors)(nil),                     // 43: weaviate.v1.Vectors
+	(*Properties)(nil),                  // 44: weaviate.v1.Properties
+}
 var file_v1_search_get_proto_depIdxs = []int32{
 	27, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	6,  // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest

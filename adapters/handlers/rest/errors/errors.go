@@ -29,3 +29,14 @@ func ErrPayloadFromSingleErr(principal *models.Principal, err error) *models.Err
 		Message: namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err)),
 	}}}
 }
+
+// restrictionViolationFromErr wraps a non-restriction error into the
+// same RestrictionViolationResponse shape so handlers can return both
+// 422 cases through the same swagger-generated payload type.
+func ErrRestrictionViolation(principal *models.Principal, err error) *models.RestrictionViolationResponse {
+	return &models.RestrictionViolationResponse{
+		Error: []*models.RestrictionViolationResponseErrorItems0{{
+			Message: namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err)),
+		}},
+	}
+}
