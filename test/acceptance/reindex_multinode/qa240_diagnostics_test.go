@@ -148,9 +148,105 @@ func dumpQA240Diagnostics(t *testing.T, ctx context.Context, compose *docker.Doc
 	// source-tokenized is the actual root-cause shape.
 	dumpQA240StuckShardMatrix(t, ctx, compose, className, propName)
 
+	// [QA-DEBUG-240] container-log slice per node. The production code
+	// path emits [QA-DEBUG-240] tags at INFO level in OnGroupCompleted's
+	// terminal short-circuit, resolveUnitForPhase's Skip paths, and
+	// runShardPrepPhase entry/exit. If any of these fired on a stranded
+	// replica, the log line tells us WHICH coordinator path silently
+	// skipped its work. Tail per node so the per-replica timing is
+	// preserved.
+	dumpQA240NodeLogs(t, ctx, compose)
+
 	t.Logf("=========================================================================")
 	t.Logf("END QA #240 DIAGNOSTICS")
 	t.Logf("=========================================================================")
+}
+
+// dumpQA240NodeLogs greps each node's container stderr/stdout for the
+// production-side [QA-DEBUG-240] tags + adjacent reindex lifecycle log
+// entries. The relevant lines are at INFO level so default-level
+// container logs include them.
+func dumpQA240NodeLogs(t *testing.T, ctx context.Context, compose *docker.DockerCompose) {
+	t.Helper()
+	t.Logf("---- [QA-DEBUG-240] CONTAINER LOGS (filtered) ----")
+	for i := 1; i <= 3; i++ {
+		nodeName := compose.GetWeaviateNode(i).Name()
+		container := compose.GetWeaviateNode(i).Container()
+		t.Logf("node %d (%s) — tail of last 300 lines matching reindex/migration markers:", i, nodeName)
+		// The container's log goes to stdout/stderr; testcontainers' Logs
+		// API returns the combined stream. We grep here for the markers
+		// that pin the coordinator path + relevant reindex lifecycle events.
+		// `tail -300` after filtering keeps the per-node block bounded.
+		dumpContainerLogsRaw(t, ctx, container,
+			[]string{
+				"QA-DEBUG-240",
+				"OnGroupCompleted",
+				"OnSwapRequested",
+				"runShardPrepPhase",
+				"runShardSwapPhase",
+				"runtimePrepare",
+				"runtimeSwap",
+				"markReindexed",
+				"markPrepended",
+				"markMerged",
+				"markSwapped",
+				"markTidied",
+				"resolveUnitForPhase",
+				"reindex provider:",
+				"PostCompletionAck",
+				"PreparationCompleteAck",
+				"AllUnitsTerminal",
+				"AllGroupUnitsTerminal",
+				"distributedtask",
+				"OnTaskCompleted",
+			})
+	}
+	t.Logf("---- END [QA-DEBUG-240] CONTAINER LOGS ----")
+}
+
+// dumpContainerLogsRaw fetches the full container stream via the
+// testcontainers Logs API, then filters by the provided substrings and
+// emits the last 300 matching lines through t.Logf with a node-aware
+// prefix. Streams are best-effort — any read error is logged and skipped.
+func dumpContainerLogsRaw(t *testing.T, ctx context.Context, container interface {
+	Logs(ctx context.Context) (io.ReadCloser, error)
+}, substrings []string,
+) {
+	t.Helper()
+	stream, err := container.Logs(ctx)
+	if err != nil {
+		t.Logf("    (logs error: %v)", err)
+		return
+	}
+	defer stream.Close()
+	body, err := io.ReadAll(stream)
+	if err != nil {
+		t.Logf("    (read error: %v)", err)
+		return
+	}
+	lines := strings.Split(string(body), "\n")
+	var hits []string
+	for _, ln := range lines {
+		ln := ln
+		for _, sub := range substrings {
+			if strings.Contains(ln, sub) {
+				hits = append(hits, ln)
+				break
+			}
+		}
+	}
+	if len(hits) == 0 {
+		t.Logf("    (no matching log lines)")
+		return
+	}
+	start := 0
+	if len(hits) > 300 {
+		start = len(hits) - 300
+		t.Logf("    (%d matching lines total — showing last 300)", len(hits))
+	}
+	for _, ln := range hits[start:] {
+		t.Logf("    %s", ln)
+	}
 }
 
 // dumpQA240StuckShardMatrix prints a per-(shard, node) summary of the
