@@ -61,10 +61,7 @@ const (
 type Error struct {
 	Code StatusCode `json:"code"`
 	Msg  string     `json:"msg,omitempty"`
-	// StatusRouteStale only: source's lastAppliedIndex at rejection. The
-	// retry path waits for this before rebuilding routing.
-	LastAppliedIndex uint64 `json:"last_applied_index,omitempty"`
-	Err              error  `json:"-"`
+	Err  error      `json:"-"`
 }
 
 // Empty checks whether e is an empty error which equivalent to e == nil
@@ -78,7 +75,7 @@ func NewError(code StatusCode, msg string) *Error {
 }
 
 func (e *Error) Clone() *Error {
-	return &Error{Code: e.Code, Msg: e.Msg, LastAppliedIndex: e.LastAppliedIndex, Err: e.Err}
+	return &Error{Code: e.Code, Msg: e.Msg, Err: e.Err}
 }
 
 // Unwrap underlying error

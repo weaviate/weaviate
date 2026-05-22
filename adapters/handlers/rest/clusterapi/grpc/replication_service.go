@@ -276,9 +276,8 @@ func simpleResponseToProto(r *replica.SimpleResponse) *pb.SimpleReplicaResponse 
 	errs := make([]*pb.ReplicaError, len(r.Errors))
 	for i, e := range r.Errors {
 		errs[i] = &pb.ReplicaError{
-			Code:             int32(e.Code),
-			Msg:              e.Msg,
-			LastAppliedIndex: e.LastAppliedIndex,
+			Code: int32(e.Code),
+			Msg:  e.Msg,
 		}
 	}
 	return &pb.SimpleReplicaResponse{Errors: errs}

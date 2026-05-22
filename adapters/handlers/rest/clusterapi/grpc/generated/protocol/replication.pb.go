@@ -23,12 +23,11 @@ const (
 
 // ReplicaError mirrors replica.Error from usecases/replica/transport.go.
 type ReplicaError struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	Code             int32                  `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
-	Msg              string                 `protobuf:"bytes,2,opt,name=msg,proto3" json:"msg,omitempty"`
-	LastAppliedIndex uint64                 `protobuf:"varint,3,opt,name=last_applied_index,json=lastAppliedIndex,proto3" json:"last_applied_index,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          int32                  `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
+	Msg           string                 `protobuf:"bytes,2,opt,name=msg,proto3" json:"msg,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ReplicaError) Reset() {
@@ -73,13 +72,6 @@ func (x *ReplicaError) GetMsg() string {
 		return x.Msg
 	}
 	return ""
-}
-
-func (x *ReplicaError) GetLastAppliedIndex() uint64 {
-	if x != nil {
-		return x.LastAppliedIndex
-	}
-	return 0
 }
 
 // SimpleReplicaResponse mirrors replica.SimpleResponse.
@@ -2145,11 +2137,10 @@ var File_protocol_replication_proto protoreflect.FileDescriptor
 const file_protocol_replication_proto_rawDesc = "" +
 	"\n" +
 	"\x1aprotocol/replication.proto\x12\n" +
-	"clusterapi\"b\n" +
+	"clusterapi\"4\n" +
 	"\fReplicaError\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\x05R\x04code\x12\x10\n" +
-	"\x03msg\x18\x02 \x01(\tR\x03msg\x12,\n" +
-	"\x12last_applied_index\x18\x03 \x01(\x04R\x10lastAppliedIndex\"I\n" +
+	"\x03msg\x18\x02 \x01(\tR\x03msg\"I\n" +
 	"\x15SimpleReplicaResponse\x120\n" +
 	"\x06errors\x18\x01 \x03(\v2\x18.clusterapi.ReplicaErrorR\x06errors\"\x87\x01\n" +
 	"\x0eRepairResponse\x12\x0e\n" +
