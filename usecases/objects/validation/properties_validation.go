@@ -117,7 +117,12 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 					if len(prop.DataType) > 1 {
 						continue
 					}
-					toClass := prop.DataType[0] // datatype is the name of the class that is referenced
+					// DataType is qualified by QualifyPropertyDataTypes upstream
+					// on NS clusters; strip to the short form so the
+					// reconstructed beacon doesn't carry a namespace prefix
+					// (parseAndValidateSingleRef downstream rejects qualified
+					// prefixes from namespaced principals).
+					toClass := namespacing.StripQualification(prop.DataType[0])
 					toBeacon := crossref.NewLocalhost(toClass, beaconParsed.TargetID).String()
 					propertyValueMap["beacon"] = toBeacon
 				}

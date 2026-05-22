@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, beaconRef *crossref.Ref) (strfmt.URI, strfmt.URI, bool, *Error) {
@@ -35,7 +36,14 @@ func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, be
 		return "", "", false, nil // can't autodetect for multi target
 	}
 
-	toClass := prop.DataType[0] // datatype is the name of the class that is referenced
+	// datatype is the name of the class that is referenced. Since
+	// namespacing.QualifyPropertyDataTypes (usecases/schema/class.go) the
+	// stored DataType is qualified on NS-enabled clusters; strip back to
+	// the short form so the autodetect output matches what a user
+	// would have submitted directly (and so downstream resolveNS won't
+	// reject a qualified-from-namespaced-caller). No-op on non-NS
+	// clusters where DataType is already short.
+	toClass := namespacing.StripQualification(prop.DataType[0])
 	toBeacon := crossref.NewLocalhost(toClass, beaconRef.TargetID).String()
 
 	return strfmt.URI(toClass), strfmt.URI(toBeacon), true, nil

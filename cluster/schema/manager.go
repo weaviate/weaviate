@@ -18,7 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -28,7 +27,6 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -268,29 +266,21 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 		return fmt.Errorf("%w: nil sharding state", ErrBadRequest)
 	}
 	// validate xrefs within the class for existence. On namespace-enabled
-	// clusters req.Class.Class arrives qualified ("customer1:Zoo") AND
+	// clusters req.Class.Class arrives qualified ("customer1:Zoo") and
 	// Property.DataType is already qualified by namespacing.QualifyPropertyDataTypes
-	// at the handler layer (usecases/schema/class.go:AddClass). Stitching
-	// happens here only as a fallback for DataType entries that somehow
-	// arrived short (e.g. raft commands constructed outside the usual
-	// handler path). parentNS is "" on non-namespace clusters, so the
-	// fallback QualifiedName call is a no-op there.
-	parentNS := namespacing.NamespaceFromQualified(req.Class.Class)
+	// at the handler layer (usecases/schema/class.go:AddClass). Use DataType
+	// directly — re-qualifying would produce "customer1:customer1:Foo".
 	for _, prop := range req.Class.Properties {
 		if !entSchema.IsRefDataType(prop.DataType) {
 			// don't need to validate non-xref data types
 			continue
 		}
 		for _, dt := range prop.DataType {
-			qualifiedDT := dt
-			if !strings.Contains(dt, entSchema.NamespaceSeparator) {
-				qualifiedDT = namespacing.QualifiedName(parentNS, dt)
-			}
-			if qualifiedDT == req.Class.Class {
+			if dt == req.Class.Class {
 				// self-references are always allowed
 				continue
 			}
-			if s.schema.classExists(qualifiedDT) {
+			if s.schema.classExists(dt) {
 				// class exists, all good
 				continue
 			}

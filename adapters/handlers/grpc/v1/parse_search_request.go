@@ -957,9 +957,10 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 		// className arrives qualified at this layer (top-level service.go
 		// already ran namespacing.Resolve; recursive calls below pass the
 		// previously-qualified linked class as the new className). Extract
-		// the parent's namespace so every linked-class lookup happens against
-		// the qualified storage form. NamespaceFromQualified returns "" on
-		// non-namespace clusters, so QualifiedName is a no-op there.
+		// the parent's namespace so caller-supplied TargetCollection (short
+		// for namespaced callers) qualifies against the source's namespace.
+		// DataType entries are already qualified by QualifyPropertyDataTypes
+		// upstream and are used as-is.
 		parentNS := namespacing.NamespaceFromQualified(className)
 
 		for _, prop := range reqProps.RefProperties {
@@ -971,7 +972,9 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 
 			var linkedClassName string
 			if len(schemaProp.DataType) == 1 {
-				// use datatype of the reference property to get the name of the linked class
+				// DataType is already qualified by QualifyPropertyDataTypes
+				// upstream — use as-is. Re-qualifying would produce
+				// "customer1:customer1:Foo".
 				linkedClassName = schemaProp.DataType[0]
 			} else {
 				if err := namespacing.ValidateNamespacePrefix(p.principal, p.namespacesEnabled, prop.TargetCollection, "class"); err != nil {
@@ -984,8 +987,11 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 							"linked collection. Available linked collections are %v",
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
+				// User-supplied TargetCollection is short for namespaced
+				// users (foreign-prefix submissions were rejected above);
+				// qualify with parentNS so the multi-get hits the right shard.
+				linkedClassName = namespacing.QualifiedName(parentNS, linkedClassName)
 			}
-			linkedClassName = namespacing.QualifiedName(parentNS, linkedClassName)
 			linkedClass, err := p.authorizedGetClass(linkedClassName)
 			if err != nil {
 				return nil, err

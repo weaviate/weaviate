@@ -320,10 +320,12 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 	// className arrives qualified at this layer (top-level service.go ran
 	// namespacing.Resolve on the search/aggregate/delete collection name;
 	// recursive calls below pass the previously-qualified linked class as
-	// the new className). Extract the parent's namespace so nested ref
-	// classes — whether from Property.DataType (always short) or from
-	// caller-supplied MultiTarget.TargetCollection — qualify against the
-	// same namespace as the source class. parentNS is "" on non-namespace
+	// the new className). Extract the parent's namespace so the
+	// caller-supplied MultiTarget.TargetCollection (always short for
+	// namespaced callers — ValidateNamespacePrefix rejects qualified
+	// prefixes) qualifies against the same namespace as the source class.
+	// DataType entries are already qualified by QualifyPropertyDataTypes
+	// upstream and are used as-is. parentNS is "" on non-namespace
 	// clusters, so QualifiedName is a no-op there.
 	parentNS := namespacing.NamespaceFromQualified(className)
 	switch target.Target.(type) {
@@ -343,7 +345,9 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 		if len(refProp.DataType) != 1 {
 			return nil, "", fmt.Errorf("expected reference property with a single target, got %v for %v ", refProp.DataType, refProp.Name)
 		}
-		linkedClassName := namespacing.QualifiedName(parentNS, refProp.DataType[0])
+		// DataType is already qualified by QualifyPropertyDataTypes upstream
+		// — use as-is. Re-qualifying would produce "customer1:customer1:Foo".
+		linkedClassName := refProp.DataType[0]
 		child, property, err := extractPathNew(authorizedGetClass, linkedClassName, tenant, singleTarget.Target, operator, namespacesEnabled, principal)
 		if err != nil {
 			return nil, "", err

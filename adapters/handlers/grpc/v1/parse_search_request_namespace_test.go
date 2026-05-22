@@ -27,12 +27,10 @@ import (
 // tests. It deliberately stays separate from the package-level `scheme` so
 // changes here don't churn the wide TestGRPCSearchRequest table.
 //
-// Both pairs of classes mirror what gets stored on a namespace-enabled cluster:
-// the class identifier is qualified (`customer1:Zoo`) and the cross-ref
-// property carries the short data type (`Animal`), since
-// schema.ValidateClassName rejects ":" in cross-ref data types.
-//
-// The non-namespace pair (`Zoo` / `Animal` / `Habitat`) is used to assert the
+// On NS-enabled clusters both the class identifier and the cross-ref
+// Property.DataType arrive qualified (the handler runs
+// namespacing.QualifyPropertyDataTypes at AddClass time). The non-namespace
+// pair (`Zoo` / `Animal` / `Habitat`) keeps DataType short to assert
 // pass-through behavior on clusters where Namespaces.Enabled is false.
 func nsParserClassGetter() classGetterWithAuthzFunc {
 	classes := map[string]*models.Class{
@@ -40,14 +38,14 @@ func nsParserClassGetter() classGetterWithAuthzFunc {
 			Class: "customer1:Zoo",
 			Properties: []*models.Property{
 				{Name: "name", DataType: []string{"text"}},
-				{Name: "hasAnimals", DataType: []string{"Animal"}},
+				{Name: "hasAnimals", DataType: []string{"customer1:Animal"}},
 			},
 		},
 		"customer1:Animal": {
 			Class: "customer1:Animal",
 			Properties: []*models.Property{
 				{Name: "name", DataType: []string{"text"}},
-				{Name: "hasHabitat", DataType: []string{"Habitat"}},
+				{Name: "hasHabitat", DataType: []string{"customer1:Habitat"}},
 			},
 		},
 		"customer1:Habitat": {

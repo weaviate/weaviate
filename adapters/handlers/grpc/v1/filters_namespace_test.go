@@ -23,23 +23,21 @@ import (
 )
 
 // TestExtractFilters_NamespaceStitching covers the new-style FilterTarget
-// recursion in extractPathNew (WS9). The recursion must stitch the parent
-// class's namespace onto each nested linked class — both for SingleTarget
-// (where the linked class comes from Property.DataType, always short by the
-// schema's "no `:` in DataType" rule) and MultiTarget (where TargetCollection
-// is caller-supplied and must additionally be prefix-validated for namespaced
-// callers).
+// recursion in extractPathNew. For SingleTarget the linked class comes
+// from Property.DataType which is already qualified upstream by
+// QualifyPropertyDataTypes (so the parser uses it as-is). For MultiTarget
+// the TargetCollection is caller-supplied (short for namespaced callers,
+// prefix-validated) and must be qualified against the source's namespace.
 func TestExtractFilters_NamespaceStitching(t *testing.T) {
-	// Self-contained class graph for filter recursion. The qualified set
-	// mirrors what a namespace-enabled cluster persists: identifiers
-	// qualified, ref data types short.
+	// Self-contained class graph mirroring what a namespace-enabled cluster
+	// persists: identifiers AND ref DataType entries qualified.
 	classGetter := func(name string) (*models.Class, error) {
 		classes := map[string]*models.Class{
 			"customer1:Zoo": {
 				Class: "customer1:Zoo",
 				Properties: []*models.Property{
 					{Name: "name", DataType: schema.DataTypeText.PropString()},
-					{Name: "hasAnimals", DataType: []string{"Animal"}},
+					{Name: "hasAnimals", DataType: []string{"customer1:Animal"}},
 				},
 			},
 			"customer1:Animal": {

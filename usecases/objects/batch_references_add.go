@@ -226,7 +226,11 @@ func (b *BatchManager) autodetectToClass(batchReferences BatchReferences, fetche
 			if len(prop.DataType) > 1 {
 				continue // can't auto-detect for multi-target
 			}
-			target = prop.DataType[0] // datatype is the name of the class that is referenced
+			// DataType is qualified by QualifyPropertyDataTypes upstream
+			// on NS clusters; strip back to short so the downstream
+			// resolveNS loop (which rejects qualified names from
+			// namespaced principals) accepts the autodetected target.
+			target = namespacing.StripQualification(prop.DataType[0])
 			classPropTarget[className+propName] = target
 		}
 		batchReferences[i].To.Class = target
