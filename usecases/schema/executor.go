@@ -162,7 +162,7 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	// limit the downstream migrator dispatch to the listed sub-configs.
 	// Legacy unmasked callers (nil/empty mask) keep the historical
 	// "apply every non-nil sub-config" behaviour.
-	shouldUpdate := classFieldUpdaterFromMask(req.FieldsToUpdate)
+	shouldUpdate := api.ClassFieldUpdaterFromMask(req.FieldsToUpdate)
 
 	if shouldUpdate(api.ClassFieldVectorIndexConfig) {
 		if cfg, ok := req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
@@ -231,26 +231,6 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 	}
 
 	return nil
-}
-
-// classFieldUpdaterFromMask returns a predicate that reports whether a
-// named class-level sub-config should be applied downstream to the
-// migrator. Empty/nil mask preserves the legacy "apply every supported
-// sub-config" semantics. Mirrors the FSM-apply-path helper in
-// [cluster/schema.classFieldUpdaterFromMask] so the FSM merge and the
-// executor dispatch share one source of truth on what an update means.
-func classFieldUpdaterFromMask(mask []string) func(string) bool {
-	if len(mask) == 0 {
-		return func(string) bool { return true }
-	}
-	set := make(map[string]struct{}, len(mask))
-	for _, f := range mask {
-		set[f] = struct{}{}
-	}
-	return func(field string) bool {
-		_, ok := set[field]
-		return ok
-	}
 }
 
 func (e *executor) DeleteClass(cls string, hasFrozen bool) error {

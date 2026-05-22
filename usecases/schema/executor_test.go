@@ -90,7 +90,7 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
-		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
+		migrator.On("UpdateReplicationConfig", Anything, "A", Anything).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}))
@@ -99,7 +99,7 @@ func TestExecutor(t *testing.T) {
 	t.Run("UpdateVectorIndexConfig", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(ErrAny)
-		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
+		migrator.On("UpdateReplicationConfig", Anything, "A", Anything).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
@@ -108,7 +108,7 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(ErrAny)
-		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
+		migrator.On("UpdateReplicationConfig", Anything, "A", Anything).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
@@ -121,11 +121,6 @@ func TestExecutor(t *testing.T) {
 	// with concurrent runtime-reindex iteration.
 	t.Run("UpdateClassMaskedInvertedIndexOnly", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		// Only the inverted index migrator call may fire. The fakeMigrator's
-		// `On` registry has no matcher for UpdateVectorIndexConfig /
-		// UpdateVectorIndexConfigs / UpdateReplicationConfig, so any
-		// unexpected dispatch fails with the testify mock's "missing call"
-		// assertion.
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
 
 		x := newMockExecutor(migrator, store)
@@ -134,8 +129,8 @@ func TestExecutor(t *testing.T) {
 			FieldsToUpdate: []string{api.ClassFieldInvertedIndexConfig},
 		}))
 
-		// AssertExpectations would only check the registered calls; we
-		// additionally verify that no other migrator method fired.
+		// The fakeMigrator now records every dispatch via mock.Called
+		// (helpers_test.go), so AssertNotCalled is load-bearing here.
 		migrator.AssertNotCalled(t, "UpdateVectorIndexConfig", Anything, Anything, Anything)
 		migrator.AssertNotCalled(t, "UpdateVectorIndexConfigs", Anything, Anything, Anything)
 		migrator.AssertNotCalled(t, "UpdateReplicationConfig", Anything, Anything, Anything)
@@ -159,20 +154,19 @@ func TestExecutor(t *testing.T) {
 
 	// Empty FieldsToUpdate preserves the legacy "dispatch every
 	// supported sub-config" behaviour (rolling-upgrade compatibility:
-	// old wire-format callers emit no mask). UpdateReplicationConfig
-	// is intentionally not asserted here because fakeMigrator's
-	// implementation does not record calls (helpers_test.go:388);
-	// it's covered indirectly by the UpdateIndex subtest above.
+	// old wire-format callers emit no mask).
 	t.Run("UpdateClassUnmaskedDispatchesAll", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
+		migrator.On("UpdateReplicationConfig", Anything, "A", Anything).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}))
 
 		migrator.AssertCalled(t, "UpdateVectorIndexConfig", Anything, Anything, Anything)
 		migrator.AssertCalled(t, "UpdateInvertedIndexConfig", Anything, Anything, Anything)
+		migrator.AssertCalled(t, "UpdateReplicationConfig", Anything, Anything, Anything)
 	})
 
 	t.Run("AddProperty", func(t *testing.T) {

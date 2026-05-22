@@ -72,6 +72,30 @@ const (
 	ClassFieldProperties          = "properties"
 )
 
+// ClassFieldUpdaterFromMask returns a predicate that reports whether a
+// named class-level sub-config should be applied during an
+// UpdateClass operation. Empty/nil mask preserves the legacy "apply
+// every supported sub-config" semantics.
+//
+// Single source of truth used by BOTH the schema FSM's apply path
+// (cluster/schema.SchemaManager.UpdateClass) and the executor's
+// downstream migrator dispatch (usecases/schema.executor.UpdateClass)
+// — keeping the merge and dispatch decisions in lockstep so a future
+// caller cannot inadvertently produce one without the other.
+func ClassFieldUpdaterFromMask(mask []string) func(string) bool {
+	if len(mask) == 0 {
+		return func(string) bool { return true }
+	}
+	set := make(map[string]struct{}, len(mask))
+	for _, f := range mask {
+		set[f] = struct{}{}
+	}
+	return func(field string) bool {
+		_, ok := set[field]
+		return ok
+	}
+}
+
 type AddPropertyRequest struct {
 	Properties []*models.Property
 }

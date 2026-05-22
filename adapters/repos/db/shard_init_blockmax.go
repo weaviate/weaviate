@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -69,6 +70,19 @@ func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager
 	if class.InvertedIndexConfig.UsingBlockMaxWAND {
 		return nil
 	}
+	// sc.ReadOnlyClass returns a shallow copy (CloneClass), so pointer
+	// fields like InvertedIndexConfig still alias the live in-process
+	// schema. Mutating UsingBlockMaxWAND on the aliased pointer would
+	// change the live schema in-place — outside the RAFT consensus
+	// path — and race with concurrent schema readers. Clone the field
+	// before mutating.
+	if class.InvertedIndexConfig != nil {
+		clone := *class.InvertedIndexConfig
+		class.InvertedIndexConfig = &clone
+	} else {
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+	}
+	class.InvertedIndexConfig.UsingBlockMaxWAND = true
 	// structToMap on the sibling sub-configs is still required so
 	// ParseClassUpdate's type assertions on the round-tripped class
 	// succeed — even though the mask skips applying them downstream,
@@ -83,7 +97,6 @@ func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager
 		tempConfig.Vectorizer = structToMap(tempConfig.Vectorizer)
 		class.VectorConfig[i] = tempConfig
 	}
-	class.InvertedIndexConfig.UsingBlockMaxWAND = true
 	return schema.UpdateClassInternalMasked(&sc.Handler, ctx, className, class,
 		api.ClassFieldInvertedIndexConfig)
 }

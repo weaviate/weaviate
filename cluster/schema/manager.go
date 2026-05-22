@@ -393,7 +393,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// existing meta.Class value. Old wire-format callers (no
 		// FieldsToUpdate set) take the legacy "replace every non-nil
 		// sub-config" path so behaviour is unchanged for them.
-		shouldUpdate := classFieldUpdaterFromMask(req.FieldsToUpdate)
+		shouldUpdate := command.ClassFieldUpdaterFromMask(req.FieldsToUpdate)
 		if shouldUpdate(command.ClassFieldVectorIndexConfig) {
 			meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		}
@@ -443,24 +443,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
-}
-
-// classFieldUpdaterFromMask returns a predicate that reports whether a
-// named class-level sub-config should be merged onto meta.Class during
-// an UpdateClass apply. Empty/nil mask preserves the legacy "merge
-// every supported field" semantics.
-func classFieldUpdaterFromMask(mask []string) func(string) bool {
-	if len(mask) == 0 {
-		return func(string) bool { return true }
-	}
-	set := make(map[string]struct{}, len(mask))
-	for _, f := range mask {
-		set[f] = struct{}{}
-	}
-	return func(field string) bool {
-		_, ok := set[field]
-		return ok
-	}
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
