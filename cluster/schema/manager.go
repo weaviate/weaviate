@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -267,11 +268,13 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 		return fmt.Errorf("%w: nil sharding state", ErrBadRequest)
 	}
 	// validate xrefs within the class for existence. On namespace-enabled
-	// clusters req.Class.Class arrives qualified ("customer1:Zoo"), but
-	// Property.DataType entries are validated as short names by
-	// ValidateClassName, so we stitch the parent namespace onto each
-	// referenced class before the existence check. parentNS is "" on
-	// non-namespace clusters, so QualifiedName is a no-op there.
+	// clusters req.Class.Class arrives qualified ("customer1:Zoo") AND
+	// Property.DataType is already qualified by namespacing.QualifyPropertyDataTypes
+	// at the handler layer (usecases/schema/class.go:AddClass). Stitching
+	// happens here only as a fallback for DataType entries that somehow
+	// arrived short (e.g. raft commands constructed outside the usual
+	// handler path). parentNS is "" on non-namespace clusters, so the
+	// fallback QualifiedName call is a no-op there.
 	parentNS := namespacing.NamespaceFromQualified(req.Class.Class)
 	for _, prop := range req.Class.Properties {
 		if !entSchema.IsRefDataType(prop.DataType) {
@@ -279,7 +282,10 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 			continue
 		}
 		for _, dt := range prop.DataType {
-			qualifiedDT := namespacing.QualifiedName(parentNS, dt)
+			qualifiedDT := dt
+			if !strings.Contains(dt, entSchema.NamespaceSeparator) {
+				qualifiedDT = namespacing.QualifiedName(parentNS, dt)
+			}
 			if qualifiedDT == req.Class.Class {
 				// self-references are always allowed
 				continue
