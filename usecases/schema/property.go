@@ -48,18 +48,15 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(className)...); err != nil {
 		return nil, 0, err
 	}
-	// Cross-ref Property.DataType entries are short class names (schema
-	// rejects ":" in DataType). When the parent class is namespace-qualified,
-	// stitch the parent namespace onto the looked-up name so existence checks
-	// and authz hit the qualified storage. parentNS is "" on non-namespace
-	// clusters, so QualifiedName is a no-op there.
-	parentNS := namespacing.NamespaceFromQualified(className)
+	// Cross-ref Property.DataType entries are already qualified by
+	// QualifyPropertyDataTypes above. Use the name as-is for authz +
+	// schema lookup — re-qualifying would produce "customer1:customer1:Foo"
+	// and authorize the wrong resource.
 	classGetterWithAuth := func(name string) (*models.Class, error) {
-		qualified := namespacing.QualifiedName(parentNS, name)
-		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(qualified)...); err != nil {
+		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
 		}
-		return h.schemaReader.ReadOnlyClass(qualified), nil
+		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
 	class := h.schemaReader.ReadOnlyClass(className)

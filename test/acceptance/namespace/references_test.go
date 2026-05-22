@@ -13,6 +13,9 @@ package namespace
 
 import (
 	"errors"
+	"fmt"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -26,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // TestNamespaces_References exercises the end-to-end reference path through
@@ -38,9 +42,13 @@ import (
 func TestNamespaces_References(t *testing.T) {
 	user1Key, user2Key := twoNamespaces(t)
 
-	// One Zoo and one Animal class per namespace. hasAnimals.DataType stays
-	// short because the schema validator rejects ":" in cross-ref data types
-	// — namespace handling happens at the reference handler, not in schema.
+	// One Zoo and one Animal class per namespace. hasAnimals.DataType is
+	// submitted short (the schema validator rejects ":" in cross-ref data
+	// types from user input) but QualifyPropertyDataTypes mutates the slice
+	// to the qualified form before RAFT, and storage keeps it qualified —
+	// admin reads see ["customer1:Animal"] while namespaced reads strip
+	// back to ["Animal"]. The reference handlers strip the stored
+	// qualified DataType at autodetect sites for beacon construction.
 	zooAnimal := func() (animal, zoo *models.Class) {
 		animal = &models.Class{
 			Class: "Animal",
@@ -529,8 +537,10 @@ func TestNamespaces_References(t *testing.T) {
 			helper.DeleteClassAuth(t, "customer1:PostHocAnimal", adminKey)
 		})
 
-		// Now add the cross-ref property — DataType is short, parent class
-		// gets qualified internally to customer1:PostHocZoo.
+		// Now add the cross-ref property — user submits short DataType
+		// ("PostHocAnimal"); QualifyPropertyDataTypes mutates the slice
+		// to ["customer1:PostHocAnimal"] before RAFT, and storage keeps
+		// that qualified form.
 		_, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(
 			schemaCli.NewSchemaObjectsPropertiesAddParams().
 				WithClassName(class).
@@ -539,17 +549,29 @@ func TestNamespaces_References(t *testing.T) {
 		)
 		require.NoError(t, err, "adding a cross-ref property to an existing class must work on NS-enabled clusters")
 
-		// Verify schema reflects the new property.
+		// Admin reads the stored class; StripClassResponse is a no-op for
+		// the empty-namespace admin principal, so DataType comes back in
+		// the qualified storage form. Reading as user1Key would strip
+		// back to the short form — both views are exercised together.
 		got := helper.GetClassAuth(t, "customer1:"+class, adminKey)
 		var sawHasAnimals bool
 		for _, p := range got.Properties {
 			if p.Name == "hasAnimals" {
 				sawHasAnimals = true
-				assert.Equal(t, []string{"PostHocAnimal"}, p.DataType,
-					"DataType is stored short for namespace portability")
+				assert.Equal(t, []string{"customer1:PostHocAnimal"}, p.DataType,
+					"admin view: stored DataType is qualified")
 			}
 		}
 		assert.True(t, sawHasAnimals, "hasAnimals property should be present after AddProperty")
+
+		// Same class read as the namespaced user: DataType strips back to short.
+		gotUser := helper.GetClassAuth(t, class, user1Key)
+		for _, p := range gotUser.Properties {
+			if p.Name == "hasAnimals" {
+				assert.Equal(t, []string{"PostHocAnimal"}, p.DataType,
+					"user view: DataType strips namespace via StripClassResponse")
+			}
+		}
 	})
 
 	t.Run("self-referencing class on NS cluster (Zoo.relatedTo -> Zoo)", func(t *testing.T) {
@@ -736,5 +758,309 @@ func TestNamespaces_References(t *testing.T) {
 		_, err := grpcClient.Search(authCtx(user1Key), req)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
+	})
+
+	t.Run("gRPC by_ref_count filter on NS cluster", func(t *testing.T) {
+		// by_ref_count goes through the SOURCE's `property_<name>__meta_count`
+		// inverted bucket — no beacon construction, no linked-class lookup.
+		// The bucket lives under the source's qualified shard (customer1:Src)
+		// which is keyed normally, so the only thing that has to work is
+		// the source class qualification done upstream by namespacing.Resolve.
+		// This subtest is the negative control for the namespace-strip
+		// work: it should pass before AND after, but a regression here
+		// indicates a brand-new break in count-style filtering on NS.
+		const class = "RefCountSrc"
+		const tgt = "RefCountTgt"
+		indexLen := true
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      tgt,
+			Properties: []*models.Property{{Name: "n", DataType: []string{"int"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class: class,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "ref", DataType: []string{tgt}},
+			},
+			InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: indexLen},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+class, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+tgt, adminKey)
+		})
+
+		t1ID, tID := newID(), newID()
+		createIn(t, user1Key, tgt, t1ID, map[string]any{"n": 1})
+		createIn(t, user1Key, tgt, tID, map[string]any{"n": 2})
+		createIn(t, user1Key, class, newID(), map[string]any{"name": "zero-refs"})
+
+		oneID, twoID := newID(), newID()
+		createIn(t, user1Key, class, oneID, map[string]any{"name": "one-ref"})
+		createIn(t, user1Key, class, twoID, map[string]any{"name": "two-refs"})
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + tgt + "/" + string(t1ID))},
+			oneID, class, "ref", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		for _, target := range []strfmt.UUID{t1ID, tID} {
+			_, err := helper.AddReferenceReturn(t,
+				&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + tgt + "/" + string(target))},
+				twoID, class, "ref", "", helper.CreateAuth(user1Key))
+			require.NoError(t, err)
+		}
+
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		// count > 0 → exactly the two seeded rows that have refs.
+		req := searchReq(class, 100)
+		req.Properties = &pb.PropertiesRequest{NonRefProperties: []string{"name"}}
+		req.Filters = &pb.Filters{
+			Operator: pb.Filters_OPERATOR_GREATER_THAN,
+			Target: &pb.FilterTarget{
+				Target: &pb.FilterTarget_Count{
+					Count: &pb.FilterReferenceCount{On: "ref"},
+				},
+			},
+			TestValue: &pb.Filters_ValueInt{ValueInt: 0},
+		}
+		resp, err := grpcClient.Search(authCtx(user1Key), req)
+		require.NoError(t, err)
+		names := []string{}
+		for _, r := range resp.Results {
+			names = append(names, r.Properties.NonRefProps.Fields["name"].GetTextValue())
+		}
+		sort.Strings(names)
+		assert.Equal(t, []string{"one-ref", "two-refs"}, names,
+			"by_ref_count > 0 must return both rows that have refs")
+	})
+
+	t.Run("gRPC batch references each pair resolves cross-node on NS cluster", func(t *testing.T) {
+		// N source rows × N target rows, batched via /v1/batch/references.
+		// Each src[i] links to tgt[i]. After the batch returns, a gRPC
+		// search with return_references inlines the linked object — must
+		// resolve to the customer1:Animal target matching index i, which
+		// confirms the batch path qualifies the target class for the
+		// existence check and strips it back to short for storage.
+		const n = 5
+		tgtIDs := make([]strfmt.UUID, n)
+		srcIDs := make([]strfmt.UUID, n)
+		for i := 0; i < n; i++ {
+			tgtIDs[i] = newID()
+			srcIDs[i] = newID()
+			createIn(t, user1Key, "Animal", tgtIDs[i], map[string]any{"name": fmt.Sprintf("a-%d", i)})
+			createIn(t, user1Key, "Zoo", srcIDs[i], map[string]any{"name": fmt.Sprintf("z-%d", i)})
+		}
+		refs := make([]*models.BatchReference, n)
+		for i := 0; i < n; i++ {
+			refs[i] = &models.BatchReference{
+				From: strfmt.URI("weaviate://localhost/Zoo/" + string(srcIDs[i]) + "/hasAnimals"),
+				To:   strfmt.URI("weaviate://localhost/Animal/" + string(tgtIDs[i])),
+			}
+		}
+		resp, err := helper.Client(t).Batch.BatchReferencesCreate(
+			batch.NewBatchReferencesCreateParams().WithBody(refs),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err)
+		require.Len(t, resp.Payload, n)
+		for i, r := range resp.Payload {
+			assert.Nil(t, r.Result.Errors, "batch ref %d: %+v", i, r.Result.Errors)
+		}
+
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		// gRPC fetch every Zoo and assert each row's hasAnimals resolves
+		// to the matching Animal.
+		req := searchReq("Zoo", 1000)
+		req.Properties = &pb.PropertiesRequest{
+			NonRefProperties: []string{"name"},
+			RefProperties: []*pb.RefPropertiesRequest{{
+				ReferenceProperty: "hasAnimals",
+				Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"name"}},
+			}},
+		}
+		searchResp, err := grpcClient.Search(authCtx(user1Key), req)
+		require.NoError(t, err)
+		seen := map[string]string{}
+		for _, r := range searchResp.Results {
+			zooName := r.Properties.NonRefProps.Fields["name"].GetTextValue()
+			if !strings.HasPrefix(zooName, "z-") {
+				continue
+			}
+			for _, np := range r.Properties.RefProps {
+				if np.PropName != "hasAnimals" || len(np.Properties) == 0 {
+					continue
+				}
+				if v, ok := np.Properties[0].NonRefProps.Fields["name"]; ok {
+					seen[zooName] = v.GetTextValue()
+				}
+			}
+		}
+		for i := 0; i < n; i++ {
+			assert.Equal(t, fmt.Sprintf("a-%d", i), seen[fmt.Sprintf("z-%d", i)],
+				"z-%d should resolve hasAnimals → a-%d (got %q)", i, i, seen[fmt.Sprintf("z-%d", i)])
+		}
+	})
+
+	t.Run("gRPC nested return_references with self-ref cycle on NS cluster", func(t *testing.T) {
+		// End-to-end: write refs from one client and fetch via gRPC with
+		// nested return_references. Three resolutions must all hit:
+		//   a) s2.ref      -> tgt        (cross-collection)
+		//   b) s2.selfRef  -> s1         (self-collection)
+		//   c) s1.ref      -> tgt        (cross-collection via nested under "selfRef")
+		// Combines the gRPC ref-resolve path with self-ref schema (which
+		// the merge from #11374 broke via double-qualify, since fixed).
+		const class = "NestedRefSrc"
+		const tgt = "NestedRefTgt"
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      tgt,
+			Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class: class,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "ref", DataType: []string{tgt}},
+				{Name: "selfRef", DataType: []string{class}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+class, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+tgt, adminKey)
+		})
+
+		tID, s1, s2 := newID(), newID(), newID()
+		createIn(t, user1Key, tgt, tID, map[string]any{"title": "linked"})
+		createIn(t, user1Key, class, s1, map[string]any{"name": "head"})
+		createIn(t, user1Key, class, s2, map[string]any{"name": "tail"})
+		// s1.ref -> tgt; s2.ref -> tgt; s2.selfRef -> s1.
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + tgt + "/" + string(tID))},
+			s1, class, "ref", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + tgt + "/" + string(tID))},
+			s2, class, "ref", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + class + "/" + string(s1))},
+			s2, class, "selfRef", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		// Fetch s2 with nested return_references: ref, selfRef (with
+		// nested ref under selfRef).
+		req := searchReq(class, 100)
+		req.Properties = &pb.PropertiesRequest{
+			NonRefProperties: []string{"name"},
+			RefProperties: []*pb.RefPropertiesRequest{
+				{
+					ReferenceProperty: "ref",
+					Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"title"}},
+				},
+				{
+					ReferenceProperty: "selfRef",
+					Properties: &pb.PropertiesRequest{
+						NonRefProperties: []string{"name"},
+						RefProperties: []*pb.RefPropertiesRequest{{
+							ReferenceProperty: "ref",
+							Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"title"}},
+						}},
+					},
+				},
+			},
+		}
+		resp, err := grpcClient.Search(authCtx(user1Key), req)
+		require.NoError(t, err)
+
+		var tailFound bool
+		for _, r := range resp.Results {
+			if r.Properties.NonRefProps.Fields["name"].GetTextValue() != "tail" {
+				continue
+			}
+			tailFound = true
+			titles, selfNames, nestedTitles := []string{}, []string{}, []string{}
+			for _, np := range r.Properties.RefProps {
+				switch np.PropName {
+				case "ref":
+					for _, p := range np.Properties {
+						titles = append(titles, p.NonRefProps.Fields["title"].GetTextValue())
+					}
+				case "selfRef":
+					for _, p := range np.Properties {
+						selfNames = append(selfNames, p.NonRefProps.Fields["name"].GetTextValue())
+						for _, nnp := range p.RefProps {
+							if nnp.PropName != "ref" {
+								continue
+							}
+							for _, np2 := range nnp.Properties {
+								nestedTitles = append(nestedTitles, np2.NonRefProps.Fields["title"].GetTextValue())
+							}
+						}
+					}
+				}
+			}
+			assert.Equal(t, []string{"linked"}, titles, "s2.ref should resolve to tgt('linked')")
+			assert.Equal(t, []string{"head"}, selfNames, "s2.selfRef should resolve to s1('head')")
+			assert.Equal(t, []string{"linked"}, nestedTitles,
+				"nested s2.selfRef.ref should resolve to tgt('linked')")
+		}
+		assert.True(t, tailFound, "expected to find the 'tail' Zoo in gRPC results")
+	})
+
+	t.Run("gRPC BatchObjects with SingleTargetRefProps on NS cluster", func(t *testing.T) {
+		// Regression guard for the gRPC BatchObjects path: the inline-ref
+		// shape goes through extractSingleRefTarget which builds the
+		// beacon from Property.DataType. DataType is qualified by
+		// QualifyPropertyDataTypes upstream, so without StripQualification
+		// at the beacon-build site the produced beacon reads
+		// "weaviate://localhost/customer1:Animal/<id>" and trips
+		// ValidateNamespacePrefix in properties_validation.go's
+		// parseAndValidateSingleRef — the whole object insert 422s with
+		// "is not a valid class name". Untested before this commit; the
+		// python suite only exercises the REST inline-ref path.
+		animalID := newID()
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "grpc-batch-leo"})
+
+		zooID := newID()
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		resp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{{
+				Uuid:       zooID.String(),
+				Collection: "Zoo",
+				Properties: &pb.BatchObject_Properties{
+					NonRefProperties: &structpb.Struct{
+						Fields: map[string]*structpb.Value{
+							"name": structpb.NewStringValue("grpc-batch-zoo"),
+						},
+					},
+					SingleTargetRefProps: []*pb.BatchObject_SingleTargetRefProps{{
+						PropName: "hasAnimals",
+						Uuids:    []string{animalID.String()},
+					}},
+				},
+			}},
+		})
+		require.NoError(t, err)
+		require.Empty(t, resp.Errors,
+			"gRPC BatchObjects with SingleTargetRefProps must not fail on NS clusters; got %+v",
+			resp.Errors)
+
+		// Stored beacon must be SHORT — admin reads via qualified class.
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.True(t, ok, "hasAnimals should be a list, got %T",
+			got.Properties.(map[string]any)["hasAnimals"])
+		require.Len(t, refs, 1)
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t,
+			"weaviate://localhost/Animal/"+string(animalID), beaconStr,
+			"stored beacon from gRPC BatchObjects SingleTargetRefProps must be short")
 	})
 }

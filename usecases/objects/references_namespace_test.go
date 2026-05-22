@@ -32,18 +32,23 @@ import (
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// zooAnimalNSSchema returns a Zoo/Animal schema. When qualify is true the
-// class identifiers are stored under the "customer1:" namespace, matching
-// what a namespace-enabled cluster persists. The cross-ref DataType always
-// stays short (`"Animal"`) because Property.DataType is validated via
-// ValidateClassName which rejects the namespace separator — this is the
-// invariant the reference handlers must compensate for by resolving
-// autodetected targets through namespacing.Resolve.
+// zooAnimalNSSchema returns a Zoo/Animal schema. When qualify is true both
+// the class identifier AND the cross-ref Property.DataType are stored under
+// the "customer1:" namespace, matching what a namespace-enabled cluster
+// persists after QualifyPropertyDataTypes runs at the schema handler
+// (usecases/schema/class.go:AddClass). User-facing API validation rejects
+// `:` in DataType, but QualifyPropertyDataTypes mutates the slice in place
+// before it reaches RAFT, and storage keeps the qualified form. The
+// reference handlers must therefore strip qualified DataType reads back to
+// the short form for downstream resolveNS / beacon construction (see
+// autodetectToClass and properties_validation.go).
 func zooAnimalNSSchema(qualify bool) []*models.Class {
 	zoo, animal := "Zoo", "Animal"
+	hasAnimalsDT := []string{"Animal"}
 	if qualify {
 		zoo = "customer1:Zoo"
 		animal = "customer1:Animal"
+		hasAnimalsDT = []string{"customer1:Animal"}
 	}
 	return []*models.Class{
 		{
@@ -56,7 +61,7 @@ func zooAnimalNSSchema(qualify bool) []*models.Class {
 					DataType:     schema.DataTypeText.PropString(),
 					Tokenization: models.PropertyTokenizationWhitespace,
 				},
-				{Name: "hasAnimals", DataType: []string{"Animal"}},
+				{Name: "hasAnimals", DataType: hasAnimalsDT},
 			},
 		},
 		{
