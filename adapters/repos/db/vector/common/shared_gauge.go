@@ -31,7 +31,8 @@ func NewSharedGauge() *SharedGauge {
 	return &SharedGauge{done: done}
 }
 
-func (sc *SharedGauge) Incr() {
+// Incr increments the gauge and returns the new count.
+func (sc *SharedGauge) Incr() int64 {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
@@ -40,9 +41,12 @@ func (sc *SharedGauge) Incr() {
 		sc.done = make(chan struct{})
 	}
 	sc.count++
+
+	return sc.count
 }
 
-func (sc *SharedGauge) Decr() {
+// Decr decrements the gauge and returns the new count.
+func (sc *SharedGauge) Decr() int64 {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
@@ -55,6 +59,8 @@ func (sc *SharedGauge) Decr() {
 	if sc.count == 0 {
 		close(sc.done)
 	}
+
+	return sc.count
 }
 
 func (sc *SharedGauge) Count() int64 {
