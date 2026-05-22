@@ -58,7 +58,7 @@ func (db *DB) ReplicateObject(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateObject(ctx, shard, requestID, object)
+	return index.ReplicateObject(ctx, shard, requestID, object, schemaVersion)
 }
 
 func (db *DB) ReplicateObjects(ctx context.Context, class,
@@ -73,7 +73,7 @@ func (db *DB) ReplicateObjects(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateObjects(ctx, shard, requestID, objects)
+	return index.ReplicateObjects(ctx, shard, requestID, objects, schemaVersion)
 }
 
 func (db *DB) ReplicateUpdate(ctx context.Context, class,
@@ -89,7 +89,7 @@ func (db *DB) ReplicateUpdate(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateUpdate(ctx, shard, requestID, mergeDoc)
+	return index.ReplicateUpdate(ctx, shard, requestID, mergeDoc, schemaVersion)
 }
 
 func (db *DB) ReplicateDeletion(ctx context.Context, class,
@@ -105,7 +105,7 @@ func (db *DB) ReplicateDeletion(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateDeletion(ctx, shard, requestID, uuid, deletionTime)
+	return index.ReplicateDeletion(ctx, shard, requestID, uuid, deletionTime, schemaVersion)
 }
 
 func (db *DB) ReplicateDeletions(ctx context.Context, class,
@@ -120,7 +120,7 @@ func (db *DB) ReplicateDeletions(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateDeletions(ctx, shard, requestID, uuids, deletionTime, dryRun)
+	return index.ReplicateDeletions(ctx, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 }
 
 func (db *DB) ReplicateReferences(ctx context.Context, class,
@@ -136,7 +136,7 @@ func (db *DB) ReplicateReferences(ctx context.Context, class,
 		return *pr
 	}
 
-	return index.ReplicateReferences(ctx, shard, requestID, refs)
+	return index.ReplicateReferences(ctx, shard, requestID, refs, schemaVersion)
 }
 
 func (db *DB) OverwriteObjects(ctx context.Context, className, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error) {
@@ -274,7 +274,7 @@ func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func
 	return localShard, release, nil
 }
 
-func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object) replica.SimpleResponse {
+func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, object *storobj.Object, _ uint64) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
@@ -285,7 +285,7 @@ func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, ob
 	return localShard.preparePutObject(ctx, requestID, object)
 }
 
-func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
+func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument, _ uint64) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
@@ -296,7 +296,7 @@ func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, do
 	return localShard.prepareMergeObject(ctx, requestID, doc)
 }
 
-func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
+func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time, _ uint64) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
@@ -307,7 +307,7 @@ func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, 
 	return localShard.prepareDeleteObject(ctx, requestID, uuid, deletionTime)
 }
 
-func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object) replica.SimpleResponse {
+func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object, _ uint64) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
@@ -319,7 +319,7 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 }
 
 func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
-	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, _ uint64,
 ) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
@@ -331,7 +331,7 @@ func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
 	return localShard.prepareDeleteObjects(ctx, requestID, uuids, deletionTime, dryRun)
 }
 
-func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {
+func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference, _ uint64) replica.SimpleResponse {
 	localShard, release, pr := i.writableShard(ctx, shard)
 	if pr != nil {
 		return *pr
