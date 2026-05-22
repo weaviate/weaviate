@@ -16,11 +16,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
@@ -51,29 +51,29 @@ func dumpQA240Diagnostics(t *testing.T, ctx context.Context, compose *docker.Doc
 		className, propName, taskID, time.Now().UTC().Format(time.RFC3339Nano))
 	t.Logf("=========================================================================")
 
+	// "Stale tokenization residue" probes — query each node with terms
+	// that should return ZERO hits under FIELD tokenization but MULTIPLE
+	// hits under WORD tokenization. If any node returns >0 on one of
+	// these, its bucket still carries word-tokenized residue (which is
+	// exactly the per-replica divergence shape we're chasing).
+	staleResidueProbes := []string{"alpha", "bravo", "charlie", "echo"}
+
 	for i := 1; i <= 3; i++ {
 		uri := compose.GetWeaviateNode(i).URI()
 		nodeName := compose.GetWeaviateNode(i).Name()
+		container := compose.GetWeaviateNode(i).Container()
 		t.Logf("---- node %d (%s, http=%s) ----", i, nodeName, uri)
 
-		// 1. Schema view per node.
 		tokenization := tryGetPropertyTokenization(uri, className, propName)
 		t.Logf("  schema: prop %q tokenization = %q", propName, tokenization)
 
-		// 2. Task view per node (this node's RAFT-observed task state).
 		if taskID != "" {
-			taskState := fetchTaskState(uri, taskID)
-			t.Logf("  task %q state = %s", taskID, taskState)
+			t.Logf("  task %q state = %s", taskID, fetchTaskState(uri, taskID))
 		}
 
-		// 3. Aggregate count (sanity check: did the objects replicate at all?).
 		count := fetchAggregateCount(uri, className)
 		t.Logf("  Aggregate { count } = %d", count)
 
-		// 4. Per-query BM25 results from this node, including the UUIDs
-		// returned. Knowing WHICH docs each replica returned (not just
-		// how many) is what lets us distinguish "wrong tokenization in
-		// the bucket" from "missing rows in the bucket".
 		for _, q := range testBM25Queries {
 			ids, err := runBM25QueryOnNode(t, uri, className, q)
 			if err != nil {
@@ -90,33 +90,44 @@ func dumpQA240Diagnostics(t *testing.T, ctx context.Context, compose *docker.Doc
 			}
 		}
 
-		// 5. On-disk state via docker exec. The data path inside the
-		// container is /var/lib/weaviate (the standard image default).
-		// Best-effort; failures just log and move on.
-		t.Logf("  on-disk LSM tree (top-level):")
-		if out := dockerExec(nodeName, "sh", "-c",
-			"ls -la /var/lib/weaviate/"+lowerClassName(className)+"/ 2>&1 | head -40"); out != "" {
-			for _, ln := range strings.Split(strings.TrimSpace(out), "\n") {
-				t.Logf("    %s", ln)
+		// Single-token probes — under FIELD they should yield 0 unless
+		// the bucket has stale word-tokenized residue.
+		t.Logf("  stale-residue probes (each should be 0 under FIELD; non-zero = bucket has word-tokenized leftovers):")
+		for _, q := range staleResidueProbes {
+			ids, err := runBM25QueryOnNode(t, uri, className, q)
+			if err != nil {
+				t.Logf("    %q: ERROR %v", q, err)
+				continue
+			}
+			marker := ""
+			if len(ids) > 0 {
+				marker = " ** STALE-WORD RESIDUE **"
+			}
+			t.Logf("    %q: %d hits%s", q, len(ids), marker)
+			for j, id := range ids {
+				if j >= 3 {
+					t.Logf("      ... (%d more)", len(ids)-3)
+					break
+				}
+				t.Logf("      - %s", id)
 			}
 		}
+
+		// Disk dump via testcontainers Container.Exec (Docker container
+		// names from testcontainers are random; the Container interface
+		// hides that and goes via the Docker socket directly).
+		t.Logf("  on-disk LSM tree (top-level):")
+		dumpContainerExec(t, ctx, container,
+			"ls -la /var/lib/weaviate/"+lowerClassName(className)+"/ 2>&1 | head -40")
 
 		t.Logf("  per-shard searchable bucket + .migrations dirs:")
-		if out := dockerExec(nodeName, "sh", "-c",
+		dumpContainerExec(t, ctx, container,
 			"find /var/lib/weaviate/"+lowerClassName(className)+"/ -maxdepth 4 \\( -name 'property_"+
-				propName+"_searchable*' -o -name '.migrations' -o -path '*/.migrations/*' \\) -printf '%p\\t%s\\n' 2>&1 | head -80"); out != "" {
-			for _, ln := range strings.Split(strings.TrimSpace(out), "\n") {
-				t.Logf("    %s", ln)
-			}
-		}
+				propName+"_searchable*' -o -name '.migrations' -o -path '*/.migrations/*' \\) -printf '%p\\t%s\\n' 2>&1 | head -80")
 
 		t.Logf("  .migrations/*.mig sentinel contents:")
-		if out := dockerExec(nodeName, "sh", "-c",
-			"for f in $(find /var/lib/weaviate/"+lowerClassName(className)+"/ -maxdepth 5 -path '*/.migrations/*' -name '*.mig' 2>/dev/null); do echo \"--- $f ---\"; cat \"$f\" 2>&1; done | head -200"); out != "" {
-			for _, ln := range strings.Split(strings.TrimSpace(out), "\n") {
-				t.Logf("    %s", ln)
-			}
-		}
+		dumpContainerExec(t, ctx, container,
+			"for f in $(find /var/lib/weaviate/"+lowerClassName(className)+"/ -maxdepth 5 -path '*/.migrations/*' -name '*.mig' 2>/dev/null); do echo \"--- $f ---\"; cat \"$f\" 2>&1; done | head -200")
 	}
 
 	t.Logf("=========================================================================")
@@ -177,13 +188,32 @@ func fetchAggregateCount(restURI, className string) int {
 	return n
 }
 
-// dockerExec runs `docker exec <container> <args>` and returns combined
-// stdout+stderr. Best-effort; returns "" on any error. We assume the
-// CI runner has a `docker` binary on PATH (testcontainers requires it).
-func dockerExec(container string, args ...string) string {
-	cmd := exec.Command("docker", append([]string{"exec", container}, args...)...)
-	out, _ := cmd.CombinedOutput()
-	return string(out)
+// dumpContainerExec runs the given shell command inside the container
+// via the testcontainers Container.Exec API (which talks to the Docker
+// daemon directly using the container ID — testcontainers gives
+// containers random names, so `docker exec <logical-name>` from the
+// host doesn't work). Logs each line with `    ` indent for diagnostics
+// readability. Best-effort: any error is logged and the function returns.
+func dumpContainerExec(t *testing.T, ctx context.Context, container interface {
+	Exec(ctx context.Context, cmd []string, options ...tcexec.ProcessOption) (int, io.Reader, error)
+}, shellCmd string,
+) {
+	t.Helper()
+	code, reader, err := container.Exec(ctx, []string{"sh", "-c", shellCmd})
+	if err != nil {
+		t.Logf("    (exec error: %v)", err)
+		return
+	}
+	out, _ := io.ReadAll(reader)
+	if code != 0 {
+		t.Logf("    (exit code %d)", code)
+	}
+	for _, ln := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if ln == "" {
+			continue
+		}
+		t.Logf("    %s", ln)
+	}
 }
 
 // lowerClassName lowercases the class for filesystem lookup. Weaviate's
