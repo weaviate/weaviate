@@ -88,9 +88,15 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 		term := string(append([]byte(nil), k...))
 		ids := make([]uint64, 0, len(pairs))
 		for _, p := range pairs {
-			if len(p.Key) < 8 {
-				continue
-			}
+			// Inverted/MapCollection bucket entries always carry an 8-byte
+			// big-endian docID as the pair key. A shorter key is either
+			// on-disk corruption or a write-path bug — both of which the
+			// convergence tests exist to surface. Fail loudly rather than
+			// silently dropping the entry, which would let a corrupted
+			// bucket pass as "matching baseline".
+			require.Lenf(t, p.Key, 8,
+				"unexpected pair key length on term %q: want 8 bytes (big-endian docID), got %d",
+				term, len(p.Key))
 			id := uint64(p.Key[0])<<56 |
 				uint64(p.Key[1])<<48 |
 				uint64(p.Key[2])<<40 |
@@ -780,7 +786,8 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 			// complete (OnGroupCompleted would do this on re-ack); the
 			// in-process OnAfterLsmInitAsync skips swap when
 			// IsReindexed is set.
-			rt2, _ := task2.newReindexTracker(shard2.pathLSM())
+			rt2, err := task2.newReindexTracker(shard2.pathLSM())
+			require.NoErrorf(t, err, "post-recovery tracker init (case %q)", tc.name)
 			if !rt2.IsTidied() {
 				if err := task2.RunSwapOnShard(ctx, shard2); err != nil {
 					t.Logf("explicit RunSwapOnShard (case %q): %v", tc.name, err)

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -318,20 +319,51 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	// Phase 2: install the halt hook. Panic after `haltAfter` props
 	// have been observed. The defer-recover below catches the panic
 	// so the test continues.
+	//
+	// Sentinel value carries a fixed prefix that the recover() handler
+	// matches: this lets the test discriminate between THE expected
+	// hook panic vs. an unrelated panic from runtimeSwap (which would
+	// otherwise be silently swallowed and mask a real bug).
+	const haltPanicPrefix = "mid-loop halt: simulated crash"
 	task.testHookPostPropSwap = func(propIdx int) {
 		if propIdx == haltAfter-1 {
-			panic("mid-loop halt: simulated crash after prop " + uuid.NewString()[:4])
+			panic(haltPanicPrefix + " after prop " + uuid.NewString()[:4])
 		}
 	}
 
+	var (
+		panicked     bool
+		panicValue   interface{}
+		swapReturned bool
+		swapErr      error
+	)
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				t.Logf("recovered panic from Phase 2a hook (expected): %v", r)
+				panicked = true
+				panicValue = r
 			}
 		}()
-		_ = task.runtimeSwap(ctx, task.logger, shard, rt, props)
+		swapErr = task.runtimeSwap(ctx, task.logger, shard, rt, props)
+		swapReturned = true
 	}()
+
+	// The expected path is: hook panics → runtimeSwap unwinds →
+	// recover() above catches it. If runtimeSwap returned (with or
+	// without error) the hook didn't fire — that's a test-harness
+	// failure, NOT a production bug, and silently passing here would
+	// mask the convergence-from-mid-Phase-2a invariant the test is
+	// supposed to pin.
+	require.Falsef(t, swapReturned,
+		"runtimeSwap returned without panicking (err=%v); hook did not fire — test harness invalid",
+		swapErr)
+	require.Truef(t, panicked,
+		"expected panic from testHookPostPropSwap; got swapErr=%v", swapErr)
+	panicStr, ok := panicValue.(string)
+	require.Truef(t, ok && strings.HasPrefix(panicStr, haltPanicPrefix),
+		"recovered panic was not from the hook (want prefix %q; got %T %v)",
+		haltPanicPrefix, panicValue, panicValue)
+	t.Logf("recovered expected hook panic: %v", panicValue)
 
 	// Verify partial state: at least `haltAfter` markSwappedProp
 	// sentinels written.
@@ -742,19 +774,30 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 // resolveDocIDFingerprintToUUIDs converts a `term → []docID` map into
 // `term → []uuid` so cross-replica comparison is identity-based, not
 // position-based. Returns deterministically sorted UUIDs per term.
+//
+// Uses ObjectsByDocIDWithEmpty and explicitly fails the test if any
+// docID does not resolve to an object: a posting list that names a
+// docID with no payload IS a corruption signal (or a write-path bug
+// landing a docID in the index without persisting the object), and
+// the convergence tests exist precisely to surface those — silently
+// dropping nils would let two replicas BOTH miss the same docID and
+// still compare equal.
 func resolveDocIDFingerprintToUUIDs(t *testing.T, logger logrus.FieldLogger,
 	objectsBucket *lsmkv.Bucket, docIDMap map[string][]uint64,
 ) map[string][]string {
 	t.Helper()
 	out := make(map[string][]string, len(docIDMap))
 	for term, docIDs := range docIDMap {
-		objs, err := storobj.ObjectsByDocID(objectsBucket, docIDs, additional.Properties{}, nil, logger)
+		objs, err := storobj.ObjectsByDocIDWithEmpty(objectsBucket, docIDs, additional.Properties{}, nil, logger)
 		require.NoErrorf(t, err, "resolve docIDs for term %q", term)
+		require.Lenf(t, objs, len(docIDs),
+			"ObjectsByDocIDWithEmpty must return one slot per input docID for term %q (input=%d, got=%d)",
+			term, len(docIDs), len(objs))
 		uuids := make([]string, 0, len(objs))
-		for _, obj := range objs {
-			if obj == nil {
-				continue
-			}
+		for i, obj := range objs {
+			require.NotNilf(t, obj,
+				"docID %d on term %q has no payload — posting list references a missing object (corruption or write-path bug); see resolveDocIDFingerprintToUUIDs godoc",
+				docIDs[i], term)
 			uuids = append(uuids, string(obj.ID()))
 		}
 		sort.Strings(uuids)
