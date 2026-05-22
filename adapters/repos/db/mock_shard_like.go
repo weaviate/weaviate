@@ -384,6 +384,146 @@ func (_c *MockShardLike_AnalyzeObject_Call) RunAndReturn(run func(*storobj.Objec
 	return _c
 }
 
+// AnalyzeObjectForMigrationWithOverlay provides a mock function with given fields: _a0, _a1
+func (_m *MockShardLike) AnalyzeObjectForMigrationWithOverlay(_a0 *storobj.Object, _a1 map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error) {
+	ret := _m.Called(_a0, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AnalyzeObjectForMigrationWithOverlay")
+	}
+
+	var r0 []inverted.Property
+	var r1 []inverted.NilProperty
+	var r2 error
+	if rf, ok := ret.Get(0).(func(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)); ok {
+		return rf(_a0, _a1)
+	}
+	if rf, ok := ret.Get(0).(func(*storobj.Object, map[string]inverted.PropertyOverlay) []inverted.Property); ok {
+		r0 = rf(_a0, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]inverted.Property)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(*storobj.Object, map[string]inverted.PropertyOverlay) []inverted.NilProperty); ok {
+		r1 = rf(_a0, _a1)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).([]inverted.NilProperty)
+		}
+	}
+
+	if rf, ok := ret.Get(2).(func(*storobj.Object, map[string]inverted.PropertyOverlay) error); ok {
+		r2 = rf(_a0, _a1)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AnalyzeObjectForMigrationWithOverlay'
+type MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call struct {
+	*mock.Call
+}
+
+// AnalyzeObjectForMigrationWithOverlay is a helper method to define mock.On call
+//   - _a0 *storobj.Object
+//   - _a1 map[string]inverted.PropertyOverlay
+func (_e *MockShardLike_Expecter) AnalyzeObjectForMigrationWithOverlay(_a0 interface{}, _a1 interface{}) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
+	return &MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call{Call: _e.mock.On("AnalyzeObjectForMigrationWithOverlay", _a0, _a1)}
+}
+
+func (_c *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call) Run(run func(_a0 *storobj.Object, _a1 map[string]inverted.PropertyOverlay)) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(*storobj.Object), args[1].(map[string]inverted.PropertyOverlay))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call) Return(_a0 []inverted.Property, _a1 []inverted.NilProperty, _a2 error) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call) RunAndReturn(run func(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)) *MockShardLike_AnalyzeObjectForMigrationWithOverlay_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// AsyncCheckpointRoot provides a mock function with given fields: ctx
+func (_m *MockShardLike) AsyncCheckpointRoot(ctx context.Context) (hashtree.Digest, int64, time.Time, bool) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AsyncCheckpointRoot")
+	}
+
+	var r0 hashtree.Digest
+	var r1 int64
+	var r2 time.Time
+	var r3 bool
+	if rf, ok := ret.Get(0).(func(context.Context) (hashtree.Digest, int64, time.Time, bool)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) hashtree.Digest); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(hashtree.Digest)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) int64); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context) time.Time); ok {
+		r2 = rf(ctx)
+	} else {
+		r2 = ret.Get(2).(time.Time)
+	}
+
+	if rf, ok := ret.Get(3).(func(context.Context) bool); ok {
+		r3 = rf(ctx)
+	} else {
+		r3 = ret.Get(3).(bool)
+	}
+
+	return r0, r1, r2, r3
+}
+
+// MockShardLike_AsyncCheckpointRoot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AsyncCheckpointRoot'
+type MockShardLike_AsyncCheckpointRoot_Call struct {
+	*mock.Call
+}
+
+// AsyncCheckpointRoot is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockShardLike_Expecter) AsyncCheckpointRoot(ctx interface{}) *MockShardLike_AsyncCheckpointRoot_Call {
+	return &MockShardLike_AsyncCheckpointRoot_Call{Call: _e.mock.On("AsyncCheckpointRoot", ctx)}
+}
+
+func (_c *MockShardLike_AsyncCheckpointRoot_Call) Run(run func(ctx context.Context)) *MockShardLike_AsyncCheckpointRoot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_AsyncCheckpointRoot_Call) Return(root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) *MockShardLike_AsyncCheckpointRoot_Call {
+	_c.Call.Return(root, cutoffMs, createdAt, ok)
+	return _c
+}
+
+func (_c *MockShardLike_AsyncCheckpointRoot_Call) RunAndReturn(run func(context.Context) (hashtree.Digest, int64, time.Time, bool)) *MockShardLike_AsyncCheckpointRoot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CompareDigests provides a mock function with given fields: ctx, sourceDigests
 func (_m *MockShardLike) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
 	ret := _m.Called(ctx, sourceDigests)
@@ -532,6 +672,54 @@ func (_c *MockShardLike_Counter_Call) Return(_a0 *indexcounter.Counter) *MockSha
 }
 
 func (_c *MockShardLike_Counter_Call) RunAndReturn(run func() *indexcounter.Counter) *MockShardLike_Counter_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateAsyncCheckpoint provides a mock function with given fields: ctx, cutoffMs, createdAt
+func (_m *MockShardLike) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
+	ret := _m.Called(ctx, cutoffMs, createdAt)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateAsyncCheckpoint")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, int64, time.Time) error); ok {
+		r0 = rf(ctx, cutoffMs, createdAt)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_CreateAsyncCheckpoint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateAsyncCheckpoint'
+type MockShardLike_CreateAsyncCheckpoint_Call struct {
+	*mock.Call
+}
+
+// CreateAsyncCheckpoint is a helper method to define mock.On call
+//   - ctx context.Context
+//   - cutoffMs int64
+//   - createdAt time.Time
+func (_e *MockShardLike_Expecter) CreateAsyncCheckpoint(ctx interface{}, cutoffMs interface{}, createdAt interface{}) *MockShardLike_CreateAsyncCheckpoint_Call {
+	return &MockShardLike_CreateAsyncCheckpoint_Call{Call: _e.mock.On("CreateAsyncCheckpoint", ctx, cutoffMs, createdAt)}
+}
+
+func (_c *MockShardLike_CreateAsyncCheckpoint_Call) Run(run func(ctx context.Context, cutoffMs int64, createdAt time.Time)) *MockShardLike_CreateAsyncCheckpoint_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64), args[2].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_CreateAsyncCheckpoint_Call) Return(_a0 error) *MockShardLike_CreateAsyncCheckpoint_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_CreateAsyncCheckpoint_Call) RunAndReturn(run func(context.Context, int64, time.Time) error) *MockShardLike_CreateAsyncCheckpoint_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -694,6 +882,52 @@ func (_c *MockShardLike_DebugResetVectorIndex_Call) Return(_a0 error) *MockShard
 }
 
 func (_c *MockShardLike_DebugResetVectorIndex_Call) RunAndReturn(run func(context.Context, string) error) *MockShardLike_DebugResetVectorIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteAsyncCheckpoint provides a mock function with given fields: ctx
+func (_m *MockShardLike) DeleteAsyncCheckpoint(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAsyncCheckpoint")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_DeleteAsyncCheckpoint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteAsyncCheckpoint'
+type MockShardLike_DeleteAsyncCheckpoint_Call struct {
+	*mock.Call
+}
+
+// DeleteAsyncCheckpoint is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockShardLike_Expecter) DeleteAsyncCheckpoint(ctx interface{}) *MockShardLike_DeleteAsyncCheckpoint_Call {
+	return &MockShardLike_DeleteAsyncCheckpoint_Call{Call: _e.mock.On("DeleteAsyncCheckpoint", ctx)}
+}
+
+func (_c *MockShardLike_DeleteAsyncCheckpoint_Call) Run(run func(ctx context.Context)) *MockShardLike_DeleteAsyncCheckpoint_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_DeleteAsyncCheckpoint_Call) Return(_a0 error) *MockShardLike_DeleteAsyncCheckpoint_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_DeleteAsyncCheckpoint_Call) RunAndReturn(run func(context.Context) error) *MockShardLike_DeleteAsyncCheckpoint_Call {
 	_c.Call.Return(run)
 	return _c
 }

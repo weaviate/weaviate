@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -213,6 +214,55 @@ func (db *DB) FindUUIDs(ctx context.Context, indexName, shardName string,
 	return index.IncomingFindUUIDs(ctx, shardName, f, limit)
 }
 
+func (db *DB) CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.createAsyncCheckpointShards(ctx, index.resolveShardNames(shardNames), cutoffMs, createdAt)
+}
+
+func (db *DB) DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.deleteAsyncCheckpointShards(ctx, index.resolveShardNames(shardNames))
+}
+
+func (db *DB) GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	targets := index.resolveShardNames(shardNames)
+	return index.getAsyncCheckpointShardStatus(ctx, targets)
+}
+
+func (db *DB) CreateAsyncCheckpoints(ctx context.Context, className string, cutoffMs int64, shards []string) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.CreateAsyncCheckpoints(ctx, cutoffMs, shards)
+}
+
+func (db *DB) DeleteAsyncCheckpoints(ctx context.Context, className string, shards []string) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.DeleteAsyncCheckpoints(ctx, shards)
+}
+
+func (db *DB) GetAsyncCheckpointNodeStatuses(ctx context.Context, className string, shards []string) (map[string][]replica.AsyncCheckpointNodeStatus, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.GetAsyncCheckpointStatus(ctx, shards)
+}
+
 func (db *DB) CommitReplication(ctx context.Context,
 	class, shard, requestID string,
 ) any {
@@ -237,14 +287,14 @@ func (db *DB) AbortReplication(ctx context.Context,
 
 func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResponse) {
 	if !db.StartupComplete() {
-		return nil, &replica.SimpleResponse{Errors: []replica.Error{
-			*replica.NewError(replica.StatusNotReady, name),
+		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{
+			*replicaerrors.NewError(replicaerrors.StatusNotReady, name),
 		}}
 	}
 
 	if idx = db.GetIndex(schema.ClassName(name)); idx == nil {
-		return nil, &replica.SimpleResponse{Errors: []replica.Error{
-			*replica.NewError(replica.StatusClassNotFound, name),
+		return nil, &replica.SimpleResponse{Errors: []replicaerrors.Error{
+			*replicaerrors.NewError(replicaerrors.StatusClassNotFound, name),
 		}}
 	}
 	return idx, resp
@@ -252,7 +302,14 @@ func (db *DB) replicatedIndex(name string) (idx *Index, resp *replica.SimpleResp
 
 func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersion uint64) *replica.SimpleResponse {
 	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return &replica.SimpleResponse{Errors: []replica.Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
+		// Msg carries the human-readable detail because Err is not
+		// serialised over the wire (json:"-"); without Msg the remote
+		// coordinator would see an empty error and treat it as success.
+		return &replica.SimpleResponse{Errors: []replicaerrors.Error{{
+			Code: replicaerrors.StatusPreconditionFailed,
+			Msg:  fmt.Sprintf("waiting for schema version %d: %v", schemaVersion, err),
+			Err:  err,
+		}}}
 	}
 	return nil
 }
@@ -260,15 +317,15 @@ func (db *DB) waitForSchemaVersionForIndexWrite(ctx context.Context, schemaVersi
 func (i *Index) writableShard(ctx context.Context, name string) (ShardLike, func(), *replica.SimpleResponse) {
 	localShard, release, err := i.getOrInitShard(ctx, name)
 	if err != nil {
-		return nil, func() {}, &replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("error getting or initializing shard %q: %v", name, err)},
+		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting or initializing shard %q: %v", name, err), Err: err},
 		}}
 	}
 	if localShard.isReadOnly() != nil {
 		release()
 
-		return nil, func() {}, &replica.SimpleResponse{Errors: []replica.Error{{
-			Code: replica.StatusReadOnly, Msg: name,
+		return nil, func() {}, &replica.SimpleResponse{Errors: []replicaerrors.Error{{
+			Code: replicaerrors.StatusReadOnly, Msg: name,
 		}}}
 	}
 	return localShard, release, nil
@@ -345,15 +402,15 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) any {
 	localShard, release, err := i.GetShard(ctx, shard)
 	if err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err)},
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err), Err: err},
 		}}
 	}
 	defer release()
 
 	if localShard == nil {
-		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("shard %q does not exist locally", shard)},
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
 		}}
 	}
 
@@ -366,15 +423,15 @@ func (i *Index) CommitReplication(ctx context.Context, shard, requestID string) 
 func (i *Index) AbortReplication(ctx context.Context, shard, requestID string) any {
 	localShard, release, err := i.GetShard(ctx, shard)
 	if err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err)},
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: fmt.Sprintf("error getting shard %q: %v", shard, err), Err: err},
 		}}
 	}
 	defer release()
 
 	if localShard == nil {
-		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: fmt.Sprintf("shard %q does not exist locally", shard)},
+		return replica.SimpleResponse{Errors: []replicaerrors.Error{
+			{Code: replicaerrors.StatusShardNotFound, Msg: shard, Err: fmt.Errorf("shard %q does not exist locally", shard)},
 		}}
 	}
 

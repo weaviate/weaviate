@@ -50,6 +50,7 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
+	DefaultReindexConcurrency                    = 2
 
 	DefaultReplicationEngineMaxWorkers        = 10
 	DefaultReplicationEngineFileCopyWorkers   = 10
@@ -472,6 +473,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_SKIP_WRITE_CLASSNAME_ENABLED")) {
+		config.Persistence.LSMSkipWriteClassNameEnabled = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_MIN_MMAP_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
@@ -567,13 +572,15 @@ func FromEnv(config *Config) error {
 
 	defaultQuantization := ""
 	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
-		defaultQuantization = strings.ToLower(v)
+		// Trim/lowercase for symmetry with ALLOWED_COMPRESSION_TYPES.
+		defaultQuantization = strings.ToLower(strings.TrimSpace(v))
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
 	defaultVectorIndexType := ""
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
-		defaultVectorIndexType = strings.ToLower(v)
+		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
+		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
 		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
 		if !slices.Contains(validTypes, defaultVectorIndexType) {
 			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
@@ -650,43 +657,6 @@ func FromEnv(config *Config) error {
 	parsePositiveFloat("REINDEXER_GOROUTINES_FACTOR",
 		func(val float64) { config.ReindexerGoroutinesFactor = val },
 		DefaultReindexerGoroutinesFactor)
-
-	if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP", clusterCfg.Hostname) {
-		config.ReindexMapToBlockmaxAtStartup = true
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.SwapBuckets = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_UNSWAP_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.UnswapBuckets = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.TidyBuckets = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_RELOAD_SHARDS", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.ReloadShards = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.Rollback = true
-		}
-		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_CONDITIONAL_START", clusterCfg.Hostname) {
-			config.ReindexMapToBlockmaxConfig.ConditionalStart = true
-		}
-		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
-			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
-			DefaultMapToBlockmaxProcessingDurationSeconds)
-		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
-			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
-			DefaultMapToBlockmaxPauseDurationSeconds)
-		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PER_OBJECT_DELAY_MILLISECONDS",
-			func(val int) { config.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds = val },
-			DefaultMapToBlockmaxPerObjectDelayMilliseconds)
-
-		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
-		if err != nil {
-			return err
-		}
-		config.ReindexMapToBlockmaxConfig.Selected = cptSelected
-	}
 
 	if err := config.parseMemtableConfig(); err != nil {
 		return err
@@ -784,6 +754,19 @@ func FromEnv(config *Config) error {
 		config.QueryHybridMaximumResults = int64(asInt)
 	} else {
 		config.QueryHybridMaximumResults = DefaultQueryHybridMaximumResults
+	}
+
+	if v := os.Getenv("QUERY_BOOST_DEFAULT_DEPTH"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_BOOST_DEFAULT_DEPTH as int: %w", err)
+		}
+		if asInt <= 0 {
+			return fmt.Errorf("QUERY_BOOST_DEFAULT_DEPTH must be a positive integer, got %d", asInt)
+		}
+		config.QueryBoostDefaultDepth = asInt
+	} else {
+		config.QueryBoostDefaultDepth = DefaultQueryBoostDepth
 	}
 
 	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
@@ -974,12 +957,13 @@ func FromEnv(config *Config) error {
 	}
 
 	// MCP Server Configuration
-	config.MCP.Enabled = entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED"))
+	config.MCP.Enabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("MCP_SERVER_ENABLED")))
 	// Write access is disabled by default. Set MCP_SERVER_WRITE_ACCESS_ENABLED=true to enable.
-	config.MCP.WriteAccessEnabled = DefaultMCPWriteAccessEnabled
+	mcpWriteAccess := DefaultMCPWriteAccessEnabled
 	if v := os.Getenv("MCP_SERVER_WRITE_ACCESS_ENABLED"); v != "" {
-		config.MCP.WriteAccessEnabled = entcfg.Enabled(v)
+		mcpWriteAccess = entcfg.Enabled(v)
 	}
+	config.MCP.WriteAccessEnabled = configRuntime.NewDynamicValue(mcpWriteAccess)
 	if v := os.Getenv("MCP_SERVER_CONFIG_PATH"); v != "" {
 		config.MCP.ConfigPath = v
 	}
@@ -987,6 +971,9 @@ func FromEnv(config *Config) error {
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
+	if config.Namespaces.Enabled {
+		config.Persistence.LSMSkipWriteClassNameEnabled = true
+	}
 
 	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
 		DefaultNamespaceCleanupInterval,
@@ -1251,6 +1238,33 @@ func FromEnv(config *Config) error {
 		config.UsageLimits.ErrorMessage = configRuntime.NewDynamicValue(val)
 	}, DefaultUsageLimitsErrorMessage)
 
+	// Allow-list env vars. Empty = no restriction. Cross-field validation
+	// runs in validateRestrictions; per-entry runs at SetValue time so
+	// runtime YAML pushes of unknown entries are rejected before they hit
+	// the schema layer. DynamicValues are initialized even when unset so
+	// the runtime-overrides merger has a non-nil pointer to mutate.
+	var allowVector []string
+	if v := os.Getenv("ALLOWED_VECTOR_INDEX_TYPES"); v != "" {
+		allowVector = strings.Split(v, ",")
+	}
+	allowVectorDV, err := configRuntime.NewDynamicValueWithValidation(allowVector, NewRestrictionVectorIndexTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_VECTOR_INDEX_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedVectorIndexTypes = allowVectorDV
+	var allowCompression []string
+	if v := os.Getenv("ALLOWED_COMPRESSION_TYPES"); v != "" {
+		allowCompression = strings.Split(v, ",")
+	}
+	allowCompressionDV, err := configRuntime.NewDynamicValueWithValidation(allowCompression, NewRestrictionCompressionTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_COMPRESSION_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedCompressionTypes = allowCompressionDV
+	parseString("RESTRICTIONS_ERROR_MESSAGE", func(val string) {
+		config.Restrictions.ErrorMessage = configRuntime.NewDynamicValue(val)
+	}, DefaultRestrictionsErrorMessage)
+
 	// explicitly reset sentry config
 	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()
@@ -1305,8 +1319,17 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("DISTRIBUTED_TASKS_ENABLED"); v != "" {
-		config.DistributedTasks.Enabled = entcfg.Enabled(v)
+	if err = parser.ParseDynamicIntWithValidation(
+		"REINDEX_CONCURRENCY", DefaultReindexConcurrency,
+		func(val int) error {
+			if val < 1 {
+				return fmt.Errorf("must be >= 1")
+			}
+			return nil
+		},
+		func(val *configRuntime.DynamicValue[int]) { config.DistributedTasks.ReindexConcurrency = val },
+	); err != nil {
+		return err
 	}
 
 	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
@@ -1764,6 +1787,7 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 const (
 	DefaultQueryMaximumResults       = int64(10000)
 	DefaultQueryHybridMaximumResults = int64(100)
+	DefaultQueryBoostDepth           = 100
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
@@ -1802,6 +1826,7 @@ const (
 	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
 	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
+	DefaultRestrictionsErrorMessage                = "" // empty → restrictions.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"

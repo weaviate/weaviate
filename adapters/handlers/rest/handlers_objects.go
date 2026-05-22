@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -84,7 +85,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		return objects.NewObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 	className := getClassName(params.Body)
 
@@ -98,16 +99,16 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
 			return objects.NewObjectsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else {
 			return objects.NewObjectsCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -116,6 +117,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(className)
 	return objects.NewObjectsCreateOK().WithPayload(object)
 }
@@ -131,16 +133,16 @@ func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsValidateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsValidateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrMultiTenancy{}):
 			return objects.NewObjectsValidateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return objects.NewObjectsValidateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -172,14 +174,14 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		if err != nil {
 			h.metricRequestsTotal.logUserError(params.ClassName)
 			return objects.NewObjectsClassGetBadRequest().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 
 		additional, err = parseIncludeParam(params.Include, h.modulesProvider, true, class)
 		if err != nil {
 			h.metricRequestsTotal.logError(params.ClassName, err)
 			return objects.NewObjectsClassGetBadRequest().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -187,7 +189,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsClassGetBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	tenant := getTenant(params.Tenant)
@@ -199,18 +201,18 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsClassGetForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrNotFound{}):
 			return objects.NewObjectsClassGetNotFound()
 		case errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsClassGetUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrMultiTenancy{}):
 			return objects.NewObjectsClassGetUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return objects.NewObjectsClassGetInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -219,6 +221,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(getClassName(object))
 	return objects.NewObjectsClassGetOK().WithPayload(object)
 }
@@ -234,7 +237,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		return objects.NewObjectsListBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	var deprecationsRes []*models.Deprecation
@@ -247,16 +250,16 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsListForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrMultiTenancy{}):
 			return objects.NewObjectsListUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrEndpointGone{}):
 			return objects.NewObjectsListGone().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return objects.NewObjectsListInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -265,6 +268,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 		if ok {
 			list[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
+		namespacing.StripObjectResponseClass(principal, list[i])
 	}
 
 	h.metricRequestsTotal.logOk("")
@@ -284,7 +288,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(*params.Class, err)
 		return objects.NewObjectsListBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 	req := uco.QueryParams{
 		Class:      *params.Class,
@@ -302,18 +306,18 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		switch rerr.Code {
 		case uco.StatusForbidden:
 			return objects.NewObjectsListForbidden().
-				WithPayload(errPayloadFromSingleErr(rerr))
+				WithPayload(errPayloadFromSingleErr(principal, rerr))
 		case uco.StatusNotFound:
 			return objects.NewObjectsListNotFound()
 		case uco.StatusBadRequest:
 			return objects.NewObjectsListUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(rerr))
+				WithPayload(errPayloadFromSingleErr(principal, rerr))
 		case uco.StatusUnprocessableEntity:
 			return objects.NewObjectsListUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(rerr))
+				WithPayload(errPayloadFromSingleErr(principal, rerr))
 		default:
 			return objects.NewObjectsListInternalServerError().
-				WithPayload(errPayloadFromSingleErr(rerr))
+				WithPayload(errPayloadFromSingleErr(principal, rerr))
 		}
 	}
 
@@ -322,6 +326,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 		if ok {
 			resultSet[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
+		namespacing.StripObjectResponseClass(principal, resultSet[i])
 	}
 
 	h.metricRequestsTotal.logOk(req.Class)
@@ -342,7 +347,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	tenant := getTenant(params.Tenant)
@@ -354,15 +359,15 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsClassDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrNotFound{}):
 			return objects.NewObjectsClassDeleteNotFound()
 		case errors.As(err, &uco.ErrMultiTenancy{}):
 			return objects.NewObjectsClassDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return objects.NewObjectsClassDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -379,25 +384,29 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
 		return objects.NewObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	object, err := h.manager.UpdateObject(ctx,
 		principal, params.ClassName, params.ID, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
+		if le, ok := usagelimits.AsLimitExceeded(err); ok {
+			return objects.NewObjectsClassPutTooManyRequests().
+				WithPayload(newUsageLimitPayload(le))
+		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &authzerrors.Forbidden{}) {
 			return objects.NewObjectsClassPutForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else {
 			return objects.NewObjectsClassPutInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -406,6 +415,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
+	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(className)
 	return objects.NewObjectsClassPutOK().WithPayload(object)
 }
@@ -418,7 +428,7 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	tenant := getTenant(params.Tenant)
@@ -430,13 +440,13 @@ func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,
 		switch {
 		case objErr.Forbidden():
 			return objects.NewObjectsClassHeadForbidden().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.UnprocessableEntity():
 			return objects.NewObjectsClassHeadUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		default:
 			return objects.NewObjectsClassHeadInternalServerError().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		}
 	}
 
@@ -460,7 +470,7 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 	if err != nil {
 		h.metricRequestsTotal.logError(getClassName(updates), err)
 		return objects.NewObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	objErr := h.manager.MergeObject(ctx, principal, updates, repl)
@@ -471,16 +481,16 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 			return objects.NewObjectsClassPatchNotFound()
 		case objErr.Forbidden():
 			return objects.NewObjectsClassPatchForbidden().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.BadRequest():
 			return objects.NewObjectsClassPatchUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.UnprocessableEntity():
 			return objects.NewObjectsClassPatchUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		default:
 			return objects.NewObjectsClassPatchInternalServerError().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		}
 	}
 
@@ -504,7 +514,7 @@ func (h *objectHandlers) addObjectReference(
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 	tenant := getTenant(params.Tenant)
 
@@ -514,18 +524,18 @@ func (h *objectHandlers) addObjectReference(
 		switch {
 		case objErr.Forbidden():
 			return objects.NewObjectsClassReferencesCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.NotFound():
 			return objects.NewObjectsClassReferencesCreateNotFound()
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.UnprocessableEntity():
 			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		default:
 			return objects.NewObjectsClassReferencesCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		}
 	}
 
@@ -548,7 +558,7 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	tenant := getTenant(params.Tenant)
@@ -559,18 +569,18 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 		switch {
 		case objErr.Forbidden():
 			return objects.NewObjectsClassReferencesPutForbidden().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.NotFound():
 			return objects.NewObjectsClassReferencesPutNotFound()
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.UnprocessableEntity():
 			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		default:
 			return objects.NewObjectsClassReferencesPutInternalServerError().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		}
 	}
 
@@ -593,7 +603,7 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
 		return objects.NewObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 	tenant := getTenant(params.Tenant)
 
@@ -603,18 +613,18 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 		switch objErr.Code {
 		case uco.StatusForbidden:
 			return objects.NewObjectsClassReferencesDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case uco.StatusNotFound:
 			return objects.NewObjectsClassReferencesDeleteNotFound()
 		case uco.StatusBadRequest:
 			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case uco.StatusUnprocessableEntity:
 			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		default:
 			return objects.NewObjectsClassReferencesDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(objErr))
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		}
 	}
 
@@ -675,7 +685,7 @@ func (h *objectHandlers) getObjectDeprecated(params objects.ObjectsGetParams,
 	if h.config.Namespaces.Enabled {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsGetGone().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("getting an object without a class is not supported; use /objects/{className}/{id}")))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("getting an object without a class is not supported; use /objects/{className}/{id}")))
 	}
 	ps := objects.ObjectsClassGetParams{
 		HTTPRequest: params.HTTPRequest,
@@ -692,7 +702,7 @@ func (h *objectHandlers) headObjectDeprecated(params objects.ObjectsHeadParams,
 	if h.config.Namespaces.Enabled {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsHeadGone().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("checking an object without a class is not supported; use /objects/{className}/{id}")))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("checking an object without a class is not supported; use /objects/{className}/{id}")))
 	}
 	r := objects.ObjectsClassHeadParams{
 		HTTPRequest: params.HTTPRequest,
@@ -706,7 +716,7 @@ func (h *objectHandlers) patchObjectDeprecated(params objects.ObjectsPatchParams
 	if h.config.Namespaces.Enabled {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsPatchGone().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("patching an object without a class is not supported; use /objects/{className}/{id}")))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("patching an object without a class is not supported; use /objects/{className}/{id}")))
 	}
 	args := objects.ObjectsClassPatchParams{
 		HTTPRequest: params.HTTPRequest,
@@ -726,7 +736,7 @@ func (h *objectHandlers) updateObjectDeprecated(params objects.ObjectsUpdatePara
 	if h.config.Namespaces.Enabled {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsUpdateGone().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("updating an object without a class is not supported; use /objects/{className}/{id}")))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("updating an object without a class is not supported; use /objects/{className}/{id}")))
 	}
 	ps := objects.ObjectsClassPutParams{
 		HTTPRequest: params.HTTPRequest,
@@ -744,7 +754,7 @@ func (h *objectHandlers) deleteObjectDeprecated(params objects.ObjectsDeletePara
 	if h.config.Namespaces.Enabled {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsDeleteGone().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("deleting an object without a class is not supported; use /objects/{className}/{id}")))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("deleting an object without a class is not supported; use /objects/{className}/{id}")))
 	}
 	ps := objects.ObjectsClassDeleteParams{
 		HTTPRequest: params.HTTPRequest,
@@ -760,7 +770,7 @@ func (h *objectHandlers) addObjectReferenceDeprecated(params objects.ObjectsRefe
 	if h.config.Namespaces.Enabled {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesCreateGone().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("adding a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("adding a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
 	}
 	req := objects.ObjectsClassReferencesCreateParams{
 		HTTPRequest:  params.HTTPRequest,
@@ -778,7 +788,7 @@ func (h *objectHandlers) updateObjectReferencesDeprecated(params objects.Objects
 	if h.config.Namespaces.Enabled {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesUpdateGone().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("replacing references without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("replacing references without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
 	}
 	req := objects.ObjectsClassReferencesPutParams{
 		HTTPRequest:  params.HTTPRequest,
@@ -796,7 +806,7 @@ func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsR
 	if h.config.Namespaces.Enabled {
 		h.metricRequestsTotal.logUserError("")
 		return objects.NewObjectsReferencesDeleteGone().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("deleting a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("deleting a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")))
 	}
 	req := objects.ObjectsClassReferencesDeleteParams{
 		HTTPRequest:  params.HTTPRequest,

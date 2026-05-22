@@ -278,7 +278,7 @@ SchemaObjectsCreateUnprocessableEntity describes a response with status code 422
 Invalid collection definition provided. Check the definition structure and properties.
 */
 type SchemaObjectsCreateUnprocessableEntity struct {
-	Payload *models.ErrorResponse
+	Payload *models.RestrictionViolationResponse
 }
 
 // IsSuccess returns true when this schema objects create unprocessable entity response has a 2xx status code
@@ -319,13 +319,13 @@ func (o *SchemaObjectsCreateUnprocessableEntity) String() string {
 	return fmt.Sprintf("[POST /schema][%d] schemaObjectsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
-func (o *SchemaObjectsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+func (o *SchemaObjectsCreateUnprocessableEntity) GetPayload() *models.RestrictionViolationResponse {
 	return o.Payload
 }
 
 func (o *SchemaObjectsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ErrorResponse)
+	o.Payload = new(models.RestrictionViolationResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

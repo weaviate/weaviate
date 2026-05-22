@@ -361,6 +361,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsGetHandler: schema.SchemaObjectsGetHandlerFunc(func(params schema.SchemaObjectsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsGet has not yet been implemented")
 		}),
+		SchemaSchemaObjectsIndexesGetHandler: schema.SchemaObjectsIndexesGetHandlerFunc(func(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsIndexesGet has not yet been implemented")
+		}),
+		SchemaSchemaObjectsIndexesUpdateHandler: schema.SchemaObjectsIndexesUpdateHandlerFunc(func(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsIndexesUpdate has not yet been implemented")
+		}),
 		SchemaSchemaObjectsPropertiesAddHandler: schema.SchemaObjectsPropertiesAddHandlerFunc(func(params schema.SchemaObjectsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesAdd has not yet been implemented")
 		}),
@@ -402,6 +408,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		TokenizeTokenizeHandler: tokenize.TokenizeHandlerFunc(func(params tokenize.TokenizeParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation tokenize.Tokenize has not yet been implemented")
+		}),
+		NamespacesUpdateNamespaceHandler: namespaces.UpdateNamespaceHandlerFunc(func(params namespaces.UpdateNamespaceParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation namespaces.UpdateNamespace has not yet been implemented")
 		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
@@ -655,6 +664,10 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsDeleteHandler schema.SchemaObjectsDeleteHandler
 	// SchemaSchemaObjectsGetHandler sets the operation handler for the schema objects get operation
 	SchemaSchemaObjectsGetHandler schema.SchemaObjectsGetHandler
+	// SchemaSchemaObjectsIndexesGetHandler sets the operation handler for the schema objects indexes get operation
+	SchemaSchemaObjectsIndexesGetHandler schema.SchemaObjectsIndexesGetHandler
+	// SchemaSchemaObjectsIndexesUpdateHandler sets the operation handler for the schema objects indexes update operation
+	SchemaSchemaObjectsIndexesUpdateHandler schema.SchemaObjectsIndexesUpdateHandler
 	// SchemaSchemaObjectsPropertiesAddHandler sets the operation handler for the schema objects properties add operation
 	SchemaSchemaObjectsPropertiesAddHandler schema.SchemaObjectsPropertiesAddHandler
 	// SchemaSchemaObjectsPropertiesDeleteHandler sets the operation handler for the schema objects properties delete operation
@@ -683,6 +696,8 @@ type WeaviateAPI struct {
 	SchemaTenantsUpdateHandler schema.TenantsUpdateHandler
 	// TokenizeTokenizeHandler sets the operation handler for the tokenize operation
 	TokenizeTokenizeHandler tokenize.TokenizeHandler
+	// NamespacesUpdateNamespaceHandler sets the operation handler for the update namespace operation
+	NamespacesUpdateNamespaceHandler namespaces.UpdateNamespaceHandler
 	// WeaviateRootHandler sets the operation handler for the weaviate root operation
 	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
@@ -1058,6 +1073,12 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SchemaSchemaObjectsGetHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsGetHandler")
 	}
+	if o.SchemaSchemaObjectsIndexesGetHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsIndexesGetHandler")
+	}
+	if o.SchemaSchemaObjectsIndexesUpdateHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsIndexesUpdateHandler")
+	}
 	if o.SchemaSchemaObjectsPropertiesAddHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesAddHandler")
 	}
@@ -1099,6 +1120,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.TokenizeTokenizeHandler == nil {
 		unregistered = append(unregistered, "tokenize.TokenizeHandler")
+	}
+	if o.NamespacesUpdateNamespaceHandler == nil {
+		unregistered = append(unregistered, "namespaces.UpdateNamespaceHandler")
 	}
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
@@ -1587,6 +1611,14 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/schema/{className}"] = schema.NewSchemaObjectsGet(o.context, o.SchemaSchemaObjectsGetHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/schema/{className}/indexes"] = schema.NewSchemaObjectsIndexesGet(o.context, o.SchemaSchemaObjectsIndexesGetHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/schema/{className}/indexes/{propertyName}"] = schema.NewSchemaObjectsIndexesUpdate(o.context, o.SchemaSchemaObjectsIndexesUpdateHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1643,6 +1675,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/tokenize"] = tokenize.NewTokenize(o.context, o.TokenizeTokenizeHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/namespaces/{namespace_id}"] = namespaces.NewUpdateNamespace(o.context, o.NamespacesUpdateNamespaceHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

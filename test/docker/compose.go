@@ -60,6 +60,7 @@ import (
 	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	moddigitalocean "github.com/weaviate/weaviate/modules/text2vec-digitalocean"
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
@@ -338,6 +339,12 @@ func (d *Compose) WithText2VecMorph(apiKey string) *Compose {
 func (d *Compose) WithText2VecCohere(apiKey string) *Compose {
 	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modcohere.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecDigitalOcean(apiKey string) *Compose {
+	d.weaviateEnvs["DIGITALOCEAN_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, moddigitalocean.Name)
 	return d
 }
 
@@ -1084,6 +1091,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if d.withWeaviateNamespaces {
 		settings["NAMESPACES_ENABLED"] = "true"
 		settings["DISABLE_GRAPHQL"] = "true"
+		// Namespaces pin each namespace's shards to a single home_node;
+		// the startup invariant rejects RF>1 because the home_node would
+		// silently disagree with the configured replication.
+		settings["REPLICATION_MAXIMUM_FACTOR"] = "1"
 		// Tight cleanup tick for acceptance: deletion tests poll for the
 		// 404 that arrives once the leader has finished tearing down the
 		// namespace's classes, aliases, and users.

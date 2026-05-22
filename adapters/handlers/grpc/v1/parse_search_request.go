@@ -59,17 +59,14 @@ type generativeParser interface {
 type Parser struct {
 	generative         generativeParser
 	authorizedGetClass classGetterWithAuthzFunc
-	aliasGetter        aliasGetter
 }
 
 func NewParser(uses127Api bool,
 	authorizedGetClass classGetterWithAuthzFunc,
-	aliasGetter aliasGetter,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
 		authorizedGetClass: authorizedGetClass,
-		aliasGetter:        aliasGetter,
 	}
 }
 
@@ -80,7 +77,6 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return out, err
 	}
 
-	out.Alias = p.aliasGetter(req.Collection)
 	out.ClassName = class.Class
 	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
@@ -376,6 +372,14 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties.ModuleParams["rerank"] = extractRerank(req)
 	}
 
+	if req.Boost != nil {
+		boost, err := p.extractBoost(req.Boost, req.Collection, req.Tenant, config.Namespaces.Enabled)
+		if err != nil {
+			return dto.GetParams{}, err
+		}
+		out.Boost = boost
+	}
+
 	if len(req.After) > 0 {
 		out.Cursor = &filters.Cursor{After: req.After, Limit: out.Pagination.Limit}
 	}
@@ -637,6 +641,192 @@ func extractRerank(req *pb.SearchRequest) *rank.Params {
 		rerank.Query = req.Rerank.Query
 	}
 	return &rerank
+}
+
+func (p *Parser) extractBoost(boost *pb.Boost, className, tenant string, namespacesEnabled bool) (*filters.Boost, error) {
+	if boost == nil {
+		return nil, nil
+	}
+
+	weight := float32(0.5)
+	if boost.Weight != nil {
+		weight = boost.GetWeight()
+	}
+
+	conditions := make([]filters.BoostCondition, 0, len(boost.GetConditions()))
+	for i, cond := range boost.GetConditions() {
+		pc, err := p.extractBoostCondition(cond, className, tenant, i, namespacesEnabled)
+		if err != nil {
+			return nil, err
+		}
+		conditions = append(conditions, pc)
+	}
+
+	var depth int
+	if boost.Depth != nil {
+		depth = int(boost.GetDepth())
+	}
+
+	result := &filters.Boost{
+		Conditions: conditions,
+		Weight:     weight,
+		Depth:      depth,
+	}
+
+	if err := filters.ValidateBoost(result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (p *Parser) extractBoostCondition(cond *pb.Boost_Condition, className, tenant string, idx int, namespacesEnabled bool) (filters.BoostCondition, error) {
+	weight := float32(1.0)
+	if cond.Weight != nil {
+		weight = cond.GetWeight()
+	}
+
+	pc := filters.BoostCondition{
+		Weight: weight,
+	}
+
+	switch c := cond.GetCondition().(type) {
+	case *pb.Boost_Condition_Filter:
+		clause, err := ExtractFilters(c.Filter, p.authorizedGetClass, className, tenant, namespacesEnabled)
+		if err != nil {
+			return filters.BoostCondition{}, fmt.Errorf("boost condition[%d] filter: %w", idx, err)
+		}
+		pc.Filter = &filters.LocalFilter{Root: &clause}
+	case *pb.Boost_Condition_TimeDecay:
+		decay, err := extractTimeDecayFunction(c.TimeDecay, idx)
+		if err != nil {
+			return filters.BoostCondition{}, err
+		}
+		pc.Decay = decay
+	case *pb.Boost_Condition_NumericDecay:
+		decay, err := extractNumericDecayFunction(c.NumericDecay, idx)
+		if err != nil {
+			return filters.BoostCondition{}, err
+		}
+		pc.Decay = decay
+	case *pb.Boost_Condition_PropertyValue:
+		fv, err := extractPropertyValueFunction(c.PropertyValue, idx)
+		if err != nil {
+			return filters.BoostCondition{}, err
+		}
+		pc.PropertyValue = fv
+	default:
+		return filters.BoostCondition{}, fmt.Errorf("boost condition[%d]: exactly one of 'filter', 'decay', or 'property_value' must be set", idx)
+	}
+
+	return pc, nil
+}
+
+func extractPropertyValueFunction(fv *pb.Boost_PropertyValueFunction, condIdx int) (*filters.PropertyValue, error) {
+	if fv == nil {
+		return nil, nil
+	}
+
+	prop := fv.GetProperty()
+	if prop == "" {
+		return nil, fmt.Errorf("boost condition[%d] property_value: property is required", condIdx)
+	}
+
+	modifier := filters.PropertyValueModifierNone
+	switch fv.GetModifier() {
+	case pb.Boost_PROPERTY_VALUE_MODIFIER_LOG1P:
+		modifier = filters.PropertyValueModifierLog1p
+	case pb.Boost_PROPERTY_VALUE_MODIFIER_SQRT:
+		modifier = filters.PropertyValueModifierSqrt
+	case pb.Boost_PROPERTY_VALUE_MODIFIER_UNSPECIFIED:
+		modifier = filters.PropertyValueModifierNone
+	}
+
+	return &filters.PropertyValue{
+		Path:     &filters.Path{Property: schema.PropertyName(prop)},
+		Modifier: modifier,
+	}, nil
+}
+
+func extractDecayCurve(curve pb.Boost_DecayCurve) filters.DecayCurveType {
+	switch curve {
+	case pb.Boost_DECAY_CURVE_GAUSS:
+		return filters.DecayCurveGauss
+	case pb.Boost_DECAY_CURVE_LINEAR:
+		return filters.DecayCurveLinear
+	default:
+		return filters.DecayCurveExp
+	}
+}
+
+func extractTimeDecayFunction(d *pb.Boost_TimeDecayFunction, condIdx int) (*filters.Decay, error) {
+	if d == nil {
+		return nil, nil
+	}
+
+	prop := d.GetProperty()
+	if prop == "" {
+		return nil, fmt.Errorf("boost condition[%d] time_decay: property is required", condIdx)
+	}
+
+	decayValue := float32(0.5)
+	if d.DecayValue != nil {
+		decayValue = d.GetDecayValue()
+	}
+
+	offset := "0"
+	if d.Offset != nil {
+		offset = d.GetOffset()
+	}
+
+	origin := d.GetOrigin()
+	if origin == "" {
+		origin = "now"
+	}
+
+	return &filters.Decay{
+		Path:       &filters.Path{Property: schema.PropertyName(prop)},
+		Origin:     origin,
+		Scale:      d.GetScale(),
+		Offset:     offset,
+		Curve:      extractDecayCurve(d.GetCurve()),
+		DecayValue: decayValue,
+	}, nil
+}
+
+func extractNumericDecayFunction(d *pb.Boost_NumericDecayFunction, condIdx int) (*filters.Decay, error) {
+	if d == nil {
+		return nil, nil
+	}
+
+	prop := d.GetProperty()
+	if prop == "" {
+		return nil, fmt.Errorf("boost condition[%d] numeric_decay: property is required", condIdx)
+	}
+
+	if d.GetScale() <= 0 {
+		return nil, fmt.Errorf("boost condition[%d] numeric_decay: scale must be > 0", condIdx)
+	}
+
+	decayValue := float32(0.5)
+	if d.DecayValue != nil {
+		decayValue = d.GetDecayValue()
+	}
+
+	var offset float64
+	if d.Offset != nil {
+		offset = d.GetOffset()
+	}
+
+	return &filters.Decay{
+		Path:          &filters.Path{Property: schema.PropertyName(prop)},
+		IsNumeric:     true,
+		OriginNumeric: d.GetOrigin(),
+		ScaleNumeric:  d.GetScale(),
+		OffsetNumeric: offset,
+		Curve:         extractDecayCurve(d.GetCurve()),
+		DecayValue:    decayValue,
+	}, nil
 }
 
 func extractNearText(classname string, limit int, nearTextIn *pb.NearTextSearch, targetVectors []string) (*nearText2.NearTextParams, error) {

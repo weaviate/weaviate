@@ -42,6 +42,8 @@ The schema-side limits (collections, tenants, shards) stay at the use-case layer
 
 The object count is **node-wide** across local shards: the manager sums each loaded shard's `bucket.CountAsync()` (`adapters/repos/db/lsmkv/bucket.go`) on every enforced write. Each `CountAsync()` is O(segments-per-shard) — it walks the live segment list and sums each segment's already-loaded net-additions counter, no I/O. For the Free-Tier shape (few shards, few segments) that's a handful of atomic reads on the hot path.
 
+On namespace-enabled clusters the chokepoint passes the (namespace-qualified) class name and `CheckObjects` extracts the namespace; the counter then sums only indices in that namespace. The cap is applied **per namespace**, not cluster-wide. A plain (non-qualified) class name sums all indices (NS-disabled clusters; the global slice on NS-enabled clusters that have no namespaced classes yet).
+
 We deliberately don't route through `UsageForIndex` — that path triggers other usage-module computations beyond a count.
 
 The collection count is **schema/RAFT-backed**: the limit check in `AddClass()` calls `schemaManager.QueryCollectionsCount(namespace)`, which goes through RAFT to the leader. When `NAMESPACES_ENABLED=false` the namespace selector is empty and the response is the cluster-global `len(s.classes)`. When `NAMESPACES_ENABLED=true` the selector is the caller's `principal.Namespace` (namespaced creates already require a namespaced principal) and the count is restricted to stored class names whose `<namespace>:` prefix matches. Aliases live outside this map and do not consume the cap.
@@ -75,7 +77,7 @@ When a batch insert would exceed `MAXIMUM_ALLOWED_OBJECTS_COUNT`, the **shard-sl
 Supported deployment shapes (where the cap is meaningful and exact):
 
 - **Single-node clusters** (the Free Tier sandbox case) — there is no other node.
-- **Namespaced clusters in phase 1** — a namespace's collections/shards are pinned to a single node, so the per-namespace sum is local.
+- **Namespaced clusters in phase 1** — a namespace's collections/shards are pinned to a single node, so the per-namespace sum is local. `MAXIMUM_ALLOWED_OBJECTS_COUNT` applies per namespace.
 
 **Out of scope:**
 
@@ -94,3 +96,88 @@ The pre-existing `MAXIMUM_ALLOWED_COLLECTIONS_COUNT` enforcement previously retu
 - **Per-shard-slice batch rejection** on multi-shard collections (see *Batch behavior*). Single-shard collections (Free Tier) see whole-batch rejection unchanged.
 - **Tenants checked at create time only**, not on subsequent multi-tenancy config changes.
 - **Schema-side caps are not transactional with RAFT.** Read-check-write is not atomic across the RAFT-replicated `AddClass`/`AddTenants` call, so two concurrent creates can both pass the check. Bounded overshoot; next request is correctly rejected.
+
+---
+
+# Configuration Restrictions
+
+A second class of opt-in guardrails that constrain **what kind** of class an operator's tenants may create — distinct from the usage limits above, which cap **how much** state they can produce. Like usage limits, these are unset by default; existing deployments are unaffected.
+
+## Environment variables
+
+| Variable | Type | Default | Effect |
+|---|---|---|---|
+| `ALLOWED_VECTOR_INDEX_TYPES` | comma-separated list | unset (no restriction) | Allow-list for class `vectorIndexType` and named-vector `vectorConfig[*].vectorIndexType`. Valid entries: `hnsw`, `flat`, `dynamic`, `hfresh`. |
+| `ALLOWED_COMPRESSION_TYPES` | comma-separated list | unset (no restriction) | Allow-list for the compression configured on a class's vector index. Valid entries: `none`, `pq`, `sq`, `rq-1`, `rq-8`, `bq` (same names accepted by `DEFAULT_QUANTIZATION`). Hfresh classes are exempt — hfresh has no compression knobs. |
+| `RESTRICTIONS_ERROR_MESSAGE` | string | `"{value} is not allowed for {restriction}. Allowed values: {allowed}."` | Operator-overridable template for the user-facing message. Placeholders: `{restriction}`, `{value}`, `{allowed}`. |
+
+All three are **runtime-overrideable** via the runtime overrides YAML (`allowed_vector_index_types`, `allowed_compression_types`, `restrictions_error_message`).
+
+## Cross-field rules
+
+Validated at startup in `Config.Validate()` (`usecases/config/config_handler.go`):
+
+1. Each entry must be one of the canonical valid values.
+2. **Single-entry allow-list:** the matching default (`DEFAULT_VECTOR_INDEX` / `DEFAULT_QUANTIZATION`) must either be unset (in which case it is seeded to the single value) or match it.
+3. **Multi-entry allow-list:** the matching default must be explicitly set and present in the list.
+4. **Hfresh + compression invariant:** `ALLOWED_VECTOR_INDEX_TYPES=hfresh` (only) paired with a non-empty `ALLOWED_COMPRESSION_TYPES` is rejected at startup — hfresh has no compression. Compression alongside hfresh in a *mixed* allow-list (e.g. `hfresh,hnsw`) is allowed because the non-hfresh members still need a compression policy.
+
+## Common shapes
+
+```yaml
+# Force everyone to a single vector index type.
+ALLOWED_VECTOR_INDEX_TYPES=hfresh
+# DEFAULT_VECTOR_INDEX is seeded to "hfresh"; DEFAULT_QUANTIZATION and
+# ALLOWED_COMPRESSION_TYPES must remain unset.
+```
+
+```yaml
+# Allow hfresh + hnsw with a forced compression on the hnsw side.
+ALLOWED_VECTOR_INDEX_TYPES=hfresh,hnsw
+DEFAULT_VECTOR_INDEX=hfresh                      # must be set: multi-entry list
+ALLOWED_COMPRESSION_TYPES=rq-8
+DEFAULT_QUANTIZATION=rq-8                        # seeded if unset
+```
+
+```yaml
+# Maximum performance, cost no object: hnsw only, no compression.
+ALLOWED_VECTOR_INDEX_TYPES=hnsw
+ALLOWED_COMPRESSION_TYPES=none
+# Defaults seeded to "hnsw" and "none" respectively.
+```
+
+## Where each check fires
+
+| Restriction | Hook | File |
+|---|---|---|
+| Vector index type (legacy + named) | `Handler.validateVectorIndexType` | `usecases/schema/class.go` |
+| Compression (legacy + named) | `Handler.validateAllowedCompression` (invoked from `validateVectorSettings`) | `usecases/schema/class.go` |
+
+The compression check inspects user-supplied config only; the default compression applied later (in `enableQuantization`) is guaranteed by startup validation to be in the allow-list, so a request that arrives with no compression block still produces a compatible class.
+
+## Error response
+
+When a class create/update violates a restriction:
+
+- **HTTP**: `422 Unprocessable Entity` with body
+  ```json
+  {
+    "errorCode": "CONFIG_NOT_ALLOWED",
+    "restriction": "compression",
+    "value": "pq",
+    "allowed": ["rq-8"],
+    "message": "pq is not allowed for compression. Allowed values: rq-8."
+  }
+  ```
+- **gRPC**: `codes.FailedPrecondition` with `errdetails.ErrorInfo` carrying the same fields under `Reason="CONFIG_NOT_ALLOWED"`, `Domain="weaviate.restrictions"`.
+
+The `errorCode`, `restriction`, `value`, and `allowed` fields are stable wire contract; the `message` is rendered from `RESTRICTIONS_ERROR_MESSAGE` and varies across deployments. Example operator override:
+
+```
+RESTRICTIONS_ERROR_MESSAGE=Invalid config: {value} for {restriction} is not allowed on this tier — please upgrade.
+```
+
+## Accepted imperfections
+
+- **Compression detection is based on the parsed user config only.** A class submitted with `{"pq": {"enabled": false}}` is treated identically to a class with no compression block at all — both fall through to the default, which startup validation already vetted against the allow-list. The only way to *opt out* of all compression is `skipDefaultQuantization: true`, which the validator surfaces as the value `none`.
+- **Hfresh classes bypass the compression check entirely.** That includes named-vector entries whose `vectorIndexType` is `hfresh`.

@@ -80,6 +80,19 @@ func (m *Manager) Add(c *cmd.ApplyRequest) error {
 	return m.controller.Create(req.Namespace)
 }
 
+// Update applies an UpdateNamespace RAFT command. It rewrites the stored
+// HomeNode for an existing namespace. Returns
+// [usecasesNamespaces.ErrBadRequest] for malformed payloads or an empty
+// HomeNode, and [usecasesNamespaces.ErrNotFound] when the namespace does
+// not exist.
+func (m *Manager) Update(c *cmd.ApplyRequest) error {
+	req := &cmd.UpdateNamespaceRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", usecasesNamespaces.ErrBadRequest, err)
+	}
+	return m.controller.Update(req.Namespace)
+}
+
 // ChangeState applies a ChangeNamespaceState RAFT command, transitioning
 // the namespace into the target state. Returns
 // [usecasesNamespaces.ErrBadRequest] for malformed payloads or unknown
@@ -133,6 +146,12 @@ func (m *Manager) Exists(name string) bool {
 // IsActive proxies to the controller.
 func (m *Manager) IsActive(name string) bool {
 	return m.controller.IsActive(name)
+}
+
+// GetNamespace returns the namespace by name. ok is false when the
+// namespace does not exist.
+func (m *Manager) GetNamespace(name string) (ns cmd.Namespace, ok bool) {
+	return m.controller.GetNamespace(name)
 }
 
 // Get handles a QueryGetNamespaces query. An empty Names slice returns all

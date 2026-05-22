@@ -38,7 +38,7 @@ func seedNamespace(t *testing.T, c *Controller, name string, seedState cmd.Names
 	if seedState == "" {
 		return
 	}
-	require.NoError(t, c.Create(cmd.Namespace{Name: name}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}}))
 	if seedState == cmd.NamespaceStateDeleting {
 		require.NoError(t, c.ChangeState(name, cmd.NamespaceStateDeleting))
 	}
@@ -107,22 +107,27 @@ func TestController_Create(t *testing.T) {
 	}{
 		{
 			name:  "happy path",
-			input: cmd.Namespace{Name: "customer1"},
+			input: cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}},
 		},
 		{
 			name:    "duplicate is rejected with ErrAlreadyExists",
 			seed:    []string{"customer1"},
-			input:   cmd.Namespace{Name: "customer1"},
+			input:   cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}},
 			wantErr: ErrAlreadyExists,
 		},
 		{
 			name:    "invalid name is rejected",
-			input:   cmd.Namespace{Name: "BadName"},
+			input:   cmd.Namespace{Name: "BadName", HomeNodes: []string{"node-1"}},
 			wantErr: ErrBadRequest,
 		},
 		{
 			name:    "reserved name is rejected",
-			input:   cmd.Namespace{Name: "admin"},
+			input:   cmd.Namespace{Name: "admin", HomeNodes: []string{"node-1"}},
+			wantErr: ErrBadRequest,
+		},
+		{
+			name:    "missing home_node is rejected",
+			input:   cmd.Namespace{Name: "customer1"},
 			wantErr: ErrBadRequest,
 		},
 	}
@@ -131,7 +136,7 @@ func TestController_Create(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newTestController(t)
 			for _, name := range tc.seed {
-				require.NoError(t, c.Create(cmd.Namespace{Name: name}))
+				require.NoError(t, c.Create(cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}}))
 			}
 			err := c.Create(tc.input)
 			if tc.wantErr != nil {
@@ -148,7 +153,7 @@ func TestController_Create(t *testing.T) {
 func TestController_Create_StoresActiveState(t *testing.T) {
 	c := newTestController(t)
 	// Caller-provided State is ignored: stored entries are always active.
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", State: cmd.NamespaceStateDeleting}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}, State: cmd.NamespaceStateDeleting}))
 	got := c.Get("customer1")
 	require.Len(t, got, 1)
 	assert.Equal(t, cmd.NamespaceStateActive, got[0].State)
@@ -157,10 +162,10 @@ func TestController_Create_StoresActiveState(t *testing.T) {
 
 func TestController_Create_RejectsDeletingWithDistinctSentinel(t *testing.T) {
 	c := newTestController(t)
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
 
-	err := c.Create(cmd.Namespace{Name: "customer1"})
+	err := c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNamespaceDeleting)
 	assert.NotErrorIs(t, err, ErrAlreadyExists,
@@ -229,21 +234,63 @@ func TestController_RemoveEntity(t *testing.T) {
 	}
 }
 
+func TestController_Update(t *testing.T) {
+	tests := []struct {
+		name      string
+		seedState cmd.NamespaceState // "" means do not seed
+		input     cmd.Namespace
+		wantErr   error
+	}{
+		{name: "happy path rewrites home_node", seedState: cmd.NamespaceStateActive, input: cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}},
+		{name: "missing namespace returns ErrNotFound", input: cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}, wantErr: ErrNotFound},
+		{name: "empty home_node is rejected", seedState: cmd.NamespaceStateActive, input: cmd.Namespace{Name: "customer1"}, wantErr: ErrBadRequest},
+		{name: "deleting namespace returns ErrNamespaceDeleting", seedState: cmd.NamespaceStateDeleting, input: cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-2"}}, wantErr: ErrNamespaceDeleting},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestController(t)
+			if tc.seedState != "" {
+				require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
+				if tc.seedState == cmd.NamespaceStateDeleting {
+					require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
+				}
+			}
+			err := c.Update(tc.input)
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tc.wantErr)
+				// On rejection, HomeNodes must not have changed.
+				if tc.seedState != "" {
+					got := c.Get("customer1")
+					require.Len(t, got, 1)
+					assert.Equal(t, "node-1", got[0].Primary(), "rejected Update must not mutate the stored HomeNodes")
+				}
+				return
+			}
+			require.NoError(t, err)
+			got := c.Get("customer1")
+			require.Len(t, got, 1)
+			assert.Equal(t, tc.input.Primary(), got[0].Primary())
+		})
+	}
+}
+
 func TestController_RecreateAfterRemoval(t *testing.T) {
 	c := newTestController(t)
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
 	require.NoError(t, c.RemoveEntity("customer1"))
 
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
 	assert.True(t, c.IsActive("customer1"))
 }
 
 func TestController_IsActiveAndListDeleting(t *testing.T) {
 	c := newTestController(t)
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2"}))
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer3"}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer3", HomeNodes: []string{"node-1"}}))
 	require.NoError(t, c.ChangeState("customer3", cmd.NamespaceStateDeleting))
 	require.NoError(t, c.ChangeState("customer1", cmd.NamespaceStateDeleting))
 
@@ -256,9 +303,11 @@ func TestController_IsActiveAndListDeleting(t *testing.T) {
 }
 
 func TestController_RestoreNormalizesEmptyState(t *testing.T) {
-	// Snapshots without a State field must restore as active.
+	// Snapshots without a State field must restore as active. HomeNodes
+	// is required (see TestController_Restore/"missing HomeNodes...") so
+	// the snapshot still carries one.
 	c := newTestController(t)
-	snap := []byte(`{"customer1":{"Name":"customer1","Restrictions":{}}}`)
+	snap := []byte(`{"customer1":{"Name":"customer1","HomeNodes":["node-1"]}}`)
 	require.NoError(t, c.Restore(snap))
 
 	assert.True(t, c.IsActive("customer1"))
@@ -274,8 +323,8 @@ func TestController_RestoreNormalizesEmptyState(t *testing.T) {
 func TestController_RestoreRestoresKnownStates(t *testing.T) {
 	c := newTestController(t)
 	snap := []byte(`{
-		"customer1":{"Name":"customer1","State":"active","Restrictions":{}},
-		"customer2":{"Name":"customer2","State":"deleting","Restrictions":{}}
+		"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"active"},
+		"customer2":{"Name":"customer2","HomeNodes":["node-1"],"State":"deleting"}
 	}`)
 	require.NoError(t, c.Restore(snap))
 
@@ -286,7 +335,10 @@ func TestController_RestoreRestoresKnownStates(t *testing.T) {
 
 func TestController_RestoreRejectsUnknownState(t *testing.T) {
 	c := newTestController(t)
-	snap := []byte(`{"customer1":{"Name":"customer1","State":"suspended","Restrictions":{}}}`)
+	// HomeNodes is required by Restore; include it so this case actually
+	// exercises the unknown-state rejection rather than the
+	// missing-HomeNodes one.
+	snap := []byte(`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"suspended"}}`)
 	err := c.Restore(snap)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown state")
@@ -297,9 +349,9 @@ func TestController_RestoreRejectsUnknownState(t *testing.T) {
 
 func TestController_Get(t *testing.T) {
 	c := newTestController(t)
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2"}))
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer3"}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer3", HomeNodes: []string{"node-1"}}))
 
 	tests := []struct {
 		name  string
@@ -331,7 +383,7 @@ func TestController_Get(t *testing.T) {
 
 func TestController_Exists(t *testing.T) {
 	c := newTestController(t)
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
 
 	assert.True(t, c.Exists("customer1"))
 	assert.False(t, c.Exists("never-existed"))
@@ -345,8 +397,8 @@ func TestController_List(t *testing.T) {
 	c := newTestController(t)
 	assert.Empty(t, c.List())
 
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2"}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-1"}}))
 
 	assert.ElementsMatch(t,
 		[]string{"customer1", "customer2"},
@@ -355,8 +407,8 @@ func TestController_List(t *testing.T) {
 
 func TestController_SnapshotRestoreRoundtrip(t *testing.T) {
 	c := newTestController(t)
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1"}))
-	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2"}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-a"}}))
+	require.NoError(t, c.Create(cmd.Namespace{Name: "customer2", HomeNodes: []string{"node-b"}}))
 
 	snap, err := c.Snapshot()
 	require.NoError(t, err)
@@ -368,6 +420,13 @@ func TestController_SnapshotRestoreRoundtrip(t *testing.T) {
 	assert.ElementsMatch(t,
 		[]string{"customer1", "customer2"},
 		namesOf(restored.List()))
+
+	// HomeNodes must survive a snapshot/restore round-trip.
+	got := restored.Get("customer1", "customer2")
+	require.Len(t, got, 2)
+	byName := map[string]string{got[0].Name: got[0].Primary(), got[1].Name: got[1].Primary()}
+	assert.Equal(t, "node-a", byName["customer1"])
+	assert.Equal(t, "node-b", byName["customer2"])
 }
 
 func TestController_Restore(t *testing.T) {
@@ -391,14 +450,28 @@ func TestController_Restore(t *testing.T) {
 		},
 		{
 			// Snapshots that carry unknown fields (e.g. a future `state`
-			// field on Namespace) must still restore cleanly.
+			// field on Namespace) must still restore cleanly. HomeNodes is
+			// required — see "missing HomeNodes" below.
 			name:      "unknown fields are tolerated",
-			snap:      []byte(`{"customer1":{"Name":"customer1","Restrictions":{},"FutureField":"ignored"}}`),
+			snap:      []byte(`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"FutureField":"ignored"}}`),
 			wantNames: []string{"customer1"},
 		},
 		{
 			name:    "malformed JSON returns an error",
 			snap:    []byte("not-json"),
+			wantErr: true,
+		},
+		{
+			// Pre-home_node snapshots have no migration path; rather than
+			// loading a broken entry that would fail at first placement
+			// attempt, Restore rejects up front.
+			name:    "missing HomeNodes is rejected",
+			snap:    []byte(`{"customer1":{"Name":"customer1","State":"active"}}`),
+			wantErr: true,
+		},
+		{
+			name:    "empty HomeNodes entry is rejected",
+			snap:    []byte(`{"customer1":{"Name":"customer1","HomeNodes":[""],"State":"active"}}`),
 			wantErr: true,
 		},
 	}
@@ -407,7 +480,7 @@ func TestController_Restore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newTestController(t)
 			for _, name := range tc.seed {
-				require.NoError(t, c.Create(cmd.Namespace{Name: name}))
+				require.NoError(t, c.Create(cmd.Namespace{Name: name, HomeNodes: []string{"node-1"}}))
 			}
 			err := c.Restore(tc.snap)
 			if tc.wantErr {

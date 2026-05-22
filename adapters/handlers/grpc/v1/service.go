@@ -92,13 +92,14 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	return result, errInner
 }
 
-func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
+func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (reply *pb.AggregateReply, retErr error) {
 	before := time.Now()
 
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
@@ -124,7 +125,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 		params,
 	)
-	reply, err := replier.Aggregate(res, params.GroupBy != nil)
+	reply, err = replier.Aggregate(res, params.GroupBy != nil)
 	if err != nil {
 		return nil, fmt.Errorf("prepare reply: %w", err)
 	}
@@ -133,13 +134,14 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	return reply, nil
 }
 
-func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
+func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (reply *pb.TenantsGetReply, retErr error) {
 	before := time.Now()
 
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	retTenants, err := s.tenantsGet(ctx, principal, req)
@@ -167,12 +169,13 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 	return result, errInner
 }
 
-func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
+func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (reply *pb.BatchDeleteReply, retErr error) {
 	before := time.Now()
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
@@ -276,13 +279,14 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	return result, errInner
 }
 
-func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.SearchReply, retErr error) {
 	before := time.Now()
 
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
@@ -292,11 +296,11 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	parser := NewParser(
 		req.Uses_127Api,
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
-		s.aliasGetter(),
 	)
 	replier := NewReplier(
 		req.Uses_127Api,
 		parser.generative,
+		principal,
 		s.logger,
 	)
 
@@ -358,17 +362,6 @@ func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *model
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}
 		return class, nil
-	}
-}
-
-type aliasGetter func(string) string
-
-func (s *Service) aliasGetter() aliasGetter {
-	return func(name string) string {
-		if cls := s.schemaManager.ResolveAlias(name); cls != "" {
-			return name // name is an alias
-		}
-		return ""
 	}
 }
 

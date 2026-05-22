@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,6 +27,29 @@ import (
 type retryClient struct {
 	client *http.Client
 	*retryer
+}
+
+// HTTPError is returned on a non-success response. Error() keeps the
+// original "status code: N, error: ..." format.
+type HTTPError struct {
+	Code int
+	Body []byte
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("status code: %v, error: %s", e.Code, e.Body)
+}
+
+// AsHTTPError returns the *HTTPError in err's chain, if any.
+func AsHTTPError(err error) (*HTTPError, bool) {
+	if err == nil {
+		return nil, false
+	}
+	var he *HTTPError
+	if errors.As(err, &he) {
+		return he, true
+	}
+	return nil, false
 }
 
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
@@ -50,7 +74,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 
 		if code := res.StatusCode; !success(code) {
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, respBody)
+			return shouldRetry(code), &HTTPError{Code: code, Body: respBody}
 		}
 
 		if err := decode(respBody); err != nil {
@@ -78,7 +102,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 
 		if code = res.StatusCode; !success(code) {
 			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
+			return shouldRetry(code), &HTTPError{Code: code, Body: b}
 		}
 		if resp != nil {
 			if err := json.NewDecoder(res.Body).Decode(resp); err != nil {

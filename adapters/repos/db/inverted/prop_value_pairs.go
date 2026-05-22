@@ -112,7 +112,7 @@ func (pv *propValuePair) resolveDocIDsAndOr(ctx context.Context, s *Searcher) (*
 			dbm, err2 := child.resolveDocIDs(ctx, s, limit)
 			if err2 != nil {
 				// break on first error
-				err = errors.Wrapf(err, "nested child %d", i)
+				err = errors.Wrapf(err2, "nested child %d", i)
 				break
 			}
 			dbmCh <- dbm

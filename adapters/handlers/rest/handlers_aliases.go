@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type aliasesHandlers struct {
@@ -46,16 +47,23 @@ func (s *aliasesHandlers) getAliases(params schema.AliasesGetParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesGetForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesGetUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewAliasesGetInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
+	if principal != nil && principal.Namespace != "" && len(aliases) > 0 {
+		stripped := make([]*models.Alias, len(aliases))
+		for i, a := range aliases {
+			stripped[i] = namespacing.StripAliasResponse(principal, a)
+		}
+		aliases = stripped
+	}
 	aliasesResponse := &models.AliasResponse{Aliases: aliases}
 
 	s.metricRequestsTotal.logOk(className)
@@ -76,18 +84,18 @@ func (s *aliasesHandlers) getAlias(params schema.AliasesGetAliasParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesGetAliasForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesGetAliasUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewAliasesGetAliasInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	s.metricRequestsTotal.logOk("")
-	return schema.NewAliasesGetAliasOK().WithPayload(alias)
+	return schema.NewAliasesGetAliasOK().WithPayload(namespacing.StripAliasResponse(principal, alias))
 }
 
 func (s *aliasesHandlers) addAlias(params schema.AliasesCreateParams,
@@ -100,18 +108,18 @@ func (s *aliasesHandlers) addAlias(params schema.AliasesCreateParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewAliasesCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	s.metricRequestsTotal.logOk(params.Body.Class)
-	return schema.NewAliasesCreateOK().WithPayload(params.Body)
+	return schema.NewAliasesCreateOK().WithPayload(namespacing.StripAliasResponse(principal, params.Body))
 }
 
 func (s *aliasesHandlers) updateAlias(params schema.AliasesUpdateParams,
@@ -127,18 +135,18 @@ func (s *aliasesHandlers) updateAlias(params schema.AliasesUpdateParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewAliasesUpdateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	s.metricRequestsTotal.logOk(params.Body.Class)
-	return schema.NewAliasesUpdateOK().WithPayload(alias)
+	return schema.NewAliasesUpdateOK().WithPayload(namespacing.StripAliasResponse(principal, alias))
 }
 
 func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, principal *models.Principal) middleware.Responder {
@@ -152,13 +160,13 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewAliasesDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewAliasesDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 

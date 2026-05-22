@@ -124,9 +124,11 @@
 //
 // OnGroupCompleted: fires on each node AFTER all units across all nodes finish
 // (since all units share the default group ""). Receives localGroupUnitIDs —
-// the Provider looks up the shard mapping from task.Payload to know which local
+// which contains ONLY units assigned to THIS node (not all units in the group).
+// The Provider looks up the shard mapping from task.Payload to know which local
 // shards to swap. Atomically swaps bucket pointers for each local shard. This is
-// a local operation, no Raft needed.
+// a local operation, no Raft needed. If a node has no units in the group,
+// OnGroupCompleted does not fire on that node.
 //
 // OnTaskCompleted: submits a Raft schema update to change the tokenization config.
 // Because Raft deduplicates, the schema update happens exactly once even though

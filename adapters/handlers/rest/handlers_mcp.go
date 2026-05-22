@@ -24,32 +24,41 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
+// setupMCPHandlers always registers the MCP HTTP handlers. Whether requests are
+// served is decided per-request by checking the runtime-configurable
+// MCP.Enabled flag, allowing operators to toggle MCP without a restart.
 func setupMCPHandlers(api *operations.WeaviateAPI, appState *state.State, objectsManager *objects.Manager) {
-	if !appState.ServerConfig.Config.MCP.Enabled {
-		return
-	}
-
 	mcpServer := mcp.NewMCPServer(appState, objectsManager)
 	mcpHandler := mcpServer.Handler()
+
+	serveIfEnabled := func(w http.ResponseWriter, r *http.Request) {
+		if !appState.ServerConfig.Config.MCP.Enabled.Get() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":"MCP server is not enabled. To enable it, either set MCP_SERVER_ENABLED=true (requires restart) or set mcp_server_enabled: true in the runtime overrides YAML (no restart needed). See https://docs.weaviate.io/weaviate/mcp/mcp-server"}`))
+			return
+		}
+		mcpHandler.ServeHTTP(w, r)
+	}
 
 	api.McpMcpPostHandler = mcpops.McpPostHandlerFunc(
 		func(params mcpops.McpPostParams, _ *models.Principal) middleware.Responder {
 			return middleware.ResponderFunc(func(w http.ResponseWriter, _ runtime.Producer) {
-				mcpHandler.ServeHTTP(w, params.HTTPRequest)
+				serveIfEnabled(w, params.HTTPRequest)
 			})
 		},
 	)
 	api.McpMcpGetHandler = mcpops.McpGetHandlerFunc(
 		func(params mcpops.McpGetParams, _ *models.Principal) middleware.Responder {
 			return middleware.ResponderFunc(func(w http.ResponseWriter, _ runtime.Producer) {
-				mcpHandler.ServeHTTP(w, params.HTTPRequest)
+				serveIfEnabled(w, params.HTTPRequest)
 			})
 		},
 	)
 	api.McpMcpDeleteHandler = mcpops.McpDeleteHandlerFunc(
 		func(params mcpops.McpDeleteParams, _ *models.Principal) middleware.Responder {
 			return middleware.ResponderFunc(func(w http.ResponseWriter, _ runtime.Producer) {
-				mcpHandler.ServeHTTP(w, params.HTTPRequest)
+				serveIfEnabled(w, params.HTTPRequest)
 			})
 		},
 	)

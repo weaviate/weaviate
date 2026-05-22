@@ -17,13 +17,21 @@ const (
 	NamespaceLatestCommandPolicyVersion = iota
 )
 
-// Namespace is the cluster-level control-plane entity. State drives the
-// deletion lifecycle (active → deleting → entity removed); empty State
-// restores as NamespaceStateActive.
+// Namespace is the cluster-level control-plane entity. HomeNodes pins
+// every namespace-owned shard. The controller enforces len(HomeNodes)==1;
+// read it via Primary() to keep callers stable if that ever relaxes.
 type Namespace struct {
-	Name         string
-	Restrictions NamespaceRestrictions
-	State        NamespaceState
+	Name      string
+	HomeNodes []string
+	State     NamespaceState
+}
+
+// Primary returns the namespace's home node, or "" if unset.
+func (n Namespace) Primary() string {
+	if len(n.HomeNodes) == 0 {
+		return ""
+	}
+	return n.HomeNodes[0]
 }
 
 // NamespaceState is the lifecycle state of a Namespace entity.
@@ -37,11 +45,15 @@ const (
 	NamespaceStateDeleting NamespaceState = "deleting"
 )
 
-// NamespaceRestrictions is a forward-compatibility placeholder.
-type NamespaceRestrictions struct{}
-
 // AddNamespaceRequest is the RAFT apply payload for creating a namespace.
 type AddNamespaceRequest struct {
+	Namespace Namespace
+	Version   int
+}
+
+// UpdateNamespaceRequest is the RAFT apply payload for changing
+// HomeNodes. New placements use the new value; live shards are not moved.
+type UpdateNamespaceRequest struct {
 	Namespace Namespace
 	Version   int
 }

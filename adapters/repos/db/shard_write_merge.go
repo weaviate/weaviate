@@ -163,7 +163,7 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return nil
 		}
 
-		objBytes, err := obj.MarshalBinary()
+		objBytes, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 		if err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 		}
@@ -258,7 +258,7 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 	out.status = status
 
 	obj.DocID = status.docID // is not changed
-	objBytes, err := obj.MarshalBinary()
+	objBytes, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 	if err != nil {
 		return out, errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 	}

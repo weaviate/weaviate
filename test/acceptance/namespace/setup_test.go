@@ -56,6 +56,11 @@ func TestMain(m *testing.M) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
+	// offload-s3 needs AWS creds in the process env before Start so each
+	// node can authenticate against the MinIO sidecar.
+	os.Setenv("AWS_ACCESS_KEY_ID", "aws_access_key")
+	os.Setenv("AWS_SECRET_KEY", "aws_secret_key")
+
 	compose, err := docker.New().
 		WithApiKey().
 		WithUserApiKey(adminUser, adminKey).
@@ -65,6 +70,8 @@ func TestMain(m *testing.M) {
 		WithUserApiKey(noPermsUser, noPermsKey).
 		WithDbUsers().
 		WithNamespaces().
+		WithMCP().
+		WithOffloadS3("offloading", "us-west-1").
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)

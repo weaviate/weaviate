@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"unicode"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -266,8 +265,7 @@ func FindPropertyDataTypeWithRefsAndAuth(authorizedGetClass func(string) (*model
 		if len(dataType[0]) == 0 {
 			return nil, fmt.Errorf("dataType cannot be an empty string")
 		}
-		firstLetter := rune(dataType[0][0])
-		if unicode.IsLower(firstLetter) {
+		if !IsRefDataType(dataType) {
 			return nil, fmt.Errorf("unknown primitive data type '%s'", dataType[0])
 		}
 	}
@@ -276,7 +274,7 @@ func FindPropertyDataTypeWithRefsAndAuth(authorizedGetClass func(string) (*model
 	var classes []ClassName
 
 	for _, someDataType := range dataType {
-		className, err := ValidateClassName(someDataType)
+		className, err := ValidateQualifiedClassName(someDataType)
 		if err != nil {
 			return nil, err
 		}

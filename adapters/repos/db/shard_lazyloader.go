@@ -169,6 +169,14 @@ func (l *LazyLoadShard) Store() *lsmkv.Store {
 	return l.shard.Store()
 }
 
+// Unwrap loads the shard if necessary and returns the underlying concrete *Shard.
+func (l *LazyLoadShard) Unwrap(ctx context.Context) (*Shard, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard, nil
+}
+
 func (l *LazyLoadShard) NotifyReady() {
 	l.mustLoad()
 	l.shard.NotifyReady()
@@ -606,6 +614,13 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
+func (l *LazyLoadShard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
+	overlay map[string]inverted.PropertyOverlay,
+) ([]inverted.Property, []inverted.NilProperty, error) {
+	l.mustLoad()
+	return l.shard.AnalyzeObjectForMigrationWithOverlay(object, overlay)
+}
+
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
 	l.mutex.Lock()
 	if l.loaded {
@@ -728,6 +743,35 @@ func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discrimina
 		return []hashtree.Digest{}, nil
 	}
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
+}
+
+// CreateAsyncCheckpoint maps unloaded to ErrAsyncReplicationNotActive so transports
+// return REST 412 / gRPC FailedPrecondition (matching the loaded path).
+func (l *LazyLoadShard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
+	if !l.isLoaded() {
+		return errAsyncReplicationNotActive
+	}
+	return l.shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
+}
+
+func (l *LazyLoadShard) DeleteAsyncCheckpoint(ctx context.Context) error {
+	if !l.isLoaded() {
+		return nil
+	}
+	return l.shard.DeleteAsyncCheckpoint(ctx)
+}
+
+func (l *LazyLoadShard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
+	if !l.isLoaded() {
+		return hashtree.Digest{}, 0, time.Time{}, false
+	}
+	return l.shard.AsyncCheckpointRoot(ctx)
+}
+
+// IsAsyncCheckpointHostable lets Index.GetAsyncCheckpointShardStatus
+// distinguish unloaded shards from "loaded but inactive".
+func (l *LazyLoadShard) IsAsyncCheckpointHostable() bool {
+	return l.isLoaded()
 }
 
 func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
