@@ -59,7 +59,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 				Object())
 			if i%1_000 == 0 {
 				helper.CreateObjectsBatch(t, batch)
-				fmt.Printf("created %d objects for %s\n", i, tenant1)
+				t.Logf("created %d objects for %s\n", i, tenant1)
 				batch = batch[:0]
 			}
 		}
@@ -76,7 +76,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 				Object())
 			if i%1_000 == 0 {
 				helper.CreateObjectsBatch(t, batch)
-				fmt.Printf("created %d objects for %s\n", i, tenant2)
+				t.Logf("created %d objects for %s\n", i, tenant2)
 				batch = batch[:0]
 			}
 		}
@@ -92,6 +92,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 	parallelWriteDone := make(chan struct{})
 	parallelWriteWg.Add(1)
 	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 	enterrors.GoWrapper(func() {
 		defer parallelWriteWg.Done()
 		containerId := 1
