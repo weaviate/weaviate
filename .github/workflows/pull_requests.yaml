@@ -588,6 +588,8 @@ jobs:
             test: "--only-module-text2vec-voyageai"
           - name: "multi2vec-voyageai"
             test: "--only-module-multi2vec-voyageai"
+          - name: "text2vec-digitalocean"
+            test: "--only-module-text2vec-digitalocean"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -646,6 +648,7 @@ jobs:
           COHERE_APIKEY: ${{ secrets.COHERE_APIKEY }}
           ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
+          DIGITALOCEAN_APIKEY: ${{ secrets.DIGITALOCEAN_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
