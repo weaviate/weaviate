@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -299,6 +300,51 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 	require.NotEmpty(t, baseline, "baseline fingerprint must be non-empty")
 
 	cases := []recoveryConvergenceCase{
+		{
+			name: "MidIteration_after_first_batch_resume_completes",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				// Force the iteration loop to break after the first
+				// checkProcessingEveryNoObjects batch by setting an
+				// already-elapsed processingDuration. The check at
+				// inverted_reindex_task_generic.go:1420 only fires at
+				// batch boundaries, so we set checkProcessingEveryNoObjects=5
+				// to land a break around 5/25 objects processed.
+				task.config.checkProcessingEveryNoObjects = 5
+				task.config.processingDuration = time.Nanosecond
+				// pauseDuration short so the rerun-pause doesn't dominate.
+				task.config.pauseDuration = time.Millisecond
+				// Also keep skipSwapOnFinish=false (default for non-
+				// semantic) — we just want iteration to pause mid-way,
+				// not stop forever.
+
+				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+				// First call: iteration starts, breaks after batch,
+				// writes progress.mig, returns rerunAt=now+pauseDuration.
+				rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+				require.NoError(t, err)
+				require.False(t, rerunAt.IsZero(),
+					"iteration must pause mid-way (rerunAt must be non-zero)")
+
+				// At this point a partial progress.mig should exist.
+				// Verify the iteration HASN'T finished — IsReindexed
+				// must be false because we paused before completion.
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				require.False(t, rt.IsReindexed(),
+					"iteration must NOT be complete yet — IsReindexed should be false")
+				lastKey, _, err := rt.GetProgress()
+				require.NoError(t, err)
+				require.NotEmpty(t, lastKey.Bytes(),
+					"GetProgress must return a non-empty lastProcessedKey after partial iteration")
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": false,
+				"prepended": false,
+				"merged":    false,
+				"swapped":   false,
+				"tidied":    false,
+			},
+		},
 		{
 			name: "IsReindexed_via_skipSwapOnFinish",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
