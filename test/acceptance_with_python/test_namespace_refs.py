@@ -40,6 +40,7 @@ prefix and never matches what's on disk.
 
     Storage invariants
       Stored beacon is short              test_stored_beacon_is_always_short
+      Admin delete w/ qualified beacon    test_admin_delete_with_qualified_beacon
       Same UUID/class isolated across NS  test_namespaces_stay_isolated
 
 # Conventions
@@ -929,6 +930,87 @@ def test_stored_beacon_is_always_short(
         beacon = refs[0]["beacon"]
         want = f"weaviate://localhost/{animal}/{expected_target_uuid}"
         assert beacon == want, f"{label}: stored beacon must be short. got={beacon!r} want={want!r}"
+
+
+# ---------------------------------------------------------------------------
+# Admin-side delete with a qualified beacon
+# ---------------------------------------------------------------------------
+
+
+def test_admin_delete_with_qualified_beacon(
+    request: pytest.FixtureRequest,
+    namespaces: Tuple[str, str],
+    client_for_key: Callable[[str, int], WeaviateClient],
+    cleanup_collections: Callable[[str], None],
+) -> None:
+    """Admin DELETE /references with a qualified beacon actually deletes.
+
+    Regression guard for the delete-side counterpart of the storage
+    invariant. references_add / references_update normalise
+    admin-submitted qualified beacons to short before storage; without
+    a parallel normalisation step in references_delete, an admin
+    submitting `weaviate://localhost/customer1:Animal/<id>` would hit
+    `removeReference`'s exact-string compare against the stored short
+    `weaviate://localhost/Animal/<id>`, miss, and silently return 204
+    with the ref still present.
+    """
+    k1, _ = namespaces
+    zoo, animal = _short_name(request, "Zoo"), _short_name(request, "Animal")
+    cleanup_collections(zoo)
+    cleanup_collections(animal)
+
+    cw = client_for_key(k1, 0)
+    cw.collections.create(
+        name=animal,
+        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
+    )
+    cw.collections.create(
+        name=zoo,
+        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
+        references=[wvc.config.ReferenceProperty(name="hasAnimals", target_collection=animal)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
+    )
+
+    # Namespaced user inserts both objects and links them — stored beacon
+    # is short ("weaviate://localhost/Animal/<id>") as usual.
+    animal_id = cw.collections.use(animal).data.insert(properties={"name": "leo"})
+    zoo_id = cw.collections.use(zoo).data.insert(properties={"name": "z"})
+    cw.collections.use(zoo).data.reference_add(
+        from_uuid=zoo_id,
+        from_property="hasAnimals",
+        to=animal_id,
+    )
+
+    # Sanity: the ref is present before the delete.
+    r = requests.get(
+        f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_id}",
+        headers=_admin_headers(),
+    )
+    assert r.status_code == 200, f"pre-delete admin GET failed: {r.status_code} {r.text}"
+    refs_before = r.json()["properties"]["hasAnimals"]
+    assert isinstance(refs_before, list) and len(refs_before) == 1
+
+    # Admin DELETE with a QUALIFIED beacon via raw REST (the python
+    # client validates names and rejects ':' so we go straight to the
+    # REST endpoint). Pre-fix this returns 204 but does nothing.
+    r = requests.delete(
+        f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_id}/references/hasAnimals",
+        headers=_admin_headers(),
+        json={"beacon": f"weaviate://localhost/{NS1}:{animal}/{animal_id}"},
+    )
+    assert r.status_code in (200, 204), f"admin DELETE failed: {r.status_code} {r.text}"
+
+    # Post-delete: the ref must actually be gone.
+    r = requests.get(
+        f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_id}",
+        headers=_admin_headers(),
+    )
+    assert r.status_code == 200, f"post-delete admin GET failed: {r.status_code} {r.text}"
+    refs_after = r.json()["properties"].get("hasAnimals") or []
+    assert (
+        refs_after == []
+    ), f"admin DELETE with qualified beacon must remove the ref; still saw {refs_after!r}"
 
 
 # ---------------------------------------------------------------------------

@@ -130,6 +130,18 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
+	// Stored beacons are short for portability, so removeReference's
+	// structural match below needs the short form too — otherwise an
+	// admin submitting "weaviate://localhost/customer1:Animal/<id>"
+	// silently no-ops on a stored "weaviate://localhost/Animal/<id>".
+	// StripQualification is a no-op when there is no "<ns>:" prefix and
+	// when autodetect fired (DataType is already short).
+	if beacon.Class != "" {
+		shortClass := namespacing.StripQualification(beacon.Class)
+		input.Reference.Class = strfmt.URI(shortClass)
+		input.Reference.Beacon = strfmt.URI(crossref.NewLocalhost(shortClass, beacon.TargetID).String())
+	}
+
 	if err := input.validateSchema(class); err != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
