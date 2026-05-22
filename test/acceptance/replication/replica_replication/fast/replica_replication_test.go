@@ -20,8 +20,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -555,7 +553,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	for i, id := range paragraphIDs {
 		seed[id] = fmt.Sprintf("paragraph#%d", i)
 	}
-	stopWrites := startParallelWrites(t, mainCtx, newComposeNodeSource(compose, clusterSize), paragraphClass.Class, tenant, seed)
+	stopWrites := startParallelWrites(t, newComposeNodeSource(compose, clusterSize), paragraphClass.Class, tenant, seed)
 	// Guard against the orphan-writer race: if any require.XXX between
 	// here and the explicit stopWrites() call below Goexits the test,
 	// the writer goroutine would otherwise outlive the test's *testing.T
@@ -914,7 +912,7 @@ func deleteObjectThreadSafe(uri, class, id, tenant string) error {
 }
 
 // composeNodeSource adapts a testcontainers DockerCompose into the
-// nodeSourcer interface that startParallelWrites / dumpReplica*Once consume.
+// nodeSourcer interface that startParallelWrites consumes.
 // Used by the tenant-MOVE tests which still spin up their own cluster.
 type composeNodeSource struct {
 	compose     *docker.DockerCompose
@@ -927,62 +925,3 @@ func newComposeNodeSource(compose *docker.DockerCompose, clusterSize int) compos
 
 func (c composeNodeSource) Size() int           { return c.clusterSize }
 func (c composeNodeSource) URIFor(i int) string { return c.compose.ContainerURI(i) }
-func (c composeNodeSource) FetchLogs(ctx context.Context, i int) (io.ReadCloser, error) {
-	node := c.compose.GetWeaviateNode(i)
-	if node == nil {
-		return nil, fmt.Errorf("weaviate node %d not found in compose", i)
-	}
-	return node.Container().Logs(ctx)
-}
-
-// dumpReplicaLogsOnce dumps each node's container logs (filtered to
-// route-stale / DEHYDRATING / retry-related lines) the first time it
-// is invoked; subsequent calls are no-ops via the supplied sync.Once
-// so a flapping parallel-write loop doesn't drown the test output.
-// Filter is intentionally broad: it pulls anything that helps
-// distinguish whether the coord-side retry engaged, whether
-// waitForFSMCatchUp logged its no-applied-index warning, and whether
-// the source-side fence saw DEHYDRATING.
-func dumpReplicaLogsOnce(t *testing.T, ctx context.Context, nodes nodeSourcer, once *sync.Once) {
-	once.Do(func() {
-		for i := 1; i <= nodes.Size(); i++ {
-			logs, err := nodes.FetchLogs(ctx, i)
-			if err != nil {
-				t.Logf("weaviate-%d: failed to get logs: %v", i-1, err)
-				continue
-			}
-			buf, _ := io.ReadAll(logs)
-			logs.Close()
-			for _, line := range strings.Split(string(buf), "\n") {
-				if matchesRouteStaleDiagnostics(line) {
-					t.Logf("weaviate-%d: %s", i-1, line)
-				}
-			}
-		}
-	})
-}
-
-// matchesRouteStaleDiagnostics matches log lines worth dumping when a
-// parallel-write goroutine sees a real write error — global lifecycle and
-// routing decisions that explain why a CL=ALL write failed.
-func matchesRouteStaleDiagnostics(line string) bool {
-	keywords := []string{
-		"push.retry_route_stale",
-		"without an applied index",
-		"waiting for local FSM to catch up",
-		"source_applied",
-		"is not a current write target",
-		"route stale",
-		"RouteStale",
-		"DEHYDRATING",
-		"FINALIZING",
-		"WaitForUpdateAllNodes",
-		"replicate insertion",
-	}
-	for _, k := range keywords {
-		if strings.Contains(line, k) {
-			return true
-		}
-	}
-	return false
-}

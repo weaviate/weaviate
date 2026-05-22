@@ -12,9 +12,7 @@
 package replication
 
 import (
-	"context"
 	"fmt"
-	"io"
 	mathrand "math/rand/v2"
 	"sync"
 	"testing"
@@ -45,14 +43,12 @@ type parallelWriteResult struct {
 // nodeSourcer abstracts per-node lookups so the same helpers work against
 // either testcontainers or a long-running local compose stack.
 type nodeSourcer interface {
-	Size() int                                                   // number of nodes
-	URIFor(i int) string                                         // REST URI for 1-indexed node i
-	FetchLogs(ctx context.Context, i int) (io.ReadCloser, error) // caller closes the reader
+	Size() int           // number of nodes
+	URIFor(i int) string // REST URI for 1-indexed node i
 }
 
 func startParallelWrites(
 	t *testing.T,
-	ctx context.Context,
 	nodes nodeSourcer,
 	class, tenant string,
 	seed map[strfmt.UUID]string,
@@ -69,8 +65,6 @@ func startParallelWrites(
 	}
 	deletedIDs := map[strfmt.UUID]struct{}{}
 
-	// dumpLogsOnce gates the per-test log dump to the first failure.
-	var dumpLogsOnce sync.Once
 	var wg sync.WaitGroup
 	done := make(chan struct{})
 
@@ -116,7 +110,6 @@ func startParallelWrites(
 					newID := strfmt.UUID(uuid.New().String())
 					contents := fmt.Sprintf("paragraph#%d", opSeq)
 					if err := createObjectThreadSafe(uri, class, map[string]any{"contents": contents}, string(newID), tenant); err != nil {
-						dumpReplicaLogsOnce(t, ctx, nodes, &dumpLogsOnce)
 						assert.NoError(t, err, "error creating object %s on node %s", newID, uri)
 						continue
 					}
@@ -128,7 +121,6 @@ func startParallelWrites(
 					}
 					contents := fmt.Sprintf("paragraph#%d-updated-%d", opSeq, opSeq)
 					if err := patchObjectThreadSafe(uri, class, string(target), tenant, map[string]any{"contents": contents}); err != nil {
-						dumpReplicaLogsOnce(t, ctx, nodes, &dumpLogsOnce)
 						assert.NoError(t, err, "error patching object %s on node %s", target, uri)
 						continue
 					}
@@ -139,7 +131,6 @@ func startParallelWrites(
 						continue
 					}
 					if err := deleteObjectThreadSafe(uri, class, string(target), tenant); err != nil {
-						dumpReplicaLogsOnce(t, ctx, nodes, &dumpLogsOnce)
 						assert.NoError(t, err, "error deleting object %s on node %s", target, uri)
 						continue
 					}

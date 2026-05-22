@@ -112,7 +112,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 	for i, id := range paragraphIDs {
 		seed[id] = fmt.Sprintf("paragraph#%d", i)
 	}
-	stopWrites := startParallelWrites(t, mainCtx, cluster, paragraphClass.Class, "", seed)
+	stopWrites := startParallelWrites(t, cluster, paragraphClass.Class, "", seed)
 	// Guard against the orphan-writer race: if any require.XXX between
 	// here and the explicit stopWrites() call below Goexits the test,
 	// the writer goroutine would otherwise outlive the test's *testing.T
