@@ -124,31 +124,39 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 // flags are used exclusively by from-scratch migration backfills
 // (EnableFilterable / EnableSearchable / FilterableToRangeable) and
 // must NOT be flipped for ordinary writes.
+//
+// Lock + emptiness handling is delegated to
+// [Shard.SnapshotTokenizationOverlay] so this helper stays a pure
+// projection on top of it.
 func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
-	s.tokenizationOverlayMu.RLock()
-	defer s.tokenizationOverlayMu.RUnlock()
-	if len(s.tokenizationOverlay) == 0 {
+	if len(props) == 0 {
 		return nil
 	}
-	var out map[string]inverted.PropertyOverlay
+	propNames := make([]string, 0, len(props))
+	liveTok := make(map[string]string, len(props))
 	for _, p := range props {
 		if p == nil {
 			continue
 		}
-		target, ok := s.tokenizationOverlay[p.Name]
-		if !ok {
-			continue
-		}
-		if target == p.Tokenization {
-			// Live schema has caught up for this prop — skip; the
-			// self-clear in TokenizationFor will drop the entry on
-			// the next query.
+		propNames = append(propNames, p.Name)
+		liveTok[p.Name] = p.Tokenization
+	}
+	snap := s.SnapshotTokenizationOverlay(propNames)
+	if len(snap) == 0 {
+		return nil
+	}
+	var out map[string]inverted.PropertyOverlay
+	for name, target := range snap {
+		// Live schema has caught up for this prop — skip; the
+		// self-clear in TokenizationFor will drop the entry on the
+		// next query.
+		if target == liveTok[name] {
 			continue
 		}
 		if out == nil {
-			out = make(map[string]inverted.PropertyOverlay, len(s.tokenizationOverlay))
+			out = make(map[string]inverted.PropertyOverlay, len(snap))
 		}
-		out[p.Name] = inverted.PropertyOverlay{Tokenization: target}
+		out[name] = inverted.PropertyOverlay{Tokenization: target}
 	}
 	return out
 }
