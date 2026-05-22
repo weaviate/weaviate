@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -156,7 +157,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 	obj := res.Object()
 	obj.Tenant = tenant
-	ok, errmsg := removeReference(obj, input.Property, beacon, input.Reference.Beacon, m.config.Config.Namespaces.Enabled)
+	ok, errmsg := removeReference(obj, input.Property, beacon, input.Reference.Beacon, m.config.Config.Namespaces.Enabled, m.logger)
 	if errmsg != "" {
 		return &Error{errmsg, StatusInternalServerError, nil}
 	}
@@ -213,7 +214,7 @@ func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
 //
 // Returns ok=true iff at least one ref was removed, and errmsg when the
 // property is present but not a MultipleRef.
-func removeReference(obj *models.Object, prop string, remove *crossref.Ref, removeBeacon strfmt.URI, namespacesEnabled bool) (ok bool, errmsg string) {
+func removeReference(obj *models.Object, prop string, remove *crossref.Ref, removeBeacon strfmt.URI, namespacesEnabled bool, logger logrus.FieldLogger) (ok bool, errmsg string) {
 	properties := obj.Properties.(map[string]interface{})
 	if properties == nil || properties[prop] == nil {
 		return false, ""
@@ -231,7 +232,15 @@ func removeReference(obj *models.Object, prop string, remove *crossref.Ref, remo
 			stored, err := crossref.Parse(ref.Beacon.String())
 			if err != nil {
 				// Skip malformed stored beacons rather than panicking — the
-				// rest of the multi-ref still needs to be evaluated.
+				// rest of the multi-ref still needs to be evaluated. Log so
+				// the bad beacon is diagnosable without making it appear
+				// undeletable to operators looking at the response.
+				if logger != nil {
+					logger.WithField("object_id", obj.ID).
+						WithField("property", prop).
+						WithField("beacon", ref.Beacon).
+						Debugf("removeReference: skipping malformed stored beacon: %v", err)
+				}
 				return false
 			}
 			if stored.TargetID != remove.TargetID {
