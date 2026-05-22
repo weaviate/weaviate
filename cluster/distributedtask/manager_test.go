@@ -691,6 +691,95 @@ func TestManager_RecordUnitCompletion_Success(t *testing.T) {
 	assert.Equal(t, TaskStatusSwapping, task.Status)
 }
 
+// TestManager_RecordUnitCompletion_SetsNodeIDOnEmpty pins the
+// defense-in-depth fix for weaviate/0-weaviate-issues#240 Symptom B.
+//
+// Bug context: the primary path that sets Unit.NodeID is
+// [Manager.UpdateUnitProgress] — called from the per-unit worker's
+// initial progress=0.0 call (the "claim"). If that claim is silently
+// dropped by a buggy ThrottledRecorder (closed in 03e461aabc), the
+// unit reaches RecordUnitCompletion with NodeID="". Without this
+// defense, the unit completes COMPLETED but with NodeID empty, and
+// [Task.LocalGroupUnitIDs] filters it out of every node's local
+// group — orphaning the (shard, replica) from the post-completion
+// callbacks (OnGroupCompleted / OnSwapRequested) that drive PREP+SWAP+
+// TIDY. Canonical bucket stays at old tokenization while the
+// cluster-wide schema flip commits.
+//
+// Defense: RecordUnitCompletion sets NodeID = r.NodeId when previously
+// empty. Pin both the FSM behavior (unit.NodeID populated post-call)
+// and the cross-method invariant (LocalGroupUnitIDs returns this unit
+// when querying for the recording node).
+func TestManager_RecordUnitCompletion_SetsNodeIDOnEmpty(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1", "su-2"})
+
+	// Verify precondition: the unit has NodeID="" before any
+	// progress / completion is recorded. (addTaskWithUnits doesn't
+	// claim units; that happens via UpdateUnitProgress.)
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	task := tasks["ns"][0]
+	require.Equal(t, "", task.Units["su-1"].NodeID,
+		"precondition: unit is unclaimed before any progress / completion records")
+
+	// Complete su-1 from node-1 WITHOUT a prior progress update
+	// (simulating the ThrottledRecorder-silent-drop scenario where
+	// the initial claim was dropped).
+	completeUnit(t, h, "ns", "task1", version, "node-1", "su-1")
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	task = tasks["ns"][0]
+	assert.Equal(t, UnitStatusCompleted, task.Units["su-1"].Status,
+		"completion is recorded")
+	assert.Equal(t, "node-1", task.Units["su-1"].NodeID,
+		"defense-in-depth: completion must populate NodeID when previously empty, "+
+			"otherwise LocalGroupUnitIDs orphans the unit (#240 Symptom B)")
+
+	// Cross-method invariant: LocalGroupUnitIDs("", "node-1") MUST
+	// include this unit. Without the NodeID-set, it wouldn't.
+	localIDs := task.LocalGroupUnitIDs("", "node-1")
+	assert.Contains(t, localIDs, "su-1",
+		"LocalGroupUnitIDs must include the just-completed unit for its recording node")
+}
+
+// TestManager_RecordUnitCompletion_RespectsExistingNodeID ensures the
+// defense-in-depth in TestManager_RecordUnitCompletion_SetsNodeIDOnEmpty
+// doesn't ALLOW a wrong-node completion to silently overwrite an
+// already-set NodeID. The existing findStartedUnitWithLock check
+// (manager.go:373-377) rejects wrong-node completions; this test
+// confirms the rejection still fires under the post-fix code path.
+func TestManager_RecordUnitCompletion_RespectsExistingNodeID(t *testing.T) {
+	h := newTestHarness(t).init(t)
+	var version uint64 = 10
+	addTaskWithUnits(t, h, "ns", "task1", version, []string{"su-1"})
+
+	// Claim su-1 from node-1 via UpdateUnitProgress (normal path).
+	err := h.manager.UpdateUnitProgress(toCmd(t, &cmd.UpdateDistributedTaskUnitProgressRequest{
+		Namespace: "ns", Id: "task1", Version: version,
+		NodeId: "node-1", UnitId: "su-1", Progress: 0.0,
+		UpdatedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}))
+	require.NoError(t, err)
+
+	tasks, _ := h.manager.ListDistributedTasks(context.Background())
+	require.Equal(t, "node-1", tasks["ns"][0].Units["su-1"].NodeID)
+
+	// Now attempt to record completion from node-2 — must be rejected.
+	err = h.manager.RecordUnitCompletion(toCmd(t, &cmd.RecordDistributedTaskUnitCompletionRequest{
+		Namespace: "ns", Id: "task1", Version: version,
+		NodeId: "node-2", UnitId: "su-1",
+		FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
+	}))
+	require.ErrorContains(t, err, "belongs to node node-1, not node-2")
+
+	tasks, _ = h.manager.ListDistributedTasks(context.Background())
+	assert.Equal(t, "node-1", tasks["ns"][0].Units["su-1"].NodeID,
+		"NodeID unchanged after rejected wrong-node completion attempt")
+	assert.Equal(t, UnitStatusInProgress, tasks["ns"][0].Units["su-1"].Status,
+		"Status unchanged — rejection happened before any state mutation")
+}
+
 func TestManager_RecordUnitCompletion_WithError(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	var version uint64 = 10
