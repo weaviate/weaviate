@@ -14,6 +14,7 @@ package rest
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -31,7 +33,23 @@ import (
 type backupHandlers struct {
 	manager             *ubak.Scheduler
 	metricRequestsTotal restApiRequestsTotal
+	rbacConfig          rbacconf.Config
 	logger              logrus.FieldLogger
+}
+
+// isRequestFromRootUser reports whether the principal is a configured root
+// user (or member of a root group). The base backup ID is only exposed to
+// root users.
+func (s *backupHandlers) isRequestFromRootUser(principal *models.Principal) bool {
+	if principal == nil {
+		return false
+	}
+	for _, groupName := range principal.Groups {
+		if slices.Contains(s.rbacConfig.RootGroups, groupName) {
+			return true
+		}
+	}
+	return slices.Contains(s.rbacConfig.RootUsers, principal.Username)
 }
 
 // compressionFromBCfg transforms model backup config to a backup compression config
@@ -181,6 +199,9 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		StartedAt:   strfmt.DateTime(status.StartedAt.UTC()),
 		CompletedAt: strfmt.DateTime(status.CompletedAt.UTC()),
 		Size:        status.Size,
+	}
+	if s.isRequestFromRootUser(principal) {
+		payload.IncrementalBaseBackupID = status.BaseBackupID
 	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
@@ -350,6 +371,7 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 ) middleware.Responder {
 	payload, err := s.manager.List(
 		params.HTTPRequest.Context(), principal, params.Backend, params.Order,
+		s.isRequestFromRootUser(principal),
 	)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
@@ -372,9 +394,10 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 }
 
 func setupBackupHandlers(api *operations.WeaviateAPI,
-	scheduler *ubak.Scheduler, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
+	scheduler *ubak.Scheduler, rbacConfig rbacconf.Config,
+	metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
-	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger), logger}
+	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger), rbacConfig, logger}
 	api.BackupsBackupsCreateHandler = backups.
 		BackupsCreateHandlerFunc(h.createBackup)
 	api.BackupsBackupsCreateStatusHandler = backups.

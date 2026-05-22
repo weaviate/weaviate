@@ -6746,6 +6746,10 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
+        "incremental_base_backup_id": {
+          "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
+          "type": "string"
+        },
         "path": {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
@@ -6797,6 +6801,10 @@ func init() {
           },
           "id": {
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "type": "string"
+          },
+          "incremental_base_backup_id": {
+            "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
             "type": "string"
           },
           "size": {
@@ -17027,6 +17035,10 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
+        "incremental_base_backup_id": {
+          "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
+          "type": "string"
+        },
         "path": {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
@@ -17082,6 +17094,10 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "incremental_base_backup_id": {
+          "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
           "type": "string"
         },
         "size": {

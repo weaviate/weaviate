@@ -63,12 +63,13 @@ type NodeResolver interface {
 }
 
 type Status struct {
-	Path        string
-	StartedAt   time.Time
-	CompletedAt time.Time
-	Status      backup.Status
-	Err         string
-	Size        float64
+	Path         string
+	StartedAt    time.Time
+	CompletedAt  time.Time
+	Status       backup.Status
+	Err          string
+	Size         float64
+	BaseBackupID string
 }
 
 type Handler struct {
