@@ -114,6 +114,67 @@ func TestExecutor(t *testing.T) {
 		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
 	})
 
+	// Pins weaviate/0-weaviate-issues#240: a masked update with only
+	// the invertedIndexConfig field MUST NOT dispatch through
+	// Migrator.UpdateVectorIndexConfig — that's the path that flips
+	// shards to read-only via Shard.SetStatusReadonly and overlaps
+	// with concurrent runtime-reindex iteration.
+	t.Run("UpdateClassMaskedInvertedIndexOnly", func(t *testing.T) {
+		migrator := &fakeMigrator{}
+		// Only the inverted index migrator call may fire. The fakeMigrator's
+		// `On` registry has no matcher for UpdateVectorIndexConfig /
+		// UpdateVectorIndexConfigs / UpdateReplicationConfig, so any
+		// unexpected dispatch fails with the testify mock's "missing call"
+		// assertion.
+		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
+
+		x := newMockExecutor(migrator, store)
+		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{
+			Class:          cls,
+			FieldsToUpdate: []string{api.ClassFieldInvertedIndexConfig},
+		}))
+
+		// AssertExpectations would only check the registered calls; we
+		// additionally verify that no other migrator method fired.
+		migrator.AssertNotCalled(t, "UpdateVectorIndexConfig", Anything, Anything, Anything)
+		migrator.AssertNotCalled(t, "UpdateVectorIndexConfigs", Anything, Anything, Anything)
+		migrator.AssertNotCalled(t, "UpdateReplicationConfig", Anything, Anything, Anything)
+	})
+
+	// Symmetric: a masked update with only the vectorIndexConfig
+	// field MUST NOT dispatch through UpdateInvertedIndexConfig.
+	t.Run("UpdateClassMaskedVectorIndexOnly", func(t *testing.T) {
+		migrator := &fakeMigrator{}
+		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
+
+		x := newMockExecutor(migrator, store)
+		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{
+			Class:          cls,
+			FieldsToUpdate: []string{api.ClassFieldVectorIndexConfig},
+		}))
+
+		migrator.AssertNotCalled(t, "UpdateInvertedIndexConfig", Anything, Anything, Anything)
+		migrator.AssertNotCalled(t, "UpdateReplicationConfig", Anything, Anything, Anything)
+	})
+
+	// Empty FieldsToUpdate preserves the legacy "dispatch every
+	// supported sub-config" behaviour (rolling-upgrade compatibility:
+	// old wire-format callers emit no mask). UpdateReplicationConfig
+	// is intentionally not asserted here because fakeMigrator's
+	// implementation does not record calls (helpers_test.go:388);
+	// it's covered indirectly by the UpdateIndex subtest above.
+	t.Run("UpdateClassUnmaskedDispatchesAll", func(t *testing.T) {
+		migrator := &fakeMigrator{}
+		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
+		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
+
+		x := newMockExecutor(migrator, store)
+		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}))
+
+		migrator.AssertCalled(t, "UpdateVectorIndexConfig", Anything, Anything, Anything)
+		migrator.AssertCalled(t, "UpdateInvertedIndexConfig", Anything, Anything, Anything)
+	})
+
 	t.Run("AddProperty", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		req := api.AddPropertyRequest{Properties: []*models.Property{}}

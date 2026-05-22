@@ -48,11 +48,37 @@ func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.Sta
 }
 
 func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, _ *sharding.State) (uint64, error) {
+	return s.updateClassWithFields(ctx, cls, nil)
+}
+
+// UpdateClassMasked issues a TYPE_UPDATE_CLASS RAFT command that
+// restricts both the schema FSM merge AND the executor's downstream
+// migrator dispatch to the listed class-level sub-config tags (see
+// api.ClassField* constants).
+//
+// Use this from migration completion paths that need to flip a single
+// class-level field (e.g. InvertedIndexConfig.UsingBlockMaxWAND) but
+// MUST NOT cascade through the full executor.UpdateClass dispatch — in
+// particular not through Migrator.UpdateVectorIndexConfig, which flips
+// every shard to read-only via Shard.SetStatusReadonly for the
+// duration of an async UpdateUserConfig callback. That window has been
+// observed to overlap with a concurrent runtime-reindex iteration and
+// surface as `store is read-only` mid-iteration (see
+// weaviate/0-weaviate-issues#240).
+//
+// Public-API schema update handlers must continue to call UpdateClass
+// (no mask) so the legacy "apply every non-nil sub-config" behaviour
+// is preserved for external callers.
+func (s *Raft) UpdateClassMasked(ctx context.Context, cls *models.Class, fields []string) (uint64, error) {
+	return s.updateClassWithFields(ctx, cls, fields)
+}
+
+func (s *Raft) updateClassWithFields(ctx context.Context, cls *models.Class, fields []string) (uint64, error) {
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
 
-	req := cmd.UpdateClassRequest{Class: cls}
+	req := cmd.UpdateClassRequest{Class: cls, FieldsToUpdate: fields}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)
