@@ -384,6 +384,20 @@ func TestMultiNode_RollingRestartMidMigration(t *testing.T) {
 	reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
 	awaitTokenizationOnAllNodes(t, compose, className, propName, "field")
 
+	// Structural precondition: every (shard, replica) must have reached
+	// tidied.mig for searchable_retokenize_<prop>_*. If any are stuck at
+	// REINDEXED post-FINISHED, the cluster-wide coordinator marked the
+	// migration done while a per-(shard, replica) state machine was
+	// stranded pre-PREPEND — the canonical bucket on that replica is
+	// still source-tokenized. Pin that bug structurally before the
+	// downstream BM25 divergence assertion fires; the structural fact is
+	// the root cause, the BM25 divergence is a downstream symptom.
+	stuck := AssertAllShardsReachedTidied(t, ctx, compose, className, propName)
+	require.Emptyf(t, stuck,
+		"post-FINISHED state-machine asymmetry — these (shard, replica) "+
+			"never reached tidied.mig but cluster-wide migration is FINISHED: %v",
+		stuck)
+
 	// Per-replica consistency check: every node must return the same
 	// counts for every query (FIELD tokenization, so values may be 0
 	// for partial-word queries, but the value must be SAME across

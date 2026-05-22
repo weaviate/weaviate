@@ -141,9 +141,127 @@ func dumpQA240Diagnostics(t *testing.T, ctx context.Context, compose *docker.Doc
 				"while read s; do echo \"$s ($(wc -c < \"$s\" 2>/dev/null) bytes)\"; done | head -80")
 	}
 
+	// Structural summary: per-(shard, node) sentinel matrix and survived
+	// sidecar dir flags. This is what fingerprints #240 Symptom B
+	// independently of downstream BM25 divergence. A shard stuck at
+	// REINDEXED post-FINISHED with the canonical bucket still
+	// source-tokenized is the actual root-cause shape.
+	dumpQA240StuckShardMatrix(t, ctx, compose, className, propName)
+
 	t.Logf("=========================================================================")
 	t.Logf("END QA #240 DIAGNOSTICS")
 	t.Logf("=========================================================================")
+}
+
+// dumpQA240StuckShardMatrix prints a per-(shard, node) summary of the
+// searchable_retokenize_<prop>_1 sentinel set + survived sidecar dirs.
+// Output shape:
+//
+//	---- STUCK-SHARD MATRIX (post-FINISHED expected: all tidied, no sidecars) ----
+//	node 1 (weaviate-0):
+//	  r4NMI4dvkreG  searchable: started reindexed prepended merged swapped tidied  sidecars: none  OK
+//	  rGCVLkGuHWCE  searchable: started reindexed prepended merged swapped tidied  sidecars: none  OK
+//	  kxUmR59Q2mr8  searchable: started reindexed prepended merged swapped tidied  sidecars: none  OK
+//	node 2 (weaviate-1):
+//	  r4NMI4dvkreG  searchable: started reindexed                                  sidecars: __retokenize_reindex_1 __retokenize_ingest_1  ** STUCK AT REINDEXED **
+//	  ...
+//
+// The shells run inside each container; the formatting is shell-side so
+// the test harness output stays linear.
+func dumpQA240StuckShardMatrix(t *testing.T, ctx context.Context, compose *docker.DockerCompose, className, propName string) {
+	t.Helper()
+	t.Logf("---- STUCK-SHARD MATRIX (post-FINISHED expected: all tidied, no sidecars) ----")
+	classDir := "/data/" + lowerClassName(className)
+	for i := 1; i <= 3; i++ {
+		nodeName := compose.GetWeaviateNode(i).Name()
+		t.Logf("node %d (%s):", i, nodeName)
+		// For each shard dir under classDir, list which sentinels exist
+		// under .migrations/searchable_retokenize_<prop>_* and which
+		// __retokenize_* sidecar dirs survive next to the canonical bucket.
+		// All shell-side so we don't shuttle JSON.
+		shellCmd := `for shard in ` + classDir + `/*/; do
+  shard_name=$(basename "$shard")
+  [ "$shard_name" = "lost+found" ] && continue
+  mig_dir="$shard/lsm/.migrations"
+  searchable_mig=$(ls -d "$mig_dir"/searchable_retokenize_` + propName + `_* 2>/dev/null | head -1)
+  if [ -z "$searchable_mig" ]; then
+    echo "  $shard_name  (no searchable migration dir found)"
+    continue
+  fi
+  sentinels=""
+  for s in started reindexed prepended merged swapped tidied; do
+    [ -e "$searchable_mig/$s.mig" ] && sentinels="$sentinels $s"
+  done
+  sidecars=""
+  for d in "$shard/lsm/property_` + propName + `_searchable__retokenize_"*; do
+    [ -d "$d" ] && sidecars="$sidecars $(basename "$d" | sed 's/^property_` + propName + `_searchable__retokenize_/__retokenize_/')"
+  done
+  [ -z "$sidecars" ] && sidecars=" none"
+  status="OK"
+  case "$sentinels" in
+    *tidied*) status="OK" ;;
+    *swapped*) status="** STUCK POST-SWAP (no tidy) **" ;;
+    *merged*) status="** STUCK POST-MERGE (no swap) **" ;;
+    *prepended*) status="** STUCK POST-PREPEND (no merge) **" ;;
+    *reindexed*) status="** STUCK AT REINDEXED **" ;;
+    *started*) status="** STUCK AT STARTED **" ;;
+    *) status="** NO SENTINELS (never started?) **" ;;
+  esac
+  printf "  %-15s searchable:%s  sidecars:%s  %s\n" "$shard_name" "$sentinels" "$sidecars" "$status"
+done`
+		container := compose.GetWeaviateNode(i).Container()
+		dumpContainerExec(t, ctx, container, shellCmd)
+	}
+	t.Logf("---- END STUCK-SHARD MATRIX ----")
+}
+
+// AssertAllShardsReachedTidied is a post-FINISHED structural precondition.
+// Returns the list of (node, shard) tuples that did NOT reach tidied state
+// for the searchable_retokenize migration. An empty list means the
+// post-migration global state is clean. Callers should fail with the
+// non-empty list as the message — that pins the bug structurally,
+// independently of any downstream query divergence.
+func AssertAllShardsReachedTidied(t *testing.T, ctx context.Context, compose *docker.DockerCompose, className, propName string) []string {
+	t.Helper()
+	classDir := "/data/" + lowerClassName(className)
+	// Per node, run a shell that emits one line per stuck shard. Empty
+	// stdout means all clean.
+	shellCmd := `for shard in ` + classDir + `/*/; do
+  shard_name=$(basename "$shard")
+  [ "$shard_name" = "lost+found" ] && continue
+  mig_dir="$shard/lsm/.migrations"
+  searchable_mig=$(ls -d "$mig_dir"/searchable_retokenize_` + propName + `_* 2>/dev/null | head -1)
+  [ -z "$searchable_mig" ] && continue
+  if [ ! -e "$searchable_mig/tidied.mig" ]; then
+    # report last present sentinel
+    last=""
+    for s in started reindexed prepended merged swapped; do
+      [ -e "$searchable_mig/$s.mig" ] && last="$s"
+    done
+    echo "$shard_name@$last"
+  fi
+done`
+	var stuck []string
+	for i := 1; i <= 3; i++ {
+		nodeName := compose.GetWeaviateNode(i).Name()
+		container := compose.GetWeaviateNode(i).Container()
+		code, reader, err := container.Exec(ctx, []string{"sh", "-c", shellCmd})
+		if err != nil {
+			t.Logf("AssertAllShardsReachedTidied: exec on %s failed: %v", nodeName, err)
+			continue
+		}
+		out, _ := io.ReadAll(reader)
+		if code != 0 {
+			t.Logf("AssertAllShardsReachedTidied: %s exit %d", nodeName, code)
+		}
+		for _, ln := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if ln == "" {
+				continue
+			}
+			stuck = append(stuck, fmt.Sprintf("node=%s shard@last=%s", nodeName, ln))
+		}
+	}
+	return stuck
 }
 
 // fetchTaskState returns the status string for the task as observed

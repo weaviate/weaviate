@@ -557,9 +557,13 @@ func restartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCom
 func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
 	t.Helper()
 	for i := 1; i <= 3; i++ {
-		t.Logf("rolling restart: cycling node %d", i)
+		stopAt := time.Now().UTC()
+		t.Logf("rolling restart: cycling node %d (stop at %s)", i, stopAt.Format(time.RFC3339Nano))
 		require.NoErrorf(t, compose.StopAt(ctx, i-1, nil), "stop node %d", i)
+		startAt := time.Now().UTC()
 		require.NoErrorf(t, compose.StartAt(ctx, i-1), "start node %d", i)
+		t.Logf("rolling restart: node %d started (down for %s, start at %s)",
+			i, startAt.Sub(stopAt).Round(time.Millisecond), startAt.Format(time.RFC3339Nano))
 
 		// Wait for this node's HTTP endpoint to respond before moving
 		// on. tryGetSchema is cheap and exercises the same routing
@@ -575,6 +579,9 @@ func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.Do
 			return resp.StatusCode == http.StatusOK
 		}, 60*time.Second, 500*time.Millisecond,
 			"node %d should be ready after rolling restart", i)
+		readyAt := time.Now().UTC()
+		t.Logf("rolling restart: node %d ready (boot+init took %s, ready at %s)",
+			i, readyAt.Sub(startAt).Round(time.Millisecond), readyAt.Format(time.RFC3339Nano))
 	}
 }
 
