@@ -66,6 +66,28 @@ func Test_Middleware_IncompleteConfiguration(t *testing.T) {
 	assert.ErrorAs(t, err, &expectedErr)
 }
 
+func Test_Middleware_RejectsNonSubjectUsernameClaim(t *testing.T) {
+	server := newOIDCServer(t)
+	defer server.Close()
+
+	cfg := config.Config{
+		Authentication: config.Authentication{
+			OIDC: config.OIDC{
+				Enabled:           true,
+				Issuer:            runtime.NewDynamicValue(server.URL),
+				ClientID:          runtime.NewDynamicValue("best_client"),
+				SkipClientIDCheck: runtime.NewDynamicValue(false),
+				UsernameClaim:     runtime.NewDynamicValue("email"),
+			},
+		},
+	}
+
+	logger, _ := logrustest.NewNullLogger()
+	_, err := New(cfg, nil, false, logger)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "username_claim must be 'sub'")
+}
+
 type claims struct {
 	jwt.StandardClaims
 	Email         string   `json:"email"`
@@ -100,7 +122,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		assert.Equal(t, "best-user", principal.Username)
 	})
 
-	t.Run("with a non-standard username claim", func(t *testing.T) {
+	t.Run("with same email claim but different subjects", func(t *testing.T) {
 		server := newOIDCServer(t)
 		defer server.Close()
 
@@ -111,20 +133,24 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 					Issuer:            runtime.NewDynamicValue(server.URL),
 					ClientID:          runtime.NewDynamicValue("best_client"),
 					SkipClientIDCheck: runtime.NewDynamicValue(false),
-					UsernameClaim:     runtime.NewDynamicValue("email"),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
 					GroupsClaim:       runtime.NewDynamicValue("groups"),
 				},
 			},
 		}
 
-		token := tokenWithEmail(t, "best-user", server.URL, "best_client", "foo@bar.com")
+		tokenA := tokenWithEmail(t, "best-user-a", server.URL, "best_client", "foo@bar.com")
+		tokenB := tokenWithEmail(t, "best-user-b", server.URL, "best_client", "foo@bar.com")
 		logger, _ := logrustest.NewNullLogger()
 		client, err := New(cfg, nil, false, logger)
 		require.Nil(t, err)
 
-		principal, err := client.ValidateAndExtract(token, []string{})
+		principalA, err := client.ValidateAndExtract(tokenA, []string{})
 		require.Nil(t, err)
-		assert.Equal(t, "foo@bar.com", principal.Username)
+		principalB, err := client.ValidateAndExtract(tokenB, []string{})
+		require.Nil(t, err)
+		assert.Equal(t, "best-user-a", principalA.Username)
+		assert.Equal(t, "best-user-b", principalB.Username)
 	})
 
 	t.Run("with groups claim", func(t *testing.T) {

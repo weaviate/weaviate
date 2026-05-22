@@ -50,6 +50,8 @@ type Client struct {
 	rbac rbacconf.Config
 }
 
+const oidcSubjectClaim = "sub"
+
 // New OIDC Client: It tries to retrieve the JWKs at startup (or fails), it
 // provides a middleware which can be used at runtime with a go-swagger style
 // API.
@@ -130,8 +132,11 @@ func (c *Client) validateConfig() error {
 		msgs = append(msgs, "missing required field 'issuer'")
 	}
 
-	if c.Config.UsernameClaim.Get() == "" {
+	usernameClaim := c.Config.UsernameClaim.Get()
+	if usernameClaim == "" {
 		msgs = append(msgs, "missing required field 'username_claim'")
+	} else if usernameClaim != oidcSubjectClaim {
+		msgs = append(msgs, "username_claim must be 'sub' to use the stable OIDC subject as the authorization identity")
 	}
 
 	if !c.Config.SkipClientIDCheck.Get() && c.Config.ClientID.Get() == "" {
