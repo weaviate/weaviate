@@ -12,7 +12,6 @@
 package db
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -211,8 +210,6 @@ type fakeRouter struct {
 func (f *fakeRouter) AllHostnames() []string {
 	return slices.Collect(maps.Values(f.hostnames))
 }
-
-func (f *fakeRouter) WaitForUpdate(_ context.Context, _ uint64) error { return nil }
 
 var _ types.Router = (*fakeRouter)(nil)
 

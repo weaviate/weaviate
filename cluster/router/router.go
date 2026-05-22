@@ -192,11 +192,6 @@ func (r *singleTenantRouter) AllHostnames() []string {
 	return r.nodeSelector.AllHostnames()
 }
 
-// GetReadWriteReplicasLocation returns read and write replicas for single-tenant collections.
-func (r *singleTenantRouter) WaitForUpdate(ctx context.Context, version uint64) error {
-	return r.schemaReader.WaitForUpdate(ctx, version)
-}
-
 func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
@@ -436,11 +431,6 @@ func (r *multiTenantRouter) NodeHostname(nodeName string) (string, bool) {
 // AllHostnames returns all known hostnames in the cluster for multi-tenant collections.
 func (r *multiTenantRouter) AllHostnames() []string {
 	return r.nodeSelector.AllHostnames()
-}
-
-// GetReadWriteReplicasLocation returns read and write replicas for multi-tenant collections.
-func (r *multiTenantRouter) WaitForUpdate(ctx context.Context, version uint64) error {
-	return r.schemaReader.WaitForUpdate(ctx, version)
 }
 
 func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
