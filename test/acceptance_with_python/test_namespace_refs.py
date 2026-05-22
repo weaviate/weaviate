@@ -12,8 +12,12 @@ between same-UUID rows in two namespaces) are covered in Go under
 `test/acceptance/namespace/references_test.go` — they don't need the
 python client and are cheaper to run in the standard Go acceptance loop.
 
-Manual run (skipped by run.sh — needs the dedicated compose):
-    docker compose -f docker-compose-test.yml build
+CI: wired as the "python-namespaces" matrix entry in pull_requests.yaml
+via `./test/run.sh --acceptance-only-python-namespaces`, which builds the
+image, ups the 3-node compose, waits for readiness, then runs this file.
+
+Manual run (the python-default suite excludes this file so the standard
+compose is enough for the rest):
     docker compose -f docker-compose-namespaces-test.yml up -d
     pytest test/acceptance_with_python/test_namespace_refs.py
 
