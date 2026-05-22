@@ -147,6 +147,12 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
+	for _, prop := range cls.Properties {
+		if err := schema.ValidateReservedPropertyNameSuffix(prop.Name); err != nil {
+			return nil, 0, err
+		}
+	}
+
 	// Cross-ref Property.DataType entries are already qualified by
 	// QualifyPropertyDataTypes above. Use the name as-is for authz +
 	// schema lookup — re-qualifying would produce "customer1:customer1:Foo"
