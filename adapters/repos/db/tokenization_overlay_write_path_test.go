@@ -62,7 +62,7 @@ import (
 //
 // Independent of #240 this is a smaller-scope correctness bug:
 // migration backfill uses AnalyzeObjectForMigrationWithOverlay to
-// honour the overlay (see shard_write_inverted.go:125-143 godoc),
+// honor the overlay (see shard_write_inverted.go:125-143 godoc),
 // but LIVE writes during the same overlay-active window do not. The
 // two paths should be symmetric.
 //
@@ -145,7 +145,7 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	// Pin the bug: the overlay says "use field tokenization" but the
 	// write path ignores it. If the assertion BELOW fails (i.e. terms
 	// contain "two", "distinct", "words" instead of "two distinct
-	// words"), the write path is honouring the LIVE schema's word
+	// words"), the write path is honoring the LIVE schema's word
 	// tokenization, not the overlay — that's the #240 Symptom B
 	// candidate root cause.
 	//
@@ -157,7 +157,7 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	expectedFieldTerms := []string{"two distinct words"}
 	assert.ElementsMatchf(t, expectedFieldTerms, terms,
 		"write-path bug — overlay=field is being ignored. "+
-			"Production behaviour: writes during SWAPPING window get tokenized "+
+			"Production behavior: writes during SWAPPING window get tokenized "+
 			"against live (OLD) schema; the canonical bucket now NEW-tokenized "+
 			"so the new-tokenized OLD-tokens land in the NEW bucket → per-replica "+
 			"divergence (weaviate/0-weaviate-issues#240). "+
