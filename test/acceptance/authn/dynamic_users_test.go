@@ -390,8 +390,10 @@ func TestCreateUser_Namespaces(t *testing.T) {
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// NS clusters require RBAC; adminUser is the root that creates namespaces and
+	// namespaced DB users.
 	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).
+		WithApiKey().WithRBAC().WithUserApiKey(adminUser, adminKey).WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
 		Start(ctx)

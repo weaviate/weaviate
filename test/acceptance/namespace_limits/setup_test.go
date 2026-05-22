@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 const (
@@ -44,7 +45,9 @@ func TestMain(m *testing.M) {
 
 	compose, err := docker.New().
 		WithApiKey().
+		WithRBAC().
 		WithUserApiKey(adminUser, adminKey).
+		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
 		WithWeaviateEnv("MAXIMUM_ALLOWED_OBJECTS_COUNT", strconv.Itoa(objectCap)).
@@ -69,8 +72,9 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// createNamespacedUser creates a namespaced DB user and waits for the
-// apikey to be recognized by the follower the test client talks to.
+// createNamespacedUser creates a namespaced DB user, waits for the apikey to be
+// recognized by the follower the test client talks to, and grants the built-in
+// admin role so the user can act within its namespace under mandatory RBAC.
 func createNamespacedUser(t *testing.T, userID, ns string) string {
 	t.Helper()
 
@@ -94,6 +98,11 @@ func createNamespacedUser(t *testing.T, userID, ns string) string {
 			users.NewGetOwnInfoParams(), helper.CreateAuth(apikey))
 		assert.NoError(c, err)
 	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
+
+	// Mandatory RBAC: grant the built-in admin so the namespaced user can create
+	// classes and write objects. The quota chokepoint is orthogonal to RBAC and
+	// still fires. DeleteUser revokes all bindings on cleanup.
+	helper.AssignRoleToUser(t, adminKey, authorization.Admin, ns+":"+userID)
 
 	return apikey
 }

@@ -671,6 +671,9 @@ func (d *Compose) WithDbUsers() *Compose {
 
 // WithNamespaces enables NAMESPACES_ENABLED on the Weaviate container and
 // disables GraphQL, which Config.Validate requires whenever namespaces are on.
+// Config.Validate also requires RBAC on namespace-enabled clusters, so callers
+// that need a bootable NS cluster must pair this with WithRBAC()/WithRbacRoots().
+// This helper does not auto-enable RBAC.
 func (d *Compose) WithNamespaces() *Compose {
 	d.withWeaviateNamespaces = true
 	return d
