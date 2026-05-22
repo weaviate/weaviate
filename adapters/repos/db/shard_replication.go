@@ -58,6 +58,17 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 	p.Unlock()
 }
 
+// keys snapshots the set of in-flight request IDs.
+func (p *pendingReplicaTasks) keys() []string {
+	p.Lock()
+	defer p.Unlock()
+	keys := make([]string, 0, len(p.Tasks))
+	for k := range p.Tasks {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func (s *Shard) commitReplication(ctx context.Context, requestID string) interface{} {
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {

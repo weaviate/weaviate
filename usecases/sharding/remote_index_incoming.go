@@ -121,7 +121,8 @@ type RemoteIndexIncomingRepo interface {
 	IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error)
 	// IncomingSnapshotChangeLogLSN returns the current LSN without sealing the log.
 	IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error)
-	// IncomingFinalizeChangeLog freezes the log and returns the final LSN.
+	// IncomingFinalizeChangeLog drains the pre-seal in-flight set, seals
+	// the log and returns the final LSN.
 	IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error)
 	// IncomingStopChangeCapture deactivates and removes the log.
 	IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error

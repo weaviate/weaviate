@@ -123,8 +123,8 @@ message SnapshotChangeLogLSNResponse {
   string index_name = 1;
   string shard_name = 2;
   string op_id = 3;
-  // Captured under the shard's write barrier — a true upper bound on writes
-  // already past the bucket-write boundary. The log remains writable.
+  // The highest LSN in the change log at snapshot time. The log remains
+  // writable.
   uint64 lsn = 4;
 }
 
@@ -160,3 +160,4 @@ message StopChangeCaptureResponse {
   string shard_name = 2;
   string op_id = 3;
 }
+

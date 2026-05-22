@@ -369,6 +369,10 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	case api.DEHYDRATING:
 		readOk = true
 		writeOk = true
+	case api.INTEGRATING:
+		// Target is a counted r/w replica while the CCL is still draining.
+		readOk = true
+		writeOk = true
 	default:
 	}
 	return readOk, writeOk
@@ -400,4 +404,22 @@ func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, col
 		}
 	}
 	return readOk, writeOk
+}
+
+// AllPeersAtLeast reports whether every peer has PerNodeState[peer] >= target.
+// Missing peers count as not satisfied.
+func (s *ShardReplicationFSM) AllPeersAtLeast(opID uint64, target api.ShardReplicationState) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	st, ok := s.statusById[opID]
+	if !ok {
+		return false
+	}
+	floor := api.StateRank(target)
+	for _, st := range st.PerNodeState {
+		if api.StateRank(st) < floor {
+			return false
+		}
+	}
+	return true
 }

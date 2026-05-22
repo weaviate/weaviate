@@ -614,13 +614,12 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 	}
 	log, ok := shard.GetChangeLog(ctx, opID)
 	if !ok {
-		return nil, fmt.Errorf("incoming get change log: no active log for op %q on shard %q", opID, shardName)
+		return nil, fmt.Errorf("incoming get change log: %s %q on shard %q", changelog.ErrMsgNoActiveLog, opID, shardName)
 	}
 	return log.NewTailerWithCap(0, untilLSN)
 }
 
-// IncomingSnapshotChangeLogLSN returns the current LSN under the same
-// write barrier as Finalize, but without sealing the log.
+// IncomingSnapshotChangeLogLSN returns the current LSN without sealing the log.
 func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error) {
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {

@@ -21,3 +21,10 @@ var (
 	ErrLogDeactivated = errors.New("changelog: log is deactivated")
 	ErrCRCMismatch    = errors.New("changelog: frame CRC mismatch")
 )
+
+// Substrings used in "log is gone" errors emitted by the shard's CCL helpers.
+// Exported so consumer-side gRPC callers can detect already-drained on retry.
+const (
+	ErrMsgNoActiveLog              = "no active log for op"
+	ErrMsgNoActiveChangeCaptureLog = "no active change-capture log"
+)

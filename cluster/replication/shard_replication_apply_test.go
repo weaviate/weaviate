@@ -24,6 +24,11 @@ import (
 
 func seedOp(t *testing.T, fsm *ShardReplicationFSM, opID uint64) strfmt.UUID {
 	t.Helper()
+	return seedOpOfType(t, fsm, opID, api.COPY)
+}
+
+func seedOpOfType(t *testing.T, fsm *ShardReplicationFSM, opID uint64, transferType api.ShardReplicationTransferType) strfmt.UUID {
+	t.Helper()
 	uuid := strfmt.UUID("00000000-0000-0000-0000-00000000000" + string(rune('0'+opID%10)))
 	require.NoError(t, fsm.Replicate(opID, &api.ReplicationReplicateShardRequest{
 		Version:          api.ReplicationCommandVersionV0,
@@ -32,7 +37,7 @@ func seedOp(t *testing.T, fsm *ShardReplicationFSM, opID uint64) strfmt.UUID {
 		SourceCollection: "TestClass",
 		SourceShard:      "shard1",
 		TargetNode:       "node2",
-		TransferType:     api.COPY.String(),
+		TransferType:     transferType.String(),
 	}))
 	return uuid
 }
@@ -44,11 +49,12 @@ func driveToState(t *testing.T, fsm *ShardReplicationFSM, opID uint64, state api
 	if state == api.REGISTERED {
 		return
 	}
-	require.NoError(t, fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+	err := fsm.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Id:      opID,
 		State:   state,
-	}))
+	})
+	require.NoError(t, err)
 }
 
 func driveToCancelled(t *testing.T, fsm *ShardReplicationFSM, opID uint64) {

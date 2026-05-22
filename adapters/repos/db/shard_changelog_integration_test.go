@@ -227,8 +227,8 @@ func TestShard_ChangeLog_SkipPaths_NoEntry(t *testing.T) {
 	require.NoError(t, shard.StopChangeCapture(ctx, "op-skips"))
 }
 
-// Hangs on lock-order regression. The only assertion is the 10s timeout —
-// if writeBarrierMux ends up nested inside docIdLock, this deadlocks.
+// Writers racing FinalizeChangeLog must neither deadlock nor hang the seal.
+// The only assertion is the 10s timeout.
 func TestShard_ChangeLog_LockOrder_NoDeadlock(t *testing.T) {
 	ctx := context.Background()
 	shard := setupChangelogTestShard(t, ctx)
@@ -454,4 +454,57 @@ func TestShard_SnapshotChangeLogLSN_AfterFinalize(t *testing.T) {
 	require.Equal(t, finalLSN, snap2)
 
 	require.NoError(t, shard.StopChangeCapture(ctx, "op-after-final"))
+}
+
+// TestShard_ChangeLog_Finalize_WaitsForPreSealPendingOnly: FinalizeChangeLog
+// blocks on the in-flight set snapshotted at entry but not on later
+// registrations, so the seal completes under sustained write load.
+func TestShard_ChangeLog_Finalize_WaitsForPreSealPendingOnly(t *testing.T) {
+	ctx := context.Background()
+	shard := setupChangelogTestShard(t, ctx)
+	logger, _ := logrusTestLogger()
+
+	_, err := shard.ActivateChangeLog(ctx, "op-fence")
+	require.NoError(t, err)
+
+	// Pre-snapshot PREPARE: in flight before FinalizeChangeLog runs, left
+	// uncommitted. The seal must block on this.
+	preObj := changelogTestObject(uuid.NewString(), "pre-snapshot", 1_000)
+	require.Empty(t, shard.preparePutObject(ctx, "req-pre", preObj).Errors)
+
+	finalizeDone := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		_, ferr := shard.FinalizeChangeLog(ctx, "op-fence")
+		finalizeDone <- ferr
+	}, logger)
+
+	// Let FinalizeChangeLog snapshot the pending set ({req-pre}).
+	time.Sleep(20 * time.Millisecond)
+
+	// Post-snapshot PREPAREs, left uncommitted. They must NOT block the seal
+	// — the snapshot was taken before they registered.
+	for i := range 20 {
+		obj := changelogTestObject(uuid.NewString(), "post-snapshot", int64(2_000+i))
+		require.Empty(t, shard.preparePutObject(ctx, "req-post-"+strconv.Itoa(i), obj).Errors)
+	}
+
+	// req-pre is still in flight, so the seal must still block.
+	select {
+	case <-finalizeDone:
+		t.Fatal("FinalizeChangeLog sealed while a pre-snapshot PREPARE was still in flight")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Drain the pre-snapshot set. The 20 post-snapshot PREPAREs are still
+	// uncommitted, but they must not hold the seal.
+	shard.commitReplication(ctx, "req-pre")
+
+	select {
+	case ferr := <-finalizeDone:
+		require.NoError(t, ferr, "seal must complete once the pre-snapshot set drains, ignoring post-snapshot PREPAREs")
+	case <-time.After(5 * time.Second):
+		t.Fatal("FinalizeChangeLog did not seal after the pre-snapshot set drained — post-snapshot PREPAREs wrongly blocked it")
+	}
+
+	require.NoError(t, shard.StopChangeCapture(ctx, "op-fence"))
 }

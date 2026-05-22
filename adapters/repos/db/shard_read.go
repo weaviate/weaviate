@@ -931,9 +931,6 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
-	s.writeBarrierMux.RLock()
-	defer s.writeBarrierMux.RUnlock()
-
 	// Wait outside RLock: initAsyncReplication holds the write lock while
 	// initialising, so blocking under RLock here would deadlock.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
