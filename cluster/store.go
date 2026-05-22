@@ -638,17 +638,6 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 	}
 }
 
-func (st *Store) Servers() ([]raft.Server, error) {
-	if st.raft == nil {
-		return nil, fmt.Errorf("raft not initialised")
-	}
-	cf := st.raft.GetConfiguration()
-	if err := cf.Error(); err != nil {
-		return nil, fmt.Errorf("get raft configuration: %w", err)
-	}
-	return cf.Configuration().Servers, nil
-}
-
 // IsLeader returns whether this node is the leader of the cluster
 func (st *Store) IsLeader() bool {
 	return st.raft != nil && st.raft.State() == raft.Leader

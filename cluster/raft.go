@@ -76,15 +76,7 @@ func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 }
 
 func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicationState) (bool, error) {
-	servers, err := s.store.Servers()
-	if err != nil {
-		return false, err
-	}
-	peers := make([]string, 0, len(servers))
-	for _, srv := range servers {
-		peers = append(peers, string(srv.ID))
-	}
-	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, peers, target), nil
+	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, target), nil
 }
 
 func (s *Raft) NodeSelector() cluster.NodeSelector {
