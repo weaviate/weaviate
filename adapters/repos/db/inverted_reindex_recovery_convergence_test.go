@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 
@@ -315,6 +317,106 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 				"prepended": false,
 				"merged":    false,
 				"swapped":   false,
+				"tidied":    false,
+			},
+		},
+		{
+			name: "IsPrepended_synthetic_merged_sentinel_removed",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				// runtimePrepare writes markPrepended + cleanup +
+				// markMerged in one atomic method, so we can't reach
+				// IsPrepended-without-IsMerged via production code
+				// alone. Drive to IsMerged via runtimePrepare, then
+				// remove the merged.mig sentinel by hand to simulate
+				// a crash between markPrepended() and markMerged().
+				task.skipSwapOnFinish.Store(true)
+				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+				for {
+					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					require.NoError(t, err)
+					if rerunAt.IsZero() {
+						break
+					}
+				}
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				props, err := task.readPropsToReindex(rt)
+				require.NoError(t, err)
+				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+				// Synthetic step: remove the merged.mig file.
+				ftr := rt.(*fileReindexTracker)
+				mergedPath := filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)
+				require.NoError(t, os.Remove(mergedPath),
+					"removing merged.mig to synthesize IsPrepended-only state")
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true,
+				"prepended": true,
+				"merged":    false,
+				"swapped":   false,
+				"tidied":    false,
+			},
+		},
+		{
+			name: "IsMerged_via_runtimePrepare_no_runtimeSwap",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				// Step 1: drive iteration to markReindexed via the
+				// production barrier path.
+				task.skipSwapOnFinish.Store(true)
+				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+				for {
+					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					require.NoError(t, err)
+					if rerunAt.IsZero() {
+						break
+					}
+				}
+				// Step 2: call runtimePrepare directly (production code
+				// path; same package access). This writes markPrepended
+				// + cleanup + markMerged in one atomic method. We stop
+				// before runtimeSwap.
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				props, err := task.readPropsToReindex(rt)
+				require.NoError(t, err)
+				logger := task.logger
+				require.NoError(t, task.runtimePrepare(ctx, logger, shard, rt, props))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true,
+				"prepended": true,
+				"merged":    true,
+				"swapped":   false,
+				"tidied":    false,
+			},
+		},
+		{
+			name: "IsSwapped_synthetic_tidied_sentinel_removed",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				// runtimeSwap writes markSwapped + tidy + markTidied
+				// atomically. Drive the migration to completion, then
+				// remove tidied.mig by hand to simulate a crash between
+				// markSwapped() and markTidied().
+				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+				for {
+					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					require.NoError(t, err)
+					if rerunAt.IsZero() {
+						break
+					}
+				}
+				rt, err := task.newReindexTracker(shard.pathLSM())
+				require.NoError(t, err)
+				ftr := rt.(*fileReindexTracker)
+				tidiedPath := filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)
+				require.NoError(t, os.Remove(tidiedPath),
+					"removing tidied.mig to synthesize IsSwapped-only state")
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true,
+				"prepended": true,
+				"merged":    true,
+				"swapped":   true,
 				"tidied":    false,
 			},
 		},
