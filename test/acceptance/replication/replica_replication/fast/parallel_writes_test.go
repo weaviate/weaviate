@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/test/docker"
 )
 
 // parallelWriteResult is the writer's final source of truth: the exact
@@ -40,20 +41,13 @@ type parallelWriteResult struct {
 // tenant is "" for single-tenant. seed pre-populates liveIDs.
 //
 // The returned stop func joins the writer and returns its final state.
-// nodeSourcer abstracts per-node lookups so the same helpers work against
-// either testcontainers or a long-running local compose stack.
-type nodeSourcer interface {
-	Size() int           // number of nodes
-	URIFor(i int) string // REST URI for 1-indexed node i
-}
-
 func startParallelWrites(
 	t *testing.T,
-	nodes nodeSourcer,
+	compose *docker.DockerCompose,
+	clusterSize int,
 	class, tenant string,
 	seed map[strfmt.UUID]string,
 ) (stop func() parallelWriteResult) {
-	clusterSize := nodes.Size()
 	t.Helper()
 	logger, _ := logrustest.NewNullLogger()
 
@@ -96,7 +90,7 @@ func startParallelWrites(
 				return
 			default:
 				opSeq++
-				uri := nodes.URIFor(containerID)
+				uri := compose.ContainerURI(containerID)
 				containerID++
 				if containerID >= clusterSize+1 {
 					containerID = 1

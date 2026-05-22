@@ -56,9 +56,8 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 		}
 	}()
 	require.Nil(t, err)
-	cluster := newComposeNodeSource(compose, clusterSize)
 
-	helper.SetupClient(cluster.URIFor(1))
+	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
 
 	t.Run("create thrice-sharded single-tenant class at rf=1", func(t *testing.T) {
@@ -73,7 +72,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 	t.Run("wait for eventual consistency of schema", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for i := 0; i < clusterSize; i++ {
-				helper.SetupClient(cluster.URIFor(i + 1))
+				helper.SetupClient(compose.ContainerURI(i + 1))
 				consistency := false
 				respSchema, err := helper.Client(t).Schema.SchemaDump(
 					&schema.SchemaDumpParams{Consistency: &consistency}, nil,
@@ -87,7 +86,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 			}
 		}, 10*time.Second, 1*time.Second, "schema not consistent across all nodes")
 	})
-	helper.SetupClient(cluster.URIFor(1))
+	helper.SetupClient(compose.ContainerURI(1))
 
 	t.Run("insert initial paragraphs", func(t *testing.T) {
 		objs := make([]*models.Object, len(paragraphIDs))
@@ -112,7 +111,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 	for i, id := range paragraphIDs {
 		seed[id] = fmt.Sprintf("paragraph#%d", i)
 	}
-	stopWrites := startParallelWrites(t, cluster, paragraphClass.Class, "", seed)
+	stopWrites := startParallelWrites(t, compose, clusterSize, paragraphClass.Class, "", seed)
 	// Guard against the orphan-writer race: if any require.XXX between
 	// here and the explicit stopWrites() call below Goexits the test,
 	// the writer goroutine would otherwise outlive the test's *testing.T
@@ -133,7 +132,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 		require.NoError(t, err)
 		require.Len(t, ns.Payload.Nodes, clusterSize)
 		for idx, node := range ns.Payload.Nodes {
-			nodeAddrs = append(nodeAddrs, nodeAddr{name: node.Name, uri: cluster.URIFor(idx + 1)})
+			nodeAddrs = append(nodeAddrs, nodeAddr{name: node.Name, uri: compose.ContainerURI(idx + 1)})
 		}
 
 		shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(

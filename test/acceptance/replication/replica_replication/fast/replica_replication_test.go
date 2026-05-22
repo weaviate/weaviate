@@ -553,7 +553,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantParallelWri
 	for i, id := range paragraphIDs {
 		seed[id] = fmt.Sprintf("paragraph#%d", i)
 	}
-	stopWrites := startParallelWrites(t, newComposeNodeSource(compose, clusterSize), paragraphClass.Class, tenant, seed)
+	stopWrites := startParallelWrites(t, compose, clusterSize, paragraphClass.Class, tenant, seed)
 	// Guard against the orphan-writer race: if any require.XXX between
 	// here and the explicit stopWrites() call below Goexits the test,
 	// the writer goroutine would otherwise outlive the test's *testing.T
@@ -910,18 +910,3 @@ func deleteObjectThreadSafe(uri, class, id, tenant string) error {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return nil
 }
-
-// composeNodeSource adapts a testcontainers DockerCompose into the
-// nodeSourcer interface that startParallelWrites consumes.
-// Used by the tenant-MOVE tests which still spin up their own cluster.
-type composeNodeSource struct {
-	compose     *docker.DockerCompose
-	clusterSize int
-}
-
-func newComposeNodeSource(compose *docker.DockerCompose, clusterSize int) composeNodeSource {
-	return composeNodeSource{compose: compose, clusterSize: clusterSize}
-}
-
-func (c composeNodeSource) Size() int           { return c.clusterSize }
-func (c composeNodeSource) URIFor(i int) string { return c.compose.ContainerURI(i) }
