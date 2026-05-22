@@ -1041,7 +1041,11 @@ func (p *ReindexProvider) resolveUnitForPhase(
 ) phaseUnitResolution {
 	unit := task.Units[unitID]
 	if unit != nil && unit.Status == distributedtask.UnitStatusFailed {
-		logger.WithField("unit", unitID).Warn("reindex provider: skipping failed unit")
+		// QA-DEBUG-240: surface at INFO. If this fires for a (shard, node)
+		// that locally has started+reindexed sentinels but no merged/tidied,
+		// the unit was failed at the cluster level while the local sentinel
+		// chain stopped at REINDEXED — a stranded replica.
+		logger.WithField("unit", unitID).Infof("[QA-DEBUG-240] reindex provider: skipping failed unit")
 		return phaseUnitResolution{Skip: true}
 	}
 
@@ -1081,8 +1085,15 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	if len(fresh) == 0 {
 		// Nothing on disk: prior FinalizeCompletedMigrations or end-of-swap
 		// trim already cleaned this unit up. Phase callbacks have no work.
-		logger.WithField("unit", unitID).
-			Info("reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (post-restart of already-finalized migration); skipping")
+		//
+		// QA-DEBUG-240: surface at INFO so it shows up in container logs.
+		// If this fires for a (shard, node) that LOCALLY has started+
+		// reindexed sentinels but no merged/tidied, that's a bug — the
+		// rehydrate decided "no in-flight" while the disk says otherwise.
+		// The lsmPath + the on-disk state (if any) help pin which strategy
+		// dirs were absent at the moment of the rehydrate.
+		logger.WithField("unit", unitID).WithField("lsmPath", concreteShard.pathLSM()).
+			Infof("[QA-DEBUG-240] reindex provider: resolveUnitForPhase: no in-flight state on disk for this unit (post-restart of already-finalized migration); skipping")
 		return phaseUnitResolution{Skip: true}
 	}
 
@@ -1108,11 +1119,19 @@ func (p *ReindexProvider) runShardPrepPhase(
 	logger logrus.FieldLogger,
 ) (ok bool, out phaseResult) {
 	ok = true
+	// QA-DEBUG-240: log entry per (unit, task-count). If a unit shows up
+	// here, PREP attempt happened. If a unit's UnitTasks is empty AND
+	// rehydrate=true, that's a stranded-replica signal (resolveUnitForPhase
+	// returned the unit but createReindexTasks returned 0 fresh tasks —
+	// can't happen via the current code, but a guard against future
+	// regressions).
+	logger.WithField("unit", unitID).WithField("task_count", len(unitTasks)).WithField("rehydrate", rehydrate).
+		Infof("[QA-DEBUG-240] runShardPrepPhase: entering")
 	for _, reindexTask := range unitTasks {
 		if rehydrate {
 			if err := reindexTask.RunReindexOnlyOnShard(ctx, shard); err != nil {
 				logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-					Errorf("reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)
+					Errorf("[QA-DEBUG-240] reindex provider: shard prep — rehydrate failed; prep will not run for this task: %v", err)
 				out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s rehydrate: %v", unitID, reindexTask.Name(), err))
 				if errors.Is(err, context.Canceled) {
 					out.SawContextCanceled = true
@@ -1123,12 +1142,15 @@ func (p *ReindexProvider) runShardPrepPhase(
 		}
 		if err := reindexTask.RunPrepareOnShard(ctx, shard); err != nil {
 			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
-				Errorf("reindex provider: shard prep — prep failed; swap will not run for this task: %v", err)
+				Errorf("[QA-DEBUG-240] reindex provider: shard prep — prep failed; swap will not run for this task: %v", err)
 			out.Errs = append(out.Errs, fmt.Sprintf("unit %s task %s prepare: %v", unitID, reindexTask.Name(), err))
 			if errors.Is(err, context.Canceled) {
 				out.SawContextCanceled = true
 			}
 			ok = false
+		} else {
+			logger.WithField("unit", unitID).WithField("task", reindexTask.Name()).
+				Infof("[QA-DEBUG-240] runShardPrepPhase: prep completed for task")
 		}
 	}
 	return ok, out
@@ -1326,8 +1348,13 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// below: no-op for a request the system is not in a position to act
 	// on.
 	if task.Status.IsTerminal() {
-		logger.WithField("status", task.Status).
-			Debug("reindex provider: group-completion: skipping replay on past-terminal task")
+		// QA-DEBUG-240: surface this short-circuit at INFO (not Debug) so it
+		// shows up in default-level container logs. Pinning #240 Symptom B
+		// — if a stranded replica's OnGroupCompleted gets short-circuited
+		// here while the local on-disk state has untidied trackers, this
+		// log line is the smoking gun.
+		logger.WithField("status", task.Status).WithField("localGroupUnitIDs", localGroupUnitIDs).
+			Infof("[QA-DEBUG-240] reindex provider: group-completion: skipping replay on past-terminal task")
 		return nil
 	}
 
@@ -1343,7 +1370,8 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	}
 
 	if task.NeedsPreparationBarrier {
-		logger.Info("reindex provider: group-completion → starting PREP phase (barrier mode)")
+		logger.WithField("localGroupUnitIDs", localGroupUnitIDs).
+			Infof("[QA-DEBUG-240] reindex provider: group-completion → starting PREP phase (barrier mode)")
 	} else {
 		logger.Info("reindex provider: group-completion → starting swap phase (no-barrier path)")
 	}
