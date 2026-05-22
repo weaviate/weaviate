@@ -103,30 +103,13 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
-	// Parallel array of qualified target classes, keyed by ref index. The
-	// stored beacon (refs[i].To.Class) is normalised to the short form so
-	// the on-disk URI stays namespace-portable; the qualified form is held
-	// here in memory for MT validation, authz, and the target-side
-	// uniqueClassShard map. Shared with references_add /
-	// references_update / properties_validation via
-	// namespacing.QualifyRefTarget.
-	qualifiedTargets := make([]string, len(refs))
-	for i := range refs {
-		if refs[i].Err != nil || refs[i].To == nil || refs[i].To.Class == "" {
-			continue
-		}
-		qualified, short, err := namespacing.QualifyRefTarget(
-			principal, b.config.Config.Namespaces.Enabled,
-			refs[i].From.Class.String(), refs[i].To.Class)
-		if err != nil {
-			refs[i].Err = err
-			continue
-		}
-		qualifiedTargets[i] = qualified
-		refs[i].To.Class = short
-	}
-
-	// MT validation must be done after auto-detection as we cannot know the target class beforehand in all cases
+	// MT validation must be done after auto-detection as we cannot know the
+	// target class beforehand in all cases. Per ref: qualify target via
+	// namespacing.QualifyRefTarget — shared with references_add /
+	// references_update / properties_validation so the cross-namespace policy
+	// can't drift — then mutate refs[i].To.Class to the SHORT form so the
+	// on-disk beacon stays namespace-portable while the local
+	// `qualifiedTarget` drives MT validation, authz, and shard routing.
 	type classAndShard struct {
 		Class string
 		Shard string
@@ -138,11 +121,24 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			continue
 		}
 
+		var qualifiedTarget string
+		if ref.To != nil && ref.To.Class != "" {
+			qualified, short, err := namespacing.QualifyRefTarget(
+				principal, b.config.Config.Namespaces.Enabled,
+				ref.From.Class.String(), ref.To.Class)
+			if err != nil {
+				refs[i].Err = err
+				continue
+			}
+			qualifiedTarget = qualified
+			ref.To.Class = short
+		}
+
 		if shouldValidateMultiTenantRef(ref.Tenant, ref.From, ref.To) {
-			// Build a qualified-target view for the schema lookup inside MT
-			// validation; the storage struct refs[i].To stays short.
+			// Schema lookup inside MT validation needs the qualified target;
+			// the storage struct ref.To stays short.
 			targetQualified := *ref.To
-			targetQualified.Class = qualifiedTargets[i]
+			targetQualified.Class = qualifiedTarget
 			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, &targetQualified, ref.Tenant, fetchedClasses)
 			if err != nil {
 				refs[i].Err = err
@@ -152,7 +148,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			}
 		}
 
-		uniqueClassShard[qualifiedTargets[i]+"#"+ref.Tenant] = classAndShard{Class: qualifiedTargets[i], Shard: ref.Tenant}
+		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}
 	}
 
 	shardsDataPaths := make([]string, 0, len(uniqueClassShard))
