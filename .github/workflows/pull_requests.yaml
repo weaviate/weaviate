@@ -713,6 +713,7 @@ jobs:
   Acceptance-Tests-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: false  # qa-240 stress-only debug branch — restore before merging
     strategy:
       fail-fast: false
       matrix:
@@ -876,6 +877,7 @@ jobs:
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
+    if: false  # qa-240 stress-only debug branch — restore before merging
     strategy:
       fail-fast: false
       matrix:
