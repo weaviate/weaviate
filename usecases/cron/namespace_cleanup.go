@@ -35,6 +35,10 @@ type cronsNamespaceCleanup struct {
 	currentInterval atomic.Int64 // time.Duration nanoseconds
 	intervalCh      chan time.Duration
 
+	// registerWG lets shutdown await Init's registration goroutine instead
+	// of returning while it still runs.
+	registerWG sync.WaitGroup
+
 	logger            logrus.FieldLogger
 	gocronLogger      gocron.Logger
 	configGetter      configGetter
@@ -72,7 +76,9 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 	if coordinator == nil {
 		return fmt.Errorf("namespace cleanup coordinator is nil")
 	}
+	c.registerWG.Add(1)
 	errors.GoWrapper(func() {
+		defer c.registerWG.Done()
 		jobLogger := c.logger.WithField("job", namespaceCleanupJobName)
 		// runMu serialises the cron callback with the re-registration
 		// loop: the callback holds it for one tick, the loop Lock/Unlocks
@@ -119,6 +125,12 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 	}, c.logger)
 
 	return nil
+}
+
+// wait blocks until Init's registration goroutine has exited. Returns at
+// once when Init never launched one (namespaces disabled, nil coordinator).
+func (c *cronsNamespaceCleanup) wait() {
+	c.registerWG.Wait()
 }
 
 // createJob returns the per-tick callback. SkipIfStillRunning prevents

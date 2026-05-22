@@ -130,6 +130,60 @@ func TestCronsNamespaceCleanup_Init_SkipsForNonPositiveInterval(t *testing.T) {
 	}
 }
 
+func TestCronsNamespaceCleanup_Wait_AwaitsRegistrationGoroutine(t *testing.T) {
+	c, cr, cancel := newTestNamespaceCleanup(t, time.Minute)
+	require.NoError(t, c.Init(cr, nil, nonNilCoordinator(t)))
+
+	// While the shutdown ctx is live the registration goroutine is parked in
+	// its select, so wait() must block.
+	done := make(chan struct{})
+	go func() {
+		c.wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("wait() returned while the registration goroutine was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Shutdown unblocks the goroutine's select; wait() must then return.
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("wait() did not return after shutdown")
+	}
+}
+
+func TestCronsNamespaceCleanup_Wait_ReturnsWhenNoGoroutineLaunched(t *testing.T) {
+	// Namespaces disabled: Init returns without launching the goroutine, so
+	// registerWG was never incremented and wait() must not block.
+	logger, _ := test.NewNullLogger()
+	getter := func() config.Config {
+		return config.Config{Namespaces: config.Namespaces{
+			Enabled:         false,
+			CleanupInterval: configRuntime.NewDynamicValue(time.Minute),
+		}}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, getter)
+	cr := initGoCron(ctx, gocron.DiscardLogger)
+	require.NoError(t, c.Init(cr, nil, nonNilCoordinator(t)))
+
+	done := make(chan struct{})
+	go func() {
+		c.wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("wait() blocked even though no registration goroutine was launched")
+	}
+}
+
 func TestCronsNamespaceCleanup_RuntimeConfigHook(t *testing.T) {
 	// Drive the hook directly: set up a configGetter whose returned value
 	// can change between Hook calls, and assert the new value reaches
