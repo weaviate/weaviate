@@ -1063,4 +1063,181 @@ func TestNamespaces_References(t *testing.T) {
 			"weaviate://localhost/Animal/"+string(animalID), beaconStr,
 			"stored beacon from gRPC BatchObjects SingleTargetRefProps must be short")
 	})
+
+	t.Run("admin POST with inline qualified-target beacon on NS cluster (REST)", func(t *testing.T) {
+		// Regression guard for the inline-ref admin double-qualify bug
+		// that motivated namespacing.QualifyRefTarget.
+		//
+		// Pre-unification, properties_validation built the qualified
+		// target as QualifiedName(NamespaceFromQualified(sourceClass),
+		// ref.Class) without stripping first. An admin POSTing to
+		// customer1:Zoo with beacon ".../customer1:Animal/<id>" would
+		// produce "customer1:customer1:Animal" — the existence check
+		// hit a non-existent class and the insert 422'd. Untested
+		// before: the existing inline-ref test only uses a namespaced
+		// caller with a short beacon.
+		zooID, animalID := newID(), newID()
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "inline-leo"})
+
+		// Admin addresses the qualified source class AND submits a
+		// qualified target in the inline beacon. With QualifyRefTarget
+		// in place this passes; pre-fix it 422'd with "is not found in
+		// schema" against the double-qualified target.
+		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID:    zooID,
+			Class: "customer1:Zoo",
+			Properties: map[string]any{
+				"name": "z-admin-inline",
+				"hasAnimals": []any{
+					map[string]any{"beacon": "weaviate://localhost/customer1:Animal/" + string(animalID)},
+				},
+			},
+		}, adminKey)
+		require.NoError(t, err)
+
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.Len(t, refs, 1)
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t,
+			"weaviate://localhost/Animal/"+string(animalID), beaconStr,
+			"inline qualified-target beacon from admin must persist in short form")
+	})
+
+	t.Run("multi-tenancy + refs on NS cluster (happy path + MT/non-MT mismatch)", func(t *testing.T) {
+		// Gap closer for the MT × refs intersection. The branch rewired
+		// MT validation to consume the qualified target class
+		// (validateReferenceMultiTenancy in references_add.go:159 and
+		// batch_references_add.go:142), but no test ever lit a tenant on
+		// a ref. Two cases:
+		//   1. Happy path: MT Zoo → MT Animal in customer1, tenant=t1.
+		//      ref-add must succeed, stored beacon short, ref resolves
+		//      to the matching tenant.
+		//   2. Mismatch: MT Zoo → non-MT Animal must be rejected via
+		//      shouldValidateMultiTenantRef.
+		const (
+			mtZoo    = "MTZoo"
+			mtAnimal = "MTAnimal"
+			plain    = "PlainAnimal"
+			tenantA  = "tenA"
+			tenantB  = "tenB"
+		)
+		helper.CreateClassAuth(t, &models.Class{
+			Class:              mtAnimal,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Properties:         []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class:              mtZoo,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "hasAnimals", DataType: []string{mtAnimal}},
+			},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      plain,
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+mtZoo, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+mtAnimal, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+plain, adminKey)
+		})
+
+		require.NoError(t, addTenantsAuth(t, mtZoo,
+			[]*models.Tenant{{Name: tenantA}, {Name: tenantB}}, user1Key))
+		require.NoError(t, addTenantsAuth(t, mtAnimal,
+			[]*models.Tenant{{Name: tenantA}, {Name: tenantB}}, user1Key))
+
+		// Seed objects in tenantA only — proves the ref lookup goes to
+		// the right shard.
+		zooID, animalAID, animalBID := newID(), newID(), newID()
+		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID: animalAID, Class: mtAnimal, Tenant: tenantA,
+			Properties: map[string]any{"name": "tenA-animal"},
+		}, user1Key)
+		require.NoError(t, err)
+		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID: animalBID, Class: mtAnimal, Tenant: tenantB,
+			Properties: map[string]any{"name": "tenB-animal"},
+		}, user1Key)
+		require.NoError(t, err)
+		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID: zooID, Class: mtZoo, Tenant: tenantA,
+			Properties: map[string]any{"name": "tenA-zoo"},
+		}, user1Key)
+		require.NoError(t, err)
+
+		// Happy path: same-tenant ref-add.
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + mtAnimal + "/" + string(animalAID))},
+			zooID, mtZoo, "hasAnimals", tenantA, helper.CreateAuth(user1Key))
+		require.NoError(t, err, "MT ref-add same tenant on NS cluster must succeed")
+
+		// Stored beacon stays short.
+		got, err := helper.GetObjectAuthWithTenant(t, "customer1:"+mtZoo, zooID, tenantA, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.Len(t, refs, 1)
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t,
+			"weaviate://localhost/"+mtAnimal+"/"+string(animalAID), beaconStr,
+			"stored MT-ref beacon must be short")
+
+		// Non-MT-source → MT-target is the rejection case in
+		// validateReferenceMultiTenancy (batch_references_add.go:305):
+		// "cannot reference a multi-tenant enabled class from a non
+		// multi-tenant enabled class". A non-MT zoo can't point at an
+		// MT animal because the ref-add path doesn't carry a tenant
+		// for the source row.
+		const plainZoo = "PlainZoo"
+		helper.CreateClassAuth(t, &models.Class{
+			Class: plainZoo,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "hasAnimals", DataType: []string{mtAnimal}},
+			},
+		}, user1Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+plainZoo, adminKey) })
+
+		plainZooID := newID()
+		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID: plainZooID, Class: plainZoo,
+			Properties: map[string]any{"name": "plain-zoo"},
+		}, user1Key)
+		require.NoError(t, err)
+
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + mtAnimal + "/" + string(animalAID))},
+			plainZooID, plainZoo, "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.Error(t, err,
+			"non-MT source → MT target must be rejected by validateReferenceMultiTenancy")
+	})
+
+	t.Run("admin POST with inline foreign-NS target on NS cluster is rejected", func(t *testing.T) {
+		// Companion to the previous test: QualifyRefTarget centralises
+		// the cross-namespace policy, so an admin's attempt to point a
+		// customer1:Zoo at customer2:Animal via inline beacon must
+		// 422. Pre-unification this silently succeeded
+		// (resolveNS-based path stripped the prefix), then later read
+		// paths would resolve the link back to customer1:Animal
+		// — a cross-tenant write that read as same-tenant. Now
+		// rejected at validation.
+		zooID, animalID := newID(), newID()
+		createIn(t, user2Key, "Animal", animalID, map[string]any{"name": "ns2"})
+
+		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID:    zooID,
+			Class: "customer1:Zoo",
+			Properties: map[string]any{
+				"name": "z-admin-cross-ns",
+				"hasAnimals": []any{
+					map[string]any{"beacon": "weaviate://localhost/customer2:Animal/" + string(animalID)},
+				},
+			},
+		}, adminKey)
+		require.Error(t, err, "admin inline cross-NS target must 422")
+	})
 }

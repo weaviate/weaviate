@@ -109,14 +109,17 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if targetRef.Class != "" {
-		qualifiedTarget, _, err := m.resolveNS(principal, targetRef.Class)
+		// Two views: qualified for in-memory ops (authz + existence right
+		// below), short for the stored beacon (reparsed from input.Ref
+		// into the target passed to AddReference further down). The
+		// cross-namespace policy and prefix validation live in
+		// namespacing.QualifyRefTarget — the same helper backs all four
+		// write paths so they can't drift.
+		qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
+			principal, m.config.Config.Namespaces.Enabled, input.Class, targetRef.Class)
 		if err != nil {
 			return &Error{err.Error(), StatusUnprocessableEntity, err}
 		}
-		shortTarget := namespacing.StripQualification(qualifiedTarget)
-		// Two views: qualified for in-memory ops (authz + existence right
-		// below), short for the stored beacon (reparsed from input.Ref into
-		// the target passed to AddReference further down).
 		targetRef.Class = qualifiedTarget
 		input.Ref.Class = strfmt.URI(shortTarget)
 		input.Ref.Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, targetRef.TargetID).String())

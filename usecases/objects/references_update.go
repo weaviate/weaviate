@@ -118,14 +118,16 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			}
 		}
 		if parsedTargetRefs[i].Class != "" {
-			qualifiedTarget, _, err := m.resolveNS(principal, parsedTargetRefs[i].Class)
+			// Qualified for downstream authz / existence; short for the
+			// beacon that gets serialized when input.Refs is written to
+			// the source object's property bytes below. Shared with
+			// references_add / batch_references_add / properties_validation
+			// via namespacing.QualifyRefTarget.
+			qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
+				principal, m.config.Config.Namespaces.Enabled, input.Class, parsedTargetRefs[i].Class)
 			if err != nil {
 				return &Error{err.Error(), StatusUnprocessableEntity, err}
 			}
-			shortTarget := namespacing.StripQualification(qualifiedTarget)
-			// Qualified for downstream authz / existence; short for the
-			// beacon that gets serialized when input.Refs is written to the
-			// source object's property bytes below.
 			parsedTargetRefs[i].Class = qualifiedTarget
 			input.Refs[i].Class = strfmt.URI(shortTarget)
 			input.Refs[i].Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, parsedTargetRefs[i].TargetID).String())

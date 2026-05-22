@@ -12,6 +12,7 @@
 package namespacing
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -64,6 +65,52 @@ func qualify(principal *models.Principal, name string) string {
 		return name
 	}
 	return QualifiedName(principal.Namespace, name)
+}
+
+// QualifyRefTarget normalises a cross-reference target for storage. The
+// target always lives in the source class's namespace — refs can't
+// cross namespaces — so the principal's own namespace is never the
+// authority here, only sourceClass is.
+//
+// Returns:
+//
+//   - qualified: for authz, existence checks, MT validation, shard routing
+//   - short:     for the stored beacon (namespace-portable on export/import)
+//
+// On NS-disabled clusters both returns are target unchanged.
+//
+// Inputs accepted:
+//   - bare short class ("Animal") — qualified with sourceClass's namespace
+//   - own-namespace qualified class ("customer1:Animal" when sourceClass is
+//     in customer1) — accepted from a global principal only; stripped and
+//     re-qualified so the qualified output is canonical
+//
+// Inputs rejected with `<name> is not a valid class name`:
+//   - any prefix from a namespaced principal — namespaced callers never
+//     type a prefix; the resolver adds it
+//   - a prefix that names a different namespace from sourceClass — no
+//     cross-namespace refs
+//
+// Replaces the four near-duplicate qualify-target blocks in
+// references_add.go, references_update.go, batch_references_add.go and
+// properties_validation.go. Centralising the cross-namespace policy here
+// keeps the four write paths from drifting.
+func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourceClass, target string) (qualified, short string, err error) {
+	if !namespacesEnabled {
+		return target, target, nil
+	}
+	sourceNS := NamespaceFromQualified(sourceClass)
+	if ns := NamespaceFromQualified(target); ns != "" {
+		if principal != nil && principal.Namespace != "" {
+			return "", "", fmt.Errorf("'%s' is not a valid class name", target)
+		}
+		if ns != sourceNS {
+			return "", "", fmt.Errorf("'%s' is not a valid class name", target)
+		}
+	}
+	short = StripQualification(target)
+	qualified = QualifiedName(sourceNS, short)
+	return qualified, short, nil
 }
 
 // Resolve is the read-side entry point used everywhere a user-supplied

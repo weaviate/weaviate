@@ -1098,3 +1098,100 @@ func TestStripOwnNamespace(t *testing.T) {
 		})
 	}
 }
+
+func TestQualifyRefTarget(t *testing.T) {
+	ns := &models.Principal{Username: "u", Namespace: "customer1"}
+	admin := &models.Principal{Username: "admin"}
+
+	cases := []struct {
+		name          string
+		principal     *models.Principal
+		nsEnabled     bool
+		sourceClass   string
+		target        string
+		wantQualified string
+		wantShort     string
+		wantErr       bool
+	}{
+		// Non-NS cluster: pass-through, short==qualified==target.
+		{
+			name:      "NS-disabled passes target through",
+			principal: admin, nsEnabled: false,
+			sourceClass:   "Zoo",
+			target:        "Animal",
+			wantQualified: "Animal", wantShort: "Animal",
+		},
+
+		// Namespaced principal, short target — qualified with source NS.
+		{
+			name:      "namespaced principal short target qualifies via source",
+			principal: ns, nsEnabled: true,
+			sourceClass:   "customer1:Zoo",
+			target:        "Animal",
+			wantQualified: "customer1:Animal", wantShort: "Animal",
+		},
+		// Namespaced principal must never type any prefix — even their own.
+		{
+			name:      "namespaced principal own-NS qualified target is rejected",
+			principal: ns, nsEnabled: true,
+			sourceClass: "customer1:Zoo",
+			target:      "customer1:Animal",
+			wantErr:     true,
+		},
+		{
+			name:      "namespaced principal foreign-NS target is rejected",
+			principal: ns, nsEnabled: true,
+			sourceClass: "customer1:Zoo",
+			target:      "customer2:Animal",
+			wantErr:     true,
+		},
+
+		// Global admin — short target inherits source's NS, qualified
+		// target accepted iff it names the same NS as the source.
+		{
+			name:      "admin short target inherits source NS",
+			principal: admin, nsEnabled: true,
+			sourceClass:   "customer1:Zoo",
+			target:        "Animal",
+			wantQualified: "customer1:Animal", wantShort: "Animal",
+		},
+		{
+			name:      "admin own-NS qualified target normalizes",
+			principal: admin, nsEnabled: true,
+			sourceClass:   "customer1:Zoo",
+			target:        "customer1:Animal",
+			wantQualified: "customer1:Animal", wantShort: "Animal",
+		},
+		{
+			name:      "admin cross-NS qualified target is rejected",
+			principal: admin, nsEnabled: true,
+			sourceClass: "customer1:Zoo",
+			target:      "customer2:Animal",
+			wantErr:     true,
+		},
+
+		// Edge: NS-enabled but the source is itself short (e.g. test
+		// fixture or non-NS-resolved input). Treat as no-source-NS —
+		// qualified == short == target, no rejection. Matches the
+		// non-NS branch's pass-through.
+		{
+			name:      "NS-enabled but source unqualified leaves target untouched",
+			principal: ns, nsEnabled: true,
+			sourceClass:   "Zoo",
+			target:        "Animal",
+			wantQualified: "Animal", wantShort: "Animal",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			qualified, short, err := QualifyRefTarget(tc.principal, tc.nsEnabled, tc.sourceClass, tc.target)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantQualified, qualified, "qualified")
+			assert.Equal(t, tc.wantShort, short, "short")
+		})
+	}
+}
