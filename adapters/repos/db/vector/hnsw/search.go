@@ -97,22 +97,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 	}
 
 	if h.muvera.Load() {
-		// this happens only if hnsw is empty so we need to initialize muvera encoder
-		if err := h.initMuveraEncoder(vectors); err != nil {
-			return nil, nil, err
-		}
-
-		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
-		overfetch := 2
-		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
-		if err != nil {
-			return nil, nil, err
-		}
-		candidateSet := make(map[uint64]struct{})
-		for _, docID := range docIDs {
-			candidateSet[docID] = struct{}{}
-		}
-		return h.computeLateInteraction(vectors, k, candidateSet)
+		return h.muveraMultiVectorSearch(ctx, vectors, k, allowList)
 	}
 
 	h.compressActionLock.RLock()
@@ -128,10 +113,46 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 	return h.knnSearchByMultiVector(ctx, vectors, k, allowList)
 }
 
-// SearchByVectorDistance wraps SearchByVector, and calls it recursively until
-// the search results contain all vector within the threshold specified by the
-// target distance.
-//
+func (h *hnsw) muveraMultiVectorSearch(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	if err := h.initMuveraEncoder(vectors); err != nil {
+		return nil, nil, err
+	}
+
+	muveraQuery := h.muveraEncoder.EncodeQuery(vectors)
+	overfetch := 2
+	docIDs, _, err := h.SearchByVector(ctx, muveraQuery, overfetch*k, allowList)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	candidateSet := h.buildCandidateSetFromDocIDs(docIDs)
+	return h.computeLateInteraction(vectors, k, candidateSet)
+}
+
+func (h *hnsw) buildCandidateSetFromDocIDs(docIDs []uint64) map[uint64]struct{} {
+	candidateSet := make(map[uint64]struct{})
+	for _, docID := range docIDs {
+		if h.hasAnyVectorTombstoned(docID) {
+			continue
+		}
+		candidateSet[docID] = struct{}{}
+	}
+	return candidateSet
+}
+
+func (h *hnsw) hasAnyVectorTombstoned(docID uint64) bool {
+	h.RLock()
+	vecIDs := h.docIDVectors[docID]
+	h.RUnlock()
+
+	for _, vecID := range vecIDs {
+		if !h.hasTombstone(vecID) {
+			return false
+		}
+	}
+	return true
+}
+
 // The maxLimit param will place an upper bound on the number of search results
 // returned. This is used in situations where the results of the method are all
 // eventually turned into objects, for example, a Get query. If the caller just
@@ -472,6 +493,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					continue
 				}
 			}
+
+			if h.hasTombstone(neighborID) {
+				continue
+			}
+
 			var distance float32
 			var err error
 			if h.compressed.Load() {
@@ -511,10 +537,6 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					} else if !allowList.Contains(neighborID) {
 						continue
 					}
-				}
-
-				if h.hasTombstone(neighborID) {
-					continue
 				}
 
 				results.Insert(neighborID, distance)
@@ -558,6 +580,10 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
+		if h.hasTombstone(ep.ID) {
+			continue
+		}
+
 		visitedList.Visit(ep.ID)
 		candidates.Insert(ep.ID, ep.Dist)
 		if level == 0 && allowList != nil {
@@ -578,10 +604,6 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			} else if !allowList.Contains(ep.ID) {
 				continue
 			}
-		}
-
-		if h.hasTombstone(ep.ID) {
-			continue
 		}
 
 		results.Insert(ep.ID, ep.Dist)
@@ -759,6 +781,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		//
 		// If we do, however, have results, any candidate that's not nil (not
 		// deleted), and not under maintenance is a viable candidate
+		//
 		for res.Len() > 0 {
 			cand := res.Pop()
 			n := h.nodeByID(cand.ID)
@@ -771,6 +794,14 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				}
 
 				// skip the nil node, as it does not make a valid entrypoint
+				continue
+			}
+
+			// Check if the node has been deleted (tombstone) but not yet cleaned up
+			if h.hasTombstone(cand.ID) {
+				// handleDeletedNode will add the tombstone if it's not already there
+				h.handleDeletedNode(cand.ID, "knnSearchByVector-entrypoint")
+				// skip the tombstoned node, as it does not make a valid entrypoint
 				continue
 			}
 

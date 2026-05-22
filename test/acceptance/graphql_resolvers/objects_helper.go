@@ -14,6 +14,7 @@ package test
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -32,4 +33,11 @@ func createObjectsBatch(t *testing.T, objects []*models.Object) {
 
 func deleteObjectClass(t *testing.T, class string) {
 	helper.DeleteClass(t, class)
+}
+
+func deleteObject(t *testing.T, class string, id string) {
+	helper.DeleteObject(t, &models.Object{
+		Class: class,
+		ID:    strfmt.UUID(id),
+	})
 }
