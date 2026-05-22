@@ -138,7 +138,7 @@ func (c *coordinator[T, R]) broadcast(ctx context.Context,
 		actives := make([]Result[string], 0, level) // cache for active replicas
 		broadcastErrors := make([]string, 0, len(replicas)-level)
 		for r := range prepare() {
-			if r.Err != nil { // connection error or PREPARE rejection
+			if r.Err != nil { // connection error
 				c.log.WithField("op", "broadcast").Warn(r.Err)
 				broadcastErrors = append(broadcastErrors, fmt.Errorf("replica %s; %w", r.Value, r.Err).Error())
 				continue
