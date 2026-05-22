@@ -130,18 +130,6 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
-	// Stored beacons are short for portability, so removeReference's
-	// structural match below needs the short form too — otherwise an
-	// admin submitting "weaviate://localhost/customer1:Animal/<id>"
-	// silently no-ops on a stored "weaviate://localhost/Animal/<id>".
-	// StripQualification is a no-op when there is no "<ns>:" prefix and
-	// when autodetect fired (DataType is already short).
-	if beacon.Class != "" {
-		shortClass := namespacing.StripQualification(beacon.Class)
-		input.Reference.Class = strfmt.URI(shortClass)
-		input.Reference.Beacon = strfmt.URI(crossref.NewLocalhost(shortClass, beacon.TargetID).String())
-	}
-
 	if err := input.validateSchema(class); err != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
@@ -154,7 +142,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 	obj := res.Object()
 	obj.Tenant = tenant
-	ok, errmsg := removeReference(obj, input.Property, &input.Reference)
+	ok, errmsg := removeReference(obj, input.Property, beacon)
 	if errmsg != "" {
 		return &Error{errmsg, StatusInternalServerError, nil}
 	}
@@ -192,9 +180,17 @@ func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
 	return validateReferenceSchema(class, req.Property)
 }
 
-// removeReference removes ref from object obj with property prop.
-// It returns ok (removal took place) and an error message
-func removeReference(obj *models.Object, prop string, remove *models.SingleRef) (ok bool, errmsg string) {
+// removeReference removes from obj.prop every ref whose target matches
+// `remove`. Match is structural on (Class, TargetID), with class names
+// compared in their short form on both sides so an admin-submitted
+// qualified beacon ("weaviate://localhost/customer1:Animal/<id>")
+// matches a stored short one ("weaviate://localhost/Animal/<id>"). A
+// stored or supplied beacon with no class part matches any class for
+// that TargetID — preserves the legacy short-only-beacon contract.
+//
+// Returns ok=true iff at least one ref was removed, and errmsg when the
+// property is present but not a MultipleRef.
+func removeReference(obj *models.Object, prop string, remove *crossref.Ref) (ok bool, errmsg string) {
 	properties := obj.Properties.(map[string]interface{})
 	if properties == nil || properties[prop] == nil {
 		return false, ""
@@ -205,10 +201,22 @@ func removeReference(obj *models.Object, prop string, remove *models.SingleRef) 
 		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, refs)
 	}
 
+	removeShortClass := namespacing.StripQualification(remove.Class)
 	var removed bool
 	properties[prop] = slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
-		if ref.Beacon == remove.Beacon {
-			removed = removed || true
+		stored, err := crossref.Parse(ref.Beacon.String())
+		if err != nil {
+			// Skip malformed stored beacons rather than panicking — the
+			// rest of the multi-ref still needs to be evaluated.
+			return false
+		}
+		if stored.TargetID != remove.TargetID {
+			return false
+		}
+		storedShortClass := namespacing.StripQualification(stored.Class)
+		// Either side empty → legacy short-only match on TargetID alone.
+		if storedShortClass == "" || removeShortClass == "" || storedShortClass == removeShortClass {
+			removed = true
 			return true
 		}
 		return false
