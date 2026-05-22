@@ -22,7 +22,7 @@ jobs:
   Multi-Arch-Docker-Build:
     name: docker build (multi-arch)
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && (startsWith(github.ref, 'refs/tags') || startsWith(github.head_ref, 'build') || github.head_ref == '') }} # no PRs from fork
+    if: false  # qa-240 stress-only debug branch — restore original condition before merging
     timeout-minutes: 45
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
@@ -133,7 +133,7 @@ jobs:
     name: docker build (${{ matrix.arch }})
     # ARM builds run on specific runners to avoid cross-compilation.
     runs-on: ${{ matrix.runner }}
-    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
+    if: false  # qa-240 stress-only debug branch — restore original condition before merging
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -179,7 +179,7 @@ jobs:
   PR-Vulnerability-Check:
     name: vulnerability check
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }}
+    if: false  # qa-240 stress-only debug branch — restore original condition before merging
     timeout-minutes: 45
     env:
       PROJECT_KEY: ${{ secrets.ORCA_PROJECT_KEY }}
@@ -252,7 +252,7 @@ jobs:
     # Depends on both production and PR jobs, but only one will run based on the event type
     needs: [Multi-Arch-Docker-Build, PR-Docker-Build]
     # Always run if either dependency succeeded (pr or production build)
-    if: always() && (needs.Multi-Arch-Docker-Build.result == 'success' || needs.PR-Docker-Build.result == 'success')
+    if: false  # qa-240 stress-only debug branch — restore original condition before merging
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -296,6 +296,7 @@ jobs:
   Buf-Checks:
     name: buf checks
     runs-on: ubuntu-latest
+    if: false  # qa-240 stress-only debug branch — restore before merging
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
@@ -312,6 +313,7 @@ jobs:
   Run-Swagger:
     name: swagger
     runs-on: ubuntu-latest
+    if: false  # qa-240 stress-only debug branch — restore before merging
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
@@ -335,6 +337,7 @@ jobs:
   Unit-Tests:
     name: unit tests
     runs-on: ubuntu-latest
+    if: false  # qa-240 stress-only debug branch — restore before merging
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
@@ -352,6 +355,7 @@ jobs:
   Integration-Tests:
     name: integration tests (${{ matrix.name }})
     runs-on: ubuntu-latest
+    if: false  # qa-240 stress-only debug branch — restore before merging
     strategy:
       fail-fast: false
       matrix:
@@ -385,6 +389,7 @@ jobs:
   Modules-Acceptance-Tests:
     name: modules (${{ matrix.name }})
     runs-on: ubuntu-latest
+    if: false  # qa-240 stress-only debug branch — restore before merging
     strategy:
       fail-fast: false
       matrix:
@@ -437,7 +442,7 @@ jobs:
   Modules-On-Demand-Tests-Check:
     name: modules on demand
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: false  # qa-240 stress-only debug branch — restore original condition before merging
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
@@ -461,7 +466,7 @@ jobs:
     name: modules large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
     needs: [Modules-On-Demand-Tests-Check]
-    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
+    if: false  # qa-240 stress-only debug branch — restore original condition before merging
     strategy:
       fail-fast: false
       matrix:
@@ -509,7 +514,7 @@ jobs:
     name: modules light (${{ matrix.name }})
     runs-on: ubicloud-standard-2
     needs: [Modules-On-Demand-Tests-Check]
-    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
+    if: false  # qa-240 stress-only debug branch — restore original condition before merging
     strategy:
       fail-fast: false
       matrix:
@@ -545,7 +550,7 @@ jobs:
     name: modules api (${{ matrix.name }})
     runs-on: ubicloud-standard-2
     needs: [Modules-On-Demand-Tests-Check]
-    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') }}  # no PRs from fork
+    if: false  # qa-240 stress-only debug branch — restore original condition before merging
     strategy:
       fail-fast: false
       matrix:
@@ -650,6 +655,7 @@ jobs:
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-latest
+    if: false  # qa-240 stress-only debug branch — restore before merging
     strategy:
       fail-fast: false
       matrix:
@@ -777,24 +783,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: "multinode"
-            test: "--acceptance-reindex-multinode"
-          - name: "multinode-aj"
-            test: "--acceptance-reindex-multinode-aj"
-          - name: "multinode-rm"
-            test: "--acceptance-reindex-multinode-rm"
-          - name: "multinode-restart-a"
-            test: "--acceptance-reindex-multinode-restart-a"
-          - name: "multinode-restart-b"
-            test: "--acceptance-reindex-multinode-restart-b"
-          - name: "multinode-scale"
-            test: "--acceptance-reindex-multinode-scale"
-          - name: "multinode-changetok"
-            test: "--acceptance-reindex-multinode-changetok"
-          # === QA #240 Symptom B repro shards ===
-          # Same shard 30x in parallel — if the changetok tests carry
-          # any residual flake, 30 parallel runners maximize the chance
-          # of catching a fingerprint. REMOVE before merging this PR.
+          # === QA #240 Symptom B repro shards ONLY ===
+          # All other reindex shards + every unrelated job in this
+          # workflow are disabled below to keep CI cost on this debug
+          # branch focused on the changetok flake hunt. RESTORE before
+          # merging this PR (this PR is DRAFT — DO NOT MERGE).
           - name: "multinode-changetok-stress-01"
             test: "--acceptance-reindex-multinode-changetok"
           - name: "multinode-changetok-stress-02"
@@ -855,15 +848,7 @@ jobs:
             test: "--acceptance-reindex-multinode-changetok"
           - name: "multinode-changetok-stress-30"
             test: "--acceptance-reindex-multinode-changetok"
-          # === END QA repro shards ===
-          - name: "singlenode-a"
-            test: "--acceptance-reindex-singlenode-a"
-          - name: "singlenode-b"
-            test: "--acceptance-reindex-singlenode-b"
-          - name: "concurrent"
-            test: "--acceptance-reindex-concurrent"
-          - name: "mt"
-            test: "--acceptance-reindex-mt"
+          # === END QA repro shards (all other reindex shards removed for cost) ===
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
@@ -931,7 +916,7 @@ jobs:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
     runs-on: ubuntu-latest
-    if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
+    if: false  # qa-240 stress-only debug branch — restore original condition before merging
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Download coverage artifacts integration
@@ -957,6 +942,7 @@ jobs:
   Compile-and-upload-binaries:
     name: compile and upload binaries
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: false  # qa-240 stress-only debug branch — restore before merging
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
@@ -1000,6 +986,7 @@ jobs:
     name: acceptance (windows)
     needs: Compile-and-upload-binaries
     runs-on: windows-latest
+    if: false  # qa-240 stress-only debug branch — restore before merging
     env:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: true
       PERSISTENCE_DATA_PATH: /tmp
