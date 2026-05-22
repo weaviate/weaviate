@@ -202,8 +202,7 @@ func removeReference(obj *models.Object, prop string, remove *crossref.Ref) (ok 
 	}
 
 	removeShortClass := namespacing.StripQualification(remove.Class)
-	var removed bool
-	properties[prop] = slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
+	after := slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
 		stored, err := crossref.Parse(ref.Beacon.String())
 		if err != nil {
 			// Skip malformed stored beacons rather than panicking — the
@@ -215,11 +214,9 @@ func removeReference(obj *models.Object, prop string, remove *crossref.Ref) (ok 
 		}
 		storedShortClass := namespacing.StripQualification(stored.Class)
 		// Either side empty → legacy short-only match on TargetID alone.
-		if storedShortClass == "" || removeShortClass == "" || storedShortClass == removeShortClass {
-			removed = true
-			return true
-		}
-		return false
+		return storedShortClass == "" || removeShortClass == "" ||
+			storedShortClass == removeShortClass
 	})
-	return removed, ""
+	properties[prop] = after
+	return len(after) < len(refs), ""
 }
