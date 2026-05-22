@@ -29,4 +29,14 @@ pip install -r requirements.txt --quiet
 # Weaviate instance started via docker-compose-readonly-recovery-test.yml.
 # Run it manually during development with:
 #   pytest test/acceptance_with_python/test_readonly_recovery.py
-pytest -n auto --dist loadgroup --ignore=test_readonly_recovery.py .
+#
+# test_namespace_refs.py is excluded for the same reason: it needs the
+# 3-node namespaces-enabled cluster from docker-compose-namespaces-test.yml
+# (with API-key auth + NAMESPACES_ENABLED + REPLICATION_MAXIMUM_FACTOR=1).
+# Run it manually with:
+#   docker compose -f docker-compose-namespaces-test.yml up -d
+#   pytest test/acceptance_with_python/test_namespace_refs.py
+pytest -n auto --dist loadgroup \
+  --ignore=test_readonly_recovery.py \
+  --ignore=test_namespace_refs.py \
+  .
