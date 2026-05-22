@@ -144,18 +144,19 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 		require.True(t, errors.As(err, &unproc), "expected ExportCreateUnprocessableEntity, got %T: %v", err, err)
 		assert.Contains(t, unproc.Payload.Error[0].Message, "no exportable classes")
 
-		// Root has the backups domain, so the filter keeps the class. It therefore
-		// never hits the "no exportable classes" path; it only fails afterwards on
-		// this RF=1 test class lacking async replication — orthogonal to auth, and
-		// proof that root passed the backups-domain gate the namespaced user did not.
-		rootID := "root-export-deny"
-		_, err = helper.Client(t).Export.ExportCreate(
+		// Root has the backups domain, so the filter keeps the qualified class
+		// instead of emptying it. The class is RF=1, which
+		// IsAsyncReplicationEnabled treats as async-not-required, so root clears
+		// every gate and the export actually starts — proof that root passed the
+		// backups-domain filter the namespaced admin did not.
+		rootID := "root-export-allowed"
+		ok, err := helper.Client(t).Export.ExportCreate(
 			export.NewExportCreateParams().WithBackend(s3Backend).WithBody(
 				&models.ExportCreateRequest{ID: &rootID, FileFormat: &fileFormat, Include: []string{qualified}}),
 			helper.CreateAuth(adminKey))
-		require.Error(t, err)
-		require.True(t, errors.As(err, &unproc), "expected ExportCreateUnprocessableEntity, got %T: %v", err, err)
-		assert.NotContains(t, unproc.Payload.Error[0].Message, "no exportable classes")
-		assert.Contains(t, unproc.Payload.Error[0].Message, "async replication")
+		require.NoError(t, err)
+		require.NotNil(t, ok.Payload)
+		assert.Contains(t, ok.Payload.Classes, qualified,
+			"root's export must retain the qualified class through the backups filter")
 	})
 }
