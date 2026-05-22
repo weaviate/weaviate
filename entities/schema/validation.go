@@ -142,11 +142,12 @@ func ValidateClassName(name string) (ClassName, error) {
 // class portion matches ClassNameRegexCore. The full qualified name is
 // returned unchanged.
 //
-// Use at post-resolver boundaries (e.g. the filter parser) where a
-// qualified class name is a legitimate input that has already been
-// produced by namespacing.Resolve. User-facing inputs (schema create,
-// alias create, cross-ref data types) must continue to call
-// ValidateClassName, which rejects ":".
+// Use at post-resolver boundaries (e.g. the filter parser, cross-ref
+// DataType validation) where a qualified class name is a legitimate
+// input that has already been produced by namespacing.Resolve or
+// namespacing.QualifyPropertyDataTypes. User-facing inputs (schema
+// create, alias create) must continue to call ValidateClassName, which
+// rejects ":".
 func ValidateQualifiedClassName(name string) (ClassName, error) {
 	if len(name) > NamespaceMaxLength+len(NamespaceSeparator)+ClassNameMaxLength {
 		return "", fmt.Errorf("'%s' is not a valid class name", name)

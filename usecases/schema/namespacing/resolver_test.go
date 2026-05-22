@@ -12,6 +12,7 @@
 package namespacing
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -22,6 +23,20 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
+
+// deepCopyJSON returns a fully independent clone via JSON round-trip, so
+// no-mutation assertions can catch in-place edits through shared pointers.
+func deepCopyJSON[T any](t *testing.T, src *T) *T {
+	t.Helper()
+	if src == nil {
+		return nil
+	}
+	b, err := json.Marshal(src)
+	require.NoError(t, err)
+	out := new(T)
+	require.NoError(t, json.Unmarshal(b, out))
+	return out
+}
 
 // fakeSchemaManager implements SchemaManager for testing
 type fakeSchemaManager struct {
@@ -490,8 +505,7 @@ func TestStripClassResponse(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Snapshot input to verify it is not mutated.
-			snapshot := tc.in
+			snapshot := deepCopyJSON(t, tc.in)
 			got := StripClassResponse(tc.principal, tc.in)
 			assert.Equal(t, tc.want, got)
 			if tc.wantSame {
@@ -499,8 +513,129 @@ func TestStripClassResponse(t *testing.T) {
 			} else if tc.in != nil {
 				assert.NotSame(t, tc.in, got)
 			}
-			// Input must not have been mutated.
-			assert.Equal(t, snapshot, tc.in)
+			assert.Equal(t, snapshot, tc.in, "input must not be mutated")
+		})
+	}
+}
+
+func TestQualifyPropertyDataTypes(t *testing.T) {
+	cases := []struct {
+		name              string
+		principal         *models.Principal
+		namespacesEnabled bool
+		in                []*models.Property
+		want              []*models.Property
+		wantErrSubstr     string
+	}{
+		{
+			name:              "namespaced principal qualifies short cross-ref",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+		},
+		{
+			name:              "multi-target refs all qualified",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "related", DataType: []string{"Movies", "Books"}}},
+			want:              []*models.Property{{Name: "related", DataType: []string{"customer1:Movies", "customer1:Books"}}},
+		},
+		{
+			name:              "primitive DataType passes through",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "title", DataType: []string{"text"}}},
+			want:              []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		},
+		{
+			name:              "nested object DataType passes through",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in: []*models.Property{
+				{Name: "meta", DataType: []string{"object"}},
+				{Name: "metas", DataType: []string{"object[]"}},
+			},
+			want: []*models.Property{
+				{Name: "meta", DataType: []string{"object"}},
+				{Name: "metas", DataType: []string{"object[]"}},
+			},
+		},
+		{
+			name:              "already-qualified own-namespace rejected",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			wantErrSubstr:     "not a valid class name",
+		},
+		{
+			name:              "already-qualified foreign-namespace rejected",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer2:Movies"}}},
+			wantErrSubstr:     "not a valid class name",
+		},
+		{
+			name:              "global principal passes through",
+			principal:         globalPrincipal,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+		},
+		{
+			name:              "nil principal passes through",
+			principal:         nil,
+			namespacesEnabled: true,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+		},
+		{
+			name:              "NS disabled passes through",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: false,
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+		},
+		{
+			name:              "empty DataType slice and nil property no-op",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in: []*models.Property{
+				nil,
+				{Name: "empty", DataType: []string{}},
+				{Name: "watched", DataType: []string{"Movies"}},
+			},
+			want: []*models.Property{
+				nil,
+				{Name: "empty", DataType: []string{}},
+				{Name: "watched", DataType: []string{"customer1:Movies"}},
+			},
+		},
+		{
+			name:              "mixed primitive and ref in same call",
+			principal:         namespacedPrincipal,
+			namespacesEnabled: true,
+			in: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+				{Name: "watched", DataType: []string{"Movies"}},
+			},
+			want: []*models.Property{
+				{Name: "title", DataType: []string{"text"}},
+				{Name: "watched", DataType: []string{"customer1:Movies"}},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := QualifyPropertyDataTypes(tc.principal, tc.namespacesEnabled, tc.in)
+			if tc.wantErrSubstr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrSubstr)
+				return
+			}
+			require.NoError(t, err)
+			// Mutation in-place is intentional — assert via the input slice.
+			assert.Equal(t, tc.want, tc.in)
 		})
 	}
 }
@@ -555,7 +690,7 @@ func TestStripPropertyResponse(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			snapshot := tc.in
+			snapshot := deepCopyJSON(t, tc.in)
 			got := StripPropertyResponse(tc.principal, tc.in)
 			assert.Equal(t, tc.want, got)
 			if tc.wantSame {
@@ -563,7 +698,7 @@ func TestStripPropertyResponse(t *testing.T) {
 			} else if tc.in != nil {
 				assert.NotSame(t, tc.in, got)
 			}
-			assert.Equal(t, snapshot, tc.in)
+			assert.Equal(t, snapshot, tc.in, "input must not be mutated")
 		})
 	}
 }
@@ -605,7 +740,7 @@ func TestStripAliasResponse(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			snapshot := tc.in
+			snapshot := deepCopyJSON(t, tc.in)
 			got := StripAliasResponse(tc.principal, tc.in)
 			assert.Equal(t, tc.want, got)
 			if tc.wantSame {
@@ -613,7 +748,7 @@ func TestStripAliasResponse(t *testing.T) {
 			} else if tc.in != nil {
 				assert.NotSame(t, tc.in, got)
 			}
-			assert.Equal(t, snapshot, tc.in)
+			assert.Equal(t, snapshot, tc.in, "input must not be mutated")
 		})
 	}
 }
