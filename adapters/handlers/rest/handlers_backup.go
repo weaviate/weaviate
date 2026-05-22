@@ -14,7 +14,6 @@ package rest
 import (
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
@@ -44,12 +43,7 @@ func (s *backupHandlers) isRequestFromRootUser(principal *models.Principal) bool
 	if principal == nil {
 		return false
 	}
-	for _, groupName := range principal.Groups {
-		if slices.Contains(s.rbacConfig.RootGroups, groupName) {
-			return true
-		}
-	}
-	return slices.Contains(s.rbacConfig.RootUsers, principal.Username)
+	return s.rbacConfig.IsRootUser(principal.Username, principal.Groups)
 }
 
 // compressionFromBCfg transforms model backup config to a backup compression config
