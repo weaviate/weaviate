@@ -68,6 +68,12 @@ func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 	// DeleteUser revokes all bindings on cleanup, so no explicit revoke is needed.
 	helper.AssignRoleToUser(t, adminKey, authorization.Admin, ns+":"+userID)
 
+	// AssignRoleToUser returns once the leader applies the binding; the follower
+	// the test client talks to may still be replicating it. Wait until the role
+	// is locally visible so the caller's next request can't race that
+	// replication and get a spurious 403.
+	helper.WaitForOwnRole(t, apikey, authorization.Admin)
+
 	return apikey
 }
 

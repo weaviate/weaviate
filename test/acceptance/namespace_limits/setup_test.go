@@ -104,5 +104,12 @@ func createNamespacedUser(t *testing.T, userID, ns string) string {
 	// still fires. DeleteUser revokes all bindings on cleanup.
 	helper.AssignRoleToUser(t, adminKey, authorization.Admin, ns+":"+userID)
 
+	// AssignRoleToUser returns once the leader applies the binding; the follower
+	// the test client talks to may still be replicating it. Tests that create a
+	// class immediately after this helper would otherwise race that replication
+	// and get a spurious create_collections 403, so wait until the role is
+	// locally visible before returning.
+	helper.WaitForOwnRole(t, apikey, authorization.Admin)
+
 	return apikey
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
@@ -232,6 +233,29 @@ func CreateRoleAndAssign(t *testing.T, adminKey, userName, roleName string, perm
 		RevokeRoleFromUser(t, adminKey, roleName, userName)
 		DeleteRole(t, adminKey, roleName)
 	})
+}
+
+// WaitForOwnRole polls GetOwnInfo with the caller's own apikey until roleName
+// appears in its roles. AssignRoleToUser returns once the RAFT leader applies
+// the binding, but the follower the test client talks to may still be
+// replicating it. The caller's next authorized request reads that follower's
+// local RBAC state, and GetOwnInfo reads the same state — so gating on it
+// prevents a request issued immediately after AssignRoleToUser from racing
+// replication and getting a spurious 403.
+func WaitForOwnRole(t *testing.T, apikey, roleName string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(apikey))
+		if !assert.NoError(c, err) {
+			return
+		}
+		for _, role := range resp.Payload.Roles {
+			if role != nil && role.Name != nil && *role.Name == roleName {
+				return
+			}
+		}
+		assert.Fail(c, "role not yet locally visible", "role %q not in own-info roles", roleName)
+	}, 10*time.Second, 50*time.Millisecond, "role %q binding did not become locally visible via GetOwnInfo", roleName)
 }
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {
