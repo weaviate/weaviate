@@ -63,6 +63,14 @@ func TestMain(m *testing.M) {
 		WithNamespaces().
 		WithMCP().
 		WithOffloadS3("offloading", "us-west-1").
+		// backup-s3 + export share the MinIO sidecar; the "backups" bucket backs
+		// both. REPLICA_MOVEMENT_ENABLED ensures the Replicate handler reaches the
+		// auth check (it 501s before authz when movement is off), so the RBAC deny
+		// in rbac_surfaces_test.go is observable.
+		WithBackendS3("backups", "us-west-1").
+		WithWeaviateEnv("EXPORT_ENABLED", "true").
+		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", "backups").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)
