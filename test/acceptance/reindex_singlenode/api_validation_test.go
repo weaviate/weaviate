@@ -139,19 +139,19 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		{
 			name:       "unknown collection",
 			collection: "DoesNotExist", property: "text_word",
-			body:       `{"searchable":{"rebuild":true}}`,
+			body:       `{"searchable":{"algorithm":"blockmax"}}`,
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "unknown property",
 			collection: stClass, property: "nope",
-			body:       `{"searchable":{"rebuild":true}}`,
+			body:       `{"searchable":{"algorithm":"blockmax"}}`,
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "tenants on single-tenant collection",
 			collection: stClass, property: "text_word",
-			body:        `{"searchable":{"rebuild":true}}`,
+			body:        `{"searchable":{"algorithm":"blockmax"}}`,
 			tenantsQS:   "?tenants=t1",
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "multi-tenant",
@@ -159,7 +159,7 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		{
 			name:       "tenants= empty value treated as nonexistent",
 			collection: mtClass, property: "text_word",
-			body:        `{"searchable":{"rebuild":true}}`,
+			body:        `{"searchable":{"algorithm":"blockmax"}}`,
 			tenantsQS:   "?tenants=nonexistent_tenant_xyz",
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "does not exist",
@@ -221,9 +221,9 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			wantBodyHas: "invalid tokenization",
 		},
 		{
-			name:       "searchable.rebuild on property with no searchable index",
+			name:       "searchable.algorithm:blockmax on property with no searchable index",
 			collection: stClass, property: "text_unindexed",
-			body:        `{"searchable":{"rebuild":true}}`,
+			body:        `{"searchable":{"algorithm":"blockmax"}}`,
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "does not have a searchable index",
 		},

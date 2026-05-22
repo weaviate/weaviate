@@ -12,8 +12,6 @@
 package db
 
 import (
-	"time"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -34,38 +32,14 @@ func NewRuntimeEnableSearchableTask(
 	tokenization string,
 	generation int,
 ) *ShardReindexTaskGeneric {
-	strategy := &EnableSearchableStrategy{
-		propNames:    propNames,
-		tokenization: tokenization,
-		generation:   generation,
-	}
-
-	selectedProps := make(map[string]struct{}, len(propNames))
-	for _, p := range propNames {
-		selectedProps[p] = struct{}{}
-	}
-
-	cfg := reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
-		concurrency:                   2,
-		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
-		processingDuration:            10 * time.Minute,
-		pauseDuration:                 1 * time.Second,
-		checkProcessingEveryNoObjects: 1000,
-
-		selectionEnabled: true,
-		selectedPropsByCollection: map[string]map[string]struct{}{
-			collectionName: selectedProps,
-		},
-		selectedShardsByCollection: map[string]map[string]struct{}{
-			collectionName: nil, // nil = all shards
-		},
-	}
-
 	return NewShardReindexTaskGeneric(
-		"EnableSearchable", logger, strategy, cfg,
+		"EnableSearchable", logger,
+		&EnableSearchableStrategy{
+			propNames:    propNames,
+			tokenization: tokenization,
+			generation:   generation,
+		},
+		blockmaxSearchableTaskConfig(propNames, collectionName),
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
 }

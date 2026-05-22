@@ -102,7 +102,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationI
 	// that produces the bucket↔schema inversion family, so this
 	// helper should NOT emit operator guidance for them.
 	for _, mt := range []ReindexMigrationType{
-		ReindexTypeRepairSearchable,
+		ReindexTypeChangeAlgorithm,
 		ReindexTypeRepairFilterable,
 		ReindexTypeRepairRangeable,
 	} {

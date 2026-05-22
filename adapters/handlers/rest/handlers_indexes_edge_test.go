@@ -535,7 +535,7 @@ func TestMergeReindexStatus_EmptyProperties_RepairAlsoMatchesNothing(t *testing.
 	task := buildTask(t, "C:repair-searchable::abcd",
 		distributedtask.TaskStatusStarted,
 		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeRepairSearchable,
+			MigrationType: db.ReindexTypeChangeAlgorithm,
 			Collection:    "C",
 			Properties:    nil, // empty — previously matched every property
 		},
@@ -642,7 +642,7 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 			task := buildTask(t, "C:repair-searchable:foo:abcd",
 				tt.taskStatus,
 				db.ReindexTaskPayload{
-					MigrationType: db.ReindexTypeRepairSearchable,
+					MigrationType: db.ReindexTypeChangeAlgorithm,
 					Collection:    "C",
 					Properties:    []string{"foo"},
 				},

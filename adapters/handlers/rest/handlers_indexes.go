@@ -337,12 +337,39 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 
 	case body.Searchable != nil && body.Searchable.Rebuild:
-		migrationType = db.ReindexTypeRepairSearchable
-		properties = []string{propertyName}
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
 		}
+		// rebuild preserves the current BM25 algorithm and tokenization.
+		// WAND searchable indexes cannot be rebuilt — the only supported
+		// next step for them is migration to BlockMax via
+		// {"searchable":{"algorithm":"blockmax"}}.
+		if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
+				"cannot rebuild a WAND searchable index — WAND is deprecated; use {\"searchable\":{\"algorithm\":\"blockmax\"}} to migrate first"))
+		}
+		migrationType = db.ReindexTypeRebuildSearchable
+		properties = []string{propertyName}
+
+	case body.Searchable != nil && body.Searchable.Algorithm != "":
+		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
+				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
+		}
+		// Case-insensitive match — swagger generated EnumCase validator
+		// is permissive here, so accept "Blockmax" / "BLOCKMAX" too.
+		if !strings.EqualFold(body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax) {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
+				fmt.Sprintf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
+					body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax)))
+		}
+		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
+				"searchable index is already on blockmax"))
+		}
+		migrationType = db.ReindexTypeChangeAlgorithm
+		properties = []string{propertyName}
 
 	case body.Filterable != nil && body.Filterable.Enabled:
 		migrationType = db.ReindexTypeEnableFilterable
@@ -384,7 +411,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// then alphabetical within group.
 		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 			"no actionable change detected; set one of: "+
-				"searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, "+
+				"searchable.algorithm, searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, "+
 				"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, "+
 				"rangeable.cancel, rangeable.enabled, rangeable.rebuild"))
 	}
@@ -801,7 +828,7 @@ const (
 // directories and unloaded buckets are silently skipped.
 func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeRepairSearchable:
+	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
 		return []string{"searchable"}, true
 	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
 		return []string{"filterable"}, true
@@ -832,7 +859,7 @@ func indexTypesFromMigrationType(mt db.ReindexMigrationType) ([]string, bool) {
 // (false, false) result still means "this task is not a cancel target".
 func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (matches, isKnown bool) {
 	switch mt {
-	case db.ReindexTypeEnableSearchable, db.ReindexTypeRepairSearchable:
+	case db.ReindexTypeEnableSearchable, db.ReindexTypeChangeAlgorithm, db.ReindexTypeRebuildSearchable:
 		return indexType == "searchable", true
 	case db.ReindexTypeEnableFilterable, db.ReindexTypeRepairFilterable:
 		return indexType == "filterable", true
@@ -1078,14 +1105,13 @@ func mergeReindexStatus(idx *models.IndexStatus, collection, propName, indexType
 		if bestPayload.TargetTokenization != "" {
 			idx.TargetTokenization = bestPayload.TargetTokenization
 		}
-	case db.ReindexTypeRepairSearchable:
-		// repair-searchable today always migrates WAND -> Block Max WAND.
-		// Surfacing the targetAlgorithm lets the UI render the in-flight
-		// algorithm switch the same way it renders targetTokenization for
-		// change-tokenization. The reverse direction is not yet supported;
-		// see the docs on IndexUpdateSearchable.rebuild.
+	case db.ReindexTypeChangeAlgorithm:
+		// repair-searchable migrates WAND → BlockMax. The targetAlgorithm
+		// lets the UI render the in-flight switch the same way it renders
+		// targetTokenization for change-tokenization.
 		idx.TargetAlgorithm = models.IndexStatusTargetAlgorithmBlockmax
-	case db.ReindexTypeRepairFilterable,
+	case db.ReindexTypeRebuildSearchable,
+		db.ReindexTypeRepairFilterable,
 		db.ReindexTypeEnableFilterable, db.ReindexTypeEnableRangeable,
 		db.ReindexTypeRepairRangeable:
 		// No tokenization or algorithm side effects for these types.

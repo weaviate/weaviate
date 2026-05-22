@@ -28,18 +28,29 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-// start3NodeReindexCluster spins up a 3-node cluster with DTM enabled and the
-// reindex provider automatically registered.
-func start3NodeReindexCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
+// start3NodeReindexCluster spins up a 3-node cluster with DTM enabled
+// and the reindex provider automatically registered. Optional
+// `extraEnv` pairs (key, value, key, value, …) are applied on top so a
+// test that needs e.g. USE_INVERTED_SEARCHABLE=false can opt in without
+// changing the package-wide default — tests that exercise BlockMax-
+// based code paths (change-tokenization, etc.) keep the production
+// default.
+func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...string) (*docker.DockerCompose, func()) {
 	t.Helper()
+	if len(extraEnv)%2 != 0 {
+		t.Fatalf("start3NodeReindexCluster: extraEnv must be (key,value) pairs, got %d items", len(extraEnv))
+	}
 
-	compose, err := docker.New().
+	b := docker.New().
 		With3NodeCluster().
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
-		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false").
-		Start(ctx)
+		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false")
+	for i := 0; i < len(extraEnv); i += 2 {
+		b = b.WithWeaviateEnv(extraEnv[i], extraEnv[i+1])
+	}
+	compose, err := b.Start(ctx)
 	if err != nil {
 		if compose != nil {
 			dumpStartupLogs(ctx, t, compose)

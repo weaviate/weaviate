@@ -179,7 +179,10 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 		baselines[q] = results
 	}
 
-	// Complete a reindex.
+	// Complete a reindex. Use rebuild-from-objects so the test can run
+	// on the default (BlockMax) cluster — RollingRestartAfterComplete
+	// is testing post-complete rolling restart, not the specific
+	// algorithm-switch path.
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
 
