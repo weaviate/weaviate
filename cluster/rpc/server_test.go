@@ -478,7 +478,6 @@ func (m *MockMembers) Leader() string {
 type MockExecutor struct {
 	ef func() error
 	qf func(*cmd.QueryRequest) (*cmd.QueryResponse, error)
-	wf func(version uint64) (uint64, error)
 }
 
 func (m *MockExecutor) Execute(_ context.Context, cmd *cmd.ApplyRequest) (uint64, error) {
@@ -493,11 +492,4 @@ func (m *MockExecutor) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.Q
 		return m.qf(req)
 	}
 	return &cmd.QueryResponse{}, nil
-}
-
-func (m *MockExecutor) WaitForAppliedIndex(_ context.Context, version uint64) (uint64, error) {
-	if m.wf != nil {
-		return m.wf(version)
-	}
-	return version, nil
 }

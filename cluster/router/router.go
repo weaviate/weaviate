@@ -192,6 +192,7 @@ func (r *singleTenantRouter) AllHostnames() []string {
 	return r.nodeSelector.AllHostnames()
 }
 
+// GetReadWriteReplicasLocation returns read and write replicas for single-tenant collections.
 func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
@@ -433,6 +434,7 @@ func (r *multiTenantRouter) AllHostnames() []string {
 	return r.nodeSelector.AllHostnames()
 }
 
+// GetReadWriteReplicasLocation returns read and write replicas for multi-tenant collections.
 func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
 	shard = tenantShard(shard, tenant)
 	if err := r.validateTenant(tenant); err != nil {
