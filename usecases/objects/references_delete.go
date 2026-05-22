@@ -130,6 +130,20 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
+	// Apply the same cross-namespace policy as the write paths: admin
+	// must address the source's namespace (or omit the prefix), and
+	// namespaced principals cannot send qualified beacons at all. Without
+	// this, removeReference's short-class match would silently match a
+	// same-UUID ref under the wrong namespace prefix on the supplied beacon.
+	if beacon.Class != "" {
+		qualifiedTarget, _, err := namespacing.QualifyRefTarget(
+			principal, m.config.Config.Namespaces.Enabled, input.Class, beacon.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		beacon.Class = qualifiedTarget
+	}
+
 	if err := input.validateSchema(class); err != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}

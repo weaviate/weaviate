@@ -315,6 +315,46 @@ func TestNamespaces_References(t *testing.T) {
 			"stored beacon for the surviving local ref should still be short")
 	})
 
+	t.Run("admin delete with foreign-NS qualified beacon must not silently match by short class", func(t *testing.T) {
+		// Defense against the admin foot-gun in removeReference: the
+		// short-class-on-both-sides match would otherwise accept
+		// "weaviate://localhost/customer2:Animal/<uuid>" against a stored
+		// "weaviate://localhost/Animal/<uuid>" (both strip to "Animal")
+		// and delete the customer1:Animal ref. QualifyRefTarget enforces
+		// "admin's qualified prefix must match the source's namespace"
+		// for the same reason the four write paths do.
+		zooID, animalID, foreignAnimalID := newID(), newID(), newID()
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z-admin-foreign-del"})
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "local"})
+		createIn(t, user2Key, "Animal", foreignAnimalID, map[string]any{"name": "foreign"})
+
+		// Seed: customer1:Zoo → customer1:Animal/animalID
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(animalID))},
+			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		// Admin DELETE on customer1:Zoo with a customer2-prefixed target
+		// against the LOCAL animalID. Without the cross-NS gate, both
+		// classes strip to "Animal" and the UUID matches, so the local
+		// ref would silently be deleted. Expect 422.
+		_, err = helper.DeleteReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/customer2:Animal/" + string(animalID))},
+			zooID, "customer1:Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
+		require.Error(t, err,
+			"admin foreign-NS delete must be rejected even when the short class + UUID would match locally")
+
+		// State unchanged: the local ref is still there.
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.Len(t, refs, 1, "admin foreign-NS delete must not have removed the local ref")
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t,
+			"weaviate://localhost/Animal/"+string(animalID), beaconStr,
+			"local ref must still resolve to the same short beacon")
+	})
+
 	t.Run("global admin reads object via qualified class", func(t *testing.T) {
 		zooID := newID()
 		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "admin-view"})
