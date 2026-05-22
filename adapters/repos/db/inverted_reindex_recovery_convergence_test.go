@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -210,5 +211,226 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 		docIDs, ok := fp[tok]
 		require.Truef(t, ok, "baseline fingerprint missing token %q (post-migration bucket should contain every dictionary word)", tok)
 		require.NotEmptyf(t, docIDs, "baseline fingerprint token %q has no docIDs (posting list is empty)", tok)
+	}
+}
+
+// computeBaselineFingerprint runs a clean migration on a throw-away
+// shard and returns its post-migration fingerprint. Used by every
+// recovery-from-state case as ground truth.
+func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) map[string][]uint64 {
+	t.Helper()
+	ctx := testCtx()
+	className := "ConvergenceBaselineRef_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{propName})
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	task := newTestTask(idx.logger, strategy)
+	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+	for {
+		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		require.NoError(t, err)
+		if rerunAt.IsZero() {
+			break
+		}
+	}
+	require.True(t, strategy.migrationCompleted)
+
+	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	return fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
+}
+
+// recoveryConvergenceCase describes one row in the cross-product test.
+// driveToState moves the shard to the on-disk state a crashed replica
+// could land in; the test then constructs a fresh task instance and
+// asserts that recovery converges to the baseline fingerprint.
+type recoveryConvergenceCase struct {
+	name         string
+	driveToState func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
+	// expectedPostState describes which sentinels MUST be set on disk
+	// after driveToState (and only those). Catches a driveToState
+	// that doesn't actually halt at the intended state.
+	expectedPostStateSentinels map[string]bool
+}
+
+// TestRecoveryConvergence_FromEachState pins the #240 Symptom B
+// invariant: from any on-disk state a replica could land in after a
+// mid-migration restart, the recovery code path converges on bucket
+// content bit-equivalent to the clean baseline run.
+//
+// Each row stages a specific on-disk state via driveToState, then a
+// fresh task instance simulates restart and drives recovery to
+// completion. The final searchable bucket's (term -> sorted []docID)
+// fingerprint must equal the baseline.
+//
+// Coverage in this commit:
+//   - IsReindexed via skipSwapOnFinish (the barrier-path mode where
+//     OnAfterLsmInitAsync halts after markReindexed without proceeding
+//     to runtimePrepare/runtimeSwap). The default branch in
+//     RunSwapOnShard must converge.
+//   - IsTidied via full clean migration (no-op recovery on a fully
+//     terminal state). Catches regressions where RunSwapOnShard on
+//     IsTidied does the wrong thing.
+//
+// Coverage NOT in this commit (deferred to follow-up because they
+// require either runtimePrepare/runtimeSwap to be split into
+// separately-callable phases, or production-side test hooks):
+//   - IsPrepended (markPrepended set, markMerged not)
+//   - IsMerged (markMerged set, markSwapped not) - reachable via
+//     calling task.runtimePrepare directly but markPrepended +
+//     markMerged are set together by that call
+//   - IsSwapped (markSwapped set, markTidied not) - inside the
+//     atomic runtimeSwap call
+func TestRecoveryConvergence_FromEachState(t *testing.T) {
+	const propName = "title"
+	const numObjects = 25
+
+	baseline := computeBaselineFingerprint(t, propName, numObjects)
+	require.NotEmpty(t, baseline, "baseline fingerprint must be non-empty")
+
+	cases := []recoveryConvergenceCase{
+		{
+			name: "IsReindexed_via_skipSwapOnFinish",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				task.skipSwapOnFinish.Store(true)
+				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+				for {
+					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					require.NoError(t, err)
+					if rerunAt.IsZero() {
+						break
+					}
+				}
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true,
+				"prepended": false,
+				"merged":    false,
+				"swapped":   false,
+				"tidied":    false,
+			},
+		},
+		{
+			name: "IsTidied_full_migration",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
+				for {
+					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+					require.NoError(t, err)
+					if rerunAt.IsZero() {
+						break
+					}
+				}
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true,
+				"prepended": true,
+				"merged":    true,
+				"swapped":   true,
+				"tidied":    true,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "ConvergenceCase_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{propName})
+
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			// Phase 1: drive the migration to the case-specific state
+			// using the production code path.
+			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+			task := newTestTask(idx.logger, strategy)
+			tc.driveToState(t, ctx, shard, task)
+
+			// Verify the driveToState actually halted at the intended
+			// sentinel state.
+			rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+			actualSentinels := map[string]bool{
+				"reindexed": rt.IsReindexed(),
+				"prepended": rt.IsPrepended(),
+				"merged":    rt.IsMerged(),
+				"swapped":   rt.IsSwapped(),
+				"tidied":    rt.IsTidied(),
+			}
+			for name, want := range tc.expectedPostStateSentinels {
+				assert.Equalf(t, want, actualSentinels[name],
+					"after driveToState, sentinel %q expected=%v got=%v (case %q)",
+					name, want, actualSentinels[name], tc.name)
+			}
+
+			// Phase 2: simulate restart — full shutdown + shard re-init
+			// + fresh task. This is the real-world restart sequence:
+			// shard_init runs FinalizeCompletedMigrations, then
+			// OnBeforeLsmInit, then LSM init, then OnAfterLsmInit, then
+			// OnAfterLsmInitAsync loop on the background scheduler.
+			shardName := shard.Name()
+			require.NoError(t, shard.Shutdown(ctx))
+
+			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+			task2 := newTestTask(idx.logger, strategy2)
+			task2.skipSwapOnFinish.Store(false)
+			idx.shardReindexer = &testShardReindexer{task: task2}
+
+			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
+			shard2 := shd2.(*Shard)
+			defer shard2.Shutdown(ctx)
+			idx.shards.Store(shardName, shd2)
+
+			// Drive the async loop to completion in case recovery is
+			// only partially handled by OnBeforeLsmInit + OnAfterLsmInit.
+			for {
+				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+				require.NoError(t, err,
+					"recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
+				if rerunAt.IsZero() {
+					break
+				}
+			}
+
+			// Phase 3: convergence check against baseline fingerprint.
+			bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+			bucket := shard2.store.Bucket(bucketName)
+			require.NotNil(t, bucket, "post-recovery searchable bucket must exist (case %q)", tc.name)
+			require.Equal(t, lsmkv.StrategyInverted, bucket.Strategy(),
+				"post-recovery searchable bucket must be StrategyInverted (case %q)", tc.name)
+
+			got := fingerprintInvertedBucket(t, bucket)
+
+			// Catch divergence at term granularity for actionable
+			// failure output (which token has the wrong posting list).
+			assert.Equalf(t, len(baseline), len(got),
+				"post-recovery term count diverges from baseline (case %q)", tc.name)
+			for term, expectedIDs := range baseline {
+				gotIDs, ok := got[term]
+				if !ok {
+					assert.Failf(t, "missing term",
+						"term %q present in baseline but missing post-recovery (case %q)", term, tc.name)
+					continue
+				}
+				assert.Equalf(t, expectedIDs, gotIDs,
+					"term %q post-recovery doc-id list diverges from baseline (case %q)\n  baseline (%d): %v\n  got      (%d): %v",
+					term, tc.name, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
+			}
+		})
 	}
 }
