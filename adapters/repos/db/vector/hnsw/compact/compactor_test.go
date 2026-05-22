@@ -27,7 +27,7 @@ func TestCompactor_EmptyDirectory(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 
 	config := DefaultCompactorConfig(dir)
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	action, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
@@ -43,7 +43,7 @@ func TestCompactor_OnlyLiveFile(t *testing.T) {
 	createEmptyFile(t, dir, "1000")
 
 	config := DefaultCompactorConfig(dir)
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	action, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestCompactor_CleanupTempFiles(t *testing.T) {
 	createEmptyFile(t, dir, "3000")
 
 	config := DefaultCompactorConfig(dir)
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	_, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
@@ -83,7 +83,7 @@ func TestCompactor_CleanupTempFiles(t *testing.T) {
 func TestCompactor_DecideAction_NoSnapshot(t *testing.T) {
 	logger := logrus.New()
 	config := DefaultCompactorConfig("/tmp")
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	tests := []struct {
 		name     string
@@ -134,7 +134,7 @@ func TestCompactor_DecideAction_WithSnapshot(t *testing.T) {
 	logger := logrus.New()
 	config := DefaultCompactorConfig("/tmp")
 	config.SnapshotThreshold = 0.20
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	tests := []struct {
 		name     string
@@ -203,7 +203,7 @@ func TestCompactor_ResolveOverlaps(t *testing.T) {
 	createEmptyFile(t, dir, "10")
 
 	config := DefaultCompactorConfig(dir)
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	_, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
@@ -230,7 +230,7 @@ func TestCompactor_ConvertRawToSorted(t *testing.T) {
 	createEmptyFile(t, dir, "2000")
 
 	config := DefaultCompactorConfig(dir)
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	action, err := compactor.RunCycle(nil)
 	require.NoError(t, err)
@@ -267,7 +267,7 @@ func TestNewCompactor_AppliesDefaults(t *testing.T) {
 
 	// Test with zero values
 	config := CompactorConfig{Dir: "/tmp"}
-	compactor := NewCompactor(config, logger)
+	compactor := NewCompactor(config, logger, nil)
 
 	assert.Equal(t, 5, compactor.config.MaxFilesPerMerge)
 	assert.Equal(t, 0.20, compactor.config.SnapshotThreshold)

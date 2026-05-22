@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 const defaultCommitLogSize = 500 * 1024 * 1024
@@ -58,6 +59,7 @@ type hnswCommitLogger struct {
 
 	// Config
 	maxSizeIndividual int64
+	allocChecker      memwatch.AllocChecker
 }
 
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
@@ -110,7 +112,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	// Create compactor for maintenance
 	compactorCfg := compact.DefaultCompactorConfig(dir)
 	compactorCfg.FS = l.fs
-	l.compactor = compact.NewCompactor(compactorCfg, logger)
+	l.compactor = compact.NewCompactor(compactorCfg, logger, l.allocChecker)
 
 	return l, nil
 }

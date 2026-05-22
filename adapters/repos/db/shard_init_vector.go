@@ -122,6 +122,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					allOpts := append([]hnsw.CommitlogOption{
 						// consistent with previous logic where the individual limit is 1/5 of the combined limit
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
+						hnsw.WithAllocChecker(s.index.allocChecker),
 					}, opts...)
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -207,6 +208,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				allOpts := append([]hnsw.CommitlogOption{
 					// consistent with previous logic where the individual limit is 1/5 of the combined limit
 					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
+					hnsw.WithAllocChecker(s.index.allocChecker),
 				}, opts...)
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -273,6 +275,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						allOpts := append([]hnsw.CommitlogOption{
 							// consistent with previous logic where the individual limit is 1/5 of the combined limit
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
+							hnsw.WithAllocChecker(s.index.allocChecker),
 						}, opts...)
 						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,

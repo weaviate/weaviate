@@ -142,7 +142,7 @@ func main() {
 	startStep3 := time.Now()
 
 	config := compact.DefaultCompactorConfig(workingDir)
-	compactor := compact.NewCompactor(config, logger)
+	compactor := compact.NewCompactor(config, logger, nil)
 
 	cycleCount := 0
 	maxCycles := 20 // Safety limit to prevent infinite loops

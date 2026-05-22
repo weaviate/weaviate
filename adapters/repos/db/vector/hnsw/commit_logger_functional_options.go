@@ -11,13 +11,23 @@
 
 package hnsw
 
-import "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+import (
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+)
 
 type CommitlogOption func(l *hnswCommitLogger) error
 
 func WithCommitlogThreshold(size int64) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
 		l.maxSizeIndividual = size
+		return nil
+	}
+}
+
+func WithAllocChecker(ac memwatch.AllocChecker) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.allocChecker = ac
 		return nil
 	}
 }
