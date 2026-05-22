@@ -676,6 +676,108 @@ func (h *testHarness) startScheduler(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 }
 
+// TestScheduler_Close_WaitsForLoopExit pins the synchronisation
+// contract Close() owes its callers: when Close returns, no
+// background tick is still in flight. Without the loopDone barrier
+// an in-flight tick can land a RAFT apply (StartTask /
+// MarkDistributedTaskFinalized) AFTER the caller has started tearing
+// down DB / schema, racing with shutdown and producing the same
+// family of bug SchemaMutationDetector exists to catch.
+//
+// Repro shape: tick()'s first step is listTasks(), which is called
+// BEFORE the tick acquires s.mu — so a tick stuck inside listTasks
+// does not block a concurrent Close() on s.mu. Inject a TaskLister
+// that blocks on a release channel. Without loopDone, Close()
+// returns while tick() is still inside listTasks.
+func TestScheduler_Close_WaitsForLoopExit(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	lister := &blockingTaskLister{
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+
+	h := newTestHarness(t).init(t)
+	h.scheduler = NewScheduler(SchedulerParams{
+		CompletionRecorder: h.completionRecorder,
+		TaskLister:         lister,
+		TaskCleaner:        h.cleaner,
+		TaskFinalizer:      newDirectFinalizer(t, h.manager),
+		Providers:          h.registeredProviders,
+		Clock:              h.clock,
+		Logger:             h.logger,
+		MetricsRegisterer:  monitoring.NoopRegisterer,
+		LocalNode:          h.localNodeID,
+		CompletedTaskTTL:   h.completedTaskTTL,
+		TickInterval:       h.schedulerTickInterval,
+	})
+	h.startScheduler(t)
+
+	// Wake the loop so a tick fires now and lands inside listTasks.
+	h.scheduler.Wake()
+
+	select {
+	case <-lister.entered:
+	case <-time.After(5 * time.Second):
+		close(lister.release)
+		t.Fatal("lister.ListDistributedTasks was not entered within 5s; harness drift")
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		h.scheduler.Close()
+		close(closed)
+	}()
+
+	// Bug shape: Close returns while listTasks (and therefore tick)
+	// is still in flight, because nothing waits for the loop goroutine
+	// to exit. With the loopDone barrier Close MUST block until
+	// listTasks releases and the loop's next select sees stopCh.
+	select {
+	case <-closed:
+		close(lister.release)
+		t.Fatal("Scheduler.Close returned while a tick was mid-listTasks — caller would race with DB/schema teardown")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(lister.release)
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Scheduler.Close did not return after releasing the in-flight tick")
+	}
+}
+
+// blockingTaskLister is a minimal TaskLister whose
+// ListDistributedTasks returns immediately on the first call (so the
+// scheduler's Start-time bootstrap can complete) and then blocks every
+// subsequent call until `release` closes. Used by
+// TestScheduler_Close_WaitsForLoopExit to hold a tick mid-flight in
+// the pre-mu code path.
+type blockingTaskLister struct {
+	calls   atomic.Int32
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (l *blockingTaskLister) ListDistributedTasks(ctx context.Context) (map[string][]*Task, error) {
+	if l.calls.Add(1) == 1 {
+		// First call is the Start-time bootstrap. Let it through so
+		// the scheduler starts cleanly; the test arms the block on
+		// subsequent calls (the actual tick we want to hold).
+		return map[string][]*Task{}, nil
+	}
+	select {
+	case l.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-l.release:
+	case <-ctx.Done():
+	}
+	return map[string][]*Task{}, nil
+}
+
 func (h *testHarness) listManagerTasks(t *testing.T) map[string][]*Task {
 	tasks, err := h.manager.ListDistributedTasks(context.Background())
 	require.NoError(t, err)

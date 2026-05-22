@@ -94,6 +94,17 @@ type Scheduler struct {
 
 	stopCh chan struct{}
 
+	// loopDone is closed by the run loop just before it exits. Close()
+	// blocks on it after closing stopCh so an in-flight tick (which may
+	// be mid-RAFT-apply via provider.StartTask /
+	// MarkDistributedTaskFinalized) finishes before the caller proceeds
+	// to tear down DB / schema. Without this barrier the scheduler can
+	// race with cluster shutdown: stopCh closes → Close returns to the
+	// caller → caller starts shutting the schema manager / DB down →
+	// the previous tick's RAFT round-trip lands and operates on an
+	// already-half-torn-down node.
+	loopDone chan struct{}
+
 	// wakeCh signals the run loop to fire a scheduling cycle immediately
 	// instead of waiting for the next periodic tick. Sized 1 so concurrent
 	// callers coalesce — a pending wake-up is equivalent to any number of
@@ -169,6 +180,10 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 
 		stopCh: make(chan struct{}),
 		wakeCh: make(chan struct{}, 1),
+		// loopDone is created in Start(), not here, so Close() called
+		// before Start() (or against a never-started Scheduler — a
+		// pattern the test harness relies on) does not deadlock on a
+		// channel no goroutine will ever close.
 	}
 }
 
@@ -213,6 +228,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		s.bootstrapProviders(tasksByNamespace)
 	}
 
+	s.loopDone = make(chan struct{})
 	enterrors.GoWrapper(s.loop, s.logger)
 
 	return nil
@@ -394,6 +410,12 @@ func filterTasks(tasks map[TaskDescriptor]*Task, predicate func(task *Task) bool
 }
 
 func (s *Scheduler) loop() {
+	// close(loopDone) is the synchronisation point Close() waits on so
+	// the caller's subsequent shutdown of DB / schema does not race
+	// with an in-flight tick's RAFT round-trip. Deferred so a panic
+	// inside tick() still releases Close().
+	defer close(s.loopDone)
+
 	ticker := s.clock.NewTicker(s.tickInterval)
 	defer ticker.Stop()
 
@@ -797,10 +819,27 @@ func (s *Scheduler) setRunningTaskHandleWithLock(namespace string, desc TaskDesc
 	s.runningTasks[namespace][desc] = handle
 }
 
-// Close stops the background tick loop and terminates all running task handles. It blocks
-// until all handles have been signalled. After Close returns, no new ticks will fire.
+// Close stops the background tick loop, waits for it to finish any
+// in-flight tick, and terminates all running task handles. After Close
+// returns, no new ticks will fire AND no previously-spawned tick is
+// still running.
+//
+// The <-loopDone barrier is load-bearing: an in-flight tick may be
+// mid-RAFT-apply (e.g. provider.StartTask, MarkDistributedTaskFinalized)
+// when stopCh closes. Without waiting on loopDone, Close would return
+// to the caller while the RAFT round-trip is still in flight; the
+// caller would then proceed to tear down DB / schema, and the late
+// apply would land on an already-half-torn-down node — racing with
+// schema mutation detectors and producing the same family of bug
+// SchemaMutationDetector was added to catch.
 func (s *Scheduler) Close() {
 	close(s.stopCh)
+	// loopDone is nil when Close runs on a never-started Scheduler
+	// (the test harness exercises this for symmetry). Only wait on it
+	// when Start actually spawned the loop.
+	if s.loopDone != nil {
+		<-s.loopDone
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

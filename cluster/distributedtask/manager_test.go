@@ -1882,3 +1882,54 @@ func TestManager_RecordPreparationCompleteAck_AckOrderCommutativity(t *testing.T
 		})
 	}
 }
+
+// TestManager_Restore_ReplacesExistingState pins the hashicorp/raft
+// FSM contract that snapshot installation REPLACES the in-memory
+// state. A follower that already applied log entries before the
+// leader sends a snapshot must end up identical to the leader after
+// Restore returns.
+//
+// Without this, any task that was applied locally but is NOT present
+// in the snapshot (typical: cancelled+pruned by the leader between
+// local apply and snapshot install) survives as a phantom on the
+// follower — the next scheduler tick observes it and fires
+// OnTaskCompleted / schema flips that no other node sees. Same bug
+// family the SchemaMutationDetector exists to catch.
+func TestManager_Restore_ReplacesExistingState(t *testing.T) {
+	now := time.Now().Truncate(time.Millisecond)
+
+	// Source manager: holds the snapshot that represents the leader's
+	// view at install time. Only "task1" exists here.
+	src := newTestHarness(t).init(t)
+	require.NoError(t, src.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns1",
+		Id:                    "task1",
+		Payload:               []byte("from-snapshot"),
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		UnitIds:               []string{"su-1"},
+	}), 1))
+	snap, err := src.manager.Snapshot()
+	require.NoError(t, err)
+
+	// Destination manager: simulates a follower that already applied
+	// "phantom" before the leader sends the snapshot. The leader
+	// doesn't know about "phantom" — it must not survive Restore.
+	dst := newTestHarness(t).init(t)
+	require.NoError(t, dst.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns2",
+		Id:                    "phantom",
+		Payload:               []byte("must-be-erased"),
+		SubmittedAtUnixMillis: now.UnixMilli(),
+		UnitIds:               []string{"su-x"},
+	}), 99))
+
+	require.NoError(t, dst.manager.Restore(snap))
+
+	tasks, err := dst.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+
+	require.Lenf(t, tasks, 1, "post-Restore namespaces must equal snapshot namespaces; phantom 'ns2' survived")
+	require.Len(t, tasks["ns1"], 1, "snapshot's ns1/task1 must be present after Restore")
+	require.Equal(t, "task1", tasks["ns1"][0].ID)
+	require.NotContains(t, tasks, "ns2", "phantom namespace must not survive Restore")
+}

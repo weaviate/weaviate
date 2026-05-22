@@ -938,6 +938,21 @@ func (m *Manager) Snapshot() ([]byte, error) {
 // Restore replaces the Manager's in-memory state from a Raft snapshot produced by
 // [Manager.Snapshot]. It is called during Raft leader election or when a follower installs
 // a snapshot from the leader.
+//
+// The hashicorp/raft FSM contract is that snapshot installation REPLACES
+// the in-memory state — not merges it. A follower that has already
+// applied N log entries before the leader sends a snapshot must look
+// identical to the leader after Restore returns. If we merged onto the
+// existing m.tasks, any task that was applied before the snapshot
+// install (and that is NOT present in the snapshot — e.g. because it
+// was cancelled and tombstone-pruned by the leader between log
+// application and snapshot install) would survive as a phantom task on
+// this follower. The next scheduler tick would observe it, fire
+// OnTaskCompleted / schema flips, and produce a state divergence the
+// SchemaMutationDetector exists specifically to prevent.
+//
+// Reset to an empty map before re-populating so the post-Restore state
+// is exactly {leader.snapshot.tasks}.
 func (m *Manager) Restore(bytes []byte) error {
 	var s snapshot
 	if err := json.Unmarshal(bytes, &s); err != nil {
@@ -947,6 +962,7 @@ func (m *Manager) Restore(bytes []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	m.tasks = make(map[string]map[string]*Task, len(s.Tasks))
 	for namespace, tasks := range s.Tasks {
 		for _, task := range tasks {
 			if _, ok := m.tasks[namespace]; !ok {
