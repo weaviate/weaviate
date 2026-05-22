@@ -52,9 +52,6 @@ const (
 	StatusPreconditionFailed
 	StatusReadOnly
 	StatusObjectNotFound
-	// Replica's local view no longer lists it as a valid write target;
-	// coords must refresh routing and re-issue.
-	StatusRouteStale
 )
 
 // Error reports error happening during replication
@@ -71,7 +68,7 @@ func (e *Error) Empty() bool {
 
 // NewError create new replication error
 func NewError(code StatusCode, msg string) *Error {
-	return &Error{Code: code, Msg: msg}
+	return &Error{code, msg, nil}
 }
 
 func (e *Error) Clone() *Error {
@@ -113,8 +110,6 @@ func StatusText(code StatusCode) string {
 		return "read only"
 	case StatusObjectNotFound:
 		return "object not found"
-	case StatusRouteStale:
-		return "route stale"
 	default:
 		return ""
 	}
