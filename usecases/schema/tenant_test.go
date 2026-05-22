@@ -589,7 +589,7 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 
 		// Tenant is in FREEZING (mid-freeze), so activateTenantIfInactive will call UpdateTenants
 		status := map[string]string{tenantName: models.TenantActivityStatusFREEZING}
-		_, _, err := m.activateTenantIfInactive(ctx, className, status, 0)
+		_, _, err := m.activateTenantIfInactive(ctx, className, status)
 
 		require.Error(t, err)
 		require.ErrorIs(t, err, clusterSchema.ErrTenantTransitionalState)
