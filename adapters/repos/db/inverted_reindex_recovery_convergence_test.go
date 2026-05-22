@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -104,6 +105,57 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 		out[term] = ids
 	}
 	return out
+}
+
+// newSearchableRetokenizeTask wraps a SearchableRetokenizeStrategy in
+// the test infrastructure. This is the strategy that #11383's
+// change-tokenization migration uses; differs from MapToBlockmax in
+// that it's a SEMANTIC migration (swap is driven via the explicit
+// Run*OnShard trio, not inline runtimeSwap).
+//
+// `targetTokenization` is the post-migration tokenization (e.g.
+// `models.PropertyTokenizationField` for word→field, which is the
+// exact change the failing acceptance test does).
+func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
+	t.Helper()
+	wrapped := &testSearchableRetokenizeStrategyWrapper{
+		SearchableRetokenizeStrategy: SearchableRetokenizeStrategy{
+			propName:           propName,
+			targetTokenization: targetTokenization,
+			className:          className,
+			bucketStrategy:     bucketStrategy,
+			generation:         1,
+		},
+	}
+	task := NewShardReindexTaskGeneric(
+		"SearchableRetokenize", idx.logger, wrapped,
+		reindexTaskConfig{
+			swapBuckets:                   true,
+			tidyBuckets:                   true,
+			concurrency:                   2,
+			memtableOptFactor:             4,
+			backupMemtableOptFactor:       1,
+			processingDuration:            10 * time.Minute,
+			pauseDuration:                 1 * time.Second,
+			checkProcessingEveryNoObjects: 1000,
+		},
+		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+	)
+	return task, wrapped
+}
+
+// testSearchableRetokenizeStrategyWrapper stubs OnMigrationComplete
+// (the real strategy is a no-op for searchable — the schema flip is
+// done by FilterableRetokenize when it runs second; we don't run that
+// here). Same pattern as testMigrationStrategy for MapToBlockmax.
+type testSearchableRetokenizeStrategyWrapper struct {
+	SearchableRetokenizeStrategy
+	migrationCompleted bool
+}
+
+func (s *testSearchableRetokenizeStrategyWrapper) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+	s.migrationCompleted = true
+	return nil
 }
 
 // makeConvergenceTestObjects builds a deterministic list of test
@@ -581,4 +633,177 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRecoveryConvergence_SearchableRetokenize_FromEachState runs the
+// same recovery cross-product as TestRecoveryConvergence_FromEachState
+// but for the SearchableRetokenize strategy — the semantic migration
+// that #11383's change-tokenization (word → field) actually uses.
+//
+// Key difference from MapToBlockmax: SearchableRetokenize is a
+// SEMANTIC migration. The swap is driven via the explicit trio
+// task.RunReindexOnlyOnShard → RunPrepareOnShard → RunSwapOnShard
+// (production caller is reindex_provider.OnGroupCompleted), not the
+// inline runtimeSwap inside OnAfterLsmInitAsync.
+func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
+	const propName = "title"
+	const numObjects = 25
+
+	baseline := computeSearchableRetokenizeBaseline(t, propName, numObjects)
+	require.NotEmpty(t, baseline, "baseline fingerprint must be non-empty")
+
+	cases := []recoveryConvergenceCase{
+		{
+			name: "Retokenize_IsReindexed_via_RunReindexOnlyOnShard",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": false, "merged": false, "swapped": false, "tidied": false,
+			},
+		},
+		{
+			name: "Retokenize_IsMerged_via_RunPrepareOnShard",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false,
+			},
+		},
+		{
+			name: "Retokenize_IsTidied_via_full_trio",
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+				require.NoError(t, task.RunSwapOnShard(ctx, shard))
+			},
+			expectedPostStateSentinels: map[string]bool{
+				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "RetokenizeCase_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{propName})
+
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+
+			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+
+			searchBucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+			preStrategy := shard.store.Bucket(searchBucketName).Strategy()
+
+			task, _ := newSearchableRetokenizeTask(t, idx, className, propName,
+				models.PropertyTokenizationField, preStrategy)
+
+			tc.driveToState(t, ctx, shard, task)
+
+			rt, err := task.newReindexTracker(shard.pathLSM())
+			require.NoError(t, err)
+			for name, want := range tc.expectedPostStateSentinels {
+				var got bool
+				switch name {
+				case "reindexed":
+					got = rt.IsReindexed()
+				case "prepended":
+					got = rt.IsPrepended()
+				case "merged":
+					got = rt.IsMerged()
+				case "swapped":
+					got = rt.IsSwapped()
+				case "tidied":
+					got = rt.IsTidied()
+				}
+				assert.Equalf(t, want, got, "after driveToState, sentinel %q (case %q)", name, tc.name)
+			}
+
+			shardName := shard.Name()
+			require.NoError(t, shard.Shutdown(ctx))
+
+			task2, _ := newSearchableRetokenizeTask(t, idx, className, propName,
+				models.PropertyTokenizationField, preStrategy)
+			idx.shardReindexer = &testShardReindexer{task: task2}
+
+			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
+			shard2 := shd2.(*Shard)
+			defer shard2.Shutdown(ctx)
+			idx.shards.Store(shardName, shd2)
+
+			for {
+				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
+				require.NoError(t, err, "recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
+				if rerunAt.IsZero() {
+					break
+				}
+			}
+			// Semantic migrations require explicit RunSwapOnShard to
+			// complete (OnGroupCompleted would do this on re-ack); the
+			// in-process OnAfterLsmInitAsync skips swap when
+			// IsReindexed is set.
+			rt2, _ := task2.newReindexTracker(shard2.pathLSM())
+			if !rt2.IsTidied() {
+				if err := task2.RunSwapOnShard(ctx, shard2); err != nil {
+					t.Logf("explicit RunSwapOnShard (case %q): %v", tc.name, err)
+				}
+			}
+
+			bucket := shard2.store.Bucket(searchBucketName)
+			require.NotNil(t, bucket, "post-recovery bucket must exist (case %q)", tc.name)
+
+			got := fingerprintInvertedBucket(t, bucket)
+
+			assert.Equalf(t, len(baseline), len(got),
+				"post-recovery term count diverges from baseline (case %q)", tc.name)
+			for term, expectedIDs := range baseline {
+				gotIDs, ok := got[term]
+				if !ok {
+					assert.Failf(t, "missing term",
+						"term %q present in baseline but missing post-recovery (case %q)", term, tc.name)
+					continue
+				}
+				assert.Equalf(t, expectedIDs, gotIDs,
+					"term %q post-recovery doc-id list diverges from baseline (case %q)\n  baseline (%d): %v\n  got      (%d): %v",
+					term, tc.name, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
+			}
+		})
+	}
+}
+
+func computeSearchableRetokenizeBaseline(t *testing.T, propName string, numObjects int) map[string][]uint64 {
+	t.Helper()
+	ctx := testCtx()
+	className := "RetokenizeBaselineRef_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{propName})
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	searchBucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+	preStrategy := shard.store.Bucket(searchBucketName).Strategy()
+
+	task, _ := newSearchableRetokenizeTask(t, idx, className, propName,
+		models.PropertyTokenizationField, preStrategy)
+
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+
+	return fingerprintInvertedBucket(t, shard.store.Bucket(searchBucketName))
 }
