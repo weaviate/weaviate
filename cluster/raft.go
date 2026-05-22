@@ -75,12 +75,6 @@ func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
 }
 
-// AppliedIndex is the DB layer's fallback catchUp index for fence
-// rejections that don't carry a per-op RAFT index.
-func (s *Raft) AppliedIndex() uint64 {
-	return s.store.lastAppliedIndex.Load()
-}
-
 func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicationState) (bool, error) {
 	servers, err := s.store.Servers()
 	if err != nil {
