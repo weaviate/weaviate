@@ -13,6 +13,7 @@ package cron
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -214,5 +215,48 @@ func TestCronsNamespaceCleanup_RuntimeConfigHook(t *testing.T) {
 	case got := <-c.intervalCh:
 		t.Fatalf("hook pushed on unchanged value: %s", got)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestCronsNamespaceCleanup_RuntimeConfigHook_ConcurrentCallsConsistent is a
+// regression test for the read-compare-store-push race: concurrent hook
+// callers must not leave intervalCh holding a different interval than
+// currentInterval. Many goroutines flip the config and call the hook at
+// once; afterwards the buffered channel value must equal currentInterval.
+// Run with -race to also catch the underlying data race directly.
+func TestCronsNamespaceCleanup_RuntimeConfigHook_ConcurrentCallsConsistent(t *testing.T) {
+	dv := configRuntime.NewDynamicValue(time.Minute)
+	getter := func() config.Config {
+		return config.Config{Namespaces: config.Namespaces{Enabled: true, CleanupInterval: dv}}
+	}
+	logger, _ := test.NewNullLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, getter)
+	<-c.intervalCh // drain the constructor's initial value
+
+	const n = 64
+	var wg sync.WaitGroup
+	for i := 1; i <= n; i++ {
+		wg.Add(1)
+		go func(d time.Duration) {
+			defer wg.Done()
+			_ = dv.SetValue(d)
+			_ = c.RuntimeConfigHook()
+		}(time.Duration(i) * time.Second)
+	}
+	wg.Wait()
+
+	// Each change path stores currentInterval and pushes the same value under
+	// mu, so once the goroutines settle the channel must agree with
+	// currentInterval — the invariant the mutex restores.
+	c.mu.Lock()
+	current := c.currentInterval
+	c.mu.Unlock()
+	select {
+	case got := <-c.intervalCh:
+		assert.Equal(t, current, got, "channel interval diverged from currentInterval")
+	case <-time.After(time.Second):
+		t.Fatal("channel empty after concurrent hooks")
 	}
 }

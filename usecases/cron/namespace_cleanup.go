@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	gocron "github.com/netresearch/go-cron"
@@ -32,7 +31,12 @@ const namespaceCleanupJobName = "namespace_cleanup"
 // The interval is read from runtime config and hot-reloads via
 // RuntimeConfigHook.
 type cronsNamespaceCleanup struct {
-	currentInterval atomic.Int64 // time.Duration nanoseconds
+	// mu serialises RuntimeConfigHook so the read-compare-store and the
+	// channel drain+push run as one unit. Without it, concurrent callers
+	// can interleave and leave the channel holding a different interval
+	// than currentInterval.
+	mu              sync.Mutex
+	currentInterval time.Duration // guarded by mu
 	intervalCh      chan time.Duration
 
 	// registerWG lets shutdown await Init's registration goroutine instead
@@ -53,13 +57,13 @@ func newCronsNamespaceCleanup(serverShutdownCtx context.Context,
 	intervalCh <- current
 
 	c := &cronsNamespaceCleanup{
+		currentInterval:   current,
 		intervalCh:        intervalCh,
 		logger:            logger,
 		gocronLogger:      gocronLogger,
 		configGetter:      configGetter,
 		serverShutdownCtx: serverShutdownCtx,
 	}
-	c.currentInterval.Store(int64(current))
 	return c
 }
 
@@ -155,19 +159,26 @@ func (c *cronsNamespaceCleanup) createJob(jobLogger logrus.FieldLogger,
 	}))
 }
 
-// RuntimeConfigHook re-reads the interval from config; on change, pushes
-// the new value to the registration loop.
+// RuntimeConfigHook re-reads the interval from config and, on change,
+// pushes the new value to the registration loop. The whole read-compare-
+// store-and-push runs under mu so concurrent callers can't interleave and
+// leave the channel holding a different interval than currentInterval.
 func (c *cronsNamespaceCleanup) RuntimeConfigHook() error {
-	newInterval := int64(c.configGetter().Namespaces.CleanupInterval.Get())
-	old := c.currentInterval.Load()
-	if old == newInterval || !c.currentInterval.CompareAndSwap(old, newInterval) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	newInterval := c.configGetter().Namespaces.CleanupInterval.Get()
+	if newInterval == c.currentInterval {
 		return nil
 	}
+	c.currentInterval = newInterval
 
+	// Drain the stale value (if any) before pushing. The buffer is size 1,
+	// so the send stays non-blocking while we hold the lock.
 	select {
 	case <-c.intervalCh:
 	default:
 	}
-	c.intervalCh <- time.Duration(newInterval)
+	c.intervalCh <- newInterval
 	return nil
 }
