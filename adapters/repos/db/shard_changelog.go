@@ -86,7 +86,7 @@ func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, err
 			return 0, err
 		}
 		draining := false
-		for reqID := range pending {
+		for _, reqID := range pending {
 			if _, stillPending := s.replicationMap.get(reqID); stillPending {
 				draining = true
 				break
