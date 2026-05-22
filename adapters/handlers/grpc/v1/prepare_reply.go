@@ -141,7 +141,9 @@ func (r *Replier) extractQueryProfile(res []interface{}) *pb.QueryProfile {
 			searches[searchType] = &pb.QueryProfile_SearchProfile{Details: sp.Details}
 		}
 		shards[i] = &pb.QueryProfile_ShardProfile{
-			Name:     p.Name,
+			// shard.ID() embeds the qualified class name, so the name carries
+			// the caller's "<namespace>:" prefix; strip it (no-op for globals).
+			Name:     namespacing.StripOwnNamespace(r.principal, p.Name),
 			Node:     p.Node,
 			Searches: searches,
 		}

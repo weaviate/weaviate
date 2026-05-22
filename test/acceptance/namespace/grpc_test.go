@@ -720,6 +720,61 @@ func TestNamespaces_GRPC(t *testing.T) {
 	})
 }
 
+// TestNamespaces_GRPC_QueryProfile checks that a namespaced caller never sees
+// its own "<namespace>:" prefix in the per-shard query_profile. The shard ID
+// (shard.ID()) embeds the qualified class name, so the raw profile Name is
+// "customer1:moviesgrpcprofile_<shard>"; the replier strips the prefix via
+// namespacing.StripOwnNamespace, the same helper used for target_collection.
+func TestNamespaces_GRPC_QueryProfile(t *testing.T) {
+	user1Key, user2Key := twoNamespaces(t)
+
+	grpcClient, conn := newGrpcClient(t)
+	defer conn.Close()
+
+	const class = "MoviesGRPCProfile"
+	setupClassInBothNamespaces(t, class, user1Key, user2Key)
+
+	// Seed one row in ns1 so a shard is actually searched and profiled.
+	_, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
+		Objects: []*pb.BatchObject{{
+			Uuid:       strfmt.UUID("11111111-aaaa-aaaa-aaaa-111111111111").String(),
+			Collection: class,
+			Properties: &pb.BatchObject_Properties{NonRefProperties: &structpb.Struct{
+				Fields: map[string]*structpb.Value{"title": structpb.NewStringValue("matrix")},
+			}},
+		}},
+	})
+	require.NoError(t, err)
+
+	// BM25 keyword search exercises a profiled shard-search path; query_profile
+	// asks for the per-shard breakdown in the reply.
+	profReq := func(collection string) *pb.SearchRequest {
+		r := searchReq(collection, 10)
+		r.Bm25Search = &pb.BM25{Query: "matrix", Properties: []string{"title"}}
+		r.Metadata = &pb.MetadataRequest{QueryProfile: true}
+		return r
+	}
+
+	t.Run("namespaced caller must not see its namespace prefix in the profile", func(t *testing.T) {
+		resp, err := grpcClient.Search(authCtx(user1Key), profReq(class))
+		require.NoError(t, err)
+		require.NotNil(t, resp.QueryProfile, "expected query_profile to be populated")
+		require.NotEmpty(t, resp.QueryProfile.Shards)
+		for _, sh := range resp.QueryProfile.Shards {
+			assert.NotContainsf(t, sh.Name, "customer1:",
+				"query_profile leaks the caller's namespace prefix via shard name: %q", sh.Name)
+		}
+	})
+
+	t.Run("global admin keeps the raw profile (raw mode)", func(t *testing.T) {
+		// Admin has no namespace, so it keeps the raw internal names.
+		resp, err := grpcClient.Search(authCtx(adminKey), profReq("customer1:"+class))
+		require.NoError(t, err)
+		require.NotNil(t, resp.QueryProfile)
+		require.NotEmpty(t, resp.QueryProfile.Shards)
+	})
+}
+
 // TestNamespaces_GRPC_RemoteShardAggregate exercises the count(*) fan-out
 // hop when the namespace's home_node differs from the gRPC entry node.
 // The namespace is pinned to a node that is provably not the gRPC entry
