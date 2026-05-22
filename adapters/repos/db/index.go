@@ -1109,14 +1109,7 @@ func (i *Index) shardHasMultipleReplicasWrite(tenantName, shardName string) bool
 	// we're including additional replicas here to make sure we at least try to push the write
 	// to them if they exist
 	allReplicas := append(ws.NodeNames(), ws.AdditionalNodeNames()...)
-	if len(allReplicas) > 1 {
-		return true
-	}
-	// RF=1 mid-scale-out: this coord may not have applied the add yet, so its
-	// local view still shows one replica. Force the Replicator path so the
-	// initial PREPARE trips the source-side fence and retries with refreshed
-	// routing rather than silently missing the new target.
-	return i.router.HasReplicationOpsForShard(i.Config.ClassName.String(), shardName)
+	return len(allReplicas) > 1
 }
 
 func (i *Index) shardHasMultipleReplicasRead(tenantName, shardName string) bool {

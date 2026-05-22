@@ -159,7 +159,6 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
 
 			mockRouter := types.NewMockRouter(t)
-			mockRouter.EXPECT().HasReplicationOpsForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
 				Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
@@ -333,7 +332,6 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
 
 	mockRouter := types.NewMockRouter(t)
-	mockRouter.EXPECT().HasReplicationOpsForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, mock.Anything).
 		Return(types.WriteReplicaSet{
 			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}},

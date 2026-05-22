@@ -220,8 +220,7 @@ func (_c *MockreplicationFSM_SetUnCancellable_Call) RunAndReturn(run func(uint64
 func NewMockreplicationFSM(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockreplicationFSM {
+}) *MockreplicationFSM {
 	mock := &MockreplicationFSM{}
 	mock.Mock.Test(t)
 

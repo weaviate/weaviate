@@ -18,9 +18,4 @@ type ReplicationFSMReader interface {
 	// FilterOneShardReplicasWrite returns the write replicas for a given shard
 	// It returns a tuple of (writeReplicas, additionalWriteReplicas)
 	FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
-	// HasReplicationOpsForShard reports whether any replication op currently
-	// targets (collection, shard). The Index uses this to force the
-	// Replicator path on RF=1 mid-scale-out, so a coord that hasn't applied
-	// the add yet can't bypass the source-side fence via the direct path.
-	HasReplicationOpsForShard(collection, shard string) bool
 }

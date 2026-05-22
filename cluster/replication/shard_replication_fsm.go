@@ -378,23 +378,6 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	return readOk, writeOk
 }
 
-// HasReplicationOpsForShard reports whether any replication op currently
-// targets (collection, shard). Index.shardHasMultipleReplicasWrite uses this
-// to force the Replicator path on an RF=1 mid-scale-out: a coord whose FSM
-// hasn't applied ReplicationAddReplicaToShard yet would otherwise take the
-// direct putObject path, bypassing the source-side fence and missing the new
-// target.
-func (s *ShardReplicationFSM) HasReplicationOpsForShard(collection, shard string) bool {
-	s.opsLock.RLock()
-	defer s.opsLock.RUnlock()
-	byCollection, ok := s.opsByCollectionAndShard[collection]
-	if !ok {
-		return false
-	}
-	_, ok = byCollection[shard]
-	return ok
-}
-
 // filterOneReplicaAsSourceReadWrite returns a tuple of boolean (found, readOk, writeOk)
 // if found is true it means there's a source replication op for that replica and readOk and writeOk should be considered
 func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, collection string, shard string) (bool, bool) {

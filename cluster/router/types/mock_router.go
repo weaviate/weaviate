@@ -421,53 +421,6 @@ func (_c *MockRouter_GetWriteReplicasLocation_Call) RunAndReturn(run func(string
 	return _c
 }
 
-// HasReplicationOpsForShard provides a mock function with given fields: collection, shard
-func (_m *MockRouter) HasReplicationOpsForShard(collection string, shard string) bool {
-	ret := _m.Called(collection, shard)
-
-	if len(ret) == 0 {
-		panic("no return value specified for HasReplicationOpsForShard")
-	}
-
-	var r0 bool
-	if rf, ok := ret.Get(0).(func(string, string) bool); ok {
-		r0 = rf(collection, shard)
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	return r0
-}
-
-// MockRouter_HasReplicationOpsForShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasReplicationOpsForShard'
-type MockRouter_HasReplicationOpsForShard_Call struct {
-	*mock.Call
-}
-
-// HasReplicationOpsForShard is a helper method to define mock.On call
-//   - collection string
-//   - shard string
-func (_e *MockRouter_Expecter) HasReplicationOpsForShard(collection interface{}, shard interface{}) *MockRouter_HasReplicationOpsForShard_Call {
-	return &MockRouter_HasReplicationOpsForShard_Call{Call: _e.mock.On("HasReplicationOpsForShard", collection, shard)}
-}
-
-func (_c *MockRouter_HasReplicationOpsForShard_Call) Run(run func(collection string, shard string)) *MockRouter_HasReplicationOpsForShard_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockRouter_HasReplicationOpsForShard_Call) Return(_a0 bool) *MockRouter_HasReplicationOpsForShard_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockRouter_HasReplicationOpsForShard_Call) RunAndReturn(run func(string, string) bool) *MockRouter_HasReplicationOpsForShard_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NodeHostname provides a mock function with given fields: nodeName
 func (_m *MockRouter) NodeHostname(nodeName string) (string, bool) {
 	ret := _m.Called(nodeName)

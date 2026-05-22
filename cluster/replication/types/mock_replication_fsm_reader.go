@@ -140,53 +140,6 @@ func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) RunAndRetur
 	return _c
 }
 
-// HasReplicationOpsForShard provides a mock function with given fields: collection, shard
-func (_m *MockReplicationFSMReader) HasReplicationOpsForShard(collection string, shard string) bool {
-	ret := _m.Called(collection, shard)
-
-	if len(ret) == 0 {
-		panic("no return value specified for HasReplicationOpsForShard")
-	}
-
-	var r0 bool
-	if rf, ok := ret.Get(0).(func(string, string) bool); ok {
-		r0 = rf(collection, shard)
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	return r0
-}
-
-// MockReplicationFSMReader_HasReplicationOpsForShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasReplicationOpsForShard'
-type MockReplicationFSMReader_HasReplicationOpsForShard_Call struct {
-	*mock.Call
-}
-
-// HasReplicationOpsForShard is a helper method to define mock.On call
-//   - collection string
-//   - shard string
-func (_e *MockReplicationFSMReader_Expecter) HasReplicationOpsForShard(collection interface{}, shard interface{}) *MockReplicationFSMReader_HasReplicationOpsForShard_Call {
-	return &MockReplicationFSMReader_HasReplicationOpsForShard_Call{Call: _e.mock.On("HasReplicationOpsForShard", collection, shard)}
-}
-
-func (_c *MockReplicationFSMReader_HasReplicationOpsForShard_Call) Run(run func(collection string, shard string)) *MockReplicationFSMReader_HasReplicationOpsForShard_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockReplicationFSMReader_HasReplicationOpsForShard_Call) Return(_a0 bool) *MockReplicationFSMReader_HasReplicationOpsForShard_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockReplicationFSMReader_HasReplicationOpsForShard_Call) RunAndReturn(run func(string, string) bool) *MockReplicationFSMReader_HasReplicationOpsForShard_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewMockReplicationFSMReader creates a new instance of MockReplicationFSMReader. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockReplicationFSMReader(t interface {

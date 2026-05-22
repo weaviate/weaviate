@@ -141,7 +141,6 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		func(class string, shard string, replicas []string) []string {
 			return replicas
 		}).Maybe()
-	mockReplicationFSMReader.EXPECT().HasReplicationOpsForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(class string, shard string, replicas []string) ([]string, []string) {
 			return replicas, []string{}

@@ -197,11 +197,6 @@ func (r *singleTenantRouter) WaitForUpdate(ctx context.Context, version uint64) 
 	return r.schemaReader.WaitForUpdate(ctx, version)
 }
 
-// HasReplicationOpsForShard — see the interface godoc.
-func (r *singleTenantRouter) HasReplicationOpsForShard(collection, shard string) bool {
-	return r.replicationFSMReader.HasReplicationOpsForShard(collection, shard)
-}
-
 func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
@@ -446,11 +441,6 @@ func (r *multiTenantRouter) AllHostnames() []string {
 // GetReadWriteReplicasLocation returns read and write replicas for multi-tenant collections.
 func (r *multiTenantRouter) WaitForUpdate(ctx context.Context, version uint64) error {
 	return r.schemaReader.WaitForUpdate(ctx, version)
-}
-
-// HasReplicationOpsForShard — see singleTenantRouter's identical method.
-func (r *multiTenantRouter) HasReplicationOpsForShard(collection, shard string) bool {
-	return r.replicationFSMReader.HasReplicationOpsForShard(collection, shard)
 }
 
 func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {

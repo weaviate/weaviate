@@ -123,12 +123,6 @@ type Router interface {
 	// version. Used by the replica-write retry path to catch up to a
 	// rejecting source's lastAppliedIndex before rebuilding routing.
 	WaitForUpdate(ctx context.Context, version uint64) error
-
-	// HasReplicationOpsForShard reports whether any replication op is in
-	// flight for (collection, shard). The Index uses this to force the
-	// Replicator path on RF=1 mid-scale-out, so a coord that hasn't applied
-	// the add yet can't bypass the source-side fence via the direct path.
-	HasReplicationOpsForShard(collection, shard string) bool
 }
 
 // Replica represents a single replica in the system, containing enough information
