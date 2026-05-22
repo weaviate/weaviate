@@ -346,7 +346,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// next step for them is migration to BlockMax via
 		// {"searchable":{"algorithm":"blockmax"}}.
 		if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				"cannot rebuild a WAND searchable index — WAND is deprecated; use {\"searchable\":{\"algorithm\":\"blockmax\"}} to migrate first"))
 		}
 		migrationType = db.ReindexTypeRebuildSearchable
@@ -354,18 +354,18 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 	case body.Searchable != nil && body.Searchable.Algorithm != "":
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
 		}
 		// Case-insensitive match — swagger generated EnumCase validator
 		// is permissive here, so accept "Blockmax" / "BLOCKMAX" too.
 		if !strings.EqualFold(body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax) {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				fmt.Sprintf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
 					body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax)))
 		}
 		if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
-			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(
+			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				"searchable index is already on blockmax"))
 		}
 		migrationType = db.ReindexTypeChangeAlgorithm
