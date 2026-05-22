@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"iter"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -168,4 +169,37 @@ func TestPostingPassesFilterSlice_CachesAcceptedPostingID(t *testing.T) {
 	require.True(t, ok)
 
 	hfAllowList.Close()
+}
+
+func TestAllowListIteratorReturnsAcceptedPostingWithSingleAllowedVector(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+	pm := NewPostingMap(bucket)
+	ctx := t.Context()
+
+	pm.FastAddVectorID(ctx, 0, 0)
+
+	hf := &HFresh{
+		visitedPool: visited.NewPool(10),
+		PostingMap:  pm,
+	}
+
+	allowList := helpers.NewAllowList(0)
+	hfAllowList := hf.wrapAllowList(ctx, allowList)
+	defer hfAllowList.Close()
+
+	next, stop := iter.Pull2(hf.PostingMap.Iter())
+	defer stop()
+
+	iterator := &AllowListIterator{
+		allowList: hfAllowList,
+		next:      next,
+		stop:      func() {},
+		len:       1,
+	}
+
+	id, ok := iterator.Next()
+	require.True(t, ok)
+	require.EqualValues(t, 0, id)
 }

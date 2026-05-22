@@ -60,14 +60,14 @@ func (i *AllowListIterator) Next() (uint64, bool) {
 	id, metadata, ok := i.next()
 	al, isOurType := i.allowList.(*allowList)
 
-	for ok && !i.contains(id, metadata, al, isOurType) {
+	for ok {
+		if i.contains(id, metadata, al, isOurType) {
+			return id, true
+		}
 		id, metadata, ok = i.next()
 	}
-	if !ok {
-		return id, ok
-	}
 
-	return id, i.contains(id, metadata, al, isOurType)
+	return id, false
 }
 
 func (i *AllowListIterator) contains(id uint64, metadata *PostingMetadata, al *allowList, isOurType bool) bool {
