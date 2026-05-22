@@ -43,10 +43,6 @@ type Manager struct {
 	nodeSelector   cluster.NodeSelector
 	logger         logrus.FieldLogger
 
-	// Bumped on every op-state-mutating apply so per-write WaitForUpdate
-	// catches stale-FSM coords up before they build routing. nil ok in tests.
-	bumpReplicationVersion func(class string, raftIndex uint64)
-
 	// localNodeID is embedded in node-reached-state broadcasts so peers
 	// know who reported.
 	localNodeID       string
@@ -64,17 +60,6 @@ func NewManager(schemaReader schema.SchemaReader, nodeSelector cluster.NodeSelec
 
 func (m *Manager) SetLogger(logger logrus.FieldLogger) {
 	m.logger = logger
-}
-
-func (m *Manager) SetReplicationVersionBumper(fn func(class string, raftIndex uint64)) {
-	m.bumpReplicationVersion = fn
-}
-
-func (m *Manager) bump(class string, raftIndex uint64) {
-	if m.bumpReplicationVersion == nil || class == "" {
-		return
-	}
-	m.bumpReplicationVersion(class, raftIndex)
 }
 
 func (m *Manager) SetNodeReachedStateSubmitter(
@@ -163,32 +148,11 @@ func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 			}); err != nil {
 				return err
 			}
-			if class, ok := m.opCollectionByUUID(uuid); ok {
-				m.bump(class, c.Version)
-			}
 			return nil
 		}
 		return err
 	}
 	return nil
-}
-
-// opCollectionByUUID returns the source class for the bump callback,
-// or "" + false if the op isn't known (caller skips the bump).
-func (m *Manager) opCollectionByUUID(uuid strfmt.UUID) (string, bool) {
-	op, ok := m.replicationFSM.GetOpByUuid(uuid)
-	if !ok {
-		return "", false
-	}
-	return op.Op.SourceShard.CollectionId, true
-}
-
-func (m *Manager) opCollectionByID(id uint64) (string, bool) {
-	op, ok := m.replicationFSM.GetOpById(id)
-	if !ok {
-		return "", false
-	}
-	return op.Op.SourceShard.CollectionId, true
 }
 
 func (m *Manager) GetReplicationOpUUIDFromId(id uint64) (strfmt.UUID, error) {
@@ -203,9 +167,6 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 
 	if err := m.replicationFSM.UpdateReplicationOpStatus(req); err != nil {
 		return err
-	}
-	if class, ok := m.opCollectionByID(req.Id); ok {
-		m.bump(class, c.Version)
 	}
 	m.broadcastNodeReachedState(req.Id, req.State)
 	return nil
@@ -637,9 +598,6 @@ func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
 	if err := m.replicationFSM.CancelReplication(req); err != nil {
 		return err
 	}
-	if class, ok := m.opCollectionByUUID(req.Uuid); ok {
-		m.bump(class, c.Version)
-	}
 	return nil
 }
 
@@ -650,9 +608,6 @@ func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
 	}
 	if err := m.replicationFSM.DeleteReplication(req); err != nil {
 		return err
-	}
-	if class, ok := m.opCollectionByUUID(req.Uuid); ok {
-		m.bump(class, c.Version)
 	}
 	return nil
 }

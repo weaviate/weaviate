@@ -313,9 +313,6 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
-	// Bump RV on every op-state apply so per-write WaitForUpdate catches
-	// stale-FSM coords up before they build routing.
-	replicationManager.SetReplicationVersionBumper(schemaManager.BumpReplicationVersion)
 
 	var dynusersLister namespaces.DynusersNamespaceLister
 	if cfg.DynamicUserController != nil {

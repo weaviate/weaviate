@@ -90,12 +90,6 @@ func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
 }
 
-// BumpReplicationVersion is invoked from the replication manager's apply
-// path with v = that apply's RAFT index.
-func (s *SchemaManager) BumpReplicationVersion(class string, v uint64) {
-	s.schema.bumpReplicationVersion(class, v)
-}
-
 func (s *SchemaManager) SchemaSnapshot() ([]byte, error) {
 	var buf bytes.Buffer
 

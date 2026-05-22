@@ -63,18 +63,17 @@ func (e *PartialUpdateError) Error() string {
 func (e *PartialUpdateError) Unwrap() []error { return e.Errs }
 
 type ClassInfo struct {
-	Exists             bool
-	MultiTenancy       models.MultiTenancyConfig
-	ReplicationFactor  int
-	Tenants            int
-	Properties         int
-	ClassVersion       uint64
-	ShardVersion       uint64
-	ReplicationVersion uint64
+	Exists            bool
+	MultiTenancy      models.MultiTenancyConfig
+	ReplicationFactor int
+	Tenants           int
+	Properties        int
+	ClassVersion      uint64
+	ShardVersion      uint64
 }
 
 func (ci *ClassInfo) Version() uint64 {
-	return max(ci.ClassVersion, ci.ShardVersion, ci.ReplicationVersion)
+	return max(ci.ClassVersion, ci.ShardVersion)
 }
 
 type schema struct {
@@ -500,17 +499,6 @@ func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica
 		return ErrClassNotFound
 	}
 	return meta.AddReplicaToShard(v, shard, replica)
-}
-
-// bumpReplicationVersion no-ops on unknown classes (nothing to fence).
-func (s *schema) bumpReplicationVersion(class string, v uint64) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	meta := s.unsafeResolveClass(class)
-	if meta == nil {
-		return
-	}
-	meta.BumpReplicationVersion(v)
 }
 
 func (s *schema) deleteReplicaFromShard(class string, v uint64, shard string, replica string) error {
