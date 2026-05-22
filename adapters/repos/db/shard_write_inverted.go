@@ -97,8 +97,60 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 		return nil, nil, nil, err
 	}
 
-	props, nestedProps, err := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String()).Object(schemaMap, c.Properties, object.ID())
+	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
+	// Tokenization overlay parity: the query path consults the overlay
+	// via Shard.TokenizationFor (see BM25Searcher.effectiveTokenization).
+	// The write path MUST be symmetric — without the overlay here,
+	// PUTs landing in the SWAPPING window of a change-tokenization
+	// migration tokenize against the LIVE (SOURCE) schema while the
+	// canonical bucket has already been swapped to TARGET-tokenized
+	// data on this replica. Different per-replica timing of the
+	// SWAPPING→FINISHED window then produces per-replica inverted-
+	// bucket divergence — weaviate/0-weaviate-issues#240 Symptom B.
+	if overlay := s.tokenizationAnalyzerOverlay(c.Properties); overlay != nil {
+		analyzer = analyzer.WithSchemaOverlay(overlay)
+	}
+	props, nestedProps, err := analyzer.Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, nestedProps, err
+}
+
+// tokenizationAnalyzerOverlay returns an analyzer-shaped overlay built
+// from the per-shard tokenization overlay, restricted to the supplied
+// property set. Returns nil when nothing in the overlay applies, so
+// the analyzer can take its fast path (no schema-overlay branch).
+//
+// Only the Tokenization field of [inverted.PropertyOverlay] is
+// populated — the ForceFilterable / ForceSearchable / ForceRangeable
+// flags are used exclusively by from-scratch migration backfills
+// (EnableFilterable / EnableSearchable / FilterableToRangeable) and
+// must NOT be flipped for ordinary writes.
+func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
+	s.tokenizationOverlayMu.RLock()
+	defer s.tokenizationOverlayMu.RUnlock()
+	if len(s.tokenizationOverlay) == 0 {
+		return nil
+	}
+	var out map[string]inverted.PropertyOverlay
+	for _, p := range props {
+		if p == nil {
+			continue
+		}
+		target, ok := s.tokenizationOverlay[p.Name]
+		if !ok {
+			continue
+		}
+		if target == p.Tokenization {
+			// Live schema has caught up for this prop — skip; the
+			// self-clear in TokenizationFor will drop the entry on
+			// the next query.
+			continue
+		}
+		if out == nil {
+			out = make(map[string]inverted.PropertyOverlay, len(s.tokenizationOverlay))
+		}
+		out[p.Name] = inverted.PropertyOverlay{Tokenization: target}
+	}
+	return out
 }
 
 // AnalyzeObjectForMigrationWithOverlay is the migration-time variant of
