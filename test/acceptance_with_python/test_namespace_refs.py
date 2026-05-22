@@ -34,20 +34,27 @@ prefix and never matches what's on disk.
       add/replace/delete single-target   test_single_target_add_replace_delete
       add multi-target (ReferenceToMulti) test_multi_target_refs
       replace/delete multi-target        test_multi_target_replace_and_delete
-      reference_add_many single           test_batch_reference_insert
       reference_add_many multi (mixed)    test_batch_reference_insert_multi_target
-      inline refs in Properties           test_inline_ref_in_object_create
+      inline refs via references= kwarg   test_inline_ref_in_object_create
 
     Filter builders (parser → inverted-index, via the client's Filter API)
       by_ref.by_property + AND            test_filter_by_ref_chained_with_property
       by_ref.by_id                        test_filter_by_ref_chained_with_property
-      by_ref_multi_target                 test_filter_by_ref_multi_target
-      by_ref_count (+ AND with property)  test_filter_by_ref_count
 
     Reads (client return_references serialisation + cross-node)
       return_references single + multi    test_single_target_add_replace_delete,
                                           test_multi_target_refs
-      Nested 3 hops + self-ref cycle      test_reference_objects_resolve_across_nodes
+
+Moved to Go (don't need the python-client surface):
+  - batch single-target insert            test/acceptance/namespace/references_test.go
+                                          (gRPC batch references each pair resolves)
+  - by_ref_multi_target filter            (gRPC filter-by-ref via MultiTarget)
+  - by_ref_count filter                   (gRPC by_ref_count filter)
+  - nested return_references + self-ref   (gRPC nested return_references with self-ref cycle)
+  - raw REST inline ref form              (create object with ref property in Properties payload)
+  - storage / isolation invariants        (admin delete w/ qualified beacon, namespaced
+                                          cross-NS delete, stored beacon short, namespaces
+                                          stay isolated)
 
 # Conventions
 
@@ -418,79 +425,6 @@ def test_multi_target_refs(
 
 
 # ---------------------------------------------------------------------------
-# Batch reference insert
-# ---------------------------------------------------------------------------
-
-
-def test_batch_reference_insert(
-    request: pytest.FixtureRequest,
-    namespaces: Tuple[str, str],
-    client_for_key: Callable[[str, int], WeaviateClient],
-    cleanup_collections: Callable[[str], None],
-) -> None:
-    """Batch ref insert via reference_add_many (single-target).
-
-    The batch path (batch_references_add.go) is a separate handler:
-    qualifies each ref's target in a loop, strips to short for storage,
-    and returns per-entry status. Each src[i] → tgt[i] in one batch
-    call; cross-node read then verifies every link resolves to the
-    target with the matching `n`.
-    """
-    k1, _ = namespaces
-    src, tgt = _short_name(request, "Src"), _short_name(request, "Tgt")
-    cleanup_collections(src)
-    cleanup_collections(tgt)
-
-    cw = client_for_key(k1, 0)
-    cr = client_for_key(k1, 2)
-
-    tgt_w = cw.collections.create(
-        name=tgt,
-        properties=[wvc.config.Property(name="n", data_type=wvc.config.DataType.INT)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-    src_w = cw.collections.create(
-        name=src,
-        properties=[wvc.config.Property(name="n", data_type=wvc.config.DataType.INT)],
-        references=[wvc.config.ReferenceProperty(name="ref", target_collection=tgt)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-
-    N = 5
-    tgt_uuids = list(
-        tgt_w.data.insert_many([DataObject(properties={"n": i}) for i in range(N)]).uuids.values()
-    )
-    src_uuids = list(
-        src_w.data.insert_many([DataObject(properties={"n": i}) for i in range(N)]).uuids.values()
-    )
-
-    batch_ret = src_w.data.reference_add_many(
-        [
-            DataReference(from_property="ref", from_uuid=src_uuids[i], to_uuid=tgt_uuids[i])
-            for i in range(N)
-        ]
-    )
-    assert batch_ret.has_errors is False, f"batch errors: {batch_ret.errors}"
-
-    # Each source's ref should resolve to the target with the matching n.
-    objs = (
-        cr.collections.use(src)
-        .query.fetch_objects(
-            return_properties=["n"],
-            return_references=QueryReference(link_on="ref", return_properties=["n"]),
-            limit=N + 5,
-        )
-        .objects
-    )
-    by_n = {o.properties["n"]: o for o in objs}
-    assert len(by_n) == N
-    for n, o in by_n.items():
-        refs = o.references["ref"].objects
-        assert len(refs) == 1
-        assert refs[0].properties["n"] == n
-
-
-# ---------------------------------------------------------------------------
 # Filters: by_ref + chained property filter
 # ---------------------------------------------------------------------------
 
@@ -558,225 +492,6 @@ def test_filter_by_ref_chained_with_property(
     res = cr.collections.use(src).query.fetch_objects(filters=f_id).objects
     assert len(res) == 1
     assert res[0].properties["city"] == "paris"
-
-
-# ---------------------------------------------------------------------------
-# Filters: by_ref_multi_target
-# ---------------------------------------------------------------------------
-
-
-def test_filter_by_ref_multi_target(
-    request: pytest.FixtureRequest,
-    namespaces: Tuple[str, str],
-    client_for_key: Callable[[str, int], WeaviateClient],
-    cleanup_collections: Callable[[str], None],
-) -> None:
-    """by_ref_multi_target("ref", target=A).by_property(...).
-
-    MultiTarget complement to test_filter_by_ref_chained_with_property.
-    Different parser branch (FilterTarget_MultiTarget) — pulls the
-    explicit TargetCollection from the caller, qualifies against the
-    source namespace, then hits the same downstream beacon-lookup
-    that was fixed.
-
-    Companion: Go acceptance test
-    `TestNamespaces_References/gRPC filter-by-ref via MultiTarget
-    returns the right row on NS cluster`.
-    """
-    k1, _ = namespaces
-    src = _short_name(request, "Src")
-    a = _short_name(request, "A")
-    b = _short_name(request, "B")
-    for s in (src, a, b):
-        cleanup_collections(s)
-
-    cw = client_for_key(k1, 0)
-    cr = client_for_key(k1, 2)
-
-    a_w = cw.collections.create(
-        name=a,
-        properties=[wvc.config.Property(name="label", data_type=wvc.config.DataType.TEXT)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-    b_w = cw.collections.create(
-        name=b,
-        properties=[wvc.config.Property(name="label", data_type=wvc.config.DataType.TEXT)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-    src_w = cw.collections.create(
-        name=src,
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-        references=[
-            wvc.config.ReferenceProperty.MultiTarget(name="ref", target_collections=[a, b])
-        ],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-
-    a_id = a_w.data.insert(properties={"label": "wanted"})
-    b_id = b_w.data.insert(properties={"label": "skipped"})
-
-    pointing_to_a = src_w.data.insert(
-        properties={"name": "row-a"},
-        references={"ref": ReferenceToMulti(target_collection=a, uuids=a_id)},
-    )
-    src_w.data.insert(
-        properties={"name": "row-b"},
-        references={"ref": ReferenceToMulti(target_collection=b, uuids=b_id)},
-    )
-
-    res = (
-        cr.collections.use(src)
-        .query.fetch_objects(
-            filters=Filter.by_ref_multi_target("ref", target_collection=a)
-            .by_property("label")
-            .equal("wanted")
-        )
-        .objects
-    )
-    assert len(res) == 1
-    assert res[0].uuid == pointing_to_a
-
-
-# ---------------------------------------------------------------------------
-# Filters: by_ref_count
-# ---------------------------------------------------------------------------
-
-
-def test_filter_by_ref_count(
-    request: pytest.FixtureRequest,
-    namespaces: Tuple[str, str],
-    client_for_key: Callable[[str, int], WeaviateClient],
-    cleanup_collections: Callable[[str], None],
-) -> None:
-    """by_ref_count(prop), plus AND with by_property.
-
-    Negative control: by_ref_count hits the source's
-    `property_<name>__meta_count` bucket with an integer value — no
-    beacon built, no linked class involved, so the bug fixed in
-    searcher_ref_filter.go never affected this path. This test
-    passing tells us nothing about the fix; a failure would
-    indicate a brand-new break in count-style filtering on NS.
-    """
-    k1, _ = namespaces
-    src, tgt = _short_name(request, "S"), _short_name(request, "T")
-    cleanup_collections(src)
-    cleanup_collections(tgt)
-
-    cw = client_for_key(k1, 0)
-    cr = client_for_key(k1, 2)
-
-    tgt_w = cw.collections.create(
-        name=tgt, vectorizer_config=wvc.config.Configure.Vectorizer.none()
-    )
-    src_w = cw.collections.create(
-        name=src,
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-        references=[wvc.config.ReferenceProperty(name="ref", target_collection=tgt)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-        inverted_index_config=wvc.config.Configure.inverted_index(index_property_length=True),
-    )
-
-    t1 = tgt_w.data.insert({})
-    t2 = tgt_w.data.insert({})
-    src_w.data.insert(properties={"name": "zero-refs"})
-    src_w.data.insert(properties={"name": "one-ref"}, references={"ref": t1})
-    src_w.data.insert(properties={"name": "two-refs"}, references={"ref": [t1, t2]})
-
-    # > 0
-    res = (
-        cr.collections.use(src)
-        .query.fetch_objects(filters=Filter.by_ref_count("ref").greater_than(0))
-        .objects
-    )
-    names = sorted(o.properties["name"] for o in res)
-    assert names == ["one-ref", "two-refs"]
-
-    # >= 2, AND'd with a property filter — exercises the same path as the
-    # combined filter above but with a count-style left operand.
-    res = (
-        cr.collections.use(src)
-        .query.fetch_objects(
-            filters=Filter.by_ref_count("ref").greater_or_equal(2)
-            & Filter.by_property("name").like("*refs"),
-        )
-        .objects
-    )
-    assert len(res) == 1
-    assert res[0].properties["name"] == "two-refs"
-
-
-# ---------------------------------------------------------------------------
-# Reference-object resolution
-# ---------------------------------------------------------------------------
-
-
-def test_reference_objects_resolve_across_nodes(
-    request: pytest.FixtureRequest,
-    namespaces: Tuple[str, str],
-    client_for_key: Callable[[str, int], WeaviateClient],
-    cleanup_collections: Callable[[str], None],
-) -> None:
-    """Nested return_references: cross-collection + self-ref cycle.
-
-    Schema: Src.ref → Tgt, plus Src.self → Src added post-create
-    (exercises schema add_reference on NS). Three hops resolved on
-    a different node than the writer: s2.ref → t1, s2.self → s1,
-    and s1.ref → t1 nested under "self". The self-ref leg also
-    guards the RAFT cross-ref existence check's self-ref
-    short-circuit against qualified-vs-short mismatch.
-    """
-    k1, _ = namespaces
-    src, tgt = _short_name(request, "Src"), _short_name(request, "Tgt")
-    cleanup_collections(src)
-    cleanup_collections(tgt)
-
-    cw = client_for_key(k1, 0)
-    cr = client_for_key(k1, 2)
-
-    tgt_w = cw.collections.create(
-        name=tgt,
-        properties=[wvc.config.Property(name="title", data_type=wvc.config.DataType.TEXT)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-    src_w = cw.collections.create(
-        name=src,
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-        references=[wvc.config.ReferenceProperty(name="ref", target_collection=tgt)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-    # Self-cycle ref: src -> src. Adds the parent's namespace stitching
-    # path that drove the SelfRef regression in the Go acceptance tests.
-    src_w.config.add_reference(wvc.config.ReferenceProperty(name="self", target_collection=src))
-
-    t1 = tgt_w.data.insert(properties={"title": "linked-target"})
-    s1 = src_w.data.insert(properties={"name": "head"}, references={"ref": t1})
-    s2 = src_w.data.insert(properties={"name": "tail"}, references={"ref": t1, "self": s1})
-
-    obj = cr.collections.use(src).query.fetch_object_by_id(
-        s2,
-        return_properties=["name"],
-        return_references=[
-            QueryReference(link_on="ref", return_properties=["title"]),
-            QueryReference(
-                link_on="self",
-                return_properties=["name"],
-                return_references=QueryReference(link_on="ref", return_properties=["title"]),
-            ),
-        ],
-    )
-    assert obj is not None
-    assert obj.properties["name"] == "tail"
-
-    tgt_refs = obj.references["ref"].objects
-    assert len(tgt_refs) == 1 and tgt_refs[0].properties["title"] == "linked-target"
-
-    self_refs = obj.references["self"].objects
-    assert len(self_refs) == 1 and self_refs[0].properties["name"] == "head"
-
-    # Nested: s2 -> self (s1) -> ref (t1) — three hops, two of which
-    # cross collections, both must qualify against customer1.
-    nested = self_refs[0].references["ref"].objects
-    assert len(nested) == 1 and nested[0].properties["title"] == "linked-target"
 
 
 # ---------------------------------------------------------------------------
@@ -1024,14 +739,14 @@ def test_inline_ref_in_object_create(
     client_for_key: Callable[[str, int], WeaviateClient],
     cleanup_collections: Callable[[str], None],
 ) -> None:
-    """Refs embedded in the Properties payload of object create.
+    """Refs embedded in the Properties payload via the python client's
+    `references=` kwarg.
 
-    Different write path than /references — properties_validation.go
-    parses each ref-typed property's beacon and runs existence
-    validation. Two submit forms: python-client `references=` kwarg
-    and raw REST with a literal beacon string in the payload.
-    Mirrors the Go test "create object with ref property in
-    Properties payload (NS happy path)".
+    Distinct from the raw REST beacon-in-Properties form (covered by the
+    Go test `create object with ref property in Properties payload (NS
+    happy path)`): the python client builds the beacon for the caller
+    from a bare UUID arg, so it exercises a different client-side
+    serialisation path than what a raw POST would produce.
     """
     k1, _ = namespaces
     zoo, animal = _short_name(request, "Zoo"), _short_name(request, "Animal")
@@ -1055,44 +770,19 @@ def test_inline_ref_in_object_create(
 
     a_id = cw.collections.use(animal).data.insert(properties={"name": "leo"})
 
-    # Form 1: python client inline reference via references= kwarg.
-    zoo_id_client = cw.collections.use(zoo).data.insert(
+    # The python client wraps the UUID into a beacon for us — make sure
+    # the server-side validation accepts that serialisation on NS clusters.
+    zoo_id = cw.collections.use(zoo).data.insert(
         properties={"name": "zoo-from-client"},
         references={"hasAnimals": a_id},
     )
 
-    # Form 2: raw REST with the beacon in the Properties payload — same
-    # shape as the Go test, exercises the same handler entry but with
-    # the literal stringified beacon.
-    zoo_id_rest = str(uuid.uuid4())
-    r = requests.post(
-        f"{_rest_base(NODES[0][0])}/objects",
-        headers={"Authorization": f"Bearer {k1}", "Content-Type": "application/json"},
-        json={
-            "class": zoo,
-            "id": zoo_id_rest,
-            "properties": {
-                "name": "zoo-from-rest",
-                "hasAnimals": [
-                    {"beacon": f"weaviate://localhost/{animal}/{a_id}"},
-                ],
-            },
-        },
+    # Cross-node read: the ref resolves to leo.
+    obj = cr.collections.use(zoo).query.fetch_object_by_id(
+        zoo_id,
+        return_references=QueryReference(link_on="hasAnimals", return_properties=["name"]),
     )
-    assert r.status_code in (
-        200,
-        201,
-    ), f"inline-ref object create via REST failed: {r.status_code} {r.text}"
-
-    # Cross-node read: both zoos resolve their hasAnimals to leo.
-    for zoo_id, label in [(zoo_id_client, "client form"), (zoo_id_rest, "rest form")]:
-        obj = cr.collections.use(zoo).query.fetch_object_by_id(
-            zoo_id,
-            return_references=QueryReference(link_on="hasAnimals", return_properties=["name"]),
-        )
-        assert obj is not None, f"{label}: object not found"
-        refs = obj.references["hasAnimals"].objects
-        assert len(refs) == 1, f"{label}: expected 1 ref, got {len(refs)}"
-        assert (
-            refs[0].properties["name"] == "leo"
-        ), f"{label}: expected linked animal 'leo', got {refs[0].properties!r}"
+    assert obj is not None
+    refs = obj.references["hasAnimals"].objects
+    assert len(refs) == 1
+    assert refs[0].properties["name"] == "leo"
