@@ -213,6 +213,55 @@ func (db *DB) FindUUIDs(ctx context.Context, indexName, shardName string,
 	return index.IncomingFindUUIDs(ctx, shardName, f, limit)
 }
 
+func (db *DB) CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.createAsyncCheckpointShards(ctx, index.resolveShardNames(shardNames), cutoffMs, createdAt)
+}
+
+func (db *DB) DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.deleteAsyncCheckpointShards(ctx, index.resolveShardNames(shardNames))
+}
+
+func (db *DB) GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	targets := index.resolveShardNames(shardNames)
+	return index.getAsyncCheckpointShardStatus(ctx, targets)
+}
+
+func (db *DB) CreateAsyncCheckpoints(ctx context.Context, className string, cutoffMs int64, shards []string) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.CreateAsyncCheckpoints(ctx, cutoffMs, shards)
+}
+
+func (db *DB) DeleteAsyncCheckpoints(ctx context.Context, className string, shards []string) error {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return pr.FirstError()
+	}
+	return index.DeleteAsyncCheckpoints(ctx, shards)
+}
+
+func (db *DB) GetAsyncCheckpointNodeStatuses(ctx context.Context, className string, shards []string) (map[string][]replica.AsyncCheckpointNodeStatus, error) {
+	index, pr := db.replicatedIndex(className)
+	if pr != nil {
+		return nil, pr.FirstError()
+	}
+	return index.GetAsyncCheckpointStatus(ctx, shards)
+}
+
 func (db *DB) CommitReplication(ctx context.Context,
 	class, shard, requestID string,
 ) any {

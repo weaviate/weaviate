@@ -323,6 +323,51 @@ func (_c *MockShardLike_AnalyzeObject_Call) RunAndReturn(run func(*storobj.Objec
 	return _c
 }
 
+// AsyncCheckpointRoot provides a mock function with given fields: ctx
+func (_m *MockShardLike) AsyncCheckpointRoot(ctx context.Context) (hashtree.Digest, int64, time.Time, bool) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AsyncCheckpointRoot")
+	}
+
+	var r0 hashtree.Digest
+	var r1 int64
+	var r2 time.Time
+	var r3 bool
+	if ret.Get(0) != nil {
+		r0 = ret.Get(0).(hashtree.Digest)
+	}
+	if ret.Get(1) != nil {
+		r1 = ret.Get(1).(int64)
+	}
+	if ret.Get(2) != nil {
+		r2 = ret.Get(2).(time.Time)
+	}
+	if ret.Get(3) != nil {
+		r3 = ret.Get(3).(bool)
+	}
+	return r0, r1, r2, r3
+}
+
+// CreateAsyncCheckpoint provides a mock function with given fields: ctx, cutoffMs, createdAt
+func (_m *MockShardLike) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
+	ret := _m.Called(ctx, cutoffMs, createdAt)
+	if len(ret) == 0 {
+		panic("no return value specified for CreateAsyncCheckpoint")
+	}
+	return ret.Error(0)
+}
+
+// DeleteAsyncCheckpoint provides a mock function with given fields: ctx
+func (_m *MockShardLike) DeleteAsyncCheckpoint(ctx context.Context) error {
+	ret := _m.Called(ctx)
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAsyncCheckpoint")
+	}
+	return ret.Error(0)
+}
+
 // CompareDigests provides a mock function with given fields: ctx, sourceDigests
 func (_m *MockShardLike) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
 	ret := _m.Called(ctx, sourceDigests)

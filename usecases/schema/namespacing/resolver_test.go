@@ -12,12 +12,15 @@
 package namespacing
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // fakeSchemaManager implements SchemaManager for testing
@@ -677,6 +680,221 @@ func TestStripObjectResponseClass(t *testing.T) {
 			StripObjectResponseClass(tc.principal, tc.in)
 			if tc.in != nil {
 				assert.Equal(t, tc.want, tc.in.Class)
+			}
+		})
+	}
+}
+
+func TestStripErrorMessage(t *testing.T) {
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		msg       string
+		want      string
+	}{
+		{
+			name:      "own prefix single occurrence",
+			principal: namespacedPrincipal,
+			msg:       "collection customer1:Movies not found",
+			want:      "collection Movies not found",
+		},
+		{
+			name:      "own prefix multiple occurrences",
+			principal: namespacedPrincipal,
+			msg:       "customer1:Movies references customer1:Person",
+			want:      "Movies references Person",
+		},
+		{
+			name:      "foreign prefix passthrough",
+			principal: namespacedPrincipal,
+			msg:       "cannot read customer2:Movies",
+			want:      "cannot read customer2:Movies",
+		},
+		{
+			name:      "mixed own and foreign",
+			principal: namespacedPrincipal,
+			msg:       "customer1:Movies cannot reference customer2:Person",
+			want:      "Movies cannot reference customer2:Person",
+		},
+		{
+			name:      "empty namespace passthrough",
+			principal: noNamespacePrincipal,
+			msg:       "customer1:Movies not found",
+			want:      "customer1:Movies not found",
+		},
+		{
+			name:      "global principal passthrough",
+			principal: globalPrincipal,
+			msg:       "customer1:Movies not found",
+			want:      "customer1:Movies not found",
+		},
+		{
+			name:      "nil principal passthrough",
+			principal: nil,
+			msg:       "customer1:Movies not found",
+			want:      "customer1:Movies not found",
+		},
+		{
+			name:      "empty message",
+			principal: namespacedPrincipal,
+			msg:       "",
+			want:      "",
+		},
+		{
+			name:      "username and resource in Forbidden.Error() shape",
+			principal: namespacedPrincipal,
+			msg:       "authorization, forbidden action: user 'customer1:apiuser' has insufficient permissions to update [data/customer1:Movies]",
+			want:      "authorization, forbidden action: user 'apiuser' has insufficient permissions to update [data/Movies]",
+		},
+		{
+			name:      "JSON-embedded class name",
+			principal: namespacedPrincipal,
+			msg:       `{"class":"customer1:Movies","id":"abc"}`,
+			want:      `{"class":"Movies","id":"abc"}`,
+		},
+		{
+			name:      "namespace as substring without separator passes through",
+			principal: namespacedPrincipal,
+			msg:       "customer1Movies is invalid",
+			want:      "customer1Movies is invalid",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, StripErrorMessage(tc.principal, tc.msg))
+		})
+	}
+}
+
+func TestStripErrForPrincipal(t *testing.T) {
+	forbiddenErr := autherrs.NewForbidden(
+		&models.Principal{Username: "customer1:apiuser"},
+		"update", "data/customer1:Movies",
+	)
+	wrappedForbidden := fmt.Errorf("doing something: %w", autherrs.NewForbidden(
+		&models.Principal{Username: "customer1:apiuser"},
+		"read", "data/customer1:Movies",
+	))
+	unauthErr := autherrs.NewUnauthenticated()
+
+	type outcome int
+	const (
+		wantNil outcome = iota
+		wantSame
+		wantStripped
+	)
+
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		err       error
+		want      outcome
+		wantMsg   string // when want == wantStripped (may be empty to skip equality check)
+		extra     func(t *testing.T, got error)
+	}{
+		{
+			name:      "nil error returns nil",
+			principal: namespacedPrincipal,
+			err:       nil,
+			want:      wantNil,
+		},
+		{
+			name:      "nil principal returns original",
+			principal: nil,
+			err:       errors.New("collection customer1:Movies not found"),
+			want:      wantSame,
+		},
+		{
+			name:      "global principal returns original",
+			principal: globalPrincipal,
+			err:       errors.New("collection customer1:Movies not found"),
+			want:      wantSame,
+		},
+		{
+			name:      "empty namespace returns original",
+			principal: noNamespacePrincipal,
+			err:       errors.New("collection customer1:Movies not found"),
+			want:      wantSame,
+		},
+		{
+			name:      "no own-prefix returns original",
+			principal: namespacedPrincipal,
+			err:       errors.New("collection customer2:Movies not found"),
+			want:      wantSame,
+		},
+		{
+			name:      "own-prefix stripped",
+			principal: namespacedPrincipal,
+			err:       errors.New("collection customer1:Movies not found"),
+			want:      wantStripped,
+			wantMsg:   "collection Movies not found",
+		},
+		{
+			name:      "multiple own-prefix occurrences stripped",
+			principal: namespacedPrincipal,
+			err:       errors.New("customer1:Movies references customer1:Person"),
+			want:      wantStripped,
+			wantMsg:   "Movies references Person",
+		},
+		{
+			name:      "foreign prefix left intact",
+			principal: namespacedPrincipal,
+			err:       errors.New("customer1:Movies references customer2:Person"),
+			want:      wantStripped,
+			wantMsg:   "Movies references customer2:Person",
+		},
+		{
+			name:      "Forbidden preserved via errors.As after strip",
+			principal: namespacedPrincipal,
+			err:       forbiddenErr,
+			want:      wantStripped,
+			wantMsg:   "authorization, forbidden action: user 'apiuser' has insufficient permissions to update [data/Movies]",
+			extra: func(t *testing.T, got error) {
+				var target autherrs.Forbidden
+				require.True(t, errors.As(got, &target))
+			},
+		},
+		{
+			// Unauthenticated's message has no prefix; the function short-circuits
+			// to the original error, but errors.As must still match.
+			name:      "Unauthenticated preserved via errors.As",
+			principal: namespacedPrincipal,
+			err:       unauthErr,
+			want:      wantSame,
+			extra: func(t *testing.T, got error) {
+				var target autherrs.Unauthenticated
+				require.True(t, errors.As(got, &target))
+			},
+		},
+		{
+			name:      "wrapped Forbidden preserved via Unwrap chain",
+			principal: namespacedPrincipal,
+			err:       wrappedForbidden,
+			want:      wantStripped,
+			extra: func(t *testing.T, got error) {
+				var target autherrs.Forbidden
+				require.True(t, errors.As(got, &target))
+				assert.NotContains(t, got.Error(), "customer1:")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := StripErrForPrincipal(tc.principal, tc.err)
+			switch tc.want {
+			case wantNil:
+				assert.Nil(t, got)
+			case wantSame:
+				assert.Equal(t, tc.err, got)
+			case wantStripped:
+				require.NotNil(t, got)
+				if tc.wantMsg != "" {
+					assert.Equal(t, tc.wantMsg, got.Error())
+				}
+			}
+			if tc.extra != nil {
+				tc.extra(t, got)
 			}
 		})
 	}

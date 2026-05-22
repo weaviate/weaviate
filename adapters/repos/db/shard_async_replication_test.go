@@ -204,6 +204,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 
 		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+			0, // asyncCheckpointCutoff: no active checkpoint
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local)
@@ -224,6 +225,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 
 		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+			0, // asyncCheckpointCutoff: no active checkpoint
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local, "memtable objects must be visible to the merged bucket cursor")
@@ -249,6 +251,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 
 		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+			0, // asyncCheckpointCutoff: no active checkpoint
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 2, local)
@@ -275,6 +278,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 
 		_, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, limit, nil,
+			0, // asyncCheckpointCutoff: no active checkpoint
 		)
 		require.NoError(t, err)
 		assert.LessOrEqual(t, len(objs), limit,
@@ -309,6 +313,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 
 		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+			0, // asyncCheckpointCutoff: no active checkpoint
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 0, local,
@@ -341,6 +346,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 
 		local, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+			0, // asyncCheckpointCutoff: no active checkpoint
 		)
 		require.NoError(t, err)
 		assert.Equal(t, 1, local,
@@ -367,6 +373,7 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 
 		_, objs, err := s.objectsToPropagateWithinRange(
 			ctx, cfg, "http://fake", "node2", 0, 1, 100, nil,
+			0, // asyncCheckpointCutoff: no active checkpoint
 		)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "comparing digests with remote",

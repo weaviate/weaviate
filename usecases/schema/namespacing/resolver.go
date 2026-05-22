@@ -220,3 +220,37 @@ func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
 	}
 	obj.Class = StripOwnNamespace(principal, obj.Class)
 }
+
+// StripErrorMessage removes every occurrence of the principal's own
+// "<namespace>:" prefix from msg. Returns msg unchanged when principal is
+// nil or has no namespace.
+func StripErrorMessage(principal *models.Principal, msg string) string {
+	if principal == nil || principal.Namespace == "" {
+		return msg
+	}
+	return strings.ReplaceAll(msg, principal.Namespace+schema.NamespaceSeparator, "")
+}
+
+// StripErrForPrincipal returns an error whose Error() has the principal's
+// own namespace prefix removed. The original error is held via Unwrap so
+// errors.As keeps matching. Returns err unchanged when nothing was stripped.
+func StripErrForPrincipal(principal *models.Principal, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	stripped := StripErrorMessage(principal, msg)
+	if stripped == msg {
+		return err
+	}
+	return &strippedErr{msg: stripped, orig: err}
+}
+
+// strippedErr overrides Error() while keeping the original reachable via Unwrap.
+type strippedErr struct {
+	msg  string
+	orig error
+}
+
+func (e *strippedErr) Error() string { return e.msg }
+func (e *strippedErr) Unwrap() error { return e.orig }

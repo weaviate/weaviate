@@ -49,4 +49,10 @@ type Replicator interface {
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 	CountObjects(ctx context.Context, indexName, shardName string) (int, error)
+
+	// CreateAsyncCheckpoint: createdAt is the initiator's value, propagated unchanged.
+	CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error
+	DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error
+	// GetAsyncCheckpointStatus omits shards not loaded on this node from the map.
+	GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error)
 }

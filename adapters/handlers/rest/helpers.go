@@ -12,8 +12,7 @@
 package rest
 
 import (
-	"fmt"
-
+	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -32,8 +31,6 @@ func createErrorResponseObject(messages ...string) *models.ErrorResponse {
 	return er
 }
 
-func errPayloadFromSingleErr(err error) *models.ErrorResponse {
-	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
-		Message: fmt.Sprintf("%s", err),
-	}}}
+func errPayloadFromSingleErr(principal *models.Principal, err error) *models.ErrorResponse {
+	return cerrors.ErrPayloadFromSingleErr(principal, err)
 }

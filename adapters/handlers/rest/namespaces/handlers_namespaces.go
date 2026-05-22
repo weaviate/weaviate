@@ -88,7 +88,7 @@ func disabledResponder() middleware.Responder {
 	return middleware.ResponderFunc(func(w http.ResponseWriter, _ runtime.Producer) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(cerrors.ErrPayloadFromSingleErr(errNamespacesDisabled))
+		_ = json.NewEncoder(w).Encode(cerrors.ErrPayloadFromSingleErr(nil, errNamespacesDisabled))
 	})
 }
 
@@ -101,11 +101,11 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 	name := params.NamespaceID
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Namespaces(name)...); err != nil {
-		return nsops.NewCreateNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return nsops.NewCreateNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := usecasesNamespaces.ValidateName(name); err != nil {
-		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	homeNode := ""
@@ -114,7 +114,7 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 	}
 	if homeNode != "" && !slices.Contains(h.raft.StorageCandidates(), homeNode) {
 		return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("home_node %q is not a current storage candidate", homeNode)))
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("home_node %q is not a current storage candidate", homeNode)))
 	}
 
 	// No pre-check for existence — the RAFT apply layer owns uniqueness, so
@@ -131,15 +131,15 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 		switch {
 		case errors.Is(err, usecasesNamespaces.ErrAlreadyExists):
 			return nsops.NewCreateNamespaceConflict().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q already exists", name)))
+				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q already exists", name)))
 		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
 			return nsops.NewCreateNamespaceConflict().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q is being deleted; retry after cleanup completes", name)))
+				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted; retry after cleanup completes", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
-			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+			return nsops.NewCreateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		default:
 			return nsops.NewCreateNamespaceInternalServerError().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating namespace: %w", err)))
+				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("creating namespace: %w", err)))
 		}
 	}
 
@@ -159,11 +159,11 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 	name := params.NamespaceID
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Namespaces(name)...); err != nil {
-		return nsops.NewUpdateNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return nsops.NewUpdateNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := usecasesNamespaces.ValidateName(name); err != nil {
-		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	homeNode := ""
@@ -172,26 +172,26 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 	}
 	if homeNode == "" {
 		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("home_node is required")))
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("home_node is required")))
 	}
 	if !slices.Contains(h.raft.StorageCandidates(), homeNode) {
 		return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("home_node %q is not a current storage candidate", homeNode)))
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("home_node %q is not a current storage candidate", homeNode)))
 	}
 
 	if _, err := h.raft.UpdateNamespace(ctx, cmd.Namespace{Name: name, HomeNodes: []string{homeNode}}); err != nil {
 		switch {
 		case errors.Is(err, usecasesNamespaces.ErrNotFound):
 			return nsops.NewUpdateNamespaceNotFound().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
+				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q not found", name)))
 		case errors.Is(err, usecasesNamespaces.ErrNamespaceDeleting):
 			return nsops.NewUpdateNamespaceConflict().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q is being deleted; home_node cannot be updated", name)))
+				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted; home_node cannot be updated", name)))
 		case errors.Is(err, usecasesNamespaces.ErrBadRequest):
-			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+			return nsops.NewUpdateNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		default:
 			return nsops.NewUpdateNamespaceInternalServerError().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("updating namespace: %w", err)))
+				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("updating namespace: %w", err)))
 		}
 	}
 
@@ -218,21 +218,21 @@ func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, princip
 	name := params.NamespaceID
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Namespaces(name)...); err != nil {
-		return nsops.NewGetNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return nsops.NewGetNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := usecasesNamespaces.ValidateName(name); err != nil {
-		return nsops.NewGetNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return nsops.NewGetNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	got, err := h.raft.GetNamespaces(name)
 	if err != nil {
 		return nsops.NewGetNamespaceInternalServerError().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("getting namespace: %w", err)))
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("getting namespace: %w", err)))
 	}
 	if len(got) == 0 {
 		return nsops.NewGetNamespaceNotFound().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q not found", name)))
 	}
 
 	return nsops.NewGetNamespaceOK().WithPayload(&models.Namespace{
@@ -251,11 +251,11 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 	name := params.NamespaceID
 
 	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Namespaces(name)...); err != nil {
-		return nsops.NewDeleteNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return nsops.NewDeleteNamespaceForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := usecasesNamespaces.ValidateName(name); err != nil {
-		return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		return nsops.NewDeleteNamespaceUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	// Two-phase delete. First flip to deleting; the apply handler is
@@ -266,14 +266,14 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 	if _, err := h.raft.ChangeNamespaceState(ctx, name, cmd.NamespaceStateDeleting); err != nil {
 		if errors.Is(err, usecasesNamespaces.ErrNotFound) {
 			return nsops.NewDeleteNamespaceNotFound().WithPayload(
-				cerrors.ErrPayloadFromSingleErr(fmt.Errorf("namespace %q not found", name)))
+				cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q not found", name)))
 		}
 		return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("marking namespace for deletion: %w", err)))
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("marking namespace for deletion: %w", err)))
 	}
 	if err := h.raft.DeleteUsersInNamespace(ctx, name); err != nil {
 		return nsops.NewDeleteNamespaceInternalServerError().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("deleting users in namespace: %w", err)))
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("deleting users in namespace: %w", err)))
 	}
 
 	return nsops.NewDeleteNamespaceAccepted()
@@ -292,7 +292,7 @@ func (h *namespaceHandler) listNamespaces(params nsops.ListNamespacesParams, pri
 	all, err := h.raft.GetNamespaces()
 	if err != nil {
 		return nsops.NewListNamespacesInternalServerError().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("listing namespaces: %w", err)))
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("listing namespaces: %w", err)))
 	}
 	if len(all) == 0 {
 		return nsops.NewListNamespacesOK().WithPayload([]*models.Namespace{})
@@ -306,7 +306,7 @@ func (h *namespaceHandler) listNamespaces(params nsops.ListNamespacesParams, pri
 	allowed, err := h.authorizer.FilterAuthorizedResources(ctx, principal, authorization.READ, resources...)
 	if err != nil {
 		return nsops.NewListNamespacesInternalServerError().WithPayload(
-			cerrors.ErrPayloadFromSingleErr(fmt.Errorf("filtering authorized namespaces: %w", err)))
+			cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("filtering authorized namespaces: %w", err)))
 	}
 
 	allowedSet := make(map[string]struct{}, len(allowed))
