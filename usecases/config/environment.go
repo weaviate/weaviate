@@ -1195,17 +1195,9 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	}
 
 	if err := parsePositiveInt(
-		"SHARD_RAFT_SNAPSHOT_INTERVAL",
-		func(val int) { cfg.ShardSnapshotInterval = time.Second * time.Duration(val) },
-		30,
-	); err != nil {
-		return cfg, err
-	}
-
-	if err := parsePositiveInt(
-		"SHARD_RAFT_TRAILING_LOGS",
-		func(val int) { cfg.ShardTrailingLogs = uint64(val) },
-		0,
+		"SHARD_RAFT_MAX_CONCURRENT_SNAPSHOTS",
+		func(val int) { cfg.ShardMaxConcurrentSnapshots = val },
+		3,
 	); err != nil {
 		return cfg, err
 	}

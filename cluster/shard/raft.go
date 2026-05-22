@@ -29,16 +29,11 @@ type RaftConfig struct {
 	NodeID string
 	// Logger is the logger to use.
 	Logger *logrus.Logger
-	// ApplyTimeout is the timeout for RAFT Apply operations.
-	ApplyTimeout time.Duration
 
 	// RAFT timing configuration
-	HeartbeatTimeout   time.Duration
-	ElectionTimeout    time.Duration
-	LeaderLeaseTimeout time.Duration
-	SnapshotInterval   time.Duration
-	SnapshotThreshold  uint64
-	TrailingLogs       uint64
+	HeartbeatTimeout  time.Duration
+	ElectionTimeout   time.Duration
+	SnapshotThreshold uint64
 
 	// StateTransferer handles out-of-band state transfer for snapshot restore.
 	StateTransferer StateTransferer
@@ -136,23 +131,19 @@ func (r *Raft) GetOrCreateStore(
 	}
 
 	storeConfig := StoreConfig{
-		ClassName:          r.config.ClassName,
-		ShardName:          shardName,
-		NodeID:             r.config.NodeID,
-		Members:            members,
-		Logger:             r.config.Logger,
-		ApplyTimeout:       r.config.ApplyTimeout,
-		HeartbeatTimeout:   r.config.HeartbeatTimeout,
-		ElectionTimeout:    r.config.ElectionTimeout,
-		LeaderLeaseTimeout: r.config.LeaderLeaseTimeout,
-		SnapshotInterval:   r.config.SnapshotInterval,
-		SnapshotThreshold:  r.config.SnapshotThreshold,
-		TrailingLogs:       r.config.TrailingLogs,
-		Transport:          r.config.MuxTransport,
-		SharedLog:          r.config.SharedLog,
-		Snapshotter:        r.config.Snapshotter,
-		NodeIDs:            r.config.NodeIDs,
-		Resolver:           r.config.Resolver,
+		ClassName:         r.config.ClassName,
+		ShardName:         shardName,
+		NodeID:            r.config.NodeID,
+		Members:           members,
+		Logger:            r.config.Logger,
+		HeartbeatTimeout:  r.config.HeartbeatTimeout,
+		ElectionTimeout:   r.config.ElectionTimeout,
+		SnapshotThreshold: r.config.SnapshotThreshold,
+		Transport:         r.config.MuxTransport,
+		SharedLog:         r.config.SharedLog,
+		Snapshotter:       r.config.Snapshotter,
+		NodeIDs:           r.config.NodeIDs,
+		Resolver:          r.config.Resolver,
 	}
 
 	store, err := NewStore(storeConfig)

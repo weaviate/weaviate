@@ -61,20 +61,16 @@ type RegistryConfig struct {
 	// directory live under it.
 	DataPath string
 	// RaftPort is the single port used for all shard RAFT traffic (multiplexed).
-	RaftPort int
-	// ApplyTimeout is the timeout for RAFT Apply operations.
-	ApplyTimeout time.Duration
-	// MaxMsgSize is the maximum message size for gRPC calls.
-	MaxMsgSize     int
+	RaftPort       int
 	RpcClientMaker rpcClientMaker
 
 	// RAFT timing configuration
-	HeartbeatTimeout   time.Duration
-	ElectionTimeout    time.Duration
-	LeaderLeaseTimeout time.Duration
-	SnapshotInterval   time.Duration
-	SnapshotThreshold  uint64
-	TrailingLogs       uint64
+	HeartbeatTimeout  time.Duration
+	ElectionTimeout   time.Duration
+	SnapshotThreshold uint64
+
+	// MaxConcurrentSnapshots bounds the per-node snapshot worker pool.
+	MaxConcurrentSnapshots int
 
 	// StateTransferer handles out-of-band state transfer for snapshot restore.
 	StateTransferer StateTransferer
@@ -161,6 +157,7 @@ func (reg *Registry) Start() error {
 	reg.snapshotter = NewSnapshotter(SnapshotterOptions{
 		RootDataPath: reg.config.DataPath,
 		Logger:       reg.log,
+		Workers:      reg.config.MaxConcurrentSnapshots,
 	})
 
 	reg.muxTransport, err = NewMuxTransport(bindAddr, tcpAddr, provider, reg.nodeIDs, reg, reg.log, 0)
@@ -241,23 +238,19 @@ func (reg *Registry) GetOrCreateRaft(className string) (*Raft, error) {
 	}
 
 	raftConfig := RaftConfig{
-		ClassName:          className,
-		NodeID:             reg.config.NodeID,
-		Logger:             reg.config.Logger,
-		ApplyTimeout:       reg.config.ApplyTimeout,
-		HeartbeatTimeout:   reg.config.HeartbeatTimeout,
-		ElectionTimeout:    reg.config.ElectionTimeout,
-		LeaderLeaseTimeout: reg.config.LeaderLeaseTimeout,
-		SnapshotInterval:   reg.config.SnapshotInterval,
-		SnapshotThreshold:  reg.config.SnapshotThreshold,
-		TrailingLogs:       reg.config.TrailingLogs,
-		StateTransferer:    reg.config.StateTransferer,
-		MuxTransport:       reg.muxTransport,
-		SharedLog:          reg.sharedLog,
-		Snapshotter:        reg.snapshotter,
-		NodeIDs:            reg.nodeIDs,
-		Resolver:           reg.config.AddressResolver,
-		GroupRouter:        reg,
+		ClassName:         className,
+		NodeID:            reg.config.NodeID,
+		Logger:            reg.config.Logger,
+		HeartbeatTimeout:  reg.config.HeartbeatTimeout,
+		ElectionTimeout:   reg.config.ElectionTimeout,
+		SnapshotThreshold: reg.config.SnapshotThreshold,
+		StateTransferer:   reg.config.StateTransferer,
+		MuxTransport:      reg.muxTransport,
+		SharedLog:         reg.sharedLog,
+		Snapshotter:       reg.snapshotter,
+		NodeIDs:           reg.nodeIDs,
+		Resolver:          reg.config.AddressResolver,
+		GroupRouter:       reg,
 	}
 
 	raft := NewRaft(raftConfig)

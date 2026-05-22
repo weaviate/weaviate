@@ -35,9 +35,6 @@ const (
 	// nRetainedSnapshots is the number of snapshots to retain per shard.
 	nRetainedSnapshots = 3
 
-	// defaultApplyTimeout is the default timeout for RAFT Apply operations.
-	defaultApplyTimeout = 10 * time.Second
-
 	// defaultTickInterval is how often the Ready loop ticks the RawNode.
 	defaultTickInterval = 100 * time.Millisecond
 
@@ -119,8 +116,6 @@ type StoreConfig struct {
 	Members []string
 	// Logger is the logger to use.
 	Logger *logrus.Logger
-	// ApplyTimeout is the timeout for RAFT Apply operations.
-	ApplyTimeout time.Duration
 	// TickInterval is how often the Ready loop ticks the RawNode.
 	TickInterval time.Duration
 
@@ -142,13 +137,6 @@ type StoreConfig struct {
 	ElectionTimeout  time.Duration
 	// SnapshotThreshold is the applied-index delta that triggers a snapshot.
 	SnapshotThreshold uint64
-
-	// LeaderLeaseTimeout, SnapshotInterval and TrailingLogs have no etcd/raft
-	// equivalent and are unused. They are removed in commit 5 alongside the
-	// config-wiring cleanup.
-	LeaderLeaseTimeout time.Duration
-	SnapshotInterval   time.Duration
-	TrailingLogs       uint64
 }
 
 // Response is the result of applying a command to the FSM.
@@ -227,9 +215,6 @@ type Store struct {
 // NewStore creates a new RAFT cluster for a shard. The cluster is not started
 // until Start() is called.
 func NewStore(config StoreConfig) (*Store, error) {
-	if config.ApplyTimeout == 0 {
-		config.ApplyTimeout = defaultApplyTimeout
-	}
 	if config.TickInterval <= 0 {
 		config.TickInterval = defaultTickInterval
 	}
