@@ -41,6 +41,7 @@ prefix and never matches what's on disk.
     Storage invariants
       Stored beacon is short              test_stored_beacon_is_always_short
       Admin delete w/ qualified beacon    test_admin_delete_with_qualified_beacon
+      Namespaced user can't cross-NS delete  test_namespaced_user_cannot_delete_with_foreign_ns_beacon
       Same UUID/class isolated across NS  test_namespaces_stay_isolated
 
 # Conventions
@@ -1011,6 +1012,74 @@ def test_admin_delete_with_qualified_beacon(
     assert (
         refs_after == []
     ), f"admin DELETE with qualified beacon must remove the ref; still saw {refs_after!r}"
+
+
+def test_namespaced_user_cannot_delete_with_foreign_ns_beacon(
+    request: pytest.FixtureRequest,
+    namespaces: Tuple[str, str],
+    client_for_key: Callable[[str, int], WeaviateClient],
+    cleanup_collections: Callable[[str], None],
+) -> None:
+    """Namespaced user DELETE with a foreign-NS qualified beacon must 422.
+
+    Counterpart to test_admin_delete_with_qualified_beacon: the
+    normalisation that lets admins use qualified beacons must NOT
+    let a namespaced user reach across namespaces. ValidateNamespacePrefix
+    in references_delete runs *before* the normalisation step, so a
+    namespaced user submitting "weaviate://localhost/customer2:Animal/<id>"
+    is rejected with 422 — and the legitimate stored ref on the
+    namespaced user's own row is untouched.
+    """
+    k1, _ = namespaces
+    zoo, animal = _short_name(request, "Zoo"), _short_name(request, "Animal")
+    cleanup_collections(zoo)
+    cleanup_collections(animal)
+
+    cw = client_for_key(k1, 0)
+    cw.collections.create(
+        name=animal,
+        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
+    )
+    cw.collections.create(
+        name=zoo,
+        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
+        references=[wvc.config.ReferenceProperty(name="hasAnimals", target_collection=animal)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
+    )
+    animal_id = cw.collections.use(animal).data.insert(properties={"name": "leo"})
+    zoo_id = cw.collections.use(zoo).data.insert(properties={"name": "z"})
+    cw.collections.use(zoo).data.reference_add(
+        from_uuid=zoo_id,
+        from_property="hasAnimals",
+        to=animal_id,
+    )
+
+    # Namespaced user (k1, in customer1) submits a DELETE targeting
+    # customer2:Animal via raw REST. Must be rejected with 422 from
+    # ValidateNamespacePrefix before any normalisation runs.
+    r = requests.delete(
+        f"{_rest_base(NODES[0][0])}/objects/{zoo}/{zoo_id}/references/hasAnimals",
+        headers={"Authorization": f"Bearer {k1}", "Content-Type": "application/json"},
+        json={"beacon": f"weaviate://localhost/{NS2}:{animal}/{animal_id}"},
+    )
+    assert r.status_code == 422, f"cross-NS delete should 422, got {r.status_code}: {r.text}"
+
+    # The legitimate stored ref must still be present — the 422 path
+    # must NOT mutate state. Admin reads via the qualified class to
+    # bypass the python client's ':' validation.
+    r = requests.get(
+        f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_id}",
+        headers=_admin_headers(),
+    )
+    assert r.status_code == 200, f"admin GET failed: {r.status_code} {r.text}"
+    refs_after = r.json()["properties"].get("hasAnimals") or []
+    assert (
+        len(refs_after) == 1
+    ), f"cross-NS delete must not remove the local ref; saw {refs_after!r}"
+    assert (
+        refs_after[0]["beacon"] == f"weaviate://localhost/{animal}/{animal_id}"
+    ), f"unexpected beacon: {refs_after[0]!r}"
 
 
 # ---------------------------------------------------------------------------
