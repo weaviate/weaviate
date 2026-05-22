@@ -80,8 +80,6 @@ type ShardReplicationFSM struct {
 	statusById map[uint64]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
-
-	raftAppliedIndex func() uint64
 }
 
 func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
@@ -104,15 +102,6 @@ func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	}, []string{"state"})
 
 	return fsm
-}
-
-// SetRaftAppliedIndex injects the RAFT applied-index accessor used by
-// IsLocalShardWritable. A setter, not a constructor arg, because the RAFT
-// store does not exist yet when the FSM is built.
-func (s *ShardReplicationFSM) SetRaftAppliedIndex(f func() uint64) {
-	s.opsLock.Lock()
-	defer s.opsLock.Unlock()
-	s.raftAppliedIndex = f
 }
 
 type snapshot struct {
@@ -387,59 +376,6 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	default:
 	}
 	return readOk, writeOk
-}
-
-// IsLocalShardWritable is the source-side PREPARE fence. When allowed is
-// false the caller emits StatusRouteStale with LastAppliedIndex=catchUpIndex,
-// driving the coordinator's waitForFSMCatchUp + retry. Rules per op where
-// localNode is the source of (collection, shard):
-//
-//   - DEHYDRATING: reject; catchUpIndex = this node's live RAFT applied index.
-//     The source removal (DeleteReplicaFromShard) lands *after* DEHYDRATING
-//     converges, so its index is unknown at fence time — a live, rising bound
-//     is required, not one captured at the op transition. 0 when unwired, so
-//     the caller retries without waiting.
-//   - INTEGRATING|READY && schemaVersion < AddReplicaVersion: reject;
-//     catchUpIndex = AddReplicaVersion. The coord's routing predates the
-//     target's add, so its PREPARE excludes the new target.
-//
-// Targets always pass — a coord routing to a target has a fresher view than
-// the target's own FSM. On multiple rejecting ops, the highest catchUpIndex
-// wins.
-func (s *ShardReplicationFSM) IsLocalShardWritable(localNode, collection, shard string, schemaVersion uint64) (allowed bool, catchUpIndex uint64) {
-	s.opsLock.RLock()
-	defer s.opsLock.RUnlock()
-
-	ops, ok := s.opsBySourceFQDN[newShardFQDN(localNode, collection, shard)]
-	if !ok {
-		return true, 0
-	}
-
-	allowed = true
-	for _, op := range ops {
-		opState, ok := s.statusById[op.ID]
-		if !ok {
-			continue
-		}
-		switch opState.GetCurrentState() {
-		case api.DEHYDRATING:
-			allowed = false
-			if s.raftAppliedIndex != nil {
-				if applied := s.raftAppliedIndex(); applied > catchUpIndex {
-					catchUpIndex = applied
-				}
-			}
-		case api.INTEGRATING, api.READY:
-			if opState.AddReplicaVersion != 0 && schemaVersion < opState.AddReplicaVersion {
-				allowed = false
-				if opState.AddReplicaVersion > catchUpIndex {
-					catchUpIndex = opState.AddReplicaVersion
-				}
-			}
-		default:
-		}
-	}
-	return allowed, catchUpIndex
 }
 
 // HasReplicationOpsForShard reports whether any replication op currently

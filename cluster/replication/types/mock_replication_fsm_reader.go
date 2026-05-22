@@ -187,65 +187,6 @@ func (_c *MockReplicationFSMReader_HasReplicationOpsForShard_Call) RunAndReturn(
 	return _c
 }
 
-// IsLocalShardWritable provides a mock function with given fields: localNode, collection, shard, schemaVersion
-func (_m *MockReplicationFSMReader) IsLocalShardWritable(localNode string, collection string, shard string, schemaVersion uint64) (bool, uint64) {
-	ret := _m.Called(localNode, collection, shard, schemaVersion)
-
-	if len(ret) == 0 {
-		panic("no return value specified for IsLocalShardWritable")
-	}
-
-	var r0 bool
-	var r1 uint64
-	if rf, ok := ret.Get(0).(func(string, string, string, uint64) (bool, uint64)); ok {
-		return rf(localNode, collection, shard, schemaVersion)
-	}
-	if rf, ok := ret.Get(0).(func(string, string, string, uint64) bool); ok {
-		r0 = rf(localNode, collection, shard, schemaVersion)
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	if rf, ok := ret.Get(1).(func(string, string, string, uint64) uint64); ok {
-		r1 = rf(localNode, collection, shard, schemaVersion)
-	} else {
-		r1 = ret.Get(1).(uint64)
-	}
-
-	return r0, r1
-}
-
-// MockReplicationFSMReader_IsLocalShardWritable_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsLocalShardWritable'
-type MockReplicationFSMReader_IsLocalShardWritable_Call struct {
-	*mock.Call
-}
-
-// IsLocalShardWritable is a helper method to define mock.On call
-//   - localNode string
-//   - collection string
-//   - shard string
-//   - schemaVersion uint64
-func (_e *MockReplicationFSMReader_Expecter) IsLocalShardWritable(localNode interface{}, collection interface{}, shard interface{}, schemaVersion interface{}) *MockReplicationFSMReader_IsLocalShardWritable_Call {
-	return &MockReplicationFSMReader_IsLocalShardWritable_Call{Call: _e.mock.On("IsLocalShardWritable", localNode, collection, shard, schemaVersion)}
-}
-
-func (_c *MockReplicationFSMReader_IsLocalShardWritable_Call) Run(run func(localNode string, collection string, shard string, schemaVersion uint64)) *MockReplicationFSMReader_IsLocalShardWritable_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string), args[2].(string), args[3].(uint64))
-	})
-	return _c
-}
-
-func (_c *MockReplicationFSMReader_IsLocalShardWritable_Call) Return(allowed bool, catchUpIndex uint64) *MockReplicationFSMReader_IsLocalShardWritable_Call {
-	_c.Call.Return(allowed, catchUpIndex)
-	return _c
-}
-
-func (_c *MockReplicationFSMReader_IsLocalShardWritable_Call) RunAndReturn(run func(string, string, string, uint64) (bool, uint64)) *MockReplicationFSMReader_IsLocalShardWritable_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewMockReplicationFSMReader creates a new instance of MockReplicationFSMReader. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockReplicationFSMReader(t interface {

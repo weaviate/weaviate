@@ -192,24 +192,6 @@ func (s *ShardReplicationFSM) SetUnCancellable(id uint64) error {
 	return nil
 }
 
-// SetAddReplicaVersion records the RAFT index of the op's
-// ReplicationAddReplicaToShard apply for the IsLocalShardWritable fence.
-// Monotonic: a lower index is ignored.
-func (s *ShardReplicationFSM) SetAddReplicaVersion(id uint64, raftIndex uint64) error {
-	s.opsLock.Lock()
-	defer s.opsLock.Unlock()
-
-	status, ok := s.statusById[id]
-	if !ok {
-		return fmt.Errorf("could not find op status for op %d: %w", id, types.ErrReplicationOperationNotFound)
-	}
-	if raftIndex > status.AddReplicaVersion {
-		status.AddReplicaVersion = raftIndex
-		s.statusById[id] = status
-	}
-	return nil
-}
-
 func (s *ShardReplicationFSM) GetReplicationOpUUIDFromId(id uint64) (strfmt.UUID, error) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()

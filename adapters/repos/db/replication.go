@@ -52,9 +52,6 @@ func (db *DB) ReplicateObject(ctx context.Context, class,
 	if resp := db.waitForSchemaVersionForIndexWrite(ctx, schemaVersion); resp != nil {
 		return *resp
 	}
-	if resp := db.checkLocalWritable(class, shard, schemaVersion); resp != nil {
-		return *resp
-	}
 
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
@@ -68,9 +65,6 @@ func (db *DB) ReplicateObjects(ctx context.Context, class,
 	shard, requestID string, objects []*storobj.Object, schemaVersion uint64,
 ) replica.SimpleResponse {
 	if resp := db.waitForSchemaVersionForIndexWrite(ctx, schemaVersion); resp != nil {
-		return *resp
-	}
-	if resp := db.checkLocalWritable(class, shard, schemaVersion); resp != nil {
 		return *resp
 	}
 
@@ -89,9 +83,6 @@ func (db *DB) ReplicateUpdate(ctx context.Context, class,
 	if resp := db.waitForSchemaVersionForIndexWrite(ctx, schemaVersion); resp != nil {
 		return *resp
 	}
-	if resp := db.checkLocalWritable(class, shard, schemaVersion); resp != nil {
-		return *resp
-	}
 
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
@@ -108,9 +99,6 @@ func (db *DB) ReplicateDeletion(ctx context.Context, class,
 	if resp := db.waitForSchemaVersionForIndexWrite(ctx, schemaVersion); resp != nil {
 		return *resp
 	}
-	if resp := db.checkLocalWritable(class, shard, schemaVersion); resp != nil {
-		return *resp
-	}
 
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
@@ -124,9 +112,6 @@ func (db *DB) ReplicateDeletions(ctx context.Context, class,
 	shard, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) replica.SimpleResponse {
 	if resp := db.waitForSchemaVersionForIndexWrite(ctx, schemaVersion); resp != nil {
-		return *resp
-	}
-	if resp := db.checkLocalWritable(class, shard, schemaVersion); resp != nil {
 		return *resp
 	}
 
@@ -145,9 +130,6 @@ func (db *DB) ReplicateReferences(ctx context.Context, class,
 	if resp := db.waitForSchemaVersionForIndexWrite(ctx, schemaVersion); resp != nil {
 		return *resp
 	}
-	if resp := db.checkLocalWritable(class, shard, schemaVersion); resp != nil {
-		return *resp
-	}
 
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
@@ -155,25 +137,6 @@ func (db *DB) ReplicateReferences(ctx context.Context, class,
 	}
 
 	return index.ReplicateReferences(ctx, shard, requestID, refs)
-}
-
-// checkLocalWritable applies the source-side fence; see
-// ShardReplicationFSM.IsLocalShardWritable for the rules. On rejection the
-// response carries LastAppliedIndex so the coord's retry path can catch its
-// FSM up and rebuild routing.
-func (db *DB) checkLocalWritable(class, shard string, schemaVersion uint64) *replica.SimpleResponse {
-	if db.replicationFSM == nil {
-		return nil
-	}
-	allowed, catchUp := db.replicationFSM.IsLocalShardWritable(db.localNodeName, class, shard, schemaVersion)
-	if allowed {
-		return nil
-	}
-	return &replica.SimpleResponse{Errors: []replica.Error{{
-		Code:             replica.StatusRouteStale,
-		LastAppliedIndex: catchUp,
-		Msg:              fmt.Sprintf("shard %q on node %q: local node is not a current write target; coordinator must refresh routing and retry", shard, db.localNodeName),
-	}}}
 }
 
 func (db *DB) OverwriteObjects(ctx context.Context, className, shard string, vobjects []*objects.VObject) ([]types.RepairResponse, error) {

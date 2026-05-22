@@ -478,29 +478,14 @@ func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardSta
 // cluster/replication would cycle through cluster/schema. Unused interface
 // methods panic so an unexpected call surfaces immediately.
 type fakeReplicationFSM struct {
-	setUnCancellableCalls      []uint64
-	setUnCancellableReturnFn   func(id uint64) error
-	setAddReplicaVersionCalls  []setAddReplicaVersionCall
-	setAddReplicaVersionReturn func(id uint64, raftIndex uint64) error
-}
-
-type setAddReplicaVersionCall struct {
-	id        uint64
-	raftIndex uint64
+	setUnCancellableCalls    []uint64
+	setUnCancellableReturnFn func(id uint64) error
 }
 
 func (f *fakeReplicationFSM) SetUnCancellable(id uint64) error {
 	f.setUnCancellableCalls = append(f.setUnCancellableCalls, id)
 	if f.setUnCancellableReturnFn != nil {
 		return f.setUnCancellableReturnFn(id)
-	}
-	return nil
-}
-
-func (f *fakeReplicationFSM) SetAddReplicaVersion(id uint64, raftIndex uint64) error {
-	f.setAddReplicaVersionCalls = append(f.setAddReplicaVersionCalls, setAddReplicaVersionCall{id: id, raftIndex: raftIndex})
-	if f.setAddReplicaVersionReturn != nil {
-		return f.setAddReplicaVersionReturn(id, raftIndex)
 	}
 	return nil
 }

@@ -40,7 +40,6 @@ type replicationFSM interface {
 	DeleteReplicationsByCollection(collection string) error
 	DeleteReplicationsByTenants(collection string, tenants []string) error
 	SetUnCancellable(id uint64) error
-	SetAddReplicaVersion(id uint64, raftIndex uint64) error
 }
 
 type SchemaManager struct {
@@ -643,10 +642,6 @@ func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, 
 				err := s.replicationFSM.SetUnCancellable(req.OpId)
 				if err != nil {
 					return fmt.Errorf("set un-cancellable: %w", err)
-				}
-				// AddReplicaVersion feeds the IsLocalShardWritable fence.
-				if err := s.replicationFSM.SetAddReplicaVersion(req.OpId, cmd.Version); err != nil {
-					return fmt.Errorf("set add-replica version: %w", err)
 				}
 				return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode)
 			},

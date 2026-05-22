@@ -91,11 +91,6 @@ type ShardReplicationOpStatus struct {
 	// By communicating it with remote nodes, we can ensure that they will wait for the schema version to be the same or greater before proceeding with the operation.
 	SchemaVersion uint64
 
-	// RAFT index at which ReplicationAddReplicaToShard applied. The
-	// IsLocalShardWritable fence rejects writes with schemaVersion below
-	// this. Zero on pre-upgrade snapshots → fence disabled for those ops.
-	AddReplicaVersion uint64
-
 	// Highest state each peer has applied for this op. Read by the consumer's
 	// local convergence wait. nil on pre-upgrade snapshots.
 	PerNodeState map[string]api.ShardReplicationState

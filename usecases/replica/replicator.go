@@ -98,19 +98,18 @@ func (r *Replicator) PutObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	buildOp := func(sv uint64) readyOp {
-		return func(ctx context.Context, host, requestID string) error {
-			resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, sv)
-			if err == nil {
-				err = resp.FirstError()
-			}
-			if err != nil {
-				return wrapRouteStale(host, err)
-			}
-			return nil
+	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)
+	isReady := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
+		if err == nil {
+			err = resp.FirstError()
 		}
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
-	rs, err := pushWithRouteStaleRetry(r, ctx, shard, l, opPutObject, buildOp, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, identityErr, 1, schemaVersion)
+	rs, err := coord.Push(ctx, l, isReady, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, 1)
 	if err != nil {
 		r.log.WithField("op", "push.one").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -131,19 +130,18 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	buildOp := func(sv uint64) readyOp {
-		return func(ctx context.Context, host, requestID string) error {
-			resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, sv)
-			if err == nil {
-				err = resp.FirstError()
-			}
-			if err != nil {
-				return wrapRouteStale(host, err)
-			}
-			return nil
+	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opMergeObject), r.log)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, schemaVersion)
+		if err == nil {
+			err = resp.FirstError()
 		}
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
-	rs, err := pushWithRouteStaleRetry(r, ctx, shard, l, opMergeObject, buildOp, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, identityErr, 1, schemaVersion)
+	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, 1)
 	if err != nil {
 		r.log.WithField("op", "push.merge").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -168,19 +166,18 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	buildOp := func(sv uint64) readyOp {
-		return func(ctx context.Context, host, requestID string) error {
-			resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, sv)
-			if err == nil {
-				err = resp.FirstError()
-			}
-			if err != nil {
-				return wrapRouteStale(host, err)
-			}
-			return nil
+	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObject), r.log)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, schemaVersion)
+		if err == nil {
+			err = resp.FirstError()
 		}
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
-	rs, err := pushWithRouteStaleRetry(r, ctx, shard, l, opDeleteObject, buildOp, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, identityErr, 1, schemaVersion)
+	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, 1)
 	if err != nil {
 		r.log.WithField("op", "push.delete").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -200,19 +197,18 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
-	buildOp := func(sv uint64) readyOp {
-		return func(ctx context.Context, host, requestID string) error {
-			resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, sv)
-			if err == nil {
-				err = resp.FirstError()
-			}
-			if err != nil {
-				return wrapRouteStale(host, err)
-			}
-			return nil
+	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
+		if err == nil {
+			err = resp.FirstError()
 		}
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
-	rs, err := pushWithRouteStaleRetry(r, ctx, shard, l, opPutObjects, buildOp, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, identityErr, len(objs), schemaVersion)
+	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, len(objs))
 	if err != nil {
 		r.log.WithField("op", "push.many").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -238,17 +234,16 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
-	buildOp := func(sv uint64) readyOp {
-		return func(ctx context.Context, host, requestID string) error {
-			resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, deletionTime, dryRun, sv)
-			if err == nil {
-				err = resp.FirstError()
-			}
-			if err != nil {
-				return wrapRouteStale(host, err)
-			}
-			return nil
+	coord := NewWriteCoordinator[DeleteBatchResponse, objects.BatchSimpleObject](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObjects), r.log)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
+		if err == nil {
+			err = resp.FirstError()
 		}
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
 	commit := func(ctx context.Context, host, requestID string) (DeleteBatchResponse, error) {
 		resp := DeleteBatchResponse{}
@@ -261,7 +256,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		}
 		return resp, err
 	}
-	rs, err := pushWithRouteStaleRetry(r, ctx, shard, l, opDeleteObjects, buildOp, commit, r.readDeleteBatchResponse, r.flattenDeletions, batchErrOf, len(uuids), schemaVersion)
+	rs, err := coord.Push(ctx, l, op, commit, r.readDeleteBatchResponse, r.flattenDeletions, len(uuids))
 	if err != nil {
 		r.log.WithField("op", "push.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -285,19 +280,18 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
-	buildOp := func(sv uint64) readyOp {
-		return func(ctx context.Context, host, requestID string) error {
-			resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs, sv)
-			if err == nil {
-				err = resp.FirstError()
-			}
-			if err != nil {
-				return wrapRouteStale(host, err)
-			}
-			return nil
+	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opAddReferences), r.log)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs, schemaVersion)
+		if err == nil {
+			err = resp.FirstError()
 		}
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
 	}
-	rs, err := pushWithRouteStaleRetry(r, ctx, shard, l, opAddReferences, buildOp, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, identityErr, len(refs), schemaVersion)
+	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, len(refs))
 	if err != nil {
 		r.log.WithField("op", "push.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -443,100 +437,4 @@ func (r *Replicator) requestID(op opID) string {
 		op,
 		time.Now().UnixMilli(),
 		r.requestCounter.Add(1))
-}
-
-// wrapRouteStale tags a StatusRouteStale replica.Error with a typed
-// *routeStaleErr so the retry path can errors.As the applied index out
-// even after further fmt.Errorf wrapping.
-func wrapRouteStale(host string, err error) error {
-	var rerr *Error
-	if errors.As(err, &rerr) && rerr != nil && rerr.Code == StatusRouteStale {
-		hostErr := fmt.Errorf("%q: %w", host, err)
-		return &routeStaleErr{Applied: rerr.LastAppliedIndex, Wrapped: hostErr}
-	}
-	return fmt.Errorf("%q: %w", host, err)
-}
-
-// pushWithRouteStaleRetry runs one bounded retry on StatusRouteStale.
-// Push reports replica-level failures via rs (not err), so errOf lets
-// findRouteStaleErr scan both. Before retry: catch the local FSM up to
-// source's applied index and bump sv to match so receivers catch up too.
-// Free function because Go methods can't take type parameters.
-func pushWithRouteStaleRetry[T, R any](
-	r *Replicator,
-	ctx context.Context,
-	shard string,
-	cl types.ConsistencyLevel,
-	op opID,
-	buildOp func(sv uint64) readyOp,
-	com commitOp[T],
-	onResult onResult[T],
-	onFlatten onFlatten[T, R],
-	errOf func(R) error,
-	batchSize int,
-	schemaVersion uint64,
-) ([]R, error) {
-	sv := schemaVersion
-	for attempt := 0; ; attempt++ {
-		coord := NewWriteCoordinator[T, R](r.client, r.router, r.metrics, r.class, shard, r.requestID(op), r.log)
-		rs, err := coord.Push(ctx, cl, buildOp(sv), com, onResult, onFlatten, batchSize)
-		routeStale := findRouteStaleErr(err, rs, errOf)
-		if routeStale == nil || attempt >= 1 {
-			return rs, err
-		}
-		if waitErr := r.waitForFSMCatchUp(ctx, routeStale); waitErr != nil {
-			return rs, fmt.Errorf("%w: wait for FSM catch-up before retry: %w", routeStale, waitErr)
-		}
-		sv = nextSchemaVersion(sv, routeStale)
-	}
-}
-
-func identityErr(e error) error                    { return e }
-func batchErrOf(b objects.BatchSimpleObject) error { return b.Err }
-
-func nextSchemaVersion(sv uint64, routeStale error) uint64 {
-	var rs *routeStaleErr
-	if errors.As(routeStale, &rs) && rs.Applied > sv {
-		return rs.Applied
-	}
-	return sv
-}
-
-// findRouteStaleErr scans both err and rs since Push reports replica-level
-// failures via rs.
-func findRouteStaleErr[T any](err error, rs []T, errOf func(T) error) error {
-	if isRouteStale(err) {
-		return err
-	}
-	for _, x := range rs {
-		if e := errOf(x); isRouteStale(e) {
-			return e
-		}
-	}
-	return nil
-}
-
-func isRouteStale(err error) bool {
-	if err == nil {
-		return false
-	}
-	var rs *routeStaleErr
-	return errors.As(err, &rs)
-}
-
-// waitForFSMCatchUp blocks until the local FSM reaches err's Applied index.
-// If Applied is missing, retry proceeds without waiting (best-effort).
-func (r *Replicator) waitForFSMCatchUp(ctx context.Context, err error) error {
-	logEntry := r.log.WithField("op", "push.retry_route_stale").
-		WithField("class", r.class).
-		WithError(err)
-
-	var rs *routeStaleErr
-	if !errors.As(err, &rs) || rs.Applied == 0 {
-		logEntry.Warn("PREPARE returned route-stale without an applied index; retrying without local FSM catch-up")
-		return nil
-	}
-	logEntry.WithField("source_applied", rs.Applied).
-		Info("PREPARE returned route-stale; waiting for local FSM to catch up before retry")
-	return r.router.WaitForUpdate(ctx, rs.Applied)
 }

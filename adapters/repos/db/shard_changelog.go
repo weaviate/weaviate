@@ -70,8 +70,7 @@ func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.
 // Finalize after waiting for the op to reach INTEGRATING on every node (see
 // processIntegratingOp in cluster/replication). Past that point every write
 // is either routed to the target directly — so a dropped CCL append is
-// harmless — or rejected at the source by IsLocalShardWritable and never
-// commits. So it does not matter whether a write's CCL append lands before
+// harmless. So it does not matter whether a write's CCL append lands before
 // or after the seal.
 func (s *Shard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
 	log := s.changeLogs.Load().Get(opID)

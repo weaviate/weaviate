@@ -414,9 +414,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
-	st.replicationManager.GetReplicationFSM().SetRaftAppliedIndex(
-		func() uint64 { return st.lastAppliedIndex.Load() })
-
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":                st.raft.AppliedIndex(),
 		"raft_last_index":                   st.raft.LastIndex(),

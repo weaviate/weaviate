@@ -48,8 +48,7 @@ const DELETED = "deleted"
 
 // finalizeAndTail seals the source CCL while an uncapped tailer drains it
 // onto target. Idempotent on retry: "log gone" from either RPC means
-// already-drained. Stale-routed writes are kept out by IsLocalShardWritable
-// independently, so FinalizeChangeLog only flushes its pre-seal pending set.
+// already-drained.
 func (c *CopyOpConsumer) finalizeAndTail(ctx context.Context, logger *logrus.Entry, src, coll, shard, opID string) error {
 	tailCtx, cancelTail := context.WithCancel(ctx)
 	defer cancelTail()
