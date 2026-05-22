@@ -50,12 +50,13 @@ func NewHandler(authorizer authorization.Authorizer, batchManager *objects.Batch
 	}
 }
 
-func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (reply *pb.BatchObjectsReply, retErr error) {
 	before := time.Now()
 	principal, err := h.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 	ctx = classcache.ContextWithClassCache(ctx)
 
@@ -100,7 +101,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {
-		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: err.Error()})
+		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: namespacing.StripErrorMessage(principal, err.Error())})
 	}
 
 	// If every object failed to parse, return early with the errors
@@ -121,7 +122,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	for i, obj := range response {
 		if obj.Err != nil {
-			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: obj.Err.Error()})
+			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: namespacing.StripErrorMessage(principal, obj.Err.Error())})
 		}
 	}
 
@@ -132,12 +133,13 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	return result, nil
 }
 
-func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error) {
+func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (reply *pb.BatchReferencesReply, retErr error) {
 	before := time.Now()
 	principal, err := h.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 	replProps := extractReplicationProperties(req.ConsistencyLevel)
 
@@ -149,7 +151,7 @@ func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 	var refErrors []*pb.BatchReferencesReply_BatchError
 	for i, ref := range response {
 		if ref.Err != nil {
-			refErrors = append(refErrors, &pb.BatchReferencesReply_BatchError{Index: int32(i), Error: ref.Err.Error()})
+			refErrors = append(refErrors, &pb.BatchReferencesReply_BatchError{Index: int32(i), Error: namespacing.StripErrorMessage(principal, ref.Err.Error())})
 		}
 	}
 

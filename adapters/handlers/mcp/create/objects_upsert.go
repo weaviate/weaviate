@@ -20,9 +20,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequest, args UpsertObjectArgs) (*UpsertObjectResp, error) {
+func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequest, args UpsertObjectArgs) (resp *UpsertObjectResp, retErr error) {
 	log := c.logger.WithFields(logrus.Fields{
 		"tool":       "weaviate-objects-upsert",
 		"collection": args.CollectionName,
@@ -47,6 +48,7 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	if _, err := c.Authorize(ctx, req, authorization.UPDATE); err != nil {
 		return nil, err
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 
 	// Validate that we have at least one object
 	if len(args.Objects) == 0 {
@@ -97,7 +99,7 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	for i, result := range batchResults {
 		if result.Err != nil {
 			results[i] = UpsertObjectResult{
-				Error: result.Err.Error(),
+				Error: namespacing.StripErrorMessage(principal, result.Err.Error()),
 			}
 		} else {
 			results[i] = UpsertObjectResult{

@@ -43,7 +43,7 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchObjectsCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	objs, err := h.manager.AddObjects(ctx, principal,
@@ -57,16 +57,16 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		switch {
 		case errors.As(err, &autherrs.Forbidden{}):
 			return batch.NewBatchObjectsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &objects.ErrInvalidUserInput{}):
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return batch.NewBatchObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return batch.NewBatchObjectsCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -81,7 +81,7 @@ func (h *batchObjectHandlers) objectsResponse(principal *models.Principal, input
 		var errorResponse *models.ErrorResponse
 		status := models.ObjectsGetResponseAO2ResultStatusSUCCESS
 		if object.Err != nil {
-			errorResponse = errPayloadFromSingleErr(object.Err)
+			errorResponse = errPayloadFromSingleErr(principal, object.Err)
 			status = models.ObjectsGetResponseAO2ResultStatusFAILED
 		}
 
@@ -107,7 +107,7 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchReferencesCreateBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	references, err := h.manager.AddReferences(ctx, principal, params.Body, repl)
@@ -116,25 +116,25 @@ func (h *batchObjectHandlers) addReferences(params batch.BatchReferencesCreatePa
 		switch {
 		case errors.As(err, &autherrs.Forbidden{}):
 			return batch.NewBatchReferencesCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &objects.ErrInvalidUserInput{}):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &objects.ErrMultiTenancy{}):
 			return batch.NewBatchReferencesCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return batch.NewBatchReferencesCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
 	h.metricRequestsTotal.logOk("")
 	return batch.NewBatchReferencesCreateOK().
-		WithPayload(h.referencesResponse(references))
+		WithPayload(h.referencesResponse(principal, references))
 }
 
-func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) []*models.BatchReferenceResponse {
+func (h *batchObjectHandlers) referencesResponse(principal *models.Principal, input objects.BatchReferences) []*models.BatchReferenceResponse {
 	response := make([]*models.BatchReferenceResponse, len(input))
 	for i, ref := range input {
 		var errorResponse *models.ErrorResponse
@@ -142,7 +142,7 @@ func (h *batchObjectHandlers) referencesResponse(input objects.BatchReferences) 
 
 		status := models.BatchReferenceResponseAO1ResultStatusSUCCESS
 		if ref.Err != nil {
-			errorResponse = errPayloadFromSingleErr(ref.Err)
+			errorResponse = errPayloadFromSingleErr(principal, ref.Err)
 			status = models.BatchReferenceResponseAO1ResultStatusFAILED
 		} else {
 			reference.From = strfmt.URI(ref.From.String())
@@ -169,7 +169,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		return batch.NewBatchObjectsDeleteBadRequest().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	tenant := getTenant(params.Tenant)
@@ -180,16 +180,16 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 		h.metricRequestsTotal.logError("", err)
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &objects.ErrMultiTenancy{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else if errors.As(err, &autherrs.Forbidden{}) {
 			return batch.NewBatchObjectsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		} else {
 			return batch.NewBatchObjectsDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -210,7 +210,7 @@ func (h *batchObjectHandlers) objectsDeleteResponse(principal *models.Principal,
 			status = models.BatchDeleteResponseResultsObjectsItems0StatusDRYRUN
 		} else if obj.Err != nil {
 			status = models.BatchDeleteResponseResultsObjectsItems0StatusFAILED
-			errorResponse = errPayloadFromSingleErr(obj.Err)
+			errorResponse = errPayloadFromSingleErr(principal, obj.Err)
 			failed += 1
 		} else {
 			successful += 1
