@@ -151,7 +151,8 @@ func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
 					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				}
 				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
+				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
+				fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
 				_, _, err := handler.AddClass(ctx, nil, class)
 				require.NoError(t, err)
 
@@ -183,6 +184,7 @@ func TestHandler_AddProperty_ReservedSuffix(t *testing.T) {
 
 		// merge=true with a name matching an existing property must skip the
 		// suffix check (case-insensitively) so legacy schemas stay upsert-able.
+		fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
 		fakeSchemaManager.On("AddProperty", class.Class, mock.Anything).Return(nil).Maybe()
 		upsert := &models.Property{
 			Name:     "Foo_searchable",
