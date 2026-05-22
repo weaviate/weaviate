@@ -233,6 +233,80 @@ func TestNamespaces_References(t *testing.T) {
 		}
 	})
 
+	t.Run("admin delete with qualified beacon actually removes the ref", func(t *testing.T) {
+		// Regression guard for the delete-side counterpart of the
+		// storage invariant. references_add normalises admin-submitted
+		// qualified beacons to short before storage; without the
+		// structural (Class, TargetID) compare in removeReference, an
+		// admin submitting "weaviate://localhost/customer1:Animal/<id>"
+		// would hit an exact-string compare against the stored short
+		// "weaviate://localhost/Animal/<id>", miss, and silently return
+		// 204 with the ref still present.
+		zooID, animalID := newID(), newID()
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z-admin-del"})
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "leo"})
+
+		// Namespaced user adds with the short beacon — stored short.
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(animalID))},
+			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		// Admin DELETE with the QUALIFIED beacon must remove the ref.
+		_, err = helper.DeleteReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/customer1:Animal/" + string(animalID))},
+			zooID, "customer1:Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+
+		// Verify the ref is actually gone — admin reads via qualified class.
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		if ok {
+			assert.Len(t, refs, 0,
+				"admin DELETE with qualified beacon must remove the ref; still saw %v", refs)
+		}
+	})
+
+	t.Run("namespaced user cannot delete with foreign-namespace qualified beacon", func(t *testing.T) {
+		// Counterpart to "namespaced user cannot reference cross-namespace
+		// target via qualified beacon" but for the DELETE path. The
+		// ValidateNamespacePrefix gate in references_delete runs BEFORE
+		// any normalisation, so a namespaced user submitting
+		// "weaviate://localhost/customer2:Animal/<id>" is rejected with
+		// 422 — and the local ref is untouched.
+		zooID, animalID, foreignAnimalID := newID(), newID(), newID()
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z-foreign-del"})
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "local"})
+		createIn(t, user2Key, "Animal", foreignAnimalID, map[string]any{"name": "foreign"})
+
+		// Seed a legitimate ref on the namespaced user's row.
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(animalID))},
+			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		// Namespaced user DELETE with a foreign-NS qualified beacon: 422.
+		_, err = helper.DeleteReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/customer2:Animal/" + string(foreignAnimalID))},
+			zooID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var unproc *objects.ObjectsClassReferencesDeleteUnprocessableEntity
+		require.True(t, errors.As(err, &unproc),
+			"expected ObjectsClassReferencesDeleteUnprocessableEntity, got %T: %v", err, err)
+
+		// The legitimate stored ref must still be present — the 422 path
+		// must NOT mutate state.
+		got, err := helper.GetObjectAuth(t, "customer1:Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.Len(t, refs, 1, "cross-NS delete must not remove the local ref")
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t,
+			"weaviate://localhost/Animal/"+string(animalID), beaconStr,
+			"stored beacon for the surviving local ref should still be short")
+	})
+
 	t.Run("global admin reads object via qualified class", func(t *testing.T) {
 		zooID := newID()
 		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "admin-view"})

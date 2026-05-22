@@ -1,4 +1,16 @@
-"""Cross-reference tests against a 3-node, namespaces-enabled cluster.
+"""weaviate-python-client cross-reference tests against a 3-node, NS cluster.
+
+This file focuses on the client-contract surface — the python-client
+serialises refs, target_collection kwargs, ReferenceToMulti, and filter
+builders in shapes the raw REST/gRPC paths don't reach. Several bugs we
+hit on this branch surfaced specifically because the client encodes
+`to=<uuid>` differently from a raw beacon submission.
+
+Storage-shape and isolation invariants (admin REST inspection, admin
+delete with qualified beacon, namespaced user cross-NS delete, isolation
+between same-UUID rows in two namespaces) are covered in Go under
+`test/acceptance/namespace/references_test.go` — they don't need the
+python client and are cheaper to run in the standard Go acceptance loop.
 
 Manual run (skipped by run.sh — needs the dedicated compose):
     docker compose -f docker-compose-test.yml build
@@ -16,38 +28,30 @@ non-NS clusters) without rewriting. Writes normalize via
 before any inverted-index lookup, or the lookup value carries the
 prefix and never matches what's on disk.
 
-# Coverage matrix
+# Coverage matrix (python-client surface only)
 
-    Lifecycle (writes)
+    Lifecycle (writes through the python client)
       add/replace/delete single-target   test_single_target_add_replace_delete
-      add multi-target                   test_multi_target_refs
+      add multi-target (ReferenceToMulti) test_multi_target_refs
       replace/delete multi-target        test_multi_target_replace_and_delete
       reference_add_many single           test_batch_reference_insert
-      reference_add_many multi            test_batch_reference_insert_multi_target
+      reference_add_many multi (mixed)    test_batch_reference_insert_multi_target
       inline refs in Properties           test_inline_ref_in_object_create
-      schema add_reference self-ref       test_reference_objects_resolve_across_nodes
 
-    Filters (parser → inverted-index)
+    Filter builders (parser → inverted-index, via the client's Filter API)
       by_ref.by_property + AND            test_filter_by_ref_chained_with_property
       by_ref.by_id                        test_filter_by_ref_chained_with_property
       by_ref_multi_target                 test_filter_by_ref_multi_target
       by_ref_count (+ AND with property)  test_filter_by_ref_count
 
-    Reads
+    Reads (client return_references serialisation + cross-node)
       return_references single + multi    test_single_target_add_replace_delete,
                                           test_multi_target_refs
       Nested 3 hops + self-ref cycle      test_reference_objects_resolve_across_nodes
 
-    Storage invariants
-      Stored beacon is short              test_stored_beacon_is_always_short
-      Admin delete w/ qualified beacon    test_admin_delete_with_qualified_beacon
-      Namespaced user can't cross-NS delete  test_namespaced_user_cannot_delete_with_foreign_ns_beacon
-      Same UUID/class isolated across NS  test_namespaces_stay_isolated
-
 # Conventions
 
 * Writes go to node 0, reads to node 1 or 2 — cross-node RAFT exercise.
-* Admin reads use raw REST (python client rejects ':' in names).
 * `cleanup_collections` pre-deletes at register-time so a crashed run
   doesn't poison the next.
 """
@@ -773,313 +777,6 @@ def test_reference_objects_resolve_across_nodes(
     # cross collections, both must qualify against customer1.
     nested = self_refs[0].references["ref"].objects
     assert len(nested) == 1 and nested[0].properties["title"] == "linked-target"
-
-
-# ---------------------------------------------------------------------------
-# Cross-namespace isolation
-# ---------------------------------------------------------------------------
-
-
-def test_namespaces_stay_isolated(
-    request: pytest.FixtureRequest,
-    namespaces: Tuple[str, str],
-    client_for_key: Callable[[str, int], WeaviateClient],
-    cleanup_collections: Callable[[str], None],
-) -> None:
-    """Same class name + same UUIDs in customer1 and customer2 stay isolated.
-
-    Strongest invariant of the namespace feature, and the reason
-    short beacons are safe: both customers write byte-identical
-    beacons (`weaviate://localhost/Tgt/<uuid>`) into different
-    shards (`customer1:Src` / `customer2:Src`). The Replier must
-    qualify the beacon's class against the source's namespace
-    before the multi-get, otherwise customer1 reading their src
-    sees customer2's tgt — cross-tenant data leak. Reads from a
-    different node than writes to exercise the invariant through
-    RAFT, not just on the leader.
-    """
-    k1, k2 = namespaces
-    src, tgt = _short_name(request, "Src"), _short_name(request, "Tgt")
-    cleanup_collections(src)
-    cleanup_collections(tgt)
-
-    c1 = client_for_key(k1, 0)
-    c2 = client_for_key(k2, 1)
-    r1 = client_for_key(k1, 2)
-    r2 = client_for_key(k2, 2)
-
-    for c in (c1, c2):
-        c.collections.create(
-            name=tgt,
-            properties=[wvc.config.Property(name="label", data_type=wvc.config.DataType.TEXT)],
-            vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-        )
-        c.collections.create(
-            name=src,
-            properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-            references=[wvc.config.ReferenceProperty(name="ref", target_collection=tgt)],
-            vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-        )
-
-    # Identical UUIDs on both sides.
-    src_id = uuid.uuid4()
-    tgt_id = uuid.uuid4()
-    c1.collections.use(tgt).data.insert(properties={"label": "ns1-target"}, uuid=tgt_id)
-    c1.collections.use(src).data.insert(
-        properties={"name": "ns1-src"}, uuid=src_id, references={"ref": tgt_id}
-    )
-    c2.collections.use(tgt).data.insert(properties={"label": "ns2-target"}, uuid=tgt_id)
-    c2.collections.use(src).data.insert(
-        properties={"name": "ns2-src"}, uuid=src_id, references={"ref": tgt_id}
-    )
-
-    for reader, expected in [(r1, "ns1-target"), (r2, "ns2-target")]:
-        obj = reader.collections.use(src).query.fetch_object_by_id(
-            src_id,
-            return_references=QueryReference(link_on="ref", return_properties=["label"]),
-        )
-        assert obj is not None
-        refs = obj.references["ref"].objects
-        assert len(refs) == 1, f"expected single ref, got {len(refs)}"
-        assert refs[0].properties["label"] == expected
-
-
-# ---------------------------------------------------------------------------
-# Storage invariant: stored beacons are SHORT
-# ---------------------------------------------------------------------------
-
-
-def test_stored_beacon_is_always_short(
-    request: pytest.FixtureRequest,
-    namespaces: Tuple[str, str],
-    client_for_key: Callable[[str, int], WeaviateClient],
-    cleanup_collections: Callable[[str], None],
-) -> None:
-    """Stored beacons are SHORT — direct on-disk shape check.
-
-    Storage-level guarantee that the rest of the file leans on.
-    Both write paths must normalize to short for export/import
-    portability:
-      1. namespaced user submits a short beacon via /references
-      2. admin submits a QUALIFIED beacon — write path strips it
-    Admin-side raw REST read inspects the stored beacon directly.
-    """
-    k1, _ = namespaces
-    zoo, animal = _short_name(request, "Zoo"), _short_name(request, "Animal")
-    cleanup_collections(zoo)
-    cleanup_collections(animal)
-
-    cw = client_for_key(k1, 0)
-    cw.collections.create(
-        name=animal,
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-    cw.collections.create(
-        name=zoo,
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-        references=[wvc.config.ReferenceProperty(name="hasAnimals", target_collection=animal)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-
-    a_user_submit = uuid.uuid4()
-    a_admin_submit = uuid.uuid4()
-    cw.collections.use(animal).data.insert(properties={"name": "user-side"}, uuid=a_user_submit)
-    cw.collections.use(animal).data.insert(properties={"name": "admin-side"}, uuid=a_admin_submit)
-
-    # Path 1: namespaced user submits a SHORT beacon via the python client.
-    zoo_user = cw.collections.use(zoo).data.insert(properties={"name": "zoo-user-submit"})
-    cw.collections.use(zoo).data.reference_add(
-        from_uuid=zoo_user, from_property="hasAnimals", to=a_user_submit
-    )
-
-    # Path 2: admin submits a QUALIFIED beacon via raw REST against the
-    # qualified source class. The python client validates names and won't
-    # let us pass "customer1:..." through, so we go straight to /v1/objects.
-    zoo_admin = uuid.uuid4()
-    r = requests.post(
-        f"{_rest_base(NODES[0][0])}/objects",
-        headers=_admin_headers(),
-        json={
-            "class": f"{NS1}:{zoo}",
-            "id": str(zoo_admin),
-            "properties": {"name": "zoo-admin-submit"},
-        },
-    )
-    assert r.status_code in (200, 201), f"admin object create failed: {r.status_code} {r.text}"
-    r = requests.post(
-        f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_admin}/references/hasAnimals",
-        headers=_admin_headers(),
-        json={"beacon": f"weaviate://localhost/{NS1}:{animal}/{a_admin_submit}"},
-    )
-    assert r.status_code in (200, 201), f"admin ref add failed: {r.status_code} {r.text}"
-
-    # Read both back via admin + qualified class + raw REST, assert the
-    # stored beacon is exactly the short form for both.
-    for zoo_id, expected_target_uuid, label in [
-        (zoo_user, a_user_submit, "namespaced-user-short-submit"),
-        (zoo_admin, a_admin_submit, "admin-qualified-submit"),
-    ]:
-        r = requests.get(
-            f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_id}",
-            headers=_admin_headers(),
-        )
-        assert r.status_code == 200, f"admin GET ({label}) failed: {r.status_code} {r.text}"
-        body = r.json()
-        refs = body["properties"]["hasAnimals"]
-        assert isinstance(refs, list) and len(refs) == 1, f"{label}: expected 1 ref, got {refs!r}"
-        beacon = refs[0]["beacon"]
-        want = f"weaviate://localhost/{animal}/{expected_target_uuid}"
-        assert beacon == want, f"{label}: stored beacon must be short. got={beacon!r} want={want!r}"
-
-
-# ---------------------------------------------------------------------------
-# Admin-side delete with a qualified beacon
-# ---------------------------------------------------------------------------
-
-
-def test_admin_delete_with_qualified_beacon(
-    request: pytest.FixtureRequest,
-    namespaces: Tuple[str, str],
-    client_for_key: Callable[[str, int], WeaviateClient],
-    cleanup_collections: Callable[[str], None],
-) -> None:
-    """Admin DELETE /references with a qualified beacon actually deletes.
-
-    Regression guard for the delete-side counterpart of the storage
-    invariant. references_add / references_update normalise
-    admin-submitted qualified beacons to short before storage; without
-    a parallel normalisation step in references_delete, an admin
-    submitting `weaviate://localhost/customer1:Animal/<id>` would hit
-    `removeReference`'s exact-string compare against the stored short
-    `weaviate://localhost/Animal/<id>`, miss, and silently return 204
-    with the ref still present.
-    """
-    k1, _ = namespaces
-    zoo, animal = _short_name(request, "Zoo"), _short_name(request, "Animal")
-    cleanup_collections(zoo)
-    cleanup_collections(animal)
-
-    cw = client_for_key(k1, 0)
-    cw.collections.create(
-        name=animal,
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-    cw.collections.create(
-        name=zoo,
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-        references=[wvc.config.ReferenceProperty(name="hasAnimals", target_collection=animal)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-
-    # Namespaced user inserts both objects and links them — stored beacon
-    # is short ("weaviate://localhost/Animal/<id>") as usual.
-    animal_id = cw.collections.use(animal).data.insert(properties={"name": "leo"})
-    zoo_id = cw.collections.use(zoo).data.insert(properties={"name": "z"})
-    cw.collections.use(zoo).data.reference_add(
-        from_uuid=zoo_id,
-        from_property="hasAnimals",
-        to=animal_id,
-    )
-
-    # Sanity: the ref is present before the delete.
-    r = requests.get(
-        f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_id}",
-        headers=_admin_headers(),
-    )
-    assert r.status_code == 200, f"pre-delete admin GET failed: {r.status_code} {r.text}"
-    refs_before = r.json()["properties"]["hasAnimals"]
-    assert isinstance(refs_before, list) and len(refs_before) == 1
-
-    # Admin DELETE with a QUALIFIED beacon via raw REST (the python
-    # client validates names and rejects ':' so we go straight to the
-    # REST endpoint). Pre-fix this returns 204 but does nothing.
-    r = requests.delete(
-        f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_id}/references/hasAnimals",
-        headers=_admin_headers(),
-        json={"beacon": f"weaviate://localhost/{NS1}:{animal}/{animal_id}"},
-    )
-    assert r.status_code in (200, 204), f"admin DELETE failed: {r.status_code} {r.text}"
-
-    # Post-delete: the ref must actually be gone.
-    r = requests.get(
-        f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_id}",
-        headers=_admin_headers(),
-    )
-    assert r.status_code == 200, f"post-delete admin GET failed: {r.status_code} {r.text}"
-    refs_after = r.json()["properties"].get("hasAnimals") or []
-    assert (
-        refs_after == []
-    ), f"admin DELETE with qualified beacon must remove the ref; still saw {refs_after!r}"
-
-
-def test_namespaced_user_cannot_delete_with_foreign_ns_beacon(
-    request: pytest.FixtureRequest,
-    namespaces: Tuple[str, str],
-    client_for_key: Callable[[str, int], WeaviateClient],
-    cleanup_collections: Callable[[str], None],
-) -> None:
-    """Namespaced user DELETE with a foreign-NS qualified beacon must 422.
-
-    Counterpart to test_admin_delete_with_qualified_beacon: the
-    normalisation that lets admins use qualified beacons must NOT
-    let a namespaced user reach across namespaces. ValidateNamespacePrefix
-    in references_delete runs *before* the normalisation step, so a
-    namespaced user submitting "weaviate://localhost/customer2:Animal/<id>"
-    is rejected with 422 — and the legitimate stored ref on the
-    namespaced user's own row is untouched.
-    """
-    k1, _ = namespaces
-    zoo, animal = _short_name(request, "Zoo"), _short_name(request, "Animal")
-    cleanup_collections(zoo)
-    cleanup_collections(animal)
-
-    cw = client_for_key(k1, 0)
-    cw.collections.create(
-        name=animal,
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-    cw.collections.create(
-        name=zoo,
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
-        references=[wvc.config.ReferenceProperty(name="hasAnimals", target_collection=animal)],
-        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
-    )
-    animal_id = cw.collections.use(animal).data.insert(properties={"name": "leo"})
-    zoo_id = cw.collections.use(zoo).data.insert(properties={"name": "z"})
-    cw.collections.use(zoo).data.reference_add(
-        from_uuid=zoo_id,
-        from_property="hasAnimals",
-        to=animal_id,
-    )
-
-    # Namespaced user (k1, in customer1) submits a DELETE targeting
-    # customer2:Animal via raw REST. Must be rejected with 422 from
-    # ValidateNamespacePrefix before any normalisation runs.
-    r = requests.delete(
-        f"{_rest_base(NODES[0][0])}/objects/{zoo}/{zoo_id}/references/hasAnimals",
-        headers={"Authorization": f"Bearer {k1}", "Content-Type": "application/json"},
-        json={"beacon": f"weaviate://localhost/{NS2}:{animal}/{animal_id}"},
-    )
-    assert r.status_code == 422, f"cross-NS delete should 422, got {r.status_code}: {r.text}"
-
-    # The legitimate stored ref must still be present — the 422 path
-    # must NOT mutate state. Admin reads via the qualified class to
-    # bypass the python client's ':' validation.
-    r = requests.get(
-        f"{_rest_base(NODES[0][0])}/objects/{NS1}:{zoo}/{zoo_id}",
-        headers=_admin_headers(),
-    )
-    assert r.status_code == 200, f"admin GET failed: {r.status_code} {r.text}"
-    refs_after = r.json()["properties"].get("hasAnimals") or []
-    assert (
-        len(refs_after) == 1
-    ), f"cross-NS delete must not remove the local ref; saw {refs_after!r}"
-    assert (
-        refs_after[0]["beacon"] == f"weaviate://localhost/{animal}/{animal_id}"
-    ), f"unexpected beacon: {refs_after[0]!r}"
 
 
 # ---------------------------------------------------------------------------
