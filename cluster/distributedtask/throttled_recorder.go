@@ -74,8 +74,8 @@ func (r *ThrottledRecorder) RecordDistributedTaskUnitFailure(ctx context.Context
 func (r *ThrottledRecorder) cleanupThrottleEntry(namespace, taskID string, version uint64, unitID string) {
 	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, unitID)
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	delete(r.lastSent, key)
-	r.mu.Unlock()
 }
 
 func (r *ThrottledRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
@@ -90,24 +90,28 @@ func (r *ThrottledRecorder) UpdateDistributedTaskUnitProgress(ctx context.Contex
 	}
 
 	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, unitID)
-
-	r.mu.Lock()
-	last, ok := r.lastSent[key]
 	now := r.clock.Now()
-	if ok && now.Sub(last) < r.interval {
-		r.mu.Unlock()
+
+	throttled := func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		last, ok := r.lastSent[key]
+		return ok && now.Sub(last) < r.interval
+	}()
+	if throttled {
 		return nil
 	}
-	r.mu.Unlock()
 
 	if err := r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress); err != nil {
 		return err
 	}
 
-	r.mu.Lock()
-	if cur, ok := r.lastSent[key]; !ok || cur.Before(now) {
-		r.lastSent[key] = now
-	}
-	r.mu.Unlock()
+	func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if cur, ok := r.lastSent[key]; !ok || cur.Before(now) {
+			r.lastSent[key] = now
+		}
+	}()
 	return nil
 }
