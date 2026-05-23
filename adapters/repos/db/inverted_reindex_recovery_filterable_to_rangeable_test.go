@@ -77,7 +77,7 @@ import (
 //   - FilterableToRangeable_IsMerged_via_runtimePrepare_no_runtimeSwap
 //   - FilterableToRangeable_IsTidied_full_migration
 //
-// # KNOWN-RED — FilterableToRangeable recovery leaves replica stuck (weaviate/0-weaviate-issues#245)
+// # KNOWN-RED — FilterableToRangeable recovery leaves replica stuck (weaviate/0-weaviate-issues#246)
 //
 // Two cells in this matrix surface a real production bug: when restart
 // happens after markReindexed (or markPrepended) but before markTidied,
@@ -131,7 +131,7 @@ import (
 // Per CLAUDE.md "Never delete or disable a test that exposes a real
 // bug": the two failing cases are `t.Skip`'d via `knownRedCases`
 // inside the test loop (see TestRecoveryConvergence_FilterableToRangeable_FromEachState
-// below) and tracked at weaviate/0-weaviate-issues#245. Un-skip when
+// below) and tracked at weaviate/0-weaviate-issues#246. Un-skip when
 // the fix lands.
 
 // filterableToRangeablePropName is the numeric property name used by every
@@ -571,7 +571,7 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 
 	// knownRedCases tracks subtests that surface a real production bug.
 	// See the `# KNOWN-RED` block in the file-level godoc for the full
-	// analysis (weaviate/0-weaviate-issues#245). Two cells from this
+	// analysis (weaviate/0-weaviate-issues#246). Two cells from this
 	// matrix uncovered a recovery-time bug in FilterableToRangeable:
 	// when restart happens after `markReindexed` (or `markPrepended`)
 	// but before `markTidied`, the recovery path completes the
@@ -585,8 +585,8 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 	// on the migration until manual intervention. Un-skip when the
 	// fix lands.
 	knownRedCases := map[string]string{
-		"FilterableToRangeable_IsReindexed_via_skipSwapOnFinish":     "weaviate/0-weaviate-issues#245",
-		"FilterableToRangeable_IsPrepended_synthetic_merged_removed": "weaviate/0-weaviate-issues#245",
+		"FilterableToRangeable_IsReindexed_via_skipSwapOnFinish":     "weaviate/0-weaviate-issues#246",
+		"FilterableToRangeable_IsPrepended_synthetic_merged_removed": "weaviate/0-weaviate-issues#246",
 	}
 
 	for _, tc := range cases {
