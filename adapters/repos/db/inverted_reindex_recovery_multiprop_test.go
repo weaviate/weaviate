@@ -441,21 +441,12 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	}
 }
 
-// TestRecoveryConvergence_CrossReplica_DivergentFlushTiming pins the
-// per-replica determinism invariant for the inverted-index migration.
-//
-// Two replicas with the SAME logical object set but DIFFERENT segment
-// layouts (one big in-memory memtable vs. many small flushed segments,
-// possibly in reverse insertion order) must produce IDENTICAL inverted
-// index buckets post-migration. If they don't, the migration's output
-// is dependent on the input segment layout — which is the leading
-// hypothesis for the per-replica divergence observed in 0-weaviate-issues#240.
-//
-// This test is the direct unit-level counterpart to the e2e "did
-// replicas A and B end up with the same data" observation. If this
-// test passes, the e2e bug must come from a different source (e.g.,
-// objects actually differing on the wire, or RAFT FSM apply order).
-// If this test fails, the failure log is the reproducer for #240.
+// TestRecoveryConvergence_CrossReplica_DivergentFlushTiming: same
+// logical object set, different segment layouts (one memtable vs.
+// many small flushed segments, reverse insertion order) must produce
+// byte-identical post-migration buckets. If this passes, the #240
+// divergence isn't segment-layout dependent and the root cause lives
+// elsewhere; if it fails, the failure log IS the unit-level repro.
 func TestRecoveryConvergence_CrossReplica_DivergentFlushTiming(t *testing.T) {
 	const numObjects = 30
 	propNames := []string{"title", "subtitle", "description"}

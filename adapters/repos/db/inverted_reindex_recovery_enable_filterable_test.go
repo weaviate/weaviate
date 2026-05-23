@@ -28,58 +28,16 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Exhaustive recovery-convergence test for the EnableFilterable strategy
-// -----------------------------------------------------------------------------
-//
-// EnableFilterable is the semantic (trio-path) migration that creates a
-// RoaringSet filterable index on a property that currently has none. PR
-// #11415 pinned the recovery state machine for MapToBlockmax and
-// SearchableRetokenize; this file extends the same matrix to
-// EnableFilterable so the from-scratch bucket-creation path is covered at
-// integration level rather than only probabilistically via e2e
-// rolling-restart tests.
-//
-// Differences from FilterableRetokenize_FromEachState (the closest
-// template):
-//   - The pre-migration class starts with IndexFilterable=false on the
-//     target property, so the filterable bucket genuinely does not exist
-//     pre-migration. PreReindexHook creates it; the migration backfills
-//     it using the analyzer overlay (ForceFilterable=true) so the
-//     analyzer produces values despite the live schema flag being false.
-//   - Pre-migration fingerprint is therefore empty by construction; the
-//     baseline asserts the post-migration bucket has the expected
-//     per-token posting lists.
-//   - The strategy's OnMigrationComplete is already a no-op in production
-//     (the cluster-wide IndexFilterable=true RAFT flip lives in
-//     OnTaskCompleted, not in the per-shard hook). The wrapper only adds
-//     a completed-flag for observability — same pattern as
-//     testFilterableRetokenizeStrategyWrapper.
-//   - The test class is kept at IndexFilterable=false throughout — the
-//     RAFT-side schema flip is not simulated. The single-shard test does
-//     not need it: PreReindexHook unconditionally creates/loads the
-//     canonical bucket via shard.store.CreateOrLoadBucket regardless of
-//     the schema flag, and the post-recovery assertion looks up the
-//     bucket directly via shard.store.Bucket(...).
-//
-// Coverage matrix (matches PR #11415's SearchableRetokenize_FromEachState
-// and the FilterableRetokenize follow-up):
-//   - EnableFilterable_IsReindexed_via_RunReindexOnlyOnShard
-//   - EnableFilterable_IsPrepended_synthetic_merged_removed
-//   - EnableFilterable_IsSwapped_synthetic_tidied_removed
-//   - EnableFilterable_IsMerged_via_RunPrepareOnShard
-//   - EnableFilterable_IsTidied_via_full_trio
+// Recovery-convergence matrix for EnableFilterable — the from-scratch
+// filterable-bucket migration. Class starts at IndexFilterable=false;
+// PreReindexHook creates the bucket and the analyzer overlay
+// (ForceFilterable=true) drives the backfill despite the live schema
+// flag still being false. Matrix shape mirrors
+// FilterableRetokenize_FromEachState.
 
-// newEnableFilterableTask wraps a EnableFilterableStrategy in the test
-// infrastructure. Pattern mirrors newFilterableRetokenizeTask
-// (`inverted_reindex_recovery_filterable_retokenize_test.go:106`) but
-// for the from-scratch (enable) side of the filterable migration.
-//
-// The reindexTaskConfig replicates production's
-// NewRuntimeEnableFilterableTask config (selectionEnabled,
-// selectedPropsByCollection): selection is mandatory because the strategy
-// targets a property whose schema flag is still false at migration time,
-// so it cannot rely on the schema-flag scan to discover targets.
+// newEnableFilterableTask wraps EnableFilterableStrategy. Selection is
+// mandatory: the strategy can't discover targets via the schema-flag
+// scan because that flag is still false at migration time.
 func newEnableFilterableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testEnableFilterableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testEnableFilterableStrategyWrapper{

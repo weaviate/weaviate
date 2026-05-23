@@ -888,32 +888,12 @@ func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 		"FSM must lift to SWAPPING after the restarted nodes re-emit their prep-acks")
 }
 
-// TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode pins gap G7:
-// allLocalGroupsPreparationFiredLocked (scheduler.go:870-881) skips
-// groups where len(localIDs) == 0. A multi-group task where group-a is
-// owned only by node-1 and group-b is owned only by node-2 must
-// correctly track per-node "all local groups fired" and emit per-node
-// prep-acks. The key invariant being pinned: the barrier-lift predicate
-// at the FSM layer (allExpectedPreparationAcksLanded at manager.go:621)
-// only counts nodes with local units — so even though the
-// scheduler-side gate vacuously returns true on node-3 (no local
-// groups means the for-loop never iterates, returns true unconditionally)
-// and node-3 emits a benign success-ack, that ack is ignored by the
-// barrier-lift predicate.
-//
-// We then simulate node-2's crash (don't tick it). The FSM must hold
-// at PREPARING — node-1's prep-ack is recorded, but node-2's missing
-// ack keeps the barrier up despite node-3's vacuous ack being present.
-// After node-2 "comes back" (rebuild the scheduler, fresh maps), it
-// re-fires OnGroupCompleted for group-b and emits its prep-ack. Only
-// then does the FSM lift to SWAPPING.
-//
-// Behavior note (documented, not bug): node-3 with zero local units
-// still emits a prep-ack because the scheduler's "all local groups
-// fired" gate vacuously evaluates to true. This is a benign extra
-// RAFT round-trip per witness node per migration; the FSM's barrier
-// predicate ignores it. A future optimization could short-circuit the
-// ack emission when NodesWithLocalUnits doesn't include the local node.
+// TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode: multi-group
+// task where group-a is owned only by node-1 and group-b only by
+// node-2; node-2 crashes pre-prep-ack. The FSM barrier-lift
+// (allExpectedPreparationAcksLanded) only counts nodes with local
+// units, so node-3's vacuous "all-local-groups-fired" ack is ignored
+// and the barrier stays up until node-2 recovers.
 func TestBarrier_G7_PhaseAAckEmissionForCrashedGroupNode(t *testing.T) {
 	defer leaktest.Check(t)()
 

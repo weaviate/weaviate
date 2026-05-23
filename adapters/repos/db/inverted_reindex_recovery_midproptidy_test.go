@@ -75,23 +75,12 @@ func midPropTidyInstallSwapHook(task *ShardReindexTaskGeneric, haltAfter int) {
 	}
 }
 
-// midPropTidyInstallTidyHook installs testHookPostPropTidy so that the
-// hook panics after haltAfter props have been tidied. fireCount tracks
-// how many times the hook ran across all goroutines (always incremented
-// regardless of haltAfter so callers can assert hook wiring on the
-// no-halt baseline cell). Concurrency MUST be set to 1 by the caller
-// for the panic to fire in a deterministic propIdx order; without that,
-// parallel tidy goroutines race for the hook count and the halt point
-// becomes non-deterministic.
-//
-// Unlike the swap hook, panics here are RECOVERED by the per-goroutine
-// deferFunc in the errgroup wrapper (see [entities/errors/error_group_
-// wrapper.go]) — so subsequent tidy goroutines continue to launch under
-// SetLimit(1) FIFO, and the only on-disk visible effect of the halt is
-// that the aggregate markTidied() at the bottom of tidyBackupBuckets is
-// never reached (eg.Wait() returns the wrapper's "panic occurred" error
-// instead). See the docstring on the test below for what this means in
-// terms of the recovery state the test then exercises.
+// midPropTidyInstallTidyHook panics after haltAfter completions.
+// Concurrency MUST be 1 — otherwise the parallel goroutines race for
+// the count and halt order becomes non-deterministic.
+// The error-group wrapper recovers panics per-goroutine and surfaces
+// them via eg.Wait(); subsequent SetLimit(1)-FIFO goroutines still run
+// to completion.
 func midPropTidyInstallTidyHook(task *ShardReindexTaskGeneric, haltAfter int, fireCount *atomic.Int64) {
 	task.testHookPostPropTidy = func(propIdx int) {
 		n := fireCount.Add(1)
@@ -140,47 +129,14 @@ func midPropTidyRunTidyExpectingPanicError(ctx context.Context, task *ShardReind
 	return task.tidyBackupBuckets(ctx, task.logger, shard, rt, props)
 }
 
-// TestRecoveryConvergence_MidPropSwapOrTidy_Loop is a table-driven
-// symmetric counterpart to TestRecoveryConvergence_MidPropSwap_Loop.
-// It pins recovery convergence when EITHER of the per-prop loops in
-// the swap/tidy code path is interrupted after K of N props.
+// TestRecoveryConvergence_MidPropSwapOrTidy_Loop pins recovery
+// convergence when the per-prop swap or tidy loop is interrupted
+// after K of N props. Matrix: (phase ∈ {swap, tidy}) × (haltAfter ∈
+// {0..3}) on a 4-prop class; haltAfter=0 is the no-halt baseline.
 //
-// Matrix: (phase ∈ {swap, tidy}) × (haltAfter ∈ {0, 1, 2, 3}) on a
-// 4-prop class. Each cell:
-//
-//  1. Drives the migration to the state immediately before the
-//     phase-under-test (markMerged for swap, markSwapped for tidy).
-//  2. Installs the phase's halt hook to panic after `haltAfter`
-//     per-prop completions.
-//  3. Runs the phase, expecting either a panic (swap; recovered in
-//     the test frame) or a "panic occurred" error from the errgroup
-//     wrapper (tidy; the per-goroutine deferFunc recovers and
-//     surfaces it via eg.Wait).
-//  4. Simulates a process restart and drives recovery to completion.
-//  5. Asserts every prop's bucket fingerprint matches the baseline
-//     produced by a clean (non-halted) migration.
-//
-// The haltAfter=0 cell is the no-halt baseline: the hook never fires
-// (or in the tidy case, fires for every prop but never panics) and
-// the cell exercises the full clean-completion path with the hook
-// wired in. Useful for catching regressions where the hook itself
-// breaks the happy path (e.g. firing position bug, nil-panic).
-//
-// For tidy, "halt" is a misnomer: the errgroup wrapper recovers
-// panics inside individual goroutines, and the per-prop RemoveAll
-// goroutines don't check ctx, so even with SetLimit(1)+FIFO the
-// remaining goroutines still launch and run. The visible effect of
-// the panic is that eg.Wait() returns the wrapper's recovered
-// "panic occurred" error, which short-circuits the final
-// markTidied() sentinel write. The post-halt on-disk state has
-// IsSwapped=true, IsTidied=false (because markTidied never ran),
-// and the per-prop backup dirs MAY all be gone (if the panic fired
-// on the last goroutine) OR some MAY remain (if the panic fired
-// on goroutine K<N — though even then K+1..N-1 still execute under
-// concurrency=1 FIFO, so in practice all backups end up removed
-// regardless of haltAfter). What this test actually pins for the
-// tidy phase is: convergence from a torn state where the aggregate
-// markTidied() write was lost — the same recovery branch as a
+// Tidy "halt" is via the errgroup wrapper surfacing a recovered
+// panic as eg.Wait()'s error, which short-circuits the aggregate
+// markTidied() write. Recovery branch exercised is identical to a
 // crash between markSwapped() and markTidied().
 func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 	// CI integration runs (`test/integration/run.sh:11`) export

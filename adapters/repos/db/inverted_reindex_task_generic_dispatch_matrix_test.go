@@ -28,82 +28,20 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Full sentinel-aware [ShardReindexTaskGeneric.RunSwapOnShard] dispatch matrix
-// -----------------------------------------------------------------------------
+// Full sentinel-aware [ShardReindexTaskGeneric.RunSwapOnShard] dispatch
+// matrix: 8 strategies × 5 sentinels = 40 cells (32 executed, 8 skipped).
 //
-// Background. The existing [TestRunSwapOnShard_SentinelAwareDispatch]
-// (`inverted_reindex_task_generic_test.go:336`) pins the dispatch fix from
-// weaviate/0-weaviate-issues#214 Phase 7c for ONE strategy (MapToBlockmax)
-// at TWO sentinel states (IsTidied, IsSwapped). The recovery dispatch was
-// added because, after a rolling restart that landed inside the FINALIZING
-// window past markPrepended(), the unconditional `runtimeSwap` call would
-// fail with "reindex bucket not found", the per-shard ack would carry
-// success=false, and the cluster-wide task would flip to FAILED while
-// the OTHER replicas — whose acks had already landed — had already
-// swapped their buckets. The dispatch is the line of defense against
-// that cluster-wide schema↔bucket inversion.
+// Extends [TestRunSwapOnShard_SentinelAwareDispatch] which only covers
+// MapToBlockmax at IsTidied / IsSwapped. weaviate/0-weaviate-issues#214
+// Phase 7c is the dispatch fix being pinned; without it a rolling
+// restart past markPrepended() would call runtimeSwap on a missing
+// reindex bucket, flip the cluster-wide task to FAILED, and leave the
+// already-swapped replicas inverted against the schema.
 //
-// This file extends the dispatch coverage to the full sentinel × strategy
-// cross product. There are EIGHT distinct strategy struct types under
-// MigrationStrategy:
-//
-//   1. MapToBlockmaxStrategy            — inline, ReindexTypeChangeAlgorithm
-//   2. RebuildSearchableStrategy        — trio,   ReindexTypeRebuildSearchable
-//   3. RoaringSetRefreshStrategy        — inline, ReindexTypeRepairFilterable
-//   4. FilterableToRangeableStrategy    — inline, ReindexTypeEnableRangeable / RepairRangeable
-//   5. EnableFilterableStrategy         — trio,   ReindexTypeEnableFilterable
-//   6. EnableSearchableStrategy         — trio,   ReindexTypeEnableSearchable
-//   7. FilterableRetokenizeStrategy     — trio,   ReindexTypeChangeTokenization (filterable half)
-//   8. SearchableRetokenizeStrategy     — trio,   ReindexTypeChangeTokenization (searchable half)
-//
-// FIVE sentinel states each:
-//   - IsReindexed     → RunSwapOnShard's default branch (runtimePrepare + runtimeSwap)
-//   - IsPrepended     → IsPrepended branch (recoverRuntimeSwapBuckets via dir renames)
-//   - IsMerged        → IsMerged branch (in-memory runtimeSwap when ingest loaded)
-//   - IsSwapped       → IsSwapped branch (tidyBackupBuckets + finalize)
-//   - IsTidied        → IsTidied branch (OnMigrationComplete only)
-//
-// Test strategy. The existing dispatch test uses sentinel-file-only setup
-// (no real reindex iteration). That gets us to IsTidied / IsSwapped
-// cheaply but cannot exercise the IsReindexed / IsMerged / IsPrepended
-// branches, which need real on-disk bucket state to dispatch against.
-//
-// This matrix uses the SAME drive-to-state primitives PR #11415 uses for
-// the recovery convergence matrices (the production Run*OnShard trio for
-// trio strategies; the inline OnAfterLsmInit + OnAfterLsmInitAsync loop
-// with `skipSwapOnFinish` and direct `runtimePrepare` invocations for
-// inline strategies; synthetic .mig file removal for atomic-method-internal
-// states). The difference from those matrices: this file does NOT
-// shutdown+reinit between driveToState and the recovery call — the test
-// is specifically about [RunSwapOnShard]'s sentinel-aware dispatch in a
-// single process, not about the full restart-recovery flow. A restart
-// would let OnBeforeLsmInit's pre-LSM-init dispatch advance the sentinel
-// before RunSwapOnShard ever sees the state we drove to, which would
-// turn the dispatch coverage into convergence-only coverage.
-//
-// IsPrepended caveat. The IsPrepended dispatch branch calls
-// `recoverRuntimeSwapBuckets`, which `os.Rename`s the live main bucket
-// dir → backup and the live ingest dir → main. The main bucket is
-// currently mmap'd by the in-memory store; renaming its dir while the
-// bucket is live corrupts the segment registry. Production only reaches
-// the IsPrepended dispatch branch post-restart (via OnGroupCompleted's
-// rehydrate path on a node where OnBeforeLsmInit didn't advance the
-// sentinel for some reason — e.g. swapBuckets config disabled).
-// Same-process testing of that branch is unsafe and is skipped with a
-// precise reason per cell. The convergence matrices in this directory
-// (which DO shutdown+reinit before recovery) cover the IsPrepended
-// post-restart behavior at the bucket-content level.
-//
-// Coverage: 8 strategies × 5 sentinels = 40 cells. 8 IsPrepended cells
-// skipped with the same reason; 32 cells executed.
-//
-// Test cost guard: each executed cell creates a shard, inserts 10
-// objects (smaller than the convergence-matrix N=25 — the dispatch test
-// asserts term-presence rather than per-doc cardinality equality), runs
-// the strategy-specific drive-to-state, calls RunSwapOnShard, and
-// asserts. PR #11415 timing puts each cell at ~150ms, so the matrix
-// budget at 32 cells is roughly five seconds total wall-clock.
+// IsPrepended cells are skipped: that branch's recoverRuntimeSwapBuckets
+// renames the live mmap'd main bucket dir, which corrupts the segment
+// registry in-process. Production reaches it only post-restart; the
+// recovery-convergence matrices in this directory cover that path.
 
 // dispatchMatrixSentinel names one of the five sentinel states.
 type dispatchMatrixSentinel string

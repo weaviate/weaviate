@@ -29,53 +29,17 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Exhaustive recovery-convergence test for the EnableSearchable strategy
-// -----------------------------------------------------------------------------
-//
-// PR #11415 pinned the recovery state machine for MapToBlockmax (inline
-// runtimeSwap) and SearchableRetokenize (trio path). The follow-up
-// FilterableRetokenize file extended the same matrix to the filterable
-// half of change-tokenization. This file does the same for
-// EnableSearchableStrategy — the semantic migration that turns a text
-// property with IndexSearchable=false into a blockmax searchable index
-// (see ReindexTypeEnableSearchable in reindex_provider.go:682 dispatch
-// and IsSemanticMigration in reindex_provider.go:1850).
-//
-// What's different from the retokenize half of the family:
-//   - Pre-migration the searchable bucket does NOT exist (the property
-//     has IndexSearchable=false). The strategy's PreReindexHook is
-//     what creates it as StrategyInverted. There is no source-bucket
-//     fingerprint to compare against; only the post-migration bucket.
-//   - The strategy's OnMigrationComplete is a documented no-op (the
-//     RAFT schema flip for IndexSearchable=true + Tokenization lives
-//     in [ReindexProvider.OnTaskCompleted] cluster-wide, see
-//     inverted_reindex_strategy_enable_searchable.go:137-149). The
-//     wrapper here just observes that the callback fired.
-//   - Target-strategy fingerprint uses `fingerprintInvertedBucket`
-//     (works on MapCollection AND Inverted buckets — verified in the
-//     SearchableRetokenize matrix at convergence_test.go:800).
-//
-// Coverage matrix (matches PR #11415's SearchableRetokenize_FromEachState
-// and the FilterableRetokenize follow-up):
-//   - EnableSearchable_IsReindexed_via_RunReindexOnlyOnShard
-//   - EnableSearchable_IsPrepended_synthetic_merged_removed
-//   - EnableSearchable_IsSwapped_synthetic_tidied_removed
-//   - EnableSearchable_IsMerged_via_RunPrepareOnShard
-//   - EnableSearchable_IsTidied_via_full_trio
+// Recovery-convergence matrix for EnableSearchable — the from-scratch
+// searchable-bucket migration. Pre-migration the bucket doesn't exist
+// (property has IndexSearchable=false); PreReindexHook creates it as
+// StrategyInverted and the backfill populates via the AnalyzerOverlay-
+// forced tokenization. Matrix shape mirrors
+// SearchableRetokenize_FromEachState.
 
-// newEnableSearchableTestClass builds a class where the targeted text
-// property starts with IndexSearchable=false so the searchable bucket
-// does NOT exist pre-migration. This is the precondition the
-// EnableSearchable strategy is designed to operate on: PreReindexHook
-// creates the bucket as StrategyInverted, the backfill iterator
-// populates it via the AnalyzerOverlay-forced tokenization, and the
-// trio swaps it into place.
-//
-// The default `newTestClassWithProps` cannot be reused because it
-// leaves IndexSearchable=nil → HasSearchableIndex returns true →
-// shard init creates a (MapCollection) searchable bucket and the
-// PreReindexHook becomes a no-op (its guard is `Bucket(name) == nil`).
+// newEnableSearchableTestClass builds a class with IndexSearchable=false
+// (so PreReindexHook actually creates the bucket).
+// newTestClassWithProps can't be reused — it leaves IndexSearchable=nil
+// which defaults to true, and the bucket gets created at shard init.
 func newEnableSearchableTestClass(className string, propNames []string) *models.Class {
 	vFalse := false
 	props := make([]*models.Property, len(propNames))

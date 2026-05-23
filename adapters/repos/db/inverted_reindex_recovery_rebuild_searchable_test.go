@@ -29,54 +29,12 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Exhaustive recovery-convergence test for the RebuildSearchable strategy
-// -----------------------------------------------------------------------------
-//
-// PR #11415 pinned the recovery state machine for MapToBlockmax (inline
-// runtimeSwap path) and SearchableRetokenize (trio path); subsequent
-// work extended the pattern to FilterableRetokenize. This file does the
-// same for RebuildSearchable — the "rebuild an existing BlockMax bucket
-// from objects" verb. It's load-bearing because a corrupted or stale
-// searchable bucket on one replica produces silent wrong-results on
-// hybrid/BM25 queries (the bucket exists, just disagrees with peers)
-// and there's no other production path that can re-derive the postings
-// from authoritative object state without changing tokenization.
-//
-// What makes RebuildSearchable distinctive among the strategies in this
-// family:
-//   - Source strategy AND target strategy are both StrategyInverted —
-//     the bucket already is BlockMax pre-migration; we rebuild it in
-//     place. The class needs UsingBlockMaxWAND=true so that the
-//     searchable bucket starts at StrategyInverted (the default
-//     newTestClassWithProps forces it to false). See
-//     newRebuildSearchableTestClass below.
-//   - OnMigrationComplete is a no-op (no schema flag flips — the prop
-//     was already searchable + BlockMax pre-migration). The wrapper
-//     still records a completed-flag so the baseline test can assert
-//     the migration ran to its end. Mirrors the no-op wrappers used
-//     for SearchableRetokenize / FilterableRetokenize.
-//   - PreReindexHook is a production no-op (the API dispatch rejects
-//     WAND properties before this strategy is constructed), so the
-//     test does not need to pre-mark any properties.
-//
-// Path choice: the trio (semantic) Run*OnShard methods.
-// reindex_provider.processOneUnit dispatches non-semantic types
-// (RebuildSearchable included) through RunOnShard (inline). The trio
-// methods are still well-defined on every ShardReindexTaskGeneric
-// and exercise the same phases at finer granularity, which is what
-// makes the per-sentinel recovery matrix tractable to set up here.
-// The recovery code path that runs at shard init does not care which
-// invocation route originally drove the on-disk state — it
-// sentinel-dispatches off the tracker file, identical for both routes.
-//
-// Coverage matrix (matches the SearchableRetokenize / FilterableRetokenize
-// matrices in this directory):
-//   - RebuildSearchable_IsReindexed_via_RunReindexOnlyOnShard
-//   - RebuildSearchable_IsPrepended_synthetic_merged_removed
-//   - RebuildSearchable_IsSwapped_synthetic_tidied_removed
-//   - RebuildSearchable_IsMerged_via_RunPrepareOnShard
-//   - RebuildSearchable_IsTidied_via_full_trio
+// Recovery-convergence matrix for RebuildSearchable — rebuild an
+// existing BlockMax bucket from objects. Source and target are both
+// StrategyInverted, so the test class needs UsingBlockMaxWAND=true.
+// Driven via the trio Run*OnShard methods even though production
+// dispatches via RunOnShard; recovery dispatches off the on-disk
+// sentinel, indifferent to invocation route.
 
 // newRebuildSearchableTestClass mirrors newTestClassWithProps but flips
 // UsingBlockMaxWAND to true so the searchable bucket for each property

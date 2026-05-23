@@ -27,41 +27,13 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Exhaustive recovery-convergence test for the RoaringSetRefresh strategy
-// -----------------------------------------------------------------------------
-//
-// PR #11415 pinned the recovery state machine for MapToBlockmax (inline
-// runtimeSwap) and SearchableRetokenize (trio path). RoaringSetRefresh is
-// the third member of the inline runtimeSwap family — it rebuilds the
-// filterable (RoaringSet) bucket in place from the objects bucket and is
-// the production code path behind `repair-filterable`, so it ships the
-// same #240 Symptom B risk: a replica that crashes mid-migration must
-// converge bit-equal to a clean run regardless of which sentinel state
-// it lands in.
-//
-// IsSemanticMigration returns false for ReindexTypeRepairFilterable
-// (see reindex_provider.go:1850-1855) so this strategy uses the inline
-// runtimeSwap path: OnAfterLsmInit + OnAfterLsmInitAsync drives reindex,
-// runtimePrepare, and runtimeSwap inline. We therefore mirror MapToBlockmax's
-// inline matrix (convergence_test.go:353) verbatim — same five rows, same
-// skipSwapOnFinish + direct runtimePrepare invocations to land at each
-// sentinel — only the bucket type (RoaringSet) and source/target strategy
-// differ.
-//
-// Coverage matrix (matches PR #11415's MapToBlockmax FromEachState):
-//   - RoaringSetRefresh_IsReindexed_via_skipSwapOnFinish
-//   - RoaringSetRefresh_IsPrepended_synthetic_merged_removed
-//   - RoaringSetRefresh_IsSwapped_synthetic_tidied_removed
-//   - RoaringSetRefresh_IsMerged_via_runtimePrepare_no_runtimeSwap
-//   - RoaringSetRefresh_IsTidied_full_migration
+// Recovery-convergence matrix for RoaringSetRefresh — the same-strategy
+// refresh of a filterable RoaringSet bucket (production code path
+// behind `repair-filterable`). Inline runtimeSwap path, so the matrix
+// mirrors MapToBlockmax_FromEachState verbatim with the bucket type as
+// the only difference.
 
-// newRoaringSetRefreshTask wraps a RoaringSetRefreshStrategy in the test
-// infrastructure. Mirrors newFilterableRetokenizeTask
-// (`inverted_reindex_recovery_filterable_retokenize_test.go:106`) but
-// for the same-strategy refresh of a filterable RoaringSet bucket — no
-// `targetTokenization` or `className` fields because the strategy only
-// carries `generation` plus the embedded `noAnalyzerOverlay`.
+// newRoaringSetRefreshTask wraps RoaringSetRefreshStrategy.
 func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
 	t.Helper()
 	wrapped := &roaringSetRefreshStrategyWrapper{

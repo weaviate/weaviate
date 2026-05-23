@@ -19,21 +19,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// -----------------------------------------------------------------------------
-// Exhaustive table tests for pure Task / TaskStatus predicates
-// -----------------------------------------------------------------------------
-//
-// Several pure-function predicates on Task and TaskStatus are load-
-// bearing for the ack-barrier and conflict-detection logic but lack
-// direct table tests. They appear only transitively through
-// manager_test.go and scheduler_*_test.go, so a refactor of the
-// predicate alone can flip behavior without any single test failing
-// in a way that localizes the cause. Background:
+// Direct table tests for Task / TaskStatus predicates. These appear
+// only transitively in the FSM tests, so a predicate-only refactor can
+// flip behavior without any localized test failure.
 // weaviate/0-weaviate-issues#243.
-//
-// This file pins each predicate against an enumerated fixture, so a
-// future refactor that changes (say) the LocalUnitIDs semantics breaks
-// here and not in some distant FSM apply test.
 
 // fixtureTask builds a Task with a controlled unit assignment for the
 // table tests below. Two groups (g1, g2), three nodes (n-1, n-2, n-3),
@@ -53,12 +42,9 @@ func fixtureTask() *Task {
 	}
 }
 
-// TestTaskStatus_IsActive pins the active-vs-terminal classification used
-// by the schema MutationGuard (see Manager wiring in [Manager] +
-// `store.go:334`) and by every conflict detector registered via
-// SetConflictDetectors. A status that's accidentally classified as
-// inactive lets concurrent mutations slip past the guard; one that's
-// accidentally active blocks legitimate schema writes.
+// TestTaskStatus_IsActive: drives the schema MutationGuard. Misclass
+// here either lets concurrent mutations slip past the guard or blocks
+// legitimate schema writes.
 func TestTaskStatus_IsActive(t *testing.T) {
 	cases := []struct {
 		status TaskStatus

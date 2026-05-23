@@ -29,49 +29,17 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Exhaustive recovery-convergence test for the FilterableRetokenize strategy
-// -----------------------------------------------------------------------------
-//
-// PR #11415 pinned the recovery state machine for MapToBlockmax (inline
-// runtimeSwap) and SearchableRetokenize (trio path); this file does the
-// same for FilterableRetokenize. That strategy is load-bearing because
-// production change-tokenization runs Searchable AND Filterable in
-// sequence — the schema cutover lives in OnTaskCompleted, but the per-shard
-// bucket pointer swap on filterable buckets is FilterableRetokenize's
-// responsibility. Without this test the per-replica divergence behind
-// weaviate/0-weaviate-issues#240 Symptom B can land in the filterable
-// half and only be caught at the acceptance tier.
-//
-// Differences from SearchableRetokenize_FromEachState:
-//   - Source / target / backup strategy is StrategyRoaringSet (not
-//     MapCollection / Inverted). Source bucket is BucketFromPropNameLSM
-//     (filterable), not BucketSearchableFromPropNameLSM.
-//   - Fingerprint primitive needs a RoaringSet-aware variant — see
-//     fingerprintRoaringSetBucket below.
-//   - OnMigrationComplete is already a production no-op (the cluster-wide
-//     schema flip lives in OnTaskCompleted), so the wrapper only adds a
-//     completed-flag for the assertion. Pattern mirrors
-//     testSearchableRetokenizeStrategyWrapper.
-//
-// Coverage matrix (matches PR #11415's SearchableRetokenize_FromEachState):
-//   - Retokenize_IsReindexed_via_RunReindexOnlyOnShard
-//   - Retokenize_IsPrepended_synthetic_merged_removed
-//   - Retokenize_IsSwapped_synthetic_tidied_removed
-//   - Retokenize_IsMerged_via_RunPrepareOnShard
-//   - Retokenize_IsTidied_via_full_trio
+// Recovery-convergence matrix for FilterableRetokenize — the filterable
+// half of change-tokenization. Production runs Searchable AND
+// Filterable in sequence; the per-shard bucket pointer swap on
+// filterable buckets is FilterableRetokenize's responsibility, so
+// #240 Symptom B divergences can land here too. Source/target is
+// StrategyRoaringSet; matrix shape mirrors
+// SearchableRetokenize_FromEachState.
 
-// fingerprintRoaringSetBucket reads a RoaringSet bucket using its public
-// Cursor and returns a deterministic (term → sorted []docID) snapshot.
-// Sibling helper to fingerprintInvertedBucket; the two functions are
-// what makes recovery convergence comparable across migration strategies
-// that target different bucket layouts.
-//
-// Format: map[term]sortedDocIDs. The bitmap cardinality is preserved
-// (every set bit becomes a docID in the returned slice), which is
-// sufficient to catch the #240 Symptom B divergence shape on filterable
-// buckets (a node missing a posting list for a term == that node will
-// silently return 0 hits for filter queries on that term).
+// fingerprintRoaringSetBucket returns a deterministic (term → sorted
+// []docID) snapshot. RoaringSet-aware sibling of
+// fingerprintInvertedBucket.
 func fingerprintRoaringSetBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint64 {
 	t.Helper()
 	out := map[string][]uint64{}

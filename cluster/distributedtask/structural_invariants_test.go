@@ -22,41 +22,13 @@ import (
 )
 
 // Structural invariant tests for the DTM package.
-//
-// Two patterns recur across loop-driven / RAFT-FSM / fan-out code but
-// lacked systematic coverage before this file (see
-// weaviate/0-weaviate-issues#243 for the broader pyramid analysis):
-//
-//  1. TestStructuralInvariant_SchedulerClose_* pin that after
-//     Scheduler.Close returns, the run loop has stopped and no further
-//     tick can fire.
-//  2. TestStructuralInvariant_ManagerRestore_ReplacesExistingState
-//     pins the RAFT FSM Restore contract that snapshot installation
-//     REPLACES state — supplementary to the canonical test landing in
-//     PR #11416.
+// weaviate/0-weaviate-issues#243.
 
-// TestStructuralInvariant_SchedulerClose_WaitsForLoopExit pins the
-// invariant that after Scheduler.Close returns, the run loop has
-// stopped and no further tick can fire.
-//
-// Method: use the FakeClock's waiter introspection (BlockUntilContext)
-// to confirm the loop is parked on ticker.Chan() before Close, then
-// confirm no ticker waiter remains after Close. A surviving waiter
-// would mean the loop is still parked in its select and capable of
-// running a tick that races with shared state torn down by Close.
-//
-// We also bound the assertion with a goroutine-count delta as a
-// secondary signal: any residual goroutine after Close (vs. the
-// pre-Start baseline) is the loop not yet drained.
-//
-// Both signals are decisive in opposite directions:
-//
-//   - Waiter check exposes "loop is still parked on the ticker."
-//   - Goroutine-count check exposes "loop goroutine still exists."
-//
-// If Close synchronously joins the loop, BOTH checks pass. If
-// Close skips the join, at least one check fails under load (race
-// detector + GC pressure widens the window).
+// TestStructuralInvariant_SchedulerClose_WaitsForLoopExit: after
+// Close returns, no run-loop goroutine exists and no clock-waiter is
+// parked on the ticker. Two independent signals — a surviving
+// goroutine OR a surviving waiter — each detect "Close skipped the
+// join" under race detector + GC pressure.
 func TestStructuralInvariant_SchedulerClose_WaitsForLoopExit(t *testing.T) {
 	h := newTestHarness(t).init(t)
 

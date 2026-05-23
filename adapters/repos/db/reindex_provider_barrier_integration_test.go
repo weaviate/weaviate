@@ -34,72 +34,23 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Integration tests for ReindexProvider's PREP→SWAP boundary
-// -----------------------------------------------------------------------------
+// Integration tests for ReindexProvider's PREP→SWAP boundary on a real
+// shard with a real LSM store (the acceptance equivalent is slow and
+// flaky). Tests exercise runShardPrepPhase / runShardSwapPhase
+// directly — outer GetIndex/lookupShardByName orchestration is unit-
+// tested elsewhere.
 //
-// This file is the first reindex-specific integration test
-// (`//go:build integrationTest`) in the repo. The existing
-// shard_skip_vector_reindex_integration_test.go covers an adjacent
-// startup-V3 legacy path; this one covers the provider-level orchestration
-// surface that's only otherwise validated in acceptance (slow, flaky).
-//
-// Helper-name prefix: `barrierIntegration*` — keeps these helpers from
-// colliding with the matrix of parallel agents working in this directory.
-// All tests use real LSM stores on `t.TempDir()` via testShardWithSettings
-// (no docker, no testcontainers). Runtime budget: ≤30s total.
-//
-// Coverage in this file:
-//
-//  1. T1 — OnGroupCompleted → RunPrepareOnShard boundary. Drive a unit to
-//     IsReindexed (the FINALIZING-window state) and then invoke the
-//     provider's runShardPrepPhase. Assert that on-disk sentinels advance
-//     from IsReindexed to IsMerged. This pins the contract that the
-//     PREP phase converts "reindex bucket has all data" into "ingest
-//     bucket has all data" via runtimePrepare.
-//
-//  2. T2 — OnSwapRequested arrival post-PREP barrier. Stage to IsMerged,
-//     then invoke runShardSwapPhase (which mirrors what OnSwapRequested
-//     calls per-shard). Assert IsSwapped + IsTidied are produced.
-//
-//  3. T3 — Provider crash between persistRecoveryRecord and markStarted.
-//     Persist a recovery record only (payload.mig), then shut the shard
-//     down WITHOUT running the iteration. On shard re-init, verify that:
-//      - DiscoverInFlightReindexTasks SKIPS this dir (because
-//        started.mig was never written).
-//      - The migration dir survives intact (payload.mig is still
-//        readable JSON) so a retry of processOneUnit on the cached
-//        descriptor can re-use the same recovery record.
-//     This pins the contract that a crash WITHIN persistRecoveryRecord
-//     does not corrupt downstream recovery — the worst case is "no
-//     recovery state to recover from", which the discover path handles
-//     by returning empty.
-//
-//  4. T4 — markReindexed durability barrier (issue #214 / commit
-//     073d47b460). Drive iteration to completion under
-//     skipSwapOnFinish=true so the flow halts AT markReindexed (the exact
-//     barrier point). Shut down the shard, then read reindexed.mig back
-//     from disk — the sentinel must survive process death without
-//     fsync from the test. This pins the contract that FlushAndSwitch +
-//     markReindexed are strong enough to recover the marker, which is
-//     the foundation for IsReindexed-based recovery dispatch in
-//     RunSwapOnShard.
-//
-// These tests intentionally exercise the PROVIDER methods that take a
-// ShardLike + tasks (runShardPrepPhase, runShardSwapPhase) directly,
-// bypassing OnGroupCompleted's outer GetIndex/lookupShardByName dance.
-// The orchestration that GetIndex covers is exhaustively unit-tested in
-// reindex_provider_on_group_completed_test.go (terminal status
-// short-circuit) and reindex_provider_recovery_test.go (semantic-migration
-// type → indexType mapping). What's NEW here is the END-TO-END flow on a
-// real shard with a real LSM store.
+// T1: PREP boundary — IsReindexed → IsMerged via runShardPrepPhase.
+// T2: SWAP boundary — IsMerged → IsSwapped+IsTidied via runShardSwapPhase.
+// T3: Crash between persistRecoveryRecord and markStarted — discover
+//     must skip the dir; payload.mig survives intact for retry.
+// T4: markReindexed durability — sentinel survives process death
+//     without fsync from the test (foundation of issue #214 / commit
+//     073d47b460's IsReindexed dispatch).
 
-// barrierIntegrationProvider builds a minimal ReindexProvider for tests
-// that exercise runShardPrepPhase / runShardSwapPhase directly. These
-// per-shard methods take ShardLike + tasks as arguments; they do NOT
-// touch p.db / p.schemaManager / p.recorder. The provider only needs a
-// logger and a serverCtx — the same shape the existing failunit tests
-// already use (`newTestProvider`).
+// barrierIntegrationProvider builds the minimal ReindexProvider these
+// tests need — runShardPrepPhase / runShardSwapPhase only touch
+// logger + serverCtx, not the db/schemaManager/recorder fields.
 func barrierIntegrationProvider(t *testing.T) (*ReindexProvider, *logrustest.Hook) {
 	t.Helper()
 	logger, hook := logrustest.NewNullLogger()
@@ -112,11 +63,8 @@ func barrierIntegrationProvider(t *testing.T) (*ReindexProvider, *logrustest.Hoo
 	return p, hook
 }
 
-// barrierIntegrationDrivenToReindexed runs the iteration in
-// skipSwapOnFinish=true mode (the same mode OnGroupCompleted-driven
-// semantic migrations use) so iteration halts exactly at markReindexed —
-// the FINALIZING-barrier handoff point. Returns the task instance the
-// caller can reuse for PREP / SWAP calls.
+// barrierIntegrationDrivenToReindexed halts iteration at markReindexed
+// (the FINALIZING-barrier handoff) via skipSwapOnFinish=true.
 func barrierIntegrationDrivenToReindexed(
 	t *testing.T,
 	ctx context.Context,

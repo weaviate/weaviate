@@ -30,57 +30,22 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Exhaustive integration test for restart-recovery convergence
-// -----------------------------------------------------------------------------
-//
-// Per weaviate/0-weaviate-issues#240 Symptom B: rolling restart of a 3-node
-// cluster mid-change-tokenization-migration can land all three replicas
-// on diverged on-disk bucket content despite the task showing FINISHED.
-// The acceptance tests rely on random rolling-restart timing and only
-// probabilistically hit a few combinations of the recovery cross-product.
-//
-// Following the test-pyramid principle, the deterministic exhaustive
-// coverage of the recovery state machine belongs at integration level
-// (single-process, real LSM store, real migration code path), not flaky
-// e2e. The baseline assertion that the migration code works end-to-end
-// with the per-doc-id fingerprint we compare against is foundational —
-// every recovery-from-state case in the staged follow-up compares
-// against this baseline. If the baseline itself doesn't reproduce the
-// expected post-migration bucket content, no recovery test can.
-//
-// Coverage matrix (build out in stages):
-//   - [stage 1, THIS COMMIT] Baseline only: clean migration to
-//     completion, fingerprint the post-state. Asserts the migration
-//     produces a non-empty per-term posting list and the fingerprint
-//     primitive works.
-//   - [stage 2, follow-up] Recovery from each sentinel state: drive
-//     the migration to each on-disk state a crashed replica could
-//     land in, then restart with a fresh task, then assert the
-//     post-recovery fingerprint matches the baseline.
-//   - [stage 3, follow-up] Mid-iteration resume from a non-empty
-//     lastProcessedKey.
-//   - [stage 4, follow-up] Mid-per-prop-loop crashes inside
-//     runtimePrepare / runtimeSwap when multiple props are migrating
-//     in lock-step.
+// Deterministic restart-recovery convergence at integration level — what
+// the e2e tests hit only probabilistically against weaviate/0-weaviate-
+// issues#240 Symptom B (rolling-restart mid-migration leaves replicas
+// diverged despite task=FINISHED). This file's baseline is the fingerprint
+// every staged recovery-from-state case compares against.
 
-// fingerprintInvertedBucket reads a searchable bucket using its public
-// Cursor and returns a deterministic (term → sorted []docID) snapshot.
-// Used to compare post-recovery bucket content against the baseline.
-//
-// Format: map[term]sortedDocIDs. The frequency-per-doc is NOT compared
-// here — per-doc inclusion is sufficient to catch the #11383
-// divergence shape (a node returning 0 hits for a query == that term
-// has no posting list on that node).
+// fingerprintInvertedBucket returns a deterministic (term → sorted
+// []docID) snapshot. Per-doc inclusion only — frequency is not part of
+// the comparison because the #11383 divergence shape is "term has no
+// posting list on that node".
 func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint64 {
 	t.Helper()
 	out := map[string][]uint64{}
 	if b == nil {
 		return out
 	}
-	// Inverted-strategy buckets: iterate via MapCursor. Each row key
-	// is a term; each map pair under the row is a (docID, frequency)
-	// tuple. We collect docIDs only.
 	c, err := b.MapCursor()
 	require.NoError(t, err)
 	defer c.Close()
@@ -88,12 +53,9 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 		term := string(append([]byte(nil), k...))
 		ids := make([]uint64, 0, len(pairs))
 		for _, p := range pairs {
-			// Inverted/MapCollection bucket entries always carry an 8-byte
-			// big-endian docID as the pair key. A shorter key is either
-			// on-disk corruption or a write-path bug — both of which the
-			// convergence tests exist to surface. Fail loudly rather than
-			// silently dropping the entry, which would let a corrupted
-			// bucket pass as "matching baseline".
+			// A pair-key shorter than 8 bytes is corruption or a
+			// write-path bug; fail loudly rather than let a broken
+			// bucket pass as "matches baseline".
 			require.Lenf(t, p.Key, 8,
 				"unexpected pair key length on term %q: want 8 bytes (big-endian docID), got %d",
 				term, len(p.Key))
@@ -113,15 +75,9 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 	return out
 }
 
-// newSearchableRetokenizeTask wraps a SearchableRetokenizeStrategy in
-// the test infrastructure. This is the strategy that #11383's
-// change-tokenization migration uses; differs from MapToBlockmax in
-// that it's a SEMANTIC migration (swap is driven via the explicit
-// Run*OnShard trio, not inline runtimeSwap).
-//
-// `targetTokenization` is the post-migration tokenization (e.g.
-// `models.PropertyTokenizationField` for word→field, which is the
-// exact change the failing acceptance test does).
+// newSearchableRetokenizeTask wraps SearchableRetokenizeStrategy — the
+// semantic-migration strategy driven by the Run*OnShard trio (not
+// inline runtimeSwap), used by the #11383 change-tokenization migration.
 func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
 	t.Helper()
 	wrapped := &testSearchableRetokenizeStrategyWrapper{
@@ -150,10 +106,8 @@ func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 	return task, wrapped
 }
 
-// testSearchableRetokenizeStrategyWrapper stubs OnMigrationComplete
-// (the real strategy is a no-op for searchable — the schema flip is
-// done by FilterableRetokenize when it runs second; we don't run that
-// here). Same pattern as testMigrationStrategy for MapToBlockmax.
+// testSearchableRetokenizeStrategyWrapper stubs OnMigrationComplete so
+// the test doesn't need the paired FilterableRetokenize run.
 type testSearchableRetokenizeStrategyWrapper struct {
 	SearchableRetokenizeStrategy
 	migrationCompleted bool
@@ -185,20 +139,8 @@ func makeConvergenceTestObjects(t *testing.T, n int, className string) []*storob
 	return out
 }
 
-// TestRecoveryConvergence_Baseline runs a clean MapToBlockmax migration
-// to completion using the production code path (task.OnAfterLsmInit +
-// OnAfterLsmInitAsync loop), then fingerprints the post-migration
-// searchable bucket. Establishes that:
-//
-//  1. The migration code path works end-to-end against the test
-//     fixture (testShardWithSettings + makeConvergenceTestObjects).
-//  2. The fingerprint primitive produces a non-empty (term → []docID)
-//     mapping that can be used as the ground truth for the
-//     recovery-from-state cases in stage 2.
-//
-// This test alone does NOT pin the #240 bug; it pins the foundation
-// the staged cases will build on. If this test fails, the staged
-// follow-ups have no baseline to compare against.
+// TestRecoveryConvergence_Baseline pins the clean post-migration
+// fingerprint that every recovery-from-state case compares against.
 func TestRecoveryConvergence_Baseline(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
