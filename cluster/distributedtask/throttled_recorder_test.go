@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -160,63 +161,25 @@ func TestThrottledRecorder_DifferentUnitsTrackedIndependently(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestThrottledRecorder_ErroredCall_RetryNotSilentlyDropped pins
-// weaviate/0-weaviate-issues#240 Symptom B's root-cause race:
-//
-// The current implementation updates `lastSent[key]` BEFORE forwarding
-// to the inner recorder. If the inner call fails (e.g. RAFT leadership
-// transfer in progress), the throttler still considers the call "sent"
-// at time T1. A retry within the throttle interval (default 3s in
-// production via NewThrottledRecorder(..., 3*time.Second, ...)) returns
-// nil without forwarding — silently dropping the retried call.
-//
-// For most progress updates this is benign. But for the INITIAL
-// progress=0.0 call in [ReindexProvider.processOneUnit] this call is
-// the unit-CLAIM: the only path that sets Unit.NodeID. If both the
-// first attempt fails AND the retry is silently dropped, the unit's
-// NodeID stays empty through eventual RecordUnitCompletion (which
-// does NOT set NodeID itself), so the unit is orphaned at
-// AllUnitsTerminal time. LocalGroupUnitIDs filters by u.NodeID ==
-// nodeID; the orphan is excluded from every node's local group, PREP
-// never runs, the local sentinel chain stops at REINDEXED, and the
-// canonical bucket on the affected replica stays at OLD tokenization
-// while the cluster-wide schema flip commits.
-//
-// Expected behavior: a retry within the throttle window AFTER an
-// errored first attempt should be forwarded. Either:
-//   - lastSent updated only on successful forward, OR
-//   - lastSent reset on error
-//
-// Current behavior (pre-fix): the retry is silently dropped.
+// TestThrottledRecorder_ErroredCall_RetryNotSilentlyDropped pins the
+// retry must survive a failed forward — the unit-CLAIM (progress=0.0)
+// is the only path that sets Unit.NodeID, and silently dropping its
+// retry orphans the unit. weaviate/0-weaviate-issues#240 Symptom B.
 func TestThrottledRecorder_ErroredCall_RetryNotSilentlyDropped(t *testing.T) {
 	recorder, clock, inner := newTestThrottledRecorder(t)
 
-	// First call: forward returns an error simulating a RAFT
-	// leadership-transfer-in-progress error from the inner recorder.
 	inner.EXPECT().UpdateDistributedTaskUnitProgress(
 		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.0),
-	).Return(assertErr("leadership transfer in progress")).Once()
+	).Return(errors.New("leadership transfer in progress")).Once()
 
 	err := recorder.UpdateDistributedTaskUnitProgress(context.Background(), "ns", "task", 1, "node", "su-1", 0.0)
 	require.Error(t, err, "first call should propagate the inner error")
 
-	// Retry within the throttle interval (1 second after the failed
-	// first call). The throttle interval is 30s in this test fixture.
-	// The retry MUST be forwarded — without this guarantee, the
-	// unit-CLAIM is silently dropped and the unit never has its
-	// NodeID set by the FSM.
 	inner.EXPECT().UpdateDistributedTaskUnitProgress(
 		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.0),
 	).Return(nil).Once()
 
 	clock.Advance(1 * time.Second)
 	err = recorder.UpdateDistributedTaskUnitProgress(context.Background(), "ns", "task", 1, "node", "su-1", 0.0)
-	require.NoError(t, err, "retry within throttle window after an errored first attempt must forward, not silently drop")
+	require.NoError(t, err, "retry within throttle window after errored first attempt must forward")
 }
-
-// assertErr is a tiny helper to construct an error with a message.
-// Imported helpers like errors.New live in the std library; pulling
-// that in here just for one test would be heavier than this inline.
-type assertErr string
-
-func (e assertErr) Error() string { return string(e) }

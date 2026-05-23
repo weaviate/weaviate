@@ -79,20 +79,11 @@ func (r *ThrottledRecorder) UpdateDistributedTaskUnitProgress(ctx context.Contex
 
 	err := r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress)
 	if err != nil {
-		// Reset the throttle entry so a retry within the throttle window
-		// isn't silently dropped. Pins weaviate/0-weaviate-issues#240
-		// Symptom B: a transient inner-recorder error (e.g. RAFT
-		// leadership transfer in progress) used to leave lastSent[key]
-		// pointing at the failed call's timestamp; a retry within the
-		// 3-second production interval returned nil without forwarding,
-		// silently dropping the unit-CLAIM call that's the only path
-		// setting Unit.NodeID. The orphaned unit was then excluded from
-		// LocalGroupUnitIDs at PREP time, stranding the replica at
-		// REINDEXED post-FINISHED while the cluster-wide schema flip
-		// committed.
-		//
-		// Only reset if our entry is still the one we wrote — a
-		// concurrent successful caller may have already advanced it.
+		// A failed forward must not block the retry. Without this,
+		// the unit-CLAIM (progress=0.0) on the per-unit worker can
+		// be silently de-duped against its own failed first attempt,
+		// leaving Unit.NodeID unset for the rest of the task
+		// lifetime. weaviate/0-weaviate-issues#240 Symptom B.
 		r.mu.Lock()
 		if cur, ok := r.lastSent[key]; ok && cur.Equal(now) {
 			delete(r.lastSent, key)
