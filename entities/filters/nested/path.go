@@ -20,10 +20,12 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// pathSep is the separator character for nested property paths.
+// PathSep is the separator character for nested property paths.
 // All path construction and parsing goes through SplitPath/JoinPath so
 // this is the single place to change if the separator ever changes.
-const pathSep = "."
+// Exported so hot-path callers can concatenate without paying the
+// []string + strings.Join allocation that JoinPath incurs.
+const PathSep = "."
 
 // indexOpen / indexClose delimit an arr[N] index suffix inside a path
 // segment (e.g. "cars[0]"). All bracket parsing in this package uses
@@ -38,7 +40,7 @@ const (
 //
 //	SplitPath("cars.tires.width") → ["cars", "tires", "width"]
 func SplitPath(path string) []string {
-	return strings.Split(path, pathSep)
+	return strings.Split(path, PathSep)
 }
 
 // JoinPath joins property name segments into a dot-notation nested path.
@@ -46,7 +48,7 @@ func SplitPath(path string) []string {
 //
 //	JoinPath(["cars", "tires", "width"]) → "cars.tires.width"
 func JoinPath(segs []string) string {
-	return strings.Join(segs, pathSep)
+	return strings.Join(segs, PathSep)
 }
 
 // PathSegment represents one component of a parsed nested filter path.
@@ -108,7 +110,7 @@ func ParseIndexedPath(path string) (cleanRelPath string, cleanRelSegs []string, 
 // RootPropName returns the root property name from a nested filter path,
 // stripping any [N] index. "addresses[1].city" → "addresses".
 func RootPropName(path string) string {
-	first, _, _ := strings.Cut(path, pathSep)
+	first, _, _ := strings.Cut(path, PathSep)
 	clean, _, _ := parseSegmentIndex(first)
 	return clean
 }
@@ -177,7 +179,7 @@ func FindLeaf(segments []string, props []*models.NestedProperty) (*models.Nested
 // Keeps the syntactic conventions (the separator character, the index
 // bracket character) localized in this package.
 func HasNestedSyntax(path string) bool {
-	return strings.ContainsAny(path, pathSep+indexOpen)
+	return strings.ContainsAny(path, PathSep+indexOpen)
 }
 
 // IsNestedPath reports whether path is a nested-property filter path on
@@ -191,7 +193,7 @@ func HasNestedSyntax(path string) bool {
 // "no such property" or "not a nested property" error instead of an
 // off-target "sub-property not found".
 func IsNestedPath(class *models.Class, path string) bool {
-	if !strings.Contains(path, pathSep) {
+	if !strings.Contains(path, PathSep) {
 		return false
 	}
 	if class == nil {
