@@ -986,9 +986,16 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 
 	if isSwapped {
 		if isTidied {
-			// Runtime swap completed: in-memory swap done, dirs deferred.
-			// FinalizeCompletedMigrations (called before us in shard_init)
-			// already renamed the dirs. Nothing left to do.
+			// Pre-existing IsTidied on entry: either this run just
+			// finished tidyBackupBuckets, OR a previous run crashed
+			// between markTidied and the PreReindexHook fire below.
+			// In the latter case the target bucket would otherwise
+			// stay unloaded and OnAfterLsmInitAsync's safety check
+			// refuses OnMigrationComplete — replica stuck. The hook
+			// is idempotent; firing it unconditionally closes the
+			// narrow markTidied-to-hook crash window.
+			// weaviate/0-weaviate-issues#246.
+			t.strategy.PreReindexHook(shard, props)
 			logger.Debug("tidied. nothing to do")
 			return nil
 		}
@@ -1001,13 +1008,9 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 				return err
 			}
 
-			// Recovery just transitioned us into IsTidied. Strategies
-			// whose target bucket is created lazily (FilterableToRangeable,
-			// EnableFilterable, EnableSearchable) still need it loaded in
-			// the in-memory store, otherwise OnAfterLsmInitAsync's
-			// IsTidied safety check refuses to fire OnMigrationComplete
-			// and the replica is stuck. PreReindexHook is idempotent for
-			// strategies that don't need it. weaviate/0-weaviate-issues#246.
+			// Recovery just transitioned us into IsTidied. Same
+			// reasoning as the IsTidied-on-entry branch above —
+			// load the target bucket before returning.
 			t.strategy.PreReindexHook(shard, props)
 		}
 	}

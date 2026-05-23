@@ -219,14 +219,25 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 // avoids the setRangeableLocallyReady side effect that the production
 // hook does; that flag is a query-path optimization, not a correctness
 // invariant for the bucket-content fingerprint we're testing.
+//
+// preReindexHookCount counts every PreReindexHook fire so tests can
+// pin "the IsTidied-on-entry recovery branch in OnBeforeLsmInit MUST
+// re-fire the hook" (weaviate/0-weaviate-issues#246 narrow window:
+// crash between markTidied and the recovery-branch hook).
 type testFilterableToRangeableStrategyWrapper struct {
 	FilterableToRangeableStrategy
-	migrationCompleted bool
+	migrationCompleted  bool
+	preReindexHookCount int
 }
 
 func (s *testFilterableToRangeableStrategyWrapper) OnMigrationComplete(_ context.Context, _ ShardLike) error {
 	s.migrationCompleted = true
 	return nil
+}
+
+func (s *testFilterableToRangeableStrategyWrapper) PreReindexHook(shard *Shard, props []string) {
+	s.preReindexHookCount++
+	s.FilterableToRangeableStrategy.PreReindexHook(shard, props)
 }
 
 // computeFilterableToRangeableBaseline runs a clean inline migration on a
@@ -568,4 +579,76 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRecoveryConvergence_FilterableToRangeable_IsTidied_OnBeforeLsmInitFiresHook
+// pins the contract added in response to Claudette's review of the
+// narrow markTidied → PreReindexHook crash window: when
+// [ShardReindexTaskGeneric.OnBeforeLsmInit] is re-entered with the
+// tracker already at IsTidied (i.e. the previous process crashed
+// between markTidied and the recovery-tidy hook fire), the early-
+// return branch MUST re-fire PreReindexHook so the target bucket is
+// loaded. Without it, OnAfterLsmInitAsync's IsTidied safety check
+// refuses OnMigrationComplete and the replica is stuck.
+//
+// FinalizeCompletedMigrations normally clears the tidied tracker at
+// shard init, which masks the bug at the integration tier — this
+// test calls OnBeforeLsmInit directly with explicit sentinel state to
+// pin the branch independently. weaviate/0-weaviate-issues#246 narrow
+// window.
+func TestRecoveryConvergence_FilterableToRangeable_IsTidied_OnBeforeLsmInitFiresHook(t *testing.T) {
+	const propName = filterableToRangeablePropName
+
+	ctx := testCtx()
+	className := "FilterToRangeIsTidiedHook_" + uuid.NewString()[:8]
+	class := newFilterableToRangeableTestClass(className)
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	task, wrapper := newFilterableToRangeableTask(t, idx, className, propName)
+
+	// Synthesize the on-disk state of a crash between markTidied and
+	// the recovery-branch PreReindexHook fire: every sentinel present.
+	rt, err := task.newReindexTracker(shard.pathLSM())
+	require.NoError(t, err)
+	ftr := rt.(*fileReindexTracker)
+	require.NoError(t, os.MkdirAll(ftr.config.migrationPath, 0o755))
+	for _, name := range []string{
+		ftr.config.filenameStarted,
+		ftr.config.filenameReindexed,
+		ftr.config.filenamePrepended,
+		ftr.config.filenameMerged,
+		ftr.config.filenameSwapped,
+		ftr.config.filenameTidied,
+	} {
+		require.NoError(t, os.WriteFile(
+			filepath.Join(ftr.config.migrationPath, name),
+			[]byte(ftr.encodeTimeNow()), 0o644))
+	}
+	// Properties sentinel so readPropsToReindex doesn't return empty.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(ftr.config.migrationPath, ftr.config.filenameProperties),
+		[]byte(propName), 0o644))
+
+	// Counter is 0 — no migration ran in this process.
+	require.Equal(t, 0, wrapper.preReindexHookCount, "precondition")
+
+	require.NoError(t, task.OnBeforeLsmInit(ctx, shard),
+		"OnBeforeLsmInit must succeed on the synthesized IsTidied state")
+
+	// The fix: OnBeforeLsmInit's IsTidied-on-entry branch fires
+	// PreReindexHook so the target bucket is loaded into the in-memory
+	// store. Without the fix the counter stays 0 and the replica is
+	// stuck on the migration.
+	assert.GreaterOrEqual(t, wrapper.preReindexHookCount, 1,
+		"OnBeforeLsmInit IsTidied-on-entry branch MUST fire PreReindexHook "+
+			"(weaviate/0-weaviate-issues#246 narrow window)")
+
+	// And the bucket is actually in the store.
+	bucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))
+	require.NotNil(t, bucket, "PreReindexHook must have created the rangeable bucket")
+	assert.Equal(t, lsmkv.StrategyRoaringSetRange, bucket.Strategy())
 }
