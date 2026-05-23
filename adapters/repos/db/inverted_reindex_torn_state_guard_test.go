@@ -199,8 +199,6 @@ func TestTornState_OnAfterLsmInit_GuardFires_ResetsReindexed(t *testing.T) {
 //
 // Tracked at weaviate/0-weaviate-issues#244 (filed alongside this test).
 func TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline(t *testing.T) {
-	t.Skip("KNOWN-RED: weaviate/0-weaviate-issues#244 — torn-state guard does not clear " +
-		"progress.mig; see test docstring for full bug analysis. Un-skip when #244 lands.")
 	baseline := computeBaselineFingerprint(t, tornGuardPropName, tornGuardNumObjects)
 	require.NotEmpty(t, baseline)
 
