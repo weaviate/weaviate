@@ -24,11 +24,10 @@ import (
 // Structural invariant tests for the ReindexProvider's drain /
 // cancel-and-wait surface.
 //
-// Sub-report 07 (issue #243) calls out three structural patterns that
-// recur across the reindex/DTM codebase but lack systematic test
-// coverage. The DTM-layer pieces live in
+// The DTM-layer pieces live in
 // cluster/distributedtask/structural_invariants_test.go; this file pins
-// the reindex-provider pieces:
+// the reindex-provider pieces (see weaviate/0-weaviate-issues#243 for
+// the broader pyramid analysis):
 //
 //   TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone
 //   TestStructuralInvariant_WaitForLocalTaskDrain_NoHandleReturnsNil
@@ -41,7 +40,7 @@ import (
 // rather than wait forever on a runaway worker).
 
 // structuralInvariantNewBareProvider returns a ReindexProvider with
-// just the maps initialised, mimicking the literal-construction
+// just the maps initialized, mimicking the literal-construction
 // pattern used by reindex_conflict_test.go. The constructor
 // (NewReindexProvider) needs a full *DB which we don't have in unit
 // tests; the maps cover everything we exercise here
@@ -92,7 +91,7 @@ func structuralInvariantInjectHandle(
 //  4. Close the handle's doneCh (worker exits).
 //  5. Assert the call returns within a short bounded interval.
 //
-// All synchronisation is via channels — no time.Sleep for
+// All synchronization is via channels — no time.Sleep for
 // race-detection.
 func TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone(t *testing.T) {
 	p := structuralInvariantNewBareProvider()
@@ -108,7 +107,7 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone(t *test
 		defer wg.Done()
 		// Use a generous context — we expect the drain to be
 		// gated on doneCh, not the context. Five seconds is far
-		// above the deterministic synchronisation we use below.
+		// above the deterministic synchronization we use below.
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		returnedC <- p.WaitForLocalTaskDrain(ctx, desc)

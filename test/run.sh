@@ -272,12 +272,10 @@ function main() {
     run_acceptance_recovery
   fi
 
-  # Top-level dispatch for the dedicated `--acceptance-distributed-tasks`
-  # CI shard. Previously this was nested inside `run_acceptance_tests()`,
-  # which is gated by a big-IF at line ~189 that never includes
-  # `$run_acceptance_distributed_tasks` — so the CI shard was running
-  # ZERO tests for ~6 days (regression introduced by commit 9df7e2845d,
-  # see weaviate/0-weaviate-issues#243 §4 for full archeology).
+  # Dispatch the dedicated --acceptance-distributed-tasks shard at the top
+  # level. Nesting inside run_acceptance_tests() silently dropped the
+  # shard because that function is gated by the big-IF a few hundred
+  # lines below, which does not include $run_acceptance_distributed_tasks.
   if $run_acceptance_distributed_tasks; then
     echo "running acceptance distributed_tasks"
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
@@ -423,15 +421,10 @@ function run_acceptance_tests() {
       run_acceptance_only_fast_group 4
     fi
   fi
-  # NOTE: `$run_acceptance_distributed_tasks` is intentionally NOT in this
-  # predicate. The dedicated `--acceptance-distributed-tasks` CI shard is
-  # dispatched at the top level (search for "distributed_tasks" above);
-  # the predicate here covers `--acceptance-only` and `--all-tests` only.
-  # Adding `$run_acceptance_distributed_tasks` here would still not have
-  # worked because this function is itself only called from inside the
-  # big-IF at ~line 189, which does NOT include
-  # `$run_acceptance_distributed_tasks` — that omission was the original
-  # bug per weaviate/0-weaviate-issues#243 §4.
+  # Catch-all for --acceptance-only / --all-tests. The dedicated
+  # --acceptance-distributed-tasks shard is dispatched at the top level
+  # (search for "distributed_tasks" above); $run_acceptance_distributed_tasks
+  # is intentionally absent from this predicate.
   if $run_acceptance_tests || $run_all_tests; then
     echo "running acceptance distributed_tasks (via catch-all)"
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks

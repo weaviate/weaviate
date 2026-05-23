@@ -199,28 +199,12 @@ type ShardReindexTaskGeneric struct {
 	// file-level phase-contract godoc.
 	testHookPostPropSwap func(propIdx int)
 
-	// testHookPostPropTidy (test-only) fires inside each tidyBackupBuckets
-	// goroutine immediately after the per-prop os.RemoveAll(backupDir)
-	// returns successfully and before the goroutine itself returns nil.
-	// Production leaves it nil (the nil check has negligible overhead).
-	// MUST NEVER be exercised by anything other than tests.
-	//
-	// Mirrors [testHookPostPropSwap] for the per-prop tidy phase. Used
-	// by mid-tidy crash-recovery convergence tests to simulate a halt
-	// after K of N per-prop backup removals have completed.
-	//
-	// Concurrency note: unlike runtimeSwap's Phase 2a (which is a
-	// strictly sequential per-prop loop), tidyBackupBuckets dispatches
-	// each prop's RemoveAll inside an error-group goroutine bounded by
-	// t.config.concurrency. Tests that depend on the hook firing in a
-	// deterministic propIdx order MUST set t.config.concurrency = 1.
-	// Even at concurrency=1, panics inside the hook are recovered by
-	// the wrapper's per-goroutine deferFunc (see
-	// [entities/errors/error_group_wrapper.go]) — the recovered panic
-	// surfaces as the "panic occurred" error returned by Wait(); the
-	// per-prop RemoveAll loop continues launching subsequent goroutines
-	// because there is no ctx-check in the goroutine body. Test authors
-	// should treat the hook as a notification point, not a hard halt.
+	// testHookPostPropTidy (test-only) fires after each per-prop
+	// os.RemoveAll inside tidyBackupBuckets returns successfully.
+	// Production leaves it nil. Mirrors [testHookPostPropSwap]; see
+	// TestRecoveryConvergence_MidPropSwapOrTidy_Loop for usage, including
+	// the concurrency=1 constraint tests need for deterministic propIdx
+	// order and the wrapper-recovery semantics around panics.
 	testHookPostPropTidy func(propIdx int)
 }
 

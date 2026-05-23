@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"github.com/google/uuid"
@@ -94,7 +93,7 @@ import (
 // Same-process testing of that branch is unsafe and is skipped with a
 // precise reason per cell. The convergence matrices in this directory
 // (which DO shutdown+reinit before recovery) cover the IsPrepended
-// post-restart behaviour at the bucket-content level.
+// post-restart behavior at the bucket-content level.
 //
 // Coverage: 8 strategies × 5 sentinels = 40 cells. 8 IsPrepended cells
 // skipped with the same reason; 32 cells executed.
@@ -707,11 +706,8 @@ func dispatchMatrixRunCell(
 				term, sc.strategyName, sentinel)
 			continue
 		}
-		if !reflect.DeepEqual(expectedIDs, gotIDs) {
-			assert.Failf(t, "fingerprint divergence post-RunSwapOnShard",
-				"term %q post-dispatch doc-id list diverges from baseline (strategy=%s state=%s)\n  baseline (%d): %v\n  got      (%d): %v",
-				term, sc.strategyName, sentinel,
-				len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
-		}
+		assert.Equalf(t, expectedIDs, gotIDs,
+			"term %q post-dispatch doc-id list diverges from baseline (strategy=%s state=%s)",
+			term, sc.strategyName, sentinel)
 	}
 }

@@ -49,8 +49,7 @@ import (
 // All tests use real LSM stores on `t.TempDir()` via testShardWithSettings
 // (no docker, no testcontainers). Runtime budget: ≤30s total.
 //
-// Coverage in this file (mapped to the recovery state machine in
-// /tmp/qa-reindex-pyramid/02-recovery.md):
+// Coverage in this file:
 //
 //  1. T1 — OnGroupCompleted → RunPrepareOnShard boundary. Drive a unit to
 //     IsReindexed (the FINALIZING-window state) and then invoke the
@@ -422,8 +421,7 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 	// Drive iteration to the barrier point — markReindexed has fired
 	// AFTER the FlushAndSwitch durability barrier
 	// (inverted_reindex_task_generic.go:1461-1469).
-	task, _ := barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
-	_ = task
+	_, _ = barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
 
 	// Record the on-disk path of reindexed.mig BEFORE shutdown so we can
 	// re-stat it post-shutdown without relying on a tracker rebuild

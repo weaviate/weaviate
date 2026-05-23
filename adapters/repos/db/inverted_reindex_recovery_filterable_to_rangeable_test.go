@@ -36,103 +36,25 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// Exhaustive recovery-convergence test for the FilterableToRangeable strategy
+// Recovery-convergence matrix for FilterableToRangeable
 // -----------------------------------------------------------------------------
 //
-// PR #11415 pinned the recovery state machine for MapToBlockmax (inline
-// runtimeSwap) and SearchableRetokenize (trio path); follow-ups extended the
-// same matrix to FilterableRetokenize. This file does the same for
-// FilterableToRangeable — the strategy that builds a RoaringSetRange
-// (rangeable) bucket for numeric properties from the objects bucket.
+// Same matrix shape as MapToBlockmax (the other inline-runtimeSwap strategy,
+// see [TestRecoveryConvergence_FromEachState]): drive a shard to each of the
+// 5 sentinel states, restart, assert the post-recovery rangeable bucket
+// fingerprint converges to the clean baseline.
 //
-// Why this layer matters. The acceptance suite for enable-rangeable
-// (test/acceptance/reindex_singlenode/enable_rangeable_test.go) relies on
-// random restart timing to probabilistically hit recovery cases. The
-// FilterableToRangeable strategy is classified as NON-semantic by
-// IsSemanticMigration (reindex_provider.go:1850), so it runs the inline
-// runtimeSwap path inside OnAfterLsmInitAsync. Without an integration-tier
-// matrix, a regression in inline-path recovery would slip past unit tests
-// and only show up as flaky e2e — Sev-class data-loss territory because
-// the bug surface is "the rangeable bucket reports FINISHED with empty or
-// stale postings while the schema flag flips on top".
+// FilterableToRangeable is unique among inline-path strategies in that its
+// target (rangeable) bucket is created by [FilterableToRangeableStrategy.PreReindexHook],
+// not by createPropertyValueIndex. weaviate/0-weaviate-issues#246 closed a
+// recovery-path bug here: IsReindexed / IsPrepended restarts used to leave
+// the replica stuck because OnBeforeLsmInit ran the on-disk merge → swap
+// → tidy but never reloaded the target bucket into the in-memory store.
+// The fix calls PreReindexHook in the recovery tidy branch.
 //
-// Differences from FilterableRetokenize_FromEachState:
-//   - Inline path, not trio: the matrix mirrors MapToBlockmax's
-//     IsReindexed_via_skipSwapOnFinish, IsMerged_via_runtimePrepare_no_runtimeSwap,
-//     IsTidied_full_migration shape (convergence_test.go:353) — not the
-//     trio-driven shape FilterableRetokenize uses.
-//   - Source data is numeric (int64), not text. The rangeable bucket key is
-//     the LexicographicallySortableInt64 8-byte encoding of the value
-//     interpreted as a big-endian uint64. The fingerprint helper queries
-//     each known value via ReaderRoaringSetRange.Read with OperatorEqual.
-//   - The pre-state has the int property with IndexFilterable=true (default)
-//     and IndexRangeFilters=nil (=false). PreReindexHook creates the empty
-//     rangeable bucket; the backfill scan populates it; the inline swap
-//     wires it as the active source bucket.
-//
-// Coverage matrix (mirrors convergence_test.go:353 MapToBlockmax shape):
-//   - FilterableToRangeable_IsReindexed_via_skipSwapOnFinish          [KNOWN-RED, see below]
-//   - FilterableToRangeable_IsPrepended_synthetic_merged_removed      [KNOWN-RED, see below]
-//   - FilterableToRangeable_IsSwapped_synthetic_tidied_removed
-//   - FilterableToRangeable_IsMerged_via_runtimePrepare_no_runtimeSwap
-//   - FilterableToRangeable_IsTidied_full_migration
-//
-// # KNOWN-RED — FilterableToRangeable recovery leaves replica stuck (weaviate/0-weaviate-issues#246)
-//
-// Two cells in this matrix surface a real production bug: when restart
-// happens after markReindexed (or markPrepended) but before markTidied,
-// the recovery path completes the migration on disk but never reloads
-// the rangeable bucket into the in-memory store. The line-1242 safety
-// check in OnAfterLsmInitAsync then refuses to fire OnMigrationComplete
-// ("stale migration state on shard: tidied sentinel claims X complete,
-// but target bucket Y is missing — usually caused by a DELETE between
-// the previous successful reindex and this one; refusing to silently
-// report success") and the replica is stuck on the migration until
-// manual intervention.
-//
-// Root cause: FilterableToRangeable is unique among inline-path
-// migrations in that its target bucket (rangeable) does NOT pre-exist
-// on the shard — it's created by PreReindexHook on first migration
-// submission. The recovery path on restart from IsReindexed or
-// IsPrepended:
-//   1. FinalizeCompletedMigrations: no-op (no merged.mig yet at restart)
-//   2. createPropertyValueIndex: skips the rangeable bucket
-//      (IndexRangeFilters=false, since the schema flip lives in
-//      OnMigrationComplete which never ran pre-shutdown)
-//   3. OnBeforeLsmInit: completes the migration on disk via
-//      mergeReindexAndIngestBuckets → swapIngestAndBackupBuckets →
-//      tidyBackupBuckets → markTidied. None of these load the
-//      rangeable bucket into the in-memory store.
-//   4. OnAfterLsmInit (IsSwapped && IsTidied): falls through every
-//      branch without loading the bucket.
-//   5. OnAfterLsmInitAsync: hits the `if rt.IsTidied()` defense check
-//      at inverted_reindex_task_generic.go:1242, finds the bucket
-//      missing in the store, returns the "stale migration state"
-//      error.
-//   6. OnMigrationComplete (which would flip IndexRangeFilters=true
-//      via RAFT and unblock future loads) is gated behind the
-//      bucket-existence check → never runs → replica stuck.
-//
-// The passing matrix cells (IsSwapped, IsMerged, IsTidied) all
-// happen to leave the rangeable bucket loaded in the previous shard's
-// in-memory store before shutdown via different paths, and
-// FinalizeCompletedMigrations plus the re-running migration on a
-// fresh tracker (after the tidied tracker is removed) ultimately
-// produces matching state. The two red cells are the ones where the
-// previous shard reached IsReindexed-or-IsPrepended only, leaving
-// recovery to do the bucket-creation work that nothing in the
-// recovery path actually does.
-//
-// Suggested fix: OnBeforeLsmInit (or OnAfterLsmInit when handling
-// IsTidied post-recovery) should call PreReindexHook to ensure the
-// rangeable bucket is loaded into the store, so the line-1242 check
-// sees the bucket and OnMigrationComplete can proceed.
-//
-// Per CLAUDE.md "Never delete or disable a test that exposes a real
-// bug": the two failing cases are `t.Skip`'d via `knownRedCases`
-// inside the test loop (see TestRecoveryConvergence_FilterableToRangeable_FromEachState
-// below) and tracked at weaviate/0-weaviate-issues#246. Un-skip when
-// the fix lands.
+// Source data is int64 (rangeable applies only to numeric props); the
+// fingerprint helper queries each known value via ReaderRoaringSetRange.Read
+// with OperatorEqual.
 
 // filterableToRangeablePropName is the numeric property name used by every
 // case. Centralized so the cycling-value math (modulo arithmetic in

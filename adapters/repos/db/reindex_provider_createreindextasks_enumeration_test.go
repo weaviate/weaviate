@@ -23,17 +23,13 @@ import (
 // Enumeration test for [ReindexProvider.createReindexTasks]
 // -----------------------------------------------------------------------------
 //
-// Sub-report 01 from weaviate/0-weaviate-issues#243 (cross-cutting gap 2)
-// flagged that the switch statement in createReindexTasks has no test
-// that enumerates every known ReindexMigrationType. The dispatch table
-// has grown to 8+ cases (change-algorithm, rebuild-searchable,
-// repair-filterable, enable-rangeable/repair-rangeable,
-// enable-filterable, enable-searchable, change-tokenization,
-// change-tokenization-filterable). Adding a new ReindexMigrationType
-// constant in `reindex_provider_payload.go` and forgetting to add a
-// matching case in createReindexTasks would silently produce the
-// generic "unknown migration type" error at runtime instead of
-// dispatching the new strategy.
+// The switch statement in createReindexTasks now dispatches 9 distinct
+// ReindexMigrationType values. Adding a new constant in
+// reindex_provider_payload.go and forgetting to add a matching case
+// would silently produce the generic "unknown migration type" error
+// at runtime instead of dispatching the new strategy — and no other
+// test exercises the dispatch comprehensively enough to catch that.
+// See weaviate/0-weaviate-issues#243 for the broader pyramid analysis.
 //
 // This file is the structural pin: every ReindexMigrationType that
 // CAN be submitted to the system must either produce at least one

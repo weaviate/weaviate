@@ -714,7 +714,6 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 		false, false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
-	_ = idx
 
 	// Insert objects, optionally reverse, flushing every flushEvery objects
 	// to create multiple segments. Touch every prop's searchable bucket so

@@ -69,7 +69,7 @@ const midPropTidyHaltPanicPrefix = "mid-prop-tidy halt: simulated crash"
 func midPropTidyInstallSwapHook(task *ShardReindexTaskGeneric, haltAfter int) {
 	task.testHookPostPropSwap = func(propIdx int) {
 		if haltAfter > 0 && propIdx == haltAfter-1 {
-			panic(midPropTidyHaltPanicPrefix + " (phase=swap, after prop " + uuid.NewString()[:4] + ")")
+			panic(midPropTidyHaltPanicPrefix + " (phase=swap, after prop " + ")")
 		}
 	}
 }
@@ -102,7 +102,7 @@ func midPropTidyInstallTidyHook(task *ShardReindexTaskGeneric, haltAfter int, fi
 		// trigger the wrapper's recovery path; the resulting error
 		// message races are harmless but make assertion harder to read.
 		if n == int64(haltAfter) {
-			panic(midPropTidyHaltPanicPrefix + " (phase=tidy, after prop " + uuid.NewString()[:4] + ")")
+			panic(midPropTidyHaltPanicPrefix + " (phase=tidy, after prop " + ")")
 		}
 	}
 }
@@ -193,7 +193,7 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 	// the lifetime of this test so the wrapper recovers panics into
 	// `eg.Wait()` errors and the test's own panic-capture frame can
 	// observe the halt deterministically — matching local-dev
-	// behaviour. The pre-existing PR #11415 `MidPropSwap_Loop` test
+	// behavior. The pre-existing PR #11415 `MidPropSwap_Loop` test
 	// happens to never hit this because it relies on the swap
 	// loop's sequential (non-errgroup) per-prop frame, where the
 	// panic IS captured by the test's outer recover.

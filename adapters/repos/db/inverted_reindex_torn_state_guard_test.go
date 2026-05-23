@@ -29,27 +29,21 @@ import (
 // Torn-state recovery guard — Sev-1 silent-data-loss protection
 // -----------------------------------------------------------------------------
 //
-// `ShardReindexTaskGeneric` has a torn-state guard wired into BOTH
-// OnBeforeLsmInit (`inverted_reindex_task_generic.go:885`) and
-// OnAfterLsmInit (`:1091`). The guard fires when:
+// [ShardReindexTaskGeneric] has a torn-state guard wired into both
+// OnBeforeLsmInit and OnAfterLsmInit. The guard fires when reindexed.mig
+// is on disk, none of IsPrepended/IsMerged/IsSwapped/IsTidied are set
+// (so the reindex bucket dirs MUST still exist), and at least one
+// per-property reindex bucket dir is missing.
 //
-//   - IsReindexed sentinel is on disk, AND
-//   - none of IsPrepended / IsMerged / IsSwapped / IsTidied are set
-//     (so we're in the pre-prepend window where the reindex bucket
-//     dirs MUST exist on disk), AND
-//   - at least one per-property reindex bucket dir is missing.
+// On a fire the guard unmarks reindexed.mig so the next pass re-iterates
+// instead of running runtime swap against an EMPTY reindex bucket.
+// Without it the schema flag would flip on top of no data — the Sev-1
+// silent failure tracked at weaviate/0-weaviate-issues#240 Symptom A.
 //
-// The guard's job: remove the `reindexed.mig` sentinel so the next
-// pass re-iterates instead of running the runtime swap against an
-// EMPTY reindex bucket. Without it, the Schema flag flips on top of
-// no data — Sev 1 silent failure (the whole
-// weaviate/0-weaviate-issues#240 Symptom A class).
-//
-// Sub-report 02 from weaviate/0-weaviate-issues#243 §6 flagged that
-// this guard is NOT directly unit-tested. This file fixes that gap
-// with two positive cases (guard fires) and three negative cases
-// (guard correctly leaves state alone) plus end-to-end convergence
-// after a guard-triggered recovery.
+// This file pins both arms: two positive cases (guard fires) and three
+// negative cases (guard correctly leaves state alone), plus end-to-end
+// convergence after a guard-triggered recovery (which exercises the
+// weaviate/0-weaviate-issues#244 fix).
 
 const (
 	tornGuardNumObjects = 25
@@ -142,62 +136,13 @@ func TestTornState_OnAfterLsmInit_GuardFires_ResetsReindexed(t *testing.T) {
 		"torn-state guard MUST unmark reindexed.mig when the reindex bucket dir is missing in the pre-prepend window")
 }
 
-// TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline is the
-// end-to-end completion of the positive case: after the guard resets
-// the sentinel, driving the async loop to completion must produce a
-// fingerprint identical to a clean baseline run.
-//
-// # KNOWN-RED: torn-state guard does not clear progress.mig
-//
-// This test is RED on main (and on this branch's HEAD as of the
-// commit that adds it). The bug it exposes:
-//
-//  1. The torn-state guard at inverted_reindex_task_generic.go:885
-//     and :1091 calls rt.unmarkReindexed() to remove the
-//     reindexed.mig sentinel.
-//  2. unmarkReindexed (inverted_reindex_tracker.go:325) calls
-//     `t.removeFile(t.config.filenameReindexed)` — it removes ONLY
-//     reindexed.mig, NOT the progress.mig.<N> files that record
-//     lastProcessedKey from the prior iteration.
-//  3. After the guard fires, the next OnAfterLsmInitAsync calls
-//     rt.GetProgress() (inverted_reindex_tracker.go:190) which loads
-//     the stale lastProcessedKey.
-//  4. The iteration resumes from there — but the prior iteration
-//     completed before the dir was removed, so lastProcessedKey points
-//     at (or past) the last object. The new iteration silently skips
-//     every object whose key is <= lastProcessedKey.
-//  5. The fingerprint diverges: terms touched only by the skipped
-//     objects appear in the baseline but are absent from the
-//     post-recovery bucket. Empirically on this fixture: term "xray"
-//     is missing docs 21, 22, 23 (the last three objects to be
-//     iterated — see makeConvergenceTestObjects' cyclic dictionary).
-//
-// Production impact: in the wild this manifests as a successful
-// FINISHED reindex that silently dropped per-prop posting lists for
-// docs near the tail of the iteration order. Schema flips, queries
-// return zero hits for the affected terms — exactly the Sev-1
-// silent-data-loss outcome the guard exists to prevent. The guard
-// fires (it removes reindexed.mig) but the cleanup is incomplete.
-//
-// The fix is one of:
-//
-//	(a) unmarkReindexed also removes every progress.mig.<N> file.
-//	(b) The torn-state guard explicitly removes progress.mig files
-//	    before calling unmarkReindexed.
-//	(c) The iteration loop's resume logic guards against
-//	    "lastProcessedKey set but reindex bucket dir is empty" and
-//	    restarts from the beginning in that case.
-//
-// Per the QA discipline in CLAUDE.md: "Never delete or disable a
-// test that exposes a real bug. If a test reveals a bug that is too
-// complex to fix in the current context, keep the failing test and
-// commit it as-is."
-//
-// File a Sev for this; the production fix is small and will land
-// in a separate PR. This RED test will become GREEN at that point
-// and document the regression-prevention contract.
-//
-// Tracked at weaviate/0-weaviate-issues#244 (filed alongside this test).
+// TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline pins the
+// end-to-end positive case: after the guard resets reindexed.mig,
+// driving the async loop to completion must produce a fingerprint
+// identical to a clean baseline run. Pins the fix for
+// weaviate/0-weaviate-issues#244 (unmarkReindexed now also clears
+// every progress.mig.<N> checkpoint so the resumed iteration starts
+// from the beginning instead of the stale lastProcessedKey).
 func TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline(t *testing.T) {
 	baseline := computeBaselineFingerprint(t, tornGuardPropName, tornGuardNumObjects)
 	require.NotEmpty(t, baseline)

@@ -23,14 +23,13 @@ import (
 // Exhaustive table tests for pure Task / TaskStatus predicates
 // -----------------------------------------------------------------------------
 //
-// Sub-report 03 from weaviate/0-weaviate-issues#243 (gaps #9, #10) flagged
-// that several pure-function predicates on Task and TaskStatus are
-// load-bearing for the ack-barrier and conflict-detection logic but have
-// no direct table tests. They appear only transitively through the
-// FSM-level tests in manager_test.go and the scheduler-level tests in
-// scheduler_*_test.go — which means a refactor of the predicate alone
-// can flip behaviour without any single test failing in a way that
-// localises the cause.
+// Several pure-function predicates on Task and TaskStatus are load-
+// bearing for the ack-barrier and conflict-detection logic but lack
+// direct table tests. They appear only transitively through
+// manager_test.go and scheduler_*_test.go, so a refactor of the
+// predicate alone can flip behavior without any single test failing
+// in a way that localizes the cause. Background:
+// weaviate/0-weaviate-issues#243.
 //
 // This file pins each predicate against an enumerated fixture, so a
 // future refactor that changes (say) the LocalUnitIDs semantics breaks

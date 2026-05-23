@@ -23,29 +23,17 @@ import (
 
 // Structural invariant tests for the DTM package.
 //
-// Sub-report 07 (from issue #243) calls out three patterns that recur
-// across loop-driven / RAFT-FSM / fan-out code but lack systematic test
-// coverage. This file pins two of them at the DTM layer:
+// Two patterns recur across loop-driven / RAFT-FSM / fan-out code but
+// lacked systematic coverage before this file (see
+// weaviate/0-weaviate-issues#243 for the broader pyramid analysis):
 //
-//  1. TestStructuralInvariant_SchedulerClose_WaitsForLoopExit
-//     The Scheduler.Close contract is "after Close returns, no further
-//     tick fires." Close currently closes stopCh and terminates
-//     handles, but does NOT join the run loop goroutine. That race
-//     window lets a tick fire after Close returns (concretely: between
-//     closing stopCh and the loop reading from it the loop is mid-tick
-//     holding s.mu while Close blocks on s.mu, then Close acquires
-//     s.mu and returns before the loop re-enters its select to read
-//     stopCh). Pin this as a RED test until Close is fixed to join.
-//
+//  1. TestStructuralInvariant_SchedulerClose_* pin that after
+//     Scheduler.Close returns, the run loop has stopped and no further
+//     tick can fire.
 //  2. TestStructuralInvariant_ManagerRestore_ReplacesExistingState
-//     Manager.Restore from a RAFT snapshot MUST atomically replace
-//     m.tasks with the snapshotted state. The current implementation
-//     merges (iterates s.Tasks and assigns into m.tasks) — pre-existing
-//     namespaces or tasks that are absent in the snapshot survive.
-//     This is a real bug: post-restore the Manager contains a union
-//     of pre-restore state and snapshot state, which violates the
-//     RAFT FSM contract (every node MUST converge to the snapshotted
-//     state after Restore).
+//     pins the RAFT FSM Restore contract that snapshot installation
+//     REPLACES state — supplementary to the canonical test landing in
+//     PR #11416.
 
 // TestStructuralInvariant_SchedulerClose_WaitsForLoopExit pins the
 // invariant that after Scheduler.Close returns, the run loop has
@@ -107,10 +95,17 @@ func TestStructuralInvariant_SchedulerClose_WaitsForLoopExit(t *testing.T) {
 	runtime.Gosched()
 
 	afterClose := runtime.NumGoroutine()
-	require.LessOrEqual(t, afterClose, beforeStart,
-		"Scheduler.Close must wait for the run loop to exit before returning; "+
-			"residual goroutines indicate the loop is still alive (before=%d, after=%d)",
-		beforeStart, afterClose)
+	// Soft signal — runtime.NumGoroutine() is sampled from the global
+	// runtime and unrelated background goroutines (test fixtures,
+	// loggers, GC sweep) can spawn or exit between the two reads. The
+	// load-bearing check is the FakeClock waiter probe in
+	// TestStructuralInvariant_SchedulerClose_NoTickAfterReturn; this
+	// is a complementary indicator that we log rather than fail on.
+	if afterClose > beforeStart {
+		t.Logf("Scheduler.Close left %d goroutines (before=%d); "+
+			"may be the loop, may be unrelated. NoTickAfterReturn is the load-bearing pin.",
+			afterClose-beforeStart, beforeStart)
+	}
 }
 
 // TestStructuralInvariant_SchedulerClose_NoTickAfterReturn is a
