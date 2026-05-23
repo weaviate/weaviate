@@ -83,6 +83,17 @@ func TestIdxKey(t *testing.T) {
 		k2 := IdxKey("cars", 0)
 		assert.NotEqual(t, k1[:8], k2[:8])
 	})
+
+	t.Run("root path hashes _idx without dot", func(t *testing.T) {
+		key := IdxKey("", 0)
+		require.Len(t, key, 10)
+		assert.Equal(t, xxhash.Sum64String("_idx"), binary.BigEndian.Uint64(key[:8]))
+		assert.Equal(t, uint16(0), binary.BigEndian.Uint16(key[8:]))
+	})
+
+	t.Run("root differs from named paths", func(t *testing.T) {
+		assert.NotEqual(t, IdxKey("", 0)[:8], IdxKey("addresses", 0)[:8])
+	})
 }
 
 func TestIdxKeyToBuf(t *testing.T) {
@@ -104,6 +115,12 @@ func TestIdxKeyToBuf(t *testing.T) {
 	t.Run("result length is always IdxKeySize", func(t *testing.T) {
 		var buf [IdxKeySize]byte
 		assert.Len(t, IdxKeyToBuf("some.nested.path", 42, buf[:]), IdxKeySize)
+	})
+
+	t.Run("root path produces same result as IdxKey root", func(t *testing.T) {
+		var buf [IdxKeySize]byte
+		assert.Equal(t, IdxKey("", 0), IdxKeyToBuf("", 0, buf[:]))
+		assert.Equal(t, IdxKey("", 7), IdxKeyToBuf("", 7, buf[:]))
 	})
 }
 

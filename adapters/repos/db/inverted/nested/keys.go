@@ -44,9 +44,11 @@ func ValueKey(path string, analyzedValue []byte) []byte {
 }
 
 // IdxKey builds the key for an _idx metadata entry:
-// hash8("_idx." + path) + BE16(index).
+// hash8("_idx." + path) + BE16(index) for named paths,
+// or hash8("_idx") + BE16(index) for the root (path == "").
+// Mirrors ExistsKey's empty-path handling.
 func IdxKey(path string, index int) []byte {
-	return hashKey("_idx."+path, binary.BigEndian.AppendUint16(nil, uint16(index)))
+	return hashKey(idxKeyPrefix(path), binary.BigEndian.AppendUint16(nil, uint16(index)))
 }
 
 // IdxKeyToBuf writes an _idx key into buf and returns the populated slice.
@@ -55,9 +57,19 @@ func IdxKey(path string, index int) []byte {
 // a slice of it.
 func IdxKeyToBuf(path string, index int, buf []byte) []byte {
 	buf = buf[:IdxKeySize]
-	binary.BigEndian.PutUint64(buf, xxhash.Sum64String("_idx."+path))
+	binary.BigEndian.PutUint64(buf, xxhash.Sum64String(idxKeyPrefix(path)))
 	binary.BigEndian.PutUint16(buf[hashSize:], uint16(index))
 	return buf
+}
+
+// idxKeyPrefix returns the string that's hashed for an _idx key. For the
+// root (empty path) it's just "_idx" — matching ExistsKey's convention so
+// the prefix conventions are consistent across the two key families.
+func idxKeyPrefix(path string) string {
+	if path == "" {
+		return "_idx"
+	}
+	return "_idx." + path
 }
 
 // ExistsKey builds the key for an _exists metadata entry:
