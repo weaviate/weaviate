@@ -50,10 +50,16 @@ func Test_ValidateConfig(t *testing.T) {
 			globalConfig:  replication.GlobalConfig{MinimumFactor: 1},
 		},
 		{
-			name:          "config provided, factor < 0",
+			name:          "config provided, factor = -1 is rejected",
 			initialconfig: &models.ReplicationConfig{Factor: -1},
-			resultConfig:  &models.ReplicationConfig{Factor: 1},
 			globalConfig:  replication.GlobalConfig{MinimumFactor: 1},
+			expectedErr:   fmt.Errorf("invalid replication factor: must be >= 1, got -1"),
+		},
+		{
+			name:          "config provided, large negative factor is rejected",
+			initialconfig: &models.ReplicationConfig{Factor: -100},
+			globalConfig:  replication.GlobalConfig{MinimumFactor: 1},
+			expectedErr:   fmt.Errorf("invalid replication factor: must be >= 1, got -100"),
 		},
 		{
 			name:          "config provided, valid factor",
@@ -117,6 +123,20 @@ func Test_ValidateConfigUpdate(t *testing.T) {
 			update:  &models.ReplicationConfig{Factor: 4},
 			expectedError: fmt.Errorf(
 				"cannot scale to 4 replicas, cluster has only 3 nodes"),
+		},
+		{
+			name:    "updating to factor = -1 is rejected",
+			initial: &models.ReplicationConfig{Factor: 2},
+			update:  &models.ReplicationConfig{Factor: -1},
+			expectedError: fmt.Errorf(
+				"invalid replication factor: must be >= 1, got -1"),
+		},
+		{
+			name:    "updating to large negative factor is rejected",
+			initial: &models.ReplicationConfig{Factor: 2},
+			update:  &models.ReplicationConfig{Factor: -100},
+			expectedError: fmt.Errorf(
+				"invalid replication factor: must be >= 1, got -100"),
 		},
 	}
 
