@@ -212,6 +212,15 @@ func (s *SnapshotWriter) ensureNodesCapacity(nodeID uint64) {
 	s.nodes = newNodes
 }
 
+// NodeCount returns the addressable size of the nodes slice. This is what
+// gets written to the snapshot metadata as the "Node count" field, and what
+// the reader uses to allocate Graph.Nodes. A zero return value means the
+// resulting snapshot would deserialize into a zero-length nodes slice, which
+// downstream consumers (notably hnsw.isEmptyUnlocked) cannot tolerate.
+func (s *SnapshotWriter) NodeCount() int {
+	return len(s.nodes)
+}
+
 // AddTombstone marks a standalone tombstone for a nil slot.
 //
 // Note that this does NOT cause a tombstone to be emitted to the snapshot

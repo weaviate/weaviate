@@ -525,10 +525,11 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 
 	c.logger.WithFields(logrus.Fields{
 		"action":       "hnsw_compactor_snapshot",
+		"dir":          c.config.Dir,
 		"input_count":  len(allInputFiles),
 		"has_snapshot": state.Snapshot != nil,
 		"sorted_count": len(state.SortedFiles),
-	}).Debug("creating snapshot")
+	}).Info("creating snapshot")
 
 	// Track opened files for cleanup
 	openedFiles := make([]common.File, 0, len(allInputFiles))
@@ -588,6 +589,17 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 		return errors.Wrap(err, "write snapshot from merger")
 	}
 
+	// Diagnostic: surface 0-node snapshot writes so we can correlate against
+	// the panic shape from weaviate/0-weaviate-issues#200. Pure observation —
+	// we still commit the snapshot so the existing behavior is preserved.
+	if snapshotWriter.NodeCount() == 0 {
+		c.logger.WithFields(logrus.Fields{
+			"action":      "hnsw_compactor_snapshot_zero_nodes",
+			"dir":         c.config.Dir,
+			"input_count": len(allInputFiles),
+		}).Warn("compactor about to write a 0-node snapshot; this is the panic-producing shape from issues#200")
+	}
+
 	if err := sfw.Commit(); err != nil {
 		return errors.Wrap(err, "commit snapshot file")
 	}
@@ -613,9 +625,11 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 
 	c.logger.WithFields(logrus.Fields{
 		"action":      "hnsw_compactor_snapshot",
+		"dir":         c.config.Dir,
 		"output":      outFilename,
 		"input_count": len(allInputFiles),
-	}).Debug("created snapshot")
+		"node_count":  snapshotWriter.NodeCount(),
+	}).Info("created snapshot")
 
 	return nil
 }
