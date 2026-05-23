@@ -27,6 +27,16 @@ import (
 //
 // Throttle entries are cleaned up when a unit reaches a terminal state (completion or
 // failure), so the internal map does not grow beyond the number of active units.
+//
+// Two carve-outs are non-negotiable, both pinned by tests in
+// throttled_recorder_test.go and motivated by
+// weaviate/0-weaviate-issues#240 Symptom B:
+//
+//   - The CLAIM call (progress == 0.0) is never throttled. It is the
+//     only path that sets Unit.NodeID; deduplicating it risks
+//     orphaning the unit.
+//   - lastSent is updated only AFTER a successful forward. A failed
+//     forward leaves no entry so the caller's retry is not blocked.
 type ThrottledRecorder struct {
 	inner    TaskCompletionRecorder
 	interval time.Duration
@@ -65,6 +75,12 @@ func (r *ThrottledRecorder) cleanupThrottleEntry(namespace, taskID string, versi
 }
 
 func (r *ThrottledRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
+	// CLAIM bypass: progress == 0.0 is the only path that sets
+	// Unit.NodeID, so it must never be deduplicated.
+	if progress == 0.0 {
+		return r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress)
+	}
+
 	key := fmt.Sprintf("%s/%s/%d/%s", namespace, taskID, version, unitID)
 
 	r.mu.Lock()
@@ -74,21 +90,16 @@ func (r *ThrottledRecorder) UpdateDistributedTaskUnitProgress(ctx context.Contex
 		r.mu.Unlock()
 		return nil
 	}
-	r.lastSent[key] = now
 	r.mu.Unlock()
 
-	err := r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress)
-	if err != nil {
-		// A failed forward must not block the retry. Without this,
-		// the unit-CLAIM (progress=0.0) on the per-unit worker can
-		// be silently de-duped against its own failed first attempt,
-		// leaving Unit.NodeID unset for the rest of the task
-		// lifetime. weaviate/0-weaviate-issues#240 Symptom B.
-		r.mu.Lock()
-		if cur, ok := r.lastSent[key]; ok && cur.Equal(now) {
-			delete(r.lastSent, key)
-		}
-		r.mu.Unlock()
+	if err := r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress); err != nil {
+		return err
 	}
-	return err
+
+	r.mu.Lock()
+	if cur, ok := r.lastSent[key]; !ok || cur.Before(now) {
+		r.lastSent[key] = now
+	}
+	r.mu.Unlock()
+	return nil
 }

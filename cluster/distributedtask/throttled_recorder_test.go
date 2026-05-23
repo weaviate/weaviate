@@ -161,25 +161,68 @@ func TestThrottledRecorder_DifferentUnitsTrackedIndependently(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestThrottledRecorder_ErroredCall_RetryNotSilentlyDropped pins the
-// retry must survive a failed forward — the unit-CLAIM (progress=0.0)
-// is the only path that sets Unit.NodeID, and silently dropping its
-// retry orphans the unit. weaviate/0-weaviate-issues#240 Symptom B.
-func TestThrottledRecorder_ErroredCall_RetryNotSilentlyDropped(t *testing.T) {
+// TestThrottledRecorder_Claim_NeverThrottled: progress=0.0 is the CLAIM
+// — the only path that sets Unit.NodeID — and must forward
+// unconditionally, even when a prior progress update is within the
+// throttle window. Pins the CLAIM bypass in
+// UpdateDistributedTaskUnitProgress. weaviate/0-weaviate-issues#240
+// Symptom B.
+func TestThrottledRecorder_Claim_NeverThrottled(t *testing.T) {
 	recorder, clock, inner := newTestThrottledRecorder(t)
 
+	// A prior successful non-CLAIM forward sets lastSent.
+	inner.EXPECT().UpdateDistributedTaskUnitProgress(
+		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.5),
+	).Return(nil).Once()
+	require.NoError(t, recorder.UpdateDistributedTaskUnitProgress(
+		context.Background(), "ns", "task", 1, "node", "su-1", 0.5))
+
+	// CLAIM within the throttle window MUST still forward.
+	inner.EXPECT().UpdateDistributedTaskUnitProgress(
+		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.0),
+	).Return(nil).Once()
+	clock.Advance(1 * time.Second)
+	require.NoError(t, recorder.UpdateDistributedTaskUnitProgress(
+		context.Background(), "ns", "task", 1, "node", "su-1", 0.0))
+
+	// CLAIM retry on inner error MUST also forward (no lastSent
+	// write to dedup against).
 	inner.EXPECT().UpdateDistributedTaskUnitProgress(
 		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.0),
 	).Return(errors.New("leadership transfer in progress")).Once()
-
-	err := recorder.UpdateDistributedTaskUnitProgress(context.Background(), "ns", "task", 1, "node", "su-1", 0.0)
-	require.Error(t, err, "first call should propagate the inner error")
+	require.Error(t, recorder.UpdateDistributedTaskUnitProgress(
+		context.Background(), "ns", "task", 1, "node", "su-1", 0.0))
 
 	inner.EXPECT().UpdateDistributedTaskUnitProgress(
 		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.0),
 	).Return(nil).Once()
+	require.NoError(t, recorder.UpdateDistributedTaskUnitProgress(
+		context.Background(), "ns", "task", 1, "node", "su-1", 0.0))
+}
+
+// TestThrottledRecorder_FailedForwardLeavesNoLastSentEntry: a non-CLAIM
+// progress update whose forward errors must not record lastSent, so a
+// retry inside the throttle window forwards. Pins the
+// forward-then-record ordering.
+func TestThrottledRecorder_FailedForwardLeavesNoLastSentEntry(t *testing.T) {
+	recorder, clock, inner := newTestThrottledRecorder(t)
+
+	inner.EXPECT().UpdateDistributedTaskUnitProgress(
+		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.5),
+	).Return(errors.New("leadership transfer in progress")).Once()
+	require.Error(t, recorder.UpdateDistributedTaskUnitProgress(
+		context.Background(), "ns", "task", 1, "node", "su-1", 0.5))
+
+	recorder.mu.Lock()
+	require.Empty(t, recorder.lastSent, "failed forward must not record lastSent")
+	recorder.mu.Unlock()
+
+	inner.EXPECT().UpdateDistributedTaskUnitProgress(
+		mock.Anything, "ns", "task", uint64(1), "node", "su-1", float32(0.5),
+	).Return(nil).Once()
 
 	clock.Advance(1 * time.Second)
-	err = recorder.UpdateDistributedTaskUnitProgress(context.Background(), "ns", "task", 1, "node", "su-1", 0.0)
-	require.NoError(t, err, "retry within throttle window after errored first attempt must forward")
+	require.NoError(t, recorder.UpdateDistributedTaskUnitProgress(
+		context.Background(), "ns", "task", 1, "node", "su-1", 0.5),
+		"retry within throttle window must forward — no lastSent entry blocks it")
 }
