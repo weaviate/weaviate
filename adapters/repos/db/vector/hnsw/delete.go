@@ -385,6 +385,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
 	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
 
+	h.tombstoneDeleteListSize.Store(int64(deleteList.Len()))
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
 
 	h.tombstoneLock.Lock()
