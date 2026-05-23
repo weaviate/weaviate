@@ -1012,6 +1012,15 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 				err = fmt.Errorf("tidying backup buckets:%w", err)
 				return err
 			}
+
+			// Recovery just transitioned us into IsTidied. Strategies
+			// whose target bucket is created lazily (FilterableToRangeable,
+			// EnableFilterable, EnableSearchable) still need it loaded in
+			// the in-memory store, otherwise OnAfterLsmInitAsync's
+			// IsTidied safety check refuses to fire OnMigrationComplete
+			// and the replica is stuck. PreReindexHook is idempotent for
+			// strategies that don't need it. weaviate/0-weaviate-issues#246.
+			t.strategy.PreReindexHook(shard, props)
 		}
 	}
 

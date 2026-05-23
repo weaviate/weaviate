@@ -569,32 +569,8 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 		},
 	}
 
-	// knownRedCases tracks subtests that surface a real production bug.
-	// See the `# KNOWN-RED` block in the file-level godoc for the full
-	// analysis (weaviate/0-weaviate-issues#246). Two cells from this
-	// matrix uncovered a recovery-time bug in FilterableToRangeable:
-	// when restart happens after `markReindexed` (or `markPrepended`)
-	// but before `markTidied`, the recovery path completes the
-	// migration on disk but never reloads the rangeable bucket into
-	// the in-memory store. The line-1242 safety check in
-	// OnAfterLsmInitAsync then refuses to fire OnMigrationComplete
-	// ("stale migration state on shard: tidied sentinel claims X
-	// complete, but target bucket Y is missing — usually caused by a
-	// DELETE between the previous successful reindex and this one;
-	// refusing to silently report success") and the replica is stuck
-	// on the migration until manual intervention. Un-skip when the
-	// fix lands.
-	knownRedCases := map[string]string{
-		"FilterableToRangeable_IsReindexed_via_skipSwapOnFinish":     "weaviate/0-weaviate-issues#246",
-		"FilterableToRangeable_IsPrepended_synthetic_merged_removed": "weaviate/0-weaviate-issues#246",
-	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if issue, ok := knownRedCases[tc.name]; ok {
-				t.Skipf("KNOWN-RED: %s — see file-level godoc for full bug analysis. "+
-					"Un-skip when the fix lands.", issue)
-			}
 			ctx := testCtx()
 			className := "FilterToRangeCase_" + uuid.NewString()[:8]
 			class := newFilterableToRangeableTestClass(className)
