@@ -295,12 +295,18 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
 
 	// Panic prefix lets the recover() handler distinguish THE expected
-	// hook panic from any unrelated panic inside runtimeSwap.
+	// fault panic from any unrelated panic inside runtimeSwap.
 	const haltPanicPrefix = "mid-loop halt: simulated crash"
-	task.testHookPostPropSwap = func(propIdx int) {
+	prodSwap := task.processOneSwapProp
+	task.processOneSwapProp = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+		bucket, err := prodSwap(ctx, store, rt, propIdx, propName)
+		if err != nil {
+			return nil, err
+		}
 		if propIdx == haltAfter-1 {
 			panic(haltPanicPrefix + " after prop " + uuid.NewString()[:4])
 		}
+		return bucket, nil
 	}
 
 	var (

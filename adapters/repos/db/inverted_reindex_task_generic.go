@@ -188,28 +188,20 @@ type ShardReindexTaskGeneric struct {
 	// because RunOnShard is called after the setter on the same goroutine.
 	progressCallback func(float32)
 
-	// testHookPostPropSwap (test-only) fires inside runtimeSwap's Phase
-	// 2a tight loop, immediately after each per-prop SwapBucketPointer +
-	// markSwappedProp. Production leaves it nil (the nil check has
-	// negligible overhead). Regression tests set it to observe Phase 2a
-	// atomicity — e.g. assert the wall-clock delta between consecutive
-	// hook fires stays inside the microseconds/millisecond budget so
-	// that any future addition of a slow op to the loop body
-	// (Shutdown, Rename, RAFT call) fails CI immediately. See the
-	// file-level phase-contract godoc.
-	testHookPostPropSwap func(propIdx int)
+	// processOneSwapProp is the per-prop body of runtimeSwap's Phase
+	// 2a tight loop: in-memory pointer flip + per-prop sentinel write,
+	// returning the displaced old main bucket so the caller can drive
+	// Phase 2b (shutdown + dir rename). Defaults to
+	// [processOneSwapPropProd]; tests substitute a wrapper that adds
+	// fault injection or observation. Carries no test-only branch in
+	// production.
+	processOneSwapProp func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error)
 
-	// testHookPostPropTidy (test-only) fires after each per-prop
-	// os.RemoveAll inside tidyBackupBuckets returns successfully.
-	// Production leaves it nil. Mirrors [testHookPostPropSwap]; see
-	// TestRecoveryConvergence_MidPropSwapOrTidy_Loop for usage.
-	//
-	// CAUTION: ordering assertions on propIdx require the caller to
-	// set reindexTaskConfig.concurrency = 1. tidyBackupBuckets runs
-	// the per-prop loop under eg.SetLimit(t.config.concurrency); at
-	// higher concurrency the parallel goroutines race for the hook
-	// count and the halt point becomes non-deterministic.
-	testHookPostPropTidy func(propIdx int)
+	// processOneTidyProp is the per-prop body of tidyBackupBuckets
+	// (backup-dir removal). Same dependency-injection shape as
+	// [processOneSwapProp]: defaults to the production impl; tests
+	// substitute a wrapper for fault injection.
+	processOneTidyProp func(propIdx int, propName, lsmPath string) error
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -228,7 +220,7 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 
 	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("task created")
 
-	return &ShardReindexTaskGeneric{
+	t := &ShardReindexTaskGeneric{
 		name:                 name,
 		logger:               logger,
 		strategy:             strategy,
@@ -237,6 +229,39 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 		objectsIteratorAsync: objectsIteratorAsync,
 		config:               config,
 	}
+	t.processOneSwapProp = t.processOneSwapPropProd
+	t.processOneTidyProp = t.processOneTidyPropProd
+	return t
+}
+
+// processOneSwapPropProd is the production body of runtimeSwap's
+// Phase 2a per-prop loop: in-memory pointer flip + per-prop sentinel
+// write. Returns the displaced old main bucket for the caller's
+// Phase 2b (Shutdown + dir rename). Skips props whose per-prop
+// sentinel is already set (recovery idempotency).
+func (t *ShardReindexTaskGeneric) processOneSwapPropProd(ctx context.Context, store *lsmkv.Store, rt reindexTracker, _ int, propName string) (*lsmkv.Bucket, error) {
+	if rt.IsSwappedProp(propName) {
+		return nil, nil
+	}
+	ingestName := t.ingestBucketName(propName)
+	mainName := t.strategy.SourceBucketName(propName)
+	oldMainBucket, err := store.SwapBucketPointer(ctx, mainName, ingestName)
+	if err != nil {
+		return nil, fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
+	}
+	if err := rt.markSwappedProp(propName); err != nil {
+		return nil, fmt.Errorf("marking swapped prop %q: %w", propName, err)
+	}
+	return oldMainBucket, nil
+}
+
+// processOneTidyPropProd is the production body of tidyBackupBuckets'
+// per-prop loop: remove the per-prop backup-bucket dir. Idempotent
+// (RemoveAll returns nil on already-removed dirs).
+func (t *ShardReindexTaskGeneric) processOneTidyPropProd(_ int, propName, lsmPath string) error {
+	bucketName := t.backupBucketName(propName)
+	bucketPath := filepath.Join(lsmPath, bucketName)
+	return os.RemoveAll(bucketPath)
 }
 
 func (t *ShardReindexTaskGeneric) Name() string {
@@ -1732,34 +1757,17 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// shut-down) bucket — never the LIVE ingest bucket whose dir stays
 	// at ingest_<gen> until next-restart recovery does the ingest→main
 	// rename safely (no in-memory state at that point).
+	// processOneSwapProp encapsulates the per-prop body (in-memory
+	// pointer flip + sentinel write). It returns (nil, nil) for props
+	// whose per-prop sentinel is already on disk — recovery idempotency.
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
 	for propIdx, propName := range props {
-		if rt.IsSwappedProp(propName) {
-			// Recovery: partial loop crash already covered this prop's
-			// in-memory pointer flip (sentinel-confirmed). The original
-			// runtimeSwap call also shut down the old bucket and renamed
-			// its dir to _bak before returning, so disk state is fine —
-			// just skip and rely on the post-loop tidy to no-op for this
-			// prop (no oldMainBucket captured).
-			continue
-		}
-		ingestName := t.ingestBucketName(propName)
-		mainName := t.strategy.SourceBucketName(propName)
-
-		oldMainBucket, err := store.SwapBucketPointer(ctx, mainName, ingestName)
+		oldMainBucket, err := t.processOneSwapProp(ctx, store, rt, propIdx, propName)
 		if err != nil {
-			return fmt.Errorf("swapping bucket pointer %q <- %q: %w", mainName, ingestName, err)
+			return err
 		}
-		oldMainBuckets[propName] = oldMainBucket
-
-		if err := rt.markSwappedProp(propName); err != nil {
-			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
-		}
-
-		// Test-only observation point for the Phase 2a atomicity invariant
-		// (see field godoc on testHookPostPropSwap). nil in production.
-		if t.testHookPostPropSwap != nil {
-			t.testHookPostPropSwap(propIdx)
+		if oldMainBucket != nil {
+			oldMainBuckets[propName] = oldMainBucket
 		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
@@ -2306,18 +2314,7 @@ func (t *ShardReindexTaskGeneric) tidyBackupBuckets(ctx context.Context,
 		propName := props[i]
 
 		eg.Go(func() error {
-			bucketName := t.backupBucketName(propName)
-			bucketPath := filepath.Join(lsmPath, bucketName)
-			if err := os.RemoveAll(bucketPath); err != nil {
-				return err
-			}
-
-			// Test-only observation point for per-prop tidy completion
-			// (see field godoc on testHookPostPropTidy). nil in production.
-			if t.testHookPostPropTidy != nil {
-				t.testHookPostPropTidy(propIdx)
-			}
-			return nil
+			return t.processOneTidyProp(propIdx, propName, lsmPath)
 		})
 	}
 

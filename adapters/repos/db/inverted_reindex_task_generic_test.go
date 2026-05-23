@@ -482,11 +482,17 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 		hookCallTimes []time.Time
 		hookCallIdxs  []int
 	)
-	task.testHookPostPropSwap = func(propIdx int) {
+	prodSwap := task.processOneSwapProp
+	task.processOneSwapProp = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+		bucket, err := prodSwap(ctx, store, rt, propIdx, propName)
+		if err != nil {
+			return nil, err
+		}
 		hookMu.Lock()
 		hookCallTimes = append(hookCallTimes, time.Now())
 		hookCallIdxs = append(hookCallIdxs, propIdx)
 		hookMu.Unlock()
+		return bucket, nil
 	}
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))

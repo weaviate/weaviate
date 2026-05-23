@@ -63,29 +63,42 @@ type midPropTidyCase struct {
 // silently swallowed and mask a real bug.
 const midPropTidyHaltPanicPrefix = "mid-prop-tidy halt: simulated crash"
 
-// midPropTidyInstallSwapHook installs testHookPostPropSwap so that the
-// hook panics after haltAfter props have been swapped+marked. A
-// haltAfter of 0 leaves the hook a no-op (baseline / no-halt cell).
-func midPropTidyInstallSwapHook(task *ShardReindexTaskGeneric, haltAfter int) {
-	task.testHookPostPropSwap = func(propIdx int) {
+// midPropTidyInstallSwapFault wraps the production
+// processOneSwapProp impl so it panics after haltAfter props have
+// been swapped+marked. A haltAfter of 0 is a no-op pass-through.
+// Dependency-injected via the function field — no test-only branch
+// in production code.
+func midPropTidyInstallSwapFault(task *ShardReindexTaskGeneric, haltAfter int) {
+	prod := task.processOneSwapProp
+	task.processOneSwapProp = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+		bucket, err := prod(ctx, store, rt, propIdx, propName)
+		if err != nil {
+			return nil, err
+		}
 		if haltAfter > 0 && propIdx == haltAfter-1 {
 			panic(fmt.Sprintf("%s (phase=swap, propIdx=%d, haltAfter=%d)",
 				midPropTidyHaltPanicPrefix, propIdx, haltAfter))
 		}
+		return bucket, nil
 	}
 }
 
-// midPropTidyInstallTidyHook panics after haltAfter completions.
-// Concurrency MUST be 1 — otherwise the parallel goroutines race for
-// the count and halt order becomes non-deterministic.
-// The error-group wrapper recovers panics per-goroutine and surfaces
-// them via eg.Wait(); subsequent SetLimit(1)-FIFO goroutines still run
-// to completion.
-func midPropTidyInstallTidyHook(task *ShardReindexTaskGeneric, haltAfter int, fireCount *atomic.Int64) {
-	task.testHookPostPropTidy = func(propIdx int) {
+// midPropTidyInstallTidyFault wraps the production
+// processOneTidyProp impl so it panics after haltAfter completions.
+// Concurrency MUST be 1 — otherwise the parallel goroutines race
+// for the count and halt order becomes non-deterministic. The
+// error-group wrapper recovers panics per-goroutine and surfaces
+// them via eg.Wait(); subsequent SetLimit(1)-FIFO goroutines still
+// run to completion.
+func midPropTidyInstallTidyFault(task *ShardReindexTaskGeneric, haltAfter int, fireCount *atomic.Int64) {
+	prod := task.processOneTidyProp
+	task.processOneTidyProp = func(propIdx int, propName, lsmPath string) error {
+		if err := prod(propIdx, propName, lsmPath); err != nil {
+			return err
+		}
 		n := fireCount.Add(1)
 		if haltAfter <= 0 {
-			return
+			return nil
 		}
 		// Panic exactly once, after the haltAfter-th completion. Without
 		// the once-only guard, every subsequent goroutine would also
@@ -95,6 +108,7 @@ func midPropTidyInstallTidyHook(task *ShardReindexTaskGeneric, haltAfter int, fi
 			panic(fmt.Sprintf("%s (phase=tidy, propIdx=%d, haltAfter=%d, fireOrdinal=%d)",
 				midPropTidyHaltPanicPrefix, propIdx, haltAfter, n))
 		}
+		return nil
 	}
 }
 
@@ -208,7 +222,7 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 
 			switch tc.phase {
 			case midPropTidyPhaseSwap:
-				midPropTidyInstallSwapHook(task, tc.haltAfter)
+				midPropTidyInstallSwapFault(task, tc.haltAfter)
 
 				panicked, panicValue, swapReturned, swapErr := midPropTidyRunSwapWithRecover(
 					ctx, task, shard, rt, props)
@@ -282,7 +296,7 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 				require.False(t, rt.IsTidied(), "tidied sentinel must be reset")
 
 				var tidyFireCount atomic.Int64
-				midPropTidyInstallTidyHook(task, tc.haltAfter, &tidyFireCount)
+				midPropTidyInstallTidyFault(task, tc.haltAfter, &tidyFireCount)
 
 				tidyErr := midPropTidyRunTidyExpectingPanicError(
 					ctx, task, shard, rt, props)
