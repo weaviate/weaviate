@@ -37,8 +37,8 @@ const DefaultThrottleInterval = 3 * time.Second
 // failure), so the internal map does not grow beyond the number of active units.
 //
 // Two non-negotiable carve-outs (weaviate/0-weaviate-issues#240 Symptom B):
-//   - progress == 0.0 is never throttled — it is the only path that
-//     sets Unit.NodeID.
+//   - progress == 0.0 is never throttled — it is the per-unit worker's
+//     first call (the "claim") and the path that lands Unit.NodeID.
 //   - lastSent is updated only after a successful forward; a failed
 //     forward leaves no entry so the retry isn't blocked.
 type ThrottledRecorder struct {
@@ -79,8 +79,9 @@ func (r *ThrottledRecorder) cleanupThrottleEntry(namespace, taskID string, versi
 }
 
 func (r *ThrottledRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
-	// CLAIM bypass: progress == 0.0 is the only path that sets
-	// Unit.NodeID, so it must never be deduplicated.
+	// CLAIM bypass: progress == 0.0 is the per-unit worker's first
+	// (and only) call that lands Unit.NodeID via the FSM. Throttling
+	// it risks deduplicating the assignment and orphaning the unit.
 	if progress == 0.0 {
 		return r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress)
 	}
