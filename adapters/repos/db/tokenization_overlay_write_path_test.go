@@ -28,54 +28,14 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestTokenizationOverlay_WritePath_IgnoresOverlay pins a candidate
-// root-cause hypothesis for weaviate/0-weaviate-issues#240 Symptom B
-// (per-replica divergence on change-tokenization migrations).
-//
-// Hypothesis: during the SWAPPING window of a change-tokenization
-// migration, every node has its tokenizationOverlay set to the
-// TARGET tokenization (via maybeSetTokenizationOverlayPreSwap) but
-// the CLUSTER-WIDE schema flip from OnTaskCompleted has not yet
-// landed locally. In this window:
-//
-//   - Live schema as seen by the analyzer: SOURCE tokenization
-//     (e.g. "word")
-//   - Canonical bucket on disk: TARGET-tokenized data (e.g. "field"),
-//     courtesy of the local per-shard swap
-//   - Tokenization overlay: TARGET ("field") — QUERY path is wired
-//     to consult this (BM25Searcher.effectiveTokenization), so
-//     reads against the bucket use TARGET tokenization
-//
-// On the WRITE path (Shard.PutObject → Shard.AnalyzeObject at
-// shard_write_inverted.go:100) the analyzer is constructed bare:
-//
-//	inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
-//
-// with NO WithSchemaOverlay call. So an incoming PUT in the SWAPPING
-// window gets tokenized against the LIVE schema (SOURCE = "word")
-// and the resulting per-term postings land in the CANONICAL bucket
-// which is now TARGET-tokenized. Per-replica timing of how long this
-// window lasts (RAFT propagation latency + scheduler tick variance)
-// determines how many writes are mis-tokenized on each replica → the
-// post-FINISHED inverted bucket diverges across replicas → BM25
-// queries get different counts on different nodes.
-//
-// Independent of #240 this is a smaller-scope correctness bug:
-// migration backfill uses AnalyzeObjectForMigrationWithOverlay to
-// honor the overlay (see shard_write_inverted.go:125-143 godoc),
-// but LIVE writes during the same overlay-active window do not. The
-// two paths should be symmetric.
-//
-// This test pins the bug by checking the actual on-disk term keys
-// after a PUT with the overlay set: with a working write path the
-// keys reflect the TARGET tokenization; with the current broken
-// write path they reflect the SOURCE tokenization.
-//
-// If the assertion fails (TARGET-tokenized keys missing, SOURCE
-// keys present) → bug reproduced → confirms Theory 1 from the #240
-// investigation. Once the fix lands (analyzer wired to consult the
-// overlay on the write path), this test will start passing without
-// the assertion message needing to change.
+// TestTokenizationOverlay_WritePath_IgnoresOverlay pins a real write-path
+// correctness bug discovered during the #240 investigation:
+// Shard.AnalyzeObject (write-path analyzer) doesn't consult the
+// tokenizationOverlay, even though the query-path analyzer does and the
+// migration-backfill AnalyzeObjectForMigrationWithOverlay does. A PUT
+// during the SWAPPING window therefore lands SOURCE-tokenized terms in
+// a TARGET-tokenized bucket. Red on current main; turns green once
+// AnalyzeObject is wired to consult the overlay symmetrically.
 func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	ctx := testCtx()
 	className := "TokOverlayWrite_" + uuid.NewString()[:8]

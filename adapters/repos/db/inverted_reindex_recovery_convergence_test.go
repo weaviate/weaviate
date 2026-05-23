@@ -30,16 +30,12 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Deterministic restart-recovery convergence at integration level — what
-// the e2e tests hit only probabilistically against weaviate/0-weaviate-
-// issues#240 Symptom B (rolling-restart mid-migration leaves replicas
-// diverged despite task=FINISHED). This file's baseline is the fingerprint
-// every staged recovery-from-state case compares against.
+// Exhaustive single-process recovery-convergence tests for the v2
+// inverted-index reindex pipeline. See weaviate/0-weaviate-issues#240.
 
-// fingerprintInvertedBucket returns a deterministic (term → sorted
-// []docID) snapshot. Per-doc inclusion only — frequency is not part of
-// the comparison because the #11383 divergence shape is "term has no
-// posting list on that node".
+// fingerprintInvertedBucket returns a (term → sorted []docID) snapshot
+// of an inverted/MapCollection searchable bucket. Frequency is dropped;
+// per-doc inclusion is enough to catch posting-list divergence.
 func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint64 {
 	t.Helper()
 	out := map[string][]uint64{}
@@ -53,9 +49,6 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 		term := string(append([]byte(nil), k...))
 		ids := make([]uint64, 0, len(pairs))
 		for _, p := range pairs {
-			// A pair-key shorter than 8 bytes is corruption or a
-			// write-path bug; fail loudly rather than let a broken
-			// bucket pass as "matches baseline".
 			require.Lenf(t, p.Key, 8,
 				"unexpected pair key length on term %q: want 8 bytes (big-endian docID), got %d",
 				term, len(p.Key))
@@ -75,9 +68,10 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 	return out
 }
 
-// newSearchableRetokenizeTask wraps SearchableRetokenizeStrategy — the
-// semantic-migration strategy driven by the Run*OnShard trio (not
-// inline runtimeSwap), used by the #11383 change-tokenization migration.
+// newSearchableRetokenizeTask wraps the production
+// SearchableRetokenizeStrategy in test scaffolding. Semantic
+// migration: swap is driven via RunReindexOnly/RunPrepare/RunSwap on
+// each shard, not the inline runtimeSwap used by MapToBlockmax.
 func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
 	t.Helper()
 	wrapped := &testSearchableRetokenizeStrategyWrapper{
@@ -106,8 +100,10 @@ func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 	return task, wrapped
 }
 
-// testSearchableRetokenizeStrategyWrapper stubs OnMigrationComplete so
-// the test doesn't need the paired FilterableRetokenize run.
+// testSearchableRetokenizeStrategyWrapper stubs OnMigrationComplete
+// (the real strategy is a no-op for searchable — the schema flip is
+// done by FilterableRetokenize when it runs second; we don't run that
+// here). Same pattern as testMigrationStrategy for MapToBlockmax.
 type testSearchableRetokenizeStrategyWrapper struct {
 	SearchableRetokenizeStrategy
 	migrationCompleted bool
@@ -118,10 +114,8 @@ func (s *testSearchableRetokenizeStrategyWrapper) OnMigrationComplete(_ context.
 	return nil
 }
 
-// makeConvergenceTestObjects builds a deterministic list of test
-// objects. Text values cycle through a dictionary so the same word
-// appears in multiple docs (replicates the BM25 "alpha appears in N
-// docs" fingerprint that the #11383 acceptance test asserts on).
+// makeConvergenceTestObjects builds n objects whose `title` cycles
+// through a 25-token dictionary so each token appears in multiple docs.
 func makeConvergenceTestObjects(t *testing.T, n int, className string) []*storobj.Object {
 	t.Helper()
 	tokens := []string{
@@ -139,8 +133,9 @@ func makeConvergenceTestObjects(t *testing.T, n int, className string) []*storob
 	return out
 }
 
-// TestRecoveryConvergence_Baseline pins the clean post-migration
-// fingerprint that every recovery-from-state case compares against.
+// TestRecoveryConvergence_Baseline drives a clean MapToBlockmax
+// migration to completion and fingerprints the post-state. The
+// recovery-from-each-state cases below compare against this baseline.
 func TestRecoveryConvergence_Baseline(t *testing.T) {
 	ctx := testCtx()
 	const propName = "title"
@@ -159,14 +154,11 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	// Pre-migration: bucket is MapCollection (source strategy).
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 	preBucket := shard.store.Bucket(bucketName)
 	require.NotNil(t, preBucket, "pre-migration searchable bucket must exist")
-	require.Equal(t, lsmkv.StrategyMapCollection, preBucket.Strategy(),
-		"pre-migration searchable bucket must be StrategyMapCollection")
+	require.Equal(t, lsmkv.StrategyMapCollection, preBucket.Strategy())
 
-	// Drive the migration to completion using production code.
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
@@ -177,16 +169,12 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 			break
 		}
 	}
-	require.True(t, strategy.migrationCompleted,
-		"OnMigrationComplete must fire post-migration")
+	require.True(t, strategy.migrationCompleted)
 
-	// Post-migration: bucket strategy must have flipped to Inverted.
 	postBucket := shard.store.Bucket(bucketName)
 	require.NotNil(t, postBucket, "post-migration searchable bucket must exist")
-	require.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy(),
-		"post-migration searchable bucket must be StrategyInverted")
+	require.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy())
 
-	// Tracker must show all sentinels in the terminal state.
 	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
 	require.True(t, rt.IsReindexed())
 	require.True(t, rt.IsPrepended())
@@ -194,15 +182,9 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	require.True(t, rt.IsSwapped())
 	require.True(t, rt.IsTidied())
 
-	// Fingerprint: should be non-empty (every test object contributes
-	// 3 tokens). Every token in our dictionary should appear at least
-	// once because the cycling pattern ensures each token is hit.
 	fp := fingerprintInvertedBucket(t, postBucket)
 	require.NotEmpty(t, fp, "baseline fingerprint must have at least one term")
 
-	// Every dictionary token should be present given numObjects=25
-	// and the cycle pattern (each token starts a 3-token window for
-	// some doc index, and our dictionary has 25 entries).
 	expectedTokens := []string{
 		"alpha", "bravo", "charlie", "delta", "echo",
 		"foxtrot", "golf", "hotel", "india", "juliett",
@@ -212,14 +194,14 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	}
 	for _, tok := range expectedTokens {
 		docIDs, ok := fp[tok]
-		require.Truef(t, ok, "baseline fingerprint missing token %q (post-migration bucket should contain every dictionary word)", tok)
-		require.NotEmptyf(t, docIDs, "baseline fingerprint token %q has no docIDs (posting list is empty)", tok)
+		require.Truef(t, ok, "baseline fingerprint missing token %q", tok)
+		require.NotEmptyf(t, docIDs, "baseline fingerprint token %q has empty posting list", tok)
 	}
 }
 
 // computeBaselineFingerprint runs a clean migration on a throw-away
-// shard and returns its post-migration fingerprint. Used by every
-// recovery-from-state case as ground truth.
+// shard and returns its post-migration fingerprint. Recovery-from-state
+// cases compare against this as ground truth.
 func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) map[string][]uint64 {
 	t.Helper()
 	ctx := testCtx()
@@ -251,47 +233,17 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	return fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
 }
 
-// recoveryConvergenceCase describes one row in the cross-product test.
-// driveToState moves the shard to the on-disk state a crashed replica
-// could land in; the test then constructs a fresh task instance and
-// asserts that recovery converges to the baseline fingerprint.
+// recoveryConvergenceCase: drive the shard to a specific on-disk state,
+// then restart with a fresh task and assert post-recovery fingerprint
+// matches the baseline.
 type recoveryConvergenceCase struct {
-	name         string
-	driveToState func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
-	// expectedPostState describes which sentinels MUST be set on disk
-	// after driveToState (and only those). Catches a driveToState
-	// that doesn't actually halt at the intended state.
-	expectedPostStateSentinels map[string]bool
+	name                       string
+	driveToState               func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric)
+	expectedPostStateSentinels map[string]bool // sanity-check the drive-to actually halted there
 }
 
-// TestRecoveryConvergence_FromEachState pins the #240 Symptom B
-// invariant: from any on-disk state a replica could land in after a
-// mid-migration restart, the recovery code path converges on bucket
-// content bit-equivalent to the clean baseline run.
-//
-// Each row stages a specific on-disk state via driveToState, then a
-// fresh task instance simulates restart and drives recovery to
-// completion. The final searchable bucket's (term -> sorted []docID)
-// fingerprint must equal the baseline.
-//
-// Coverage in this commit:
-//   - IsReindexed via skipSwapOnFinish (the barrier-path mode where
-//     OnAfterLsmInitAsync halts after markReindexed without proceeding
-//     to runtimePrepare/runtimeSwap). The default branch in
-//     RunSwapOnShard must converge.
-//   - IsTidied via full clean migration (no-op recovery on a fully
-//     terminal state). Catches regressions where RunSwapOnShard on
-//     IsTidied does the wrong thing.
-//
-// Coverage NOT in this commit (deferred to follow-up because they
-// require either runtimePrepare/runtimeSwap to be split into
-// separately-callable phases, or production-side test hooks):
-//   - IsPrepended (markPrepended set, markMerged not)
-//   - IsMerged (markMerged set, markSwapped not) - reachable via
-//     calling task.runtimePrepare directly but markPrepended +
-//     markMerged are set together by that call
-//   - IsSwapped (markSwapped set, markTidied not) - inside the
-//     atomic runtimeSwap call
+// TestRecoveryConvergence_FromEachState pins recovery convergence
+// from every on-disk state a crashed replica can land in (#240 Symptom B).
 func TestRecoveryConvergence_FromEachState(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
@@ -303,39 +255,24 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		{
 			name: "MidIteration_after_first_batch_resume_completes",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// Force the iteration loop to break after the first
-				// checkProcessingEveryNoObjects batch by setting an
-				// already-elapsed processingDuration. The check at
-				// inverted_reindex_task_generic.go:1420 only fires at
-				// batch boundaries, so we set checkProcessingEveryNoObjects=5
-				// to land a break around 5/25 objects processed.
+				// Break the iteration loop after the first batch by
+				// setting processingDuration to a value the
+				// per-batch check immediately considers elapsed.
 				task.config.checkProcessingEveryNoObjects = 5
 				task.config.processingDuration = time.Nanosecond
-				// pauseDuration short so the rerun-pause doesn't dominate.
 				task.config.pauseDuration = time.Millisecond
-				// Also keep skipSwapOnFinish=false (default for non-
-				// semantic) — we just want iteration to pause mid-way,
-				// not stop forever.
 
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-				// First call: iteration starts, breaks after batch,
-				// writes progress.mig, returns rerunAt=now+pauseDuration.
 				rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
 				require.NoError(t, err)
-				require.False(t, rerunAt.IsZero(),
-					"iteration must pause mid-way (rerunAt must be non-zero)")
+				require.False(t, rerunAt.IsZero(), "iteration must pause mid-way")
 
-				// At this point a partial progress.mig should exist.
-				// Verify the iteration HASN'T finished — IsReindexed
-				// must be false because we paused before completion.
 				rt, err := task.newReindexTracker(shard.pathLSM())
 				require.NoError(t, err)
-				require.False(t, rt.IsReindexed(),
-					"iteration must NOT be complete yet — IsReindexed should be false")
+				require.False(t, rt.IsReindexed())
 				lastKey, _, err := rt.GetProgress()
 				require.NoError(t, err)
-				require.NotEmpty(t, lastKey.Bytes(),
-					"GetProgress must return a non-empty lastProcessedKey after partial iteration")
+				require.NotEmpty(t, lastKey.Bytes(), "GetProgress must return a partial lastProcessedKey")
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": false,
@@ -369,12 +306,9 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		{
 			name: "IsPrepended_synthetic_merged_sentinel_removed",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// runtimePrepare writes markPrepended + cleanup +
-				// markMerged in one atomic method, so we can't reach
-				// IsPrepended-without-IsMerged via production code
-				// alone. Drive to IsMerged via runtimePrepare, then
-				// remove the merged.mig sentinel by hand to simulate
-				// a crash between markPrepended() and markMerged().
+				// runtimePrepare writes markPrepended + markMerged in one
+				// atomic method, so we synthesize the IsPrepended-only
+				// state by removing merged.mig post-hoc.
 				task.skipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -389,11 +323,9 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 				props, err := task.readPropsToReindex(rt)
 				require.NoError(t, err)
 				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
-				// Synthetic step: remove the merged.mig file.
 				ftr := rt.(*fileReindexTracker)
 				mergedPath := filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)
-				require.NoError(t, os.Remove(mergedPath),
-					"removing merged.mig to synthesize IsPrepended-only state")
+				require.NoError(t, os.Remove(mergedPath))
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": true,
@@ -406,8 +338,6 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		{
 			name: "IsMerged_via_runtimePrepare_no_runtimeSwap",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// Step 1: drive iteration to markReindexed via the
-				// production barrier path.
 				task.skipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -417,16 +347,11 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 						break
 					}
 				}
-				// Step 2: call runtimePrepare directly (production code
-				// path; same package access). This writes markPrepended
-				// + cleanup + markMerged in one atomic method. We stop
-				// before runtimeSwap.
 				rt, err := task.newReindexTracker(shard.pathLSM())
 				require.NoError(t, err)
 				props, err := task.readPropsToReindex(rt)
 				require.NoError(t, err)
-				logger := task.logger
-				require.NoError(t, task.runtimePrepare(ctx, logger, shard, rt, props))
+				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": true,
@@ -439,10 +364,8 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		{
 			name: "IsSwapped_synthetic_tidied_sentinel_removed",
 			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				// runtimeSwap writes markSwapped + tidy + markTidied
-				// atomically. Drive the migration to completion, then
-				// remove tidied.mig by hand to simulate a crash between
-				// markSwapped() and markTidied().
+				// Synthesize IsSwapped-but-not-IsTidied by removing
+				// tidied.mig after the full migration.
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -454,9 +377,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 				rt, err := task.newReindexTracker(shard.pathLSM())
 				require.NoError(t, err)
 				ftr := rt.(*fileReindexTracker)
-				tidiedPath := filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)
-				require.NoError(t, os.Remove(tidiedPath),
-					"removing tidied.mig to synthesize IsSwapped-only state")
+				require.NoError(t, os.Remove(filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)))
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": true,
@@ -503,14 +424,10 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 
-			// Phase 1: drive the migration to the case-specific state
-			// using the production code path.
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTask(idx.logger, strategy)
 			tc.driveToState(t, ctx, shard, task)
 
-			// Verify the driveToState actually halted at the intended
-			// sentinel state.
 			rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
 			actualSentinels := map[string]bool{
 				"reindexed": rt.IsReindexed(),
@@ -544,55 +461,42 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 			defer shard2.Shutdown(ctx)
 			idx.shards.Store(shardName, shd2)
 
-			// Drive the async loop to completion in case recovery is
-			// only partially handled by OnBeforeLsmInit + OnAfterLsmInit.
 			for {
 				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
-				require.NoError(t, err,
-					"recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
+				require.NoErrorf(t, err, "recovery loop (case %q)", tc.name)
 				if rerunAt.IsZero() {
 					break
 				}
 			}
 
-			// Phase 3: convergence check against baseline fingerprint.
 			bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 			bucket := shard2.store.Bucket(bucketName)
-			require.NotNil(t, bucket, "post-recovery searchable bucket must exist (case %q)", tc.name)
-			require.Equal(t, lsmkv.StrategyInverted, bucket.Strategy(),
-				"post-recovery searchable bucket must be StrategyInverted (case %q)", tc.name)
+			require.NotNilf(t, bucket, "post-recovery searchable bucket missing (case %q)", tc.name)
+			require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(),
+				"post-recovery bucket strategy (case %q)", tc.name)
 
 			got := fingerprintInvertedBucket(t, bucket)
 
-			// Catch divergence at term granularity for actionable
-			// failure output (which token has the wrong posting list).
-			assert.Equalf(t, len(baseline), len(got),
-				"post-recovery term count diverges from baseline (case %q)", tc.name)
+			assert.Equalf(t, len(baseline), len(got), "term count (case %q)", tc.name)
 			for term, expectedIDs := range baseline {
 				gotIDs, ok := got[term]
 				if !ok {
-					assert.Failf(t, "missing term",
-						"term %q present in baseline but missing post-recovery (case %q)", term, tc.name)
+					assert.Failf(t, "missing term", "term %q missing post-recovery (case %q)", term, tc.name)
 					continue
 				}
 				assert.Equalf(t, expectedIDs, gotIDs,
-					"term %q post-recovery doc-id list diverges from baseline (case %q)\n  baseline (%d): %v\n  got      (%d): %v",
+					"term %q diverges (case %q)\n  baseline (%d): %v\n  got      (%d): %v",
 					term, tc.name, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
 			}
 		})
 	}
 }
 
-// TestRecoveryConvergence_SearchableRetokenize_FromEachState runs the
-// same recovery cross-product as TestRecoveryConvergence_FromEachState
-// but for the SearchableRetokenize strategy — the semantic migration
-// that #11383's change-tokenization (word → field) actually uses.
-//
-// Key difference from MapToBlockmax: SearchableRetokenize is a
-// SEMANTIC migration. The swap is driven via the explicit trio
-// task.RunReindexOnlyOnShard → RunPrepareOnShard → RunSwapOnShard
-// (production caller is reindex_provider.OnGroupCompleted), not the
-// inline runtimeSwap inside OnAfterLsmInitAsync.
+// TestRecoveryConvergence_SearchableRetokenize_FromEachState — same
+// cross-product as TestRecoveryConvergence_FromEachState but for the
+// SearchableRetokenize semantic migration (#11383's change-tokenization
+// path). Swap is driven via the RunReindexOnly/RunPrepare/RunSwap trio,
+// not inline runtimeSwap.
 func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
@@ -719,15 +623,13 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 
 			for {
 				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
-				require.NoError(t, err, "recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
+				require.NoErrorf(t, err, "recovery loop (case %q)", tc.name)
 				if rerunAt.IsZero() {
 					break
 				}
 			}
-			// Semantic migrations require explicit RunSwapOnShard to
-			// complete (OnGroupCompleted would do this on re-ack); the
-			// in-process OnAfterLsmInitAsync skips swap when
-			// IsReindexed is set.
+			// Semantic migrations need explicit RunSwapOnShard to finish;
+			// in-process OnAfterLsmInitAsync skips swap when IsReindexed.
 			rt2, err := task2.newReindexTracker(shard2.pathLSM())
 			require.NoErrorf(t, err, "post-recovery tracker init (case %q)", tc.name)
 			if !rt2.IsTidied() {
@@ -737,21 +639,19 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 			}
 
 			bucket := shard2.store.Bucket(searchBucketName)
-			require.NotNil(t, bucket, "post-recovery bucket must exist (case %q)", tc.name)
+			require.NotNilf(t, bucket, "post-recovery bucket missing (case %q)", tc.name)
 
 			got := fingerprintInvertedBucket(t, bucket)
 
-			assert.Equalf(t, len(baseline), len(got),
-				"post-recovery term count diverges from baseline (case %q)", tc.name)
+			assert.Equalf(t, len(baseline), len(got), "term count (case %q)", tc.name)
 			for term, expectedIDs := range baseline {
 				gotIDs, ok := got[term]
 				if !ok {
-					assert.Failf(t, "missing term",
-						"term %q present in baseline but missing post-recovery (case %q)", term, tc.name)
+					assert.Failf(t, "missing term", "term %q missing post-recovery (case %q)", term, tc.name)
 					continue
 				}
 				assert.Equalf(t, expectedIDs, gotIDs,
-					"term %q post-recovery doc-id list diverges from baseline (case %q)\n  baseline (%d): %v\n  got      (%d): %v",
+					"term %q diverges (case %q)\n  baseline (%d): %v\n  got      (%d): %v",
 					term, tc.name, len(expectedIDs), expectedIDs, len(gotIDs), gotIDs)
 			}
 		})

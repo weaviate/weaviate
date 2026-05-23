@@ -98,15 +98,9 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	}
 
 	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
-	// Tokenization overlay parity: the query path consults the overlay
-	// via Shard.TokenizationFor (see BM25Searcher.effectiveTokenization).
-	// The write path MUST be symmetric — without the overlay here,
-	// PUTs landing in the SWAPPING window of a change-tokenization
-	// migration tokenize against the LIVE (SOURCE) schema while the
-	// canonical bucket has already been swapped to TARGET-tokenized
-	// data on this replica. Different per-replica timing of the
-	// SWAPPING→FINISHED window then produces per-replica inverted-
-	// bucket divergence — weaviate/0-weaviate-issues#240 Symptom B.
+	// Mirror the query-path overlay handling (BM25Searcher.effectiveTokenization)
+	// so writes during a change-tokenization SWAPPING window land in the
+	// canonical bucket with TARGET-tokenized keys. weaviate/0-weaviate-issues#240.
 	if overlay := s.tokenizationAnalyzerOverlay(c.Properties); overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}
@@ -114,20 +108,10 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	return props, nilProps, nestedProps, err
 }
 
-// tokenizationAnalyzerOverlay returns an analyzer-shaped overlay built
-// from the per-shard tokenization overlay, restricted to the supplied
-// property set. Returns nil when nothing in the overlay applies, so
-// the analyzer can take its fast path (no schema-overlay branch).
-//
-// Only the Tokenization field of [inverted.PropertyOverlay] is
-// populated — the ForceFilterable / ForceSearchable / ForceRangeable
-// flags are used exclusively by from-scratch migration backfills
-// (EnableFilterable / EnableSearchable / FilterableToRangeable) and
-// must NOT be flipped for ordinary writes.
-//
-// Lock + emptiness handling is delegated to
-// [Shard.SnapshotTokenizationOverlay] so this helper stays a pure
-// projection on top of it.
+// tokenizationAnalyzerOverlay projects the per-shard tokenization
+// overlay onto the inverted-analyzer PropertyOverlay shape. Only
+// `Tokenization` is populated — the Force* flags are owned by
+// from-scratch backfill strategies and must not affect ordinary writes.
 func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil
@@ -147,10 +131,8 @@ func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string
 	}
 	var out map[string]inverted.PropertyOverlay
 	for name, target := range snap {
-		// Live schema has caught up for this prop — skip; the
-		// self-clear in TokenizationFor will drop the entry on the
-		// next query.
 		if target == liveTok[name] {
+			// Live schema caught up; TokenizationFor will self-clear.
 			continue
 		}
 		if out == nil {
