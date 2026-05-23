@@ -69,7 +69,8 @@ const midPropTidyHaltPanicPrefix = "mid-prop-tidy halt: simulated crash"
 func midPropTidyInstallSwapHook(task *ShardReindexTaskGeneric, haltAfter int) {
 	task.testHookPostPropSwap = func(propIdx int) {
 		if haltAfter > 0 && propIdx == haltAfter-1 {
-			panic(midPropTidyHaltPanicPrefix + " (phase=swap, after prop " + ")")
+			panic(fmt.Sprintf("%s (phase=swap, propIdx=%d, haltAfter=%d)",
+				midPropTidyHaltPanicPrefix, propIdx, haltAfter))
 		}
 	}
 }
@@ -102,7 +103,8 @@ func midPropTidyInstallTidyHook(task *ShardReindexTaskGeneric, haltAfter int, fi
 		// trigger the wrapper's recovery path; the resulting error
 		// message races are harmless but make assertion harder to read.
 		if n == int64(haltAfter) {
-			panic(midPropTidyHaltPanicPrefix + " (phase=tidy, after prop " + ")")
+			panic(fmt.Sprintf("%s (phase=tidy, propIdx=%d, haltAfter=%d, fireOrdinal=%d)",
+				midPropTidyHaltPanicPrefix, propIdx, haltAfter, n))
 		}
 	}
 }
@@ -185,18 +187,17 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 	// `DISABLE_RECOVERY_ON_PANIC=true`, which makes the
 	// ErrorGroupWrapper's deferred recover a no-op
 	// (`entities/errors/error_group_wrapper.go:82-99`). Without that
-	// recovery, the panic we deliberately fire from the per-prop
-	// `testHookPostPropTidy` hook propagates out of the errgroup
-	// goroutine and crashes the test binary, even though we capture
-	// it at the test-level via `midPropTidyRunSwapWithRecover` /
-	// `midPropTidyRunTidyWithRecover`. Force the env var false for
-	// the lifetime of this test so the wrapper recovers panics into
-	// `eg.Wait()` errors and the test's own panic-capture frame can
-	// observe the halt deterministically — matching local-dev
-	// behavior. The pre-existing PR #11415 `MidPropSwap_Loop` test
-	// happens to never hit this because it relies on the swap
-	// loop's sequential (non-errgroup) per-prop frame, where the
-	// panic IS captured by the test's outer recover.
+	// recovery, the panic deliberately fired from the per-prop
+	// `testHookPostPropTidy` hook propagates out of the error-group
+	// goroutine and crashes the test binary — `midPropTidyRunTidyExpectingPanicError`
+	// (the tidy helper this test uses) relies on the wrapper turning
+	// the panic into an `eg.Wait()` error, not on a test-level
+	// recover. Force the env var false for the lifetime of this test
+	// so the wrapper recovers panics into errors and the assertion
+	// frame can observe the halt deterministically. The swap helper
+	// `midPropTidyRunSwapWithRecover` is unaffected (Phase 2a runs
+	// in the calling goroutine, where its own defer-recover catches
+	// the panic regardless of the env var).
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 
 	const numObjects = 25
