@@ -278,6 +278,7 @@ function main() {
   # lines below, which does not include $run_acceptance_distributed_tasks.
   if $run_acceptance_distributed_tasks; then
     echo "running acceptance distributed_tasks"
+    build_weaviate_test_image
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
 
@@ -427,6 +428,7 @@ function run_acceptance_tests() {
   # is intentionally absent from this predicate.
   if $run_acceptance_tests || $run_all_tests; then
     echo "running acceptance distributed_tasks (via catch-all)"
+    build_weaviate_test_image
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then

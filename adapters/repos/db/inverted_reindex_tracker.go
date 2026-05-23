@@ -332,8 +332,13 @@ func (t *fileReindexTracker) unmarkReindexed() error {
 // clearProgressFiles removes every progress.mig.<N> checkpoint and
 // resets the in-memory checkpoint counter. Used by unmarkReindexed to
 // keep the "next iteration runs from scratch" invariant.
+//
+// MUST NOT run concurrently with any markProgress emitter. Today this
+// holds because only the torn-state guard in OnBeforeLsmInit / OnAfterLsmInit
+// calls it, and both run before the async reindex loop spawns.
 func (t *fileReindexTracker) clearProgressFiles() error {
 	prefix := t.config.filenameProgress + "."
+	expectedLen := len(prefix) + 9 // matches findLastProgressFile
 	entries, err := os.ReadDir(t.config.migrationPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -342,10 +347,14 @@ func (t *fileReindexTracker) clearProgressFiles() error {
 		return err
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+		if e.IsDir() {
 			continue
 		}
-		if err := t.removeFile(e.Name()); err != nil {
+		name := e.Name()
+		if len(name) != expectedLen || !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		if err := t.removeFile(name); err != nil {
 			return err
 		}
 	}

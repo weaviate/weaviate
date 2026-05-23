@@ -132,7 +132,10 @@ func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string
 	var out map[string]inverted.PropertyOverlay
 	for name, target := range snap {
 		if target == liveTok[name] {
-			// Live schema caught up; TokenizationFor will self-clear.
+			// Live schema already matches the overlay target. The
+			// authoritative clear happens via ClearTokenizationOverlay
+			// at migration completion; query-path TokenizationFor
+			// self-clears as a secondary nicety.
 			continue
 		}
 		if out == nil {

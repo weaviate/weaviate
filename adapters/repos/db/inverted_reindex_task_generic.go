@@ -202,9 +202,13 @@ type ShardReindexTaskGeneric struct {
 	// testHookPostPropTidy (test-only) fires after each per-prop
 	// os.RemoveAll inside tidyBackupBuckets returns successfully.
 	// Production leaves it nil. Mirrors [testHookPostPropSwap]; see
-	// TestRecoveryConvergence_MidPropSwapOrTidy_Loop for usage, including
-	// the concurrency=1 constraint tests need for deterministic propIdx
-	// order and the wrapper-recovery semantics around panics.
+	// TestRecoveryConvergence_MidPropSwapOrTidy_Loop for usage.
+	//
+	// CAUTION: ordering assertions on propIdx require the caller to
+	// set reindexTaskConfig.concurrency = 1. tidyBackupBuckets runs
+	// the per-prop loop under eg.SetLimit(t.config.concurrency); at
+	// higher concurrency the parallel goroutines race for the hook
+	// count and the halt point becomes non-deterministic.
 	testHookPostPropTidy func(propIdx int)
 }
 
