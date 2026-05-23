@@ -403,11 +403,9 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			fmt.Sprintf("unit %s in task %s/%s/%d is already terminal", r.UnitId, r.Namespace, r.Id, task.Version))
 	}
 
-	// Defense in depth for weaviate/0-weaviate-issues#240: a unit
-	// reaching completion without a NodeID would be orphaned by
-	// [Task.LocalGroupUnitIDs], so post-completion callbacks never
-	// run for it. The CLAIM path ([Manager.UpdateUnitProgress])
-	// should have set this already; cover the case where it didn't.
+	// Defense in depth for weaviate/0-weaviate-issues#240:
+	// LocalGroupUnitIDs orphans units with empty NodeID, suppressing
+	// every post-completion callback for that (shard, replica).
 	if u.NodeID == "" {
 		u.NodeID = r.NodeId
 	}

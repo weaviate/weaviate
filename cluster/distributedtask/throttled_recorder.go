@@ -36,15 +36,11 @@ const DefaultThrottleInterval = 3 * time.Second
 // Throttle entries are cleaned up when a unit reaches a terminal state (completion or
 // failure), so the internal map does not grow beyond the number of active units.
 //
-// Two carve-outs are non-negotiable, both pinned by tests in
-// throttled_recorder_test.go and motivated by
-// weaviate/0-weaviate-issues#240 Symptom B:
-//
-//   - The CLAIM call (progress == 0.0) is never throttled. It is the
-//     only path that sets Unit.NodeID; deduplicating it risks
-//     orphaning the unit.
-//   - lastSent is updated only AFTER a successful forward. A failed
-//     forward leaves no entry so the caller's retry is not blocked.
+// Two non-negotiable carve-outs (weaviate/0-weaviate-issues#240 Symptom B):
+//   - progress == 0.0 is never throttled — it is the only path that
+//     sets Unit.NodeID.
+//   - lastSent is updated only after a successful forward; a failed
+//     forward leaves no entry so the retry isn't blocked.
 type ThrottledRecorder struct {
 	inner    TaskCompletionRecorder
 	interval time.Duration

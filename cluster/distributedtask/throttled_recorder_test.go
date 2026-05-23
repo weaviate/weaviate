@@ -184,12 +184,9 @@ func TestThrottledRecorder_DifferentUnitsTrackedIndependently(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestThrottledRecorder_Claim_NeverThrottled: progress=0.0 is the CLAIM
-// — the only path that sets Unit.NodeID — and must forward
-// unconditionally, even when a prior progress update is within the
-// throttle window. Pins the CLAIM bypass in
-// UpdateDistributedTaskUnitProgress. weaviate/0-weaviate-issues#240
-// Symptom B.
+// TestThrottledRecorder_Claim_NeverThrottled: progress=0.0 forwards
+// unconditionally — even within the throttle window, even after an
+// inner-error retry. weaviate/0-weaviate-issues#240 Symptom B.
 func TestThrottledRecorder_Claim_NeverThrottled(t *testing.T) {
 	recorder, clock, inner := newTestThrottledRecorder(t)
 
