@@ -20,10 +20,18 @@ import (
 	"github.com/jonboulle/clockwork"
 )
 
+// DefaultThrottleInterval is the production cap on per-unit progress writes
+// to the RAFT log. [Scheduler.Start] passes this constant to
+// [NewThrottledRecorder]. Pinned by `TestThrottledRecorder_DefaultInterval_*`
+// — if you change the value, update [Scheduler.Start]'s rationale comment
+// and the matching prose in `doc.go` ("Progress throttling" section) too.
+const DefaultThrottleInterval = 3 * time.Second
+
 // ThrottledRecorder wraps a [TaskCompletionRecorder] to prevent progress updates from
-// flooding Raft consensus. Each unit's progress is forwarded at most once per interval
-// (default 30s); intermediate updates are silently dropped. Completion and failure calls
-// always pass through immediately — they are never throttled.
+// flooding Raft consensus. Each unit's progress is forwarded at most once per the
+// interval given to [NewThrottledRecorder] ([DefaultThrottleInterval] in production);
+// intermediate updates are silently dropped. Completion and failure calls always pass
+// through immediately — they are never throttled.
 //
 // Throttle entries are cleaned up when a unit reaches a terminal state (completion or
 // failure), so the internal map does not grow beyond the number of active units.
