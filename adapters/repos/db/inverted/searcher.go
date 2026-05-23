@@ -33,7 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/filters/nested"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -369,7 +369,7 @@ func (s *Searcher) extractPropValuePair(
 	// correctly resolves to the "addresses" property in the schema.
 	// Only the first segment is cleaned here; extractNestedProp receives the
 	// original props[0] so that [N] indices on sub-paths are preserved.
-	propName := nested.RootPropName(props[0])
+	propName := filnested.RootPropName(props[0])
 
 	if s.onInternalProp(propName) {
 		return s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator, class)

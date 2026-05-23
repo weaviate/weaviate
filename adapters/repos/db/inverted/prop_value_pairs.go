@@ -23,39 +23,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/filters"
-	filternested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 )
-
-// nestedInfo groups fields that are only relevant for nested (object/object[])
-// property filters. The zero value represents a non-nested node.
-//
-// isNested and isCorrelated are mutually exclusive — a node is either a leaf
-// or a group, never both:
-//
-// When isNested is set (leaf node):
-//   - prop on the parent propValuePair is the top-level property name
-//   - value is the bare encoded value (without prefix)
-//   - relPath is the dot-notation path relative to prop
-//     (e.g. "city" or "owner.firstname")
-//   - the result bitmap contains positions that are stripped to docIDs
-//
-// When isCorrelated is set (AND group node):
-//   - prop on the parent propValuePair is the root property name
-//   - all children require position-aware same-element resolution
-//   - childrenFromTokenization marks a compound AND from multi-token text;
-//     its children are tokens that must share the same leaf position
-type nestedInfo struct {
-	isNested                 bool
-	relPath                  string
-	isCorrelated             bool
-	childrenFromTokenization bool
-	// arrayIndices holds positional constraints from arr[N] filter syntax.
-	// Each entry (filternested.ArrayIndex) restricts the matching positions to the
-	// specified array element. Multiple entries support multi-level indexing
-	// (e.g. cars[1].tags[2]).
-	arrayIndices []filternested.ArrayIndex
-}
 
 type propValuePair struct {
 	prop     string

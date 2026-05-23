@@ -14,13 +14,60 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+// nestedInfo groups fields that are only relevant for nested (object/object[])
+// property filters. The zero value represents a non-nested node.
+//
+// isNested and isCorrelated are mutually exclusive — a node is either a leaf
+// or a group, never both:
+//
+// When isNested is set (leaf node):
+//   - prop on the parent propValuePair is the top-level property name
+//   - value is the bare encoded value (without prefix)
+//   - relPath is the dot-notation path relative to prop
+//     (e.g. "city" or "owner.firstname")
+//   - the result bitmap contains positions that are stripped to docIDs
+//
+// When isCorrelated is set (AND group node):
+//   - prop on the parent propValuePair is the root property name
+//   - all children require position-aware same-element resolution
+//   - childrenFromTokenization marks a compound AND from multi-token text;
+//     its children are tokens that must share the same leaf position
+type nestedInfo struct {
+	isNested                 bool
+	relPath                  string
+	isCorrelated             bool
+	childrenFromTokenization bool
+	arrayIndices             arrayIndices
+}
+
+// arrayIndices holds positional constraints from arr[N] filter syntax.
+// Each entry restricts matching positions to the specified array element.
+// Multiple entries support multi-level indexing (e.g. cars[1].tags[2]).
+type arrayIndices []filnested.ArrayIndex
+
+// groupKey returns a string that uniquely identifies the set of arr[N] constraints.
+// Two conditions with the same groupKey are safe to combine in a correlated AND
+// (same-element semantics); different keys require independent resolution.
+func (a arrayIndices) groupKey() string {
+	if len(a) == 0 {
+		return ""
+	}
+	var key strings.Builder
+	for _, ai := range a {
+		fmt.Fprintf(&key, "%s[%d]", ai.RelPath, ai.Index)
+	}
+	return key.String()
+}
 
 // fetchNestedDocIDs resolves a value filter on a nested property, returning
 // docID-only results. It fetches raw positions, applies any arr[N] index
@@ -30,7 +77,7 @@ func (pv *propValuePair) fetchNestedDocIDs(ctx context.Context, s *Searcher, lim
 	if err != nil {
 		return nil, err
 	}
-	dbm.docIDs = nested.MaskRootLeaf(dbm.docIDs)
+	dbm.docIDs = invnested.MaskRootLeaf(dbm.docIDs)
 	return dbm, nil
 }
 
@@ -47,7 +94,7 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 		return nil, errors.Errorf("nested IsNull: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
 
-	positions, release, err := metaBucket.RoaringSetGet(nested.ExistsKey(pv.nested.relPath))
+	positions, release, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
 	if err != nil {
 		return nil, fmt.Errorf("nested IsNull: read exists key for %q: %w", pv.prop, err)
 	}
@@ -58,7 +105,7 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 	}
 
 	dbm := newDocBitmap()
-	dbm.docIDs = nested.MaskRootLeaf(positions)
+	dbm.docIDs = invnested.MaskRootLeaf(positions)
 	// pv.value is a little-endian bool: 0x01 = true (IsNull — property absent → denylist).
 	dbm.isDenyList = len(pv.value) > 0 && pv.value[0] == 0x01
 	return &dbm, nil
@@ -92,7 +139,7 @@ func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *sroar.Bitma
 		return fmt.Errorf("nested [N] filter: meta bucket for %q not found — is it indexed?", pv.prop)
 	}
 	for _, ai := range pv.nested.arrayIndices {
-		idxPositions, release, err := metaBucket.RoaringSetGet(nested.IdxKey(ai.RelPath, ai.Index))
+		idxPositions, release, err := metaBucket.RoaringSetGet(invnested.IdxKey(ai.RelPath, ai.Index))
 		if err != nil {
 			return fmt.Errorf("nested [N] filter: read idx key for %q[%d]: %w", ai.RelPath, ai.Index, err)
 		}
@@ -117,11 +164,49 @@ type positionBitmaps struct {
 // resolveNestedCorrelated resolves one prop group using position-aware
 // correlation. It builds a resolutionPlan for the group's paths, pre-computes
 // raw position bitmaps, and executes the plan to enforce same-element semantics.
+//
+// When children carry conflicting arr[N] constraints (e.g. cars[1].X and
+// cars[0].Y), they are partitioned by their arrayIndices key and each partition
+// is resolved independently. The per-partition results are ANDed at docID level
+// so that a document is returned only when it satisfies all partitions — without
+// incorrectly requiring conditions from different explicit elements to land in
+// the same element.
 func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searcher) (*docBitmap, error) {
+	groups := groupChildrenByArrayIndicesKey(pv.children)
+	switch len(groups) {
+	case 0:
+		return nil, fmt.Errorf("nested correlated AND: no condition groups for %q", pv.prop)
+	case 1:
+		return pv.resolveNestedCorrelatedGroup(ctx, s, groups[0])
+	default:
+		// Multiple groups with conflicting arr[N] constraints: resolve each group
+		// independently using same-element semantics, then AND the docID results.
+		first, err := pv.resolveNestedCorrelatedGroup(ctx, s, groups[0])
+		if err != nil {
+			return nil, err
+		}
+		combined := first.docIDs
+		for _, group := range groups[1:] {
+			dbm, err := pv.resolveNestedCorrelatedGroup(ctx, s, group)
+			if err != nil {
+				return nil, err
+			}
+			combined.And(dbm.docIDs)
+		}
+		result := newDocBitmap()
+		result.docIDs = combined
+		return &result, nil
+	}
+}
+
+// resolveNestedCorrelatedGroup resolves a single set of children using
+// position-aware same-element correlation. All children must have compatible
+// arrayIndices (same arr[N] constraints at every level).
+func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Searcher, children []*propValuePair) (*docBitmap, error) {
 	// Build positionsByPath: fetch raw position bitmaps per pvp and route into
 	// the correct bucket slot based on origin (token vs independent).
-	positionsByPath := make(map[string]*positionBitmaps, len(pv.children))
-	pathOrder := make([]string, 0, len(pv.children))
+	positionsByPath := make(map[string]*positionBitmaps, len(children))
+	paths := make([]string, 0, len(children))
 
 	fetchAndRoute := func(leaf *propValuePair, isToken bool) error {
 		dbm, err := leaf.fetchNestedPositions(ctx, s, 0)
@@ -131,7 +216,7 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 		path := leaf.nested.relPath
 		if _, exists := positionsByPath[path]; !exists {
 			positionsByPath[path] = &positionBitmaps{}
-			pathOrder = append(pathOrder, path)
+			paths = append(paths, path)
 		}
 		if isToken {
 			positionsByPath[path].tokens = append(positionsByPath[path].tokens, dbm.docIDs)
@@ -141,7 +226,7 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 		return nil
 	}
 
-	for _, child := range pv.children {
+	for _, child := range children {
 		if child.nested.isNested {
 			// When pv itself is a tokenization compound AND, its children are tokens
 			// of the same value and must share the same leaf position → route as tokens.
@@ -158,21 +243,30 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 		}
 	}
 
-	// Find the root property's schema to build the resolution plan.
+	// Find the root property's schema so the plan builder can locate intermediate
+	// object[] arrays and determine same-element semantics for each group.
 	rootProp, err := schema.GetPropertyByName(pv.Class, pv.prop)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: root property %q not found in schema: %w", pv.prop, err)
 	}
-	rootDT := schema.DataType(rootProp.DataType[0])
 
-	plan, err := newResolutionPlanBuilder(rootDT, rootProp.NestedProperties).build(pathOrder)
+	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
+	if metaBucket == nil {
+		return nil, fmt.Errorf("nested correlated AND: meta bucket for %q not found — is it indexed?", pv.prop)
+	}
+
+	// Compute per-path condition counts (tokens, independents) for the plan builder.
+	counts := make(conditionCounts, len(positionsByPath))
+	for path, positions := range positionsByPath {
+		counts[path] = [2]int{len(positions.tokens), len(positions.independent)}
+	}
+
+	plan, err := newExecutionPlanBuilder(rootProp.NestedProperties).build(paths, counts)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: build plan for %q: %w", pv.prop, err)
 	}
 
-	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
-
-	docIDs, err := newResolutionPlanExecutor(plan, positionsByPath, metaBucket).execute(ctx)
+	docIDs, err := newPlanExecutor(plan, positionsByPath, metaBucket).execute(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
 	}
@@ -180,4 +274,32 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 	dbm := newDocBitmap()
 	dbm.docIDs = docIDs
 	return &dbm, nil
+}
+
+// groupChildrenByArrayIndicesKey partitions the children of a correlated AND
+// node by their arr[N] constraint key. Children with the same key can be
+// combined with same-element semantics; children with different keys must be
+// resolved independently. A single group is returned when all children are
+// compatible (the common case when no arr[N] constraints are used).
+func groupChildrenByArrayIndicesKey(children []*propValuePair) [][]*propValuePair {
+	seen := map[string]int{} // key → index into groups
+	var groups [][]*propValuePair
+
+	for _, child := range children {
+		var key string
+		if child.nested.isNested {
+			key = child.nested.arrayIndices.groupKey()
+		} else if len(child.children) > 0 {
+			// Tokenization compound AND: all grandchildren share the same arrayIndices.
+			key = child.children[0].nested.arrayIndices.groupKey()
+		}
+		if idx, ok := seen[key]; ok {
+			groups[idx] = append(groups[idx], child)
+		} else {
+			seen[key] = len(groups)
+			groups = append(groups, []*propValuePair{child})
+		}
+	}
+
+	return groups
 }

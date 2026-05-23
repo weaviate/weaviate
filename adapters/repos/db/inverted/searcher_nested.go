@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/filters/nested"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
@@ -29,7 +29,7 @@ import (
 func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 	prop *models.Property, class *models.Class,
 ) (*propValuePair, error) {
-	cleanRelPath, cleanRelSegs, arrayIndices := nested.ParseIndexedPath(path)
+	cleanRelPath, cleanRelSegs, arrayIndices := filnested.ParseIndexedPath(path)
 
 	if filter.Operator == filters.OperatorIsNull {
 		return s.buildNestedIsNullPair(filter, prop.Name, cleanRelPath, arrayIndices, class)
@@ -57,7 +57,7 @@ func (s *Searcher) extractNestedProp(filter *filters.Clause, path string,
 // NestedProperty. Returns an error if any segment is not found.
 func findNestedLeaf(segments []string, props []*models.NestedProperty) (*models.NestedProperty, error) {
 	for i, seg := range segments {
-		found := nested.FindNestedProp(props, seg)
+		found := filnested.FindNestedProp(props, seg)
 		if found == nil {
 			return nil, fmt.Errorf("sub-property %q not found", seg)
 		}
@@ -72,7 +72,7 @@ func findNestedLeaf(segments []string, props []*models.NestedProperty) (*models.
 // buildNestedFilterPair encodes the filter value for the given leaf type and
 // returns the corresponding propValuePair(s).
 func (s *Searcher) buildNestedFilterPair(filter *filters.Clause, propName, fullPath, relPath string,
-	arrayIndices []nested.ArrayIndex, leaf *models.NestedProperty, class *models.Class,
+	arrayIndices []filnested.ArrayIndex, leaf *models.NestedProperty, class *models.Class,
 ) (*propValuePair, error) {
 	dt := schema.DataType(leaf.DataType[0])
 	switch dt {
@@ -91,7 +91,7 @@ func (s *Searcher) buildNestedFilterPair(filter *filters.Clause, propName, fullP
 // ASCII folding, wildcard handling) was aligned with extractTokenizableProp
 // manually. Consider extracting a shared helper to avoid future divergence.
 func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, propName, fullPath, relPath string,
-	leaf *models.NestedProperty, arrayIndices []nested.ArrayIndex, class *models.Class,
+	leaf *models.NestedProperty, arrayIndices []filnested.ArrayIndex, class *models.Class,
 ) (*propValuePair, error) {
 	valueStr, ok := filter.Value.Value.(string)
 	if !ok {
@@ -132,19 +132,20 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, propName, f
 		})
 	}
 
-	if len(pvps) == 0 {
+	switch len(pvps) {
+	case 0:
 		return nil, ErrOnlyStopwords
-	}
-	if len(pvps) == 1 {
+	case 1:
 		return pvps[0], nil
+	default:
+		return &propValuePair{operator: filters.OperatorAnd, children: pvps, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: propName, Class: class}, nil
 	}
-	return &propValuePair{operator: filters.OperatorAnd, children: pvps, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: propName, Class: class}, nil
 }
 
 // buildNestedPrimitiveFilterPair handles non-text primitive types (int,
 // number, bool, date and their array variants).
 func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, propName, fullPath, relPath string,
-	dt schema.DataType, arrayIndices []nested.ArrayIndex, class *models.Class,
+	dt schema.DataType, arrayIndices []filnested.ArrayIndex, class *models.Class,
 ) (*propValuePair, error) {
 	// Map array types to their scalar equivalent — each array element is stored
 	// individually in the nested bucket, so filtering works the same way.
@@ -187,7 +188,7 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, propNa
 // nested property. relPath is "" for root-level existence (e.g. "addresses IsNull")
 // or the dot-notation sub-path (e.g. "city" for "addresses.city IsNull").
 // arrayIndices carries any arr[N] constraints from the filter path.
-func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPath string, arrayIndices []nested.ArrayIndex, class *models.Class) (*propValuePair, error) {
+func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPath string, arrayIndices []filnested.ArrayIndex, class *models.Class) (*propValuePair, error) {
 	value, err := s.extractBoolValue(filter.Value.Value)
 	if err != nil {
 		return nil, fmt.Errorf("nested IsNull %q: encode bool: %w", propName, err)
