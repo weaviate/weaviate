@@ -16,17 +16,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/filters"
+	filternested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // nestedInfo groups fields that are only relevant for nested (object/object[])
@@ -52,6 +50,11 @@ type nestedInfo struct {
 	relPath                  string
 	isCorrelated             bool
 	childrenFromTokenization bool
+	// arrayIndices holds positional constraints from arr[N] filter syntax.
+	// Each entry (filternested.ArrayIndex) restricts the matching positions to the
+	// specified array element. Multiple entries support multi-level indexing
+	// (e.g. cars[1].tags[2]).
+	arrayIndices []filternested.ArrayIndex
 }
 
 type propValuePair struct {
@@ -90,6 +93,17 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 	// same root property (stored in pv.prop) and require same-element semantics.
 	if pv.nested.isCorrelated {
 		return pv.resolveNestedCorrelated(ctx, s)
+	}
+
+	// All nested-specific dispatch: IsNull, value filters, and correlated AND
+	// are all routed here so nested logic stays out of the flat fetch path.
+	if pv.nested.isNested {
+		switch {
+		case pv.operator == filters.OperatorIsNull:
+			return pv.fetchNestedIsNull(s)
+		case pv.operator.OnValue():
+			return pv.fetchNestedDocIDs(ctx, s, limit)
+		}
 	}
 
 	if pv.operator.OnValue() {
@@ -343,29 +357,13 @@ func mergeDocIDs(operator filters.Operator, dbms []*docBitmap) []*docBitmap {
 	return dbms[:1]
 }
 
+// fetchDocIDs resolves a value filter on a flat (non-nested) property.
 func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	dbm, err := pv.fetchBitmap(ctx, s, limit)
-	if err != nil {
-		return nil, err
-	}
-	if pv.nested.isNested {
-		// The nested value bucket stores positions (root|leaf|docID) rather than
-		// plain docIDs. Strip position bits to extract the docID-only bitmap.
-		dbm.docIDs = nested.MaskRootLeaf(dbm.docIDs)
-	}
-	return dbm, nil
+	return pv.readFromBucket(ctx, s, limit)
 }
 
-// fetchRawPositions is like fetchDocIDs but returns the raw position bitmap
-// without stripping the root/leaf bits. Only valid for nested properties
-// (pv.nested.isNested == true). Used by the correlated resolution path which needs
-// full positions to apply MaskLeaf AND or the _idx loop.
-func (pv *propValuePair) fetchRawPositions(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	return pv.fetchBitmap(ctx, s, limit)
-}
-
-// fetchBitmap is the shared implementation for fetchDocIDs and fetchRawPositions.
-func (pv *propValuePair) fetchBitmap(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
+// readFromBucket is the shared low-level implementation for all fetch methods.
+func (pv *propValuePair) readFromBucket(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	// TODO text_rbm_inverted_index find better way check whether prop len
 	if strings.HasSuffix(pv.prop, filters.InternalPropertyLength) &&
 		!pv.Class.InvertedIndexConfig.IndexPropertyLength {
@@ -439,84 +437,4 @@ func (pv *propValuePair) getBucketName() string {
 		return helpers.BucketSearchableFromPropNameLSM(pv.prop)
 	}
 	return ""
-}
-
-// positionBitmaps groups pre-fetched raw position bitmaps for a single nested path,
-// split by origin so the executor can apply the correct combining strategy:
-//   - tokens: from childrenFromTokenization compound ANDs (multi-token text);
-//     combined with AndAll — all tokens must share the same leaf position.
-//   - independent: from direct leaf conditions (e.g. scalar array values);
-//     combined with MaskLeafAndAll when there are multiple — values may be at
-//     different leaf positions within the same parent element.
-type positionBitmaps struct {
-	tokens      []*sroar.Bitmap
-	independent []*sroar.Bitmap
-}
-
-// resolveNestedCorrelated resolves one prop group using position-aware
-// correlation. It builds a resolutionPlan for the group's paths, pre-computes
-// raw position bitmaps, and executes the plan to enforce same-element semantics.
-func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searcher) (*docBitmap, error) {
-	// Build positionsByPath: fetch raw position bitmaps per pvp and route into
-	// the correct bucket slot based on origin (token vs independent).
-	positionsByPath := make(map[string]*positionBitmaps, len(pv.children))
-	pathOrder := make([]string, 0, len(pv.children))
-
-	fetchAndRoute := func(leaf *propValuePair, isToken bool) error {
-		dbm, err := leaf.fetchRawPositions(ctx, s, 0)
-		if err != nil {
-			return err
-		}
-		path := leaf.nested.relPath
-		if _, exists := positionsByPath[path]; !exists {
-			positionsByPath[path] = &positionBitmaps{}
-			pathOrder = append(pathOrder, path)
-		}
-		if isToken {
-			positionsByPath[path].tokens = append(positionsByPath[path].tokens, dbm.docIDs)
-		} else {
-			positionsByPath[path].independent = append(positionsByPath[path].independent, dbm.docIDs)
-		}
-		return nil
-	}
-
-	for _, child := range pv.children {
-		if child.nested.isNested {
-			// When pv itself is a tokenization compound AND, its children are tokens
-			// of the same value and must share the same leaf position → route as tokens.
-			if err := fetchAndRoute(child, pv.nested.childrenFromTokenization); err != nil {
-				return nil, fmt.Errorf("nested correlated AND: fetch bitmap for %q: %w", child.nested.relPath, err)
-			}
-		} else {
-			// Tokenization compound AND child: grandchildren are tokens of the same value.
-			for _, gc := range child.children {
-				if err := fetchAndRoute(gc, true); err != nil {
-					return nil, fmt.Errorf("nested correlated AND: fetch bitmap for %q: %w", gc.nested.relPath, err)
-				}
-			}
-		}
-	}
-
-	// Find the root property's schema to build the resolution plan.
-	rootProp, err := schema.GetPropertyByName(pv.Class, pv.prop)
-	if err != nil {
-		return nil, fmt.Errorf("nested correlated AND: root property %q not found in schema: %w", pv.prop, err)
-	}
-	rootDT := schema.DataType(rootProp.DataType[0])
-
-	plan, err := newResolutionPlanBuilder(rootDT, rootProp.NestedProperties).build(pathOrder)
-	if err != nil {
-		return nil, fmt.Errorf("nested correlated AND: build plan for %q: %w", pv.prop, err)
-	}
-
-	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
-
-	docIDs, err := newResolutionPlanExecutor(plan, positionsByPath, metaBucket).execute(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
-	}
-
-	dbm := newDocBitmap()
-	dbm.docIDs = docIDs
-	return &dbm, nil
 }

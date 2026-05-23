@@ -120,6 +120,14 @@ func AssignPositions(prop *models.Property, value any) (*AssignResult, error) {
 			return nil, fmt.Errorf("walk element %d of %q: %w", i, prop.Name, err)
 		}
 
+		// Root-level _idx entry: records which positions belong to root element i.
+		// Required for arr[N] positional filtering (e.g. "addresses[1].city = X").
+		result.Idx = append(result.Idx, IdxEntry{
+			Path:      "",
+			Index:     i,
+			Positions: elemPositions,
+		})
+
 		allPositions = append(allPositions, elemPositions...)
 	}
 

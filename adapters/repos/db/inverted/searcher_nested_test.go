@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -162,10 +163,111 @@ func TestExtractNestedProp(t *testing.T) {
 			wantProp: "nested", wantValue: []byte("Alice"),
 		},
 		{
-			name: "IsNull returns error",
+			name: "root IsNull false — relPath is empty",
+			path: "nested", operator: filters.OperatorIsNull,
+			valueType: schema.DataTypeBoolean, value: false,
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, filters.OperatorIsNull, pv.operator)
+				assert.Equal(t, "nested", pv.prop)
+				assert.True(t, pv.nested.isNested)
+				assert.Equal(t, "", pv.nested.relPath) // root-level existence
+				assert.Equal(t, []byte{0x00}, pv.value)
+			},
+		},
+		{
+			name: "root IsNull true — relPath is empty, denylist value",
+			path: "nested", operator: filters.OperatorIsNull,
+			valueType: schema.DataTypeBoolean, value: true,
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, filters.OperatorIsNull, pv.operator)
+				assert.Equal(t, "nested", pv.prop)
+				assert.True(t, pv.nested.isNested)
+				assert.Equal(t, "", pv.nested.relPath) // root-level existence
+				assert.Equal(t, []byte{0x01}, pv.value)
+			},
+		},
+		{
+			name: "IsNull false — produces nested isNull pair",
+			path: "nested.city", operator: filters.OperatorIsNull,
+			valueType: schema.DataTypeBoolean, value: false,
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, filters.OperatorIsNull, pv.operator)
+				assert.Equal(t, "nested", pv.prop)
+				assert.True(t, pv.nested.isNested)
+				assert.Equal(t, "city", pv.nested.relPath)
+				assert.Equal(t, []byte{0x00}, pv.value) // false = property exists
+			},
+		},
+		{
+			name: "IsNull true — produces nested isNull pair with denylist value",
 			path: "nested.city", operator: filters.OperatorIsNull,
 			valueType: schema.DataTypeBoolean, value: true,
-			wantErr: "IsNull",
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, filters.OperatorIsNull, pv.operator)
+				assert.Equal(t, "nested", pv.prop)
+				assert.True(t, pv.nested.isNested)
+				assert.Equal(t, "city", pv.nested.relPath)
+				assert.Equal(t, []byte{0x01}, pv.value) // true = property absent
+			},
+		},
+		// --- indexed paths: arrayIndices populated, relPath clean ---
+		{
+			name: "root index — nested[0].city",
+			path: "nested[0].city", operator: filters.OperatorEqual,
+			valueType: schema.DataTypeText, value: "Berlin",
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, "nested", pv.prop)
+				assert.Equal(t, "city", pv.nested.relPath)
+				assert.True(t, pv.nested.isNested)
+				require.Len(t, pv.nested.arrayIndices, 1)
+				assert.Equal(t, nested.ArrayIndex{RelPath: "", Index: 0}, pv.nested.arrayIndices[0])
+			},
+		},
+		{
+			name: "sub-property index — nested.numbers[1]",
+			path: "nested.numbers[1]", operator: filters.OperatorEqual,
+			valueType: schema.DataTypeInt, value: 7,
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, "nested", pv.prop)
+				assert.Equal(t, "numbers", pv.nested.relPath)
+				assert.True(t, pv.nested.isNested)
+				require.Len(t, pv.nested.arrayIndices, 1)
+				assert.Equal(t, nested.ArrayIndex{RelPath: "numbers", Index: 1}, pv.nested.arrayIndices[0])
+			},
+		},
+		{
+			name: "multi-level index — nested[0].owner.firstname (two-level path, root indexed)",
+			path: "nested[0].owner.firstname", operator: filters.OperatorEqual,
+			valueType: schema.DataTypeText, value: "Alice",
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, "nested", pv.prop)
+				assert.Equal(t, "owner.firstname", pv.nested.relPath)
+				assert.True(t, pv.nested.isNested)
+				require.Len(t, pv.nested.arrayIndices, 1)
+				assert.Equal(t, nested.ArrayIndex{RelPath: "", Index: 0}, pv.nested.arrayIndices[0])
+			},
+		},
+		{
+			name: "multi-level indexes — nested[0].numbers[2]",
+			path: "nested[0].numbers[2]", operator: filters.OperatorEqual,
+			valueType: schema.DataTypeInt, value: 7,
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, "nested", pv.prop)
+				assert.Equal(t, "numbers", pv.nested.relPath)
+				assert.True(t, pv.nested.isNested)
+				require.Len(t, pv.nested.arrayIndices, 2)
+				assert.Equal(t, nested.ArrayIndex{RelPath: "", Index: 0}, pv.nested.arrayIndices[0])
+				assert.Equal(t, nested.ArrayIndex{RelPath: "numbers", Index: 2}, pv.nested.arrayIndices[1])
+			},
+		},
+		{
+			name: "no index — arrayIndices empty",
+			path: "nested.city", operator: filters.OperatorEqual,
+			valueType: schema.DataTypeText, value: "Berlin",
+			verify: func(t *testing.T, pv *propValuePair) {
+				assert.Equal(t, "city", pv.nested.relPath)
+				assert.Empty(t, pv.nested.arrayIndices)
+			},
 		},
 		{
 			name: "non-filterable leaf returns error",
@@ -320,6 +422,19 @@ func TestExtractPropValuePairNestedRouting(t *testing.T) {
 			valueType: schema.DataTypeText, value: "Ber*",
 			wantProp: "nested", wantNested: true,
 		},
+		// indexed paths: [N] stripped for schema lookup, arrayIndices populated
+		{
+			name: "root index routes to nested — nested[0].city",
+			path: "nested[0].city", operator: filters.OperatorEqual,
+			valueType: schema.DataTypeText, value: "Berlin",
+			wantProp: "nested", wantNested: true,
+		},
+		{
+			name: "sub-property index routes to nested — nested.numbers[2]",
+			path: "nested.numbers[2]", operator: filters.OperatorEqual,
+			valueType: schema.DataTypeInt, value: 7,
+			wantProp: "nested", wantNested: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -328,11 +443,11 @@ func TestExtractPropValuePairNestedRouting(t *testing.T) {
 			pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
 			require.NoError(t, err)
 
-			relativePath := tt.path[strings.Index(tt.path, ".")+1:]
 			assert.Equal(t, tt.wantProp, pv.prop)
 			assert.Equal(t, tt.wantNested, pv.nested.isNested)
-			assert.Equal(t, relativePath, pv.nested.relPath)
 			assert.Equal(t, tt.operator, pv.operator)
+			// relPath must not contain any [N] markers
+			assert.NotContains(t, pv.nested.relPath, "[")
 		})
 	}
 }

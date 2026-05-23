@@ -43,6 +43,7 @@ func nestedClass() *models.Class {
 		Class: "Article",
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "tagsArray", DataType: schema.DataTypeTextArray.PropString()},
 			{
 				Name:     "nested",
 				DataType: schema.DataTypeObject.PropString(),
@@ -66,6 +67,15 @@ func nestedClass() *models.Class {
 							{Name: "postcode", DataType: schema.DataTypeText.PropString(), IndexFilterable: &boolTrue},
 						},
 					},
+				},
+			},
+			{
+				// object[] at the top level — valid target for root [N] indexing
+				Name:     "items",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "value", DataType: schema.DataTypeText.PropString(), IndexFilterable: &boolTrue},
+					{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), IndexFilterable: &boolTrue},
 				},
 			},
 		},
@@ -184,6 +194,99 @@ func TestValidateNestedPathClause(t *testing.T) {
 			value:     "x",
 			wantErr:   `property "nested" is of type "object"; use dot notation to filter on a sub-property`,
 		},
+		// --- indexed paths: [N] stripped before schema lookup ---
+		{
+			// nested is DataTypeObject (not object[]) — use items which is object[]
+			name:      "root index on object[] — items[1].value",
+			propName:  "items[1].value",
+			valueType: schema.DataTypeText,
+			value:     "hello",
+		},
+		{
+			name:      "sub-property index — nested.tags[1]",
+			propName:  "nested.tags[1]",
+			valueType: schema.DataTypeText,
+			value:     "tag",
+		},
+		{
+			// items[1].tags[0]: root object[] index + scalar array sub-property index
+			name:      "multi-level indexes — items[1].tags[0]",
+			propName:  "items[1].tags[0]",
+			valueType: schema.DataTypeText,
+			value:     "tag",
+		},
+		{
+			name:      "object array sub-property with index — nested.addresses[0].city",
+			propName:  "nested.addresses[0].city",
+			valueType: schema.DataTypeText,
+			value:     "Berlin",
+		},
+		{
+			name:      "non-existent sub-property with index still rejected",
+			propName:  "nested.missing[1]",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   `sub-property "missing" not found`,
+		},
+		// --- index on non-array types is rejected ---
+		{
+			name:      "root object (not object[]) with index rejected",
+			propName:  "nested[0].city",
+			valueType: schema.DataTypeText,
+			value:     "Berlin",
+			wantErr:   `"nested" is of type "object" — [N] indexing requires an array type`,
+		},
+		{
+			name:      "scalar sub-property with index rejected",
+			propName:  "nested.name[1]",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   `sub-property "name" is of type "text" — [N] indexing requires an array type`,
+		},
+		{
+			name:      "int sub-property with index rejected",
+			propName:  "nested.count[0]",
+			valueType: schema.DataTypeInt,
+			value:     42,
+			wantErr:   `sub-property "count" is of type "int" — [N] indexing requires an array type`,
+		},
+		{
+			name:      "object (not object[]) sub-property with index rejected",
+			propName:  "nested.owner[0].firstname",
+			valueType: schema.DataTypeText,
+			value:     "Alice",
+			wantErr:   `sub-property "owner" is of type "object" — [N] indexing requires an array type`,
+		},
+		// --- [N] on flat (non-nested) properties is rejected, so positional
+		// intent is never silently dropped ---
+		{
+			name:      "[N] rejected on flat array property",
+			propName:  "tagsArray[0]",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   `[N] indexing is only supported on nested object[] properties`,
+		},
+		{
+			name:      "[N] rejected on flat scalar property",
+			propName:  "title[0]",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   `[N] indexing is only supported on nested object[] properties`,
+		},
+		{
+			// A dotted path on a flat property must not be misreported as a
+			// "[N] indexing" error — the path contains no [N], so the
+			// [N]-rejection branch must not fire. The current code falls
+			// through and allows the filter (treating "title.foo" as a filter
+			// on the flat "title" prop); whether that's correct is a separate
+			// concern. This test asserts only that the [N] branch is gated
+			// by an actual [N], not by a stripped dot.
+			name:      "dotted path on flat property does not produce [N] error",
+			propName:  "title.foo",
+			valueType: schema.DataTypeText,
+			value:     "x",
+			wantErr:   "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -224,13 +327,77 @@ func TestValidateNestedLengthFilter(t *testing.T) {
 }
 
 func TestValidateNestedIsNull(t *testing.T) {
-	// IsNull is validated by the existing check before the nested path
-	// delegation, so it passes for any property type including nested.
-	cl := &Clause{
-		Operator: OperatorIsNull,
-		Value:    &Value{Value: true, Type: schema.DataTypeBoolean},
-		On:       &Path{Class: "Article", Property: "nested.name"},
+	isNullClause := func(propName string) *Clause {
+		return &Clause{
+			Operator: OperatorIsNull,
+			Value:    &Value{Value: true, Type: schema.DataTypeBoolean},
+			On:       &Path{Class: "Article", Property: schema.PropertyName(propName)},
+		}
 	}
-	err := validateClause(nestedGetClass, newClauseWrapper(cl))
-	require.NoError(t, err)
+
+	tests := []struct {
+		name     string
+		propName string
+		wantErr  string
+	}{
+		// root-level IsNull (no dot notation) — checks object existence
+		{
+			name:     "root object IsNull — no dot, valid",
+			propName: "nested",
+		},
+		// sub-property IsNull on text — bool value accepted regardless of leaf type
+		{
+			name:     "sub-property text IsNull",
+			propName: "nested.name",
+		},
+		// sub-property IsNull on int — bool value accepted regardless of leaf type
+		{
+			name:     "sub-property int IsNull",
+			propName: "nested.count",
+		},
+		// sub-property IsNull on text[] — bool value accepted regardless of leaf type
+		{
+			name:     "sub-property textArray IsNull",
+			propName: "nested.tags",
+		},
+		// sub-property inside nested object[]
+		{
+			name:     "nested object[] sub-property IsNull",
+			propName: "nested.addresses.city",
+		},
+		// nested object sub-property IsNull — leaf is object, valid for IsNull
+		{
+			name:     "nested object sub-property (nested.owner) IsNull",
+			propName: "nested.owner",
+		},
+		// nested object[] sub-property IsNull — leaf is object[], valid for IsNull
+		{
+			name:     "nested object[] sub-property (nested.addresses) IsNull",
+			propName: "nested.addresses",
+		},
+		// two-level path through nested object, int leaf
+		{
+			name:     "two-level path nested.owner.age IsNull",
+			propName: "nested.owner.age",
+		},
+		// non-existent sub-property is now rejected — path is validated
+		{
+			name:     "non-existent sub-property rejected",
+			propName: "nested.missing",
+			wantErr:  `"missing" not found`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cl := isNullClause(tt.propName)
+			err := validateClause(nestedGetClass, newClauseWrapper(cl))
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

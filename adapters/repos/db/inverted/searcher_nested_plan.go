@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -274,7 +275,7 @@ func (b *resolutionPlanBuilder) nodeTypeAndProps(
 	props []*models.NestedProperty,
 ) (schema.DataType, []*models.NestedProperty) {
 	for _, pathSeg := range pathSegs {
-		np := findNestedPropByName(props, pathSeg)
+		np := nested.FindNestedProp(props, pathSeg)
 		if np == nil {
 			return dt, props
 		}
@@ -291,7 +292,7 @@ func (b *resolutionPlanBuilder) isScalarAtLevel(pathSegs []string, props []*mode
 	if len(pathSegs) != 1 {
 		return false
 	}
-	np := findNestedPropByName(props, pathSegs[0])
+	np := nested.FindNestedProp(props, pathSegs[0])
 	if np == nil {
 		return false
 	}
@@ -304,7 +305,7 @@ func (b *resolutionPlanBuilder) isScalarAtLevel(pathSegs []string, props []*mode
 // introduces element-level positions.
 func (b *resolutionPlanBuilder) containsObjectArray(pathSegs []string, props []*models.NestedProperty) bool {
 	for _, pathSeg := range pathSegs {
-		np := findNestedPropByName(props, pathSeg)
+		np := nested.FindNestedProp(props, pathSeg)
 		if np == nil {
 			return false
 		}
