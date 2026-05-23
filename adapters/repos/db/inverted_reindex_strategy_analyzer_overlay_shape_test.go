@@ -21,20 +21,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestAnalyzerOverlayShape pins the exact return shape that each
-// MigrationStrategy.AnalyzerOverlay must produce.
-//
-// Why this matters: the analyzer overlay is the load-bearing mechanism that
-// keeps "from-scratch" strategies (enable-filterable, enable-searchable,
-// enable-rangeable) from silently producing empty target buckets while the
-// RAFT-stored schema flag is still false. A regression that returned an
-// empty Tokenization, the wrong Force* flag, or an empty map would surface
-// in production as a FINISHED migration whose new bucket is wrong / empty —
-// the canonical silent-data-loss failure mode flagged by sub-report 01 of
-// weaviate/0-weaviate-issues#243 (cross-cutting gap 1).
-//
-// Every helper / case in this file is prefixed `analyzerOverlay*` to avoid
-// clashing with sibling test files in this package.
+// TestAnalyzerOverlayShape pins each MigrationStrategy.AnalyzerOverlay
+// return shape. The overlay is what keeps from-scratch strategies
+// (enable-filterable / -searchable / -rangeable) from backfilling
+// empty buckets while the schema flag is still false; a wrong
+// Tokenization or Force* flag here surfaces as a silent-data-loss
+// FINISHED migration. weaviate/0-weaviate-issues#243 gap 1.
 func TestAnalyzerOverlayShape(t *testing.T) {
 	const (
 		analyzerOverlayPropA   = "title"

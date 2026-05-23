@@ -139,21 +139,9 @@ func midPropTidyRunTidyExpectingPanicError(ctx context.Context, task *ShardReind
 // markTidied() write. Recovery branch exercised is identical to a
 // crash between markSwapped() and markTidied().
 func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
-	// CI integration runs (`test/integration/run.sh:11`) export
-	// `DISABLE_RECOVERY_ON_PANIC=true`, which makes the
-	// ErrorGroupWrapper's deferred recover a no-op
-	// (`entities/errors/error_group_wrapper.go:82-99`). Without that
-	// recovery, the panic deliberately fired from the per-prop
-	// `testHookPostPropTidy` hook propagates out of the error-group
-	// goroutine and crashes the test binary — `midPropTidyRunTidyExpectingPanicError`
-	// (the tidy helper this test uses) relies on the wrapper turning
-	// the panic into an `eg.Wait()` error, not on a test-level
-	// recover. Force the env var false for the lifetime of this test
-	// so the wrapper recovers panics into errors and the assertion
-	// frame can observe the halt deterministically. The swap helper
-	// `midPropTidyRunSwapWithRecover` is unaffected (Phase 2a runs
-	// in the calling goroutine, where its own defer-recover catches
-	// the panic regardless of the env var).
+	// CI integration sets DISABLE_RECOVERY_ON_PANIC=true. We rely on
+	// the wrapper recovering the deliberate tidy-hook panic into an
+	// eg.Wait() error — the swap-phase helper has its own recover.
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 
 	const numObjects = 25

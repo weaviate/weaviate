@@ -130,28 +130,11 @@ func newFilterableToRangeableTestClass(className string) *models.Class {
 	}
 }
 
-// filterableToRangeableFingerprint reads a RoaringSetRange bucket by
-// querying every distinct value used in the test data and returns a
-// deterministic (uint64 lex-key → sorted []docID) snapshot. Sibling of
-// fingerprintRoaringSetBucket; the rangeable bucket uses a different
-// cursor model (Read(value, operator) rather than First/Next), so this
-// helper exists separately.
-//
-// Why query each value with OperatorEqual instead of iterating the whole
-// bucket: RoaringSetRange has no public First/Next cursor on the Bucket
-// API surface (only ReaderRoaringSetRange.Read). The set of values we
-// care about is fixed by the test generator (0..filterableToRangeable
-// NumDistinctValues-1), so query-each is bounded and deterministic.
-//
-// The map key is the BigEndian.Uint64 interpretation of the
-// LexicographicallySortableInt64 bytes — i.e. exactly what
-// WriteToReindexBucket stores as the rangeable term (see
-// inverted_reindex_strategy_rangeable.go:99). Matching that encoding is
-// load-bearing: if the recovery code path encoded the value differently
-// (e.g. raw int64 vs lex), the fingerprint comparison would still pass
-// only if both baseline and recovery use the same wrong encoding, which
-// is the right semantics — we want bit-equality, not "matches the
-// production read path".
+// filterableToRangeableFingerprint snapshots a RoaringSetRange bucket
+// as (lex-key → sorted docIDs). Query-per-value (instead of cursor
+// iteration) because RoaringSetRange exposes only Read on the public
+// API. Key encoding matches WriteToReindexBucket's storage form so the
+// comparison is bit-equality, not production-read-path equivalence.
 func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64][]uint64 {
 	t.Helper()
 	out := map[uint64][]uint64{}

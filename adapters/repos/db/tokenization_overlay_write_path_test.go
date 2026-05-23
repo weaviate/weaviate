@@ -102,18 +102,10 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	sort.Strings(terms)
 	t.Logf("on-disk terms with overlay=field, live schema=word: %v", terms)
 
-	// Pin the bug: the overlay says "use field tokenization" but the
-	// write path ignores it. If the assertion BELOW fails (i.e. terms
-	// contain "two", "distinct", "words" instead of "two distinct
-	// words"), the write path is honoring the LIVE schema's word
-	// tokenization, not the overlay — that's the #240 Symptom B
-	// candidate root cause.
-	//
-	// We assert what the OVERLAY-RESPECTING write path WOULD produce.
-	// The current (broken) code path produces the OPPOSITE, so this
-	// assertion fails on `main`. Once Shard.AnalyzeObject is wired to
-	// consult the overlay (analogous to AnalyzeObjectForMigrationWith-
-	// Overlay), this test passes without modification.
+	// Pin: the write path must honor the overlay. Pre-fix, terms
+	// land word-tokenized against the live schema instead of
+	// field-tokenized via the overlay — the #240 Symptom B
+	// candidate.
 	expectedFieldTerms := []string{"two distinct words"}
 	assert.ElementsMatchf(t, expectedFieldTerms, terms,
 		"write-path bug — overlay=field is being ignored. "+

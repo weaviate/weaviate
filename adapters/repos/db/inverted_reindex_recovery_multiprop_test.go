@@ -667,17 +667,10 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 	return out
 }
 
-// resolveDocIDFingerprintToUUIDs converts a `term → []docID` map into
-// `term → []uuid` so cross-replica comparison is identity-based, not
-// position-based. Returns deterministically sorted UUIDs per term.
-//
-// Uses ObjectsByDocIDWithEmpty and explicitly fails the test if any
-// docID does not resolve to an object: a posting list that names a
-// docID with no payload IS a corruption signal (or a write-path bug
-// landing a docID in the index without persisting the object), and
-// the convergence tests exist precisely to surface those — silently
-// dropping nils would let two replicas BOTH miss the same docID and
-// still compare equal.
+// resolveDocIDFingerprintToUUIDs converts `term → []docID` to `term →
+// []uuid` so cross-replica comparison is identity-based. Fails loudly
+// on unresolved docIDs — silently dropping nils would let both
+// replicas miss the same docID and still compare equal.
 func resolveDocIDFingerprintToUUIDs(t *testing.T, logger logrus.FieldLogger,
 	objectsBucket *lsmkv.Bucket, docIDMap map[string][]uint64,
 ) map[string][]string {

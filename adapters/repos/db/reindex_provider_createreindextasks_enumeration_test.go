@@ -19,32 +19,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// -----------------------------------------------------------------------------
-// Enumeration test for [ReindexProvider.createReindexTasks]
-// -----------------------------------------------------------------------------
-//
-// The switch statement in createReindexTasks now dispatches 9 distinct
-// ReindexMigrationType values. Adding a new constant in
-// reindex_provider_payload.go and forgetting to add a matching case
-// would silently produce the generic "unknown migration type" error
-// at runtime instead of dispatching the new strategy — and no other
-// test exercises the dispatch comprehensively enough to catch that.
-// See weaviate/0-weaviate-issues#243 for the broader pyramid analysis.
-//
-// This file is the structural pin: every ReindexMigrationType that
-// CAN be submitted to the system must either produce at least one
-// ShardReindexTaskGeneric, OR fail with an explicit error documented
-// here. Adding a new type without updating this test should fail at
-// the `for _, mt := range allKnownMigrationTypes` loop below.
+// Structural pin for createReindexTasks' switch: every
+// ReindexMigrationType in reindex_provider_payload.go must dispatch to
+// at least one ShardReindexTaskGeneric or fail with a documented
+// error. A new constant without a matching case fails the loop below
+// instead of silently producing "unknown migration type" at runtime.
 
-// allKnownMigrationTypes is the authoritative enumeration. Adding a new
-// ReindexMigrationType in reindex_provider_payload.go REQUIRES adding it
-// here too (and a matching case in createReindexTasksEnumerationCase to
-// describe the expected dispatch).
-//
-// Keep this list sorted by the order constants are declared in
-// reindex_provider_payload.go so visual inspection against that file is
-// easy.
+// allKnownMigrationTypes is the authoritative enumeration; sorted to
+// match the declaration order in reindex_provider_payload.go.
+// New type? Add here AND in createReindexTasksEnumerationCase.
 func allKnownMigrationTypes() []ReindexMigrationType {
 	return []ReindexMigrationType{
 		ReindexTypeChangeAlgorithm,

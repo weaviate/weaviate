@@ -73,26 +73,11 @@ func structuralInvariantInjectHandle(
 	return handle
 }
 
-// TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone
-// pins the central drain invariant: WaitForLocalTaskDrain MUST NOT
-// return until the per-task goroutine's doneCh is closed.
-//
-// Concretely: a caller orchestrating cancel→drain→cleanup (the
-// __reindex / __ingest sidecar-bucket teardown sequence) cannot
-// safely call CleanStalePartialReindexState while the per-task
-// goroutine is still writing to those buckets. WaitForLocalTaskDrain
-// is the safety gate.
-//
-// We:
-//  1. Inject a fake handle whose doneCh is open (worker still
-//     running).
-//  2. Spawn a goroutine calling WaitForLocalTaskDrain.
-//  3. Assert the call has NOT returned for a short bounded interval.
-//  4. Close the handle's doneCh (worker exits).
-//  5. Assert the call returns within a short bounded interval.
-//
-// All synchronization is via channels — no time.Sleep for
-// race-detection.
+// TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone:
+// the safety gate for cancel→drain→cleanup sidecar teardown must not
+// return until the worker's doneCh closes. Otherwise
+// CleanStalePartialReindexState races with the worker still writing
+// to __reindex / __ingest buckets.
 func TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone(t *testing.T) {
 	p := structuralInvariantNewBareProvider()
 	desc := distributedtask.TaskDescriptor{ID: "task-blocking", Version: 7}

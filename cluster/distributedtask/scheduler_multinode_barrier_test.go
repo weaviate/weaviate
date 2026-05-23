@@ -295,26 +295,12 @@ func barrierDriveAllAcksAndAssertSwapping(t *testing.T, h *barrierHarness, taskI
 		"after every node's prep-ack lands successfully the barrier must lift to SWAPPING")
 }
 
-// TestBarrier_G1_LeaderLossBetweenPhaseAandPhaseB pins gap G1:
-// after every node has committed its PreparationCompleteAck and the FSM
-// has transitioned PREPARING → SWAPPING, every node's NEXT tick must
-// fire OnSwapRequested. Whether or not a RAFT leader change happens
-// between the apply that lifted the barrier and the next tick is
-// invisible to the scheduler — the only state input is the
-// FSM-replicated Task.Status. We model "leader loss" by ordering ticks
-// so that a different scheduler observes SWAPPING in each tick and must
-// nevertheless re-emit its own per-node PHASE B work.
-//
-// Important production-behavior subtlety: the scheduler ONLY reflects
-// the FAILED transition on the local task clone (scheduler.go:574-576);
-// it does NOT reflect a successful PREPARING → SWAPPING flip. So even
-// on the node whose ack lifts the barrier, PHASE B does NOT fire in
-// the SAME tick — the in-tick `postStarted` predicate evaluated from
-// the stale local clone is still PREPARING. PHASE B fires on the NEXT
-// tick when ListDistributedTasks returns the fresh SWAPPING status.
-// This test pins that contract: no node fires OnSwapRequested in its
-// own ack-emitting tick, but every node MUST fire on its first
-// subsequent SWAPPING-observing tick.
+// TestBarrier_G1_LeaderLossBetweenPhaseAandPhaseB: post-barrier-lift,
+// PHASE B fires on the NEXT tick (not the ack-emitting tick) because
+// the scheduler only reflects FAILED — not SWAPPING — on the local
+// task clone. Pins that contract regardless of inter-tick leader
+// changes, which are invisible to the scheduler (only Task.Status
+// matters).
 func TestBarrier_G1_LeaderLossBetweenPhaseAandPhaseB(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -386,20 +372,12 @@ func TestBarrier_G1_LeaderLossBetweenPhaseAandPhaseB(t *testing.T) {
 	}
 }
 
-// TestBarrier_G2_PartialPhaseBFailure pins gap G2 — the most important
-// barrier-PHASE-B gap: some replicas SWAP successfully, one returns an
-// error from OnSwapRequested. The post-completion ack with Success=false
-// must flip the FSM to FAILED, MarkTaskFinalized must NOT issue
-// SWAPPING → FINISHED, and the cluster-wide schema flip (the production
-// side-effect in OnTaskCompleted) is skipped via the FAILED gate.
-//
-// This is the cross-replica failure shape that PR #11328 explicitly
-// targets but never directly tests at the scheduler-multinode layer.
-// The legacy TestMultiScheduler_AckBarrier_FailureAckTransitionsToFailed
-// covers the same shape via OnGroupCompleted (PHASE A — the legacy
-// pre-barrier path); none of the existing multinode tests exercise
-// OnSwapRequested failure at all (the provider stubs OnSwapRequested
-// to a no-op).
+// TestBarrier_G2_PartialPhaseBFailure: one OnSwapRequested returns
+// error, others succeed. The Success=false post-completion ack flips
+// the task to FAILED, MarkTaskFinalized refuses, and OnTaskCompleted
+// skips the schema flip via the FAILED gate. The cross-replica
+// failure shape PR #11328 targets but never directly tested at this
+// layer (the existing failure tests cover PHASE A only).
 func TestBarrier_G2_PartialPhaseBFailure(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -688,25 +666,12 @@ func TestBarrier_G4_ParallelMigrationDifferentPropDuringBarrier(t *testing.T) {
 	}
 }
 
-// TestBarrier_G5_SchemaVersionMismatchRollingUpgrade pins gap G5: a
-// pre-PR-#11328 node deserializes a Task envelope that includes the
-// new NeedsPreparationBarrier field as the field being silently
-// missing — i.e. NeedsPreparationBarrier unmarshals as false. This is
-// the backward-compat invariant: a v1.36 follower receiving a RAFT
-// snapshot from a v1.37 leader (mid-rolling-upgrade) must not get the
-// barrier silently degraded to the legacy path (the exact bug class
-// PR #11328 closes).
-//
-// The deterministic check is a JSON round-trip: serialize a Task with
-// NeedsPreparationBarrier=true via the live struct, then deserialize
-// into a struct that doesn't know the field. The barrier field reads
-// as zero-value (false) — which IS the legacy behavior. The test pins
-// the contract that there is no defensive guard preventing this:
-// rolling upgrades MUST go from pre-PR to post-PR (so a new leader's
-// barrier-true tasks are seen by a still-old follower) and the
-// backward-compat shape MUST be either explicit rejection OR the safe
-// default. This test documents the actual current behavior so an
-// upgrade-safety regression is caught.
+// TestBarrier_G5_SchemaVersionMismatchRollingUpgrade: pre-PR-#11328
+// follower deserializes the new NeedsPreparationBarrier field as
+// zero-value (false). Documents that the rolling-upgrade backward-
+// compat path silently degrades barrier-true tasks to legacy — pins
+// the contract so a future change has to confront the upgrade-safety
+// trade-off explicitly.
 func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 	// Build a Task in the new (post-PR) shape with the barrier on.
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -785,21 +750,11 @@ func TestBarrier_G5_SchemaVersionMismatchRollingUpgrade(t *testing.T) {
 		"legacy task envelopes use the old SWAPPING status; the post-PR Task struct preserves that")
 }
 
-// TestBarrier_G6_RestartMidPhaseARecovery pins gap G6: a node that
-// crashed mid-PREPARING (e.g. SIGKILL'd between PHASE A firing and
-// PHASE A.5 ack emission) must, after restart, re-fire OnGroupCompleted
-// for its local groups and emit a fresh prep-ack. The bootstrap
-// pre-mark suppression test (scheduler_test.go:1474) already pins
-// that PREPARING/SWAPPING tasks are NOT pre-marked — meaning the new
-// scheduler's empty preparationCallbackFired map allows re-firing on
-// the next tick. This test exercises the end-to-end recovery flow.
-//
-// We model the restart by spinning a brand-new scheduler with a brand
-// new (empty) callback-fired maps, pointing at the same Manager and
-// the same provider. The barrier-recording provider is per-node, so
-// re-using it across the restart preserves "the same provider survives
-// the restart" semantics; the in-memory callback-fired maps are per-
-// scheduler and DON'T survive, which is exactly the production reality.
+// TestBarrier_G6_RestartMidPhaseARecovery: node crashes between
+// PHASE A and PHASE A.5; after restart its fresh scheduler must re-
+// fire OnGroupCompleted and emit a prep-ack. Restart is modeled by
+// spinning a new Scheduler against the same Manager + provider —
+// in-memory maps reset (per-scheduler), provider state survives.
 func TestBarrier_G6_RestartMidPhaseARecovery(t *testing.T) {
 	defer leaktest.Check(t)()
 

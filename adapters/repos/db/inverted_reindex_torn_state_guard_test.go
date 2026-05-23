@@ -25,25 +25,10 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// -----------------------------------------------------------------------------
-// Torn-state recovery guard — Sev-1 silent-data-loss protection
-// -----------------------------------------------------------------------------
-//
-// [ShardReindexTaskGeneric] has a torn-state guard wired into both
-// OnBeforeLsmInit and OnAfterLsmInit. The guard fires when reindexed.mig
-// is on disk, none of IsPrepended/IsMerged/IsSwapped/IsTidied are set
-// (so the reindex bucket dirs MUST still exist), and at least one
-// per-property reindex bucket dir is missing.
-//
-// On a fire the guard unmarks reindexed.mig so the next pass re-iterates
-// instead of running runtime swap against an EMPTY reindex bucket.
-// Without it the schema flag would flip on top of no data — the Sev-1
-// silent failure tracked at weaviate/0-weaviate-issues#240 Symptom A.
-//
-// This file pins both arms: two positive cases (guard fires) and three
-// negative cases (guard correctly leaves state alone), plus end-to-end
-// convergence after a guard-triggered recovery (which exercises the
-// weaviate/0-weaviate-issues#244 fix).
+// Torn-state recovery guard for the v2 reindex (#240 Symptom A,
+// #244): both arms pinned — fires when reindexed.mig outlives the
+// bucket dirs in the pre-prepend window; leaves state alone
+// otherwise. Plus end-to-end convergence post-guard-recovery.
 
 const (
 	tornGuardNumObjects = 25

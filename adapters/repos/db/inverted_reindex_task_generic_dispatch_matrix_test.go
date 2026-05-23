@@ -524,32 +524,11 @@ func dispatchMatrixSeedObjects(
 	}
 }
 
-// TestRunSwapOnShard_DispatchMatrix is the full sentinel × strategy
-// cross product. See the file-level godoc for the design rationale.
-//
-// Each cell:
-//
-//  1. Builds a fresh shard with the strategy's class fixture and
-//     inserts a small batch of seed objects.
-//  2. Drives the on-disk state to the target sentinel via the
-//     strategy's drive-to-state primitives (trio for semantic
-//     migrations, inline OnAfterLsmInit+loop+direct runtimePrepare for
-//     non-semantic; synthetic .mig removal for atomic-method-internal
-//     states).
-//  3. Verifies the driveToState landed at exactly the expected
-//     sentinel snapshot (catches a buggy driveToState that doesn't
-//     halt where intended — without this guard, a downstream pass
-//     could mask a missed setup).
-//  4. Calls task.RunSwapOnShard(ctx, shard).
-//  5. Asserts: no error, post-call sentinels are all-true (IsTidied),
-//     and the strategy-specific target bucket's fingerprint matches
-//     the per-strategy baseline.
-//
-// Cells where the dispatch branch is unsafe at unit level — currently
-// only IsPrepended on every strategy (recoverRuntimeSwapBuckets renames
-// live mmap'd bucket dirs in the same process) — are skipped with a
-// precise reason and counted in the test output for review-time
-// auditability.
+// TestRunSwapOnShard_DispatchMatrix: full sentinel × strategy cross
+// product. Each cell drives to the target sentinel via the strategy's
+// primitives, verifies the setup landed, calls RunSwapOnShard, and
+// asserts the target bucket fingerprint matches the baseline. See
+// file-level godoc for the IsPrepended skip rationale.
 func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 	const numObjects = 10
 

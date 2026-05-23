@@ -331,30 +331,11 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 }
 
 // TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier
-// pins the contract introduced in commit 073d47b460
-// (weaviate/0-weaviate-issues#214): FlushAndSwitch on every per-property
-// reindex bucket happens-BEFORE markReindexed, so the marker is never
-// observed in a state where the bucket data hasn't been fsynced.
-//
-// On a real disk, the marker file persists across process boundaries
-// (the OS writeback cache is not the same as application memory). This
-// test drives the iteration to the barrier point (skipSwapOnFinish=true,
-// so iteration halts at markReindexed), shuts the shard down — closing
-// the LSM store and forcing a final fsync of any in-flight writes —
-// then re-reads the sentinel file directly from disk to confirm it
-// survives.
-//
-// The complementary case (writes lost to memtable on SIGKILL) cannot be
-// reproduced without ptrace-style process killing; the unit-level
-// contract this test pins is:
-//   - markReindexed wrote ⇒ reindexed.mig is readable post-shutdown.
-//   - The barrier's per-prop FlushAndSwitch returned ⇒ the reindex
-//     bucket on disk has the data, not just memtables.
-//
-// This pin keeps the bug closed: if a refactor accidentally moves the
-// FlushAndSwitch to AFTER markReindexed, a follow-up restart that
-// dispatches via IsReindexed could see torn state — and the bug
-// returned. This test would fail if reindexed.mig was lazily flushed.
+// pins commit 073d47b460 (weaviate/0-weaviate-issues#214):
+// FlushAndSwitch happens-BEFORE markReindexed, so a follow-up restart
+// dispatching via IsReindexed never sees the marker without the data.
+// A refactor that moved FlushAndSwitch after the marker would fail
+// here.
 func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *testing.T) {
 	ctx := testCtx()
 	className := "BarrierIntegDurability"
