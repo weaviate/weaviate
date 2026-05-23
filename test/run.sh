@@ -277,6 +277,7 @@ function main() {
   # shard because that function is gated by the big-IF a few hundred
   # lines below, which does not include $run_acceptance_distributed_tasks.
   if $run_acceptance_distributed_tasks; then
+    build_weaviate_test_image
     echo "running acceptance distributed_tasks"
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
@@ -426,6 +427,7 @@ function run_acceptance_tests() {
   # (search for "distributed_tasks" above); $run_acceptance_distributed_tasks
   # is intentionally absent from this predicate.
   if $run_acceptance_tests || $run_all_tests; then
+    build_weaviate_test_image
     echo "running acceptance distributed_tasks (via catch-all)"
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
