@@ -122,21 +122,24 @@ func Test_ValidateConfigUpdate(t *testing.T) {
 			initial: &models.ReplicationConfig{Factor: 3},
 			update:  &models.ReplicationConfig{Factor: 4},
 			expectedError: fmt.Errorf(
-				"cannot scale to 4 replicas, cluster has only 3 nodes"),
+				"cannot scale to 4 replicas, cluster has only 3 nodes",
+			),
 		},
 		{
 			name:    "updating to factor = -1 is rejected",
 			initial: &models.ReplicationConfig{Factor: 2},
 			update:  &models.ReplicationConfig{Factor: -1},
 			expectedError: fmt.Errorf(
-				"invalid replication factor: must be >= 1, got -1"),
+				"invalid replication factor: must be >= 1, got -1",
+			),
 		},
 		{
 			name:    "updating to large negative factor is rejected",
 			initial: &models.ReplicationConfig{Factor: 2},
 			update:  &models.ReplicationConfig{Factor: -100},
 			expectedError: fmt.Errorf(
-				"invalid replication factor: must be >= 1, got -100"),
+				"invalid replication factor: must be >= 1, got -100",
+			),
 		},
 	}
 
@@ -145,7 +148,8 @@ func Test_ValidateConfigUpdate(t *testing.T) {
 			err := replica.ValidateConfigUpdate(
 				&models.Class{ReplicationConfig: test.initial},
 				&models.Class{ReplicationConfig: test.update},
-				&fakeNodeCounter{3})
+				&fakeNodeCounter{3},
+			)
 			if test.expectedError == nil {
 				assert.Nil(t, err)
 			} else {
