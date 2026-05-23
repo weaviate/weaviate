@@ -85,6 +85,28 @@ func TestIdxKey(t *testing.T) {
 	})
 }
 
+func TestIdxKeyToBuf(t *testing.T) {
+	t.Run("produces same result as IdxKey", func(t *testing.T) {
+		var buf [IdxKeySize]byte
+		assert.Equal(t, IdxKey("addresses", 0), IdxKeyToBuf("addresses", 0, buf[:]))
+		assert.Equal(t, IdxKey("addresses", 3), IdxKeyToBuf("addresses", 3, buf[:]))
+		assert.Equal(t, IdxKey("cars", 7), IdxKeyToBuf("cars", 7, buf[:]))
+	})
+
+	t.Run("buffer is reused across calls", func(t *testing.T) {
+		var buf [IdxKeySize]byte
+		k0 := IdxKeyToBuf("addresses", 0, buf[:])
+		k1 := IdxKeyToBuf("addresses", 1, buf[:])
+		// Both slices point into the same backing array — k0 reflects the last write.
+		assert.Equal(t, k0, k1)
+	})
+
+	t.Run("result length is always IdxKeySize", func(t *testing.T) {
+		var buf [IdxKeySize]byte
+		assert.Len(t, IdxKeyToBuf("some.nested.path", 42, buf[:]), IdxKeySize)
+	})
+}
+
 func TestExistsKey(t *testing.T) {
 	t.Run("named path hashes _exists prefix with path", func(t *testing.T) {
 		key := ExistsKey("owner.firstname")

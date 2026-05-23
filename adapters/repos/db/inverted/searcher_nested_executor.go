@@ -24,27 +24,27 @@ import (
 )
 
 // planExecutor executes an executionPlan for a correlated nested AND filter.
-//
-// TODO aliszka:nested_filtering positionBitmaps bitmaps have no associated release
-// functions. Bitmaps fetched via fetchRawPositions may be backed by pooled
-// buffers that must be returned to the pool after use. Add a releases []func()
-// field and defer-call all of them at the end of execute() so pooled buffers
-// are correctly returned. See Option A in notes.
 type planExecutor struct {
 	plan            executionPlan
 	positionsByPath map[string]*positionBitmaps
 	metaBucket      *lsmkv.Bucket
+	bitmapOps       *invnested.BitmapOps
+	maxConcurrency  int
 }
 
 func newPlanExecutor(
 	plan executionPlan,
 	positionsByPath map[string]*positionBitmaps,
 	metaBucket *lsmkv.Bucket,
+	bitmapOps *invnested.BitmapOps,
+	maxConcurrency int,
 ) *planExecutor {
 	return &planExecutor{
 		plan:            plan,
 		positionsByPath: positionsByPath,
 		metaBucket:      metaBucket,
+		bitmapOps:       bitmapOps,
+		maxConcurrency:  maxConcurrency,
 	}
 }
 
@@ -54,19 +54,38 @@ func newPlanExecutor(
 // call — no intermediate bitmap is produced for those groups. groupAndAll results
 // (full-position bitmaps from AndAll) and groupRunIdxLoop results (already
 // leaf-masked) are each added as single entries and leaf-masked in the final step.
-func (e *planExecutor) execute(ctx context.Context) (*sroar.Bitmap, error) {
+func (e *planExecutor) execute(ctx context.Context) (*sroar.Bitmap, func(), error) {
+	// intermediateReleases collects pool-buffer releases for all bitmaps
+	// created within execute — token-combined bitmaps from collectRaw and
+	// groupAndAll results. They are all released after MaskRootLeaf produces
+	// the final result, at which point the executor no longer reads them.
+	var intermediateReleases []func()
+	defer func() {
+		for _, rel := range intermediateReleases {
+			rel()
+		}
+	}()
+
 	// finalBitmaps collects one entry per groupAndAll/groupRunIdxLoop result, and
 	// the raw bitmaps from each groupAndAllMaskLeaf group directly — avoiding the
 	// intermediate AndAllMaskLeaf allocation for those groups.
 	finalBitmaps := make([]*sroar.Bitmap, 0, len(e.plan))
 	for _, g := range e.plan {
-		raw, err := e.collectRaw(g.paths)
+		raw, rawReleases, err := e.collectRaw(g.paths)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		intermediateReleases = append(intermediateReleases, rawReleases...)
+
 		switch g.op {
 		case groupAndAll:
-			finalBitmaps = append(finalBitmaps, invnested.AndAll(raw))
+			if len(raw) == 1 {
+				finalBitmaps = append(finalBitmaps, raw[0])
+			} else {
+				result, release := e.bitmapOps.AndAll(raw, e.maxConcurrency)
+				intermediateReleases = append(intermediateReleases, release)
+				finalBitmaps = append(finalBitmaps, result)
+			}
 		case groupAndAllMaskLeaf:
 			// Fold raw bitmaps directly into the final AndAllMaskLeaf step.
 			// The final step masks each bitmap's leaf bits before ANDing, which
@@ -75,38 +94,55 @@ func (e *planExecutor) execute(ctx context.Context) (*sroar.Bitmap, error) {
 			finalBitmaps = append(finalBitmaps, raw...)
 		case groupRunIdxLoop:
 			if e.metaBucket == nil {
-				return nil, fmt.Errorf("execute: meta bucket is nil for idxLoop on %q", g.lcaPath)
+				return nil, nil, fmt.Errorf("execute: meta bucket is nil for idxLoop on %q", g.lcaPath)
 			}
-			result, err := e.runIdxLoop(ctx, g.lcaPath, raw)
+			result, release, err := e.runIdxLoop(ctx, g.lcaPath, raw)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
+			intermediateReleases = append(intermediateReleases, release)
 			finalBitmaps = append(finalBitmaps, result)
 		default:
-			return nil, fmt.Errorf("execute: unhandled group op %d", g.op)
+			return nil, nil, fmt.Errorf("execute: unhandled group op %d", g.op)
 		}
 	}
-	return invnested.MaskRootLeaf(invnested.AndAllMaskLeaf(finalBitmaps)), nil
+	masked, maskedRelease := e.bitmapOps.AndAllMaskLeaf(finalBitmaps, e.maxConcurrency)
+	intermediateReleases = append(intermediateReleases, maskedRelease)
+	final, finalRelease := e.bitmapOps.MaskRootLeaf(masked)
+	return final, finalRelease, nil
 }
 
 // collectRaw returns individual raw position bitmaps for all conditions across
 // the given paths: tokens for a path are pre-combined with AndAll (they must
 // share the exact same leaf position), each independent contributes its own
 // raw bitmap.
-func (e *planExecutor) collectRaw(paths []string) ([]*sroar.Bitmap, error) {
+//
+// The second return value contains release functions for the pool-backed
+// token-combined bitmaps created here. Independent bitmaps are direct
+// references to input bitmaps owned by the caller — no releases for those.
+func (e *planExecutor) collectRaw(paths []string) ([]*sroar.Bitmap, []func(), error) {
 	var bitmaps []*sroar.Bitmap
+	var releases []func()
 	for _, path := range paths {
 		positions, ok := e.positionsByPath[path]
 		if !ok {
-			return nil, fmt.Errorf("collectRaw: no positions for path %q", path)
+			return nil, nil, fmt.Errorf("collectRaw: no positions for path %q", path)
 		}
-		if len(positions.tokens) > 0 {
-			// Tokens must share the exact same leaf position — combine first.
-			bitmaps = append(bitmaps, invnested.AndAll(positions.tokens))
+		switch len(positions.tokens) {
+		case 0:
+			// nothing
+		case 1:
+			// Single token: no merge needed, reuse directly without cloning.
+			bitmaps = append(bitmaps, positions.tokens[0])
+		default:
+			// Multiple tokens must share the exact same leaf position — combine first.
+			combined, release := e.bitmapOps.AndAll(positions.tokens, e.maxConcurrency)
+			bitmaps = append(bitmaps, combined)
+			releases = append(releases, release)
 		}
 		bitmaps = append(bitmaps, positions.independent...)
 	}
-	return bitmaps, nil
+	return bitmaps, releases, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -149,12 +185,13 @@ func (e *planExecutor) runIdxLoop(
 	ctx context.Context,
 	lcaPath string,
 	positionBitmaps []*sroar.Bitmap,
-) (*sroar.Bitmap, error) {
+) (*sroar.Bitmap, func(), error) {
 	if len(positionBitmaps) == 0 {
-		return nil, fmt.Errorf("runIdxLoop: no position bitmaps provided for path %q", lcaPath)
+		return nil, nil, fmt.Errorf("runIdxLoop: no position bitmaps provided for path %q", lcaPath)
 	}
 	if len(positionBitmaps) == 1 {
-		return invnested.MaskLeaf(positionBitmaps[0]), nil
+		result, release := e.bitmapOps.MaskLeaf(positionBitmaps[0])
+		return result, release, nil
 	}
 
 	sorted := slices.Clone(positionBitmaps)
@@ -164,25 +201,35 @@ func (e *planExecutor) runIdxLoop(
 	}
 	sort.Sort(bitmapsByCard{sorted, cards})
 
-	preFilter := invnested.AndAllMaskLeaf(sorted)
+	preFilter, releasePreFilter := e.bitmapOps.AndAllMaskLeaf(sorted, e.maxConcurrency)
+	defer releasePreFilter()
+
 	preFilterCard := preFilter.GetCardinality()
 	if preFilterCard == 0 {
-		return sroar.NewBitmap(), nil
+		return sroar.NewBitmap(), func() {}, nil
 	}
 
 	if err := ctxExpired(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	idxPrefix := invnested.PathPrefix("_idx." + lcaPath)
-	result := sroar.NewBitmap()
+	// result accumulates via Or and is bounded by preFilter (result ⊆ preFilter),
+	// so preFilter's size is a reliable upper bound for the pool buffer.
+	result, releaseResult := e.bitmapOps.NewEmpty(preFilter.LenInBytes())
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			releaseResult()
+		}
+	}()
 
 	c := e.metaBucket.CursorRoaringSet()
 	defer c.Close()
 
 	for k, elemBitmap := c.Seek(invnested.IdxKey(lcaPath, 0)); k != nil; k, elemBitmap = c.Next() {
 		if err := ctxExpired(ctx); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !bytes.HasPrefix(k, idxPrefix) {
 			break
@@ -190,28 +237,50 @@ func (e *planExecutor) runIdxLoop(
 		if elemBitmap.IsEmpty() {
 			continue
 		}
-
-		if invnested.AndWithMaskLeaf(preFilter, elemBitmap).IsEmpty() {
+		if !e.matchElement(result, sorted, preFilter, elemBitmap) {
 			continue
 		}
-
-		partial := invnested.MaskLeafAnd(sorted[0], elemBitmap)
-		empty := partial.IsEmpty()
-		for _, bm := range sorted[1:] {
-			if empty {
-				break
-			}
-			partial.And(invnested.MaskLeafAnd(bm, elemBitmap))
-			empty = partial.IsEmpty()
-		}
-
-		if !empty {
-			result.Or(partial)
-			if result.GetCardinality() >= preFilterCard {
-				break
-			}
+		if result.GetCardinality() >= preFilterCard {
+			break
 		}
 	}
 
-	return result, nil
+	succeeded = true
+	return result, releaseResult, nil
+}
+
+// matchElement checks whether all conditions in sorted satisfy the same array
+// element (represented by elemBitmap) and, if so, ORs the per-element result
+// into acc. Returns true when at least one document matched.
+//
+// All intermediate pool buffers (pre-check, partial accumulator, per-condition
+// temporaries) are released before the method returns, including on panic.
+func (e *planExecutor) matchElement(acc *sroar.Bitmap, sorted []*sroar.Bitmap, preFilter, elemBitmap *sroar.Bitmap) bool {
+	// Pre-check: skip element if it cannot possibly satisfy all conditions.
+	// preFilter is already leaf-masked; IntersectsMaskedLeaf zeroes elemBitmap's
+	// leaf bits and checks for overlap without allocating — cheap fast-reject.
+	if !e.bitmapOps.IntersectsMaskedLeaf(preFilter, elemBitmap) {
+		return false
+	}
+
+	// Compute the intersection of all conditions within this element.
+	partial, releasePartial := e.bitmapOps.MaskLeafAnd(sorted[0], elemBitmap)
+	defer releasePartial()
+
+	for _, bm := range sorted[1:] {
+		if partial.IsEmpty() {
+			break
+		}
+		func() {
+			inner, releaseInner := e.bitmapOps.MaskLeafAnd(bm, elemBitmap)
+			defer releaseInner()
+			partial.AndConc(inner, e.maxConcurrency)
+		}()
+	}
+
+	if partial.IsEmpty() {
+		return false
+	}
+	acc.OrConc(partial, e.maxConcurrency)
+	return true
 }

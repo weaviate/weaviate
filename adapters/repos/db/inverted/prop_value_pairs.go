@@ -37,7 +37,6 @@ type propValuePair struct {
 	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
 	// byte value from an inverted index
 	valueGeoRange      *filters.GeoRange
-	docIDs             docBitmap
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
@@ -50,11 +49,11 @@ func newPropValuePair(class *models.Class) (*propValuePair, error) {
 	if class == nil {
 		return nil, errors.Errorf("class must not be nil")
 	}
-	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
+	return &propValuePair{Class: class}, nil
 }
 
 func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	if err := ctx.Err(); err != nil {
+	if err := ctxExpired(ctx); err != nil {
 		return nil, err
 	}
 
@@ -262,8 +261,8 @@ func mergeBitmapsAndOrWithDenyList(a, b *docBitmap, operator filters.Operator) *
 	// swapForEfficiency puts the larger bitmap in `a` for Or (fewer union ops),
 	// or the smaller bitmap in `a` for And (fewer intersection ops).
 	swapForEfficiency := func(op filters.Operator) {
-		if (op == filters.OperatorOr && a.docIDs.CompareNumKeys(b.docIDs) < 0) ||
-			(op == filters.OperatorAnd && a.docIDs.CompareNumKeys(b.docIDs) > 0) {
+		if (op == filters.OperatorOr && a.docIDs.NumContainers() < b.docIDs.NumContainers()) ||
+			(op == filters.OperatorAnd && a.docIDs.NumContainers() > b.docIDs.NumContainers()) {
 			a, b = b, a
 		}
 	}
