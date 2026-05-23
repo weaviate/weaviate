@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -78,13 +77,12 @@ func (s *Searcher) buildNestedFilterPair(filter *filters.Clause, path, propName 
 	// property (e.g. "city", "owner.firstname"), not the full filter path
 	// (e.g. "event.city"). Strip the top-level property name.
 	relativePath := strings.TrimPrefix(path, propName+".")
-	keyPrefix := nested.PathPrefix(relativePath)
 	dt := schema.DataType(leaf.DataType[0])
 	switch dt {
 	case schema.DataTypeText, schema.DataTypeTextArray:
-		return s.buildNestedTextFilterPair(filter, path, propName, leaf, keyPrefix, class)
+		return s.buildNestedTextFilterPair(filter, path, propName, leaf, relativePath, class)
 	default:
-		return s.buildNestedPrimitiveFilterPair(filter, path, propName, dt, keyPrefix, class)
+		return s.buildNestedPrimitiveFilterPair(filter, path, propName, dt, relativePath, class)
 	}
 }
 
@@ -96,7 +94,7 @@ func (s *Searcher) buildNestedFilterPair(filter *filters.Clause, path, propName 
 // ASCII folding, wildcard handling) was aligned with extractTokenizableProp
 // manually. Consider extracting a shared helper to avoid future divergence.
 func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propName string,
-	leaf *models.NestedProperty, keyPrefix []byte, class *models.Class,
+	leaf *models.NestedProperty, relativePath string, class *models.Class,
 ) (*propValuePair, error) {
 	valueStr, ok := filter.Value.Value.(string)
 	if !ok {
@@ -130,10 +128,9 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propN
 		pvps = append(pvps, &propValuePair{
 			prop:               propName,
 			value:              []byte(term),
-			nestedKeyPrefix:    keyPrefix,
 			operator:           filter.Operator,
 			hasFilterableIndex: true,
-			isNested:           true,
+			nested:             nestedInfo{isNested: true, relPath: relativePath},
 			Class:              class,
 		})
 	}
@@ -144,13 +141,13 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, path, propN
 	if len(pvps) == 1 {
 		return pvps[0], nil
 	}
-	return &propValuePair{operator: filters.OperatorAnd, children: pvps, Class: class}, nil
+	return &propValuePair{operator: filters.OperatorAnd, children: pvps, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: propName, Class: class}, nil
 }
 
 // buildNestedPrimitiveFilterPair handles non-text primitive types (int,
 // number, bool, date and their array variants).
 func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, path, propName string,
-	dt schema.DataType, keyPrefix []byte, class *models.Class,
+	dt schema.DataType, relativePath string, class *models.Class,
 ) (*propValuePair, error) {
 	// Map array types to their scalar equivalent — each array element is stored
 	// individually in the nested bucket, so filtering works the same way.
@@ -182,10 +179,9 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, path, 
 	return &propValuePair{
 		prop:               propName,
 		value:              encodedValue,
-		nestedKeyPrefix:    keyPrefix,
 		operator:           filter.Operator,
 		hasFilterableIndex: true,
-		isNested:           true,
+		nested:             nestedInfo{isNested: true, relPath: relativePath},
 		Class:              class,
 	}, nil
 }

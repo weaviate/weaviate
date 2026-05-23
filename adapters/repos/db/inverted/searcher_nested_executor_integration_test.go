@@ -20,7 +20,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -28,7 +27,7 @@ import (
 )
 
 // newIdxBucket creates a temporary lsmkv store and an empty RoaringSet bucket
-// for use as the _idx meta bucket in applyIdxLoop tests.
+// for use as the _idx meta bucket in executeResolutionPlan tests.
 func newIdxBucket(t *testing.T) *lsmkv.Bucket {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -51,9 +50,9 @@ func writeIdx(t *testing.T, bucket *lsmkv.Bucket, path string, elemIdx int, posi
 	require.NoError(t, bucket.RoaringSetAddList(nested.IdxKey(path, elemIdx), positions))
 }
 
-// ---- applyIdxLoop integration tests ----------------------------------------
+// ---- executeResolutionPlan with idxLoopAnd integration tests ----------------
 
-func TestApplyIdxLoopIntegration(t *testing.T) {
+func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 	const (
 		doc5 = uint64(5)
 		doc7 = uint64(7)
@@ -64,20 +63,13 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 	// Preconditions requiring a real (non-nil) bucket
 	// -------------------------------------------------------------------------
 
-	t.Run("zero bitmaps returns error", func(t *testing.T) {
-		bucket := newIdxBucket(t)
-		_, err := applyIdxLoop(context.Background(), bucket, "cars", nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no position bitmaps")
-	})
-
 	t.Run("one bitmap returns MaskRootLeaf fast-path without cursor scan", func(t *testing.T) {
 		bucket := newIdxBucket(t)
 		// Write an idx entry that would produce a different result if scanned.
 		writeIdx(t, bucket, "cars", 0, []uint64{nested.Encode(1, 1, doc5), nested.Encode(1, 2, doc5)})
 
-		pos511 := nested.Encode(1, 1, doc5)
-		result, err := applyIdxLoop(context.Background(), bucket, "cars", []*sroar.Bitmap{roaringset.NewBitmap(pos511)})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", roaringset.NewBitmap(nested.Encode(1, 1, doc5)))
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		// Fast-path: returns MaskRootLeaf(bitmap[0]), ignoring the bucket entirely.
 		assert.Equal(t, []uint64{doc5}, result.ToArray())
@@ -88,11 +80,13 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 		writeIdx(t, bucket, "cars", 0, []uint64{nested.Encode(1, 1, doc5)})
 
 		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // cancel immediately
+		cancel()
 
-		pos511 := nested.Encode(1, 1, doc5)
-		pos512 := nested.Encode(1, 2, doc5)
-		_, err := applyIdxLoop(ctx, bucket, "cars", []*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos512)})
+		plan, bitmapsByPath := idxLoopAndPlan("cars",
+			roaringset.NewBitmap(nested.Encode(1, 1, doc5)),
+			roaringset.NewBitmap(nested.Encode(1, 2, doc5)),
+		)
+		_, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(ctx)
 		require.Error(t, err)
 	})
 
@@ -113,7 +107,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5))
 		condB := roaringset.NewBitmap(nested.Encode(1, 2, doc5))
-		result, err := applyIdxLoop(context.Background(), bucket, "cars", []*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.ToArray())
 	})
@@ -126,7 +121,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5)) // in cars[0]
 		condB := roaringset.NewBitmap(nested.Encode(2, 1, doc5)) // in cars[1]
-		result, err := applyIdxLoop(context.Background(), bucket, "cars", []*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.True(t, result.IsEmpty())
 	})
@@ -142,7 +138,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(2, 1, doc5)) // in cars[1]
 		condB := roaringset.NewBitmap(nested.Encode(2, 2, doc5)) // in cars[1]
-		result, err := applyIdxLoop(context.Background(), bucket, "cars", []*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.ToArray())
 	})
@@ -158,8 +155,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5))
 		condB := roaringset.NewBitmap(nested.Encode(1, 2, doc5))
 		condC := roaringset.NewBitmap(nested.Encode(1, 3, doc5))
-		result, err := applyIdxLoop(context.Background(), bucket, "cars",
-			[]*sroar.Bitmap{condA, condB, condC})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB, condC)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.ToArray())
 	})
@@ -175,8 +172,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5)) // cars[0]
 		condB := roaringset.NewBitmap(nested.Encode(1, 2, doc5)) // cars[0]
 		condC := roaringset.NewBitmap(nested.Encode(2, 1, doc5)) // cars[1] only
-		result, err := applyIdxLoop(context.Background(), bucket, "cars",
-			[]*sroar.Bitmap{condA, condB, condC})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB, condC)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.True(t, result.IsEmpty())
 	})
@@ -200,15 +197,13 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5), nested.Encode(1, 1, doc7))
 		condB := roaringset.NewBitmap(nested.Encode(1, 2, doc5), nested.Encode(2, 1, doc7))
-		result, err := applyIdxLoop(context.Background(), bucket, "cars",
-			[]*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.ToArray())
 	})
 
 	t.Run("two docs both satisfy conditions in their respective elements", func(t *testing.T) {
-		// doc5: both conditions in cars[0]
-		// doc7: both conditions in cars[0] (both at root=1)
 		bucket := newIdxBucket(t)
 		writeIdx(t, bucket, "cars", 0, []uint64{
 			nested.Encode(1, 1, doc5),
@@ -219,8 +214,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5), nested.Encode(1, 1, doc7))
 		condB := roaringset.NewBitmap(nested.Encode(1, 2, doc5), nested.Encode(1, 2, doc7))
-		result, err := applyIdxLoop(context.Background(), bucket, "cars",
-			[]*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5, doc7}, result.ToArray())
 	})
@@ -243,8 +238,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5), nested.Encode(1, 1, doc7), nested.Encode(1, 1, doc9))
 		condB := roaringset.NewBitmap(nested.Encode(2, 1, doc5), nested.Encode(1, 2, doc7), nested.Encode(2, 1, doc9))
-		result, err := applyIdxLoop(context.Background(), bucket, "cars",
-			[]*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc7}, result.ToArray())
 	})
@@ -264,8 +259,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5)) // only doc5
 		condB := roaringset.NewBitmap(nested.Encode(1, 2, doc7)) // only doc7
-		result, err := applyIdxLoop(context.Background(), bucket, "cars",
-			[]*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.True(t, result.IsEmpty())
 	})
@@ -276,8 +271,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5))
 		condB := roaringset.NewBitmap(nested.Encode(1, 2, doc5))
-		result, err := applyIdxLoop(context.Background(), bucket, "cars",
-			[]*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.True(t, result.IsEmpty())
 	})
@@ -290,8 +285,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(1, 1, doc5))
 		condB := roaringset.NewBitmap(nested.Encode(1, 2, doc5)) // leaf=2 not in element 0
-		result, err := applyIdxLoop(context.Background(), bucket, "cars",
-			[]*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.True(t, result.IsEmpty())
 	})
@@ -313,8 +308,8 @@ func TestApplyIdxLoopIntegration(t *testing.T) {
 
 		condA := roaringset.NewBitmap(nested.Encode(4, 1, doc5)) // only in element 3 (root=4)
 		condB := roaringset.NewBitmap(nested.Encode(4, 2, doc5)) // only in element 3 (root=4)
-		result, err := applyIdxLoop(context.Background(), bucket, "cars",
-			[]*sroar.Bitmap{condA, condB})
+		plan, bitmapsByPath := idxLoopAndPlan("cars", condA, condB)
+		result, err := newResolutionPlanExecutor(plan, bitmapsByPath, bucket).execute(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.ToArray())
 	})
