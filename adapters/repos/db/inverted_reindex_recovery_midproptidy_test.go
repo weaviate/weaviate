@@ -64,13 +64,13 @@ type midPropTidyCase struct {
 const midPropTidyHaltPanicPrefix = "mid-prop-tidy halt: simulated crash"
 
 // midPropTidyInstallSwapFault wraps the production
-// processOneSwapProp impl so it panics after haltAfter props have
+// processOneSwapProp method so it panics after haltAfter props have
 // been swapped+marked. A haltAfter of 0 is a no-op pass-through.
-// Dependency-injected via the function field — no test-only branch
-// in production code.
+// Injected via processOneSwapPropFn — the production method stays
+// untouched.
 func midPropTidyInstallSwapFault(task *ShardReindexTaskGeneric, haltAfter int) {
 	prod := task.processOneSwapProp
-	task.processOneSwapProp = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
 		bucket, err := prod(ctx, store, rt, propIdx, propName)
 		if err != nil {
 			return nil, err
@@ -84,15 +84,15 @@ func midPropTidyInstallSwapFault(task *ShardReindexTaskGeneric, haltAfter int) {
 }
 
 // midPropTidyInstallTidyFault wraps the production
-// processOneTidyProp impl so it panics after haltAfter completions.
+// processOneTidyProp method so it panics after haltAfter completions.
 // Concurrency MUST be 1 — otherwise the parallel goroutines race
 // for the count and halt order becomes non-deterministic. The
 // error-group wrapper recovers panics per-goroutine and surfaces
 // them via eg.Wait(); subsequent SetLimit(1)-FIFO goroutines still
-// run to completion.
+// run to completion. Injected via processOneTidyPropFn.
 func midPropTidyInstallTidyFault(task *ShardReindexTaskGeneric, haltAfter int, fireCount *atomic.Int64) {
 	prod := task.processOneTidyProp
-	task.processOneTidyProp = func(propIdx int, propName, lsmPath string) error {
+	task.processOneTidyPropFn = func(propIdx int, propName, lsmPath string) error {
 		if err := prod(propIdx, propName, lsmPath); err != nil {
 			return err
 		}

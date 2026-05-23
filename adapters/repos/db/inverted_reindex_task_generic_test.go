@@ -483,7 +483,7 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 		hookCallIdxs  []int
 	)
 	prodSwap := task.processOneSwapProp
-	task.processOneSwapProp = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
 		bucket, err := prodSwap(ctx, store, rt, propIdx, propName)
 		if err != nil {
 			return nil, err

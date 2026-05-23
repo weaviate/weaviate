@@ -188,20 +188,18 @@ type ShardReindexTaskGeneric struct {
 	// because RunOnShard is called after the setter on the same goroutine.
 	progressCallback func(float32)
 
-	// processOneSwapProp is the per-prop body of runtimeSwap's Phase
-	// 2a tight loop: in-memory pointer flip + per-prop sentinel write,
-	// returning the displaced old main bucket so the caller can drive
-	// Phase 2b (shutdown + dir rename). Defaults to
-	// [processOneSwapPropProd]; tests substitute a wrapper that adds
-	// fault injection or observation. Carries no test-only branch in
-	// production.
-	processOneSwapProp func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error)
+	// processOneSwapPropFn is the dispatch function for runtimeSwap's
+	// Phase 2a per-prop body. Defaults to the [processOneSwapProp]
+	// method in [NewShardReindexTaskGeneric]; tests substitute a
+	// wrapper for fault injection or observation. No test-only branch
+	// runs in production — the field is always set.
+	processOneSwapPropFn func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error)
 
-	// processOneTidyProp is the per-prop body of tidyBackupBuckets
-	// (backup-dir removal). Same dependency-injection shape as
-	// [processOneSwapProp]: defaults to the production impl; tests
-	// substitute a wrapper for fault injection.
-	processOneTidyProp func(propIdx int, propName, lsmPath string) error
+	// processOneTidyPropFn is the dispatch function for
+	// tidyBackupBuckets' per-prop body. Same shape as
+	// [processOneSwapPropFn] — defaults to the [processOneTidyProp]
+	// method; tests substitute a wrapper.
+	processOneTidyPropFn func(propIdx int, propName, lsmPath string) error
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -229,17 +227,17 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 		objectsIteratorAsync: objectsIteratorAsync,
 		config:               config,
 	}
-	t.processOneSwapProp = t.processOneSwapPropProd
-	t.processOneTidyProp = t.processOneTidyPropProd
+	t.processOneSwapPropFn = t.processOneSwapProp
+	t.processOneTidyPropFn = t.processOneTidyProp
 	return t
 }
 
-// processOneSwapPropProd is the production body of runtimeSwap's
-// Phase 2a per-prop loop: in-memory pointer flip + per-prop sentinel
-// write. Returns the displaced old main bucket for the caller's
-// Phase 2b (Shutdown + dir rename). Skips props whose per-prop
-// sentinel is already set (recovery idempotency).
-func (t *ShardReindexTaskGeneric) processOneSwapPropProd(ctx context.Context, store *lsmkv.Store, rt reindexTracker, _ int, propName string) (*lsmkv.Bucket, error) {
+// processOneSwapProp is the production body of runtimeSwap's Phase 2a
+// per-prop loop: in-memory pointer flip + per-prop sentinel write.
+// Returns the displaced old main bucket for the caller's Phase 2b
+// (Shutdown + dir rename). Skips props whose per-prop sentinel is
+// already set (recovery idempotency).
+func (t *ShardReindexTaskGeneric) processOneSwapProp(ctx context.Context, store *lsmkv.Store, rt reindexTracker, _ int, propName string) (*lsmkv.Bucket, error) {
 	if rt.IsSwappedProp(propName) {
 		return nil, nil
 	}
@@ -255,10 +253,10 @@ func (t *ShardReindexTaskGeneric) processOneSwapPropProd(ctx context.Context, st
 	return oldMainBucket, nil
 }
 
-// processOneTidyPropProd is the production body of tidyBackupBuckets'
+// processOneTidyProp is the production body of tidyBackupBuckets'
 // per-prop loop: remove the per-prop backup-bucket dir. Idempotent
 // (RemoveAll returns nil on already-removed dirs).
-func (t *ShardReindexTaskGeneric) processOneTidyPropProd(_ int, propName, lsmPath string) error {
+func (t *ShardReindexTaskGeneric) processOneTidyProp(_ int, propName, lsmPath string) error {
 	bucketName := t.backupBucketName(propName)
 	bucketPath := filepath.Join(lsmPath, bucketName)
 	return os.RemoveAll(bucketPath)
@@ -1757,12 +1755,12 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// shut-down) bucket — never the LIVE ingest bucket whose dir stays
 	// at ingest_<gen> until next-restart recovery does the ingest→main
 	// rename safely (no in-memory state at that point).
-	// processOneSwapProp encapsulates the per-prop body (in-memory
-	// pointer flip + sentinel write). It returns (nil, nil) for props
-	// whose per-prop sentinel is already on disk — recovery idempotency.
+	// processOneSwapPropFn dispatches to processOneSwapProp by default;
+	// the per-prop body returns (nil, nil) for props whose per-prop
+	// sentinel is already on disk — recovery idempotency.
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))
 	for propIdx, propName := range props {
-		oldMainBucket, err := t.processOneSwapProp(ctx, store, rt, propIdx, propName)
+		oldMainBucket, err := t.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
 		if err != nil {
 			return err
 		}
@@ -2314,7 +2312,7 @@ func (t *ShardReindexTaskGeneric) tidyBackupBuckets(ctx context.Context,
 		propName := props[i]
 
 		eg.Go(func() error {
-			return t.processOneTidyProp(propIdx, propName, lsmPath)
+			return t.processOneTidyPropFn(propIdx, propName, lsmPath)
 		})
 	}
 
