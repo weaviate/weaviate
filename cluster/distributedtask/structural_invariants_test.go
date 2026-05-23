@@ -197,14 +197,32 @@ func structuralInvariantClockHasWaiter(
 // expected to fail; this is a RED test we keep until Restore is
 // fixed to clear m.tasks before applying the snapshot.
 //
-// Tracked as a Sev at weaviate/0-weaviate-issues#245 with full
-// reproduction + impact analysis + suggested fix. Per CLAUDE.md
-// the test is t.Skip'd so CI doesn't fail, but the full reproduction
-// is preserved in the test body and the docstring above so the
-// repro is not lost. Un-skip when the fix lands.
+// # Fix status (cross-reference)
+//
+// Etienne / SuperClaude independently opened PR #11416
+// ("fix(distributedtask): RAFT snapshot restore + scheduler Close
+// race (pre-1.38)") on 2026-05-22 with the exact fix:
+// `m.tasks = make(...)` before populating in Restore. That PR also
+// adds its own regression test `TestManager_Restore_ReplacesExistingState`
+// (different fixture, same invariant).
+//
+// This structural-invariant test is supplementary coverage for the
+// same contract — kept as a second pin so a future refactor that
+// re-introduces the merge breaks here as well as in #11416's test.
+// Once #11416 merges and PR #11422 rebases past it, drop the
+// t.Skip below and this test should pass on its own.
+//
+// Sev tracking issue: weaviate/0-weaviate-issues#245 (filed before
+// I discovered #11416 was already in-flight; the Sev now cross-
+// references #11416 as the canonical fix PR).
+//
+// Per CLAUDE.md the test is t.Skip'd so CI on PR #11422 doesn't
+// fail; the full reproduction is preserved in the test body and the
+// docstring above so the repro is not lost.
 func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) {
-	t.Skip("KNOWN-RED: weaviate/0-weaviate-issues#245 — Manager.Restore merges " +
-		"instead of replaces; see test docstring for full bug analysis. Un-skip when #245 lands.")
+	t.Skip("KNOWN-RED until PR #11416 lands — Manager.Restore merges instead of " +
+		"replaces. See test docstring + weaviate/0-weaviate-issues#245. Un-skip when " +
+		"#11416 merges and this branch rebases past it.")
 	now := time.Now().Truncate(time.Millisecond)
 
 	nullLogger, _ := logrustest.NewNullLogger()
