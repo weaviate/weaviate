@@ -80,8 +80,11 @@ func (r *ThrottledRecorder) cleanupThrottleEntry(namespace, taskID string, versi
 
 func (r *ThrottledRecorder) UpdateDistributedTaskUnitProgress(ctx context.Context, namespace, taskID string, version uint64, nodeID, unitID string, progress float32) error {
 	// CLAIM bypass: progress == 0.0 is the per-unit worker's first
-	// (and only) call that lands Unit.NodeID via the FSM. Throttling
-	// it risks deduplicating the assignment and orphaning the unit.
+	// call (the claim) that lands Unit.NodeID via the FSM. Throttling
+	// risks deduplicating the assignment and orphaning the unit.
+	// Non-CLAIM 0.0 emissions (e.g. composeProgressEnvelope on the
+	// first sub-task) also hit this bypass — harmless extra forward,
+	// RAFT applies are idempotent on (unitID, progress).
 	if progress == 0.0 {
 		return r.inner.UpdateDistributedTaskUnitProgress(ctx, namespace, taskID, version, nodeID, unitID, progress)
 	}

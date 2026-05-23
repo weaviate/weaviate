@@ -927,6 +927,10 @@ func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDes
 // deletePerTaskStateLocked is the single source of truth for the
 // per-task scheduler maps on the local-cleanup path. A missed map
 // here leaks one entry per cleaned-up barrier task. Caller holds s.mu.
+//
+// When you add a new per-task map to the Scheduler struct, register
+// it here too — otherwise the next barrier task to clean up will
+// leak the new map's entry.
 func (s *Scheduler) deletePerTaskStateLocked(desc TaskDescriptor) {
 	delete(s.completedCallbackFired, desc)
 	delete(s.groupCallbackFired, desc)
