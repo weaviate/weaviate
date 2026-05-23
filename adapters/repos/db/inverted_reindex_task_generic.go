@@ -211,7 +211,7 @@ type ShardReindexTaskGeneric struct {
 	//
 	// Concurrency note: unlike runtimeSwap's Phase 2a (which is a
 	// strictly sequential per-prop loop), tidyBackupBuckets dispatches
-	// each prop's RemoveAll inside an errgroup goroutine bounded by
+	// each prop's RemoveAll inside an error-group goroutine bounded by
 	// t.config.concurrency. Tests that depend on the hook firing in a
 	// deterministic propIdx order MUST set t.config.concurrency = 1.
 	// Even at concurrency=1, panics inside the hook are recovered by
