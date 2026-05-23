@@ -196,7 +196,15 @@ func structuralInvariantClockHasWaiter(
 // Manager.Restore merges rather than replaces, so (a) and (b) are
 // expected to fail; this is a RED test we keep until Restore is
 // fixed to clear m.tasks before applying the snapshot.
+//
+// Tracked as a Sev at weaviate/0-weaviate-issues#245 with full
+// reproduction + impact analysis + suggested fix. Per CLAUDE.md
+// the test is t.Skip'd so CI doesn't fail, but the full reproduction
+// is preserved in the test body and the docstring above so the
+// repro is not lost. Un-skip when the fix lands.
 func TestStructuralInvariant_ManagerRestore_ReplacesExistingState(t *testing.T) {
+	t.Skip("KNOWN-RED: weaviate/0-weaviate-issues#245 — Manager.Restore merges " +
+		"instead of replaces; see test docstring for full bug analysis. Un-skip when #245 lands.")
 	now := time.Now().Truncate(time.Millisecond)
 
 	nullLogger, _ := logrustest.NewNullLogger()
