@@ -181,6 +181,24 @@ func midPropTidyRunTidyExpectingPanicError(ctx context.Context, task *ShardReind
 // markTidied() write was lost — the same recovery branch as a
 // crash between markSwapped() and markTidied().
 func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
+	// CI integration runs (`test/integration/run.sh:11`) export
+	// `DISABLE_RECOVERY_ON_PANIC=true`, which makes the
+	// ErrorGroupWrapper's deferred recover a no-op
+	// (`entities/errors/error_group_wrapper.go:82-99`). Without that
+	// recovery, the panic we deliberately fire from the per-prop
+	// `testHookPostPropTidy` hook propagates out of the errgroup
+	// goroutine and crashes the test binary, even though we capture
+	// it at the test-level via `midPropTidyRunSwapWithRecover` /
+	// `midPropTidyRunTidyWithRecover`. Force the env var false for
+	// the lifetime of this test so the wrapper recovers panics into
+	// `eg.Wait()` errors and the test's own panic-capture frame can
+	// observe the halt deterministically — matching local-dev
+	// behaviour. The pre-existing PR #11415 `MidPropSwap_Loop` test
+	// happens to never hit this because it relies on the swap
+	// loop's sequential (non-errgroup) per-prop frame, where the
+	// panic IS captured by the test's outer recover.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
 	const numObjects = 25
 	propNames := []string{"title", "subtitle", "description", "keywords"}
 
