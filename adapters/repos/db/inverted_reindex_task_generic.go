@@ -198,6 +198,14 @@ type ShardReindexTaskGeneric struct {
 	// (Shutdown, Rename, RAFT call) fails CI immediately. See the
 	// file-level phase-contract godoc.
 	testHookPostPropSwap func(propIdx int)
+
+	// testHookPostPropTidy (test-only) fires after each per-prop
+	// os.RemoveAll inside tidyBackupBuckets returns successfully.
+	// Production leaves it nil. Mirrors [testHookPostPropSwap]; see
+	// TestRecoveryConvergence_MidPropSwapOrTidy_Loop for usage, including
+	// the concurrency=1 constraint tests need for deterministic propIdx
+	// order and the wrapper-recovery semantics around panics.
+	testHookPostPropTidy func(propIdx int)
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -988,6 +996,15 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard *Sh
 				err = fmt.Errorf("tidying backup buckets:%w", err)
 				return err
 			}
+
+			// Recovery just transitioned us into IsTidied. Strategies
+			// whose target bucket is created lazily (FilterableToRangeable,
+			// EnableFilterable, EnableSearchable) still need it loaded in
+			// the in-memory store, otherwise OnAfterLsmInitAsync's
+			// IsTidied safety check refuses to fire OnMigrationComplete
+			// and the replica is stuck. PreReindexHook is idempotent for
+			// strategies that don't need it. weaviate/0-weaviate-issues#246.
+			t.strategy.PreReindexHook(shard, props)
 		}
 	}
 
@@ -2278,6 +2295,7 @@ func (t *ShardReindexTaskGeneric) tidyBackupBuckets(ctx context.Context,
 	eg, _ := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(t.config.concurrency)
 	for i := range props {
+		propIdx := i
 		propName := props[i]
 
 		eg.Go(func() error {
@@ -2285,6 +2303,12 @@ func (t *ShardReindexTaskGeneric) tidyBackupBuckets(ctx context.Context,
 			bucketPath := filepath.Join(lsmPath, bucketName)
 			if err := os.RemoveAll(bucketPath); err != nil {
 				return err
+			}
+
+			// Test-only observation point for per-prop tidy completion
+			// (see field godoc on testHookPostPropTidy). nil in production.
+			if t.testHookPostPropTidy != nil {
+				t.testHookPostPropTidy(propIdx)
 			}
 			return nil
 		})

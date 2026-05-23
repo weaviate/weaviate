@@ -21,6 +21,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestThrottledRecorder_DefaultInterval_PinnedAt3s pins the production
+// throttling interval at 3 seconds. Pre-existing sub-report 03 from
+// weaviate/0-weaviate-issues#243 caught a doc/code drift: the type godoc on
+// `ThrottledRecorder` claimed "default 30s" and `doc.go` said "30 seconds",
+// while `scheduler.Start` was wiring `3*time.Second` since the migration
+// from the old default. Without a test pinning this, the documentation and
+// the constant could diverge again silently.
+//
+// If you intentionally change the interval, also update:
+//   - the rationale comment in `scheduler.go` Start()
+//   - the "Progress throttling" prose in `doc.go`
+//   - the godoc on `DefaultThrottleInterval`
+//
+// The 3s rationale: ~20 samples per minute per unit on the RAFT hot path
+// keeps the UI live without flooding the log; coarser caps (the old 30s)
+// made the progress bar appear to jump in large increments on 60-90s
+// reindexes.
+func TestThrottledRecorder_DefaultInterval_PinnedAt3s(t *testing.T) {
+	require.Equal(t, 3*time.Second, DefaultThrottleInterval,
+		"production throttle interval must remain at 3s; if you change this, "+
+			"also update scheduler.Start rationale + doc.go prose + the godoc on this constant")
+}
+
 func newTestThrottledRecorder(t *testing.T) (*ThrottledRecorder, *clockwork.FakeClock, *MockTaskCompletionRecorder) {
 	clock := clockwork.NewFakeClock()
 	inner := NewMockTaskCompletionRecorder(t)
