@@ -38,7 +38,7 @@ func andAllPlan(bitmaps ...*sroar.Bitmap) (executionPlan, map[string]*positionBi
 		paths[i] = path
 		positionsByPath[path] = &positionBitmaps{independent: []*sroar.Bitmap{bm}}
 	}
-	return executionPlan{{op: groupAndAll, paths: paths}}, positionsByPath
+	return executionPlan{groups: []conditionGroup{{op: groupAndAll, paths: paths}}}, positionsByPath
 }
 
 // andAllMaskLeafPlan builds a groupAndAllMaskLeaf plan from the given bitmaps.
@@ -50,7 +50,7 @@ func andAllMaskLeafPlan(bitmaps ...*sroar.Bitmap) (executionPlan, map[string]*po
 		paths[i] = path
 		positionsByPath[path] = &positionBitmaps{independent: []*sroar.Bitmap{bm}}
 	}
-	return executionPlan{{op: groupAndAllMaskLeaf, paths: paths}}, positionsByPath
+	return executionPlan{groups: []conditionGroup{{op: groupAndAllMaskLeaf, paths: paths}}}, positionsByPath
 }
 
 // idxLoopPlan builds a groupRunIdxLoop plan from the given bitmaps.
@@ -62,14 +62,14 @@ func idxLoopPlan(lcaPath string, bitmaps ...*sroar.Bitmap) (executionPlan, map[s
 		paths[i] = path
 		positionsByPath[path] = &positionBitmaps{independent: []*sroar.Bitmap{bm}}
 	}
-	return executionPlan{{op: groupRunIdxLoop, lcaPath: lcaPath, paths: paths}}, positionsByPath
+	return executionPlan{groups: []conditionGroup{{op: groupRunIdxLoop, lcaPath: lcaPath, paths: paths}}}, positionsByPath
 }
 
 // exec is a shorthand for executing a plan with no meta bucket.
 func exec(t *testing.T, plan executionPlan, bitmapsByPath map[string]*positionBitmaps) *sroar.Bitmap {
 	t.Helper()
 	noop := invnested.NewBitmapOps(roaringset.NewBitmapBufPoolNoop())
-	result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE).execute(context.Background())
+	result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE, nil).execute(context.Background())
 	require.NoError(t, err)
 	return result
 }
@@ -229,14 +229,14 @@ func TestExecuteResolutionPlanPreconditions(t *testing.T) {
 	t.Run("groupAndAll: two independents at different leaves — no match (raw AndAll, leaf-aware)", func(t *testing.T) {
 		// groupAndAll uses raw AndAll. Two bitmaps at DIFFERENT leaf positions
 		// represent conditions in DIFFERENT sub-elements — they should NOT match.
-		plan := executionPlan{{op: groupAndAll, paths: []string{"p1"}}}
+		plan := executionPlan{groups: []conditionGroup{{op: groupAndAll, paths: []string{"p1"}}}}
 		bitmapsByPath := map[string]*positionBitmaps{
 			"p1": {independent: []*sroar.Bitmap{
 				roaringset.NewBitmap(pos511),
 				roaringset.NewBitmap(pos512),
 			}},
 		}
-		result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE).execute(context.Background())
+		result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		assert.True(t, result.IsEmpty())
 	})
@@ -246,18 +246,18 @@ func TestExecuteResolutionPlanPreconditions(t *testing.T) {
 			roaringset.NewBitmap(pos511),
 			roaringset.NewBitmap(pos512),
 		)
-		_, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE).execute(context.Background())
+		_, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "meta bucket is nil")
 	})
 
 	t.Run("collectRaw: missing path in positionsByPath returns error", func(t *testing.T) {
-		plan := executionPlan{{op: groupAndAll, paths: []string{"p1", "p_missing"}}}
+		plan := executionPlan{groups: []conditionGroup{{op: groupAndAll, paths: []string{"p1", "p_missing"}}}}
 		bitmapsByPath := map[string]*positionBitmaps{
 			"p1": {independent: []*sroar.Bitmap{roaringset.NewBitmap(pos511)}},
 			// "p_missing" intentionally absent
 		}
-		_, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE).execute(context.Background())
+		_, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "p_missing")
 	})
@@ -286,15 +286,15 @@ func TestExecuteMultiGroupPlan(t *testing.T) {
 		// city: root=1 for both docs; make: root=2 for both docs
 		// → {E(1,0,doc5),E(1,0,doc7)} ∩ {E(2,0,doc5),E(2,0,doc7)} = {} — no matching root.
 		// If city and make were in the SAME root element they would match.
-		plan := executionPlan{
+		plan := executionPlan{groups: []conditionGroup{
 			{op: groupAndAll, paths: []string{"city"}},
 			{op: groupAndAll, paths: []string{"make"}},
-		}
+		}}
 		bitmapsByPath := map[string]*positionBitmaps{
 			"city": {independent: []*sroar.Bitmap{roaringset.NewBitmap(pos511, pos711)}},
 			"make": {independent: []*sroar.Bitmap{roaringset.NewBitmap(pos521, pos721)}},
 		}
-		result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE).execute(context.Background())
+		result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		assert.True(t, result.IsEmpty()) // different root → cross-group AND gives empty
 	})
@@ -303,15 +303,15 @@ func TestExecuteMultiGroupPlan(t *testing.T) {
 		// city and make are both in root=1 for doc5.
 		// Group1→AndAll([city])={E(1,1,doc5)}; Group2→AndAll([make])={E(1,1,doc5)}
 		// AndAllMaskLeaf → both mask to E(1,0,doc5) → match → MaskRootLeaf → {doc5}
-		plan := executionPlan{
+		plan := executionPlan{groups: []conditionGroup{
 			{op: groupAndAll, paths: []string{"city"}},
 			{op: groupAndAll, paths: []string{"make"}},
-		}
+		}}
 		bitmapsByPath := map[string]*positionBitmaps{
 			"city": {independent: []*sroar.Bitmap{roaringset.NewBitmap(pos511)}},
 			"make": {independent: []*sroar.Bitmap{roaringset.NewBitmap(pos511)}},
 		}
-		result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE).execute(context.Background())
+		result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.ToArray())
 	})
@@ -322,15 +322,15 @@ func TestExecuteMultiGroupPlan(t *testing.T) {
 		// Group2→AndAllMaskLeaf([tag1,tag2])={E(1,0,doc5)}
 		// Final: AndAllMaskLeaf([{E(1,1,doc5)},{E(1,0,doc5)}]) = both mask to E(1,0,doc5) → doc5
 		pos512 := invnested.Encode(1, 2, doc5)
-		plan := executionPlan{
+		plan := executionPlan{groups: []conditionGroup{
 			{op: groupAndAll, paths: []string{"city"}},
 			{op: groupAndAllMaskLeaf, paths: []string{"tags"}},
-		}
+		}}
 		bitmapsByPath := map[string]*positionBitmaps{
 			"city": {independent: []*sroar.Bitmap{roaringset.NewBitmap(pos511)}},
 			"tags": {independent: []*sroar.Bitmap{roaringset.NewBitmap(pos511), roaringset.NewBitmap(pos512)}},
 		}
-		result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE).execute(context.Background())
+		result, _, err := newPlanExecutor(plan, bitmapsByPath, nil, noop, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, []uint64{doc5}, result.ToArray())
 	})

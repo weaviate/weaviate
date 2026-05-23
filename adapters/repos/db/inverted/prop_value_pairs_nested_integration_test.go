@@ -4576,3 +4576,985 @@ func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
 		run(t, searcher, f, []uint64{doc5, doc7})
 	})
 }
+
+// ---------------------------------------------------------------------------
+// IsNull in correlated AND tests
+// ---------------------------------------------------------------------------
+
+// isNullCorrelationClass returns a class with object[] properties for testing
+// IsNull conditions inside correlated AND resolution.
+//
+//	cars: object[] { make text, year text, mileage text,
+//	                 tires object[]{ width int } }
+//	garages: object[] { city text,
+//	                    cars object[]{ make text, year text } }
+func isNullCorrelationClass() *models.Class {
+	vTrue := true
+	return &models.Class{
+		Class: "TestClass",
+		Properties: []*models.Property{
+			{
+				Name:     "cars",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "make", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+					{Name: "year", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+					{Name: "mileage", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+					{
+						Name:     "tires",
+						DataType: schema.DataTypeObjectArray.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+						},
+					},
+				},
+			},
+			{
+				Name:     "garages",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{Name: "city", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+					{
+						Name:     "cars",
+						DataType: schema.DataTypeObjectArray.PropString(),
+						NestedProperties: []*models.NestedProperty{
+							{Name: "make", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+							{Name: "year", DataType: schema.DataTypeText.PropString(), IndexFilterable: &vTrue},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// newIsNullCorrelationSearcher creates a test searcher with filterable and meta
+// buckets for the given top-level property.
+func newIsNullCorrelationSearcher(t *testing.T, prop string) (*Searcher, *lsmkv.Bucket, *lsmkv.Bucket) {
+	t.Helper()
+	vbName := helpers.BucketNestedFromPropNameLSM(prop)
+	mbName := helpers.BucketNestedMetaFromPropNameLSM(prop)
+	searcher, store := newNestedTestSearcher(t, vbName, mbName)
+	// override class with the isNull correlation class
+	class := isNullCorrelationClass()
+	logger, _ := test.NewNullLogger()
+	bitmapFactory := roaringset.NewBitmapFactory(newTrackingPool(t), func() uint64 { return 1_000_000 })
+	*searcher = *NewSearcher(logger, store, func(string) *models.Class { return class },
+		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
+		func() bool { return false }, nil, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+	return searcher, store.Bucket(vbName), store.Bucket(mbName)
+}
+
+func TestIsNullInCorrelatedAnd(t *testing.T) {
+	const (
+		doc1 = uint64(1)
+		doc2 = uint64(2)
+		doc3 = uint64(3)
+	)
+
+	// enc encodes a position for (root, leaf, docID) with docID already ORed in.
+	enc := func(root, leaf uint16, docID uint64) uint64 {
+		return invnested.Encode(root, leaf, docID)
+	}
+
+	// Group 1: IsNull=false (property exists) in correlated AND
+	// -------------------------------------------------------------------------
+
+	t.Run("IsNull=false same element has value AND property exists — match", func(t *testing.T) {
+		// cars[0] of doc1: make="honda", year present
+		// cars[0] of doc2: make="honda", year absent
+		// Filter: cars.make="honda" AND cars.year IS NOT NULL
+		// Expected: doc1 (same car has make=honda AND year present)
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		pos1car0 := enc(1, 1, doc1) // doc1 cars[0]
+		pos2car0 := enc(1, 1, doc2) // doc2 cars[0]
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{pos1car0, pos2car0})
+		writeNestedExists(t, mb, "year", []uint64{pos1car0}) // only doc1 car0 has year
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", false), // IsNull=false = exists
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=false different elements — value on one element, exists on another — no match", func(t *testing.T) {
+		// doc1: cars[0] make="honda" (no year), cars[1] year present (make="toyota")
+		// Filter: cars.make="honda" AND cars.year IS NOT NULL
+		// Expected: empty (no single car has both make=honda AND year present)
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		pos1car0 := enc(1, 1, doc1)
+		pos1car1 := enc(2, 2, doc1)
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{pos1car0})
+		writeNestedExists(t, mb, "year", []uint64{pos1car1}) // year only on cars[1]
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", false),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Empty(t, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=false only — two properties both present on same element", func(t *testing.T) {
+		// doc1 cars[0]: make present, year present → match
+		// doc2 cars[0]: make present, year absent → no match
+		searcher, _, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		pos1car0 := enc(1, 1, doc1)
+		pos2car0 := enc(1, 1, doc2)
+
+		writeNestedExists(t, mb, "make", []uint64{pos1car0, pos2car0})
+		writeNestedExists(t, mb, "year", []uint64{pos1car0}) // only doc1
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeIsNullPvp(class, "cars", "make", false),
+			makeIsNullPvp(class, "cars", "year", false),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=false multiple matching docs", func(t *testing.T) {
+		// doc1 cars[0] and doc2 cars[0]: both have make="honda" AND year present
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		pos1 := enc(1, 1, doc1)
+		pos2 := enc(1, 1, doc2)
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{pos1, pos2})
+		writeNestedExists(t, mb, "year", []uint64{pos1, pos2})
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", false),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.ElementsMatch(t, []uint64{doc1, doc2}, result.docIDs.ToArray())
+	})
+
+	// Group 2: IsNull=true (property absent) in correlated AND
+	// -------------------------------------------------------------------------
+
+	t.Run("IsNull=true same element has value AND property absent — match", func(t *testing.T) {
+		// doc1 cars[0]: make="honda", year absent → match
+		// doc2 cars[0]: make="honda", year present → no match (year not absent)
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		pos1car0 := enc(1, 1, doc1)
+		pos2car0 := enc(1, 1, doc2)
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{pos1car0, pos2car0})
+		writeNestedExists(t, mb, "year", []uint64{pos2car0}) // only doc2 has year
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", true), // IsNull=true = absent
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=true value condition unmet — no match", func(t *testing.T) {
+		// doc1 cars[0]: make="toyota", year absent — make doesn't match
+		searcher, vb, _ := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		writeNestedValue(t, vb, "make", "toyota", []uint64{enc(1, 1, doc1)})
+		// no year written → year absent for all
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Empty(t, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=true different elements — value on one, absent on another — no match", func(t *testing.T) {
+		// doc1: cars[0] make="honda"+year present, cars[1] make="toyota"+year absent
+		// No single car has make=honda AND year absent → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		pos1car0 := enc(1, 1, doc1)
+		pos1car1 := enc(2, 2, doc1)
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{pos1car0})
+		writeNestedValue(t, vb, "make", "toyota", []uint64{pos1car1})
+		writeNestedExists(t, mb, "year", []uint64{pos1car0}) // year on car0 (honda)
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Empty(t, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=true all matching elements have property — empty result", func(t *testing.T) {
+		// doc1 cars[0]: make="honda", year present — excluded by IsNull=true
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		pos := enc(1, 1, doc1)
+		writeNestedValue(t, vb, "make", "honda", []uint64{pos})
+		writeNestedExists(t, mb, "year", []uint64{pos})
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Empty(t, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=true partial match across docs", func(t *testing.T) {
+		// doc1 cars[0]: make="honda", year absent → match
+		// doc2 cars[0]: make="honda", year present → no match
+		// doc3 cars[0]: make="toyota", year absent → no match (make doesn't match)
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{enc(1, 1, doc1), enc(1, 1, doc2)})
+		writeNestedValue(t, vb, "make", "toyota", []uint64{enc(1, 1, doc3)})
+		writeNestedExists(t, mb, "year", []uint64{enc(1, 1, doc2)}) // only doc2 has year
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=true only — both properties absent on same element", func(t *testing.T) {
+		// No positive anchor: resolver automatically uses _exists."" as element universe.
+		// doc1 cars[0]: exists, make absent, year absent → match
+		// doc2 cars[0]: exists, make present, year absent → excluded (make present)
+		// doc3 cars[0]: exists, make absent, year present → excluded (year present)
+		searcher, _, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		p1 := enc(1, 1, doc1)
+		p2 := enc(1, 1, doc2)
+		p3 := enc(1, 1, doc3)
+
+		writeNestedExists(t, mb, "", []uint64{p1, p2, p3}) // root exists for all
+		writeNestedExists(t, mb, "make", []uint64{p2})     // doc2 has make
+		writeNestedExists(t, mb, "year", []uint64{p3})     // doc3 has year
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeIsNullPvp(class, "cars", "make", true),
+			makeIsNullPvp(class, "cars", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Group 3: Mixed IsNull=false AND IsNull=true
+	// -------------------------------------------------------------------------
+
+	t.Run("IsNull=false AND IsNull=true on different properties — same element", func(t *testing.T) {
+		// doc1 cars[0]: make present, year absent → match (has make, no year)
+		// doc2 cars[0]: make present, year present → no match (year not absent)
+		// doc3 cars[0]: make absent, year absent → no match (make not present)
+		searcher, _, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		pos1 := enc(1, 1, doc1)
+		pos2 := enc(1, 1, doc2)
+
+		writeNestedExists(t, mb, "make", []uint64{pos1, pos2})
+		writeNestedExists(t, mb, "year", []uint64{pos2}) // year only on doc2
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeIsNullPvp(class, "cars", "make", false), // make exists
+			makeIsNullPvp(class, "cars", "year", true),  // year absent
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("value + IsNull=false + IsNull=true — all three on same element", func(t *testing.T) {
+		// doc1 cars[0]: make="honda", year present, mileage absent → match
+		// doc2 cars[0]: make="honda", year absent, mileage absent → no match (year not present)
+		// doc3 cars[0]: make="honda", year present, mileage present → no match (mileage not absent)
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		p1 := enc(1, 1, doc1)
+		p2 := enc(1, 1, doc2)
+		p3 := enc(1, 1, doc3)
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{p1, p2, p3})
+		writeNestedExists(t, mb, "year", []uint64{p1, p3}) // doc1 and doc3 have year
+		writeNestedExists(t, mb, "mileage", []uint64{p3})  // only doc3 has mileage
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", false),   // year exists
+			makeIsNullPvp(class, "cars", "mileage", true), // mileage absent
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=false and IsNull=true conditions cannot coexist on same element — empty", func(t *testing.T) {
+		// Requires property both present AND absent on the same element → impossible
+		searcher, _, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		writeNestedExists(t, mb, "year", []uint64{enc(1, 1, doc1)})
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeIsNullPvp(class, "cars", "year", false), // year exists
+			makeIsNullPvp(class, "cars", "year", true),  // year absent
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Empty(t, result.docIDs.ToArray())
+	})
+
+	// Group 4: Intermediate nesting
+	// -------------------------------------------------------------------------
+
+	t.Run("IsNull=false on sub-property of intermediate nested array", func(t *testing.T) {
+		// garages[0] of doc1: city="berlin", cars.make present (same garage)
+		// garages[0] of doc2: city="berlin", cars.make absent
+		// Filter: garages.city="berlin" AND garages.cars.make IS NOT NULL
+		// Expected: doc1
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		pos1 := enc(1, 1, doc1)
+		pos2 := enc(1, 1, doc2)
+
+		writeNestedValue(t, vb, "city", "berlin", []uint64{pos1, pos2})
+		writeNestedExists(t, mb, "cars.make", []uint64{pos1}) // only doc1 garage has cars.make
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvp(class, "garages", "city", "berlin"),
+			makeIsNullPvp(class, "garages", "cars.make", false),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=true on sub-property of intermediate nested array", func(t *testing.T) {
+		// garages[0] of doc1: city="berlin", cars.year absent → match
+		// garages[0] of doc2: city="berlin", cars.year present → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		pos1 := enc(1, 1, doc1)
+		pos2 := enc(1, 1, doc2)
+
+		writeNestedValue(t, vb, "city", "berlin", []uint64{pos1, pos2})
+		writeNestedExists(t, mb, "cars.year", []uint64{pos2}) // only doc2 garage has cars.year
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvp(class, "garages", "city", "berlin"),
+			makeIsNullPvp(class, "garages", "cars.year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Group 5: Edge cases
+	// -------------------------------------------------------------------------
+
+	t.Run("IsNull=true — property never indexed — all elements match absence", func(t *testing.T) {
+		// No _exists.year written at all → year absent for every car
+		// Filter: cars.make="honda" AND cars.year IS NULL → all honda cars match
+		searcher, vb, _ := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{enc(1, 1, doc1), enc(1, 1, doc2)})
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.ElementsMatch(t, []uint64{doc1, doc2}, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=false — property never indexed — no elements match existence", func(t *testing.T) {
+		// No _exists.year written → year absent everywhere
+		// Filter: cars.make="honda" AND cars.year IS NOT NULL → no match
+		searcher, vb, _ := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{enc(1, 1, doc1)})
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", false),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Empty(t, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=true single-element array — correct root position handling", func(t *testing.T) {
+		// Each doc has exactly one car (root=1). Ensures root_idx=1 handling is correct.
+		// doc1: make="honda", year absent → match
+		// doc2: make="honda", year present → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{enc(1, 1, doc1), enc(1, 1, doc2)})
+		writeNestedExists(t, mb, "year", []uint64{enc(1, 1, doc2)})
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("IsNull=true multiple roots per doc — correct root-level exclusion", func(t *testing.T) {
+		// doc1: cars[0] make="honda" year present, cars[1] make="honda" year absent
+		//   → cars[1] matches (honda + year absent) → doc1 returned
+		// doc2: cars[0] make="honda" year present, cars[1] make="toyota" year absent
+		//   → no car has honda + year absent → doc2 not returned
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		p1c0 := enc(1, 1, doc1) // doc1 cars[0]
+		p1c1 := enc(2, 2, doc1) // doc1 cars[1]
+		p2c0 := enc(1, 1, doc2)
+		p2c1 := enc(2, 2, doc2)
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{p1c0, p1c1, p2c0})
+		writeNestedValue(t, vb, "make", "toyota", []uint64{p2c1})
+		writeNestedExists(t, mb, "year", []uint64{p1c0, p2c0}) // cars[0] of both docs have year
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Group 6: Root-level existence (len of top-level array)
+	// -------------------------------------------------------------------------
+
+	t.Run("root IsNull=false correlated with sub-property — same array has elements AND sub-property matches", func(t *testing.T) {
+		// doc1: cars exists (root _exists) AND cars[0].make="honda" → match
+		// doc2: cars[0].make="honda" but cars root _exists absent → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		pos1 := enc(1, 1, doc1)
+		pos2 := enc(1, 1, doc2)
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{pos1, pos2})
+		writeNestedExists(t, mb, "", []uint64{pos1}) // root _exists only for doc1
+
+		pv := makeCorrelatedPvp(class, "cars",
+			makeLeafPvp(class, "cars", "make", "honda"),
+			makeIsNullPvp(class, "cars", "", false), // root exists
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Group 7: tokenization compound AND with IsNull
+	// -------------------------------------------------------------------------
+
+	t.Run("tokenization compound AND + IsNull=true — multi-token make AND year absent", func(t *testing.T) {
+		// cars.make="honda civic" (two tokens) AND cars.year IS NULL
+		// doc1 cars[0]: make has "honda"+"civic", year absent → match
+		// doc2 cars[0]: make has "honda"+"civic", year present → no match
+		// doc3 cars[0]: make has "honda" only (missing "civic"), year absent → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		p1 := enc(1, 1, doc1)
+		p2 := enc(1, 1, doc2)
+		p3 := enc(1, 1, doc3)
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{p1, p2, p3})
+		writeNestedValue(t, vb, "make", "civic", []uint64{p1, p2}) // doc3 missing "civic"
+		writeNestedExists(t, mb, "year", []uint64{p2})
+
+		makeTokenNode := &propValuePair{
+			operator: filters.OperatorAnd,
+			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			prop:     "cars",
+			children: []*propValuePair{
+				makeLeafPvp(class, "cars", "make", "honda"),
+				makeLeafPvp(class, "cars", "make", "civic"),
+			},
+			Class: class,
+		}
+		pv := makeCorrelatedPvp(class, "cars",
+			makeTokenNode,
+			makeIsNullPvp(class, "cars", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("tokenization compound AND + IsNull=false — multi-token make AND year exists", func(t *testing.T) {
+		// cars.make="honda civic" AND cars.year IS NOT NULL
+		// doc1 cars[0]: "honda"+"civic", year present → match
+		// doc2 cars[0]: "honda"+"civic", year absent → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "cars")
+		class := isNullCorrelationClass()
+
+		p1 := enc(1, 1, doc1)
+		p2 := enc(1, 1, doc2)
+
+		writeNestedValue(t, vb, "make", "honda", []uint64{p1, p2})
+		writeNestedValue(t, vb, "make", "civic", []uint64{p1, p2})
+		writeNestedExists(t, mb, "year", []uint64{p1})
+
+		makeTokenNode := &propValuePair{
+			operator: filters.OperatorAnd,
+			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			prop:     "cars",
+			children: []*propValuePair{
+				makeLeafPvp(class, "cars", "make", "honda"),
+				makeLeafPvp(class, "cars", "make", "civic"),
+			},
+			Class: class,
+		}
+		pv := makeCorrelatedPvp(class, "cars",
+			makeTokenNode,
+			makeIsNullPvp(class, "cars", "year", false),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Group 8: root-level sub-array absence
+	// -------------------------------------------------------------------------
+
+	t.Run("sub-array IsNull=true — garage has city but cars sub-array absent", func(t *testing.T) {
+		// garages[0] city="berlin", cars absent → match
+		// garages[0] city="berlin", cars present → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		pos1 := enc(1, 1, doc1)
+		pos2 := enc(1, 1, doc2)
+
+		writeNestedValue(t, vb, "city", "berlin", []uint64{pos1, pos2})
+		writeNestedExists(t, mb, "cars", []uint64{pos2}) // doc2 has cars
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvp(class, "garages", "city", "berlin"),
+			makeIsNullPvp(class, "garages", "cars", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Group: IsNull=true only at intermediate level
+	// -------------------------------------------------------------------------
+
+	t.Run("IsNull=true only intermediate — same car lacks both make and year", func(t *testing.T) {
+		// garages.cars.make IS NULL AND garages.cars.year IS NULL
+		// Uses _exists."" for garages as implicit anchor, subtracts car positions
+		// where make or year is present — works at raw (leaf) level so car[b]
+		// within the same garage as car[a] is not incorrectly excluded.
+		//
+		// doc1: garage[0] has car[a](make+year), car[b](no make, no year) → match (car[b])
+		// doc2: garage[0] has car[a](make+year), car[b](no make, year) → no match (car[b] has year)
+		// doc3: garage[0] has car[a](make only) → no match (car[a] has make)
+		searcher, _, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		// doc1: garage[0] contains car[a] at leaf=1 and car[b] at leaf=2
+		p1_root := enc(1, 1, doc1) // car[a] within garage[0]
+		p1_carb := enc(1, 2, doc1) // car[b] within garage[0]
+
+		// doc2: garage[0] contains car[a] at leaf=1, car[b] at leaf=2
+		p2_root := enc(1, 1, doc2)
+		p2_carb := enc(1, 2, doc2)
+
+		// doc3: garage[0] contains car[a] at leaf=1 only
+		p3_root := enc(1, 1, doc3)
+
+		// root _exists."" — all car positions (each car within each garage)
+		writeNestedExists(t, mb, "", []uint64{p1_root, p1_carb, p2_root, p2_carb, p3_root})
+		// cars.make — car[a] of all docs has make; car[b] does not
+		writeNestedExists(t, mb, "cars.make", []uint64{p1_root, p2_root, p3_root})
+		// cars.year — car[a] of doc1/doc2 has year; car[b] of doc2 also has year
+		writeNestedExists(t, mb, "cars.year", []uint64{p1_root, p2_root, p2_carb})
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeIsNullPvp(class, "garages", "cars.make", true),
+			makeIsNullPvp(class, "garages", "cars.year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		// doc1: car[b](leaf=2) survives — no make, no year ✓
+		// doc2: car[b](leaf=2) excluded by year, car[a] excluded by make → empty
+		// doc3: car[a] excluded by make → empty
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Group 9: DataTypeObjectArray variant — multiple root elements per doc
+	// -------------------------------------------------------------------------
+
+	t.Run("objectArray: IsNull=false — correct root_idx per element", func(t *testing.T) {
+		// doc1: garages[0] city="berlin"+year present, garages[1] city="berlin"+year absent
+		// Filter: garages.city="berlin" AND garages.year IS NOT NULL
+		// Expected: doc1 (garages[0] satisfies both)
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		p1g0 := enc(1, 1, doc1)
+		p1g1 := enc(2, 2, doc1)
+
+		writeNestedValue(t, vb, "city", "berlin", []uint64{p1g0, p1g1})
+		writeNestedExists(t, mb, "year", []uint64{p1g0})
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvp(class, "garages", "city", "berlin"),
+			makeIsNullPvp(class, "garages", "year", false),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("objectArray: IsNull=true — correct root_idx exclusion per element", func(t *testing.T) {
+		// doc1: garages[0] city="berlin"+year absent, garages[1] city="berlin"+year present
+		// Filter: garages.city="berlin" AND garages.year IS NULL
+		// Expected: doc1 (garages[0]: berlin + year absent)
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		p1g0 := enc(1, 1, doc1)
+		p1g1 := enc(2, 2, doc1)
+
+		writeNestedValue(t, vb, "city", "berlin", []uint64{p1g0, p1g1})
+		writeNestedExists(t, mb, "year", []uint64{p1g1}) // garages[1] has year
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvp(class, "garages", "city", "berlin"),
+			makeIsNullPvp(class, "garages", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("objectArray: IsNull=true — cross-element — no match", func(t *testing.T) {
+		// doc1: garages[0] city="berlin"+year present, garages[1] city="paris"+year absent
+		// No single garage: city=berlin AND year absent → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		p1g0 := enc(1, 1, doc1)
+		p1g1 := enc(2, 2, doc1)
+
+		writeNestedValue(t, vb, "city", "berlin", []uint64{p1g0})
+		writeNestedValue(t, vb, "city", "paris", []uint64{p1g1})
+		writeNestedExists(t, mb, "year", []uint64{p1g0})
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvp(class, "garages", "city", "berlin"),
+			makeIsNullPvp(class, "garages", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Empty(t, result.docIDs.ToArray())
+	})
+
+	t.Run("objectArray: multiple docs — only one satisfies same-element IsNull=true", func(t *testing.T) {
+		// doc1 garages[0]: city="berlin", year absent → match
+		// doc2 garages[0]: city="berlin", year present → no match
+		// doc3 garages[0]: city="paris", year absent → no match (city wrong)
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		writeNestedValue(t, vb, "city", "berlin", []uint64{enc(1, 1, doc1), enc(1, 1, doc2)})
+		writeNestedValue(t, vb, "city", "paris", []uint64{enc(1, 1, doc3)})
+		writeNestedExists(t, mb, "year", []uint64{enc(1, 1, doc2)})
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvp(class, "garages", "city", "berlin"),
+			makeIsNullPvp(class, "garages", "year", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	t.Run("objectArray: IsNull=false + IsNull=true — same garage element has one, lacks other", func(t *testing.T) {
+		// doc1 garages[0]: year present, mileage absent → match
+		// doc2 garages[0]: year present, mileage present → no match
+		// doc3 garages[0]: year absent, mileage absent → no match (year not present)
+		searcher, _, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		p1 := enc(1, 1, doc1)
+		p2 := enc(1, 1, doc2)
+
+		writeNestedExists(t, mb, "year", []uint64{p1, p2})
+		writeNestedExists(t, mb, "mileage", []uint64{p2})
+
+		pv := makeCorrelatedPvp(class, "garages",
+			makeIsNullPvp(class, "garages", "year", false),
+			makeIsNullPvp(class, "garages", "mileage", true),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+}
+
+// ---------------------------------------------------------------------------
+// arr[N] + IsNull correlated AND tests
+// ---------------------------------------------------------------------------
+
+// makeIsNullPvpWithIdx builds a propValuePair for a nested IsNull filter with
+// arr[N] positional constraints.
+func makeIsNullPvpWithIdx(class *models.Class, prop, relPath string, isNullTrue bool, indices ...filnested.ArrayIndex) *propValuePair {
+	pv := makeIsNullPvp(class, prop, relPath, isNullTrue)
+	pv.nested.arrayIndices = indices
+	return pv
+}
+
+// makeLeafPvpWithIdx builds a nested leaf propValuePair with arr[N] constraints.
+func makeLeafPvpWithIdx(class *models.Class, prop, relPath, term string, indices ...filnested.ArrayIndex) *propValuePair {
+	pv := makeLeafPvp(class, prop, relPath, term)
+	pv.nested.arrayIndices = indices
+	return pv
+}
+
+func TestIsNullWithArrNInCorrelatedAnd(t *testing.T) {
+	const (
+		doc1 = uint64(1)
+		doc2 = uint64(2)
+	)
+	enc := func(root, leaf uint16, docID uint64) uint64 {
+		return invnested.Encode(root, leaf, docID)
+	}
+	writeIdx := func(t *testing.T, mb *lsmkv.Bucket, relPath string, index int, positions []uint64) {
+		t.Helper()
+		require.NoError(t, mb.RoaringSetAddList(invnested.IdxKey(relPath, index), positions))
+	}
+
+	// Note: conditions in a correlated AND are grouped by their arr[N] key.
+	// For same-element semantics to apply, all conditions must share the same
+	// arr[N] key — so both the value condition and the IsNull condition carry
+	// the same ArrayIndex constraint.
+
+	// Test 1: garages.cars[1].make IS NULL — intermediate arr[N], IsNull=true
+	t.Run("intermediate arr[N] IsNull=true — cars[1].make absent", func(t *testing.T) {
+		// Query: garages.cars[1].make = "honda" AND garages.cars[1].year IS NULL
+		//   → same cars[1] element: make=honda AND year absent
+		// doc1: garage[0].cars[1] = {make:"honda", no year} → match
+		// doc2: garage[0].cars[1] = {make:"honda", year:"2020"} → no match (year present)
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		p1c1 := enc(1, 2, doc1) // doc1 cars[1]
+		p2c1 := enc(1, 2, doc2) // doc2 cars[1]
+
+		writeNestedValue(t, vb, "cars.make", "honda", []uint64{p1c1, p2c1})
+		writeNestedExists(t, mb, "cars.year", []uint64{p2c1}) // only doc2 cars[1] has year
+
+		writeIdx(t, mb, "cars", 1, []uint64{p1c1, p2c1})
+
+		idx1 := filnested.ArrayIndex{RelPath: "cars", Index: 1}
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvpWithIdx(class, "garages", "cars.make", "honda", idx1),
+			makeIsNullPvpWithIdx(class, "garages", "cars.year", true, idx1),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Test 2: garages.cars[1].make IS NOT NULL — intermediate arr[N], IsNull=false
+	t.Run("intermediate arr[N] IsNull=false — cars[1].make present", func(t *testing.T) {
+		// Query: garages.cars[1].year IS NULL AND garages.cars[1].make IS NOT NULL
+		//   → same cars[1]: year absent AND make present
+		// doc1: cars[1] = {make present, no year} → match
+		// doc2: cars[1] = {no make, no year} → no match (make absent)
+		// doc3: cars[1] = {make present, year present} → no match (year present)
+		const doc3 = uint64(3)
+		searcher, _, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		p1c1 := enc(1, 2, doc1)
+		p2c1 := enc(1, 2, doc2)
+		p3c1 := enc(1, 2, doc3)
+
+		writeNestedExists(t, mb, "cars.make", []uint64{p1c1, p3c1}) // doc1 and doc3 cars[1] have make
+		writeNestedExists(t, mb, "cars.year", []uint64{p3c1})       // doc3 cars[1] has year
+		writeNestedExists(t, mb, "", []uint64{p1c1, p2c1, p3c1})    // root exists (anchor for all-IsNull=false)
+
+		writeIdx(t, mb, "cars", 1, []uint64{p1c1, p2c1, p3c1})
+
+		idx1 := filnested.ArrayIndex{RelPath: "cars", Index: 1}
+		pv := makeCorrelatedPvp(class, "garages",
+			makeIsNullPvpWithIdx(class, "garages", "cars.year", true, idx1),  // year absent
+			makeIsNullPvpWithIdx(class, "garages", "cars.make", false, idx1), // make present
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Test 3: garages[1].cars.make IS NULL — root arr[N], IsNull=true
+	t.Run("root arr[N] IsNull=true — garages[1].city=berlin AND cars.make absent", func(t *testing.T) {
+		// Both conditions carry {RelPath:"", Index:1} so they resolve in the same group.
+		// doc1: garages[1] = {city:"berlin", no cars.make} → match
+		// doc2: garages[1] = {city:"berlin", cars.make present} → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		p1g1city := enc(2, 2, doc1) // doc1 garages[1] city leaf
+		p2g1city := enc(2, 2, doc2)
+		p2g1car := enc(2, 1, doc2) // doc2 garages[1] car
+
+		writeNestedValue(t, vb, "city", "berlin", []uint64{p1g1city, p2g1city})
+		writeNestedExists(t, mb, "cars.make", []uint64{p2g1car}) // only doc2 garages[1] has cars.make
+
+		writeIdx(t, mb, "", 1, []uint64{p1g1city, p2g1city, p2g1car})
+
+		idx1 := filnested.ArrayIndex{RelPath: "", Index: 1}
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvpWithIdx(class, "garages", "city", "berlin", idx1),
+			makeIsNullPvpWithIdx(class, "garages", "cars.make", true, idx1),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+
+	// Test 4: garages[1].cars.make IS NOT NULL — root arr[N], IsNull=false
+	t.Run("root arr[N] IsNull=false — garages[1].city=berlin AND cars.make present", func(t *testing.T) {
+		// doc1: garages[1] = {city:"berlin", cars.make present} → match
+		// doc2: garages[1] = {city:"berlin", no cars.make} → no match
+		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
+		class := isNullCorrelationClass()
+
+		p1g1city := enc(2, 2, doc1)
+		p2g1city := enc(2, 2, doc2)
+		p1g1car := enc(2, 1, doc1) // doc1 garages[1] car has make
+
+		writeNestedValue(t, vb, "city", "berlin", []uint64{p1g1city, p2g1city})
+		writeNestedExists(t, mb, "cars.make", []uint64{p1g1car})
+
+		writeIdx(t, mb, "", 1, []uint64{p1g1city, p1g1car, p2g1city})
+
+		idx1 := filnested.ArrayIndex{RelPath: "", Index: 1}
+		pv := makeCorrelatedPvp(class, "garages",
+			makeLeafPvpWithIdx(class, "garages", "city", "berlin", idx1),
+			makeIsNullPvpWithIdx(class, "garages", "cars.make", false, idx1),
+		)
+		result, err := pv.resolveDocIDs(context.Background(), searcher, 0)
+		require.NoError(t, err)
+		defer result.release()
+		requireBitmapValid(t, result.docIDs)
+		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+	})
+}

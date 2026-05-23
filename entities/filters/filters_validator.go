@@ -97,7 +97,7 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 	// directly so this branch only triggers when the user actually wrote [N];
 	// any other malformed dotted input falls through to a more appropriate
 	// error path below.
-	if nested.SplitPath(propName.String())[0].HasIndex {
+	if nested.ParseSegments(propName.String())[0].HasIndex {
 		if _, ok := schema.AsNested(prop.DataType); !ok {
 			return fmt.Errorf("property %q: [N] indexing is only supported on nested object[] properties",
 				propName)

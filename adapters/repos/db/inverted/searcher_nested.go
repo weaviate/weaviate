@@ -167,6 +167,8 @@ func (s *Searcher) buildNestedPrimitiveFilterPair(filter *filters.Clause, propNa
 		encodedValue, err = s.extractBoolValue(filter.Value.Value)
 	case schema.DataTypeDate:
 		encodedValue, err = s.extractDateValue(filter.Value.Value)
+	case schema.DataTypeUUID:
+		encodedValue, err = s.extractUUIDValue(filter.Value.Value)
 	default:
 		return nil, fmt.Errorf("nested path %q: unsupported leaf type %q", fullPath, dt)
 	}
@@ -200,4 +202,90 @@ func (s *Searcher) buildNestedIsNullPair(filter *filters.Clause, propName, relPa
 		nested:   nestedInfo{isNested: true, relPath: relPath, arrayIndices: arrayIndices},
 		Class:    class,
 	}, nil
+}
+
+// nestedRootProp returns the root property name for a child eligible for
+// correlated grouping, or "" if the child is flat and should pass through.
+// Eligible children are direct nested leaves (nested.isNested) or
+// tokenization compound ANDs (nested.isCorrelated).
+// For "garages.cars.tags", the root property name is "garages".
+func nestedRootProp(child *propValuePair) string {
+	if child.nested.isNested || child.nested.isCorrelated {
+		return child.prop
+	}
+	return ""
+}
+
+// groupNestedByProp rewrites a flat slice of AND children so that conditions
+// targeting the same root nested property are grouped into a single
+// isCorrelated AND node that the resolver will handle with position-aware
+// same-element semantics. Flat (non-nested) conditions and nested conditions
+// from different props are returned unchanged in their original order.
+//
+// A child is eligible for grouping when it is:
+//   - a direct nested leaf (nested.isNested == true), or
+//   - a tokenization-produced compound AND (nested.isCorrelated == true)
+//
+// If no nested children are found, the original slice is returned as-is.
+// Single-child groups are kept as plain children (no wrapper node created).
+//
+// Example — given an AND filter with:
+//
+//	addresses.city = "Berlin"     (nested, root=addresses)
+//	age > 30                      (flat)
+//	addresses.postcode = "10115"  (nested, root=addresses)
+//	cars.make = "BMW"             (nested, root=cars)
+//
+// the result is:
+//
+//	isCorrelated(addresses) [city="Berlin", postcode="10115"]
+//	age > 30
+//	cars.make = "BMW"
+func groupNestedByProp(children []*propValuePair, class *models.Class) []*propValuePair {
+	// First pass: build groups per prop (preserving first-seen order).
+	groups := make(map[string][]*propValuePair)
+	var propOrder []string
+	for _, child := range children {
+		prop := nestedRootProp(child)
+		if prop == "" {
+			continue
+		}
+		if _, seen := groups[prop]; !seen {
+			propOrder = append(propOrder, prop)
+		}
+		groups[prop] = append(groups[prop], child)
+	}
+	if len(groups) == 0 {
+		return children
+	}
+
+	// Second pass: reconstruct the children slice, replacing multi-condition
+	// nested groups with a single isCorrelated AND node. Single-condition
+	// groups are kept as plain children. Flat conditions retain their position.
+	result := make([]*propValuePair, 0, len(children))
+	emitted := make(map[string]bool, len(propOrder))
+	for _, child := range children {
+		prop := nestedRootProp(child)
+		if prop == "" {
+			result = append(result, child)
+			continue
+		}
+		if emitted[prop] {
+			continue
+		}
+		emitted[prop] = true
+		group := groups[prop]
+		if len(group) == 1 {
+			result = append(result, group[0])
+		} else {
+			result = append(result, &propValuePair{
+				operator: filters.OperatorAnd,
+				nested:   nestedInfo{isCorrelated: true},
+				prop:     prop,
+				children: group,
+				Class:    class,
+			})
+		}
+	}
+	return result
 }

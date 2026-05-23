@@ -72,7 +72,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		writeIdx(t, bucket, "cars", 0, []uint64{invnested.Encode(1, 1, doc5), invnested.Encode(1, 2, doc5)})
 
 		plan, bitmapsByPath := idxLoopPlan("cars", roaringset.NewBitmap(invnested.Encode(1, 1, doc5)))
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		// Fast-path: returns MaskRootLeaf(bitmap[0]), ignoring the bucket entirely.
@@ -91,7 +91,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 			roaringset.NewBitmap(invnested.Encode(1, 1, doc5)),
 			roaringset.NewBitmap(invnested.Encode(1, 2, doc5)),
 		)
-		_, _, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(ctx)
+		_, _, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(ctx)
 		require.Error(t, err)
 	})
 
@@ -114,7 +114,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
 		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5))
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -131,7 +131,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5)) // in cars[0]
 		condB := roaringset.NewBitmap(invnested.Encode(2, 1, doc5)) // in cars[1]
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -151,7 +151,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(2, 1, doc5)) // in cars[1]
 		condB := roaringset.NewBitmap(invnested.Encode(2, 2, doc5)) // in cars[1]
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -171,7 +171,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5))
 		condC := roaringset.NewBitmap(invnested.Encode(1, 3, doc5))
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB, condC)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -191,7 +191,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5)) // cars[0]
 		condC := roaringset.NewBitmap(invnested.Encode(2, 1, doc5)) // cars[1] only
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB, condC)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -219,7 +219,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5), invnested.Encode(1, 1, doc7))
 		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5), invnested.Encode(2, 1, doc7))
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -239,7 +239,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5), invnested.Encode(1, 1, doc7))
 		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5), invnested.Encode(1, 2, doc7))
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -266,7 +266,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5), invnested.Encode(1, 1, doc7), invnested.Encode(1, 1, doc9))
 		condB := roaringset.NewBitmap(invnested.Encode(2, 1, doc5), invnested.Encode(1, 2, doc7), invnested.Encode(2, 1, doc9))
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -290,7 +290,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5)) // only doc5
 		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc7)) // only doc7
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -305,7 +305,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
 		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5))
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -322,7 +322,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(1, 1, doc5))
 		condB := roaringset.NewBitmap(invnested.Encode(1, 2, doc5)) // leaf=2 not in element 0
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)
@@ -348,7 +348,7 @@ func TestExecuteResolutionPlanIdxLoopIntegration(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(4, 1, doc5)) // only in element 3 (root=4)
 		condB := roaringset.NewBitmap(invnested.Encode(4, 2, doc5)) // only in element 3 (root=4)
 		plan, bitmapsByPath := idxLoopPlan("cars", condA, condB)
-		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE).execute(context.Background())
+		result, release, err := newPlanExecutor(plan, bitmapsByPath, bucket, ops, concurrency.SROAR_MERGE, nil).execute(context.Background())
 		require.NoError(t, err)
 		defer release()
 		requireBitmapValid(t, result)

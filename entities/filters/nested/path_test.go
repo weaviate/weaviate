@@ -54,7 +54,7 @@ func TestParseSegmentIndex(t *testing.T) {
 	}
 }
 
-func TestSplitPath(t *testing.T) {
+func TestParseSegments(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
@@ -102,7 +102,7 @@ func TestSplitPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, SplitPath(tt.path))
+			assert.Equal(t, tt.want, ParseSegments(tt.path))
 		})
 	}
 }

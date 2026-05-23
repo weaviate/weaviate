@@ -29,7 +29,7 @@ func validateNestedProp(prop *models.Property, propName schema.PropertyName, isP
 		return fmt.Errorf("property length filtering is not supported for nested properties")
 	}
 
-	pathSegs := nested.SplitPath(string(propName))
+	pathSegs := nested.ParseSegments(string(propName))
 
 	// Check whether a [N] index was applied to the root property itself.
 	if pathSegs[0].HasIndex {
