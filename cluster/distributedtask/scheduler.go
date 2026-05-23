@@ -759,10 +759,7 @@ func (s *Scheduler) tick() {
 				continue
 			}
 
-			delete(s.completedCallbackFired, desc)
-			delete(s.groupCallbackFired, desc)
-			delete(s.postCompletionAckEmitted, desc)
-			delete(s.postCompletionGroupErrors, desc)
+			s.deletePerTaskStateLocked(desc)
 
 			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
@@ -925,4 +922,18 @@ func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDes
 		return true, ""
 	}
 	return false, strings.Join(msgs, "; ")
+}
+
+// deletePerTaskStateLocked drops every per-Scheduler-instance map entry
+// keyed by desc. Called from the local-cleanup path. Missing a map here
+// is a memory leak that scales with the number of cleaned-up barrier
+// tasks on this node. Caller must hold s.mu.
+func (s *Scheduler) deletePerTaskStateLocked(desc TaskDescriptor) {
+	delete(s.completedCallbackFired, desc)
+	delete(s.groupCallbackFired, desc)
+	delete(s.preparationCallbackFired, desc)
+	delete(s.postCompletionAckEmitted, desc)
+	delete(s.preparationAckEmitted, desc)
+	delete(s.postCompletionGroupErrors, desc)
+	delete(s.preparationCompletionGroupErrors, desc)
 }
