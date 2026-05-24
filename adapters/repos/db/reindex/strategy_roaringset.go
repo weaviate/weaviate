@@ -25,12 +25,12 @@ import (
 // index from the objects bucket without changing the storage format, useful for
 // corruption recovery.
 type RoaringSetRefreshStrategy struct {
-	noAnalyzerOverlay
-	generation int // see GenSuffix godoc
+	NoAnalyzerOverlay
+	Generation int // see GenSuffix godoc
 }
 
 func (s *RoaringSetRefreshStrategy) MigrationDirName() string {
-	return MigrationDirFilterableRoaringsetRefresh + GenSuffix(s.generation)
+	return MigrationDirFilterableRoaringsetRefresh + GenSuffix(s.Generation)
 }
 
 func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {
@@ -38,15 +38,15 @@ func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *RoaringSetRefreshStrategy) ReindexSuffix() string {
-	return "__roaringset_reindex" + GenSuffix(s.generation)
+	return "__roaringset_reindex" + GenSuffix(s.Generation)
 }
 
 func (s *RoaringSetRefreshStrategy) IngestSuffix() string {
-	return "__roaringset_ingest" + GenSuffix(s.generation)
+	return "__roaringset_ingest" + GenSuffix(s.Generation)
 }
 
 func (s *RoaringSetRefreshStrategy) BackupSuffix() string {
-	return "__roaringset_backup" + GenSuffix(s.generation)
+	return "__roaringset_backup" + GenSuffix(s.Generation)
 }
 
 func (s *RoaringSetRefreshStrategy) SourceStrategy() string {

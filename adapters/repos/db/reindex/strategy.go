@@ -173,9 +173,9 @@ type MigrationStrategy interface {
 // Embed this struct to get the nil-return default; strategies that need a
 // real overlay (enable-filterable, enable-searchable, enable-rangeable)
 // define their own method which shadows the embed.
-type noAnalyzerOverlay struct{}
+type NoAnalyzerOverlay struct{}
 
-func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
+func (NoAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
 	return nil
 }
 
@@ -255,20 +255,20 @@ func applyPerPropertySchemaUpdate(
 
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
 // Renamed from mapToBlockmaxConfig to be strategy-agnostic.
-type reindexTaskConfig struct {
-	swapBuckets                   bool
-	unswapBuckets                 bool
-	tidyBuckets                   bool
-	rollback                      bool
-	conditionalStart              bool
-	concurrency                   int
-	memtableOptFactor             int
-	backupMemtableOptFactor       int
-	processingDuration            time.Duration
-	pauseDuration                 time.Duration
-	perObjectDelay                time.Duration
-	checkProcessingEveryNoObjects int
-	selectionEnabled              bool
-	selectedPropsByCollection     map[string]map[string]struct{}
-	selectedShardsByCollection    map[string]map[string]struct{}
+type ReindexTaskConfig struct {
+	SwapBuckets                   bool
+	UnswapBuckets                 bool
+	TidyBuckets                   bool
+	Rollback                      bool
+	ConditionalStart              bool
+	Concurrency                   int
+	MemtableOptFactor             int
+	BackupMemtableOptFactor       int
+	ProcessingDuration            time.Duration
+	PauseDuration                 time.Duration
+	PerObjectDelay                time.Duration
+	CheckProcessingEveryNoObjects int
+	SelectionEnabled              bool
+	SelectedPropsByCollection     map[string]map[string]struct{}
+	SelectedShardsByCollection    map[string]map[string]struct{}
 }

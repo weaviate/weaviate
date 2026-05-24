@@ -24,11 +24,12 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Full sentinel-aware [ShardReindexTaskGeneric.RunSwapOnShard] dispatch
+// Full sentinel-aware [reindex.ShardReindexTaskGeneric.RunSwapOnShard] dispatch
 // matrix: 8 strategies × 5 sentinels = 40 cells (32 executed, 8 skipped).
 //
 // Extends [TestRunSwapOnShard_SentinelAwareDispatch] which only covers
@@ -87,7 +88,7 @@ type dispatchMatrixStrategyCase struct {
 	// migration. Each cell builds a new shard + task; the task is the
 	// same instance used for both driveToState and RunSwapOnShard
 	// (mirroring the production "cached task" preservation rule).
-	buildTask func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric
+	buildTask func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric
 	// fingerprintBucketName returns the canonical bucket name whose
 	// post-migration content we compare against the baseline. For
 	// EnableSearchable / RebuildSearchable / SearchableRetokenize this
@@ -121,15 +122,15 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, _, _ string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, _, _ string) *reindex.ShardReindexTaskGeneric {
 				strategy := &testMigrationStrategy{
-					MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1},
+					MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1},
 				}
 				return newTestTask(idx.logger, strategy)
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
-				return fingerprintInvertedBucket(t, shard.store.Bucket(name))
+				return fingerprintInvertedBucket(t, shard.Store().Bucket(name))
 			},
 		},
 		{
@@ -138,13 +139,13 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newRebuildSearchableTestClass(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
 				task, _ := newRebuildSearchableTask(t, idx, className, propName)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
-				return fingerprintInvertedBucket(t, shard.store.Bucket(name))
+				return fingerprintInvertedBucket(t, shard.Store().Bucket(name))
 			},
 		},
 		{
@@ -153,13 +154,13 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, _, _ string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, _, _ string) *reindex.ShardReindexTaskGeneric {
 				task, _ := newRoaringSetRefreshTask(t, idx)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
-				return fingerprintRoaringSetBucket(t, shard.store.Bucket(name))
+				return fingerprintRoaringSetBucket(t, shard.Store().Bucket(name))
 			},
 		},
 		{
@@ -168,7 +169,7 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newFilterableToRangeableTestClass(className), filterableToRangeablePropName
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
 				task, _ := newFilterableToRangeableTask(t, idx, className, propName)
 				return task
 			},
@@ -181,7 +182,7 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			fingerprintBucketName: helpers.BucketRangeableFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
 				return dispatchMatrixRangeableFingerprintAsString(t,
-					shard.store.Bucket(name))
+					shard.Store().Bucket(name))
 			},
 		},
 		{
@@ -190,13 +191,13 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableFilterableTestClass(className, "title"), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
 				task, _ := newEnableFilterableTask(t, idx, className, propName)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
-				return fingerprintRoaringSetBucket(t, shard.store.Bucket(name))
+				return fingerprintRoaringSetBucket(t, shard.Store().Bucket(name))
 			},
 		},
 		{
@@ -205,14 +206,14 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableSearchableTestClass(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
 				task, _ := newEnableSearchableTask(t, idx, className, propName,
 					models.PropertyTokenizationWord)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
-				return fingerprintInvertedBucket(t, shard.store.Bucket(name))
+				return fingerprintInvertedBucket(t, shard.Store().Bucket(name))
 			},
 		},
 		{
@@ -221,14 +222,14 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
 				task, _ := newFilterableRetokenizeTask(t, idx, className, propName,
 					models.PropertyTokenizationField)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
-				return fingerprintRoaringSetBucket(t, shard.store.Bucket(name))
+				return fingerprintRoaringSetBucket(t, shard.Store().Bucket(name))
 			},
 		},
 		{
@@ -237,7 +238,7 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
 				// SearchableRetokenize needs to know the source bucket
 				// strategy (MapCollection here, given UsingBlockMaxWAND=false
 				// in newTestClassWithProps). Resolve it from the live shard
@@ -250,7 +251,7 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
-				return fingerprintInvertedBucket(t, shard.store.Bucket(name))
+				return fingerprintInvertedBucket(t, shard.Store().Bucket(name))
 			},
 		},
 	}
@@ -271,7 +272,7 @@ func dispatchMatrixSearchableSourceStrategy(t *testing.T, idx *Index, className,
 		false, false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
-	return shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy()
+	return shard.Store().Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy()
 }
 
 // dispatchMatrixRangeableFingerprintAsString wraps the existing rangeable
@@ -307,7 +308,7 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 //     for IsMerged; +RunSwapOnShard for IsTidied; synthetic file removal
 //     for IsPrepended/IsSwapped.
 func dispatchMatrixDriveCell(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
+	t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric,
 	path dispatchMatrixPath, sentinel dispatchMatrixSentinel,
 ) {
 	t.Helper()
@@ -339,7 +340,7 @@ func dispatchMatrixDriveCell(
 }
 
 func dispatchMatrixDriveToReindexed(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
+	t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric,
 	path dispatchMatrixPath,
 ) {
 	t.Helper()
@@ -347,7 +348,7 @@ func dispatchMatrixDriveToReindexed(
 	case dispatchMatrixPathTrio:
 		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	case dispatchMatrixPathInline:
-		task.skipSwapOnFinish.Store(true)
+		task.SkipSwapOnFinish.Store(true)
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 		for {
 			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -361,12 +362,12 @@ func dispatchMatrixDriveToReindexed(
 		// itself; skipSwapOnFinish on a fresh swap-only call is
 		// undefined and we want the dispatch to behave exactly as it
 		// does in production OnGroupCompleted.
-		task.skipSwapOnFinish.Store(false)
+		task.SkipSwapOnFinish.Store(false)
 	}
 }
 
 func dispatchMatrixDriveToMerged(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
+	t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric,
 	path dispatchMatrixPath,
 ) {
 	t.Helper()
@@ -375,7 +376,7 @@ func dispatchMatrixDriveToMerged(
 		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	case dispatchMatrixPathInline:
-		task.skipSwapOnFinish.Store(true)
+		task.SkipSwapOnFinish.Store(true)
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 		for {
 			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -384,22 +385,22 @@ func dispatchMatrixDriveToMerged(
 				break
 			}
 		}
-		task.skipSwapOnFinish.Store(false)
+		task.SkipSwapOnFinish.Store(false)
 		// Inline strategies don't expose a trio entry point for prep
 		// alone; call runtimePrepare directly. This matches what the
 		// existing inline-path convergence rows do (e.g.
 		// FilterableToRangeable_IsMerged_via_runtimePrepare_no_runtimeSwap
 		// at inverted_reindex_recovery_filterable_to_rangeable_test.go:472).
-		rt, err := task.newReindexTracker(shard.pathLSM())
+		rt, err := task.NewReindexTracker(shard.PathLSM())
 		require.NoError(t, err)
-		props, err := task.readPropsToReindex(rt)
+		props, err := task.ReadPropsToReindex(rt)
 		require.NoError(t, err)
-		require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+		require.NoError(t, task.RuntimePrepare(ctx, task.Logger, shard, rt, props))
 	}
 }
 
 func dispatchMatrixDriveToTidied(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
+	t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric,
 	path dispatchMatrixPath,
 ) {
 	t.Helper()
@@ -425,14 +426,14 @@ func dispatchMatrixDriveToTidied(
 // markTidied together (no kernel-level guarantee about file order under a
 // crash); the synthetic removal mimics a crash between the two fsyncs.
 func dispatchMatrixRemoveTidiedSentinel(
-	t *testing.T, shard *Shard, task *ShardReindexTaskGeneric,
+	t *testing.T, shard *Shard, task *reindex.ShardReindexTaskGeneric,
 ) {
 	t.Helper()
-	rt, err := task.newReindexTracker(shard.pathLSM())
+	rt, err := task.NewReindexTracker(shard.PathLSM())
 	require.NoError(t, err)
-	ftr := rt.(*fileReindexTracker)
+	ftr := rt.(*reindex.FileReindexTracker)
 	require.NoError(t, os.Remove(
-		filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)),
+		filepath.Join(ftr.Config.MigrationPath, ftr.Config.FilenameTidied)),
 		"removing tidied.mig to synthesize IsSwapped-only state")
 }
 
@@ -468,7 +469,7 @@ func dispatchMatrixExpectedSentinelsForState(s dispatchMatrixSentinel) map[strin
 // dispatchMatrixReadSentinels snapshots all five sentinels in one call so
 // the assertion failure output displays the full state, not a single
 // missed flag.
-func dispatchMatrixReadSentinels(t *testing.T, rt reindexTracker) map[string]bool {
+func dispatchMatrixReadSentinels(t *testing.T, rt reindex.ReindexTracker) map[string]bool {
 	t.Helper()
 	return map[string]bool{
 		"reindexed": rt.IsReindexed(),
@@ -579,7 +580,7 @@ func dispatchMatrixRunCell(
 	dispatchMatrixDriveCell(t, ctx, shard, task, sc.path, sentinel)
 
 	// Verify the drive halted at the intended sentinel snapshot.
-	rt, err := task.newReindexTracker(shard.pathLSM())
+	rt, err := task.NewReindexTracker(shard.PathLSM())
 	require.NoError(t, err)
 	want := dispatchMatrixExpectedSentinelsForState(sentinel)
 	got := dispatchMatrixReadSentinels(t, rt)
@@ -595,7 +596,7 @@ func dispatchMatrixRunCell(
 		sc.strategyName, sentinel)
 
 	// Post-call: every sentinel should be set (terminal state).
-	rtPost, err := task.newReindexTracker(shard.pathLSM())
+	rtPost, err := task.NewReindexTracker(shard.PathLSM())
 	require.NoError(t, err)
 	postGot := dispatchMatrixReadSentinels(t, rtPost)
 	postWant := map[string]bool{

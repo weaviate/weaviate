@@ -31,12 +31,12 @@ import (
 // selectedPropsByCollection and drops the HasFilterableIndex guard in the
 // double-write callbacks.
 type EnableFilterableStrategy struct {
-	propNames  []string
-	generation int // see GenSuffix godoc
+	PropNames  []string
+	Generation int // see GenSuffix godoc
 }
 
 func (s *EnableFilterableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixEnableFilterable, s.propNames) + GenSuffix(s.generation)
+	return migrationDirWithProps(MigrationDirPrefixEnableFilterable, s.PropNames) + GenSuffix(s.Generation)
 }
 
 func (s *EnableFilterableStrategy) SourceBucketName(propName string) string {
@@ -44,15 +44,15 @@ func (s *EnableFilterableStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *EnableFilterableStrategy) ReindexSuffix() string {
-	return "__enable_filterable_reindex" + GenSuffix(s.generation)
+	return "__enable_filterable_reindex" + GenSuffix(s.Generation)
 }
 
 func (s *EnableFilterableStrategy) IngestSuffix() string {
-	return "__enable_filterable_ingest" + GenSuffix(s.generation)
+	return "__enable_filterable_ingest" + GenSuffix(s.Generation)
 }
 
 func (s *EnableFilterableStrategy) BackupSuffix() string {
-	return "__enable_filterable_backup" + GenSuffix(s.generation)
+	return "__enable_filterable_backup" + GenSuffix(s.Generation)
 }
 
 func (s *EnableFilterableStrategy) SourceStrategy() string {

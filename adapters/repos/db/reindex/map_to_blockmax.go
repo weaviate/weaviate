@@ -33,35 +33,35 @@ func NewRuntimeMapToBlockmaxTask(
 	collectionName string,
 	generation int,
 ) *ShardReindexTaskGeneric {
-	strategy := &MapToBlockmaxStrategy{schemaManager: schemaManager, generation: generation}
+	strategy := &MapToBlockmaxStrategy{SchemaManager: schemaManager, Generation: generation}
 
 	selectedProps := make(map[string]struct{}, len(propNames))
 	for _, p := range propNames {
 		selectedProps[p] = struct{}{}
 	}
 
-	cfg := reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
-		concurrency:                   2,
-		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
-		processingDuration:            10 * time.Minute,
-		pauseDuration:                 1 * time.Second,
-		checkProcessingEveryNoObjects: 1000,
+	cfg := ReindexTaskConfig{
+		SwapBuckets:                   true,
+		TidyBuckets:                   true,
+		Concurrency:                   2,
+		MemtableOptFactor:             4,
+		BackupMemtableOptFactor:       1,
+		ProcessingDuration:            10 * time.Minute,
+		PauseDuration:                 1 * time.Second,
+		CheckProcessingEveryNoObjects: 1000,
 
-		selectionEnabled: true,
-		selectedPropsByCollection: map[string]map[string]struct{}{
+		SelectionEnabled: true,
+		SelectedPropsByCollection: map[string]map[string]struct{}{
 			collectionName: selectedProps,
 		},
-		selectedShardsByCollection: map[string]map[string]struct{}{
+		SelectedShardsByCollection: map[string]map[string]struct{}{
 			collectionName: nil, // nil = all shards
 		},
 	}
 
 	return NewShardReindexTaskGeneric(
 		"MapToBlockmax", logger, strategy, cfg,
-		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		&UuidKeyParser{}, UuidObjectsIteratorAsync,
 	)
 }
 
@@ -73,7 +73,7 @@ func NewRuntimeMapToBlockmaxTask(
 // the first generation if no on-disk state exists yet — operators using the
 // debug endpoint to inspect a not-yet-started migration see the same
 // "not_started" output they did before.
-func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
+func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *FileReindexTracker {
 	gen := MaxMigrationGeneration(lsmPath, MigrationDirSearchableMapToBlockmax, "")
 	if gen == 0 {
 		gen = 1

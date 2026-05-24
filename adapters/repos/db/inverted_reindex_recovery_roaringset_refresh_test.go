@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -33,27 +34,27 @@ import (
 // mirrors MapToBlockmax_FromEachState verbatim with the bucket type as
 // the only difference.
 
-// newRoaringSetRefreshTask wraps RoaringSetRefreshStrategy.
-func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
+// newRoaringSetRefreshTask wraps reindex.RoaringSetRefreshStrategy.
+func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*reindex.ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
 	t.Helper()
 	wrapped := &roaringSetRefreshStrategyWrapper{
-		RoaringSetRefreshStrategy: RoaringSetRefreshStrategy{
-			generation: 1,
+		RoaringSetRefreshStrategy: reindex.RoaringSetRefreshStrategy{
+			Generation: 1,
 		},
 	}
-	task := NewShardReindexTaskGeneric(
+	task := reindex.NewShardReindexTaskGeneric(
 		"RoaringSetRefresh", idx.logger, wrapped,
-		reindexTaskConfig{
-			swapBuckets:                   true,
-			tidyBuckets:                   true,
-			concurrency:                   2,
-			memtableOptFactor:             4,
-			backupMemtableOptFactor:       1,
-			processingDuration:            10 * time.Minute,
-			pauseDuration:                 1 * time.Second,
-			checkProcessingEveryNoObjects: 1000,
+		reindex.ReindexTaskConfig{
+			SwapBuckets:                   true,
+			TidyBuckets:                   true,
+			Concurrency:                   2,
+			MemtableOptFactor:             4,
+			BackupMemtableOptFactor:       1,
+			ProcessingDuration:            10 * time.Minute,
+			PauseDuration:                 1 * time.Second,
+			CheckProcessingEveryNoObjects: 1000,
 		},
-		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		&reindex.UuidKeyParser{}, reindex.UuidObjectsIteratorAsync,
 	)
 	return task, wrapped
 }
@@ -63,11 +64,11 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneri
 // OnMigrationComplete is already a no-op (same-strategy refresh needs
 // no schema update); this wrapper is essentially an observer.
 type roaringSetRefreshStrategyWrapper struct {
-	RoaringSetRefreshStrategy
+	reindex.RoaringSetRefreshStrategy
 	migrationCompleted bool
 }
 
-func (s *roaringSetRefreshStrategyWrapper) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+func (s *roaringSetRefreshStrategyWrapper) OnMigrationComplete(_ context.Context, _ reindex.ShardLike) error {
 	s.migrationCompleted = true
 	return nil
 }
@@ -103,7 +104,7 @@ func computeRoaringSetRefreshBaseline(t *testing.T, propName string, numObjects 
 	}
 
 	return fingerprintRoaringSetBucket(t,
-		shard.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
+		shard.Store().Bucket(helpers.BucketFromPropNameLSM(propName)))
 }
 
 // TestRecoveryConvergence_RoaringSetRefresh_Baseline establishes that the
@@ -129,7 +130,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 	}
 
 	filtBucketName := helpers.BucketFromPropNameLSM(propName)
-	preBucket := shard.store.Bucket(filtBucketName)
+	preBucket := shard.Store().Bucket(filtBucketName)
 	require.NotNil(t, preBucket, "pre-migration filterable bucket must exist")
 	require.Equal(t, lsmkv.StrategyRoaringSet, preBucket.Strategy(),
 		"pre-migration filterable bucket must be StrategyRoaringSet")
@@ -149,7 +150,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
 
-	postBucket := shard.store.Bucket(filtBucketName)
+	postBucket := shard.Store().Bucket(filtBucketName)
 	require.NotNil(t, postBucket, "post-migration filterable bucket must exist")
 	require.Equal(t, lsmkv.StrategyRoaringSet, postBucket.Strategy(),
 		"post-migration filterable bucket must remain StrategyRoaringSet")
@@ -169,7 +170,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 			"term %q posting list changed across same-strategy refresh", term)
 	}
 
-	rt, err := task.newReindexTracker(shard.pathLSM())
+	rt, err := task.NewReindexTracker(shard.PathLSM())
 	require.NoError(t, err)
 	require.True(t, rt.IsReindexed())
 	require.True(t, rt.IsPrepended())
@@ -200,8 +201,8 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 	cases := []recoveryConvergenceCase{
 		{
 			name: "RoaringSetRefresh_IsReindexed_via_skipSwapOnFinish",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				task.skipSwapOnFinish.Store(true)
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -221,14 +222,14 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 		},
 		{
 			name: "RoaringSetRefresh_IsPrepended_synthetic_merged_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				// runtimePrepare writes markPrepended + cleanup +
 				// markMerged in one atomic method, so we can't reach
 				// IsPrepended-without-IsMerged via production code
 				// alone. Drive to IsMerged via runtimePrepare, then
 				// remove merged.mig by hand to simulate a crash
 				// between markPrepended() and markMerged().
-				task.skipSwapOnFinish.Store(true)
+				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -237,14 +238,14 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 						break
 					}
 				}
-				rt, err := task.newReindexTracker(shard.pathLSM())
+				rt, err := task.NewReindexTracker(shard.PathLSM())
 				require.NoError(t, err)
-				props, err := task.readPropsToReindex(rt)
+				props, err := task.ReadPropsToReindex(rt)
 				require.NoError(t, err)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
-				ftr := rt.(*fileReindexTracker)
+				require.NoError(t, task.RuntimePrepare(ctx, task.Logger, shard, rt, props))
+				ftr := rt.(*reindex.FileReindexTracker)
 				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)),
+					filepath.Join(ftr.Config.MigrationPath, ftr.Config.FilenameMerged)),
 					"removing merged.mig to synthesize IsPrepended-only state")
 			},
 			expectedPostStateSentinels: map[string]bool{
@@ -257,7 +258,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 		},
 		{
 			name: "RoaringSetRefresh_IsSwapped_synthetic_tidied_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				// runtimeSwap writes markSwapped + tidy + markTidied
 				// atomically. Drive the migration to completion, then
 				// remove tidied.mig by hand to simulate a crash between
@@ -270,11 +271,11 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 						break
 					}
 				}
-				rt, err := task.newReindexTracker(shard.pathLSM())
+				rt, err := task.NewReindexTracker(shard.PathLSM())
 				require.NoError(t, err)
-				ftr := rt.(*fileReindexTracker)
+				ftr := rt.(*reindex.FileReindexTracker)
 				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)),
+					filepath.Join(ftr.Config.MigrationPath, ftr.Config.FilenameTidied)),
 					"removing tidied.mig to synthesize IsSwapped-only state")
 			},
 			expectedPostStateSentinels: map[string]bool{
@@ -287,10 +288,10 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 		},
 		{
 			name: "RoaringSetRefresh_IsMerged_via_runtimePrepare_no_runtimeSwap",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				// Step 1: drive iteration to markReindexed via the
 				// production barrier path.
-				task.skipSwapOnFinish.Store(true)
+				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -303,11 +304,11 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 				// path; same package access). This writes markPrepended
 				// + cleanup + markMerged in one atomic method. We stop
 				// before runtimeSwap.
-				rt, err := task.newReindexTracker(shard.pathLSM())
+				rt, err := task.NewReindexTracker(shard.PathLSM())
 				require.NoError(t, err)
-				props, err := task.readPropsToReindex(rt)
+				props, err := task.ReadPropsToReindex(rt)
 				require.NoError(t, err)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+				require.NoError(t, task.RuntimePrepare(ctx, task.Logger, shard, rt, props))
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": true,
@@ -319,7 +320,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 		},
 		{
 			name: "RoaringSetRefresh_IsTidied_full_migration",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -363,7 +364,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			// on-disk state. Without this guard a buggy driveToState
 			// would let recovery from a different state appear to
 			// "converge".
-			rt, err := task.newReindexTracker(shard.pathLSM())
+			rt, err := task.NewReindexTracker(shard.PathLSM())
 			require.NoError(t, err)
 			actualSentinels := map[string]bool{
 				"reindexed": rt.IsReindexed(),
@@ -380,14 +381,14 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 
 			// Phase 2: simulate restart — full shutdown + shard re-init
 			// + fresh task. This is the real-world restart sequence:
-			// shard_init runs FinalizeCompletedMigrations, then
+			// shard_init runs reindex.FinalizeCompletedMigrations, then
 			// OnBeforeLsmInit, then LSM init, then OnAfterLsmInit, then
 			// OnAfterLsmInitAsync loop on the background scheduler.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
 			task2, _ := newRoaringSetRefreshTask(t, idx)
-			task2.skipSwapOnFinish.Store(false)
+			task2.SkipSwapOnFinish.Store(false)
 			idx.shardReindexer = &testShardReindexer{task: task2}
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -408,7 +409,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			}
 
 			// Phase 3: convergence check against baseline fingerprint.
-			bucket := shard2.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+			bucket := shard2.Store().Bucket(helpers.BucketFromPropNameLSM(propName))
 			require.NotNilf(t, bucket, "post-recovery filterable bucket must exist (case %q)", tc.name)
 			require.Equalf(t, lsmkv.StrategyRoaringSet, bucket.Strategy(),
 				"post-recovery filterable bucket must remain StrategyRoaringSet (case %q)", tc.name)

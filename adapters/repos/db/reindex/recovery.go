@@ -50,10 +50,10 @@ import (
 // would attempt to load already-loaded ingest buckets).
 type RecoveredReindex struct {
 	Descriptor distributedtask.TaskDescriptor
-	UnitID string
+	UnitID     string
 	Collection string
-	ShardName string
-	Tasks []*ShardReindexTaskGeneric
+	ShardName  string
+	Tasks      []*ShardReindexTaskGeneric
 }
 
 // DiscoverInFlightReindexTasks walks every shard's
@@ -138,13 +138,13 @@ func DiscoverInFlightReindexTasks(
 				}
 				recovered = append(recovered, RecoveredReindex{
 					Descriptor: distributedtask.TaskDescriptor{
-						ID: rec.TaskID,
+						ID:      rec.TaskID,
 						Version: rec.TaskVersion,
 					},
-					UnitID: rec.UnitID,
+					UnitID:     rec.UnitID,
 					Collection: rec.Payload.Collection,
-					ShardName: shardName,
-					Tasks: tasks,
+					ShardName:  shardName,
+					Tasks:      tasks,
 				})
 			}
 		}
@@ -224,26 +224,26 @@ func buildRecoveryTasks(
 	switch payload.MigrationType {
 	case ReindexTypeChangeAlgorithm:
 		raw = []*ShardReindexTaskGeneric{
-			 NewRuntimeMapToBlockmaxTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
+			NewRuntimeMapToBlockmaxTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeRepairFilterable:
 		raw = []*ShardReindexTaskGeneric{
-			 NewRuntimeRoaringSetRefreshTask(logger, payload.Properties, payload.Collection, generation),
+			NewRuntimeRoaringSetRefreshTask(logger, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		raw = []*ShardReindexTaskGeneric{
-			 NewRuntimeFilterableToRangeableTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
+			NewRuntimeFilterableToRangeableTask(logger, schemaManager, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableFilterable:
 		raw = []*ShardReindexTaskGeneric{
-			 NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, generation),
+			NewRuntimeEnableFilterableTask(logger, payload.Properties, payload.Collection, generation),
 		}
 	case ReindexTypeEnableSearchable:
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("%s requires targetTokenization", payload.MigrationType)
 		}
 		raw = []*ShardReindexTaskGeneric{
-			 NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization, generation),
+			NewRuntimeEnableSearchableTask(logger, payload.Properties, payload.Collection, payload.TargetTokenization, generation),
 		}
 	case ReindexTypeChangeTokenization:
 		if len(payload.Properties) != 1 {
@@ -257,12 +257,12 @@ func buildRecoveryTasks(
 		}
 		propName := payload.Properties[0]
 		raw = []*ShardReindexTaskGeneric{
-			 NewRuntimeSearchableRetokenizeTask(
+			NewRuntimeSearchableRetokenizeTask(
 				logger, propName, payload.TargetTokenization,
 				payload.Collection, payload.BucketStrategy, payload.Collection,
 				generation,
 			),
-			 NewRuntimeFilterableRetokenizeTask(
+			NewRuntimeFilterableRetokenizeTask(
 				logger,
 				propName, payload.TargetTokenization,
 				payload.Collection, payload.Collection,
@@ -278,7 +278,7 @@ func buildRecoveryTasks(
 		}
 		propName := payload.Properties[0]
 		raw = []*ShardReindexTaskGeneric{
-			 NewRuntimeFilterableRetokenizeTask(
+			NewRuntimeFilterableRetokenizeTask(
 				logger,
 				propName, payload.TargetTokenization,
 				payload.Collection, payload.Collection,
@@ -352,19 +352,19 @@ func SeedReindexProviderFromRecovery(provider *ReindexProvider, recovered []Reco
 // on every reconstructed task so the per-shard runtimeSwap / disable
 // flow doesn't accidentally touch other shards' callbacks.
 func (t *ShardReindexTaskGeneric) constrainToShard(collection, shardName string) {
-	t.config.selectionEnabled = true
-	if t.config.selectedShardsByCollection == nil {
-		t.config.selectedShardsByCollection = map[string]map[string]struct{}{}
+	t.Config.SelectionEnabled = true
+	if t.Config.SelectedShardsByCollection == nil {
+		t.Config.SelectedShardsByCollection = map[string]map[string]struct{}{}
 	}
-	t.config.selectedShardsByCollection[collection] = map[string]struct{}{
+	t.Config.SelectedShardsByCollection[collection] = map[string]struct{}{
 		shardName: {},
 	}
 	// Give each per-shard task a unique name so RegisterTask doesn't
 	// drop duplicates when several shards of the same collection are
 	// recovered.
-	if !strings.Contains(t.name, "[recovery:") {
-		t.name = fmt.Sprintf("%s[recovery:%s/%s]", t.name, collection, shardName)
-		t.logger = t.logger.WithField("task", t.name)
+	if !strings.Contains(t.TaskName, "[recovery:") {
+		t.TaskName = fmt.Sprintf("%s[recovery:%s/%s]", t.TaskName, collection, shardName)
+		t.Logger = t.Logger.WithField("task", t.TaskName)
 	}
 }
 
@@ -376,7 +376,7 @@ func (t *ShardReindexTaskGeneric) constrainToShard(collection, shardName string)
 // [NewShardReindexerV3FromRecovered] for the rationale.
 type shardReindexerV3RecoveryOnly struct {
 	logger logrus.FieldLogger
-	tasks []*ShardReindexTaskGeneric
+	tasks  []*ShardReindexTaskGeneric
 }
 
 func newShardReindexerV3RecoveryOnly(logger logrus.FieldLogger) *shardReindexerV3RecoveryOnly {

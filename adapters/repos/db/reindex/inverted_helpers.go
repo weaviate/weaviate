@@ -13,8 +13,8 @@ package reindex
 
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/filters"
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
 )
 
 // Property classification helpers moved here from

@@ -18,10 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// TestAnalyzerOverlayShape pins each MigrationStrategy.AnalyzerOverlay
+// TestAnalyzerOverlayShape pins each reindex.MigrationStrategy.AnalyzerOverlay
 // return shape. The overlay is what keeps from-scratch strategies
 // (enable-filterable / -searchable / -rangeable) from backfilling
 // empty buckets while the schema flag is still false; a wrong
@@ -52,8 +53,8 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 		// the zero value).
 		{
 			name: "EnableSearchable_twoProps_forcesSearchableAndTokenization",
-			makeOverlay: (&EnableSearchableStrategy{
-				tokenization: models.PropertyTokenizationField,
+			makeOverlay: (&reindex.EnableSearchableStrategy{
+				Tokenization: models.PropertyTokenizationField,
 			}).AnalyzerOverlay,
 			props:        []string{analyzerOverlayPropA, analyzerOverlayPropB},
 			wantPropKeys: []string{analyzerOverlayPropA, analyzerOverlayPropB},
@@ -65,8 +66,8 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 		},
 		{
 			name: "EnableSearchable_wordTokenization",
-			makeOverlay: (&EnableSearchableStrategy{
-				tokenization: models.PropertyTokenizationWord,
+			makeOverlay: (&reindex.EnableSearchableStrategy{
+				Tokenization: models.PropertyTokenizationWord,
 			}).AnalyzerOverlay,
 			props:        []string{analyzerOverlayPropA},
 			wantPropKeys: []string{analyzerOverlayPropA},
@@ -78,8 +79,8 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 		},
 		{
 			name: "EnableSearchable_emptyProps_returnsNil",
-			makeOverlay: (&EnableSearchableStrategy{
-				tokenization: models.PropertyTokenizationField,
+			makeOverlay: (&reindex.EnableSearchableStrategy{
+				Tokenization: models.PropertyTokenizationField,
 			}).AnalyzerOverlay,
 			props:   []string{},
 			wantNil: true,
@@ -90,7 +91,7 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 		// a tokenization-shifted rebuild).
 		{
 			name:         "EnableFilterable_twoProps_forcesFilterable",
-			makeOverlay:  (&EnableFilterableStrategy{}).AnalyzerOverlay,
+			makeOverlay:  (&reindex.EnableFilterableStrategy{}).AnalyzerOverlay,
 			props:        []string{analyzerOverlayPropA, analyzerOverlayPropB},
 			wantPropKeys: []string{analyzerOverlayPropA, analyzerOverlayPropB},
 			wantPerKey: inverted.PropertyOverlay{
@@ -99,7 +100,7 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 		},
 		{
 			name:        "EnableFilterable_emptyProps_returnsNil",
-			makeOverlay: (&EnableFilterableStrategy{}).AnalyzerOverlay,
+			makeOverlay: (&reindex.EnableFilterableStrategy{}).AnalyzerOverlay,
 			props:       []string{},
 			wantNil:     true,
 		},
@@ -108,7 +109,7 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 		// EnableFilterable — the rangeable bucket is built from raw values.
 		{
 			name:         "FilterableToRangeable_twoProps_forcesRangeable",
-			makeOverlay:  (&FilterableToRangeableStrategy{}).AnalyzerOverlay,
+			makeOverlay:  (&reindex.FilterableToRangeableStrategy{}).AnalyzerOverlay,
 			props:        []string{analyzerOverlayPropA, analyzerOverlayPropB},
 			wantPropKeys: []string{analyzerOverlayPropA, analyzerOverlayPropB},
 			wantPerKey: inverted.PropertyOverlay{
@@ -117,7 +118,7 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 		},
 		{
 			name:        "FilterableToRangeable_emptyProps_returnsNil",
-			makeOverlay: (&FilterableToRangeableStrategy{}).AnalyzerOverlay,
+			makeOverlay: (&reindex.FilterableToRangeableStrategy{}).AnalyzerOverlay,
 			props:       []string{},
 			wantNil:     true,
 		},
@@ -129,7 +130,7 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 		// retokenization. Pin nil-return.
 		{
 			name:        "RebuildSearchable_alwaysNil",
-			makeOverlay: (&RebuildSearchableStrategy{}).AnalyzerOverlay,
+			makeOverlay: (&reindex.RebuildSearchableStrategy{}).AnalyzerOverlay,
 			props:       []string{analyzerOverlayPropA, analyzerOverlayPropB},
 			wantNil:     true,
 		},
@@ -181,7 +182,7 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 }
 
 // TestAnalyzerOverlayShape_NoAnalyzerOverlayDefault pins the embedded
-// `noAnalyzerOverlay` default returned by every strategy that doesn't
+// `reindex.NoAnalyzerOverlay` default returned by every strategy that doesn't
 // shadow it (MapToBlockmax, RoaringSetRefresh, SearchableRetokenize,
 // FilterableRetokenize). A regression to a non-nil return here would
 // silently apply an overlay where none is intended — most dangerous on
@@ -192,24 +193,24 @@ func TestAnalyzerOverlayShape_NoAnalyzerOverlayDefault(t *testing.T) {
 		name string
 		// Use the interface so the test covers the actual dispatch path
 		// (embedded method via the strategy struct), not the bare
-		// noAnalyzerOverlay value.
-		strategy MigrationStrategy
+		// reindex.NoAnalyzerOverlay value.
+		strategy reindex.MigrationStrategy
 	}{
 		{
 			name:     "MapToBlockmax_noOverlay",
-			strategy: &MapToBlockmaxStrategy{},
+			strategy: &reindex.MapToBlockmaxStrategy{},
 		},
 		{
 			name:     "RoaringSetRefresh_noOverlay",
-			strategy: &RoaringSetRefreshStrategy{},
+			strategy: &reindex.RoaringSetRefreshStrategy{},
 		},
 		{
 			name:     "SearchableRetokenize_noOverlay",
-			strategy: &SearchableRetokenizeStrategy{propName: "title"},
+			strategy: &reindex.SearchableRetokenizeStrategy{PropName: "title"},
 		},
 		{
 			name:     "FilterableRetokenize_noOverlay",
-			strategy: &FilterableRetokenizeStrategy{propName: "title"},
+			strategy: &reindex.FilterableRetokenizeStrategy{PropName: "title"},
 		},
 	}
 
@@ -232,7 +233,7 @@ func TestAnalyzerOverlayShape_NoAnalyzerOverlayDefault(t *testing.T) {
 // directly so a refactor that replaces the embed with a different default
 // implementation still fails this test loudly.
 func TestAnalyzerOverlayShape_BareNoAnalyzerOverlay(t *testing.T) {
-	var analyzerOverlayBase noAnalyzerOverlay
+	var analyzerOverlayBase reindex.NoAnalyzerOverlay
 	assert.Nil(t, analyzerOverlayBase.AnalyzerOverlay(nil))
 	assert.Nil(t, analyzerOverlayBase.AnalyzerOverlay([]string{}))
 	assert.Nil(t, analyzerOverlayBase.AnalyzerOverlay([]string{"any", "props"}))

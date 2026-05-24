@@ -28,6 +28,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -69,8 +70,8 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 	cases := []recoveryConvergenceCase{
 		{
 			name: "MultiProp_IsReindexed_via_skipSwapOnFinish",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				task.skipSwapOnFinish.Store(true)
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -86,8 +87,8 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 		},
 		{
 			name: "MultiProp_IsMerged_via_runtimePrepare",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
-				task.skipSwapOnFinish.Store(true)
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -96,11 +97,11 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 						break
 					}
 				}
-				rt, err := task.newReindexTracker(shard.pathLSM())
+				rt, err := task.NewReindexTracker(shard.PathLSM())
 				require.NoError(t, err)
-				props, err := task.readPropsToReindex(rt)
+				props, err := task.ReadPropsToReindex(rt)
 				require.NoError(t, err)
-				require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+				require.NoError(t, task.RuntimePrepare(ctx, task.Logger, shard, rt, props))
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false,
@@ -108,7 +109,7 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 		},
 		{
 			name: "MultiProp_IsTidied_full_migration",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -139,11 +140,11 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 
-			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
 			task := newTestTask(idx.logger, strategy)
 			tc.driveToState(t, ctx, shard, task)
 
-			rt, err := task.newReindexTracker(shard.pathLSM())
+			rt, err := task.NewReindexTracker(shard.PathLSM())
 			require.NoError(t, err)
 			for name, want := range tc.expectedPostStateSentinels {
 				var got bool
@@ -165,9 +166,9 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
 			task2 := newTestTask(idx.logger, strategy2)
-			task2.skipSwapOnFinish.Store(false)
+			task2.SkipSwapOnFinish.Store(false)
 			idx.shardReindexer = &testShardReindexer{task: task2}
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -187,7 +188,7 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 			// Per-prop convergence check — every prop must converge.
 			for _, propName := range propNames {
 				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-				bucket := shard2.store.Bucket(bucketName)
+				bucket := shard2.Store().Bucket(bucketName)
 				require.NotNilf(t, bucket, "multi-prop bucket %q must exist (case %q)", propName, tc.name)
 				require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(),
 					"multi-prop bucket %q must be StrategyInverted (case %q)", propName, tc.name)
@@ -231,7 +232,7 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
@@ -246,7 +247,7 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 	out := make(map[string]map[string][]uint64, len(propNames))
 	for _, propName := range propNames {
 		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-		out[propName] = fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
+		out[propName] = fingerprintInvertedBucket(t, shard.Store().Bucket(bucketName))
 	}
 	return out
 }
@@ -275,11 +276,11 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
 	// Drive iteration + runtimePrepare so runtimeSwap's Phase 2a is next.
-	task.skipSwapOnFinish.Store(true)
+	task.SkipSwapOnFinish.Store(true)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -288,17 +289,17 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 			break
 		}
 	}
-	rt, err := task.newReindexTracker(shard.pathLSM())
+	rt, err := task.NewReindexTracker(shard.PathLSM())
 	require.NoError(t, err)
-	props, err := task.readPropsToReindex(rt)
+	props, err := task.ReadPropsToReindex(rt)
 	require.NoError(t, err)
-	require.NoError(t, task.runtimePrepare(ctx, task.logger, shard, rt, props))
+	require.NoError(t, task.RuntimePrepare(ctx, task.Logger, shard, rt, props))
 
 	// Panic prefix lets the recover() handler distinguish THE expected
 	// fault panic from any unrelated panic inside runtimeSwap.
 	const haltPanicPrefix = "mid-loop halt: simulated crash"
-	prodSwap := task.processOneSwapProp
-	task.processOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
+	prodSwap := task.ProcessOneSwapProp
+	task.ProcessOneSwapPropFn = func(ctx context.Context, store *lsmkv.Store, rt reindex.ReindexTracker, propIdx int, propName string) (*lsmkv.Bucket, error) {
 		bucket, err := prodSwap(ctx, store, rt, propIdx, propName)
 		if err != nil {
 			return nil, err
@@ -322,7 +323,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 				panicValue = r
 			}
 		}()
-		swapErr = task.runtimeSwap(ctx, task.logger, shard, rt, props)
+		swapErr = task.RuntimeSwap(ctx, task.Logger, shard, rt, props)
 		swapReturned = true
 	}()
 
@@ -345,7 +346,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	assert.Lessf(t, swappedCount, len(propNames), "halt didn't fire (got %d of %d)", swappedCount, len(propNames))
 
 	shardName := shard.Name()
-	shardLSMPath := shard.pathLSM()
+	shardLSMPath := shard.PathLSM()
 	require.NoError(t, shard.Shutdown(ctx))
 
 	// K already-swapped old buckets were orphaned in runtimeSwap's
@@ -354,9 +355,9 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	// restart would do.
 	simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
-	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
 	task2 := newTestTask(idx.logger, strategy2)
-	task2.skipSwapOnFinish.Store(false)
+	task2.SkipSwapOnFinish.Store(false)
 	idx.shardReindexer = &testShardReindexer{task: task2}
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -375,7 +376,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 
 	for _, propName := range propNames {
 		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-		bucket := shard2.store.Bucket(bucketName)
+		bucket := shard2.Store().Bucket(bucketName)
 		require.NotNilf(t, bucket, "bucket %q missing post-recovery", propName)
 		require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(), "prop %q strategy", propName)
 
@@ -513,7 +514,7 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 		if flushEvery > 0 && (i+1)%flushEvery == 0 {
 			for _, propName := range propNames {
 				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-				bucket := shard.store.Bucket(bucketName)
+				bucket := shard.Store().Bucket(bucketName)
 				if bucket != nil {
 					require.NoError(t, bucket.FlushAndSwitch())
 				}
@@ -521,12 +522,12 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 		}
 	}
 
-	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 
 	switch crash {
 	case crashAtReindexed:
-		task.skipSwapOnFinish.Store(true)
+		task.SkipSwapOnFinish.Store(true)
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 		for {
 			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -535,7 +536,7 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 				break
 			}
 		}
-		rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &UuidKeyParser{})
+		rt := reindex.NewFileMapToBlockmaxReindexTracker(shard.PathLSM(), &reindex.UuidKeyParser{})
 		require.True(t, rt.IsReindexed())
 		require.False(t, rt.IsTidied())
 	case crashAtSwapped:
@@ -549,23 +550,23 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 				break
 			}
 		}
-		rt, err := task.newReindexTracker(shard.pathLSM())
+		rt, err := task.NewReindexTracker(shard.PathLSM())
 		require.NoError(t, err)
-		ftr := rt.(*fileReindexTracker)
-		require.NoError(t, os.Remove(filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)))
+		ftr := rt.(*reindex.FileReindexTracker)
+		require.NoError(t, os.Remove(filepath.Join(ftr.Config.MigrationPath, ftr.Config.FilenameTidied)))
 		require.True(t, rt.IsSwapped())
 		require.False(t, rt.IsTidied())
 	}
 
 	shardName := shard.Name()
-	shardLSMPath := shard.pathLSM()
+	shardLSMPath := shard.PathLSM()
 	require.NoError(t, shard.Shutdown(ctx))
 	shard = nil // disable the defer's Shutdown
 	simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
-	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
 	task2 := newTestTask(idx.logger, strategy2)
-	task2.skipSwapOnFinish.Store(false)
+	task2.SkipSwapOnFinish.Store(false)
 	idx.shardReindexer = &testShardReindexer{task: task2}
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -583,13 +584,13 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 	}
 
 	// Fingerprint each prop's post-recovery bucket, resolving to UUIDs.
-	objectsBucket := shard2.store.Bucket(helpers.ObjectsBucketLSM)
+	objectsBucket := shard2.Store().Bucket(helpers.ObjectsBucketLSM)
 	require.NotNil(t, objectsBucket, "layout+crash: objects bucket must exist post-recovery")
 
 	out := make(map[string]map[string][]string, len(propNames))
 	for _, propName := range propNames {
 		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-		bucket := shard2.store.Bucket(bucketName)
+		bucket := shard2.Store().Bucket(bucketName)
 		require.NotNilf(t, bucket, "layout+crash: bucket %q must exist post-recovery", propName)
 		require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(),
 			"layout+crash: bucket %q must be StrategyInverted post-recovery", propName)
@@ -633,7 +634,7 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 		if flushEvery > 0 && (i+1)%flushEvery == 0 {
 			for _, propName := range propNames {
 				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-				bucket := shard.store.Bucket(bucketName)
+				bucket := shard.Store().Bucket(bucketName)
 				if bucket != nil {
 					require.NoError(t, bucket.FlushAndSwitch(),
 						"flush bucket %q (insertIdx %d, reverse=%v, flushEvery=%d)",
@@ -644,7 +645,7 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 	}
 
 	// Run the full migration pipeline.
-	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
 	task := newTestTask(idx.logger, strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
@@ -657,13 +658,13 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 
 	// Fingerprint each prop's post-migration bucket, resolving local
 	// docIDs to global object UUIDs so the comparison is replica-invariant.
-	objectsBucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
+	objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
 	require.NotNil(t, objectsBucket, "cross-replica: objects bucket must exist")
 
 	out := make(map[string]map[string][]string, len(propNames))
 	for _, propName := range propNames {
 		bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-		bucket := shard.store.Bucket(bucketName)
+		bucket := shard.Store().Bucket(bucketName)
 		require.NotNilf(t, bucket, "cross-replica: bucket %q must exist post-migration (reverse=%v)", propName, reverse)
 		require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(),
 			"cross-replica: bucket %q must be StrategyInverted post-migration (reverse=%v)", propName, reverse)

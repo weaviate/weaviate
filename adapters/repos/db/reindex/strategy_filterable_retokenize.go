@@ -25,31 +25,31 @@ import (
 // strategy (e.g. WORD → FIELD). This runs after the searchable strategy and
 // performs the schema update in OnMigrationComplete.
 type FilterableRetokenizeStrategy struct {
-	noAnalyzerOverlay
-	propName           string
-	targetTokenization string
-	className          string
-	generation         int // see GenSuffix godoc
+	NoAnalyzerOverlay
+	PropName           string
+	TargetTokenization string
+	ClassName          string
+	Generation         int // see GenSuffix godoc
 }
 
 func (s *FilterableRetokenizeStrategy) MigrationDirName() string {
-	return MigrationDirPrefixFilterableRetokenize + "_" + s.propName + GenSuffix(s.generation)
+	return MigrationDirPrefixFilterableRetokenize + "_" + s.PropName + GenSuffix(s.Generation)
 }
 
 func (s *FilterableRetokenizeStrategy) SourceBucketName(_ string) string {
-	return helpers.BucketFromPropNameLSM(s.propName)
+	return helpers.BucketFromPropNameLSM(s.PropName)
 }
 
 func (s *FilterableRetokenizeStrategy) ReindexSuffix() string {
-	return "__filt_retokenize_reindex" + GenSuffix(s.generation)
+	return "__filt_retokenize_reindex" + GenSuffix(s.Generation)
 }
 
 func (s *FilterableRetokenizeStrategy) IngestSuffix() string {
-	return "__filt_retokenize_ingest" + GenSuffix(s.generation)
+	return "__filt_retokenize_ingest" + GenSuffix(s.Generation)
 }
 
 func (s *FilterableRetokenizeStrategy) BackupSuffix() string {
-	return "__filt_retokenize_backup" + GenSuffix(s.generation)
+	return "__filt_retokenize_backup" + GenSuffix(s.Generation)
 }
 
 func (s *FilterableRetokenizeStrategy) SourceStrategy() string {
@@ -75,8 +75,8 @@ func (s *FilterableRetokenizeStrategy) WriteToReindexBucket(_ ShardLike, bucket 
 		return nil
 	}
 
-	analyzer := inverted.NewAnalyzer(nil, s.className)
-	items := analyzer.TextArray(s.targetTokenization, prop.RawValues, prop.Name, nil)
+	analyzer := inverted.NewAnalyzer(nil, s.ClassName)
+	items := analyzer.TextArray(s.TargetTokenization, prop.RawValues, prop.Name, nil)
 
 	for _, item := range items {
 		if err := bucket.RoaringSetAddOne(item.Data, docID); err != nil {
@@ -87,7 +87,7 @@ func (s *FilterableRetokenizeStrategy) WriteToReindexBucket(_ ShardLike, bucket 
 }
 
 func (s *FilterableRetokenizeStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return property.HasFilterableIndex && property.Name == s.propName
+	return property.HasFilterableIndex && property.Name == s.PropName
 }
 
 // MakeAddCallback returns a callback for adding documents to the filterable (RoaringSet) index.
@@ -101,7 +101,7 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
 	var analyzer *inverted.Analyzer
 	if forTargetStrategy {
-		analyzer = inverted.NewAnalyzer(nil, s.className)
+		analyzer = inverted.NewAnalyzer(nil, s.ClassName)
 	}
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
@@ -116,7 +116,7 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
+			items = analyzer.TextArray(s.TargetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			items = property.Items
 		}
@@ -139,7 +139,7 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
 	var analyzer *inverted.Analyzer
 	if forTargetStrategy {
-		analyzer = inverted.NewAnalyzer(nil, s.className)
+		analyzer = inverted.NewAnalyzer(nil, s.ClassName)
 	}
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
@@ -154,7 +154,7 @@ func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
+			items = analyzer.TextArray(s.TargetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			items = property.Items
 		}

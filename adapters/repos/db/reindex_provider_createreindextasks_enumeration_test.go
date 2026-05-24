@@ -17,28 +17,29 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 // Structural pin for createReindexTasks' switch: every
-// ReindexMigrationType in reindex_provider_payload.go must dispatch to
-// at least one ShardReindexTaskGeneric or fail with a documented
+// reindex.ReindexMigrationType in reindex_provider_payload.go must dispatch to
+// at least one reindex.ShardReindexTaskGeneric or fail with a documented
 // error. A new constant without a matching case fails the loop below
 // instead of silently producing "unknown migration type" at runtime.
 
 // allKnownMigrationTypes is the authoritative enumeration; sorted to
 // match the declaration order in reindex_provider_payload.go.
 // New type? Add here AND in createReindexTasksEnumerationCase.
-func allKnownMigrationTypes() []ReindexMigrationType {
-	return []ReindexMigrationType{
-		ReindexTypeChangeAlgorithm,
-		ReindexTypeRebuildSearchable,
-		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable,
-		ReindexTypeRepairRangeable,
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableSearchable,
-		ReindexTypeChangeTokenization,
-		ReindexTypeChangeTokenizationFilterable,
+func allKnownMigrationTypes() []reindex.ReindexMigrationType {
+	return []reindex.ReindexMigrationType{
+		reindex.ReindexTypeChangeAlgorithm,
+		reindex.ReindexTypeRebuildSearchable,
+		reindex.ReindexTypeRepairFilterable,
+		reindex.ReindexTypeEnableRangeable,
+		reindex.ReindexTypeRepairRangeable,
+		reindex.ReindexTypeEnableFilterable,
+		reindex.ReindexTypeEnableSearchable,
+		reindex.ReindexTypeChangeTokenization,
+		reindex.ReindexTypeChangeTokenizationFilterable,
 	}
 }
 
@@ -48,11 +49,11 @@ func allKnownMigrationTypes() []ReindexMigrationType {
 // expected outcome: either a positive number of tasks, or an explicit
 // error substring.
 //
-// Adding a new ReindexMigrationType to allKnownMigrationTypes() without
+// Adding a new reindex.ReindexMigrationType to allKnownMigrationTypes() without
 // adding a matching case here fails TestCreateReindexTasks_EnumerationExhaustive.
 type createReindexTasksEnumerationCase struct {
-	mt           ReindexMigrationType
-	payload      *ReindexTaskPayload
+	mt           reindex.ReindexMigrationType
+	payload      *reindex.ReindexTaskPayload
 	wantNTasks   int    // 0 means error expected
 	wantErrSubst string // empty means no error expected
 }
@@ -60,38 +61,38 @@ type createReindexTasksEnumerationCase struct {
 func enumerationCases() []createReindexTasksEnumerationCase {
 	return []createReindexTasksEnumerationCase{
 		{
-			mt:         ReindexTypeChangeAlgorithm,
-			payload:    &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"title"}},
+			mt:         reindex.ReindexTypeChangeAlgorithm,
+			payload:    &reindex.ReindexTaskPayload{Collection: "MyClass", Properties: []string{"title"}},
 			wantNTasks: 1,
 		},
 		{
-			mt:         ReindexTypeRebuildSearchable,
-			payload:    &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"title"}},
+			mt:         reindex.ReindexTypeRebuildSearchable,
+			payload:    &reindex.ReindexTaskPayload{Collection: "MyClass", Properties: []string{"title"}},
 			wantNTasks: 1,
 		},
 		{
-			mt:         ReindexTypeRepairFilterable,
-			payload:    &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"tag"}},
+			mt:         reindex.ReindexTypeRepairFilterable,
+			payload:    &reindex.ReindexTaskPayload{Collection: "MyClass", Properties: []string{"tag"}},
 			wantNTasks: 1,
 		},
 		{
-			mt:         ReindexTypeEnableRangeable,
-			payload:    &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"age"}},
+			mt:         reindex.ReindexTypeEnableRangeable,
+			payload:    &reindex.ReindexTaskPayload{Collection: "MyClass", Properties: []string{"age"}},
 			wantNTasks: 1,
 		},
 		{
-			mt:         ReindexTypeRepairRangeable,
-			payload:    &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"age"}},
+			mt:         reindex.ReindexTypeRepairRangeable,
+			payload:    &reindex.ReindexTaskPayload{Collection: "MyClass", Properties: []string{"age"}},
 			wantNTasks: 1,
 		},
 		{
-			mt:         ReindexTypeEnableFilterable,
-			payload:    &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"tag"}},
+			mt:         reindex.ReindexTypeEnableFilterable,
+			payload:    &reindex.ReindexTaskPayload{Collection: "MyClass", Properties: []string{"tag"}},
 			wantNTasks: 1,
 		},
 		{
-			mt: ReindexTypeEnableSearchable,
-			payload: &ReindexTaskPayload{
+			mt: reindex.ReindexTypeEnableSearchable,
+			payload: &reindex.ReindexTaskPayload{
 				Collection:         "MyClass",
 				Properties:         []string{"title"},
 				TargetTokenization: "word",
@@ -99,8 +100,8 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 			wantNTasks: 1,
 		},
 		{
-			mt: ReindexTypeEnableSearchable,
-			payload: &ReindexTaskPayload{
+			mt: reindex.ReindexTypeEnableSearchable,
+			payload: &reindex.ReindexTaskPayload{
 				Collection: "MyClass",
 				Properties: []string{"title"},
 				// TargetTokenization deliberately empty → required-field error.
@@ -109,8 +110,8 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 			wantErrSubst: "enable-searchable requires targetTokenization",
 		},
 		{
-			mt: ReindexTypeChangeTokenization,
-			payload: &ReindexTaskPayload{
+			mt: reindex.ReindexTypeChangeTokenization,
+			payload: &reindex.ReindexTaskPayload{
 				Collection:         "MyClass",
 				Properties:         []string{"title"},
 				TargetTokenization: "field",
@@ -122,8 +123,8 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 			wantNTasks: 2,
 		},
 		{
-			mt: ReindexTypeChangeTokenization,
-			payload: &ReindexTaskPayload{
+			mt: reindex.ReindexTypeChangeTokenization,
+			payload: &reindex.ReindexTaskPayload{
 				Collection: "MyClass",
 				Properties: []string{"title"},
 				// Missing TargetTokenization + BucketStrategy →
@@ -133,8 +134,8 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 			wantErrSubst: "change-tokenization requires targetTokenization",
 		},
 		{
-			mt: ReindexTypeChangeTokenization,
-			payload: &ReindexTaskPayload{
+			mt: reindex.ReindexTypeChangeTokenization,
+			payload: &reindex.ReindexTaskPayload{
 				Collection:         "MyClass",
 				Properties:         []string{"a", "b"}, // more than 1 prop
 				TargetTokenization: "field",
@@ -144,8 +145,8 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 			wantErrSubst: "exactly one property",
 		},
 		{
-			mt: ReindexTypeChangeTokenizationFilterable,
-			payload: &ReindexTaskPayload{
+			mt: reindex.ReindexTypeChangeTokenizationFilterable,
+			payload: &reindex.ReindexTaskPayload{
 				Collection:         "MyClass",
 				Properties:         []string{"title"},
 				TargetTokenization: "field",
@@ -153,8 +154,8 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 			wantNTasks: 1,
 		},
 		{
-			mt: ReindexTypeChangeTokenizationFilterable,
-			payload: &ReindexTaskPayload{
+			mt: reindex.ReindexTypeChangeTokenizationFilterable,
+			payload: &reindex.ReindexTaskPayload{
 				Collection: "MyClass",
 				Properties: []string{"title"},
 				// TargetTokenization deliberately empty.
@@ -174,7 +175,7 @@ func enumerationCases() []createReindexTasksEnumerationCase {
 // to catch the inverse drift (a case in enumerationCases for a type
 // not in allKnownMigrationTypes).
 func TestCreateReindexTasks_EnumerationExhaustive(t *testing.T) {
-	hasHappyPath := map[ReindexMigrationType]bool{}
+	hasHappyPath := map[reindex.ReindexMigrationType]bool{}
 	for _, c := range enumerationCases() {
 		if c.wantNTasks > 0 {
 			hasHappyPath[c.mt] = true
@@ -182,7 +183,7 @@ func TestCreateReindexTasks_EnumerationExhaustive(t *testing.T) {
 	}
 	for _, mt := range allKnownMigrationTypes() {
 		assert.Truef(t, hasHappyPath[mt],
-			"ReindexMigrationType %q has no happy-path case in enumerationCases(); "+
+			"reindex.ReindexMigrationType %q has no happy-path case in enumerationCases(); "+
 				"every type the production code can dispatch must be exercised here",
 			mt)
 	}
@@ -190,7 +191,7 @@ func TestCreateReindexTasks_EnumerationExhaustive(t *testing.T) {
 
 // TestCreateReindexTasks_AllKnownTypesDispatched calls createReindexTasks
 // for each enumerationCase and asserts the documented outcome. This is
-// the load-bearing structural pin: a new ReindexMigrationType constant
+// the load-bearing structural pin: a new reindex.ReindexMigrationType constant
 // without a matching `case` in the dispatch switch produces "unknown
 // migration type %q" — which this test would catch immediately for the
 // new type (added to allKnownMigrationTypes), since the corresponding
@@ -203,9 +204,9 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 	// p.logger and p.schemaManager only; nil schemaManager is OK
 	// because propertyHasFilterableBucket falls back to true when nil
 	// (and we never actually run the tasks, only construct them).
-	p := &ReindexProvider{
-		logger:        logger,
-		schemaManager: nil, // defensive default = treat as "filterable bucket exists"
+	p := &reindex.ReindexProvider{
+		Logger:        logger,
+		SchemaManager: nil, // defensive default = treat as "filterable bucket exists"
 	}
 
 	for _, c := range enumerationCases() {
@@ -222,7 +223,7 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 			// c.mt and we want the payload to match.
 			payload := *c.payload
 			payload.MigrationType = c.mt
-			tasks, err := p.createReindexTasks(&payload, tmpLsmPath, false)
+			tasks, err := p.CreateReindexTasks(&payload, tmpLsmPath, false)
 
 			if c.wantErrSubst != "" {
 				require.Errorf(t, err,
@@ -252,7 +253,7 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 }
 
 // TestCreateReindexTasks_UnknownTypeRejected pins the catch-all behavior:
-// an unrecognised ReindexMigrationType must error explicitly, not
+// an unrecognised reindex.ReindexMigrationType must error explicitly, not
 // silently return an empty slice. The catch-all is what protects
 // against forgetting a `case` after adding a new type — without this
 // rejection, a missed case would dispatch nothing and the unit would
@@ -260,10 +261,10 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 func TestCreateReindexTasks_UnknownTypeRejected(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	tmpLsmPath := t.TempDir()
-	p := &ReindexProvider{logger: logger}
+	p := &reindex.ReindexProvider{Logger: logger}
 
-	tasks, err := p.createReindexTasks(&ReindexTaskPayload{
-		MigrationType: ReindexMigrationType("definitely-not-a-real-type"),
+	tasks, err := p.CreateReindexTasks(&reindex.ReindexTaskPayload{
+		MigrationType: reindex.ReindexMigrationType("definitely-not-a-real-type"),
 		Collection:    "MyClass",
 		Properties:    []string{"title"},
 	}, tmpLsmPath, false)
@@ -281,11 +282,11 @@ func TestCreateReindexTasks_UnknownTypeRejected(t *testing.T) {
 func TestCreateReindexTasks_EmptyPropertiesRejected(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	tmpLsmPath := t.TempDir()
-	p := &ReindexProvider{logger: logger}
+	p := &reindex.ReindexProvider{Logger: logger}
 
 	for _, mt := range allKnownMigrationTypes() {
 		t.Run(string(mt), func(t *testing.T) {
-			tasks, err := p.createReindexTasks(&ReindexTaskPayload{
+			tasks, err := p.CreateReindexTasks(&reindex.ReindexTaskPayload{
 				MigrationType: mt,
 				Collection:    "MyClass",
 				// Properties: nil — the gate is in createReindexTasks itself.
@@ -301,21 +302,21 @@ func TestCreateReindexTasks_EmptyPropertiesRejected(t *testing.T) {
 
 // TestCreateReindexTasks_TooManyPropertiesRejected pins the defensive
 // upper bound: payload.Properties length is capped at
-// maxReindexPropertiesPerTask (1024). A pathological RAFT replay or
+// reindex.MaxReindexPropertiesPerTask (1024). A pathological RAFT replay or
 // future internal caller submitting a longer array gets rejected up
 // front instead of OOM'ing the per-strategy loop.
 func TestCreateReindexTasks_TooManyPropertiesRejected(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	tmpLsmPath := t.TempDir()
-	p := &ReindexProvider{logger: logger}
+	p := &reindex.ReindexProvider{Logger: logger}
 
-	tooMany := make([]string, maxReindexPropertiesPerTask+1)
+	tooMany := make([]string, reindex.MaxReindexPropertiesPerTask+1)
 	for i := range tooMany {
 		tooMany[i] = "p"
 	}
 
-	tasks, err := p.createReindexTasks(&ReindexTaskPayload{
-		MigrationType: ReindexTypeRepairFilterable, // arbitrary; the gate is migration-agnostic
+	tasks, err := p.CreateReindexTasks(&reindex.ReindexTaskPayload{
+		MigrationType: reindex.ReindexTypeRepairFilterable, // arbitrary; the gate is migration-agnostic
 		Collection:    "MyClass",
 		Properties:    tooMany,
 	}, tmpLsmPath, false)

@@ -17,26 +17,26 @@ import "time"
 // by NewRuntimeEnableSearchableTask + NewRuntimeRebuildSearchableTask.
 // Both scan objects to produce BlockMax postings; the only difference is
 // the strategy attached on top.
-func blockmaxSearchableTaskConfig(propNames []string, collectionName string) reindexTaskConfig {
+func blockmaxSearchableTaskConfig(propNames []string, collectionName string) ReindexTaskConfig {
 	selected := make(map[string]struct{}, len(propNames))
 	for _, p := range propNames {
 		selected[p] = struct{}{}
 	}
-	return reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
-		concurrency:                   2,
-		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
-		processingDuration:            10 * time.Minute,
-		pauseDuration:                 1 * time.Second,
-		checkProcessingEveryNoObjects: 1000,
+	return ReindexTaskConfig{
+		SwapBuckets:                   true,
+		TidyBuckets:                   true,
+		Concurrency:                   2,
+		MemtableOptFactor:             4,
+		BackupMemtableOptFactor:       1,
+		ProcessingDuration:            10 * time.Minute,
+		PauseDuration:                 1 * time.Second,
+		CheckProcessingEveryNoObjects: 1000,
 
-		selectionEnabled: true,
-		selectedPropsByCollection: map[string]map[string]struct{}{
+		SelectionEnabled: true,
+		SelectedPropsByCollection: map[string]map[string]struct{}{
 			collectionName: selected,
 		},
-		selectedShardsByCollection: map[string]map[string]struct{}{
+		SelectedShardsByCollection: map[string]map[string]struct{}{
 			collectionName: nil,
 		},
 	}

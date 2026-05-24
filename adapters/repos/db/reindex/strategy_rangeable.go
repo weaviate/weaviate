@@ -47,13 +47,13 @@ import (
 // data-loss bug pinned by the int__filt=false_range=nil/false matrix
 // cells.
 type FilterableToRangeableStrategy struct {
-	schemaManager *schema.Manager
-	propNames     []string
-	generation    int // see GenSuffix godoc
+	SchemaManager *schema.Manager
+	PropNames     []string
+	Generation    int // see GenSuffix godoc
 }
 
 func (s *FilterableToRangeableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, s.propNames) + GenSuffix(s.generation)
+	return migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, s.PropNames) + GenSuffix(s.Generation)
 }
 
 func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string {
@@ -61,15 +61,15 @@ func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string
 }
 
 func (s *FilterableToRangeableStrategy) ReindexSuffix() string {
-	return "__rangeable_reindex" + GenSuffix(s.generation)
+	return "__rangeable_reindex" + GenSuffix(s.Generation)
 }
 
 func (s *FilterableToRangeableStrategy) IngestSuffix() string {
-	return "__rangeable_ingest" + GenSuffix(s.generation)
+	return "__rangeable_ingest" + GenSuffix(s.Generation)
 }
 
 func (s *FilterableToRangeableStrategy) BackupSuffix() string {
-	return "__rangeable_backup" + GenSuffix(s.generation)
+	return "__rangeable_backup" + GenSuffix(s.Generation)
 }
 
 func (s *FilterableToRangeableStrategy) SourceStrategy() string {
@@ -239,7 +239,7 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 	// ShardLike we need to flip the flag on. unwrapShard returns the
 	// concrete pointer for both ShardLike and *LazyLoadShard.
 	if concrete, err := unwrapShard(ctx, shard); err == nil && concrete != nil {
-		for _, propName := range s.propNames {
+		for _, propName := range s.PropNames {
 			concrete.SetRangeableLocallyReady(propName, true)
 		}
 	}
@@ -248,7 +248,7 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 	trueVal := true
 	// Missing properties are tolerated: a property dropped between
 	// scheduling and completion is the same outcome we'd want anyway.
-	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
+	_, err := applyPerPropertySchemaUpdate(ctx, s.SchemaManager, className, s.PropNames,
 		[]string{api.PropertyFieldIndexRangeFilters},
 		func(prop *models.Property) bool {
 			if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {

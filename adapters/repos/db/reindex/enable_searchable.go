@@ -35,11 +35,11 @@ func NewRuntimeEnableSearchableTask(
 	return NewShardReindexTaskGeneric(
 		"EnableSearchable", logger,
 		&EnableSearchableStrategy{
-			propNames:    propNames,
-			tokenization: tokenization,
-			generation:   generation,
+			PropNames:    propNames,
+			Tokenization: tokenization,
+			Generation:   generation,
 		},
 		blockmaxSearchableTaskConfig(propNames, collectionName),
-		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		&UuidKeyParser{}, UuidObjectsIteratorAsync,
 	)
 }

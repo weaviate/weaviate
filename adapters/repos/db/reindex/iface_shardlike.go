@@ -14,11 +14,14 @@ package reindex
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -63,6 +66,9 @@ type ShardLike interface {
 	SetTokenizationOverlay(propName, target string)
 	ClearTokenizationOverlay(propName string)
 	ObjectCountAsync(ctx context.Context) (int64, error)
+	PutObject(ctx context.Context, obj *storobj.Object) error
+	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
+	Shutdown(ctx context.Context) error
 
 	// Unwrap returns the concrete shard underlying any lazy wrapper.
 	// *Shard returns itself; *LazyLoadShard ensures the underlying

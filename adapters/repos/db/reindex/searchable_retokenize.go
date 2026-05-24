@@ -27,38 +27,38 @@ func NewRuntimeSearchableRetokenizeTask(
 	generation int,
 ) *ShardReindexTaskGeneric {
 	strategy := &SearchableRetokenizeStrategy{
-		propName:           propName,
-		targetTokenization: targetTokenization,
-		className:          className,
-		bucketStrategy:     bucketStrategy,
-		generation:         generation,
+		PropName:           propName,
+		TargetTokenization: targetTokenization,
+		ClassName:          className,
+		BucketStrategy:     bucketStrategy,
+		Generation:         generation,
 	}
 
 	selectedProps := map[string]struct{}{
 		propName: {},
 	}
 
-	cfg := reindexTaskConfig{
-		swapBuckets:                   true,
-		tidyBuckets:                   true,
-		concurrency:                   2,
-		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
-		processingDuration:            10 * time.Minute,
-		pauseDuration:                 1 * time.Second,
-		checkProcessingEveryNoObjects: 1000,
+	cfg := ReindexTaskConfig{
+		SwapBuckets:                   true,
+		TidyBuckets:                   true,
+		Concurrency:                   2,
+		MemtableOptFactor:             4,
+		BackupMemtableOptFactor:       1,
+		ProcessingDuration:            10 * time.Minute,
+		PauseDuration:                 1 * time.Second,
+		CheckProcessingEveryNoObjects: 1000,
 
-		selectionEnabled: true,
-		selectedPropsByCollection: map[string]map[string]struct{}{
+		SelectionEnabled: true,
+		SelectedPropsByCollection: map[string]map[string]struct{}{
 			collectionName: selectedProps,
 		},
-		selectedShardsByCollection: map[string]map[string]struct{}{
+		SelectedShardsByCollection: map[string]map[string]struct{}{
 			collectionName: nil, // nil = all shards
 		},
 	}
 
 	return NewShardReindexTaskGeneric(
 		"SearchableRetokenize", logger, strategy, cfg,
-		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		&UuidKeyParser{}, UuidObjectsIteratorAsync,
 	)
 }

@@ -61,8 +61,8 @@ func newTestProvider(t *testing.T) (*ReindexProvider, *test.Hook) {
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 	return &ReindexProvider{
-		logger:    logger,
-		localNode: "node-A",
+		Logger:    logger,
+		LocalNode: "node-A",
 	}, hook
 }
 
@@ -81,7 +81,7 @@ func TestFailUnit_SuccessOnFirstAttempt(t *testing.T) {
 	p, hook := newTestProvider(t)
 	rec := &stubRecorder{failureResults: nil} // all nil → success
 
-	p.failUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "something broke")
+	p.FailUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "something broke")
 
 	require.Equal(t, int32(1), rec.failureCalls.Load(),
 		"happy path: exactly one Record call, no retry")
@@ -96,7 +96,7 @@ func TestFailUnit_RetriesTransientFailure(t *testing.T) {
 	p, hook := newTestProvider(t)
 	rec := &stubRecorder{failureResults: []error{errors.New("leadership lost")}}
 
-	p.failUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "something broke")
+	p.FailUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "something broke")
 
 	require.Equal(t, int32(2), rec.failureCalls.Load(),
 		"first call fails, second succeeds, third is never made")
@@ -117,7 +117,7 @@ func TestFailUnit_AllRetriesFail_EmitsLoudAlarm(t *testing.T) {
 	recorderErr := errors.New("raft applyTimeout")
 	rec := &stubRecorder{failureResults: []error{recorderErr, recorderErr, recorderErr}}
 
-	p.failUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "disk full")
+	p.FailUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "disk full")
 
 	require.Equal(t, int32(3), rec.failureCalls.Load(),
 		"three attempts before giving up")
@@ -150,7 +150,7 @@ func TestFailUnit_ContextCancelledBetweenRetries(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel before the call so the first attempt's wait short-circuits
 
-	p.failUnit(ctx, newFailUnitTestTask(), "unit-1", rec, "something broke")
+	p.FailUnit(ctx, newFailUnitTestTask(), "unit-1", rec, "something broke")
 
 	require.Equal(t, int32(1), rec.failureCalls.Load(),
 		"after the first failure, the cancelled context aborts further attempts")
@@ -247,7 +247,7 @@ func TestFailUnit_PermanentRejection_NoRetryNoAlarm(t *testing.T) {
 			p, hook := newTestProvider(t)
 			rec := &stubRecorder{failureResults: []error{tc.err}}
 
-			p.failUnit(context.Background(), newFailUnitTestTask(), "u1", rec, "disk full")
+			p.FailUnit(context.Background(), newFailUnitTestTask(), "u1", rec, "disk full")
 
 			require.Equal(t, int32(1), rec.failureCalls.Load(),
 				"permanent FSM rejection: exactly one Record call, no retry")
@@ -285,7 +285,7 @@ func TestFailUnit_TransientError_StillRetriesAfterPermanentBranchAdded(t *testin
 	p, _ := newTestProvider(t)
 	rec := &stubRecorder{failureResults: []error{errors.New("raft applyTimeout")}}
 
-	p.failUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "disk full")
+	p.FailUnit(context.Background(), newFailUnitTestTask(), "unit-1", rec, "disk full")
 
 	require.Equal(t, int32(2), rec.failureCalls.Load(),
 		"transient error path retries; second call succeeds")

@@ -18,10 +18,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// Structural invariant tests for the ReindexProvider's drain /
+// Structural invariant tests for the reindex.ReindexProvider's drain /
 // cancel-and-wait surface.
 //
 // The DTM-layer pieces live in
@@ -39,37 +40,37 @@ import (
 // caller's context (so a cancel→cleanup orchestrator can give up
 // rather than wait forever on a runaway worker).
 
-// structuralInvariantNewBareProvider returns a ReindexProvider with
+// structuralInvariantNewBareProvider returns a reindex.ReindexProvider with
 // just the maps initialized, mimicking the literal-construction
 // pattern used by reindex_conflict_test.go. The constructor
-// (NewReindexProvider) needs a full *DB which we don't have in unit
+// (reindex.NewReindexProvider) needs a full *DB which we don't have in unit
 // tests; the maps cover everything we exercise here
 // (runningHandles + the WaitForLocalTaskDrain path).
-func structuralInvariantNewBareProvider() *ReindexProvider {
-	return &ReindexProvider{
-		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
-		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
-		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
-		activeWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
+func structuralInvariantNewBareProvider() *reindex.ReindexProvider {
+	return &reindex.ReindexProvider{
+		RunningHandles: make(map[distributedtask.TaskDescriptor]*reindex.ReindexTaskHandle),
+		Payloads:       make(map[distributedtask.TaskDescriptor]*reindex.ReindexTaskPayload),
+		ReindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*reindex.ShardReindexTaskGeneric),
+		ActiveWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
 	}
 }
 
-// structuralInvariantInjectHandle installs a hand-built reindexTaskHandle
+// structuralInvariantInjectHandle installs a hand-built reindex.ReindexTaskHandle
 // for the given descriptor without going through StartTask (which
 // requires a fully wired DB / Index / schema manager). Returns the
 // injected handle so the test can close its doneCh on demand.
 func structuralInvariantInjectHandle(
-	p *ReindexProvider,
+	p *reindex.ReindexProvider,
 	desc distributedtask.TaskDescriptor,
-) *reindexTaskHandle {
+) *reindex.ReindexTaskHandle {
 	_, cancel := context.WithCancel(context.Background())
-	handle := &reindexTaskHandle{
-		cancel: cancel,
-		doneCh: make(chan struct{}),
+	handle := &reindex.ReindexTaskHandle{
+		Cancel: cancel,
+		DoneCh: make(chan struct{}),
 	}
-	p.mu.Lock()
-	p.runningHandles[desc] = handle
-	p.mu.Unlock()
+	p.Mu.Lock()
+	p.RunningHandles[desc] = handle
+	p.Mu.Unlock()
 	return handle
 }
 
@@ -111,7 +112,7 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_BlocksUntilHandleDone(t *test
 	// Phase 2 — close doneCh (simulate the per-task goroutine
 	// exiting via its defer). Drain must return promptly with
 	// nil.
-	close(handle.doneCh)
+	close(handle.DoneCh)
 
 	select {
 	case err := <-returnedC:
@@ -179,24 +180,24 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_RespectsContextCancel(t *test
 }
 
 // TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker
-// is the fan-out drain counterpart: ReindexProvider.StartTask spawns
+// is the fan-out drain counterpart: reindex.ReindexProvider.StartTask spawns
 // a goroutine (the worker) and returns a TaskHandle whose Terminate
 // MUST cancel that worker's context. The worker's defer chain then
-// closes handle.doneCh. So calling Terminate→<-Done() MUST observe
+// closes handle.DoneCh. So calling Terminate→<-Done() MUST observe
 // the goroutine exiting.
 //
 // We can't drive StartTask directly here (it needs a full DB).
 // Instead we exercise the invariant against a hand-built
-// reindexTaskHandle whose cancel hook matches the StartTask wiring:
+// reindex.ReindexTaskHandle whose cancel hook matches the StartTask wiring:
 // Terminate triggers ctx cancellation, and a worker that respects ctx
 // closes doneCh in its defer. This pins the shape of the
-// handle.cancel + handle.doneCh contract that StartTask exposes to
+// handle.cancel + handle.DoneCh contract that StartTask exposes to
 // the Scheduler.
 func TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	handle := &reindexTaskHandle{
-		cancel: cancel,
-		doneCh: make(chan struct{}),
+	handle := &reindex.ReindexTaskHandle{
+		Cancel: cancel,
+		DoneCh: make(chan struct{}),
 	}
 
 	// Simulate the StartTask-spawned worker: a goroutine that
@@ -205,7 +206,7 @@ func TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker(t *tes
 	// reindex_provider.go).
 	workerExited := make(chan struct{})
 	go func() {
-		defer close(handle.doneCh)
+		defer close(handle.DoneCh)
 		defer close(workerExited)
 		<-ctx.Done()
 	}()

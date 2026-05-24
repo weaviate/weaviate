@@ -24,20 +24,20 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 // helper: build a *distributedtask.Task with the given payload + status + units.
 func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
-	payload db.ReindexTaskPayload, units map[string]*distributedtask.Unit,
+	payload reindex.ReindexTaskPayload, units map[string]*distributedtask.Unit,
 ) *distributedtask.Task {
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
 	return &distributedtask.Task{
-		Namespace: db.ReindexNamespace,
+		Namespace: reindex.ReindexNamespace,
 		TaskDescriptor: distributedtask.TaskDescriptor{
 			ID:      id,
 			Version: 1,
@@ -66,8 +66,8 @@ func tasksMap(tasks ...*distributedtask.Task) []parsedReindexTask {
 func TestMergeReindexStatus_UnitInProgressZeroProgress_ShowsIndexing(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -96,8 +96,8 @@ func TestMergeReindexStatus_UnitInProgressZeroProgress_ShowsIndexing(t *testing.
 func TestMergeReindexStatus_OneUnitInProgressAmongPending_ShowsIndexing(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -122,8 +122,8 @@ func TestMergeReindexStatus_OneUnitInProgressAmongPending_ShowsIndexing(t *testi
 func TestMergeReindexStatus_StartedNoProgress_ShowsPending(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -151,8 +151,8 @@ func TestMergeReindexStatus_StaleStartedTask_StillShowsPending(t *testing.T) {
 	staleTime := time.Now().Add(-72 * time.Hour)
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -178,8 +178,8 @@ func TestMergeReindexStatus_StaleIndexing_StillShowsIndexing(t *testing.T) {
 	staleTime := time.Now().Add(-72 * time.Hour)
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -201,8 +201,8 @@ func TestMergeReindexStatus_StaleIndexing_StillShowsIndexing(t *testing.T) {
 func TestMergeReindexStatus_FailedTask_ShowsFailedEntry(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -225,8 +225,8 @@ func TestMergeReindexStatus_FailedTask_ShowsFailedEntry(t *testing.T) {
 func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusCancelled,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -259,8 +259,8 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_KeepsFinalizingEntry(t *tes
 	mkTask := func() *distributedtask.Task {
 		task := buildTask(t, "C:enable-filterable:foo:abcd",
 			distributedtask.TaskStatusFinished,
-			db.ReindexTaskPayload{
-				MigrationType: db.ReindexTypeEnableFilterable,
+			reindex.ReindexTaskPayload{
+				MigrationType: reindex.ReindexTypeEnableFilterable,
 				Collection:    "C",
 				Properties:    []string{"foo"},
 			},
@@ -345,8 +345,8 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 
 	enableTask := buildTask(t, "C:enable-filterable:foo:0001",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -358,8 +358,8 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 
 	changeTokTask := buildTask(t, "C:change-tokenization:foo:0002",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType:      db.ReindexTypeChangeTokenization,
+		reindex.ReindexTaskPayload{
+			MigrationType:      reindex.ReindexTypeChangeTokenization,
 			Collection:         "C",
 			Properties:         []string{"foo"},
 			TargetTokenization: "lowercase",
@@ -400,8 +400,8 @@ func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 
 	failedAttempt := buildTask(t, "C:enable-filterable:foo:0001",
 		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -413,8 +413,8 @@ func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 
 	startedRetry := buildTask(t, "C:enable-filterable:foo:0002",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -453,8 +453,8 @@ func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
 
 	oldFail := buildTask(t, "C:enable-filterable:foo:0001",
 		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -466,8 +466,8 @@ func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
 
 	newFail := buildTask(t, "C:enable-filterable:foo:0002",
 		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		},
@@ -514,8 +514,8 @@ func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
 func TestMergeReindexStatus_EmptyProperties_EnableDoesNothing(t *testing.T) {
 	task := buildTask(t, "C:enable-filterable::abcd",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    nil, // empty
 		},
@@ -534,8 +534,8 @@ func TestMergeReindexStatus_EmptyProperties_EnableDoesNothing(t *testing.T) {
 func TestMergeReindexStatus_EmptyProperties_RepairAlsoMatchesNothing(t *testing.T) {
 	task := buildTask(t, "C:repair-searchable::abcd",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeChangeAlgorithm,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeChangeAlgorithm,
 			Collection:    "C",
 			Properties:    nil, // empty — previously matched every property
 		},
@@ -561,8 +561,8 @@ func TestMergeReindexStatus_EmptyProperties_RepairAlsoMatchesNothing(t *testing.
 func TestMergeReindexStatus_CollectionCaseInsensitive(t *testing.T) {
 	task := buildTask(t, "MyClass:enable-filterable:foo:abcd",
 		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "MyClass",
 			Properties:    []string{"foo"},
 		},
@@ -641,8 +641,8 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			task := buildTask(t, "C:repair-searchable:foo:abcd",
 				tt.taskStatus,
-				db.ReindexTaskPayload{
-					MigrationType: db.ReindexTypeChangeAlgorithm,
+				reindex.ReindexTaskPayload{
+					MigrationType: reindex.ReindexTypeChangeAlgorithm,
 					Collection:    "C",
 					Properties:    []string{"foo"},
 				},
@@ -673,21 +673,21 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 func TestMergeReindexStatus_NonSearchableTypes_DoNotSetTargetAlgorithm(t *testing.T) {
 	tests := []struct {
 		name          string
-		migrationType db.ReindexMigrationType
+		migrationType reindex.ReindexMigrationType
 		indexType     string
 	}{
-		{"repair-filterable", db.ReindexTypeRepairFilterable, "filterable"},
-		{"repair-rangeable", db.ReindexTypeRepairRangeable, "rangeable"},
-		{"enable-filterable", db.ReindexTypeEnableFilterable, "filterable"},
-		{"enable-rangeable", db.ReindexTypeEnableRangeable, "rangeable"},
-		{"enable-searchable", db.ReindexTypeEnableSearchable, "searchable"},
-		{"change-tokenization", db.ReindexTypeChangeTokenization, "searchable"},
+		{"repair-filterable", reindex.ReindexTypeRepairFilterable, "filterable"},
+		{"repair-rangeable", reindex.ReindexTypeRepairRangeable, "rangeable"},
+		{"enable-filterable", reindex.ReindexTypeEnableFilterable, "filterable"},
+		{"enable-rangeable", reindex.ReindexTypeEnableRangeable, "rangeable"},
+		{"enable-searchable", reindex.ReindexTypeEnableSearchable, "searchable"},
+		{"change-tokenization", reindex.ReindexTypeChangeTokenization, "searchable"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			task := buildTask(t, "C:"+string(tt.migrationType)+":foo:abcd",
 				distributedtask.TaskStatusStarted,
-				db.ReindexTaskPayload{
+				reindex.ReindexTaskPayload{
 					MigrationType:      tt.migrationType,
 					Collection:         "C",
 					Properties:         []string{"foo"},
@@ -732,8 +732,8 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 		t.Run(tt.name, func(t *testing.T) {
 			task := buildTask(t, "C:change-tokenization:foo:"+tt.name,
 				tt.status,
-				db.ReindexTaskPayload{
-					MigrationType:      db.ReindexTypeChangeTokenization,
+				reindex.ReindexTaskPayload{
+					MigrationType:      reindex.ReindexTypeChangeTokenization,
 					Collection:         "C",
 					Properties:         []string{"foo"},
 					TargetTokenization: "lowercase",

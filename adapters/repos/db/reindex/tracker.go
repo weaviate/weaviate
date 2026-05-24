@@ -28,116 +28,116 @@ import (
 // Reindex tracker interface and file-based implementation
 // -----------------------------------------------------------------------------
 
-type reindexTracker interface {
+type ReindexTracker interface {
 	HasStartCondition() bool
 	IsStarted() bool
-	markStarted(time.Time) error
-	getStarted() (time.Time, error)
+	MarkStarted(time.Time) error
+	GetStarted() (time.Time, error)
 
-	markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error
+	MarkProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error
 	GetProgress() (indexKey, *time.Time, error)
 
 	IsReindexed() bool
-	markReindexed() error
-	unmarkReindexed() error
+	MarkReindexed() error
+	UnmarkReindexed() error
 
 	IsPrepended() bool
-	markPrepended() error
+	MarkPrepended() error
 
 	IsMerged() bool
-	markMerged() error
+	MarkMerged() error
 
 	IsSwapped() bool
-	markSwapped() error
-	unmarkSwapped() error
+	MarkSwapped() error
+	UnmarkSwapped() error
 	IsSwappedProp(propName string) bool
-	markSwappedProp(propName string) error
-	unmarkSwappedProp(propName string) error
+	MarkSwappedProp(propName string) error
+	UnmarkSwappedProp(propName string) error
 
 	IsTidied() bool
-	markTidied() error
+	MarkTidied() error
 
 	HasProps() bool
 	GetProps() ([]string, error)
-	saveProps([]string) error
+	SaveProps([]string) error
 
 	IsPaused() bool
 	IsRollback() bool
 	IsReset() bool
 
-	reset() error
+	Reset() error
 
-	checkOverrides(logger logrus.FieldLogger, config *reindexTaskConfig)
+	CheckOverrides(logger logrus.FieldLogger, config *ReindexTaskConfig)
 }
 
 // NewFileReindexTracker creates a file-based reindex tracker under
 // <lsmPath>/.migrations/<migrationDirName>/
-func NewFileReindexTracker(lsmPath, migrationDirName string, keyParser indexKeyParser) *fileReindexTracker {
-	return &fileReindexTracker{
+func NewFileReindexTracker(lsmPath, migrationDirName string, keyParser indexKeyParser) *FileReindexTracker {
+	return &FileReindexTracker{
 		progressCheckpoint: 1,
 		keyParser:          keyParser,
-		config: fileReindexTrackerConfig{
-			filenameStart:      "start.mig",
-			filenameStarted:    "started.mig",
-			filenameProgress:   "progress.mig",
-			filenameReindexed:  "reindexed.mig",
-			filenamePrepended:  "prepended.mig",
-			filenameMerged:     "merged.mig",
-			filenameSwapped:    "swapped.mig",
-			filenameTidied:     "tidied.mig",
-			filenameProperties: "properties.mig",
-			filenameRollback:   "rollback.mig",
-			filenameReset:      "reset.mig",
-			filenamePaused:     "paused.mig",
-			filenameOverrides:  "overrides.mig",
-			migrationPath:      filepath.Join(lsmPath, ".migrations", migrationDirName),
+		Config: fileReindexTrackerConfig{
+			FilenameStart:      "start.mig",
+			FilenameStarted:    "started.mig",
+			FilenameProgress:   "progress.mig",
+			FilenameReindexed:  "reindexed.mig",
+			FilenamePrepended:  "prepended.mig",
+			FilenameMerged:     "merged.mig",
+			FilenameSwapped:    "swapped.mig",
+			FilenameTidied:     "tidied.mig",
+			FilenameProperties: "properties.mig",
+			FilenameRollback:   "rollback.mig",
+			FilenameReset:      "reset.mig",
+			FilenamePaused:     "paused.mig",
+			FilenameOverrides:  "overrides.mig",
+			MigrationPath:      filepath.Join(lsmPath, ".migrations", migrationDirName),
 		},
 	}
 }
 
-type fileReindexTracker struct {
+type FileReindexTracker struct {
 	progressCheckpoint int
 	keyParser          indexKeyParser
-	config             fileReindexTrackerConfig
+	Config             fileReindexTrackerConfig
 }
 
 type fileReindexTrackerConfig struct {
-	filenameStart      string
-	filenameStarted    string
-	filenameProgress   string
-	filenameReindexed  string
-	filenamePrepended  string
-	filenameMerged     string
-	filenameSwapped    string
-	filenameTidied     string
-	filenameProperties string
-	filenameRollback   string
-	filenameReset      string
-	filenamePaused     string
-	filenameOverrides  string
-	migrationPath      string
+	FilenameStart      string
+	FilenameStarted    string
+	FilenameProgress   string
+	FilenameReindexed  string
+	FilenamePrepended  string
+	FilenameMerged     string
+	FilenameSwapped    string
+	FilenameTidied     string
+	FilenameProperties string
+	FilenameRollback   string
+	FilenameReset      string
+	FilenamePaused     string
+	FilenameOverrides  string
+	MigrationPath      string
 }
 
-func (t *fileReindexTracker) init() error {
-	if err := os.MkdirAll(t.config.migrationPath, 0o777); err != nil {
+func (t *FileReindexTracker) init() error {
+	if err := os.MkdirAll(t.Config.MigrationPath, 0o777); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (t *fileReindexTracker) HasStartCondition() bool {
-	return t.fileExists(t.config.filenameStart)
+func (t *FileReindexTracker) HasStartCondition() bool {
+	return t.fileExists(t.Config.FilenameStart)
 }
 
-func (t *fileReindexTracker) IsStarted() bool {
-	return t.fileExists(t.config.filenameStarted)
+func (t *FileReindexTracker) IsStarted() bool {
+	return t.fileExists(t.Config.FilenameStarted)
 }
 
-func (t *fileReindexTracker) markStarted(started time.Time) error {
-	return t.createFile(t.config.filenameStarted, []byte(t.encodeTime(started)))
+func (t *FileReindexTracker) MarkStarted(started time.Time) error {
+	return t.createFile(t.Config.FilenameStarted, []byte(t.encodeTime(started)))
 }
 
-func (t *fileReindexTracker) getTime(filePath string) (time.Time, error) {
+func (t *FileReindexTracker) getTime(filePath string) (time.Time, error) {
 	path := t.filepath(filePath)
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -146,18 +146,18 @@ func (t *fileReindexTracker) getTime(filePath string) (time.Time, error) {
 	return t.decodeTime(string(content))
 }
 
-func (t *fileReindexTracker) getStarted() (time.Time, error) {
-	return t.getTime(t.config.filenameStarted)
+func (t *FileReindexTracker) GetStarted() (time.Time, error) {
+	return t.getTime(t.Config.FilenameStarted)
 }
 
-func (t *fileReindexTracker) findLastProgressFile() (string, error) {
-	prefix := t.config.filenameProgress + "."
+func (t *FileReindexTracker) findLastProgressFile() (string, error) {
+	prefix := t.Config.FilenameProgress + "."
 	expectedLen := len(prefix) + 9 // 9 digits
 
 	lastProgressFilename := ""
-	err := filepath.WalkDir(t.config.migrationPath, func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(t.Config.MigrationPath, func(path string, d os.DirEntry, err error) error {
 		// skip parent and children dirs
-		if path != t.config.migrationPath {
+		if path != t.Config.MigrationPath {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -171,8 +171,8 @@ func (t *fileReindexTracker) findLastProgressFile() (string, error) {
 	return lastProgressFilename, err
 }
 
-func (t *fileReindexTracker) markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error {
-	filename := fmt.Sprintf("%s.%09d", t.config.filenameProgress, t.progressCheckpoint)
+func (t *FileReindexTracker) MarkProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error {
+	filename := fmt.Sprintf("%s.%09d", t.Config.FilenameProgress, t.progressCheckpoint)
 	content := strings.Join([]string{
 		t.encodeTime(time.Now()),
 		lastProcessedKey.String(),
@@ -187,7 +187,7 @@ func (t *fileReindexTracker) markProgress(lastProcessedKey indexKey, processedCo
 	return nil
 }
 
-func (t *fileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
+func (t *FileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 	filename, err := t.findLastProgressFile()
 	if err != nil {
 		return nil, nil, err
@@ -196,7 +196,7 @@ func (t *fileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 		return t.keyParser.FromBytes(nil), nil, nil
 	}
 
-	checkpoint, err := strconv.Atoi(strings.TrimPrefix(filename, t.config.filenameProgress+"."))
+	checkpoint, err := strconv.Atoi(strings.TrimPrefix(filename, t.Config.FilenameProgress+"."))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -227,7 +227,7 @@ func (t *fileReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 	return key, &tm, nil
 }
 
-func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKey indexKey, tm time.Time, allCount int, idxCount int, err error) {
+func (t *FileReindexTracker) parseProgressFile(filename string) (lastProcessedKey indexKey, tm time.Time, allCount int, idxCount int, err error) {
 	progressFilePath := filename
 	progressFile, err := os.ReadFile(progressFilePath)
 	if err != nil {
@@ -273,9 +273,9 @@ func (t *fileReindexTracker) parseProgressFile(filename string) (lastProcessedKe
 	return lastProcessedKey, tm, allCount, idxCount, err
 }
 
-func (t *fileReindexTracker) GetMigratedCount() (objectsMigratedCountTotal int, snapshots []map[string]string, err error) {
+func (t *FileReindexTracker) GetMigratedCount() (objectsMigratedCountTotal int, snapshots []map[string]string, err error) {
 	snapshots = make([]map[string]string, 0)
-	files, err := os.ReadDir(t.config.migrationPath)
+	files, err := os.ReadDir(t.Config.MigrationPath)
 	objectsMigratedCountTotal = 0
 	progressCount := 0
 
@@ -288,7 +288,7 @@ func (t *fileReindexTracker) GetMigratedCount() (objectsMigratedCountTotal int, 
 				"checkpoint": strings.TrimPrefix(file.Name(), "progress.mig."),
 			}
 			progressCount++
-			progressFilePath := t.config.migrationPath + "/" + file.Name()
+			progressFilePath := t.Config.MigrationPath + "/" + file.Name()
 			key, tm, allCount, idxCount, err2 := t.parseProgressFile(progressFilePath)
 			if err2 != nil {
 				err = fmt.Errorf("failed to parse progress file %s: %w", progressFilePath, err2)
@@ -306,15 +306,15 @@ func (t *fileReindexTracker) GetMigratedCount() (objectsMigratedCountTotal int, 
 	return objectsMigratedCountTotal, snapshots, err
 }
 
-func (t *fileReindexTracker) IsReindexed() bool {
-	return t.fileExists(t.config.filenameReindexed)
+func (t *FileReindexTracker) IsReindexed() bool {
+	return t.fileExists(t.Config.FilenameReindexed)
 }
 
-func (t *fileReindexTracker) markReindexed() error {
-	return t.createFile(t.config.filenameReindexed, []byte(t.encodeTimeNow()))
+func (t *FileReindexTracker) MarkReindexed() error {
+	return t.createFile(t.Config.FilenameReindexed, []byte(t.EncodeTimeNow()))
 }
 
-// unmarkReindexed deletes the reindexed.mig sentinel AND every
+// UnmarkReindexed deletes the reindexed.mig sentinel AND every
 // progress.mig.<N> checkpoint. Called by the torn-state recovery in
 // [ShardReindexTaskGeneric.OnAfterLsmInit] when IsReindexed=true but
 // the reindex bucket dirs are missing on disk. Clearing the progress
@@ -322,8 +322,8 @@ func (t *fileReindexTracker) markReindexed() error {
 // hold — without it, the resumed iteration reads the stale
 // lastProcessedKey from disk and silently skips every object <= that
 // key. weaviate/0-weaviate-issues#244.
-func (t *fileReindexTracker) unmarkReindexed() error {
-	if err := t.removeFile(t.config.filenameReindexed); err != nil {
+func (t *FileReindexTracker) UnmarkReindexed() error {
+	if err := t.removeFile(t.Config.FilenameReindexed); err != nil {
 		return err
 	}
 	return t.clearProgressFiles()
@@ -336,10 +336,10 @@ func (t *fileReindexTracker) unmarkReindexed() error {
 // MUST NOT run concurrently with any markProgress emitter. Today this
 // holds because only the torn-state guard in OnBeforeLsmInit / OnAfterLsmInit
 // calls it, and both run before the async reindex loop spawns.
-func (t *fileReindexTracker) clearProgressFiles() error {
-	prefix := t.config.filenameProgress + "."
+func (t *FileReindexTracker) clearProgressFiles() error {
+	prefix := t.Config.FilenameProgress + "."
 	expectedLen := len(prefix) + 9 // matches findLastProgressFile
-	entries, err := os.ReadDir(t.config.migrationPath)
+	entries, err := os.ReadDir(t.Config.MigrationPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -362,80 +362,80 @@ func (t *fileReindexTracker) clearProgressFiles() error {
 	return nil
 }
 
-func (t *fileReindexTracker) getReindexed() (time.Time, error) {
-	return t.getTime(t.config.filenameReindexed)
+func (t *FileReindexTracker) getReindexed() (time.Time, error) {
+	return t.getTime(t.Config.FilenameReindexed)
 }
 
-func (t *fileReindexTracker) IsPrepended() bool {
-	return t.fileExists(t.config.filenamePrepended)
+func (t *FileReindexTracker) IsPrepended() bool {
+	return t.fileExists(t.Config.FilenamePrepended)
 }
 
-func (t *fileReindexTracker) markPrepended() error {
-	return t.createFile(t.config.filenamePrepended, []byte(t.encodeTimeNow()))
+func (t *FileReindexTracker) MarkPrepended() error {
+	return t.createFile(t.Config.FilenamePrepended, []byte(t.EncodeTimeNow()))
 }
 
-func (t *fileReindexTracker) IsMerged() bool {
-	return t.fileExists(t.config.filenameMerged)
+func (t *FileReindexTracker) IsMerged() bool {
+	return t.fileExists(t.Config.FilenameMerged)
 }
 
-func (t *fileReindexTracker) markMerged() error {
-	return t.createFile(t.config.filenameMerged, []byte(t.encodeTimeNow()))
+func (t *FileReindexTracker) MarkMerged() error {
+	return t.createFile(t.Config.FilenameMerged, []byte(t.EncodeTimeNow()))
 }
 
-func (t *fileReindexTracker) getMerged() (time.Time, error) {
-	return t.getTime(t.config.filenameMerged)
+func (t *FileReindexTracker) getMerged() (time.Time, error) {
+	return t.getTime(t.Config.FilenameMerged)
 }
 
-func (t *fileReindexTracker) IsSwappedProp(propName string) bool {
-	return t.fileExists(t.config.filenameSwapped + "." + propName)
+func (t *FileReindexTracker) IsSwappedProp(propName string) bool {
+	return t.fileExists(t.Config.FilenameSwapped + "." + propName)
 }
 
-func (t *fileReindexTracker) markSwappedProp(propName string) error {
-	return t.createFile(t.config.filenameSwapped+"."+propName, []byte(t.encodeTimeNow()))
+func (t *FileReindexTracker) MarkSwappedProp(propName string) error {
+	return t.createFile(t.Config.FilenameSwapped+"."+propName, []byte(t.EncodeTimeNow()))
 }
 
-func (t *fileReindexTracker) unmarkSwappedProp(propName string) error {
-	return t.removeFile(t.config.filenameSwapped + "." + propName)
+func (t *FileReindexTracker) UnmarkSwappedProp(propName string) error {
+	return t.removeFile(t.Config.FilenameSwapped + "." + propName)
 }
 
-func (t *fileReindexTracker) IsSwapped() bool {
-	return t.fileExists(t.config.filenameSwapped)
+func (t *FileReindexTracker) IsSwapped() bool {
+	return t.fileExists(t.Config.FilenameSwapped)
 }
 
-func (t *fileReindexTracker) markSwapped() error {
-	return t.createFile(t.config.filenameSwapped, []byte(t.encodeTimeNow()))
+func (t *FileReindexTracker) MarkSwapped() error {
+	return t.createFile(t.Config.FilenameSwapped, []byte(t.EncodeTimeNow()))
 }
 
-func (t *fileReindexTracker) unmarkSwapped() error {
-	return t.removeFile(t.config.filenameSwapped)
+func (t *FileReindexTracker) UnmarkSwapped() error {
+	return t.removeFile(t.Config.FilenameSwapped)
 }
 
-func (t *fileReindexTracker) getSwapped() (time.Time, error) {
-	return t.getTime(t.config.filenameSwapped)
+func (t *FileReindexTracker) getSwapped() (time.Time, error) {
+	return t.getTime(t.Config.FilenameSwapped)
 }
 
-func (t *fileReindexTracker) IsTidied() bool {
-	return t.fileExists(t.config.filenameTidied)
+func (t *FileReindexTracker) IsTidied() bool {
+	return t.fileExists(t.Config.FilenameTidied)
 }
 
-func (t *fileReindexTracker) getTidied() (time.Time, error) {
-	return t.getTime(t.config.filenameTidied)
+func (t *FileReindexTracker) getTidied() (time.Time, error) {
+	return t.getTime(t.Config.FilenameTidied)
 }
 
-func (t *fileReindexTracker) markTidied() error {
-	return t.createFile(t.config.filenameTidied, []byte(t.encodeTimeNow()))
+func (t *FileReindexTracker) MarkTidied() error {
+	return t.createFile(t.Config.FilenameTidied, []byte(t.EncodeTimeNow()))
 }
 
-func (t *fileReindexTracker) filepath(filename string) string {
-	return filepath.Join(t.config.migrationPath, filename)
+func (t *FileReindexTracker) filepath(filename string) string {
+	return filepath.Join(t.Config.MigrationPath, filename)
 }
 
-func (t *fileReindexTracker) fileExists(filename string) bool {
+func (t *FileReindexTracker) fileExists(filename string) bool {
 	_, err := os.Stat(t.filepath(filename))
 	return err == nil
 }
 
-func (t *fileReindexTracker) createFile(filename string, content []byte) error {
+func (t *FileReindexTracker) createFile(filename string, content []byte) error {
 	path := t.filepath(filename)
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o777)
 	if err != nil {
@@ -450,7 +450,7 @@ func (t *fileReindexTracker) createFile(filename string, content []byte) error {
 	return nil
 }
 
-func (t *fileReindexTracker) removeFile(filename string) error {
+func (t *FileReindexTracker) removeFile(filename string) error {
 	if err := os.Remove(t.filepath(filename)); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -459,29 +459,29 @@ func (t *fileReindexTracker) removeFile(filename string) error {
 	return nil
 }
 
-func (t *fileReindexTracker) encodeTimeNow() string {
+func (t *FileReindexTracker) EncodeTimeNow() string {
 	return t.encodeTime(time.Now())
 }
 
-func (t *fileReindexTracker) encodeTime(tm time.Time) string {
+func (t *FileReindexTracker) encodeTime(tm time.Time) string {
 	return tm.UTC().Format(time.RFC3339Nano)
 }
 
-func (t *fileReindexTracker) decodeTime(tm string) (time.Time, error) {
+func (t *FileReindexTracker) decodeTime(tm string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, tm)
 }
 
-func (t *fileReindexTracker) HasProps() bool {
-	return t.fileExists(t.config.filenameProperties)
+func (t *FileReindexTracker) HasProps() bool {
+	return t.fileExists(t.Config.FilenameProperties)
 }
 
-func (t *fileReindexTracker) saveProps(propNames []string) error {
+func (t *FileReindexTracker) SaveProps(propNames []string) error {
 	props := []byte(strings.Join(propNames, ","))
-	return t.createFile(t.config.filenameProperties, props)
+	return t.createFile(t.Config.FilenameProperties, props)
 }
 
-func (t *fileReindexTracker) GetProps() ([]string, error) {
-	content, err := os.ReadFile(t.filepath(t.config.filenameProperties))
+func (t *FileReindexTracker) GetProps() ([]string, error) {
+	content, err := os.ReadFile(t.filepath(t.Config.FilenameProperties))
 	if err != nil {
 		return nil, err
 	}
@@ -491,23 +491,23 @@ func (t *fileReindexTracker) GetProps() ([]string, error) {
 	return strings.Split(strings.TrimSpace(string(content)), ","), nil
 }
 
-func (t *fileReindexTracker) IsReset() bool {
-	return t.fileExists(t.config.filenameReset)
+func (t *FileReindexTracker) IsReset() bool {
+	return t.fileExists(t.Config.FilenameReset)
 }
 
-func (t *fileReindexTracker) reset() error {
-	return os.RemoveAll(t.config.migrationPath)
+func (t *FileReindexTracker) Reset() error {
+	return os.RemoveAll(t.Config.MigrationPath)
 }
 
-func (t *fileReindexTracker) IsRollback() bool {
-	return t.fileExists(t.config.filenameRollback)
+func (t *FileReindexTracker) IsRollback() bool {
+	return t.fileExists(t.Config.FilenameRollback)
 }
 
-func (t *fileReindexTracker) IsPaused() bool {
-	return t.fileExists(t.config.filenamePaused)
+func (t *FileReindexTracker) IsPaused() bool {
+	return t.fileExists(t.Config.FilenamePaused)
 }
 
-func (t *fileReindexTracker) GetStatusStrings() (status string, message string, action string) {
+func (t *FileReindexTracker) GetStatusStrings() (status string, message string, action string) {
 	if !t.IsStarted() {
 		status = "not started"
 		message = "reindexing not started"
@@ -585,10 +585,10 @@ func (t *fileReindexTracker) GetStatusStrings() (status string, message string, 
 	return status, message, action
 }
 
-func (t *fileReindexTracker) GetTimes() map[string]string {
+func (t *FileReindexTracker) GetTimes() map[string]string {
 	times := map[string]string{}
 
-	started, err := t.getStarted()
+	started, err := t.GetStarted()
 	if err != nil {
 		times["started"] = ""
 	} else {
@@ -631,14 +631,14 @@ func (t *fileReindexTracker) GetTimes() map[string]string {
 	return times
 }
 
-func (t *fileReindexTracker) checkOverrides(logger logrus.FieldLogger, config *reindexTaskConfig) {
-	if !t.fileExists(t.config.filenameOverrides) {
+func (t *FileReindexTracker) CheckOverrides(logger logrus.FieldLogger, config *ReindexTaskConfig) {
+	if !t.fileExists(t.Config.FilenameOverrides) {
 		return
 	}
 	if config == nil {
 		return
 	}
-	content, err := os.ReadFile(t.filepath(t.config.filenameOverrides))
+	content, err := os.ReadFile(t.filepath(t.Config.FilenameOverrides))
 	if err != nil {
 		return
 	}
@@ -662,38 +662,38 @@ func (t *fileReindexTracker) checkOverrides(logger logrus.FieldLogger, config *r
 
 		switch key {
 		case "swapBuckets":
-			config.swapBuckets = entcfg.Enabled(value)
+			config.SwapBuckets = entcfg.Enabled(value)
 		case "unswapBuckets":
-			config.unswapBuckets = entcfg.Enabled(value)
+			config.UnswapBuckets = entcfg.Enabled(value)
 		case "tidyBuckets":
-			config.tidyBuckets = entcfg.Enabled(value)
+			config.TidyBuckets = entcfg.Enabled(value)
 		case "rollback":
-			config.rollback = entcfg.Enabled(value)
+			config.Rollback = entcfg.Enabled(value)
 		case "conditionalStart":
-			config.conditionalStart = entcfg.Enabled(value)
+			config.ConditionalStart = entcfg.Enabled(value)
 		case "concurrency":
 			if n, ok := parsePositiveInt(logger, "concurrency", value); ok {
-				config.concurrency = n
+				config.Concurrency = n
 			}
 		case "memtableOptBlockmaxFactor", "memtableOptFactor":
 			if n, ok := parsePositiveInt(logger, "memtableOptFactor", value); ok {
-				config.memtableOptFactor = n
+				config.MemtableOptFactor = n
 			}
 		case "processingDuration":
 			if d, ok := parsePositiveDuration(logger, "processingDuration", value, false); ok {
-				config.processingDuration = d
+				config.ProcessingDuration = d
 			}
 		case "pauseDuration":
 			if d, ok := parsePositiveDuration(logger, "pauseDuration", value, false); ok {
-				config.pauseDuration = d
+				config.PauseDuration = d
 			}
 		case "perObjectDelay":
 			if d, ok := parsePositiveDuration(logger, "perObjectDelay", value, true); ok {
-				config.perObjectDelay = d
+				config.PerObjectDelay = d
 			}
 		case "checkProcessingEveryNoObjects":
 			if n, ok := parsePositiveInt(logger, "checkProcessingEveryNoObjects", value); ok {
-				config.checkProcessingEveryNoObjects = n
+				config.CheckProcessingEveryNoObjects = n
 			}
 		default:
 			logger.WithField("key", key).Warnf("unknown override key, ignoring: %s", key)

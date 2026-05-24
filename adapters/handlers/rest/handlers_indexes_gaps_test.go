@@ -34,6 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -74,7 +75,7 @@ func TestPropsOverlap_EmptyMeansAllProperties(t *testing.T) {
 func TestTypesConflict_FullMatrix(t *testing.T) {
 	type row struct {
 		name       string
-		a, b       db.ReindexMigrationType
+		a, b       reindex.ReindexMigrationType
 		props      []string
 		wantConfl  bool
 		wantReason string
@@ -87,39 +88,39 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 	// exception for enable-rangeable.
 	cases := []row{
 		// Same type, same property — conflict.
-		{"repair-searchable vs repair-searchable", db.ReindexTypeChangeAlgorithm, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
-		{"repair-filterable vs repair-filterable", db.ReindexTypeRepairFilterable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
-		{"enable-searchable vs enable-searchable", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
-		{"enable-filterable vs enable-filterable", db.ReindexTypeEnableFilterable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
-		{"change-tokenization vs change-tokenization", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeTokenization, []string{"p"}, true, "overlapping properties"},
-		{"enable-rangeable vs enable-rangeable (same prop)", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableRangeable, []string{"p"}, true, "overlapping properties"},
+		{"repair-searchable vs repair-searchable", reindex.ReindexTypeChangeAlgorithm, reindex.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
+		{"repair-filterable vs repair-filterable", reindex.ReindexTypeRepairFilterable, reindex.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"enable-searchable vs enable-searchable", reindex.ReindexTypeEnableSearchable, reindex.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
+		{"enable-filterable vs enable-filterable", reindex.ReindexTypeEnableFilterable, reindex.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
+		{"change-tokenization vs change-tokenization", reindex.ReindexTypeChangeTokenization, reindex.ReindexTypeChangeTokenization, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs enable-rangeable (same prop)", reindex.ReindexTypeEnableRangeable, reindex.ReindexTypeEnableRangeable, []string{"p"}, true, "overlapping properties"},
 
 		// Cross-type same-property — all conflict under the new rule.
-		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
-		{"change-tok vs enable-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
-		{"change-tok vs repair-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
-		{"change-tok vs enable-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs repair-searchable (same prop)", reindex.ReindexTypeChangeTokenization, reindex.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs enable-searchable (same prop)", reindex.ReindexTypeChangeTokenization, reindex.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs repair-filterable (same prop)", reindex.ReindexTypeChangeTokenization, reindex.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs enable-filterable (same prop)", reindex.ReindexTypeChangeTokenization, reindex.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 
 		// enable-rangeable now conflicts with anything else on the same prop —
 		// shared on-disk migration state (filterable_to_rangeable_<prop>) is
 		// destroyed by the OnMigrationComplete updatePropertyBuckets path
 		// otherwise. Same prop = conflict.
-		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
-		{"enable-rangeable vs repair-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
-		{"enable-rangeable vs enable-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
-		{"enable-rangeable vs enable-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
-		{"enable-rangeable vs change-tokenization", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeTokenization, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs repair-searchable", reindex.ReindexTypeEnableRangeable, reindex.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs repair-filterable", reindex.ReindexTypeEnableRangeable, reindex.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs enable-filterable", reindex.ReindexTypeEnableRangeable, reindex.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs enable-searchable", reindex.ReindexTypeEnableRangeable, reindex.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs change-tokenization", reindex.ReindexTypeEnableRangeable, reindex.ReindexTypeChangeTokenization, []string{"p"}, true, "overlapping properties"},
 
 		// Searchable-only vs filterable-only on the same property also conflicts:
 		// MergeProps fans out across all flags on OnMigrationComplete so the same
 		// cross-pollination concern applies.
-		{"repair-searchable vs repair-filterable (same prop)", db.ReindexTypeChangeAlgorithm, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
-		{"enable-searchable vs enable-filterable (same prop)", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
+		{"repair-searchable vs repair-filterable (same prop)", reindex.ReindexTypeChangeAlgorithm, reindex.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"enable-searchable vs enable-filterable (same prop)", reindex.ReindexTypeEnableSearchable, reindex.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			reason := db.TypesConflictReason(tc.a, tc.props, tc.b, tc.props)
+			reason := reindex.TypesConflictReason(tc.a, tc.props, tc.b, tc.props)
 			if tc.wantConfl {
 				require.NotEmpty(t, reason, "expected conflict but got none")
 				assert.Contains(t, reason, tc.wantReason)
@@ -133,16 +134,16 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 func TestTypesConflict_DifferentPropertiesNeverConflict(t *testing.T) {
 	// Two same-type tasks on different properties of the same collection
 	// must NOT conflict. This is the parallelism contract.
-	for _, mt := range []db.ReindexMigrationType{
-		db.ReindexTypeChangeAlgorithm,
-		db.ReindexTypeRepairFilterable,
-		db.ReindexTypeEnableSearchable,
-		db.ReindexTypeEnableFilterable,
-		db.ReindexTypeEnableRangeable,
-		db.ReindexTypeChangeTokenization,
+	for _, mt := range []reindex.ReindexMigrationType{
+		reindex.ReindexTypeChangeAlgorithm,
+		reindex.ReindexTypeRepairFilterable,
+		reindex.ReindexTypeEnableSearchable,
+		reindex.ReindexTypeEnableFilterable,
+		reindex.ReindexTypeEnableRangeable,
+		reindex.ReindexTypeChangeTokenization,
 	} {
 		t.Run(string(mt), func(t *testing.T) {
-			reason := db.TypesConflictReason(mt, []string{"propA"}, mt, []string{"propB"})
+			reason := reindex.TypesConflictReason(mt, []string{"propA"}, mt, []string{"propB"})
 			require.Empty(t, reason,
 				"%s on different properties must not conflict", mt)
 		})
@@ -153,7 +154,7 @@ func TestTypesConflict_DifferentPropertiesNeverConflict(t *testing.T) {
 // checkReindexConflict — happy path + non-STARTED tasks ignored.
 // -----------------------------------------------------------------------------
 
-func mustPayload(t *testing.T, p db.ReindexTaskPayload) []byte {
+func mustPayload(t *testing.T, p reindex.ReindexTaskPayload) []byte {
 	t.Helper()
 	b, err := json.Marshal(p)
 	require.NoError(t, err)
@@ -164,14 +165,14 @@ func TestCheckReindexConflict_RejectsSameTypeSameProperty(t *testing.T) {
 	existing := &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
 		Status:         distributedtask.TaskStatusStarted,
-		Payload: mustPayload(t, db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		Payload: mustPayload(t, reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		}),
 	}
 
-	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.NoError(t, err)
 	require.NotEmpty(t, reason)
@@ -183,14 +184,14 @@ func TestCheckReindexConflict_AllowsSameTypeDifferentProperty(t *testing.T) {
 	existing := &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
 		Status:         distributedtask.TaskStatusStarted,
-		Payload: mustPayload(t, db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		Payload: mustPayload(t, reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "C",
 			Properties:    []string{"foo"},
 		}),
 	}
 
-	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 		[]string{"bar"}, []*distributedtask.Task{existing})
 	require.NoError(t, err)
 	require.Empty(t, reason, "different property must not conflict")
@@ -209,13 +210,13 @@ func TestCheckReindexConflict_IgnoresTerminalTasks(t *testing.T) {
 			existing := &distributedtask.Task{
 				TaskDescriptor: distributedtask.TaskDescriptor{ID: "C:enable-filterable:foo:abcd"},
 				Status:         status,
-				Payload: mustPayload(t, db.ReindexTaskPayload{
-					MigrationType: db.ReindexTypeEnableFilterable,
+				Payload: mustPayload(t, reindex.ReindexTaskPayload{
+					MigrationType: reindex.ReindexTypeEnableFilterable,
 					Collection:    "C",
 					Properties:    []string{"foo"},
 				}),
 			}
-			reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+			reason, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 				[]string{"foo"}, []*distributedtask.Task{existing})
 			require.NoError(t, err)
 			require.Empty(t, reason,
@@ -229,14 +230,14 @@ func TestCheckReindexConflict_DifferentCollections(t *testing.T) {
 	existing := &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "A:enable-filterable:foo:abcd"},
 		Status:         distributedtask.TaskStatusStarted,
-		Payload: mustPayload(t, db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		Payload: mustPayload(t, reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "A",
 			Properties:    []string{"foo"},
 		}),
 	}
 
-	reason, err := checkReindexConflict("B", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("B", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.NoError(t, err)
 	require.Empty(t, reason)
@@ -247,14 +248,14 @@ func TestCheckReindexConflict_CollectionMatchIsCaseInsensitive(t *testing.T) {
 	existing := &distributedtask.Task{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "MyClass:enable-filterable:foo:abcd"},
 		Status:         distributedtask.TaskStatusStarted,
-		Payload: mustPayload(t, db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
+		Payload: mustPayload(t, reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeEnableFilterable,
 			Collection:    "MyClass",
 			Properties:    []string{"foo"},
 		}),
 	}
 
-	reason, err := checkReindexConflict("myclass", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("myclass", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.NoError(t, err)
 	require.NotEmpty(t, reason, "case-insensitive collection match expected")
@@ -272,7 +273,7 @@ func TestCheckReindexConflict_MalformedPayloadIsRejected(t *testing.T) {
 		Status:         distributedtask.TaskStatusStarted,
 		Payload:        []byte(`{not valid json`),
 	}
-	reason, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+	reason, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.Empty(t, reason)
 	require.Error(t, err, "unparseable payload must surface as an error so the handler can refuse the submit")
@@ -289,7 +290,7 @@ func TestCheckReindexConflict_MalformedPayloadDifferentCollectionAlsoRejected(t 
 		Status:         distributedtask.TaskStatusStarted,
 		Payload:        []byte(`{still not valid`),
 	}
-	_, err := checkReindexConflict("OtherCollection", db.ReindexTypeEnableFilterable,
+	_, err := checkReindexConflict("OtherCollection", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.Error(t, err)
 }
@@ -316,7 +317,7 @@ func TestCheckReindexConflict_EmptyJsonPayloadIsRejected(t *testing.T) {
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        []byte(c.payload),
 			}
-			_, err := checkReindexConflict("C", db.ReindexTypeEnableFilterable,
+			_, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 				[]string{"foo"}, []*distributedtask.Task{existing})
 			require.Error(t, err, "payload %q parses but is informationally empty; must be rejected", c.payload)
 			require.Contains(t, err.Error(), "empty Collection or MigrationType")
@@ -516,25 +517,25 @@ func TestRequestedCancel(t *testing.T) {
 
 func TestMigrationTypeTargetsIndex(t *testing.T) {
 	cases := []struct {
-		mt          db.ReindexMigrationType
+		mt          reindex.ReindexMigrationType
 		indexType   string
 		wantMatches bool
 		wantKnown   bool
 	}{
-		{db.ReindexTypeEnableSearchable, "searchable", true, true},
-		{db.ReindexTypeEnableSearchable, "filterable", false, true},
-		{db.ReindexTypeChangeAlgorithm, "searchable", true, true},
-		{db.ReindexTypeEnableFilterable, "filterable", true, true},
-		{db.ReindexTypeEnableFilterable, "searchable", false, true},
-		{db.ReindexTypeRepairFilterable, "filterable", true, true},
-		{db.ReindexTypeEnableRangeable, "rangeable", true, true},
-		{db.ReindexTypeRepairRangeable, "rangeable", true, true},
-		{db.ReindexTypeRepairRangeable, "searchable", false, true},
-		{db.ReindexTypeChangeTokenization, "searchable", true, true},
-		{db.ReindexTypeChangeTokenization, "filterable", true, true},
-		{db.ReindexTypeChangeTokenization, "rangeable", false, true},
+		{reindex.ReindexTypeEnableSearchable, "searchable", true, true},
+		{reindex.ReindexTypeEnableSearchable, "filterable", false, true},
+		{reindex.ReindexTypeChangeAlgorithm, "searchable", true, true},
+		{reindex.ReindexTypeEnableFilterable, "filterable", true, true},
+		{reindex.ReindexTypeEnableFilterable, "searchable", false, true},
+		{reindex.ReindexTypeRepairFilterable, "filterable", true, true},
+		{reindex.ReindexTypeEnableRangeable, "rangeable", true, true},
+		{reindex.ReindexTypeRepairRangeable, "rangeable", true, true},
+		{reindex.ReindexTypeRepairRangeable, "searchable", false, true},
+		{reindex.ReindexTypeChangeTokenization, "searchable", true, true},
+		{reindex.ReindexTypeChangeTokenization, "filterable", true, true},
+		{reindex.ReindexTypeChangeTokenization, "rangeable", false, true},
 		// Unknown migration type — both returns must be false.
-		{db.ReindexMigrationType("totally-new-migration"), "searchable", false, false},
+		{reindex.ReindexMigrationType("totally-new-migration"), "searchable", false, false},
 	}
 	for _, c := range cases {
 		t.Run(string(c.mt)+"/"+c.indexType, func(t *testing.T) {
@@ -547,7 +548,7 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 
 // TestIndexTypesFromMigrationType locks in the contract that submit-time
 // pre-cleanup uses to decide which index sentinel dirs to wipe. The
-// critical case is ReindexTypeChangeTokenization (change-tokenization-both):
+// critical case is reindex.ReindexTypeChangeTokenization (change-tokenization-both):
 // it MUST return both "searchable" and "filterable" so the submit handler
 // cleans up sentinel dirs from BOTH per-index sub-tasks. Returning only one
 // (or neither) reproduces the Sev 1 silent data loss where a stale
@@ -558,25 +559,25 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 // change_tok_delete_journeys_test.go).
 func TestIndexTypesFromMigrationType(t *testing.T) {
 	cases := []struct {
-		mt        db.ReindexMigrationType
+		mt        reindex.ReindexMigrationType
 		wantTypes []string
 		wantKnown bool
 	}{
-		{db.ReindexTypeEnableSearchable, []string{"searchable"}, true},
-		{db.ReindexTypeChangeAlgorithm, []string{"searchable"}, true},
-		{db.ReindexTypeEnableFilterable, []string{"filterable"}, true},
-		{db.ReindexTypeRepairFilterable, []string{"filterable"}, true},
-		{db.ReindexTypeEnableRangeable, []string{"rangeable"}, true},
-		{db.ReindexTypeRepairRangeable, []string{"rangeable"}, true},
+		{reindex.ReindexTypeEnableSearchable, []string{"searchable"}, true},
+		{reindex.ReindexTypeChangeAlgorithm, []string{"searchable"}, true},
+		{reindex.ReindexTypeEnableFilterable, []string{"filterable"}, true},
+		{reindex.ReindexTypeRepairFilterable, []string{"filterable"}, true},
+		{reindex.ReindexTypeEnableRangeable, []string{"rangeable"}, true},
+		{reindex.ReindexTypeRepairRangeable, []string{"rangeable"}, true},
 		// change-tok-filterable retokenizes only the filterable bucket.
-		{db.ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, true},
+		{reindex.ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, true},
 		// change-tok-both spawns one sub-task per inverted index, each with
 		// its own per-property migration dir on disk. Pre-cleanup must wipe
 		// both — see godoc on indexTypesFromMigrationType.
-		{db.ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, true},
+		{reindex.ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, true},
 		// Unknown migration type — must return false so the submit handler
 		// degrades to "no pre-cleanup" rather than panicking.
-		{db.ReindexMigrationType("never-heard-of-this"), nil, false},
+		{reindex.ReindexMigrationType("never-heard-of-this"), nil, false},
 	}
 	for _, c := range cases {
 		t.Run(string(c.mt), func(t *testing.T) {
@@ -816,60 +817,60 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 
 // -----------------------------------------------------------------------------
 // touchesSearchable / touchesFilterable — exhaustive switch, including a
-// panic on unknown ReindexMigrationType so a future type cannot silently
+// panic on unknown reindex.ReindexMigrationType so a future type cannot silently
 // bypass the conflict check.
 // -----------------------------------------------------------------------------
 
 func TestTouchesSearchable(t *testing.T) {
 	cases := []struct {
-		t    db.ReindexMigrationType
+		t    reindex.ReindexMigrationType
 		want bool
 	}{
-		{db.ReindexTypeChangeAlgorithm, true},
-		{db.ReindexTypeChangeTokenization, true},
-		{db.ReindexTypeEnableSearchable, true},
-		{db.ReindexTypeRepairFilterable, false},
-		{db.ReindexTypeEnableFilterable, false},
-		{db.ReindexTypeEnableRangeable, false},
+		{reindex.ReindexTypeChangeAlgorithm, true},
+		{reindex.ReindexTypeChangeTokenization, true},
+		{reindex.ReindexTypeEnableSearchable, true},
+		{reindex.ReindexTypeRepairFilterable, false},
+		{reindex.ReindexTypeEnableFilterable, false},
+		{reindex.ReindexTypeEnableRangeable, false},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, db.TouchesSearchable(tc.t))
+			require.Equal(t, tc.want, reindex.TouchesSearchable(tc.t))
 		})
 	}
 }
 
 func TestTouchesFilterable(t *testing.T) {
 	cases := []struct {
-		t    db.ReindexMigrationType
+		t    reindex.ReindexMigrationType
 		want bool
 	}{
-		{db.ReindexTypeRepairFilterable, true},
-		{db.ReindexTypeChangeTokenization, true},
-		{db.ReindexTypeEnableFilterable, true},
-		{db.ReindexTypeChangeAlgorithm, false},
-		{db.ReindexTypeEnableSearchable, false},
-		{db.ReindexTypeEnableRangeable, false},
+		{reindex.ReindexTypeRepairFilterable, true},
+		{reindex.ReindexTypeChangeTokenization, true},
+		{reindex.ReindexTypeEnableFilterable, true},
+		{reindex.ReindexTypeChangeAlgorithm, false},
+		{reindex.ReindexTypeEnableSearchable, false},
+		{reindex.ReindexTypeEnableRangeable, false},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.t), func(t *testing.T) {
-			require.Equal(t, tc.want, db.TouchesFilterable(tc.t))
+			require.Equal(t, tc.want, reindex.TouchesFilterable(tc.t))
 		})
 	}
 }
 
 func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
 	require.PanicsWithValue(t,
-		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesSearchable(db.ReindexMigrationType("phantom")) },
+		`reindex.TouchesSearchable: unknown reindex.ReindexMigrationType "phantom" — add it to this switch`,
+		func() { reindex.TouchesSearchable(reindex.ReindexMigrationType("phantom")) },
 		"unknown migration type must panic so the gap is caught loudly",
 	)
 }
 
 func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
 	require.PanicsWithValue(t,
-		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
-		func() { db.TouchesFilterable(db.ReindexMigrationType("phantom")) },
+		`reindex.TouchesFilterable: unknown reindex.ReindexMigrationType "phantom" — add it to this switch`,
+		func() { reindex.TouchesFilterable(reindex.ReindexMigrationType("phantom")) },
 		"unknown migration type must panic so the gap is caught loudly",
 	)
 }
@@ -1107,9 +1108,9 @@ func TestNormalizeSearchableAlgorithm(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.T) {
-	mkPayload := func(coll string) db.ReindexTaskPayload {
-		return db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeChangeTokenization,
+	mkPayload := func(coll string) reindex.ReindexTaskPayload {
+		return reindex.ReindexTaskPayload{
+			MigrationType: reindex.ReindexTypeChangeTokenization,
 			Collection:    coll,
 			Properties:    []string{"p"},
 		}
@@ -1172,7 +1173,7 @@ func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.
 			tasks: []*distributedtask.Task{
 				buildTask(t, "t1", distributedtask.TaskStatusStarted, mkPayload("C"), nil),
 				{
-					Namespace: db.ReindexNamespace,
+					Namespace: reindex.ReindexNamespace,
 					TaskDescriptor: distributedtask.TaskDescriptor{
 						ID:      "garbage",
 						Version: 1,
@@ -1208,8 +1209,8 @@ func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.
 func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
 	mkStarted := func(id, coll string) *distributedtask.Task {
 		return buildTask(t, id, distributedtask.TaskStatusStarted,
-			db.ReindexTaskPayload{
-				MigrationType: db.ReindexTypeChangeTokenization,
+			reindex.ReindexTaskPayload{
+				MigrationType: reindex.ReindexTypeChangeTokenization,
 				Collection:    coll,
 				Properties:    []string{"p_" + id},
 			}, nil)

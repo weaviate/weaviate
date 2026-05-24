@@ -24,13 +24,13 @@ import (
 // MapToBlockmaxStrategy implements MigrationStrategy for the
 // MapCollection → Inverted (blockmax WAND) migration of searchable properties.
 type MapToBlockmaxStrategy struct {
-	noAnalyzerOverlay
-	schemaManager *schema.Manager
-	generation    int // see GenSuffix godoc
+	NoAnalyzerOverlay
+	SchemaManager *schema.Manager
+	Generation    int // see GenSuffix godoc
 }
 
 func (s *MapToBlockmaxStrategy) MigrationDirName() string {
-	return MigrationDirSearchableMapToBlockmax + GenSuffix(s.generation)
+	return MigrationDirSearchableMapToBlockmax + GenSuffix(s.Generation)
 }
 
 func (s *MapToBlockmaxStrategy) SourceBucketName(propName string) string {
@@ -38,15 +38,15 @@ func (s *MapToBlockmaxStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *MapToBlockmaxStrategy) ReindexSuffix() string {
-	return "__blockmax_reindex" + GenSuffix(s.generation)
+	return "__blockmax_reindex" + GenSuffix(s.Generation)
 }
 
 func (s *MapToBlockmaxStrategy) IngestSuffix() string {
-	return "__blockmax_ingest" + GenSuffix(s.generation)
+	return "__blockmax_ingest" + GenSuffix(s.Generation)
 }
 
 func (s *MapToBlockmaxStrategy) BackupSuffix() string {
-	return "__blockmax_map" + GenSuffix(s.generation)
+	return "__blockmax_map" + GenSuffix(s.Generation)
 }
 
 func (s *MapToBlockmaxStrategy) SourceStrategy() string {
@@ -166,7 +166,7 @@ func (s *MapToBlockmaxStrategy) OnMigrationComplete(ctx context.Context, shard S
 		}
 	}
 
-	return updateToBlockMaxInvertedIndexConfig(ctx, s.schemaManager, className)
+	return updateToBlockMaxInvertedIndexConfig(ctx, s.SchemaManager, className)
 }
 
 // calcPropLenInverted computes property length as the sum of term frequencies.

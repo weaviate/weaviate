@@ -32,52 +32,52 @@ func TestMigrationDirName(t *testing.T) {
 	}{
 		{
 			name:     "MapToBlockmax",
-			got:      (&MapToBlockmaxStrategy{generation: 7}).MigrationDirName(),
+			got:      (&MapToBlockmaxStrategy{Generation: 7}).MigrationDirName(),
 			expected: "searchable_map_to_blockmax_7",
 		},
 		{
 			name:     "RoaringSetRefresh",
-			got:      (&RoaringSetRefreshStrategy{generation: 7}).MigrationDirName(),
+			got:      (&RoaringSetRefreshStrategy{Generation: 7}).MigrationDirName(),
 			expected: "filterable_roaringset_refresh_7",
 		},
 		{
 			name:     "FilterableToRangeable_noProps",
-			got:      (&FilterableToRangeableStrategy{generation: 7}).MigrationDirName(),
+			got:      (&FilterableToRangeableStrategy{Generation: 7}).MigrationDirName(),
 			expected: "filterable_to_rangeable_7",
 		},
 		{
 			name:     "FilterableToRangeable_withProps",
-			got:      (&FilterableToRangeableStrategy{propNames: []string{"a", "b"}, generation: 7}).MigrationDirName(),
+			got:      (&FilterableToRangeableStrategy{PropNames: []string{"a", "b"}, Generation: 7}).MigrationDirName(),
 			expected: "filterable_to_rangeable_a_b_7",
 		},
 		{
 			name:     "SearchableRetokenize",
-			got:      (&SearchableRetokenizeStrategy{propName: "title", generation: 7}).MigrationDirName(),
+			got:      (&SearchableRetokenizeStrategy{PropName: "title", Generation: 7}).MigrationDirName(),
 			expected: "searchable_retokenize_title_7",
 		},
 		{
 			name:     "FilterableRetokenize",
-			got:      (&FilterableRetokenizeStrategy{propName: "title", generation: 7}).MigrationDirName(),
+			got:      (&FilterableRetokenizeStrategy{PropName: "title", Generation: 7}).MigrationDirName(),
 			expected: "filterable_retokenize_title_7",
 		},
 		{
 			name:     "EnableFilterable_noProps",
-			got:      (&EnableFilterableStrategy{generation: 7}).MigrationDirName(),
+			got:      (&EnableFilterableStrategy{Generation: 7}).MigrationDirName(),
 			expected: "enable_filterable_7",
 		},
 		{
 			name:     "EnableFilterable_withProps",
-			got:      (&EnableFilterableStrategy{propNames: []string{"a", "b"}, generation: 7}).MigrationDirName(),
+			got:      (&EnableFilterableStrategy{PropNames: []string{"a", "b"}, Generation: 7}).MigrationDirName(),
 			expected: "enable_filterable_a_b_7",
 		},
 		{
 			name:     "EnableSearchable_noProps",
-			got:      (&EnableSearchableStrategy{generation: 7}).MigrationDirName(),
+			got:      (&EnableSearchableStrategy{Generation: 7}).MigrationDirName(),
 			expected: "enable_searchable_7",
 		},
 		{
 			name:     "EnableSearchable_withProps",
-			got:      (&EnableSearchableStrategy{propNames: []string{"a", "b"}, generation: 7}).MigrationDirName(),
+			got:      (&EnableSearchableStrategy{PropNames: []string{"a", "b"}, Generation: 7}).MigrationDirName(),
 			expected: "enable_searchable_a_b_7",
 		},
 	}
@@ -104,13 +104,13 @@ func TestFinalizeMigrationSuffixesRecognisesAllStrategies(t *testing.T) {
 		{"MapToBlockmax", (&MapToBlockmaxStrategy{}).MigrationDirName()},
 		{"RoaringSetRefresh", (&RoaringSetRefreshStrategy{}).MigrationDirName()},
 		{"FilterableToRangeable_noProps", (&FilterableToRangeableStrategy{}).MigrationDirName()},
-		{"FilterableToRangeable_withProps", (&FilterableToRangeableStrategy{propNames: []string{"p"}}).MigrationDirName()},
-		{"SearchableRetokenize", (&SearchableRetokenizeStrategy{propName: "p"}).MigrationDirName()},
-		{"FilterableRetokenize", (&FilterableRetokenizeStrategy{propName: "p"}).MigrationDirName()},
+		{"FilterableToRangeable_withProps", (&FilterableToRangeableStrategy{PropNames: []string{"p"}}).MigrationDirName()},
+		{"SearchableRetokenize", (&SearchableRetokenizeStrategy{PropName: "p"}).MigrationDirName()},
+		{"FilterableRetokenize", (&FilterableRetokenizeStrategy{PropName: "p"}).MigrationDirName()},
 		{"EnableFilterable_noProps", (&EnableFilterableStrategy{}).MigrationDirName()},
-		{"EnableFilterable_withProps", (&EnableFilterableStrategy{propNames: []string{"p"}}).MigrationDirName()},
+		{"EnableFilterable_withProps", (&EnableFilterableStrategy{PropNames: []string{"p"}}).MigrationDirName()},
 		{"EnableSearchable_noProps", (&EnableSearchableStrategy{}).MigrationDirName()},
-		{"EnableSearchable_withProps", (&EnableSearchableStrategy{propNames: []string{"p"}}).MigrationDirName()},
+		{"EnableSearchable_withProps", (&EnableSearchableStrategy{PropNames: []string{"p"}}).MigrationDirName()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

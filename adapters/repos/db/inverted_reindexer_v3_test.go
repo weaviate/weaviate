@@ -27,10 +27,10 @@ func TestProcessingQueue(t *testing.T) {
 		expTasks := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
 		interval := 10 * time.Millisecond
 		expTime := time.Now().Add(interval)
-		q := newShardsQueue()
+		q := reindex.NewShardsQueue()
 
-		q.insert(expKey, expTasks, expTime)
-		key, tasks, err := q.getWhenReady(context.Background())
+		q.Insert(expKey, expTasks, expTime)
+		key, tasks, err := q.GetWhenReady(context.Background())
 		after := time.Now()
 
 		require.NoError(t, err)
@@ -57,23 +57,23 @@ func TestProcessingQueue(t *testing.T) {
 		expTime4 := time.Now().Add(interval * 4)
 		expTime5 := time.Now().Add(interval * 5)
 
-		q := newShardsQueue()
+		q := reindex.NewShardsQueue()
 
-		q.insert(expKey4, expTasks4, expTime4)
-		q.insert(expKey3, expTasks3, expTime3)
-		q.insert(expKey1, expTasks1, expTime1)
-		q.insert(expKey5, expTasks5, expTime5)
-		q.insert(expKey2, expTasks2, expTime2)
+		q.Insert(expKey4, expTasks4, expTime4)
+		q.Insert(expKey3, expTasks3, expTime3)
+		q.Insert(expKey1, expTasks1, expTime1)
+		q.Insert(expKey5, expTasks5, expTime5)
+		q.Insert(expKey2, expTasks2, expTime2)
 
-		key1, tasks1, err1 := q.getWhenReady(context.Background())
+		key1, tasks1, err1 := q.GetWhenReady(context.Background())
 		after1 := time.Now()
-		key2, tasks2, err2 := q.getWhenReady(context.Background())
+		key2, tasks2, err2 := q.GetWhenReady(context.Background())
 		after2 := time.Now()
-		key3, tasks3, err3 := q.getWhenReady(context.Background())
+		key3, tasks3, err3 := q.GetWhenReady(context.Background())
 		after3 := time.Now()
-		key4, tasks4, err4 := q.getWhenReady(context.Background())
+		key4, tasks4, err4 := q.GetWhenReady(context.Background())
 		after4 := time.Now()
-		key5, tasks5, err5 := q.getWhenReady(context.Background())
+		key5, tasks5, err5 := q.GetWhenReady(context.Background())
 		after5 := time.Now()
 
 		require.NoError(t, err1)
@@ -120,26 +120,26 @@ func TestProcessingQueue(t *testing.T) {
 		expTime4 := time.Now().Add(interval * 4)
 		expTime5 := time.Now().Add(interval * 5)
 
-		q := newShardsQueue()
+		q := reindex.NewShardsQueue()
 
-		q.insert(expKey4, expTasks4, expTime4)
-		q.insert(expKey3, expTasks3, expTime3)
-		q.insert(expKey1, expTasks1, expTime1)
-		q.insert(expKey5, expTasks5, expTime5)
-		q.insert(expKey2, expTasks2, expTime2)
+		q.Insert(expKey4, expTasks4, expTime4)
+		q.Insert(expKey3, expTasks3, expTime3)
+		q.Insert(expKey1, expTasks1, expTime1)
+		q.Insert(expKey5, expTasks5, expTime5)
+		q.Insert(expKey2, expTasks2, expTime2)
 
 		ctx, cancel := context.WithCancel(context.Background())
 
-		key1, tasks1, err1 := q.getWhenReady(ctx)
+		key1, tasks1, err1 := q.GetWhenReady(ctx)
 		after1 := time.Now()
-		key2, tasks2, err2 := q.getWhenReady(ctx)
+		key2, tasks2, err2 := q.GetWhenReady(ctx)
 		after2 := time.Now()
 		cancel()
-		key3, tasks3, err3 := q.getWhenReady(ctx)
+		key3, tasks3, err3 := q.GetWhenReady(ctx)
 		after3 := time.Now()
-		key4, tasks4, err4 := q.getWhenReady(ctx)
+		key4, tasks4, err4 := q.GetWhenReady(ctx)
 		after4 := time.Now()
-		key5, tasks5, err5 := q.getWhenReady(ctx)
+		key5, tasks5, err5 := q.GetWhenReady(ctx)
 		after5 := time.Now()
 
 		require.NoError(t, err1)
@@ -177,15 +177,15 @@ func (t *dummyShardReindexTaskV3) Name() string {
 	return t.name
 }
 
-func (t *dummyShardReindexTaskV3) OnBeforeLsmInit(ctx context.Context, shard *Shard) error {
+func (t *dummyShardReindexTaskV3) OnBeforeLsmInit(ctx context.Context, shard reindex.ShardLike) error {
 	return nil
 }
 
-func (t *dummyShardReindexTaskV3) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
+func (t *dummyShardReindexTaskV3) OnAfterLsmInit(ctx context.Context, shard reindex.ShardLike) error {
 	return nil
 }
 
-func (t *dummyShardReindexTaskV3) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
+func (t *dummyShardReindexTaskV3) OnAfterLsmInitAsync(ctx context.Context, shard reindex.ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	return time.Time{}, false, nil
 }

@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -63,7 +64,7 @@ func fingerprintRoaringSetBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uin
 	return out
 }
 
-// newFilterableRetokenizeTask wraps a FilterableRetokenizeStrategy in
+// newFilterableRetokenizeTask wraps a reindex.FilterableRetokenizeStrategy in
 // the test infrastructure. Pattern mirrors newSearchableRetokenizeTask
 // (`inverted_reindex_recovery_convergence_test.go:125`) but for the
 // filterable half of a change-tokenization migration.
@@ -71,29 +72,29 @@ func fingerprintRoaringSetBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uin
 // `targetTokenization` is the post-migration tokenization (e.g.
 // `models.PropertyTokenizationField` for word→field, the exact change
 // the production e2e tests exercise).
-func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization string) (*ShardReindexTaskGeneric, *testFilterableRetokenizeStrategyWrapper) {
+func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization string) (*reindex.ShardReindexTaskGeneric, *testFilterableRetokenizeStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableRetokenizeStrategyWrapper{
-		FilterableRetokenizeStrategy: FilterableRetokenizeStrategy{
-			propName:           propName,
-			targetTokenization: targetTokenization,
-			className:          className,
-			generation:         1,
+		FilterableRetokenizeStrategy: reindex.FilterableRetokenizeStrategy{
+			PropName:           propName,
+			TargetTokenization: targetTokenization,
+			ClassName:          className,
+			Generation:         1,
 		},
 	}
-	task := NewShardReindexTaskGeneric(
+	task := reindex.NewShardReindexTaskGeneric(
 		"FilterableRetokenize", idx.logger, wrapped,
-		reindexTaskConfig{
-			swapBuckets:                   true,
-			tidyBuckets:                   true,
-			concurrency:                   2,
-			memtableOptFactor:             4,
-			backupMemtableOptFactor:       1,
-			processingDuration:            10 * time.Minute,
-			pauseDuration:                 1 * time.Second,
-			checkProcessingEveryNoObjects: 1000,
+		reindex.ReindexTaskConfig{
+			SwapBuckets:                   true,
+			TidyBuckets:                   true,
+			Concurrency:                   2,
+			MemtableOptFactor:             4,
+			BackupMemtableOptFactor:       1,
+			ProcessingDuration:            10 * time.Minute,
+			PauseDuration:                 1 * time.Second,
+			CheckProcessingEveryNoObjects: 1000,
 		},
-		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		&reindex.UuidKeyParser{}, reindex.UuidObjectsIteratorAsync,
 	)
 	return task, wrapped
 }
@@ -105,11 +106,11 @@ func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 // Mirrors testSearchableRetokenizeStrategyWrapper for the searchable
 // half.
 type testFilterableRetokenizeStrategyWrapper struct {
-	FilterableRetokenizeStrategy
+	reindex.FilterableRetokenizeStrategy
 	migrationCompleted bool
 }
 
-func (s *testFilterableRetokenizeStrategyWrapper) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+func (s *testFilterableRetokenizeStrategyWrapper) OnMigrationComplete(_ context.Context, _ reindex.ShardLike) error {
 	s.migrationCompleted = true
 	return nil
 }
@@ -142,7 +143,7 @@ func computeFilterableRetokenizeBaseline(t *testing.T, propName string, numObjec
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 
 	return fingerprintRoaringSetBucket(t,
-		shard.store.Bucket(helpers.BucketFromPropNameLSM(propName)))
+		shard.Store().Bucket(helpers.BucketFromPropNameLSM(propName)))
 }
 
 // TestRecoveryConvergence_FilterableRetokenize_Baseline establishes
@@ -169,7 +170,7 @@ func TestRecoveryConvergence_FilterableRetokenize_Baseline(t *testing.T) {
 	}
 
 	filtBucketName := helpers.BucketFromPropNameLSM(propName)
-	preBucket := shard.store.Bucket(filtBucketName)
+	preBucket := shard.Store().Bucket(filtBucketName)
 	require.NotNil(t, preBucket, "pre-migration filterable bucket must exist")
 	require.Equal(t, lsmkv.StrategyRoaringSet, preBucket.Strategy(),
 		"pre-migration filterable bucket must be StrategyRoaringSet")
@@ -187,7 +188,7 @@ func TestRecoveryConvergence_FilterableRetokenize_Baseline(t *testing.T) {
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
 
-	postBucket := shard.store.Bucket(filtBucketName)
+	postBucket := shard.Store().Bucket(filtBucketName)
 	require.NotNil(t, postBucket, "post-migration filterable bucket must exist")
 	require.Equal(t, lsmkv.StrategyRoaringSet, postBucket.Strategy(),
 		"post-migration filterable bucket must remain StrategyRoaringSet")
@@ -206,7 +207,7 @@ func TestRecoveryConvergence_FilterableRetokenize_Baseline(t *testing.T) {
 			"post-migration field-tokenized term %q should have exactly 1 docID, got %d", term, len(ids))
 	}
 
-	rt, err := task.newReindexTracker(shard.pathLSM())
+	rt, err := task.NewReindexTracker(shard.PathLSM())
 	require.NoError(t, err)
 	require.True(t, rt.IsReindexed())
 	require.True(t, rt.IsPrepended())
@@ -237,7 +238,7 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 	cases := []recoveryConvergenceCase{
 		{
 			name: "FilterableRetokenize_IsReindexed_via_RunReindexOnlyOnShard",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			},
 			expectedPostStateSentinels: map[string]bool{
@@ -246,14 +247,14 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 		},
 		{
 			name: "FilterableRetokenize_IsPrepended_synthetic_merged_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-				rt, err := task.newReindexTracker(shard.pathLSM())
+				rt, err := task.NewReindexTracker(shard.PathLSM())
 				require.NoError(t, err)
-				ftr := rt.(*fileReindexTracker)
+				ftr := rt.(*reindex.FileReindexTracker)
 				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameMerged)))
+					filepath.Join(ftr.Config.MigrationPath, ftr.Config.FilenameMerged)))
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": true, "prepended": true, "merged": false, "swapped": false, "tidied": false,
@@ -261,15 +262,15 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 		},
 		{
 			name: "FilterableRetokenize_IsSwapped_synthetic_tidied_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 				require.NoError(t, task.RunSwapOnShard(ctx, shard))
-				rt, err := task.newReindexTracker(shard.pathLSM())
+				rt, err := task.NewReindexTracker(shard.PathLSM())
 				require.NoError(t, err)
-				ftr := rt.(*fileReindexTracker)
+				ftr := rt.(*reindex.FileReindexTracker)
 				require.NoError(t, os.Remove(
-					filepath.Join(ftr.config.migrationPath, ftr.config.filenameTidied)))
+					filepath.Join(ftr.Config.MigrationPath, ftr.Config.FilenameTidied)))
 			},
 			expectedPostStateSentinels: map[string]bool{
 				"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false,
@@ -277,7 +278,7 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 		},
 		{
 			name: "FilterableRetokenize_IsMerged_via_RunPrepareOnShard",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 			},
@@ -287,7 +288,7 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 		},
 		{
 			name: "FilterableRetokenize_IsTidied_via_full_trio",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 				require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -321,7 +322,7 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 			// Verify driveToState actually landed at the intended on-disk
 			// state. Without this guard a buggy driveToState would let
 			// recovery from a different state appear to "converge".
-			rt, err := task.newReindexTracker(shard.pathLSM())
+			rt, err := task.NewReindexTracker(shard.PathLSM())
 			require.NoError(t, err)
 			for name, want := range tc.expectedPostStateSentinels {
 				var got bool
@@ -341,7 +342,7 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 			}
 
 			// Simulated restart: graceful shutdown, fresh task, then
-			// idx.initShard re-runs FinalizeCompletedMigrations →
+			// idx.initShard re-runs reindex.FinalizeCompletedMigrations →
 			// OnBeforeLsmInit → LSM init → OnAfterLsmInit. Same restart
 			// primitive PR #11415 uses for the searchable half.
 			shardName := shard.Name()
@@ -374,7 +375,7 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 			// move past IsReindexed (in production OnGroupCompleted does
 			// this on re-ack). Mirror what the SearchableRetokenize
 			// test does at convergence_test.go:790-795.
-			rt2, err := task2.newReindexTracker(shard2.pathLSM())
+			rt2, err := task2.NewReindexTracker(shard2.pathLSM())
 			require.NoErrorf(t, err, "post-recovery tracker init (case %q)", tc.name)
 			if !rt2.IsTidied() {
 				if err := task2.RunSwapOnShard(ctx, shard2); err != nil {
@@ -382,7 +383,7 @@ func TestRecoveryConvergence_FilterableRetokenize_FromEachState(t *testing.T) {
 				}
 			}
 
-			bucket := shard2.store.Bucket(helpers.BucketFromPropNameLSM(propName))
+			bucket := shard2.Store().Bucket(helpers.BucketFromPropNameLSM(propName))
 			require.NotNilf(t, bucket, "post-recovery filterable bucket must exist (case %q)", tc.name)
 			require.Equalf(t, lsmkv.StrategyRoaringSet, bucket.Strategy(),
 				"post-recovery filterable bucket must remain StrategyRoaringSet (case %q)", tc.name)

@@ -27,38 +27,38 @@ import (
 // searchable (BM25) index for a text property with a different tokenization
 // strategy (e.g. WORD → FIELD).
 type SearchableRetokenizeStrategy struct {
-	noAnalyzerOverlay
-	propName           string
-	targetTokenization string
-	className          string
-	bucketStrategy     string // StrategyMapCollection or StrategyInverted
-	generation         int    // see GenSuffix godoc for the per-migration generation contract
+	NoAnalyzerOverlay
+	PropName           string
+	TargetTokenization string
+	ClassName          string
+	BucketStrategy     string // StrategyMapCollection or StrategyInverted
+	Generation         int    // see GenSuffix godoc for the per-migration generation contract
 }
 
 func (s *SearchableRetokenizeStrategy) MigrationDirName() string {
 	// Include property name + per-migration generation so back-to-back
 	// migrations on the same property don't collide on tracker state.
-	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName + GenSuffix(s.generation)
+	return MigrationDirPrefixSearchableRetokenize + "_" + s.PropName + GenSuffix(s.Generation)
 }
 
 func (s *SearchableRetokenizeStrategy) SourceBucketName(_ string) string {
-	return helpers.BucketSearchableFromPropNameLSM(s.propName)
+	return helpers.BucketSearchableFromPropNameLSM(s.PropName)
 }
 
 func (s *SearchableRetokenizeStrategy) ReindexSuffix() string {
-	return "__retokenize_reindex" + GenSuffix(s.generation)
+	return "__retokenize_reindex" + GenSuffix(s.Generation)
 }
 
 func (s *SearchableRetokenizeStrategy) IngestSuffix() string {
-	return "__retokenize_ingest" + GenSuffix(s.generation)
+	return "__retokenize_ingest" + GenSuffix(s.Generation)
 }
 
 func (s *SearchableRetokenizeStrategy) BackupSuffix() string {
-	return "__retokenize_backup" + GenSuffix(s.generation)
+	return "__retokenize_backup" + GenSuffix(s.Generation)
 }
 
 func (s *SearchableRetokenizeStrategy) SourceStrategy() string {
-	return s.bucketStrategy
+	return s.BucketStrategy
 }
 
 func (s *SearchableRetokenizeStrategy) SourceIndexType() PropertyIndexType {
@@ -66,11 +66,11 @@ func (s *SearchableRetokenizeStrategy) SourceIndexType() PropertyIndexType {
 }
 
 func (s *SearchableRetokenizeStrategy) TargetStrategy() string {
-	return s.bucketStrategy
+	return s.BucketStrategy
 }
 
 func (s *SearchableRetokenizeStrategy) BackupStrategy() string {
-	return s.bucketStrategy
+	return s.BucketStrategy
 }
 
 func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, bucket *lsmkv.Bucket,
@@ -80,8 +80,8 @@ func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, buc
 		return nil
 	}
 
-	analyzer := inverted.NewAnalyzer(nil, s.className)
-	items := analyzer.TextArray(s.targetTokenization, prop.RawValues, prop.Name, nil)
+	analyzer := inverted.NewAnalyzer(nil, s.ClassName)
+	items := analyzer.TextArray(s.TargetTokenization, prop.RawValues, prop.Name, nil)
 	propLen := s.calcPropLen(items)
 
 	for _, item := range items {
@@ -94,7 +94,7 @@ func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, buc
 }
 
 func (s *SearchableRetokenizeStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return property.HasSearchableIndex && property.Name == s.propName
+	return property.HasSearchableIndex && property.Name == s.PropName
 }
 
 // MakeAddCallback returns a callback for adding documents to the searchable index.
@@ -111,7 +111,7 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 	// closure won't touch the analyzer in that branch.
 	var analyzer *inverted.Analyzer
 	if forTargetStrategy {
-		analyzer = inverted.NewAnalyzer(nil, s.className)
+		analyzer = inverted.NewAnalyzer(nil, s.ClassName)
 	}
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
@@ -127,7 +127,7 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
 			// Re-tokenize with the target tokenization for the new index.
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
+			items = analyzer.TextArray(s.TargetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			// Use existing items (old tokenization) for the old index.
 			items = property.Items
@@ -153,7 +153,7 @@ func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 	// out of the per-callback hot path.
 	var analyzer *inverted.Analyzer
 	if forTargetStrategy {
-		analyzer = inverted.NewAnalyzer(nil, s.className)
+		analyzer = inverted.NewAnalyzer(nil, s.ClassName)
 	}
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
@@ -168,7 +168,7 @@ func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(strin
 
 		var items []inverted.Countable
 		if forTargetStrategy && len(property.RawValues) > 0 {
-			items = analyzer.TextArray(s.targetTokenization, property.RawValues, property.Name, nil)
+			items = analyzer.TextArray(s.TargetTokenization, property.RawValues, property.Name, nil)
 		} else {
 			items = property.Items
 		}
@@ -193,7 +193,7 @@ func (s *SearchableRetokenizeStrategy) OnMigrationComplete(_ context.Context, _ 
 }
 
 func (s *SearchableRetokenizeStrategy) calcPropLen(items []inverted.Countable) float32 {
-	if s.bucketStrategy == lsmkv.StrategyInverted {
+	if s.BucketStrategy == lsmkv.StrategyInverted {
 		return calcPropLenInverted(items)
 	}
 	return calcPropLenMap(items)

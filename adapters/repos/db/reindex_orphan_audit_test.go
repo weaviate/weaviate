@@ -87,7 +87,7 @@ func TestOrphanTrackerString_PinsLogShape(t *testing.T) {
 
 func TestLoadAuditRecord_RoundTripsPayload(t *testing.T) {
 	dir := t.TempDir()
-	rec := reindexRecoveryRecord{
+	rec := reindex.ReindexRecoveryRecord{
 		TaskID:      "tid-x",
 		TaskVersion: 11,
 		UnitID:      "uid-y",
@@ -99,7 +99,7 @@ func TestLoadAuditRecord_RoundTripsPayload(t *testing.T) {
 	}
 	data, err := json.Marshal(rec)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), data, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, reindex.ReindexRecoveryPayloadFile), data, 0o600))
 
 	got, ok := loadAuditRecord(dir)
 	require.True(t, ok)
@@ -118,7 +118,7 @@ func TestLoadAuditRecord_MissingFile(t *testing.T) {
 
 func TestLoadAuditRecord_MalformedJSON(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile),
+	require.NoError(t, os.WriteFile(filepath.Join(dir, reindex.ReindexRecoveryPayloadFile),
 		[]byte("not json"), 0o600))
 	_, ok := loadAuditRecord(dir)
 	assert.False(t, ok)
@@ -275,7 +275,7 @@ func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
 // same JSON shape loadAuditRecord reads.
 func writePayload(t *testing.T, dir, taskID string, taskVersion uint64, unitID, collection string, mt reindex.ReindexMigrationType, props []string) {
 	t.Helper()
-	rec := reindexRecoveryRecord{
+	rec := reindex.ReindexRecoveryRecord{
 		TaskID:      taskID,
 		TaskVersion: taskVersion,
 		UnitID:      unitID,
@@ -287,5 +287,5 @@ func writePayload(t *testing.T, dir, taskID string, taskVersion uint64, unitID, 
 	}
 	data, err := json.Marshal(rec)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), data, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, reindex.ReindexRecoveryPayloadFile), data, 0o600))
 }

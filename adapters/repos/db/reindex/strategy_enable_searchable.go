@@ -28,13 +28,13 @@ import (
 // New searchable buckets are created directly as blockmax; no map→blockmax
 // transition is ever needed for a from-scratch enable.
 type EnableSearchableStrategy struct {
-	propNames    []string
-	tokenization string
-	generation   int // see GenSuffix godoc
+	PropNames    []string
+	Tokenization string
+	Generation   int // see GenSuffix godoc
 }
 
 func (s *EnableSearchableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixEnableSearchable, s.propNames) + GenSuffix(s.generation)
+	return migrationDirWithProps(MigrationDirPrefixEnableSearchable, s.PropNames) + GenSuffix(s.Generation)
 }
 
 func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {
@@ -42,15 +42,15 @@ func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *EnableSearchableStrategy) ReindexSuffix() string {
-	return "__enable_searchable_reindex" + GenSuffix(s.generation)
+	return "__enable_searchable_reindex" + GenSuffix(s.Generation)
 }
 
 func (s *EnableSearchableStrategy) IngestSuffix() string {
-	return "__enable_searchable_ingest" + GenSuffix(s.generation)
+	return "__enable_searchable_ingest" + GenSuffix(s.Generation)
 }
 
 func (s *EnableSearchableStrategy) BackupSuffix() string {
-	return "__enable_searchable_backup" + GenSuffix(s.generation)
+	return "__enable_searchable_backup" + GenSuffix(s.Generation)
 }
 
 func (s *EnableSearchableStrategy) SourceStrategy() string {
@@ -128,7 +128,7 @@ func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]in
 	for _, p := range props {
 		out[p] = inverted.PropertyOverlay{
 			ForceSearchable: true,
-			Tokenization:    s.tokenization,
+			Tokenization:    s.Tokenization,
 		}
 	}
 	return out

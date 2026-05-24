@@ -24,12 +24,12 @@ import (
 // current tokenization and BM25 algorithm. Dispatch rejects WAND properties
 // before this strategy is constructed.
 type RebuildSearchableStrategy struct {
-	propNames  []string
-	generation int
+	PropNames  []string
+	Generation int
 }
 
 func (s *RebuildSearchableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixRebuildSearchable, s.propNames) + GenSuffix(s.generation)
+	return migrationDirWithProps(MigrationDirPrefixRebuildSearchable, s.PropNames) + GenSuffix(s.Generation)
 }
 
 func (s *RebuildSearchableStrategy) SourceBucketName(propName string) string {
@@ -37,15 +37,15 @@ func (s *RebuildSearchableStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *RebuildSearchableStrategy) ReindexSuffix() string {
-	return "__rebuild_searchable_reindex" + GenSuffix(s.generation)
+	return "__rebuild_searchable_reindex" + GenSuffix(s.Generation)
 }
 
 func (s *RebuildSearchableStrategy) IngestSuffix() string {
-	return "__rebuild_searchable_ingest" + GenSuffix(s.generation)
+	return "__rebuild_searchable_ingest" + GenSuffix(s.Generation)
 }
 
 func (s *RebuildSearchableStrategy) BackupSuffix() string {
-	return "__rebuild_searchable_backup" + GenSuffix(s.generation)
+	return "__rebuild_searchable_backup" + GenSuffix(s.Generation)
 }
 
 func (s *RebuildSearchableStrategy) SourceStrategy() string { return lsmkv.StrategyInverted }

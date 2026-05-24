@@ -27,8 +27,8 @@ func NewRuntimeRebuildSearchableTask(
 ) *ShardReindexTaskGeneric {
 	return NewShardReindexTaskGeneric(
 		"RebuildSearchable", logger,
-		&RebuildSearchableStrategy{propNames: propNames, generation: generation},
+		&RebuildSearchableStrategy{PropNames: propNames, Generation: generation},
 		blockmaxSearchableTaskConfig(propNames, collectionName),
-		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		&UuidKeyParser{}, UuidObjectsIteratorAsync,
 	)
 }
