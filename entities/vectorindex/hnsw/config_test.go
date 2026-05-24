@@ -715,58 +715,6 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "vectorCacheMaxObjects must not be negative",
 		},
 		{
-			// Boundary: efMin == efMax is allowed (<= is the rule).
-			name: "valid dynamicEf bounds (min == max)",
-			input: map[string]interface{}{
-				"dynamicEfMin": float64(100),
-				"dynamicEfMax": float64(100),
-			},
-			expected: UserConfig{
-				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
-				MaxConnections:         DefaultMaxConnections,
-				EFConstruction:         DefaultEFConstruction,
-				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
-				EF:                     DefaultEF,
-				FlatSearchCutoff:       DefaultFlatSearchCutoff,
-				DynamicEFMin:           100,
-				DynamicEFMax:           100,
-				DynamicEFFactor:        DefaultDynamicEFFactor,
-				Distance:               common.DefaultDistanceMetric,
-				PQ: PQConfig{
-					Enabled:        DefaultPQEnabled,
-					BitCompression: DefaultPQBitCompression,
-					Segments:       DefaultPQSegments,
-					Centroids:      DefaultPQCentroids,
-					TrainingLimit:  DefaultPQTrainingLimit,
-					Encoder: PQEncoder{
-						Type:         DefaultPQEncoderType,
-						Distribution: DefaultPQEncoderDistribution,
-					},
-				},
-				SQ: SQConfig{
-					Enabled:       DefaultSQEnabled,
-					TrainingLimit: DefaultSQTrainingLimit,
-					RescoreLimit:  DefaultSQRescoreLimit,
-				},
-				RQ: RQConfig{
-					Enabled:      DefaultRQEnabled,
-					Bits:         DefaultRQBits,
-					RescoreLimit: DefaultRQRescoreLimit,
-				},
-				FilterStrategy: DefaultFilterStrategy,
-				Multivector: MultivectorConfig{
-					Enabled:     DefaultMultivectorEnabled,
-					Aggregation: DefaultMultivectorAggregation,
-					MuveraConfig: MuveraConfig{
-						Enabled:      DefaultMultivectorMuveraEnabled,
-						KSim:         DefaultMultivectorKSim,
-						DProjections: DefaultMultivectorDProjections,
-						Repetitions:  DefaultMultivectorRepetitions,
-					},
-				},
-			},
-		},
-		{
 			name: "with bq",
 			input: map[string]interface{}{
 				"cleanupIntervalSeconds": float64(11),
@@ -1309,4 +1257,18 @@ func Test_UserConfigFilterStrategy(t *testing.T) {
 		assert.Equal(t, FilterStrategySweeping, cfg.FilterStrategy)
 		assert.Nil(t, os.Unsetenv("HNSW_DEFAULT_FILTER_STRATEGY"))
 	})
+}
+
+// Test_UserConfigDynamicEFBoundary covers the dynamicEfMin <= dynamicEfMax
+// boundary directly via validate() so the table above does not need to spell
+// out a full UserConfig literal for an "expected equals defaults" case.
+func Test_UserConfigDynamicEFBoundary(t *testing.T) {
+	cfg := NewDefaultUserConfig()
+	cfg.DynamicEFMin = 100
+	cfg.DynamicEFMax = 100
+	assert.NoError(t, cfg.validate(), "min == max must be accepted")
+
+	cfg.DynamicEFMin = 99
+	cfg.DynamicEFMax = 100
+	assert.NoError(t, cfg.validate(), "min < max must be accepted")
 }
