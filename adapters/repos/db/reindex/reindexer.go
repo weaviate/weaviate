@@ -304,11 +304,11 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 	docID uint64, property inverted.Property,
 ) error {
 	//  skip internal properties (_id etc)
-	if isInternalProperty(property) {
+	if inverted.IsInternalProperty(property) {
 		return nil
 	}
 
-	if isMetaCountProperty(property) {
+	if inverted.IsMetaCountProperty(property) {
 		propName := strings.TrimSuffix(property.Name, schema.InternalMetaCountSuffix)
 		if checker.isReindexable(propName, IndexTypePropMetaCount) {
 			schemaProp := checker.getSchemaProp(propName)

@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"strings"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
@@ -24,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -36,7 +34,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 		}
 
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) {
+		if inverted.IsMetaCountProperty(prop) || inverted.IsInternalProperty(prop) {
 			continue
 		}
 
@@ -319,13 +317,4 @@ func (s *Shard) onAddToPropertyValueIndex(docID uint64, property *inverted.Prope
 		ec.Add(cb(s, docID, property))
 	}
 	return ec.ToError()
-}
-
-func isMetaCountProperty(property inverted.Property) bool {
-	return len(property.Name) > len(schema.InternalMetaCountSuffix) &&
-		strings.HasSuffix(property.Name, schema.InternalMetaCountSuffix)
-}
-
-func isInternalProperty(property inverted.Property) bool {
-	return property.Name[0] == '_'
 }
