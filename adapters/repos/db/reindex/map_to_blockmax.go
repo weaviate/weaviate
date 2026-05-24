@@ -74,9 +74,9 @@ func NewRuntimeMapToBlockmaxTask(
 // debug endpoint to inspect a not-yet-started migration see the same
 // "not_started" output they did before.
 func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *fileReindexTracker {
-	gen := maxMigrationGeneration(lsmPath, MigrationDirSearchableMapToBlockmax, "")
+	gen := MaxMigrationGeneration(lsmPath, MigrationDirSearchableMapToBlockmax, "")
 	if gen == 0 {
 		gen = 1
 	}
-	return NewFileReindexTracker(lsmPath, MigrationDirSearchableMapToBlockmax+genSuffix(gen), keyParser)
+	return NewFileReindexTracker(lsmPath, MigrationDirSearchableMapToBlockmax+GenSuffix(gen), keyParser)
 }

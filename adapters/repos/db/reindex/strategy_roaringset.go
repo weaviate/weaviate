@@ -26,11 +26,11 @@ import (
 // corruption recovery.
 type RoaringSetRefreshStrategy struct {
 	noAnalyzerOverlay
-	generation int // see genSuffix godoc
+	generation int // see GenSuffix godoc
 }
 
 func (s *RoaringSetRefreshStrategy) MigrationDirName() string {
-	return MigrationDirFilterableRoaringsetRefresh + genSuffix(s.generation)
+	return MigrationDirFilterableRoaringsetRefresh + GenSuffix(s.generation)
 }
 
 func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {
@@ -38,15 +38,15 @@ func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *RoaringSetRefreshStrategy) ReindexSuffix() string {
-	return "__roaringset_reindex" + genSuffix(s.generation)
+	return "__roaringset_reindex" + GenSuffix(s.generation)
 }
 
 func (s *RoaringSetRefreshStrategy) IngestSuffix() string {
-	return "__roaringset_ingest" + genSuffix(s.generation)
+	return "__roaringset_ingest" + GenSuffix(s.generation)
 }
 
 func (s *RoaringSetRefreshStrategy) BackupSuffix() string {
-	return "__roaringset_backup" + genSuffix(s.generation)
+	return "__roaringset_backup" + GenSuffix(s.generation)
 }
 
 func (s *RoaringSetRefreshStrategy) SourceStrategy() string {
@@ -82,7 +82,7 @@ func (s *RoaringSetRefreshStrategy) ShouldProcessProperty(property *inverted.Pro
 
 func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+) OnAddToPropertyValueIndex {
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
@@ -104,7 +104,7 @@ func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) str
 
 func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+) OnDeleteFromPropertyValueIndex {
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil

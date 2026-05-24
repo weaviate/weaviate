@@ -30,11 +30,11 @@ import (
 type EnableSearchableStrategy struct {
 	propNames    []string
 	tokenization string
-	generation   int // see genSuffix godoc
+	generation   int // see GenSuffix godoc
 }
 
 func (s *EnableSearchableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixEnableSearchable, s.propNames) + genSuffix(s.generation)
+	return migrationDirWithProps(MigrationDirPrefixEnableSearchable, s.propNames) + GenSuffix(s.generation)
 }
 
 func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {
@@ -42,15 +42,15 @@ func (s *EnableSearchableStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *EnableSearchableStrategy) ReindexSuffix() string {
-	return "__enable_searchable_reindex" + genSuffix(s.generation)
+	return "__enable_searchable_reindex" + GenSuffix(s.generation)
 }
 
 func (s *EnableSearchableStrategy) IngestSuffix() string {
-	return "__enable_searchable_ingest" + genSuffix(s.generation)
+	return "__enable_searchable_ingest" + GenSuffix(s.generation)
 }
 
 func (s *EnableSearchableStrategy) BackupSuffix() string {
-	return "__enable_searchable_backup" + genSuffix(s.generation)
+	return "__enable_searchable_backup" + GenSuffix(s.generation)
 }
 
 func (s *EnableSearchableStrategy) SourceStrategy() string {
@@ -85,13 +85,13 @@ func (s *EnableSearchableStrategy) ShouldProcessProperty(property *inverted.Prop
 
 func (s *EnableSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+) OnAddToPropertyValueIndex {
 	return blockmaxSearchableAddCallback(bucketNamer, propsByName)
 }
 
 func (s *EnableSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+) OnDeleteFromPropertyValueIndex {
 	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName)
 }
 

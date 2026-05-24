@@ -443,7 +443,7 @@ func (p *ReindexProvider) processOneUnit(
 	//
 	// Without this guard, the relaunched processOneUnit calls
 	// createReindexTasks(rehydrate=false), which picks
-	// nextMigrationGeneration = max(existing)+1 = N+1 — a different
+	// NextMigrationGeneration = max(existing)+1 = N+1 — a different
 	// generation than the previous, in-flight run at gen N. The new
 	// tasks (gen N+1) get written into p.reindexTasks[desc][unitID],
 	// clobbering the gen-N task instances that OnGroupCompleted relies
@@ -615,12 +615,12 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 	// reindex bucket dirs that no longer exist.
 	genFor := func(prefix, propSuffix string) (int, bool) {
 		if rehydrate {
-			if gen := maxMigrationGeneration(lsmPath, prefix, propSuffix); gen > 0 {
+			if gen := MaxMigrationGeneration(lsmPath, prefix, propSuffix); gen > 0 {
 				return gen, true
 			}
 			return 0, false
 		}
-		return nextMigrationGeneration(lsmPath, prefix, propSuffix), true
+		return NextMigrationGeneration(lsmPath, prefix, propSuffix), true
 	}
 
 	// On the normal path (rehydrate=false) genFor always returns ok=true.
@@ -761,7 +761,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 // migrationDirWithProps appends after a strategy prefix. Returns "" for
 // empty prop slices. Kept in sync with [migrationDirWithProps] — must
 // produce the same suffix string the strategy's MigrationDirName() will
-// emit, so [nextMigrationGeneration] / [maxMigrationGeneration] scan
+// emit, so [NextMigrationGeneration] / [MaxMigrationGeneration] scan
 // against the same target.
 func propsSuffix(propNames []string) string {
 	if len(propNames) == 0 {
@@ -1602,7 +1602,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
 		return
 	}
-	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
+	indexTypes := SemanticMigrationIndexTypesForAudit(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
 	}

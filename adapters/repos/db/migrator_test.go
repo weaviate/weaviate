@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -107,11 +108,11 @@ func TestUpdateIndexTenants(t *testing.T) {
 				ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				reindex.NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 
 			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
+				reindex.NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 
 			index.shards.Store("shard1", shard)
@@ -277,7 +278,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				reindex.NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 
 			// Initialize shards
@@ -383,11 +384,11 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		reindex.NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
+		reindex.NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
 	require.NoError(t, err)
 
 	index.shards.Store("shard1", shard)

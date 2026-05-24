@@ -26,11 +26,11 @@ import (
 type MapToBlockmaxStrategy struct {
 	noAnalyzerOverlay
 	schemaManager *schema.Manager
-	generation    int // see genSuffix godoc
+	generation    int // see GenSuffix godoc
 }
 
 func (s *MapToBlockmaxStrategy) MigrationDirName() string {
-	return MigrationDirSearchableMapToBlockmax + genSuffix(s.generation)
+	return MigrationDirSearchableMapToBlockmax + GenSuffix(s.generation)
 }
 
 func (s *MapToBlockmaxStrategy) SourceBucketName(propName string) string {
@@ -38,15 +38,15 @@ func (s *MapToBlockmaxStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *MapToBlockmaxStrategy) ReindexSuffix() string {
-	return "__blockmax_reindex" + genSuffix(s.generation)
+	return "__blockmax_reindex" + GenSuffix(s.generation)
 }
 
 func (s *MapToBlockmaxStrategy) IngestSuffix() string {
-	return "__blockmax_ingest" + genSuffix(s.generation)
+	return "__blockmax_ingest" + GenSuffix(s.generation)
 }
 
 func (s *MapToBlockmaxStrategy) BackupSuffix() string {
-	return "__blockmax_map" + genSuffix(s.generation)
+	return "__blockmax_map" + GenSuffix(s.generation)
 }
 
 func (s *MapToBlockmaxStrategy) SourceStrategy() string {
@@ -84,7 +84,7 @@ func (s *MapToBlockmaxStrategy) ShouldProcessProperty(property *inverted.Propert
 
 func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+) OnAddToPropertyValueIndex {
 	calcPropLen := calcPropLenMap
 	if forTargetStrategy {
 		calcPropLen = calcPropLenInverted
@@ -113,7 +113,7 @@ func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 
 func (s *MapToBlockmaxStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+) OnDeleteFromPropertyValueIndex {
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if !property.HasSearchableIndex {
 			return nil

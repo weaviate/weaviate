@@ -16,10 +16,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 // Test*TokenizationOverlay* pin the per-shard tokenization overlay
-// lifecycle that [ReindexProvider.OnGroupCompleted] orchestrates for
+// lifecycle that [reindex.ReindexProvider.OnGroupCompleted] orchestrates for
 // https://github.com/weaviate/0-weaviate-issues/issues/216 Gap B. The helpers
 // [maybeSetTokenizationOverlayPreSwap] and
 // [maybeClearTokenizationOverlayOnAllFailed] encapsulate the SET (pre-
@@ -42,8 +43,8 @@ import (
 
 func TestMaybeSetTokenizationOverlayPreSwap_TokenizationChange_Sets(t *testing.T) {
 	s := &Shard{}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
+	payload := &reindex.ReindexTaskPayload{
+		MigrationType:      reindex.ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
 		Properties:         []string{"name", "description"},
 	}
@@ -57,8 +58,8 @@ func TestMaybeSetTokenizationOverlayPreSwap_TokenizationChange_Sets(t *testing.T
 
 func TestMaybeSetTokenizationOverlayPreSwap_FilterableVariant_Sets(t *testing.T) {
 	s := &Shard{}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenizationFilterable,
+	payload := &reindex.ReindexTaskPayload{
+		MigrationType:      reindex.ReindexTypeChangeTokenizationFilterable,
 		TargetTokenization: "word",
 		Properties:         []string{"name"},
 	}
@@ -69,13 +70,13 @@ func TestMaybeSetTokenizationOverlayPreSwap_FilterableVariant_Sets(t *testing.T)
 
 func TestMaybeSetTokenizationOverlayPreSwap_NonTokenizationMigration_NoOp(t *testing.T) {
 	s := &Shard{}
-	for _, mt := range []ReindexMigrationType{
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableSearchable,
-		ReindexTypeEnableRangeable,
+	for _, mt := range []reindex.ReindexMigrationType{
+		reindex.ReindexTypeEnableFilterable,
+		reindex.ReindexTypeEnableSearchable,
+		reindex.ReindexTypeEnableRangeable,
 	} {
 		t.Run(string(mt), func(t *testing.T) {
-			payload := &ReindexTaskPayload{
+			payload := &reindex.ReindexTaskPayload{
 				MigrationType:      mt,
 				TargetTokenization: "field",
 				Properties:         []string{"name"},
@@ -91,8 +92,8 @@ func TestMaybeSetTokenizationOverlayPreSwap_NonTokenizationMigration_NoOp(t *tes
 
 func TestMaybeSetTokenizationOverlayPreSwap_EmptyTargetTokenization_NoOp(t *testing.T) {
 	s := &Shard{}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
+	payload := &reindex.ReindexTaskPayload{
+		MigrationType:      reindex.ReindexTypeChangeTokenization,
 		TargetTokenization: "", // payload missing target
 		Properties:         []string{"name"},
 	}
@@ -106,7 +107,7 @@ func TestMaybeSetTokenizationOverlayPreSwap_NilInputs_NoOp(t *testing.T) {
 	// inputs are non-nil in production but defensive checks let the
 	// helper be tested via unit tests without bringing up a real
 	// shard.
-	require.False(t, maybeSetTokenizationOverlayPreSwap(nil, &ReindexTaskPayload{}))
+	require.False(t, maybeSetTokenizationOverlayPreSwap(nil, &reindex.ReindexTaskPayload{}))
 	require.False(t, maybeSetTokenizationOverlayPreSwap(&Shard{}, nil))
 }
 
@@ -116,8 +117,8 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_AllFailed_Clears(t *testing.T)
 	// the FAILED migration doesn't leave the shard permanently
 	// misaligned.
 	s := &Shard{}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
+	payload := &reindex.ReindexTaskPayload{
+		MigrationType:      reindex.ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
 		Properties:         []string{"name", "description"},
 	}
@@ -147,8 +148,8 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_AnySwapped_NoOp(t *testing.T) 
 	// with the query analyzer. The half-applied state surfaces via
 	// #221's FAILED-task repair_command for operator repair.
 	s := &Shard{}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
+	payload := &reindex.ReindexTaskPayload{
+		MigrationType:      reindex.ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
 		Properties:         []string{"name"},
 	}
@@ -167,8 +168,8 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_WasNotSet_NoOp(t *testing.T) {
 	// migrations, empty target): if SET was skipped, CLEAR must also
 	// be a no-op regardless of anySwapped — there's nothing to clear.
 	s := &Shard{}
-	payload := &ReindexTaskPayload{
-		MigrationType: ReindexTypeEnableFilterable, // non-tokenization
+	payload := &reindex.ReindexTaskPayload{
+		MigrationType: reindex.ReindexTypeEnableFilterable, // non-tokenization
 		Properties:    []string{"name"},
 	}
 
@@ -179,7 +180,7 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_WasNotSet_NoOp(t *testing.T) {
 }
 
 func TestMaybeClearTokenizationOverlayOnAllFailed_NilInputs_NoOp(t *testing.T) {
-	require.False(t, maybeClearTokenizationOverlayOnAllFailed(nil, &ReindexTaskPayload{}, true, false))
+	require.False(t, maybeClearTokenizationOverlayOnAllFailed(nil, &reindex.ReindexTaskPayload{}, true, false))
 	require.False(t, maybeClearTokenizationOverlayOnAllFailed(&Shard{}, nil, true, false))
 }
 
@@ -189,8 +190,8 @@ func TestMaybeClearTokenizationOverlayOnAllFailed_NilInputs_NoOp(t *testing.T) {
 // Mirrors OnGroupCompleted's per-shard branch exactly.
 func TestTokenizationOverlay_AllFailedSwap_EndToEndLifecycle(t *testing.T) {
 	s := &Shard{}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
+	payload := &reindex.ReindexTaskPayload{
+		MigrationType:      reindex.ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
 		Properties:         []string{"name"},
 	}
@@ -222,8 +223,8 @@ func TestTokenizationOverlay_AllFailedSwap_EndToEndLifecycle(t *testing.T) {
 // index types. Mirrors the same OnGroupCompleted branch.
 func TestTokenizationOverlay_AnySwapped_EndToEndLifecycle(t *testing.T) {
 	s := &Shard{}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
+	payload := &reindex.ReindexTaskPayload{
+		MigrationType:      reindex.ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
 		Properties:         []string{"name"},
 	}

@@ -32,11 +32,11 @@ import (
 // double-write callbacks.
 type EnableFilterableStrategy struct {
 	propNames  []string
-	generation int // see genSuffix godoc
+	generation int // see GenSuffix godoc
 }
 
 func (s *EnableFilterableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixEnableFilterable, s.propNames) + genSuffix(s.generation)
+	return migrationDirWithProps(MigrationDirPrefixEnableFilterable, s.propNames) + GenSuffix(s.generation)
 }
 
 func (s *EnableFilterableStrategy) SourceBucketName(propName string) string {
@@ -44,15 +44,15 @@ func (s *EnableFilterableStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *EnableFilterableStrategy) ReindexSuffix() string {
-	return "__enable_filterable_reindex" + genSuffix(s.generation)
+	return "__enable_filterable_reindex" + GenSuffix(s.generation)
 }
 
 func (s *EnableFilterableStrategy) IngestSuffix() string {
-	return "__enable_filterable_ingest" + genSuffix(s.generation)
+	return "__enable_filterable_ingest" + GenSuffix(s.generation)
 }
 
 func (s *EnableFilterableStrategy) BackupSuffix() string {
-	return "__enable_filterable_backup" + genSuffix(s.generation)
+	return "__enable_filterable_backup" + GenSuffix(s.generation)
 }
 
 func (s *EnableFilterableStrategy) SourceStrategy() string {
@@ -92,7 +92,7 @@ func (s *EnableFilterableStrategy) ShouldProcessProperty(property *inverted.Prop
 
 func (s *EnableFilterableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+) OnAddToPropertyValueIndex {
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — it's false on the target
 		// property until OnMigrationComplete flips it.
@@ -113,7 +113,7 @@ func (s *EnableFilterableStrategy) MakeAddCallback(bucketNamer func(string) stri
 
 func (s *EnableFilterableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+) OnDeleteFromPropertyValueIndex {
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if _, ok := propsByName[property.Name]; !ok {
 			return nil

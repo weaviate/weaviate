@@ -49,11 +49,11 @@ import (
 type FilterableToRangeableStrategy struct {
 	schemaManager *schema.Manager
 	propNames     []string
-	generation    int // see genSuffix godoc
+	generation    int // see GenSuffix godoc
 }
 
 func (s *FilterableToRangeableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, s.propNames) + genSuffix(s.generation)
+	return migrationDirWithProps(MigrationDirPrefixFilterableToRangeable, s.propNames) + GenSuffix(s.generation)
 }
 
 func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string {
@@ -61,15 +61,15 @@ func (s *FilterableToRangeableStrategy) SourceBucketName(propName string) string
 }
 
 func (s *FilterableToRangeableStrategy) ReindexSuffix() string {
-	return "__rangeable_reindex" + genSuffix(s.generation)
+	return "__rangeable_reindex" + GenSuffix(s.generation)
 }
 
 func (s *FilterableToRangeableStrategy) IngestSuffix() string {
-	return "__rangeable_ingest" + genSuffix(s.generation)
+	return "__rangeable_ingest" + GenSuffix(s.generation)
 }
 
 func (s *FilterableToRangeableStrategy) BackupSuffix() string {
-	return "__rangeable_backup" + genSuffix(s.generation)
+	return "__rangeable_backup" + GenSuffix(s.generation)
 }
 
 func (s *FilterableToRangeableStrategy) SourceStrategy() string {
@@ -115,7 +115,7 @@ func (s *FilterableToRangeableStrategy) ShouldProcessProperty(property *inverted
 
 func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+) OnAddToPropertyValueIndex {
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — the property may be
 		// IndexFilterable=false, and we still need to populate the
@@ -138,7 +138,7 @@ func (s *FilterableToRangeableStrategy) MakeAddCallback(bucketNamer func(string)
 
 func (s *FilterableToRangeableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+) OnDeleteFromPropertyValueIndex {
 	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		// Don't gate on HasFilterableIndex — see MakeAddCallback.
 		if _, ok := propsByName[property.Name]; !ok {

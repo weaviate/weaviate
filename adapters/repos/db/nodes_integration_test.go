@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -258,7 +259,7 @@ func TestLazyLoadedShards(t *testing.T) {
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
 		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		reindex.NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
 	// make sure that getting the node status does not trigger loading of lazy shards

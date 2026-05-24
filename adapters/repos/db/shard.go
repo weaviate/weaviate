@@ -69,13 +69,6 @@ var (
 )
 
 type ShardLike interface {
-	// Exported surface required by the reindex sub-package. These
-	// duplicate the methods on reindex.ShardLike so a db.ShardLike
-	// value is structurally a reindex.ShardLike, letting iterator
-	// callbacks like Index.ForEachShard pass shards through to
-	// reindex code without a type assertion.
-	reindex.ShardLike
-
 	// CleanStalePartialReindexState wipes any stale runtime-reindex
 	// state on disk for a given (property, indexType) tuple. Lives on
 	// db.ShardLike (not reindex.ShardLike) because the cancel-cleanup

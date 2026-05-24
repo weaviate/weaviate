@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
@@ -51,18 +52,18 @@ func TestReindexPropsOverlap(t *testing.T) {
 func TestTypesConflictReason(t *testing.T) {
 	tests := []struct {
 		name           string
-		newType        ReindexMigrationType
+		newType        reindex.ReindexMigrationType
 		newProps       []string
-		existType      ReindexMigrationType
+		existType      reindex.ReindexMigrationType
 		existProps     []string
 		wantNonEmpty   bool
 		wantSubstrings []string
 	}{
 		{
 			name:         "same type same prop → conflict",
-			newType:      ReindexTypeChangeTokenization,
+			newType:      reindex.ReindexTypeChangeTokenization,
 			newProps:     []string{"text"},
-			existType:    ReindexTypeChangeTokenization,
+			existType:    reindex.ReindexTypeChangeTokenization,
 			existProps:   []string{"text"},
 			wantNonEmpty: true,
 			wantSubstrings: []string{
@@ -72,9 +73,9 @@ func TestTypesConflictReason(t *testing.T) {
 		},
 		{
 			name:         "different type same prop → conflict (parallel-migration bug)",
-			newType:      ReindexTypeEnableRangeable,
+			newType:      reindex.ReindexTypeEnableRangeable,
 			newProps:     []string{"num"},
-			existType:    ReindexTypeEnableFilterable,
+			existType:    reindex.ReindexTypeEnableFilterable,
 			existProps:   []string{"num"},
 			wantNonEmpty: true,
 			wantSubstrings: []string{
@@ -85,9 +86,9 @@ func TestTypesConflictReason(t *testing.T) {
 		},
 		{
 			name:         "different prop → no conflict",
-			newType:      ReindexTypeChangeTokenization,
+			newType:      reindex.ReindexTypeChangeTokenization,
 			newProps:     []string{"text"},
-			existType:    ReindexTypeChangeTokenization,
+			existType:    reindex.ReindexTypeChangeTokenization,
 			existProps:   []string{"other"},
 			wantNonEmpty: false,
 		},
@@ -95,7 +96,7 @@ func TestTypesConflictReason(t *testing.T) {
 			name:         "empty new props (all) vs single existing → conflict",
 			newType:      ReindexTypeChangeAlgorithm,
 			newProps:     nil,
-			existType:    ReindexTypeChangeTokenization,
+			existType:    reindex.ReindexTypeChangeTokenization,
 			existProps:   []string{"text"},
 			wantNonEmpty: true,
 		},
@@ -119,18 +120,18 @@ func TestTypesConflictReason(t *testing.T) {
 // CheckConflict returns nil when the new payload doesn't overlap with
 // any STARTED existing task.
 func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	newP := ReindexTaskPayload{
+	newP := reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"newProp"},
 	}
 	newPayload, _ := json.Marshal(newP)
 
-	existP := ReindexTaskPayload{
+	existP := reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"otherProp"},
 	}
 	existPayload, _ := json.Marshal(existP)
@@ -153,18 +154,18 @@ func TestCheckConflict_AcceptsNonOverlapping(t *testing.T) {
 // these states leaves on-disk migration state that a parallel migration
 // would race on.
 func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	newP := ReindexTaskPayload{
+	newP := reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeEnableRangeable,
+		MigrationType: reindex.ReindexTypeEnableRangeable,
 		Properties:    []string{"num"},
 	}
 	newPayload, _ := json.Marshal(newP)
 
-	existP := ReindexTaskPayload{
+	existP := reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeEnableFilterable,
+		MigrationType: reindex.ReindexTypeEnableFilterable,
 		Properties:    []string{"num"},
 	}
 	existPayload, _ := json.Marshal(existP)
@@ -195,18 +196,18 @@ func TestCheckConflict_RejectsParallelOnSameProp(t *testing.T) {
 // / CANCELLED tasks are not consulted — only STARTED tasks can
 // conflict.
 func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	newP := ReindexTaskPayload{
+	newP := reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"text"},
 	}
 	newPayload, _ := json.Marshal(newP)
 
-	existP := ReindexTaskPayload{
+	existP := reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"text"},
 	}
 	existPayload, _ := json.Marshal(existP)
@@ -232,18 +233,18 @@ func TestCheckConflict_IgnoresNonStartedTasks(t *testing.T) {
 // scoped to (collection, property) — same property name in two
 // different collections is not a conflict.
 func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	newP := ReindexTaskPayload{
+	newP := reindex.ReindexTaskPayload{
 		Collection:    "CollectionA",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"text"},
 	}
 	newPayload, _ := json.Marshal(newP)
 
-	existP := ReindexTaskPayload{
+	existP := reindex.ReindexTaskPayload{
 		Collection:    "CollectionB",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"text"},
 	}
 	existPayload, _ := json.Marshal(existP)
@@ -264,18 +265,18 @@ func TestCheckConflict_IgnoresDifferentCollection(t *testing.T) {
 // case-fold class names, so a parallel submit on the same property of
 // the same class with different casing must still be rejected.
 func TestCheckConflict_CaseInsensitiveCollection(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	newP := ReindexTaskPayload{
+	newP := reindex.ReindexTaskPayload{
 		Collection:    "MyCollection",
-		MigrationType: ReindexTypeEnableRangeable,
+		MigrationType: reindex.ReindexTypeEnableRangeable,
 		Properties:    []string{"num"},
 	}
 	newPayload, _ := json.Marshal(newP)
 
-	existP := ReindexTaskPayload{
+	existP := reindex.ReindexTaskPayload{
 		Collection:    "mycollection",
-		MigrationType: ReindexTypeEnableFilterable,
+		MigrationType: reindex.ReindexTypeEnableFilterable,
 		Properties:    []string{"num"},
 	}
 	existPayload, _ := json.Marshal(existP)
@@ -295,7 +296,7 @@ func TestCheckConflict_CaseInsensitiveCollection(t *testing.T) {
 // TestCheckConflict_UnparseableNewPayload pins that a corrupted new
 // payload is rejected up-front rather than silently allowed through.
 func TestCheckConflict_UnparseableNewPayload(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 	err := provider.CheckConflict([]byte("not json"), nil)
 	require.Error(t, err)
 }
@@ -305,11 +306,11 @@ func TestCheckConflict_UnparseableNewPayload(t *testing.T) {
 // be rejected. The safer choice — we cannot prove non-conflict, so
 // refuse rather than allow a race.
 func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	newP := ReindexTaskPayload{
+	newP := reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"text"},
 	}
 	newPayload, _ := json.Marshal(newP)
@@ -333,14 +334,14 @@ func TestCheckConflict_UnparseableExistingPayloadRejects(t *testing.T) {
 // target property, CheckPropertyUpdate must return nil so external
 // schema mutations are not spuriously rejected.
 func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
 	require.NoError(t, provider.CheckPropertyUpdate("C", "name", nil))
 
 	// FINISHED / FAILED / CANCELLED in the task list also must not block.
-	terminalPayload, _ := json.Marshal(ReindexTaskPayload{
+	terminalPayload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
 	for _, status := range []distributedtask.TaskStatus{
@@ -366,11 +367,11 @@ func TestCheckPropertyUpdate_NoInFlightTasksAllows(t *testing.T) {
 // migration wipes the in-flight searchable_retokenize working dir and
 // produces a torn filterable bucket.
 func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	payload, _ := json.Marshal(ReindexTaskPayload{
+	payload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
 
@@ -401,11 +402,11 @@ func TestCheckPropertyUpdate_InFlightOnSamePropertyRejects(t *testing.T) {
 // mutations on a different property "category" in the same collection.
 // Without this the guard would block legitimate parallel schema work.
 func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	payload, _ := json.Marshal(ReindexTaskPayload{
+	payload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
 
@@ -424,11 +425,11 @@ func TestCheckPropertyUpdate_DifferentPropertyAllows(t *testing.T) {
 // block schema mutations on collection "B" — they share no on-disk
 // state.
 func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	payload, _ := json.Marshal(ReindexTaskPayload{
+	payload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "A",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
 
@@ -442,7 +443,7 @@ func TestCheckPropertyUpdate_DifferentCollectionAllows(t *testing.T) {
 }
 
 // TestCheckPropertyUpdate_EveryMigrationTypeRejects walks every reindex
-// type that can be in flight (per ReindexTypeChangeTokenization etc.)
+// type that can be in flight (per reindex.ReindexTypeChangeTokenization etc.)
 // and confirms the guard rejects an external update on the same
 // property. This is the "blanket policy" guarantee — once any reindex
 // is in flight, no schema mutation on that property is allowed.
@@ -462,11 +463,11 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 		ReindexTypeRepairRangeable,
 	}
 
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
 	for _, mt := range migrationTypes {
 		t.Run(string(mt), func(t *testing.T) {
-			payload, _ := json.Marshal(ReindexTaskPayload{
+			payload, _ := json.Marshal(reindex.ReindexTaskPayload{
 				Collection:    "C",
 				MigrationType: mt,
 				Properties:    []string{"name"},
@@ -488,11 +489,11 @@ func TestCheckPropertyUpdate_EveryMigrationTypeRejects(t *testing.T) {
 // properties" / whole-collection rebuild) blocks every property in
 // that collection. Mirrors the wildcard semantics in ReindexPropsOverlap.
 func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	payload, _ := json.Marshal(ReindexTaskPayload{
+	payload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		// Empty Properties → wildcard ("all properties").
 		Properties: nil,
 	})
@@ -518,7 +519,7 @@ func TestCheckPropertyUpdate_EmptyPropertiesPayloadIsWildcard(t *testing.T) {
 // guard refuses the mutation rather than silently allow it through.
 // Mirrors the same convention in CheckConflict above.
 func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
 	tasks := []*distributedtask.Task{{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_garbage", Version: 1},
@@ -538,12 +539,12 @@ func TestCheckPropertyUpdate_UnparseablePayloadIsHardReject(t *testing.T) {
 // conflict, regardless of which property the migration targets.
 
 func TestCheckClassMutation_NoInFlightTasksAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 	require.NoError(t, provider.CheckClassMutation("C", nil))
 
-	terminalPayload, _ := json.Marshal(ReindexTaskPayload{
+	terminalPayload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
 	tasks := []*distributedtask.Task{{
@@ -556,11 +557,11 @@ func TestCheckClassMutation_NoInFlightTasksAllows(t *testing.T) {
 }
 
 func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	payload, _ := json.Marshal(ReindexTaskPayload{
+	payload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		// Migration is on "name" but DeleteClass is class-wide, so
 		// any property in flight blocks the mutation.
 		Properties: []string{"name"},
@@ -586,11 +587,11 @@ func TestCheckClassMutation_InFlightOnSameClassRejects(t *testing.T) {
 }
 
 func TestCheckClassMutation_DifferentClassAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	payload, _ := json.Marshal(ReindexTaskPayload{
+	payload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "A",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
 
@@ -605,7 +606,7 @@ func TestCheckClassMutation_DifferentClassAllows(t *testing.T) {
 }
 
 func TestCheckClassMutation_UnparseablePayloadIsHardReject(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 	tasks := []*distributedtask.Task{{
 		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_garbage", Version: 1},
 		Status:         distributedtask.TaskStatusStarted,
@@ -621,16 +622,16 @@ func TestCheckClassMutation_UnparseablePayloadIsHardReject(t *testing.T) {
 // (DeleteTenants / UpdateTenants-away-from-ACTIVE).
 
 func TestCheckTenantMutation_NoInFlightTasksAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 	require.NoError(t, provider.CheckTenantMutation("C", []string{"t1"}, nil))
 }
 
 func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	payload, _ := json.Marshal(ReindexTaskPayload{
+	payload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "C",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
 
@@ -655,11 +656,11 @@ func TestCheckTenantMutation_InFlightOnSameClassRejects(t *testing.T) {
 }
 
 func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
-	payload, _ := json.Marshal(ReindexTaskPayload{
+	payload, _ := json.Marshal(reindex.ReindexTaskPayload{
 		Collection:    "A",
-		MigrationType: ReindexTypeChangeTokenization,
+		MigrationType: reindex.ReindexTypeChangeTokenization,
 		Properties:    []string{"name"},
 	})
 	tasks := []*distributedtask.Task{{
@@ -679,22 +680,22 @@ func TestCheckTenantMutation_DifferentClassAllows(t *testing.T) {
 // shape we no longer recognize and the missing fields dropped to zero
 // values during Unmarshal.
 func TestCheckPropertyUpdate_EmptyMigrationTypeOrCollectionRejects(t *testing.T) {
-	provider := &ReindexProvider{}
+	provider := &reindex.ReindexProvider{}
 
 	tests := []struct {
 		name    string
-		payload ReindexTaskPayload
+		payload reindex.ReindexTaskPayload
 	}{
 		{
 			name: "empty Collection",
-			payload: ReindexTaskPayload{
-				MigrationType: ReindexTypeChangeTokenization,
+			payload: reindex.ReindexTaskPayload{
+				MigrationType: reindex.ReindexTypeChangeTokenization,
 				Properties:    []string{"name"},
 			},
 		},
 		{
 			name: "empty MigrationType",
-			payload: ReindexTaskPayload{
+			payload: reindex.ReindexTaskPayload{
 				Collection: "C",
 				Properties: []string{"name"},
 			},

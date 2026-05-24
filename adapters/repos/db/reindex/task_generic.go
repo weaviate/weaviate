@@ -1867,7 +1867,7 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 
 	// Reverse the gen suffix off each current suffix to get the
 	// suffix-without-gen base for prefix matching against older
-	// generations on disk. genSuffix = "_<N>"; everything before the last
+	// generations on disk. GenSuffix = "_<N>"; everything before the last
 	// "_<digits>" is the base. ParseMigrationDirName does this for the
 	// migration dir name; for the bucket suffixes we extract the same way.
 	currentReindexBase, _, _ := ParseMigrationDirName(currentReindex)

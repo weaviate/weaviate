@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 // TestCompletedMigrationGens_PinsR2DataLoss pins the gating logic that
@@ -29,7 +30,7 @@ import (
 // completed, ingest dir is live data).
 //
 // The tests below construct a synthetic .migrations/ directory layout
-// and assert which generations [completedMigrationGens] reports as
+// and assert which generations [reindex.CompletedMigrationGens] reports as
 // preserved.
 func TestCompletedMigrationGens(t *testing.T) {
 	type setup struct {
@@ -134,7 +135,7 @@ func TestCompletedMigrationGens(t *testing.T) {
 				}
 			}
 
-			got := completedMigrationGens(tmp, tc.prefixes)
+			got := reindex.CompletedMigrationGens(tmp, tc.prefixes)
 			gens := make([]int, 0, len(got))
 			for g := range got {
 				gens = append(gens, g)
@@ -270,7 +271,7 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 // TestCompletedMigrationGens_R2Repro pins the exact R2 scenario where the
 // pre-submit defense-in-depth cleanup would otherwise wipe a successfully
 // completed migration's tracker dir. T1 finishes (tracker_1 has
-// tidied.mig). T2 is submitted. completedMigrationGens MUST report gen=1
+// tidied.mig). T2 is submitted. reindex.CompletedMigrationGens MUST report gen=1
 // as preserved so the cleanup leaves the live ingest dir alone.
 func TestCompletedMigrationGens_R2Repro(t *testing.T) {
 	tmp := t.TempDir()
@@ -295,7 +296,7 @@ func TestCompletedMigrationGens_R2Repro(t *testing.T) {
 	}
 
 	prefixes := []string{"searchable_retokenize_text", "filterable_retokenize_text"}
-	got := completedMigrationGens(tmp, prefixes)
+	got := reindex.CompletedMigrationGens(tmp, prefixes)
 	require.True(t, got[1],
 		"R2 repro: gen=1 MUST be preserved (T1 successfully tidied); else pre-submit cleanup wipes live ingest_1 dir → silent data loss on the controller node")
 	require.Len(t, got, 1, "only gen=1 should be reported, got %v", got)

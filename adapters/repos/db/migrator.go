@@ -1048,7 +1048,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 	for _, index := range m.db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
-				reindexer := reindex.NewShardInvertedReindexer(shard, m.logger)
+				reindexer := reindex.NewShardInvertedReindexer(asReindexShard(shard), m.logger)
 				for taskName, task := range tasks {
 					reindexer.AddTask(task)
 					m.logInvertedReindexShard(shard).
@@ -1106,7 +1106,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
 
-					reindexer := reindex.NewShardInvertedReindexer(shard, m.logger)
+					reindexer := reindex.NewShardInvertedReindexer(asReindexShard(shard), m.logger)
 					reindexer.AddTask(task)
 
 					if err := reindexer.Do(ctx); err != nil {

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -432,7 +433,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		backupLock:             esync.NewKeyRWLocker(),
 		scheduler:              repo.scheduler,
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
-		shardReindexer:         NewShardReindexerV3Noop(),
+		shardReindexer:         reindex.NewShardReindexerV3Noop(),
 		HFreshEnabled:          true,
 		replicator:             replicator,
 		router:                 mockRouter,

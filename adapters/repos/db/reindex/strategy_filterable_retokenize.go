@@ -29,11 +29,11 @@ type FilterableRetokenizeStrategy struct {
 	propName           string
 	targetTokenization string
 	className          string
-	generation         int // see genSuffix godoc
+	generation         int // see GenSuffix godoc
 }
 
 func (s *FilterableRetokenizeStrategy) MigrationDirName() string {
-	return MigrationDirPrefixFilterableRetokenize + "_" + s.propName + genSuffix(s.generation)
+	return MigrationDirPrefixFilterableRetokenize + "_" + s.propName + GenSuffix(s.generation)
 }
 
 func (s *FilterableRetokenizeStrategy) SourceBucketName(_ string) string {
@@ -41,15 +41,15 @@ func (s *FilterableRetokenizeStrategy) SourceBucketName(_ string) string {
 }
 
 func (s *FilterableRetokenizeStrategy) ReindexSuffix() string {
-	return "__filt_retokenize_reindex" + genSuffix(s.generation)
+	return "__filt_retokenize_reindex" + GenSuffix(s.generation)
 }
 
 func (s *FilterableRetokenizeStrategy) IngestSuffix() string {
-	return "__filt_retokenize_ingest" + genSuffix(s.generation)
+	return "__filt_retokenize_ingest" + GenSuffix(s.generation)
 }
 
 func (s *FilterableRetokenizeStrategy) BackupSuffix() string {
-	return "__filt_retokenize_backup" + genSuffix(s.generation)
+	return "__filt_retokenize_backup" + GenSuffix(s.generation)
 }
 
 func (s *FilterableRetokenizeStrategy) SourceStrategy() string {
@@ -96,7 +96,7 @@ func (s *FilterableRetokenizeStrategy) ShouldProcessProperty(property *inverted.
 // (for the ingest/double-write bucket that must match the currently live index).
 func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+) OnAddToPropertyValueIndex {
 	// Hoist the analyzer out of the per-callback hot path; see the
 	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
 	var analyzer *inverted.Analyzer
@@ -134,7 +134,7 @@ func (s *FilterableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 // forTargetStrategy has the same semantics as in MakeAddCallback.
 func (s *FilterableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+) OnDeleteFromPropertyValueIndex {
 	// Hoist the analyzer out of the per-callback hot path; see the
 	// corresponding comment in SearchableRetokenizeStrategy.MakeAddCallback.
 	var analyzer *inverted.Analyzer

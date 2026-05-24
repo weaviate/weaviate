@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 // TestHasUntidiedTracker pins the on-disk recovery-detection signal:
@@ -165,27 +166,27 @@ func TestHasUntidiedTracker(t *testing.T) {
 func TestSemanticMigrationIndexTypes(t *testing.T) {
 	tests := []struct {
 		name string
-		mt   ReindexMigrationType
+		mt   reindex.ReindexMigrationType
 		want []string
 	}{
 		{
 			name: "change-tokenization → searchable + filterable",
-			mt:   ReindexTypeChangeTokenization,
+			mt:   reindex.ReindexTypeChangeTokenization,
 			want: []string{"searchable", "filterable"},
 		},
 		{
 			name: "change-tokenization-filterable → filterable only",
-			mt:   ReindexTypeChangeTokenizationFilterable,
+			mt:   reindex.ReindexTypeChangeTokenizationFilterable,
 			want: []string{"filterable"},
 		},
 		{
 			name: "enable-searchable → searchable",
-			mt:   ReindexTypeEnableSearchable,
+			mt:   reindex.ReindexTypeEnableSearchable,
 			want: []string{"searchable"},
 		},
 		{
 			name: "enable-filterable → filterable",
-			mt:   ReindexTypeEnableFilterable,
+			mt:   reindex.ReindexTypeEnableFilterable,
 			want: []string{"filterable"},
 		},
 		{
@@ -195,12 +196,12 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 		},
 		{
 			name: "repair-filterable → empty (format-only)",
-			mt:   ReindexTypeRepairFilterable,
+			mt:   reindex.ReindexTypeRepairFilterable,
 			want: nil,
 		},
 		{
 			name: "enable-rangeable → empty (format-only)",
-			mt:   ReindexTypeEnableRangeable,
+			mt:   reindex.ReindexTypeEnableRangeable,
 			want: nil,
 		},
 	}

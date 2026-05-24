@@ -32,13 +32,13 @@ type SearchableRetokenizeStrategy struct {
 	targetTokenization string
 	className          string
 	bucketStrategy     string // StrategyMapCollection or StrategyInverted
-	generation         int    // see genSuffix godoc for the per-migration generation contract
+	generation         int    // see GenSuffix godoc for the per-migration generation contract
 }
 
 func (s *SearchableRetokenizeStrategy) MigrationDirName() string {
 	// Include property name + per-migration generation so back-to-back
 	// migrations on the same property don't collide on tracker state.
-	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName + genSuffix(s.generation)
+	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName + GenSuffix(s.generation)
 }
 
 func (s *SearchableRetokenizeStrategy) SourceBucketName(_ string) string {
@@ -46,15 +46,15 @@ func (s *SearchableRetokenizeStrategy) SourceBucketName(_ string) string {
 }
 
 func (s *SearchableRetokenizeStrategy) ReindexSuffix() string {
-	return "__retokenize_reindex" + genSuffix(s.generation)
+	return "__retokenize_reindex" + GenSuffix(s.generation)
 }
 
 func (s *SearchableRetokenizeStrategy) IngestSuffix() string {
-	return "__retokenize_ingest" + genSuffix(s.generation)
+	return "__retokenize_ingest" + GenSuffix(s.generation)
 }
 
 func (s *SearchableRetokenizeStrategy) BackupSuffix() string {
-	return "__retokenize_backup" + genSuffix(s.generation)
+	return "__retokenize_backup" + GenSuffix(s.generation)
 }
 
 func (s *SearchableRetokenizeStrategy) SourceStrategy() string {
@@ -103,7 +103,7 @@ func (s *SearchableRetokenizeStrategy) ShouldProcessProperty(property *inverted.
 // (for the ingest/double-write bucket that must match the currently live index).
 func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onAddToPropertyValueIndex {
+) OnAddToPropertyValueIndex {
 	// The analyzer is stateless once constructed (it carries only className
 	// and a function pointer); hoist it out of the per-callback hot path so
 	// we don't allocate a fresh struct on every Add to a reindexed prop.
@@ -148,7 +148,7 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 // forTargetStrategy has the same semantics as in MakeAddCallback.
 func (s *SearchableRetokenizeStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
-) onDeleteFromPropertyValueIndex {
+) OnDeleteFromPropertyValueIndex {
 	// See the MakeAddCallback comment — same rationale: hoist the analyzer
 	// out of the per-callback hot path.
 	var analyzer *inverted.Analyzer

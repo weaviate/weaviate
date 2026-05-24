@@ -62,7 +62,7 @@ func (h reindexIndexHandle) GetShard(ctx context.Context, shardName string) (rei
 	if shard == nil {
 		return nil, release, nil
 	}
-	return shard, release, nil
+	return asReindexShard(shard), release, nil
 }
 
 func (h reindexIndexHandle) GetShardOrNil(shardName string) reindex.ShardLike {
@@ -70,19 +70,31 @@ func (h reindexIndexHandle) GetShardOrNil(shardName string) reindex.ShardLike {
 	if loaded == nil {
 		return nil
 	}
-	return loaded
+	return asReindexShard(loaded)
 }
 
 func (h reindexIndexHandle) ForEachShard(fn func(name string, shard reindex.ShardLike) error) error {
 	return h.idx.ForEachShard(func(name string, shard ShardLike) error {
-		return fn(name, shard)
+		return fn(name, asReindexShard(shard))
 	})
 }
 
 func (h reindexIndexHandle) ForEachLoadedShard(fn func(name string, shard reindex.ShardLike) error) error {
 	return h.idx.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		return fn(name, shard)
+		return fn(name, asReindexShard(shard))
 	})
+}
+
+// asReindexShard narrows a db.ShardLike to the reindex package's
+// ShardLike. The concrete *Shard and *LazyLoadShard both satisfy
+// reindex.ShardLike via the exported wrappers in shard_export.go /
+// lazyloader_export.go — the assertion only fails if a test mock
+// flows in via this path.
+func asReindexShard(shard ShardLike) reindex.ShardLike {
+	if r, ok := shard.(reindex.ShardLike); ok {
+		return r
+	}
+	return nil
 }
 
 func (h reindexIndexHandle) RefuseIfReindexInFlight(shardName string) error {

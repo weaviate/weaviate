@@ -36,9 +36,3 @@ func SemanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
 	}
 	return nil
 }
-
-// semanticMigrationIndexTypesForAudit is the unexported alias used by
-// in-package callers that pre-date the extraction.
-func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
-	return SemanticMigrationIndexTypesForAudit(mt)
-}

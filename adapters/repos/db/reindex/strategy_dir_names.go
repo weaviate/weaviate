@@ -102,11 +102,11 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 	return prefix + "_" + strings.Join(sorted, "_")
 }
 
-// genSuffix returns the per-migration generation suffix, e.g. "_2".
+// GenSuffix returns the per-migration generation suffix, e.g. "_2".
 // Every concrete strategy's MigrationDirName / ReindexSuffix / IngestSuffix /
 // BackupSuffix appends this so back-to-back in-process migrations on the
 // same (prop, indexType) tuple don't collide on dir paths. Generation is
-// computed per-node at task start by [nextMigrationGeneration]; the
+// computed per-node at task start by [NextMigrationGeneration]; the
 // previous live main bucket lives at `…_ingest_<N-1>` (the in-memory
 // pointer was already swapped to it; on-disk rename is deferred to the
 // next-restart finalize), and the new migration writes to `…_ingest_<N>`.
@@ -114,7 +114,7 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 // Generation 0 is reserved for the canonical (post-finalize) bucket at
 // `property_<prop>_<index>`, which has no suffix. Live migrations always
 // use generation ≥ 1.
-func genSuffix(generation int) string {
+func GenSuffix(generation int) string {
 	return "_" + strconv.Itoa(generation)
 }
 

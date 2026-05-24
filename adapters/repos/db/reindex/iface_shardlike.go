@@ -126,16 +126,9 @@ type DBLike interface {
 	ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string) (map[string][]string, error)
 }
 
-// Reindex-side callbacks installed on the source shard.
+// Reindex-side callbacks installed on the source shard. Defined as
+// proper named types (no `=` alias) so the no-alias rule holds.
 type (
-	OnAddToPropertyValueIndex      = func(shard ShardLike, docID uint64, property *inverted.Property) error
-	OnDeleteFromPropertyValueIndex = func(shard ShardLike, docID uint64, property *inverted.Property) error
-)
-
-// Lowercase aliases kept so the heavy in-package callers don't all
-// have to be sed-renamed at the same time. New code uses the exported
-// names above.
-type (
-	onAddToPropertyValueIndex      = OnAddToPropertyValueIndex
-	onDeleteFromPropertyValueIndex = OnDeleteFromPropertyValueIndex
+	OnAddToPropertyValueIndex      func(shard ShardLike, docID uint64, property *inverted.Property) error
+	OnDeleteFromPropertyValueIndex func(shard ShardLike, docID uint64, property *inverted.Property) error
 )

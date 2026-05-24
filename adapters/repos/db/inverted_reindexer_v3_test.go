@@ -18,12 +18,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 func TestProcessingQueue(t *testing.T) {
 	t.Run("single key", func(t *testing.T) {
 		expKey := "some_key"
-		expTasks := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
+		expTasks := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
 		interval := 10 * time.Millisecond
 		expTime := time.Now().Add(interval)
 		q := newShardsQueue()
@@ -44,11 +45,11 @@ func TestProcessingQueue(t *testing.T) {
 		expKey3 := "some_key_3"
 		expKey4 := "some_key_4"
 		expKey5 := "some_key_5"
-		expTasks1 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
-		expTasks2 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t2"}}
-		expTasks3 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t3"}}
-		expTasks4 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t4"}}
-		expTasks5 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t5"}}
+		expTasks1 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
+		expTasks2 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t2"}}
+		expTasks3 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t3"}}
+		expTasks4 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t4"}}
+		expTasks5 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t5"}}
 		interval := 10 * time.Millisecond
 		expTime1 := time.Now().Add(interval)
 		expTime2 := time.Now().Add(interval * 2)
@@ -108,11 +109,11 @@ func TestProcessingQueue(t *testing.T) {
 		expKey4 := "some_key_4"
 		expKey5 := "some_key_5"
 		interval := 10 * time.Millisecond
-		expTasks1 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
-		expTasks2 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t2"}}
-		expTasks3 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t3"}}
-		expTasks4 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t4"}}
-		expTasks5 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t5"}}
+		expTasks1 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
+		expTasks2 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t2"}}
+		expTasks3 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t3"}}
+		expTasks4 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t4"}}
+		expTasks5 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t5"}}
 		expTime1 := time.Now().Add(interval)
 		expTime2 := time.Now().Add(interval * 2)
 		expTime3 := time.Now().Add(interval * 3)

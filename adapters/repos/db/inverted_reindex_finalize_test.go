@@ -18,6 +18,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 // Tests for the per-migration generation helpers added for
@@ -47,7 +48,7 @@ func TestParseMigrationDirName(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			prefix, gen, ok := parseMigrationDirName(c.input)
+			prefix, gen, ok := reindex.ParseMigrationDirName(c.input)
 			require.Equal(t, c.wantOK, ok, "ok mismatch")
 			if c.wantOK {
 				require.Equal(t, c.wantPrefix, prefix, "prefix mismatch")
@@ -58,9 +59,9 @@ func TestParseMigrationDirName(t *testing.T) {
 }
 
 func TestGenSuffix(t *testing.T) {
-	require.Equal(t, "_1", genSuffix(1))
-	require.Equal(t, "_42", genSuffix(42))
-	require.Equal(t, "_0", genSuffix(0)) // 0 is reserved (canonical) but genSuffix still emits — callers don't pass 0
+	require.Equal(t, "_1", reindex.GenSuffix(1))
+	require.Equal(t, "_42", reindex.GenSuffix(42))
+	require.Equal(t, "_0", reindex.GenSuffix(0)) // 0 is reserved (canonical) but reindex.GenSuffix still emits — callers don't pass 0
 }
 
 // fakeMigrationsDir creates a temp .migrations/ tree with the given dir
@@ -85,7 +86,7 @@ func touchSentinel(t *testing.T, path string) {
 
 func TestNextMigrationGeneration_EmptyDisk(t *testing.T) {
 	lsmPath := fakeMigrationsDir(t, nil)
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
+	got := reindex.NextMigrationGeneration(lsmPath, reindex.MigrationDirPrefixSearchableRetokenize, "_text")
 	require.Equal(t, 1, got, "fresh disk should pick gen 1")
 }
 
@@ -97,7 +98,7 @@ func TestNextMigrationGeneration_NoMatchingPrefix(t *testing.T) {
 		"filterable_retokenize_text_2",
 		"enable_filterable_text_5",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
+	got := reindex.NextMigrationGeneration(lsmPath, reindex.MigrationDirPrefixSearchableRetokenize, "_text")
 	require.Equal(t, 1, got, "no matching prefix means fresh gen 1")
 }
 
@@ -107,7 +108,7 @@ func TestNextMigrationGeneration_ContiguousGens(t *testing.T) {
 		"searchable_retokenize_text_2",
 		"searchable_retokenize_text_3",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
+	got := reindex.NextMigrationGeneration(lsmPath, reindex.MigrationDirPrefixSearchableRetokenize, "_text")
 	require.Equal(t, 4, got, "max+1 across contiguous gens")
 }
 
@@ -119,7 +120,7 @@ func TestNextMigrationGeneration_NonContiguousGens(t *testing.T) {
 		"searchable_retokenize_text_5",
 		"searchable_retokenize_text_7",
 	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
+	got := reindex.NextMigrationGeneration(lsmPath, reindex.MigrationDirPrefixSearchableRetokenize, "_text")
 	require.Equal(t, 8, got, "non-contiguous gens still pick max+1")
 }
 
@@ -129,15 +130,15 @@ func TestNextMigrationGeneration_MixedPrefixesScopedCorrectly(t *testing.T) {
 		"searchable_retokenize_other_7", // different prop in same prefix
 		"filterable_retokenize_text_10", // different prefix, same prop
 	})
-	require.Equal(t, 4, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
-	require.Equal(t, 8, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_other"))
-	require.Equal(t, 11, nextMigrationGeneration(lsmPath, MigrationDirPrefixFilterableRetokenize, "_text"))
-	require.Equal(t, 1, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_neverused"))
+	require.Equal(t, 4, reindex.NextMigrationGeneration(lsmPath, reindex.MigrationDirPrefixSearchableRetokenize, "_text"))
+	require.Equal(t, 8, reindex.NextMigrationGeneration(lsmPath, reindex.MigrationDirPrefixSearchableRetokenize, "_other"))
+	require.Equal(t, 11, reindex.NextMigrationGeneration(lsmPath, reindex.MigrationDirPrefixFilterableRetokenize, "_text"))
+	require.Equal(t, 1, reindex.NextMigrationGeneration(lsmPath, reindex.MigrationDirPrefixSearchableRetokenize, "_neverused"))
 }
 
 func TestMaxMigrationGeneration_NoExisting(t *testing.T) {
 	lsmPath := fakeMigrationsDir(t, nil)
-	require.Equal(t, 0, maxMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
+	require.Equal(t, 0, reindex.MaxMigrationGeneration(lsmPath, reindex.MigrationDirPrefixSearchableRetokenize, "_text"))
 }
 
 func TestMaxMigrationGeneration_Existing(t *testing.T) {
@@ -145,7 +146,7 @@ func TestMaxMigrationGeneration_Existing(t *testing.T) {
 		"searchable_retokenize_text_2",
 		"searchable_retokenize_text_5",
 	})
-	require.Equal(t, 5, maxMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
+	require.Equal(t, 5, reindex.MaxMigrationGeneration(lsmPath, reindex.MigrationDirPrefixSearchableRetokenize, "_text"))
 }
 
 // TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied verifies
@@ -183,7 +184,7 @@ func TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied(t *testing.T) {
 		winnerMarker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	// Canonical main dir should exist and contain gen-3's marker.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -232,7 +233,7 @@ func TestFinalizeCompletedMigrations_TidiedPlusInFlight(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_2"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	// Gen 1 finalized → canonical dir exists.
 	_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable"))
@@ -268,7 +269,7 @@ func TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	// Tracker dir still there.
 	_, err := os.Stat(gen1)
@@ -287,7 +288,7 @@ func TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp(t *testing.T) {
 // Recovery path: merged.mig set but tidied.mig missing
 // -----------------------------------------------------------------------------
 //
-// These tests pin the recovery path added to FinalizeCompletedMigrations
+// These tests pin the recovery path added to reindex.FinalizeCompletedMigrations
 // for the failure mode behind RestartMatrix R2 / R2b:
 //
 //   - T1 word→field completes successfully on all nodes (gen-1 tidied).
@@ -304,7 +305,7 @@ func TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp(t *testing.T) {
 //     dataset; gen-1's tidied tracker is still present (because
 //     T2's end-of-swap trim never ran).
 //
-// Without recovery, FinalizeCompletedMigrations would promote gen-1
+// Without recovery, reindex.FinalizeCompletedMigrations would promote gen-1
 // (highest tidied) and produce the #10675-shape divergence: schema
 // says "word" but the bucket on this node has field-tokenized data, so
 // "alpha" queries return 0 docs while other replicas return 6.
@@ -353,7 +354,7 @@ func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
 		gen2Marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	// Canonical dir must contain gen-2's marker, NOT gen-1's stale data.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -398,7 +399,7 @@ func TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers(t *testin
 		marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
 	got, err := os.ReadFile(filepath.Join(canonical, "segment.db"))
@@ -442,7 +443,7 @@ func TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied(t *testi
 		winner, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "segment.db"))
 	require.NoError(t, err)
@@ -475,7 +476,7 @@ func TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels(t *testing.T
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	// If sentinels weren't written before finalizeMigrationDir ran, the
 	// canonical dir would not be created (finalizeMigrationDir returns
@@ -509,7 +510,7 @@ func TestFinalizeCompletedMigrations_StartedOnlyNotPromoted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	// Tracker untouched.
 	_, err := os.Stat(gen1)
@@ -559,7 +560,7 @@ func TestFinalizeCompletedMigrations_RecoveryAcrossNamespaces(t *testing.T) {
 		[]byte("filterable-data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	// Both canonical dirs should now exist with their respective data.
 	sBytes, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "s.db"))
@@ -591,10 +592,10 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	// Second call should be a complete no-op now that nothing remains in .migrations.
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "seg.db"))
 	require.NoError(t, err)
@@ -683,7 +684,7 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 		[]byte("gamma-range-NEW"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	reindex.FinalizeCompletedMigrations(lsmPath, logger)
 
 	// All three property migrations must promote to their canonical
 	// names with the correct data. A bug that processed only the first
@@ -715,7 +716,7 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 // of the same collection enter restart with deliberately divergent
 // half-finalized states for the SAME migration. All three must
 // converge to the same canonical-bucket shape after their per-shard
-// FinalizeCompletedMigrations runs (it's a per-shard, not a per-node,
+// reindex.FinalizeCompletedMigrations runs (it's a per-shard, not a per-node,
 // path; called once per shard during shard init).
 //
 // Failure shape this catches: a refactor that introduced cross-shard
@@ -733,7 +734,7 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 //   - shard-1: gen 1 merged-but-not-tidied (crashed mid-swap). Needs
 //     the recovery path's sentinel writes plus the canonical-rename.
 //
-//   - shard-2: NO migrations dir at all (the FinalizeCompletedMigrations
+//   - shard-2: NO migrations dir at all (the reindex.FinalizeCompletedMigrations
 //     no-op path). Must remain unchanged.
 func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing.T) {
 	type shardSetup struct {
@@ -782,7 +783,7 @@ func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing
 		case "no_migrations":
 			// Intentionally empty — finalize must be a no-op here.
 		}
-		FinalizeCompletedMigrations(lsmPath, logger)
+		reindex.FinalizeCompletedMigrations(lsmPath, logger)
 	}
 
 	for _, sh := range shards {

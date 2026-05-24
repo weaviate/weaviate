@@ -21,7 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// nextMigrationGeneration returns the per-node generation `N` a new
+// NextMigrationGeneration returns the per-node generation `N` a new
 // migration on (migrationDirPrefix, propNamesSuffix) should use on this
 // shard's LSM directory. The new migration writes to dirs suffixed
 // `_<N>`; older generations (if any) still live alongside the
@@ -46,32 +46,32 @@ import (
 // per-node — different nodes may pick different generations for the
 // same RAFT task and that's correct: generation is purely a per-node
 // on-disk implementation detail of the deferred-finalize design.
-func nextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix) + 1
+func NextMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
+	return MaxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix) + 1
 }
 
 // MaxMigrationGenerationForDebug is an exported wrapper around
-// [maxMigrationGeneration] for the REST debug handlers. Production code
-// should use [maxMigrationGeneration] / [nextMigrationGeneration]
+// [MaxMigrationGeneration] for the REST debug handlers. Production code
+// should use [MaxMigrationGeneration] / [NextMigrationGeneration]
 // directly.
 func MaxMigrationGenerationForDebug(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
-	return maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix)
+	return MaxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix)
 }
 
-// GenSuffixForDebug is an exported wrapper around [genSuffix] for the
-// REST debug handlers. Production code should use [genSuffix] directly.
+// GenSuffixForDebug is an exported wrapper around [GenSuffix] for the
+// REST debug handlers. Production code should use [GenSuffix] directly.
 func GenSuffixForDebug(generation int) string {
-	return genSuffix(generation)
+	return GenSuffix(generation)
 }
 
-// maxMigrationGeneration returns the highest existing generation on disk
+// MaxMigrationGeneration returns the highest existing generation on disk
 // for the (prefix, propNamesSuffix) tuple, or 0 if none exists.
 //
 // Used by recovery / rehydrate paths that need to construct a strategy
 // instance matching an existing on-disk migration. The recovery path is
 // the only legitimate caller — fresh task starts should always use
-// [nextMigrationGeneration] to claim a new generation.
-func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
+// [NextMigrationGeneration] to claim a new generation.
+func MaxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string) int {
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
 	if err != nil {
@@ -157,7 +157,7 @@ func FileExistsInDir(dirPath, fileName string) bool {
 // deferred ingest→canonical rename for each.
 //
 // Every migration tracker dir on disk carries a per-node generation
-// suffix `_<N>` (see [genSuffix]). For each (prop, indexType) tuple
+// suffix `_<N>` (see [GenSuffix]). For each (prop, indexType) tuple
 // there may be multiple generations on disk if the prior end-of-swap
 // trim hadn't run yet — for example because the process crashed between
 // `markTidied` and the per-shard trim, or because a follow-up migration
@@ -548,7 +548,7 @@ func migrationSuffixes(migName string) *migrationBucketSuffixes {
 	// in sync with the writer side by reusing the same constants here.
 	//
 	// Every migration dir name carries a `_<gen>` suffix appended by
-	// [genSuffix]. The HasPrefix arms below match the strategy's prefix
+	// [GenSuffix]. The HasPrefix arms below match the strategy's prefix
 	// regardless of the gen suffix; finalize callers compose the final
 	// gen-suffixed sidecar dir name by appending `_<gen>` to the
 	// ingest/backup suffix base.
