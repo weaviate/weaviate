@@ -106,7 +106,7 @@ func TestBackupVsReindexSuite(t *testing.T) {
 		testCancelOnNoInFlightReturns404(t, compose.GetWeaviate().URI())
 	})
 
-	t.Run("AlgorithmVerbRefusesOnAlreadyBlockMaxRejectsWAND", func(t *testing.T) {
+	t.Run("AlgorithmVerbRefusesOnAlreadyBlockmaxRejectsWAND", func(t *testing.T) {
 		testAlgorithmVerb(t, compose.GetWeaviate().URI())
 	})
 
@@ -420,11 +420,11 @@ func testCancelOnNoInFlightReturns404(t *testing.T, restURI string) {
 		"404 body must point operators at the state-inspection endpoint")
 }
 
-// testAlgorithmVerb asserts that on an already-BlockMaxWAND class:
-//   - searchable.algorithm:"BlockMaxWAND" → 409
-//   - searchable.rebuild:true             → 409
-//   - searchable.algorithm:"WAND"         → 400
-// and that none of the three refusals schedule a DTM task.
+// testAlgorithmVerb asserts that on an already-blockmax class:
+//   - searchable.algorithm:"blockmax" → 400 (already on blockmax)
+//   - searchable.algorithm:"WAND"     → 400 (only blockmax is accepted)
+//
+// and that neither refusal schedules a DTM task.
 func testAlgorithmVerb(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_AlgorithmVerb"
@@ -443,57 +443,34 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 
 	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
 
-	// USE_INVERTED_SEARCHABLE=false starts the class on Map (WAND), so
-	// we first run the legitimate Map→Blockmax migration to reach the
-	// already-blockmax state the refusal cases assert on.
+	// USE_INVERTED_SEARCHABLE=false starts the class on Map (WAND); migrate
+	// it to blockmax via the algorithm verb so the refusal cases below
+	// have an already-blockmax target.
 	preTaskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, propName,
-		`{"searchable":{"rebuild":true}}`)
+		`{"searchable":{"algorithm":"blockmax"}}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, preTaskID,
 		reindexhelpers.WithTimeout(60*time.Second))
 
-	// Snapshot the task list; the three refusals below must not add
-	// any new task.
 	preTasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 	require.NoError(t, err)
 	preTasksBytes, _ := io.ReadAll(preTasksResp.Body)
 	_ = preTasksResp.Body.Close()
 
-	// algorithm:"BlockMaxWAND" on already-blockmax → 409.
+	// algorithm:"blockmax" on already-blockmax → 400.
 	req, err := http.NewRequest(http.MethodPut, url,
-		bytes.NewReader([]byte(`{"searchable":{"algorithm":"BlockMaxWAND"}}`)))
+		bytes.NewReader([]byte(`{"searchable":{"algorithm":"blockmax"}}`)))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusConflict, resp.StatusCode,
-		"algorithm:BlockMaxWAND on an already-blockmax class must be refused with 409; got %d: %s", resp.StatusCode, string(bodyBytes))
-	assert.Contains(t, string(bodyBytes), "already on BlockMaxWAND",
-		"409 body must explain the refusal reason")
-	assert.Contains(t, string(bodyBytes), className,
-		"409 body must name the class")
-	assert.Contains(t, string(bodyBytes), propName,
-		"409 body must name the property")
-	assert.Contains(t, string(bodyBytes), "cleaned automatically",
-		"409 body must explain that orphan state is handled automatically")
+	require.Equalf(t, http.StatusBadRequest, resp.StatusCode,
+		"algorithm:blockmax on an already-blockmax class must be refused with 400; got %d: %s", resp.StatusCode, string(bodyBytes))
+	assert.Contains(t, string(bodyBytes), "already on blockmax",
+		"400 body must explain the refusal reason")
 
-	// rebuild:true on already-blockmax → 409 (same code path as above).
-	req, err = http.NewRequest(http.MethodPut, url,
-		bytes.NewReader([]byte(`{"searchable":{"rebuild":true}}`)))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err = http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	bodyBytes, _ = io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusConflict, resp.StatusCode,
-		"rebuild:true on an already-blockmax class must be refused with 409; got %d: %s", resp.StatusCode, string(bodyBytes))
-	assert.Contains(t, string(bodyBytes), "already on BlockMaxWAND",
-		"409 body must explain the refusal reason")
-
-	// algorithm:"WAND" → 400 (alias normalization rejects before the
-	// UsingBlockMaxWAND lookup runs).
+	// algorithm:"WAND" → 400.
 	req, err = http.NewRequest(http.MethodPut, url,
 		bytes.NewReader([]byte(`{"searchable":{"algorithm":"WAND"}}`)))
 	require.NoError(t, err)
@@ -504,12 +481,11 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 	_ = resp.Body.Close()
 	require.Equalf(t, http.StatusBadRequest, resp.StatusCode,
 		"WAND algorithm must be rejected with 400; got %d: %s", resp.StatusCode, string(bodyBytes))
-	assert.Contains(t, string(bodyBytes), "BlockMaxWAND",
-		"400 body must name the supported alternative")
-	assert.Contains(t, string(bodyBytes), "not supported",
+	assert.Contains(t, string(bodyBytes), "unsupported algorithm",
 		"400 body must explain the rejection")
+	assert.Contains(t, string(bodyBytes), "blockmax",
+		"400 body must name the supported algorithm")
 
-	// No new DTM task should have been scheduled by the three refusals.
 	postTasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 	require.NoError(t, err)
 	defer postTasksResp.Body.Close()
