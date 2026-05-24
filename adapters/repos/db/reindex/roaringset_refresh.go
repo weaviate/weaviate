@@ -12,8 +12,6 @@
 package reindex
 
 import (
-	"time"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -32,29 +30,7 @@ func NewRuntimeRoaringSetRefreshTask(
 ) *ShardReindexTaskGeneric {
 	strategy := &RoaringSetRefreshStrategy{Generation: generation}
 
-	selectedProps := make(map[string]struct{}, len(propNames))
-	for _, p := range propNames {
-		selectedProps[p] = struct{}{}
-	}
-
-	cfg := ReindexTaskConfig{
-		SwapBuckets:                   true,
-		TidyBuckets:                   true,
-		Concurrency:                   2,
-		MemtableOptFactor:             4,
-		BackupMemtableOptFactor:       1,
-		ProcessingDuration:            10 * time.Minute,
-		PauseDuration:                 1 * time.Second,
-		CheckProcessingEveryNoObjects: 1000,
-
-		SelectionEnabled: true,
-		SelectedPropsByCollection: map[string]map[string]struct{}{
-			collectionName: selectedProps,
-		},
-		SelectedShardsByCollection: map[string]map[string]struct{}{
-			collectionName: nil, // nil = all shards
-		},
-	}
+	cfg := defaultRuntimeReindexConfig(propNames, collectionName)
 
 	return NewShardReindexTaskGeneric(
 		"RoaringSetRefresh", logger, strategy, cfg,

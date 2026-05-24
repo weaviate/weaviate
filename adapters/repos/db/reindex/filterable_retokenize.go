@@ -12,8 +12,6 @@
 package reindex
 
 import (
-	"time"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -39,28 +37,7 @@ func NewRuntimeFilterableRetokenizeTask(
 		Generation:         generation,
 	}
 
-	selectedProps := map[string]struct{}{
-		propName: {},
-	}
-
-	cfg := ReindexTaskConfig{
-		SwapBuckets:                   true,
-		TidyBuckets:                   true,
-		Concurrency:                   2,
-		MemtableOptFactor:             4,
-		BackupMemtableOptFactor:       1,
-		ProcessingDuration:            10 * time.Minute,
-		PauseDuration:                 1 * time.Second,
-		CheckProcessingEveryNoObjects: 1000,
-
-		SelectionEnabled: true,
-		SelectedPropsByCollection: map[string]map[string]struct{}{
-			collectionName: selectedProps,
-		},
-		SelectedShardsByCollection: map[string]map[string]struct{}{
-			collectionName: nil, // nil = all shards
-		},
-	}
+	cfg := defaultRuntimeReindexConfig([]string{propName}, collectionName)
 
 	return NewShardReindexTaskGeneric(
 		"FilterableRetokenize", logger, strategy, cfg,
