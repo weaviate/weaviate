@@ -422,7 +422,7 @@ func testCancelOnNoInFlightReturns404(t *testing.T, restURI string) {
 
 // testAlgorithmVerb asserts that on an already-blockmax class:
 //   - searchable.algorithm:"blockmax" → 400 (already on blockmax)
-//   - searchable.algorithm:"WAND"     → 400 (only blockmax is accepted)
+//   - searchable.algorithm:"WAND"     → 422 (swagger enum validator)
 //
 // and that neither refusal schedules a DTM task.
 func testAlgorithmVerb(t *testing.T, restURI string) {
@@ -470,7 +470,8 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 	assert.Contains(t, string(bodyBytes), "already on blockmax",
 		"400 body must explain the refusal reason")
 
-	// algorithm:"WAND" → 400.
+	// algorithm:"WAND" → 422 (rejected at the swagger enum-validator layer,
+	// which fires before the handler — the schema is enum:["blockmax"]).
 	req, err = http.NewRequest(http.MethodPut, url,
 		bytes.NewReader([]byte(`{"searchable":{"algorithm":"WAND"}}`)))
 	require.NoError(t, err)
@@ -479,12 +480,10 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 	require.NoError(t, err)
 	bodyBytes, _ = io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	require.Equalf(t, http.StatusBadRequest, resp.StatusCode,
-		"WAND algorithm must be rejected with 400; got %d: %s", resp.StatusCode, string(bodyBytes))
-	assert.Contains(t, string(bodyBytes), "unsupported algorithm",
-		"400 body must explain the rejection")
+	require.Equalf(t, http.StatusUnprocessableEntity, resp.StatusCode,
+		"WAND algorithm must be rejected with 422 at the swagger validator; got %d: %s", resp.StatusCode, string(bodyBytes))
 	assert.Contains(t, string(bodyBytes), "blockmax",
-		"400 body must name the supported algorithm")
+		"422 body must name the only accepted enum value")
 
 	postTasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 	require.NoError(t, err)
