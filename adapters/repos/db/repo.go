@@ -31,6 +31,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
@@ -107,7 +108,7 @@ type DB struct {
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
 
-	reindexer      ShardReindexerV3
+	reindexer      reindex.ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
@@ -116,7 +117,7 @@ type DB struct {
 	// [DB.SetReindexAuditDeps] so they are safely visible from any
 	// post-restore goroutine.
 	reindexAuditMu            sync.RWMutex
-	reindexAuditLookupBuilder KnownReindexTaskLookupBuilder
+	reindexAuditLookupBuilder reindex.KnownReindexTaskLookupBuilder
 	reindexAuditLogger        logrus.FieldLogger
 
 	bitmapBufPool      roaringset.BitmapBufPool
@@ -264,7 +265,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		memMonitor:                memMonitor,
 		shardLoadLimiter:          loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
 		bucketLoadLimiter:         loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
-		reindexer:                 NewShardReindexerV3Noop(),
+		reindexer:                 reindex.NewShardReindexerV3Noop(),
 		nodeSelector:              nodeSelector,
 		schemaReader:              schemaReader,
 		replicationFSM:            replicationFSM,
@@ -541,7 +542,7 @@ func (db *DB) batchWorker(first bool) {
 	}
 }
 
-func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
+func (db *DB) SetReindexer(reindexer reindex.ShardReindexerV3) {
 	db.reindexer = reindexer
 }
 

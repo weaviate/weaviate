@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
@@ -1014,12 +1015,12 @@ func (m *Migrator) InvertedReindex(ctx context.Context, taskNamesWithArgs map[st
 }
 
 func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {
-	tasks := map[string]ShardInvertedReindexTask{}
+	tasks := map[string]reindex.ShardInvertedReindexTask{}
 	for name, args := range taskNamesWithArgs {
 		switch name {
-		case "ShardInvertedReindexTaskSetToRoaringSet":
-			tasks[name] = &ShardInvertedReindexTaskSetToRoaringSet{}
-		case "ShardInvertedReindexTask_SpecifiedIndex":
+		case "reindex.ShardInvertedReindexTaskSetToRoaringSet":
+			tasks[name] = &reindex.ShardInvertedReindexTaskSetToRoaringSet{}
+		case "reindex.ShardInvertedReindexTask_SpecifiedIndex":
 			if args == nil {
 				return fmt.Errorf("no args given for %q reindex task", name)
 			}
@@ -1034,7 +1035,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 					classNamesWithPropertyNames[class][prop] = struct{}{}
 				}
 			}
-			tasks[name] = &ShardInvertedReindexTask_SpecifiedIndex{
+			tasks[name] = &reindex.ShardInvertedReindexTask_SpecifiedIndex{
 				classNamesWithPropertyNames: classNamesWithPropertyNames,
 			}
 		}
@@ -1049,7 +1050,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 	for _, index := range m.db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			eg.Go(func() error {
-				reindexer := NewShardInvertedReindexer(shard, m.logger)
+				reindexer := reindex.NewShardInvertedReindexer(shard, m.logger)
 				for taskName, task := range tasks {
 					reindexer.AddTask(task)
 					m.logInvertedReindexShard(shard).
@@ -1107,7 +1108,7 @@ func (m *Migrator) doInvertedIndexMissingTextFilterable(ctx context.Context, tas
 					m.logMissingFilterableShard(shard).
 						Info("starting filterable indexing on shard, this may take a while")
 
-					reindexer := NewShardInvertedReindexer(shard, m.logger)
+					reindexer := reindex.NewShardInvertedReindexer(shard, m.logger)
 					reindexer.AddTask(task)
 
 					if err := reindexer.Do(ctx); err != nil {

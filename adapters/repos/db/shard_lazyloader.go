@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
@@ -70,7 +71,7 @@ type LazyLoadShard struct {
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter *loadlimiter.LoadLimiter, shardReindexer ShardReindexerV3,
+	shardLoadLimiter *loadlimiter.LoadLimiter, shardReindexer reindex.ShardReindexerV3,
 	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
@@ -103,7 +104,7 @@ type deferredShardOpts struct {
 	jobQueueCh       chan job
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
-	shardReindexer   ShardReindexerV3
+	shardReindexer   reindex.ShardReindexerV3
 	bitmapBufPool    roaringset.BitmapBufPool
 }
 
@@ -169,8 +170,11 @@ func (l *LazyLoadShard) Store() *lsmkv.Store {
 	return l.shard.Store()
 }
 
-// Unwrap loads the shard if necessary and returns the underlying concrete *Shard.
-func (l *LazyLoadShard) Unwrap(ctx context.Context) (*Shard, error) {
+// Unwrap loads the shard if necessary and returns the underlying
+// concrete shard as a [reindex.ShardLike]. Returning the interface
+// type lets this method satisfy both the package-local ShardLike
+// and the reindex package's narrower interface with one body.
+func (l *LazyLoadShard) Unwrap(ctx context.Context) (reindex.ShardLike, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}

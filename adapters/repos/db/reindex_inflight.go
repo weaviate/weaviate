@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 // ErrBackupBlockedByInFlightReindex is returned when a backup attempt
@@ -68,16 +70,16 @@ func inFlightReindexTrackers(lsmPath string) ([]InFlightReindexTracker, error) {
 			continue
 		}
 		name := entry.Name()
-		prefix, gen, ok := parseMigrationDirName(name)
+		prefix, gen, ok := reindex.ParseMigrationDirName(name)
 		if !ok {
 			continue
 		}
 		dirPath := filepath.Join(migsDir, name)
-		started := fileExistsInDir(dirPath, "started.mig")
+		started := reindex.FileExistsInDir(dirPath, "started.mig")
 		if !started {
 			continue
 		}
-		tidied := fileExistsInDir(dirPath, "tidied.mig")
+		tidied := reindex.FileExistsInDir(dirPath, "tidied.mig")
 		if tidied {
 			continue
 		}
@@ -89,7 +91,7 @@ func inFlightReindexTrackers(lsmPath string) ([]InFlightReindexTracker, error) {
 			Prefix:     prefix,
 			Generation: gen,
 			Started:    true,
-			Reindexed:  fileExistsInDir(dirPath, "reindexed.mig"),
+			Reindexed:  reindex.FileExistsInDir(dirPath, "reindexed.mig"),
 			Tidied:     false,
 		})
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 type shardInvertedReindexTaskMissingTextFilterable struct {
@@ -50,12 +51,12 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) init() error {
 }
 
 func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(ctx context.Context,
-	shard ShardLike,
-) ([]ReindexableProperty, error) {
-	reindexableProperties := []ReindexableProperty{}
+	shard reindex.ShardLike,
+) ([]reindex.ReindexableProperty, error) {
+	reindexableProperties := []reindex.ReindexableProperty{}
 
 	t.stateLock.RLock()
-	className := shard.Index().Config.ClassName.String()
+	className := shard.Index().ConfigSnapshot().ClassName.String()
 	props, ok := t.migrationState.MissingFilterableClass2Props[className]
 	t.stateLock.RUnlock()
 
@@ -64,7 +65,7 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(c
 	}
 
 	bucketOptions := []lsmkv.BucketOption{
-		lsmkv.WithDirtyThreshold(time.Duration(shard.Index().Config.MemtablesFlushDirtyAfter) * time.Second),
+		lsmkv.WithDirtyThreshold(time.Duration(shard.Index().ConfigSnapshot().MemtablesFlushDirtyAfter) * time.Second),
 	}
 
 	for propName := range props {
@@ -83,17 +84,17 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(c
 			bucketSearchable.Strategy() == lsmkv.StrategyMapCollection {
 
 			if bucketFilterable == nil {
-				reindexableProperties = append(reindexableProperties, ReindexableProperty{
+				reindexableProperties = append(reindexableProperties, reindex.ReindexableProperty{
 					PropertyName:    propName,
-					IndexType:       IndexTypePropValue,
+					IndexType:       reindex.IndexTypePropValue,
 					DesiredStrategy: lsmkv.StrategyRoaringSet,
 					NewIndex:        true,
 					BucketOptions:   bucketOptions,
 				})
 			} else if bucketFilterable.Strategy() == lsmkv.StrategyRoaringSet {
-				reindexableProperties = append(reindexableProperties, ReindexableProperty{
+				reindexableProperties = append(reindexableProperties, reindex.ReindexableProperty{
 					PropertyName:    propName,
-					IndexType:       IndexTypePropValue,
+					IndexType:       reindex.IndexTypePropValue,
 					DesiredStrategy: lsmkv.StrategyRoaringSet,
 					BucketOptions:   bucketOptions,
 				})
@@ -113,12 +114,12 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) updateMigrationStateAndS
 	return t.files.saveMigrationState(t.migrationState)
 }
 
-func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard ShardLike) error {
+func (t *shardInvertedReindexTaskMissingTextFilterable) OnPostResumeStore(ctx context.Context, shard reindex.ShardLike) error {
 	// turn off fallback mode immediately after creating filterable index and resuming store's activity
-	shard.setFallbackToSearchable(false)
+	shard.SetFallbackToSearchable(false)
 	return nil
 }
 
-func (t *shardInvertedReindexTaskMissingTextFilterable) ObjectsIterator(shard ShardLike) objectsIterator {
+func (t *shardInvertedReindexTaskMissingTextFilterable) ObjectsIterator(shard reindex.ShardLike) reindex.ObjectsIterator {
 	return shard.Store().Bucket(helpers.ObjectsBucketLSM).IterateObjects
 }

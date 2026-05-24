@@ -38,7 +38,7 @@ import (
 //
 // Caller MUST ensure no local reindex goroutine is touching this
 // (collection, prop, indexType) when this fires; the cancel handler does
-// that via [ReindexProvider.WaitForLocalDrain]. Without the wait, the
+// that via [reindex.ReindexProvider.WaitForLocalDrain]. Without the wait, the
 // cleanup races against the in-flight worker which is still writing to the
 // __reindex / __ingest buckets — the shutdown would tear those buckets out
 // from under the writer.
@@ -69,7 +69,7 @@ func (i *Index) CleanStalePartialReindexState(
 ) error {
 	var firstErr error
 	if err := i.ForEachShard(func(name string, shardLike ShardLike) error {
-		shard, ok := shardLike.(*Shard)
+		shard, ok := shardLike.(reindex.ShardLike)
 		if !ok {
 			// LazyLoadShard or other wrapper — skip cleanly. If the shard
 			// is not loaded its on-disk state is also not in use by an

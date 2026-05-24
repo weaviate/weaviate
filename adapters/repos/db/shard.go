@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"go.etcd.io/bbolt"
 
@@ -468,7 +469,7 @@ type Shard struct {
 	shutCtx       context.Context
 	shutCtxCancel context.CancelCauseFunc
 
-	reindexer ShardReindexerV3
+	reindexer reindex.ShardReindexerV3
 
 	// Copy-on-write callback slices stored in atomic.Value for lock-free reads
 	// on the hot write path. Registration (rare) copies the slice behind

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 // KnownReindexTaskLookup reports whether (taskID, taskVersion) is live
@@ -204,15 +205,15 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			continue
 		}
 		dirName := entry.Name()
-		prefix, generation, ok := parseMigrationDirName(dirName)
+		prefix, generation, ok := reindex.ParseMigrationDirName(dirName)
 		if !ok {
 			continue
 		}
 		trackerPath := filepath.Join(migsDir, dirName)
-		if fileExistsInDir(trackerPath, "tidied.mig") || fileExistsInDir(trackerPath, "merged.mig") {
+		if reindex.FileExistsInDir(trackerPath, "tidied.mig") || reindex.FileExistsInDir(trackerPath, "merged.mig") {
 			continue
 		}
-		if !fileExistsInDir(trackerPath, "started.mig") {
+		if !reindex.FileExistsInDir(trackerPath, "started.mig") {
 			continue
 		}
 		rec, recOK := loadAuditRecord(trackerPath)
@@ -252,14 +253,14 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 	}
 	pauseCtx, cancelPause := context.WithTimeout(ctx, orphanCleanupPauseTimeout)
 	defer cancelPause()
-	if err := shard.store.PauseCompaction(pauseCtx); err != nil {
+	if err := shard.Store().PauseCompaction(pauseCtx); err != nil {
 		logger.WithField("collection", orphans[0].collection).WithField("shard", orphans[0].shardName).
 			Warnf("reindex orphan audit: failed to pause compaction; skipping shard cleanup: %v", err)
 		return 0
 	}
 	// Resume must fire even if the audit ctx was canceled.
 	defer func() {
-		if err := shard.store.ResumeCompaction(context.Background()); err != nil {
+		if err := shard.Store().ResumeCompaction(context.Background()); err != nil {
 			logger.WithField("shard", orphans[0].shardName).
 				Warnf("reindex orphan audit: failed to resume compaction: %v", err)
 		}
@@ -400,15 +401,15 @@ func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
 // falls back to direct tracker-dir removal.
 func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
 	switch mt {
-	case ReindexTypeChangeTokenization:
+	case reindex.ReindexTypeChangeTokenization:
 		return []string{"searchable", "filterable"}
-	case ReindexTypeChangeTokenizationFilterable:
+	case reindex.ReindexTypeChangeTokenizationFilterable:
 		return []string{"filterable"}
-	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable:
+	case reindex.ReindexTypeEnableSearchable, reindex.ReindexTypeChangeAlgorithm, reindex.ReindexTypeRebuildSearchable, reindex.ReindexTypeRepairSearchable:
 		return []string{"searchable"}
-	case ReindexTypeEnableFilterable, ReindexTypeRepairFilterable:
+	case reindex.ReindexTypeEnableFilterable, reindex.ReindexTypeRepairFilterable:
 		return []string{"filterable"}
-	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+	case reindex.ReindexTypeEnableRangeable, reindex.ReindexTypeRepairRangeable:
 		return []string{"rangeable"}
 	}
 	return nil

@@ -157,8 +157,8 @@ func (s *Shard) tokenizationAnalyzerOverlay(props []*models.Property) map[string
 // never mutated.
 //
 // This is required by runtime reindex strategies that build a brand-new
-// inverted bucket (e.g. EnableFilterableStrategy, EnableSearchableStrategy,
-// FilterableToRangeableStrategy): during the backfill scan the target
+// inverted bucket (e.g. reindex.EnableFilterableStrategy, reindex.EnableSearchableStrategy,
+// reindex.FilterableToRangeableStrategy): during the backfill scan the target
 // schema flag is still false, so without the overlay the analyzer would
 // either skip the very property the migration is trying to populate, or
 // emit it with the wrong HasXIndex flags, producing an empty target
