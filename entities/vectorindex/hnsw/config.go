@@ -284,6 +284,43 @@ func (u *UserConfig) validate() error {
 		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn'")
 	}
 
+	// Numeric range validation for fields that previously silently accepted
+	// negative or otherwise-invalid values. EF is intentionally excluded as -1
+	// is the documented "let Weaviate pick" value (see DefaultEF).
+	if u.DynamicEFMin < 0 {
+		errMsgs = append(errMsgs, "dynamicEfMin must not be negative")
+	}
+
+	if u.DynamicEFMax < 0 {
+		errMsgs = append(errMsgs, "dynamicEfMax must not be negative")
+	}
+
+	if u.DynamicEFFactor < 0 {
+		errMsgs = append(errMsgs, "dynamicEfFactor must not be negative")
+	}
+
+	// Cross-field invariant: efMin must not exceed efMax. Only enforced when
+	// both are non-negative so the per-field messages above remain the primary
+	// signal when the user supplied a clearly bogus value.
+	if u.DynamicEFMin >= 0 && u.DynamicEFMax >= 0 && u.DynamicEFMin > u.DynamicEFMax {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"dynamicEfMin (%d) must be less than or equal to dynamicEfMax (%d)",
+			u.DynamicEFMin, u.DynamicEFMax,
+		))
+	}
+
+	if u.FlatSearchCutoff < 0 {
+		errMsgs = append(errMsgs, "flatSearchCutoff must not be negative")
+	}
+
+	if u.CleanupIntervalSeconds < 0 {
+		errMsgs = append(errMsgs, "cleanupIntervalSeconds must not be negative")
+	}
+
+	if u.VectorCacheMaxObjects < 0 {
+		errMsgs = append(errMsgs, "vectorCacheMaxObjects must not be negative")
+	}
+
 	if len(errMsgs) > 0 {
 		return fmt.Errorf("invalid hnsw config: %s",
 			strings.Join(errMsgs, ", "))

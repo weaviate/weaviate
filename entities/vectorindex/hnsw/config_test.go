@@ -653,6 +653,120 @@ func Test_UserConfig(t *testing.T) {
 				"with a minimum of 4",
 		},
 		{
+			// Reproduces gh-11399: dynamicEfMin must not exceed
+			// dynamicEfMax.
+			name: "invalid dynamicEf bounds (min > max)",
+			input: map[string]interface{}{
+				"dynamicEfMin": float64(500),
+				"dynamicEfMax": float64(10),
+			},
+			expectErr: true,
+			expectErrMsg: "dynamicEfMin (500) must be less than or " +
+				"equal to dynamicEfMax (10)",
+		},
+		{
+			// Reproduces gh-11400: negative flatSearchCutoff has no
+			// meaningful interpretation.
+			name: "invalid flatSearchCutoff (negative)",
+			input: map[string]interface{}{
+				"flatSearchCutoff": float64(-100),
+			},
+			expectErr:    true,
+			expectErrMsg: "flatSearchCutoff must not be negative",
+		},
+		{
+			name: "invalid dynamicEfMin (negative)",
+			input: map[string]interface{}{
+				"dynamicEfMin": float64(-1),
+			},
+			expectErr:    true,
+			expectErrMsg: "dynamicEfMin must not be negative",
+		},
+		{
+			name: "invalid dynamicEfMax (negative)",
+			input: map[string]interface{}{
+				"dynamicEfMax": float64(-1),
+			},
+			expectErr:    true,
+			expectErrMsg: "dynamicEfMax must not be negative",
+		},
+		{
+			name: "invalid dynamicEfFactor (negative)",
+			input: map[string]interface{}{
+				"dynamicEfFactor": float64(-1),
+			},
+			expectErr:    true,
+			expectErrMsg: "dynamicEfFactor must not be negative",
+		},
+		{
+			name: "invalid cleanupIntervalSeconds (negative)",
+			input: map[string]interface{}{
+				"cleanupIntervalSeconds": float64(-1),
+			},
+			expectErr:    true,
+			expectErrMsg: "cleanupIntervalSeconds must not be negative",
+		},
+		{
+			name: "invalid vectorCacheMaxObjects (negative)",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(-1),
+			},
+			expectErr:    true,
+			expectErrMsg: "vectorCacheMaxObjects must not be negative",
+		},
+		{
+			// Boundary: efMin == efMax is allowed (<= is the rule).
+			name: "valid dynamicEf bounds (min == max)",
+			input: map[string]interface{}{
+				"dynamicEfMin": float64(100),
+				"dynamicEfMax": float64(100),
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
+				MaxConnections:         DefaultMaxConnections,
+				EFConstruction:         DefaultEFConstruction,
+				VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+				EF:                     DefaultEF,
+				FlatSearchCutoff:       DefaultFlatSearchCutoff,
+				DynamicEFMin:           100,
+				DynamicEFMax:           100,
+				DynamicEFFactor:        DefaultDynamicEFFactor,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:        DefaultPQEnabled,
+					BitCompression: DefaultPQBitCompression,
+					Segments:       DefaultPQSegments,
+					Centroids:      DefaultPQCentroids,
+					TrainingLimit:  DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					Bits:         DefaultRQBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
+				FilterStrategy: DefaultFilterStrategy,
+				Multivector: MultivectorConfig{
+					Enabled:     DefaultMultivectorEnabled,
+					Aggregation: DefaultMultivectorAggregation,
+					MuveraConfig: MuveraConfig{
+						Enabled:      DefaultMultivectorMuveraEnabled,
+						KSim:         DefaultMultivectorKSim,
+						DProjections: DefaultMultivectorDProjections,
+						Repetitions:  DefaultMultivectorRepetitions,
+					},
+				},
+			},
+		},
+		{
 			name: "with bq",
 			input: map[string]interface{}{
 				"cleanupIntervalSeconds": float64(11),
