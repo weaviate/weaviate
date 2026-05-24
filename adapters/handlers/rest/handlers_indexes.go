@@ -15,12 +15,14 @@ import (
 	"errors"
 
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	reindexusecase "github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -38,14 +40,50 @@ import (
 // editing migration-type dispatch, validation, conflict checks, or
 // status merging here, that belongs in the usecases package.
 
-func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State) {
-	h := &indexesHandlers{appState: appState}
+func setupIndexesHandlers(api *operations.WeaviateAPI, appState *state.State, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) {
+	h := &indexesHandlers{
+		appState:            appState,
+		metricRequestsTotal: newIndexesRequestsTotal(metrics, logger),
+	}
 	api.SchemaSchemaObjectsIndexesGetHandler = schema.SchemaObjectsIndexesGetHandlerFunc(h.getIndexes)
 	api.SchemaSchemaObjectsIndexesUpdateHandler = schema.SchemaObjectsIndexesUpdateHandlerFunc(h.updateIndex)
 }
 
 type indexesHandlers struct {
-	appState *state.State
+	appState            *state.State
+	metricRequestsTotal restApiRequestsTotal
+}
+
+// indexesRequestsTotal labels Prometheus emissions for the two
+// /v1/schema/{collection}/indexes endpoints. Same shape as
+// [schemaRequestsTotal] — every per-handler family gets its own
+// `query_type` so dashboards can split reindex submit/cancel/status
+// traffic from generic schema mutations.
+type indexesRequestsTotal struct {
+	*restApiRequestsTotalImpl
+}
+
+func newIndexesRequestsTotal(metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger) restApiRequestsTotal {
+	return &indexesRequestsTotal{
+		restApiRequestsTotalImpl: &restApiRequestsTotalImpl{newRequestsTotalMetric(metrics, "rest"), "rest", "indexes", logger},
+	}
+}
+
+// logError mirrors [schemaRequestsTotal.logError]: anything authz- or
+// validation-shaped is a UserError; everything else is a server error
+// so the unexpected-error log fires.
+func (e *indexesRequestsTotal) logError(className string, err error) {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		e.logUserError(className)
+	case errors.Is(err, reindexusecase.ErrBadRequest),
+		errors.Is(err, reindexusecase.ErrNotFound),
+		errors.Is(err, reindexusecase.ErrConflict),
+		errors.Is(err, reindexusecase.ErrServiceUnavailable):
+		e.logUserError(className)
+	default:
+		e.logServerError(className, err)
+	}
 }
 
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
@@ -55,6 +93,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	// per-property index state, which is collection-internal information.
 	if err := h.appState.Authorizer.Authorize(params.HTTPRequest.Context(), principal,
 		authorization.READ, authorization.CollectionsMetadata(collection)...); err != nil {
+		h.metricRequestsTotal.logError(collection, err)
 		if errors.As(err, &authzerrors.Forbidden{}) {
 			return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
@@ -67,6 +106,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		h.appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
 	)
 	if err != nil {
+		h.metricRequestsTotal.logError(collection, err)
 		if errors.Is(err, reindexusecase.ErrNotFound) {
 			return schema.NewSchemaObjectsIndexesGetNotFound()
 		}
@@ -82,6 +122,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 			Indexes:     p.Indexes,
 		})
 	}
+	h.metricRequestsTotal.logOk(collection)
 	return schema.NewSchemaObjectsIndexesGetOK().WithPayload(&models.IndexStatusResponse{
 		Collection: collection,
 		Properties: props,
@@ -99,6 +140,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// buckets on every replica, flips schema flags).
 	if err := h.appState.Authorizer.Authorize(params.HTTPRequest.Context(), principal,
 		authorization.UPDATE, authorization.Collections(collection)...); err != nil {
+		h.metricRequestsTotal.logError(collection, err)
 		if errors.As(err, &authzerrors.Forbidden{}) {
 			return schema.NewSchemaObjectsIndexesUpdateForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
@@ -113,8 +155,10 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		PrincipalUsername: principalUsername(principal),
 	})
 	if err != nil {
+		h.metricRequestsTotal.logError(collection, err)
 		return reindexUpdateResponse(principal, err)
 	}
+	h.metricRequestsTotal.logOk(collection)
 	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
 		TaskID: result.TaskID,
 		Status: result.Status,
