@@ -20,12 +20,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // FilterableRetokenizeStrategy implements MigrationStrategy for rebuilding the
 // filterable (RoaringSet) index for a text property with a different tokenization
 // strategy (e.g. WORD → FIELD). This runs after the searchable strategy and
 // performs the schema update in OnMigrationComplete.
 type FilterableRetokenizeStrategy struct {
-	NoAnalyzerOverlay
+	noAnalyzerOverlay
 	PropName           string
 	TargetTokenization string
 	ClassName          string

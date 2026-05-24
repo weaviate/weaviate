@@ -102,6 +102,8 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 	return prefix + "_" + strings.Join(sorted, "_")
 }
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // GenSuffix returns the per-migration generation suffix, e.g. "_2".
 // Every concrete strategy's MigrationDirName / ReindexSuffix / IngestSuffix /
 // BackupSuffix appends this so back-to-back in-process migrations on the

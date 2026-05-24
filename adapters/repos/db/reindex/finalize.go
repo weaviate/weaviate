@@ -295,7 +295,7 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 					continue
 				}
 				migDir := filepath.Join(migrationsDir, g.dirName)
-				if err := WriteRecoveryTidiedSentinels(migDir); err != nil {
+				if err := writeRecoveryTidiedSentinels(migDir); err != nil {
 					logger.WithField("migration", g.dirName).
 						Errorf("reindex finalize: failed to write recovery tidied sentinels; this node may end up with stale data after restart: %v", err)
 					// Skip the recovery path; fall back to the tidied
@@ -364,7 +364,7 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 // (ingest dir holds the right data) has been verified by the
 // `markMerged` semantics. We do NOT write swapped-per-prop sentinels
 // because the existing finalize loop does not consume them.
-func WriteRecoveryTidiedSentinels(migDir string) error {
+func writeRecoveryTidiedSentinels(migDir string) error {
 	for _, name := range []string{"swapped.mig", "tidied.mig"} {
 		p := filepath.Join(migDir, name)
 		if fileExists(p) {

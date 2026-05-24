@@ -16,6 +16,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // NewRuntimeFilterableToRangeableTask creates a ShardReindexTaskGeneric configured
 // for runtime (live) filterable→rangeable migration. It builds RoaringSetRange
 // indexes from existing data, enabling indexRangeFilters on numeric properties.

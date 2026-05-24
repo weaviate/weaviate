@@ -181,7 +181,7 @@ func TestAnalyzerOverlayShape(t *testing.T) {
 }
 
 // TestAnalyzerOverlayShape_NoAnalyzerOverlayDefault pins the embedded
-// `NoAnalyzerOverlay` default returned by every strategy that doesn't
+// `noAnalyzerOverlay` default returned by every strategy that doesn't
 // shadow it (MapToBlockmax, RoaringSetRefresh, SearchableRetokenize,
 // FilterableRetokenize). A regression to a non-nil return here would
 // silently apply an overlay where none is intended — most dangerous on
@@ -192,7 +192,7 @@ func TestAnalyzerOverlayShape_NoAnalyzerOverlayDefault(t *testing.T) {
 		name string
 		// Use the interface so the test covers the actual dispatch path
 		// (embedded method via the strategy struct), not the bare
-		// NoAnalyzerOverlay value.
+		// noAnalyzerOverlay value.
 		strategy MigrationStrategy
 	}{
 		{
@@ -232,7 +232,7 @@ func TestAnalyzerOverlayShape_NoAnalyzerOverlayDefault(t *testing.T) {
 // directly so a refactor that replaces the embed with a different default
 // implementation still fails this test loudly.
 func TestAnalyzerOverlayShape_BareNoAnalyzerOverlay(t *testing.T) {
-	var analyzerOverlayBase NoAnalyzerOverlay
+	var analyzerOverlayBase noAnalyzerOverlay
 	assert.Nil(t, analyzerOverlayBase.AnalyzerOverlay(nil))
 	assert.Nil(t, analyzerOverlayBase.AnalyzerOverlay([]string{}))
 	assert.Nil(t, analyzerOverlayBase.AnalyzerOverlay([]string{"any", "props"}))

@@ -34,6 +34,7 @@ type ShardReindexerV3 interface {
 	Stop(shard ShardLike, cause error)
 }
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
 type ShardReindexTaskV3 interface {
 	Name() string
 	OnBeforeLsmInit(ctx context.Context, shard ShardLike) error
@@ -80,7 +81,7 @@ func NewShardReindexerV3(ctx context.Context, logger logrus.FieldLogger,
 		logger:                      logger,
 		ctx:                         ctx,
 		getIndex:                    getIndex,
-		queue:                       NewShardsQueue(),
+		queue:                       newShardsQueue(),
 		lock:                        new(sync.Mutex),
 		taskNames:                   map[string]struct{}{},
 		tasks:                       []ShardReindexTaskV3{},
@@ -97,7 +98,7 @@ type shardReindexerV3 struct {
 	logger   logrus.FieldLogger
 	ctx      context.Context
 	getIndex func(className schema.ClassName) IndexLike
-	queue    *ShardsQueue
+	queue    *shardsQueue
 	lock     *sync.Mutex
 
 	taskNames                   map[string]struct{}
@@ -392,7 +393,7 @@ func (r *shardReindexerV3) locked(callback func()) {
 
 // -----------------------------------------------------------------------------
 
-type ShardsQueue struct {
+type shardsQueue struct {
 	lock           *sync.Mutex
 	runShardQueue  *priorityqueue.Queue[string]
 	tasksPerShard  map[string][]ShardReindexTaskV3
@@ -400,8 +401,8 @@ type ShardsQueue struct {
 	timerCtxCancel context.CancelFunc
 }
 
-func NewShardsQueue() *ShardsQueue {
-	q := &ShardsQueue{
+func newShardsQueue() *shardsQueue {
+	q := &shardsQueue{
 		lock:          new(sync.Mutex),
 		runShardQueue: priorityqueue.NewMinWithId[string](16),
 		tasksPerShard: map[string][]ShardReindexTaskV3{},
@@ -411,7 +412,7 @@ func NewShardsQueue() *ShardsQueue {
 	return q
 }
 
-func (q *ShardsQueue) Insert(key string, tasks []ShardReindexTaskV3, runAt time.Time) error {
+func (q *shardsQueue) Insert(key string, tasks []ShardReindexTaskV3, runAt time.Time) error {
 	id := q.timeToId(runAt)
 
 	q.lock.Lock()
@@ -432,7 +433,7 @@ func (q *ShardsQueue) Insert(key string, tasks []ShardReindexTaskV3, runAt time.
 	return nil
 }
 
-func (q *ShardsQueue) delete(key string) bool {
+func (q *shardsQueue) delete(key string) bool {
 	q.lock.Lock()
 	defer q.lock.Unlock()
 
@@ -461,7 +462,7 @@ func (q *ShardsQueue) delete(key string) bool {
 	})
 }
 
-func (q *ShardsQueue) GetWhenReady(ctx context.Context) (key string, tasks []ShardReindexTaskV3, err error) {
+func (q *shardsQueue) GetWhenReady(ctx context.Context) (key string, tasks []ShardReindexTaskV3, err error) {
 	q.lock.Lock()
 	timerCtx, timerCtxCancel := q.timerCtx, q.timerCtxCancel
 	q.lock.Unlock()
@@ -512,20 +513,20 @@ func (q *ShardsQueue) GetWhenReady(ctx context.Context) (key string, tasks []Sha
 	}
 }
 
-func (q *ShardsQueue) timeToId(tm time.Time) uint64 {
+func (q *shardsQueue) timeToId(tm time.Time) uint64 {
 	return uint64(-tm.UnixNano())
 }
 
-func (q *ShardsQueue) idToTime(id uint64) time.Time {
+func (q *shardsQueue) idToTime(id uint64) time.Time {
 	nsec := -int64(id)
 	return time.Unix(0, nsec)
 }
 
-func (q *ShardsQueue) deadlineCtx(deadline time.Time) (context.Context, context.CancelFunc) {
+func (q *shardsQueue) deadlineCtx(deadline time.Time) (context.Context, context.CancelFunc) {
 	return context.WithDeadline(context.Background(), deadline)
 }
 
-func (q *ShardsQueue) infiniteDeadlineCtx() (context.Context, context.CancelFunc) {
+func (q *shardsQueue) infiniteDeadlineCtx() (context.Context, context.CancelFunc) {
 	return q.deadlineCtx(time.Now().Add(10 * 365 * 24 * time.Hour))
 }
 

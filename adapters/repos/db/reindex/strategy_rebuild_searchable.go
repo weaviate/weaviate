@@ -19,6 +19,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // RebuildSearchableStrategy rebuilds an existing BlockMax (StrategyInverted)
 // searchable bucket from the objects store while preserving the property's
 // current tokenization and BM25 algorithm. Dispatch rejects WAND properties

@@ -28,6 +28,7 @@ import (
 // Reindex tracker interface and file-based implementation
 // -----------------------------------------------------------------------------
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
 type ReindexTracker interface {
 	HasStartCondition() bool
 	IsStarted() bool
@@ -95,6 +96,7 @@ func NewFileReindexTracker(lsmPath, migrationDirName string, keyParser indexKeyP
 	}
 }
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
 type FileReindexTracker struct {
 	progressCheckpoint int
 	keyParser          indexKeyParser

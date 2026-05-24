@@ -47,29 +47,29 @@ import (
 // (runningHandles + the WaitForLocalTaskDrain path).
 func structuralInvariantNewBareProvider() *ReindexProvider {
 	return &ReindexProvider{
-		RunningHandles: make(map[distributedtask.TaskDescriptor]*ReindexTaskHandle),
+		RunningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		Payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		ReindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		ActiveWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
 	}
 }
 
-// structuralInvariantInjectHandle installs a hand-built ReindexTaskHandle
+// structuralInvariantInjectHandle installs a hand-built reindexTaskHandle
 // for the given descriptor without going through StartTask (which
 // requires a fully wired DB / Index / schema manager). Returns the
 // injected handle so the test can close its doneCh on demand.
 func structuralInvariantInjectHandle(
 	p *ReindexProvider,
 	desc distributedtask.TaskDescriptor,
-) *ReindexTaskHandle {
+) *reindexTaskHandle {
 	_, cancel := context.WithCancel(context.Background())
-	handle := &ReindexTaskHandle{
+	handle := &reindexTaskHandle{
 		Cancel: cancel,
 		DoneCh: make(chan struct{}),
 	}
-	p.Mu.Lock()
+	p.mu.Lock()
 	p.RunningHandles[desc] = handle
-	p.Mu.Unlock()
+	p.mu.Unlock()
 	return handle
 }
 
@@ -187,14 +187,14 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_RespectsContextCancel(t *test
 //
 // We can't drive StartTask directly here (it needs a full DB).
 // Instead we exercise the invariant against a hand-built
-// ReindexTaskHandle whose cancel hook matches the StartTask wiring:
+// reindexTaskHandle whose cancel hook matches the StartTask wiring:
 // Terminate triggers ctx cancellation, and a worker that respects ctx
 // closes doneCh in its defer. This pins the shape of the
 // handle.cancel + handle.DoneCh contract that StartTask exposes to
 // the Scheduler.
 func TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	handle := &ReindexTaskHandle{
+	handle := &reindexTaskHandle{
 		Cancel: cancel,
 		DoneCh: make(chan struct{}),
 	}

@@ -31,6 +31,8 @@ import (
 // reserved namespace for any future user-defined property whose name happens
 // to collide with a suffix base.
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // MigrationStrategy encapsulates the parts that differ per migration type
 // (e.g., Map→Blockmax, Set→RoaringSet). The lifecycle logic (state machine,
 // merge/swap/tidy, object iteration, progress tracking) lives in
@@ -173,9 +175,9 @@ type MigrationStrategy interface {
 // Embed this struct to get the nil-return default; strategies that need a
 // real overlay (enable-filterable, enable-searchable, enable-rangeable)
 // define their own method which shadows the embed.
-type NoAnalyzerOverlay struct{}
+type noAnalyzerOverlay struct{}
 
-func (NoAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
+func (noAnalyzerOverlay) AnalyzerOverlay(_ []string) map[string]inverted.PropertyOverlay {
 	return nil
 }
 
@@ -253,6 +255,8 @@ func applyPerPropertySchemaUpdate(
 	return missing, nil
 }
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
 // Renamed from mapToBlockmaxConfig to be strategy-agnostic.
 type ReindexTaskConfig struct {

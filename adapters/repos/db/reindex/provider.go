@@ -64,7 +64,7 @@ import (
 // not by the barrier dance — falling back to the filterable bucket walk
 // on shards that haven't completed locally is slow but correct.
 type ReindexProvider struct {
-	Mu       sync.Mutex
+	mu       sync.Mutex
 	recorder distributedtask.TaskCompletionRecorder
 
 	db            DBLike
@@ -80,7 +80,7 @@ type ReindexProvider struct {
 	// long-running swaps.
 	ServerCtx context.Context
 
-	RunningHandles map[distributedtask.TaskDescriptor]*ReindexTaskHandle
+	RunningHandles map[distributedtask.TaskDescriptor]*reindexTaskHandle
 
 	// Payloads caches deserialized task Payloads for use in OnGroupCompleted,
 	// which receives the raw *Task but needs the typed payload.
@@ -169,7 +169,7 @@ func NewReindexProvider(
 		LocalNode:      localNode,
 		concurrency:    concurrency,
 		ServerCtx:      serverCtx,
-		RunningHandles: make(map[distributedtask.TaskDescriptor]*ReindexTaskHandle),
+		RunningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
 		Payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		ReindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		ActiveWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
@@ -199,8 +199,8 @@ func (p *ReindexProvider) SeedReindexTaskCache(
 	if len(cache) == 0 {
 		return
 	}
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	for desc, byUnit := range cache {
 		if p.ReindexTasks[desc] == nil {
 			p.ReindexTasks[desc] = map[string][]*ShardReindexTaskGeneric{}
@@ -221,41 +221,41 @@ func (p *ReindexProvider) GetLocalTasks() []distributedtask.TaskDescriptor {
 // TaskDescriptor. Every state mutation goes through one of these so the
 // lock is always released via defer.
 
-func (p *ReindexProvider) RegisterStartingTask(desc distributedtask.TaskDescriptor, handle *ReindexTaskHandle, payload *ReindexTaskPayload) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+func (p *ReindexProvider) RegisterStartingTask(desc distributedtask.TaskDescriptor, handle *reindexTaskHandle, payload *ReindexTaskPayload) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.RunningHandles[desc] = handle
 	p.Payloads[desc] = payload
 }
 
 func (p *ReindexProvider) DeleteRunningHandle(desc distributedtask.TaskDescriptor) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	delete(p.RunningHandles, desc)
 }
 
-func (p *ReindexProvider) RunningHandle(desc distributedtask.TaskDescriptor) (*ReindexTaskHandle, bool) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+func (p *ReindexProvider) RunningHandle(desc distributedtask.TaskDescriptor) (*reindexTaskHandle, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	handle, ok := p.RunningHandles[desc]
 	return handle, ok
 }
 
 func (p *ReindexProvider) CachedPayload(desc distributedtask.TaskDescriptor) *ReindexTaskPayload {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.Payloads[desc]
 }
 
 func (p *ReindexProvider) CachedReindexTasks(desc distributedtask.TaskDescriptor, unitID string) []*ShardReindexTaskGeneric {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	return p.ReindexTasks[desc][unitID]
 }
 
 func (p *ReindexProvider) CacheReindexTasks(desc distributedtask.TaskDescriptor, unitID string, tasks []*ShardReindexTaskGeneric) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.ReindexTasks[desc] == nil {
 		p.ReindexTasks[desc] = make(map[string][]*ShardReindexTaskGeneric)
 	}
@@ -263,8 +263,8 @@ func (p *ReindexProvider) CacheReindexTasks(desc distributedtask.TaskDescriptor,
 }
 
 func (p *ReindexProvider) ClearTaskCaches(desc distributedtask.TaskDescriptor) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	delete(p.Payloads, desc)
 	delete(p.ReindexTasks, desc)
 }
@@ -272,8 +272,8 @@ func (p *ReindexProvider) ClearTaskCaches(desc distributedtask.TaskDescriptor) {
 // ClaimActiveWorker reserves the (desc, unitID) slot in activeWorkers.
 // Returns false if another worker already holds it.
 func (p *ReindexProvider) ClaimActiveWorker(desc distributedtask.TaskDescriptor, unitID string) bool {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.ActiveWorkers[desc][unitID] {
 		return false
 	}
@@ -285,8 +285,8 @@ func (p *ReindexProvider) ClaimActiveWorker(desc distributedtask.TaskDescriptor,
 }
 
 func (p *ReindexProvider) ReleaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
-	p.Mu.Lock()
-	defer p.Mu.Unlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	delete(p.ActiveWorkers[desc], unitID)
 	if len(p.ActiveWorkers[desc]) == 0 {
 		delete(p.ActiveWorkers, desc)
@@ -323,7 +323,7 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	handle := &ReindexTaskHandle{
+	handle := &reindexTaskHandle{
 		Cancel: cancel,
 		DoneCh: make(chan struct{}),
 	}
@@ -1930,6 +1930,8 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // MaybeSetTokenizationOverlayPreSwap sets the per-shard tokenization
 // overlay before the swap loop on a tokenization-changing migration.
 // Returns true iff the overlay was written, so the caller can match
@@ -1950,6 +1952,8 @@ func MaybeSetTokenizationOverlayPreSwap(shard ShardLike, payload *ReindexTaskPay
 	return true
 }
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // MaybeClearTokenizationOverlayOnAllFailed is the defensive CLEAR
 // hook — called by [OnGroupCompleted] AFTER the per-task swap loop
 // on a shard. It clears the per-shard tokenization overlay iff (a)
@@ -2022,16 +2026,16 @@ func (p *ReindexProvider) WaitForLocalTaskDrain(
 }
 
 // reindexTaskHandle implements distributedtask.TaskHandle.
-type ReindexTaskHandle struct {
+type reindexTaskHandle struct {
 	Cancel context.CancelFunc
 	DoneCh chan struct{}
 }
 
-func (h *ReindexTaskHandle) Terminate() {
+func (h *reindexTaskHandle) Terminate() {
 	h.Cancel()
 }
 
-func (h *ReindexTaskHandle) Done() <-chan struct{} {
+func (h *reindexTaskHandle) Done() <-chan struct{} {
 	return h.DoneCh
 }
 

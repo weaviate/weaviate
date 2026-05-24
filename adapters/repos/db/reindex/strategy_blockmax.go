@@ -21,10 +21,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // MapToBlockmaxStrategy implements MigrationStrategy for the
 // MapCollection → Inverted (blockmax WAND) migration of searchable properties.
 type MapToBlockmaxStrategy struct {
-	NoAnalyzerOverlay
+	noAnalyzerOverlay
 	SchemaManager *schema.Manager
 	Generation    int // see GenSuffix godoc
 }

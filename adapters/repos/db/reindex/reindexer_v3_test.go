@@ -26,7 +26,7 @@ func TestProcessingQueue(t *testing.T) {
 		expTasks := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
 		interval := 10 * time.Millisecond
 		expTime := time.Now().Add(interval)
-		q := NewShardsQueue()
+		q := newShardsQueue()
 
 		q.Insert(expKey, expTasks, expTime)
 		key, tasks, err := q.GetWhenReady(context.Background())
@@ -56,7 +56,7 @@ func TestProcessingQueue(t *testing.T) {
 		expTime4 := time.Now().Add(interval * 4)
 		expTime5 := time.Now().Add(interval * 5)
 
-		q := NewShardsQueue()
+		q := newShardsQueue()
 
 		q.Insert(expKey4, expTasks4, expTime4)
 		q.Insert(expKey3, expTasks3, expTime3)
@@ -119,7 +119,7 @@ func TestProcessingQueue(t *testing.T) {
 		expTime4 := time.Now().Add(interval * 4)
 		expTime5 := time.Now().Add(interval * 5)
 
-		q := NewShardsQueue()
+		q := newShardsQueue()
 
 		q.Insert(expKey4, expTasks4, expTime4)
 		q.Insert(expKey3, expTasks3, expTime3)

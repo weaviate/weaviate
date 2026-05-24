@@ -20,12 +20,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // RoaringSetRefreshStrategy implements MigrationStrategy for a same-strategy
 // reindex of filterable (RoaringSet) properties. This rebuilds the filterable
 // index from the objects bucket without changing the storage format, useful for
 // corruption recovery.
 type RoaringSetRefreshStrategy struct {
-	NoAnalyzerOverlay
+	noAnalyzerOverlay
 	Generation int // see GenSuffix godoc
 }
 

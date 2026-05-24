@@ -142,6 +142,8 @@ func TypesConflictReason(newType ReindexMigrationType, newProps []string,
 	return typesConflictReason(newType, newProps, existType, existProps)
 }
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // ReindexPropsOverlap returns true if two property sets overlap. An
 // empty set means "all properties", which overlaps with everything.
 //
@@ -161,6 +163,8 @@ func ReindexPropsOverlap(a, b []string) bool {
 	return false
 }
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // TouchesSearchable reports whether migration type t writes to the
 // searchable bucket. Implemented as an exhaustive switch so that a
 // newly-added [ReindexMigrationType] cannot silently be treated as
@@ -187,6 +191,8 @@ func TouchesSearchable(t ReindexMigrationType) bool {
 	}
 }
 
+// Test-only export: relocation follow-up tracked separately; no new external callers.
+//
 // TouchesFilterable reports whether migration type t writes to the
 // filterable bucket. Same exhaustive-switch contract as
 // [TouchesSearchable].
