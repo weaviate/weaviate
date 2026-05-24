@@ -286,17 +286,23 @@ func (u *UserConfig) validate() error {
 
 	// Numeric range validation for fields that previously silently accepted
 	// negative or otherwise-invalid values. EF is intentionally excluded as -1
-	// is the documented "let Weaviate pick" value (see DefaultEF).
-	if u.DynamicEFMin < 0 {
-		errMsgs = append(errMsgs, "dynamicEfMin must not be negative")
+	// is the documented "let Weaviate pick" value (see DefaultEF). Listed in a
+	// fixed order so error messages stay deterministic.
+	nonNegative := []struct {
+		name  string
+		value int
+	}{
+		{"dynamicEfMin", u.DynamicEFMin},
+		{"dynamicEfMax", u.DynamicEFMax},
+		{"dynamicEfFactor", u.DynamicEFFactor},
+		{"flatSearchCutoff", u.FlatSearchCutoff},
+		{"cleanupIntervalSeconds", u.CleanupIntervalSeconds},
+		{"vectorCacheMaxObjects", u.VectorCacheMaxObjects},
 	}
-
-	if u.DynamicEFMax < 0 {
-		errMsgs = append(errMsgs, "dynamicEfMax must not be negative")
-	}
-
-	if u.DynamicEFFactor < 0 {
-		errMsgs = append(errMsgs, "dynamicEfFactor must not be negative")
+	for _, f := range nonNegative {
+		if f.value < 0 {
+			errMsgs = append(errMsgs, f.name+" must not be negative")
+		}
 	}
 
 	// Cross-field invariant: efMin must not exceed efMax. Only enforced when
@@ -307,18 +313,6 @@ func (u *UserConfig) validate() error {
 			"dynamicEfMin (%d) must be less than or equal to dynamicEfMax (%d)",
 			u.DynamicEFMin, u.DynamicEFMax,
 		))
-	}
-
-	if u.FlatSearchCutoff < 0 {
-		errMsgs = append(errMsgs, "flatSearchCutoff must not be negative")
-	}
-
-	if u.CleanupIntervalSeconds < 0 {
-		errMsgs = append(errMsgs, "cleanupIntervalSeconds must not be negative")
-	}
-
-	if u.VectorCacheMaxObjects < 0 {
-		errMsgs = append(errMsgs, "vectorCacheMaxObjects must not be negative")
 	}
 
 	if len(errMsgs) > 0 {

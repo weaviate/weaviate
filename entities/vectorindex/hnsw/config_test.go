@@ -31,6 +31,17 @@ func Test_UserConfig(t *testing.T) {
 		expectErrMsg string
 	}
 
+	// negativeCase builds a "<field> must not be negative" error-shape test.
+	// Used to keep the table compact for fields that share a validation rule.
+	negativeCase := func(field string, value int) test {
+		return test{
+			name:         "invalid " + field + " (negative)",
+			input:        map[string]interface{}{field: float64(value)},
+			expectErr:    true,
+			expectErrMsg: field + " must not be negative",
+		}
+	}
+
 	tests := []test{
 		{
 			name:  "nothing specified, all defaults",
@@ -654,7 +665,7 @@ func Test_UserConfig(t *testing.T) {
 		},
 		{
 			// Reproduces gh-11399: dynamicEfMin must not exceed
-			// dynamicEfMax.
+			// dynamicEfMax (cross-field invariant).
 			name: "invalid dynamicEf bounds (min > max)",
 			input: map[string]interface{}{
 				"dynamicEfMin": float64(500),
@@ -664,56 +675,16 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "dynamicEfMin (500) must be less than or " +
 				"equal to dynamicEfMax (10)",
 		},
-		{
-			// Reproduces gh-11400: negative flatSearchCutoff has no
-			// meaningful interpretation.
-			name: "invalid flatSearchCutoff (negative)",
-			input: map[string]interface{}{
-				"flatSearchCutoff": float64(-100),
-			},
-			expectErr:    true,
-			expectErrMsg: "flatSearchCutoff must not be negative",
-		},
-		{
-			name: "invalid dynamicEfMin (negative)",
-			input: map[string]interface{}{
-				"dynamicEfMin": float64(-1),
-			},
-			expectErr:    true,
-			expectErrMsg: "dynamicEfMin must not be negative",
-		},
-		{
-			name: "invalid dynamicEfMax (negative)",
-			input: map[string]interface{}{
-				"dynamicEfMax": float64(-1),
-			},
-			expectErr:    true,
-			expectErrMsg: "dynamicEfMax must not be negative",
-		},
-		{
-			name: "invalid dynamicEfFactor (negative)",
-			input: map[string]interface{}{
-				"dynamicEfFactor": float64(-1),
-			},
-			expectErr:    true,
-			expectErrMsg: "dynamicEfFactor must not be negative",
-		},
-		{
-			name: "invalid cleanupIntervalSeconds (negative)",
-			input: map[string]interface{}{
-				"cleanupIntervalSeconds": float64(-1),
-			},
-			expectErr:    true,
-			expectErrMsg: "cleanupIntervalSeconds must not be negative",
-		},
-		{
-			name: "invalid vectorCacheMaxObjects (negative)",
-			input: map[string]interface{}{
-				"vectorCacheMaxObjects": float64(-1),
-			},
-			expectErr:    true,
-			expectErrMsg: "vectorCacheMaxObjects must not be negative",
-		},
+		// Negative-value cases for the per-field range checks. The literal
+		// gh-11400 reproducer (flatSearchCutoff=-100) is included; the rest
+		// pin adjacent fields covered by the same validation pass. Generated
+		// from a single slice so future fields can be added with one line.
+		negativeCase("flatSearchCutoff", -100), // reproduces gh-11400
+		negativeCase("dynamicEfMin", -1),
+		negativeCase("dynamicEfMax", -1),
+		negativeCase("dynamicEfFactor", -1),
+		negativeCase("cleanupIntervalSeconds", -1),
+		negativeCase("vectorCacheMaxObjects", -1),
 		{
 			name: "with bq",
 			input: map[string]interface{}{
