@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -86,15 +87,19 @@ func (h reindexIndexHandle) ForEachLoadedShard(fn func(name string, shard reinde
 }
 
 // asReindexShard narrows a db.ShardLike to the reindex package's
-// ShardLike. The concrete *Shard and *LazyLoadShard both satisfy
-// reindex.ShardLike via the exported wrappers in shard_export.go /
-// lazyloader_export.go — the assertion only fails if a test mock
-// flows in via this path.
+// ShardLike. *Shard and *LazyLoadShard both satisfy reindex.ShardLike
+// via the exported wrappers in shard_export.go and
+// lazyloader_export.go. Panics on a mismatch — a db.ShardLike that
+// doesn't satisfy reindex.ShardLike means a new ShardLike
+// implementation has landed without picking up the reindex-facing
+// surface, and silently returning nil here would hide that until a
+// later nil-dereference inside the reindex package.
 func asReindexShard(shard ShardLike) reindex.ShardLike {
-	if r, ok := shard.(reindex.ShardLike); ok {
-		return r
+	r, ok := shard.(reindex.ShardLike)
+	if !ok {
+		panic(fmt.Sprintf("db.ShardLike of type %T does not satisfy reindex.ShardLike — extend the new wrapper with the reindex-facing exported surface (see shard_export.go / lazyloader_export.go)", shard))
 	}
-	return nil
+	return r
 }
 
 func (h reindexIndexHandle) RefuseIfReindexInFlight(shardName string) error {
