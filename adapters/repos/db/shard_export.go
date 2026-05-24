@@ -95,3 +95,10 @@ func (s *Shard) RegisterDeleteFromPropertyValueIndex(cb reindex.OnDeleteFromProp
 func (s *Shard) SetFallbackToSearchable(fallback bool) {
 	s.setFallbackToSearchable(fallback)
 }
+
+// ParentIndex returns the parent index as a [reindex.IndexLike]
+// handle. *Shard.Index() (returning the concrete *Index) remains the
+// db-internal accessor; ParentIndex is the reindex-facing one.
+func (s *Shard) ParentIndex() reindex.IndexLike {
+	return s.index.ReindexHandle()
+}

@@ -105,7 +105,7 @@ func (s *EnableSearchableStrategy) PreReindexHook(shard ShardLike, props []strin
 		if shard.Store().Bucket(bucketName) == nil {
 			opts := shard.MakeDefaultBucketOptions(lsmkv.StrategyInverted)
 			if err := shard.Store().CreateOrLoadBucket(ctx, bucketName, opts...); err != nil {
-				shard.Index().Logger().WithField("bucket", bucketName).
+				shard.ParentIndex().Logger().WithField("bucket", bucketName).
 					WithError(err).Error("PreReindexHook: failed to create searchable bucket")
 			}
 		}

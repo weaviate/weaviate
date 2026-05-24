@@ -56,7 +56,7 @@ type ShardInvertedReindexer struct {
 }
 
 func NewShardInvertedReindexer(shard ShardLike, logger logrus.FieldLogger) *ShardInvertedReindexer {
-	class := shard.Index().GetSchema().ReadOnlyClass(shard.Index().ClassName().String())
+	class := shard.ParentIndex().GetSchema().ReadOnlyClass(shard.ParentIndex().ClassName().String())
 	if class == nil {
 		return nil
 	}
@@ -94,7 +94,7 @@ func (r *ShardInvertedReindexer) doTask(ctx context.Context, task ShardInvertedR
 	if len(reindexProperties) == 0 {
 		r.logger.
 			WithField("action", "inverted_reindex").
-			WithField("index", r.shard.Index().ID()).
+			WithField("index", r.shard.ParentIndex().ID()).
 			WithField("shard", r.shard.ID()).
 			Debug("no properties to reindex")
 		return nil
@@ -234,7 +234,7 @@ func (r *ShardInvertedReindexer) createTempBucket(ctx context.Context, name stri
 	strategy string, options ...lsmkv.BucketOption,
 ) error {
 	tempName := helpers.TempBucketFromBucketName(name)
-	index := r.shard.Index()
+	index := r.shard.ParentIndex()
 	bucketOptions := append(options,
 		lsmkv.WithStrategy(strategy),
 		lsmkv.WithMinMMapSize(index.ConfigSnapshot().MinMMapSize),
@@ -358,7 +358,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 	}
 
 	// properties where defining a length does not make sense (floats etc.) have a negative entry as length
-	if r.shard.Index().InvertedIndexConfig().IndexPropertyLength &&
+	if r.shard.ParentIndex().InvertedIndexConfig().IndexPropertyLength &&
 		checker.isReindexable(property.Name, IndexTypePropLength) &&
 		property.Length >= 0 {
 
@@ -375,7 +375,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		}
 	}
 
-	if r.shard.Index().InvertedIndexConfig().IndexNullState &&
+	if r.shard.ParentIndex().InvertedIndexConfig().IndexNullState &&
 		checker.isReindexable(property.Name, IndexTypePropNull) {
 
 		key, err := bucketKeyPropertyNull(property.Length == 0)
@@ -397,7 +397,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker *reindexablePropertyChecker,
 	docID uint64, nilProperty inverted.NilProperty,
 ) error {
-	if r.shard.Index().InvertedIndexConfig().IndexPropertyLength &&
+	if r.shard.ParentIndex().InvertedIndexConfig().IndexPropertyLength &&
 		checker.isReindexable(nilProperty.Name, IndexTypePropLength) &&
 		nilProperty.AddToPropertyLength {
 
@@ -414,7 +414,7 @@ func (r *ShardInvertedReindexer) handleNilProperty(ctx context.Context, checker 
 		}
 	}
 
-	if r.shard.Index().InvertedIndexConfig().IndexNullState &&
+	if r.shard.ParentIndex().InvertedIndexConfig().IndexNullState &&
 		checker.isReindexable(nilProperty.Name, IndexTypePropNull) {
 
 		key, err := bucketKeyPropertyNull(true)

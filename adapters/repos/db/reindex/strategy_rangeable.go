@@ -176,7 +176,7 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard ShardLike, props []
 		}
 		opts := shard.MakeDefaultBucketOptions(lsmkv.StrategyRoaringSetRange)
 		if err := shard.Store().CreateOrLoadBucket(ctx, bucketName, opts...); err != nil {
-			shard.Index().Logger().WithField("bucket", bucketName).
+			shard.ParentIndex().Logger().WithField("bucket", bucketName).
 				WithError(err).Error("PreReindexHook: failed to create rangeable bucket")
 		}
 	}
@@ -244,7 +244,7 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 		}
 	}
 
-	className := shard.Index().ClassName().String()
+	className := shard.ParentIndex().ClassName().String()
 	trueVal := true
 	// Missing properties are tolerated: a property dropped between
 	// scheduling and completion is the same outcome we'd want anyway.

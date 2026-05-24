@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -72,11 +73,11 @@ func changeFile(filename string, delete bool, content []byte, logger *logrus.Ent
 					// through to the existing "shard not found or not ready"
 					// error path below — matches pre-gen behaviour.
 					lsmPath := filepath.Join(rootPath, classNameString, shardName, "lsm")
-					gen := db.MaxMigrationGenerationForDebug(lsmPath, db.MigrationDirSearchableMapToBlockmax, "")
+					gen := reindex.MaxMigrationGenerationForDebug(lsmPath, reindex.MigrationDirSearchableMapToBlockmax, "")
 					if gen == 0 {
 						return fmt.Errorf("shard not found or not ready")
 					}
-					shardPath := filepath.Join(lsmPath, ".migrations", db.MigrationDirSearchableMapToBlockmax+db.GenSuffixForDebug(gen))
+					shardPath := filepath.Join(lsmPath, ".migrations", reindex.MigrationDirSearchableMapToBlockmax+reindex.GenSuffixForDebug(gen))
 					filenameShard := filepath.Join(shardPath, filename)
 					_, err := os.Stat(shardPath)
 					if err != nil {

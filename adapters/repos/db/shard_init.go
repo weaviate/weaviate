@@ -258,13 +258,13 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 		// No .migrations dir is the common case: nothing to do.
 		return
 	}
-	const prefix = MigrationDirPrefixFilterableToRangeable + "_"
+	const prefix = reindex.MigrationDirPrefixFilterableToRangeable + "_"
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		base, _, ok := parseMigrationDirName(name)
+		base, _, ok := reindex.ParseMigrationDirName(name)
 		if !ok {
 			continue
 		}
@@ -275,7 +275,7 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 		// promoted the migration or will at the next call site; the
 		// query-side fallback isn't needed for these.
 		dirPath := filepath.Join(migrationsDir, name)
-		if fileExistsInDir(dirPath, "tidied.mig") {
+		if reindex.FileExistsInDir(dirPath, "tidied.mig") {
 			continue
 		}
 		propNames, ok := readRecoveryPropertyNames(dirPath)
@@ -295,7 +295,7 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 // reindex.ReindexTaskPayload-shaped JSON — those edge cases are tolerated by
 // the caller, which falls back to the default-true readiness policy.
 func readRecoveryPropertyNames(migDir string) ([]string, bool) {
-	data, err := os.ReadFile(filepath.Join(migDir, reindexRecoveryPayloadFile))
+	data, err := os.ReadFile(filepath.Join(migDir, reindex.ReindexRecoveryPayloadFile))
 	if err != nil {
 		return nil, false
 	}

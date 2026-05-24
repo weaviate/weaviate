@@ -139,7 +139,7 @@ func ParseMigrationDirName(name string) (prefix string, generation int, ok bool)
 	return name[:idx], gen, true
 }
 
-// migrationDirsForPropertyIndex returns the per-property migration
+// MigrationDirsForPropertyIndex returns the per-property migration
 // directory names that — if marked tidied on disk — would lie after the
 // given (propName, indexType) bucket has been removed. Called from
 // updatePropertyBuckets after a DELETE so that a subsequent re-enable
@@ -156,7 +156,7 @@ func ParseMigrationDirName(name string) (prefix string, generation int, ok bool)
 // Wholesale-deleting them on a single property's DELETE would corrupt
 // the class-level migration; their per-property entries are pruned by
 // the strategy's own bookkeeping.
-func migrationDirsForPropertyIndex(propName, indexType string) []string {
+func MigrationDirsForPropertyIndex(propName, indexType string) []string {
 	switch indexType {
 	case "filterable":
 		return []string{

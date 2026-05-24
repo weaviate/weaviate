@@ -184,7 +184,7 @@ func (r *shardReindexerV3) RunBeforeLsmInit(_ context.Context, shard ShardLike) 
 	// TODO aliszka:blockmax merge contexts (reindex + incoming)?
 	mergedCtx := r.ctx
 
-	collectionName := shard.Index().ClassName().String()
+	collectionName := shard.ParentIndex().ClassName().String()
 	logger := r.logger.WithFields(map[string]any{
 		"collection": collectionName,
 		"shard":      shard.Name(),
@@ -216,7 +216,7 @@ func (r *shardReindexerV3) RunAfterLsmInit(_ context.Context, shard ShardLike) (
 	// TODO aliszka:blockmax merge contexts (reindex + incoming)?
 	mergedCtx := r.ctx
 
-	collectionName := shard.Index().ClassName().String()
+	collectionName := shard.ParentIndex().ClassName().String()
 	logger := r.logger.WithFields(map[string]any{
 		"collection": collectionName,
 		"shard":      shard.Name(),
@@ -245,7 +245,7 @@ func (r *shardReindexerV3) RunAfterLsmInit(_ context.Context, shard ShardLike) (
 }
 
 func (r *shardReindexerV3) RunAfterLsmInitAsync(_ context.Context, shard ShardLike) (err error) {
-	collectionName := shard.Index().ClassName().String()
+	collectionName := shard.ParentIndex().ClassName().String()
 	logger := r.logger.WithFields(map[string]any{
 		"collection": collectionName,
 		"shard":      shard.Name(),
@@ -281,7 +281,7 @@ func (r *shardReindexerV3) Stop(shard ShardLike, cause error) {
 		r.scheduleTasks(key, nil, time.Time{})
 	})
 
-	collectionName := shard.Index().ClassName().String()
+	collectionName := shard.ParentIndex().ClassName().String()
 	r.logger.WithFields(map[string]any{
 		"collection": collectionName,
 		"shard":      shard.Name(),
@@ -532,7 +532,7 @@ func (q *shardsQueue) infiniteDeadlineCtx() (context.Context, context.CancelFunc
 // -----------------------------------------------------------------------------
 
 func toIndexShardKeyOfShard(shard ShardLike) string {
-	return toIndexShardKey(shard.Index().ClassName().String(), shard.Name())
+	return toIndexShardKey(shard.ParentIndex().ClassName().String(), shard.Name())
 }
 
 func toIndexShardKey(collectionName, shardName string) string {

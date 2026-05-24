@@ -25,7 +25,7 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
-	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -287,7 +287,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 	if err != nil {
 		return ""
 	}
-	for _, task := range tasksByNamespace[db.ReindexNamespace] {
+	for _, task := range tasksByNamespace[reindex.ReindexNamespace] {
 		// PREPARING and SWAPPING count as in-flight (via
 		// [distributedtask.TaskStatus.IsActive]) — see the godoc on
 		// [checkReindexConflict] for the full reasoning. Mutating the
@@ -296,7 +296,7 @@ func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Con
 		if !task.Status.IsActive() {
 			continue
 		}
-		var payload db.ReindexTaskPayload
+		var payload reindex.ReindexTaskPayload
 		if err := json.Unmarshal(task.Payload, &payload); err != nil {
 			// Unparseable payload in flight is a hard reject reason on
 			// the apply side; mirror that here so the REST caller

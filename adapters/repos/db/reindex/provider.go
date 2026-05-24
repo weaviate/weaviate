@@ -1745,7 +1745,7 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 		lsmPath := concrete.PathLSM()
 		for _, indexType := range indexTypes {
 			for _, propName := range payload.Properties {
-				prefixes := migrationDirsForPropertyIndex(propName, indexType)
+				prefixes := MigrationDirsForPropertyIndex(propName, indexType)
 				if hasUntidiedTracker(lsmPath, prefixes) {
 					return false
 				}

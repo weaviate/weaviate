@@ -97,7 +97,7 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 	return highest
 }
 
-// completedMigrationGens returns the set of generation numbers whose
+// CompletedMigrationGens returns the set of generation numbers whose
 // migration tracker dir (for any of the strategy prefixes in `prefixes`)
 // has `tidied.mig` or `merged.mig` on disk — i.e., migrations that
 // completed successfully in-process and whose sidecar dirs are LIVE data
@@ -114,8 +114,8 @@ func maxMigrationGeneration(lsmPath, migrationDirPrefix, propNamesSuffix string)
 // submitting node.
 //
 // `prefixes` is the strategy-dir prefixes from
-// [migrationDirsForPropertyIndex] for the (propName, indexType) tuple.
-func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
+// [MigrationDirsForPropertyIndex] for the (propName, indexType) tuple.
+func CompletedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 	out := map[int]bool{}
 	migrationsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
@@ -145,7 +145,7 @@ func completedMigrationGens(lsmPath string, prefixes []string) map[int]bool {
 	return out
 }
 
-// FileExistsInDir is a small helper for [completedMigrationGens]; returns
+// FileExistsInDir is a small helper for [CompletedMigrationGens]; returns
 // true iff the named file is present in dirPath as a regular file.
 func FileExistsInDir(dirPath, fileName string) bool {
 	info, err := os.Stat(filepath.Join(dirPath, fileName))

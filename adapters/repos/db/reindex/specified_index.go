@@ -33,13 +33,13 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) GetPropertiesToReindex(ctx con
 	reindexableProperties := []ReindexableProperty{}
 
 	// shard of selected class
-	props, ok := t.classNamesWithPropertyNames[shard.Index().ClassName().String()]
+	props, ok := t.classNamesWithPropertyNames[shard.ParentIndex().ClassName().String()]
 	if !ok {
 		return reindexableProperties, nil
 	}
 
 	bucketOptions := []lsmkv.BucketOption{
-		lsmkv.WithDirtyThreshold(time.Duration(shard.Index().ConfigSnapshot().MemtablesFlushDirtyAfter) * time.Second),
+		lsmkv.WithDirtyThreshold(time.Duration(shard.ParentIndex().ConfigSnapshot().MemtablesFlushDirtyAfter) * time.Second),
 	}
 
 	for name := range shard.Store().GetBucketsByName() {
@@ -119,7 +119,7 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) OnPostResumeStore(ctx context.
 }
 
 func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLike) ObjectsIterator {
-	class := shard.Index().ClassName().String()
+	class := shard.ParentIndex().ClassName().String()
 	props, ok := t.classNamesWithPropertyNames[class]
 	if !ok || len(props) == 0 {
 		return nil
@@ -154,5 +154,15 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLik
 			i++
 		}
 		return nil
+	}
+}
+
+// NewShardInvertedReindexTaskSpecifiedIndex constructs the task with
+// the given (class, propertyNames) selector. The selector field is
+// unexported so the constructor is the only way to build one outside
+// the reindex package.
+func NewShardInvertedReindexTaskSpecifiedIndex(classNamesWithPropertyNames map[string]map[string]struct{}) *ShardInvertedReindexTask_SpecifiedIndex {
+	return &ShardInvertedReindexTask_SpecifiedIndex{
+		classNamesWithPropertyNames: classNamesWithPropertyNames,
 	}
 }

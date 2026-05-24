@@ -151,7 +151,7 @@ func (s *MapToBlockmaxStrategy) PreReindexHook(shard ShardLike, props []string) 
 // hook, the class-level flag is flipped (the flag write itself is a single
 // RAFT entry guarded by an "already set" short-circuit).
 func (s *MapToBlockmaxStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
-	className := shard.Index().ClassName().String()
+	className := shard.ParentIndex().ClassName().String()
 
 	for name, bucket := range shard.Store().GetBucketsByName() {
 		_, indexType := GetPropNameAndIndexTypeFromBucketName(name)

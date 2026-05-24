@@ -56,7 +56,7 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(c
 	reindexableProperties := []reindex.ReindexableProperty{}
 
 	t.stateLock.RLock()
-	className := shard.Index().ConfigSnapshot().ClassName.String()
+	className := shard.ParentIndex().ConfigSnapshot().ClassName.String()
 	props, ok := t.migrationState.MissingFilterableClass2Props[className]
 	t.stateLock.RUnlock()
 
@@ -65,7 +65,7 @@ func (t *shardInvertedReindexTaskMissingTextFilterable) GetPropertiesToReindex(c
 	}
 
 	bucketOptions := []lsmkv.BucketOption{
-		lsmkv.WithDirtyThreshold(time.Duration(shard.Index().ConfigSnapshot().MemtablesFlushDirtyAfter) * time.Second),
+		lsmkv.WithDirtyThreshold(time.Duration(shard.ParentIndex().ConfigSnapshot().MemtablesFlushDirtyAfter) * time.Second),
 	}
 
 	for propName := range props {

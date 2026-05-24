@@ -1035,9 +1035,7 @@ func (m *Migrator) doInvertedReindex(ctx context.Context, taskNamesWithArgs map[
 					classNamesWithPropertyNames[class][prop] = struct{}{}
 				}
 			}
-			tasks[name] = &reindex.ShardInvertedReindexTask_SpecifiedIndex{
-				classNamesWithPropertyNames: classNamesWithPropertyNames,
-			}
+			tasks[name] = reindex.NewShardInvertedReindexTaskSpecifiedIndex(classNamesWithPropertyNames)
 		}
 	}
 

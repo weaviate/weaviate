@@ -69,28 +69,11 @@ func (i *Index) CleanStalePartialReindexState(
 ) error {
 	var firstErr error
 	if err := i.ForEachShard(func(name string, shardLike ShardLike) error {
-		shard, ok := shardLike.(reindex.ShardLike)
-		if !ok {
-			// LazyLoadShard or other wrapper — skip cleanly. If the shard
-			// is not loaded its on-disk state is also not in use by an
-			// in-process goroutine, but we cannot reach the cleanup
-			// helper without unwrapping. The post-restart finalize and
-			// the OnAfterLsmInitAsync stale-sentinel check both fire on
-			// next load, so the safety net is intact even when we skip
-			// here.
-			lazy, isLazy := shardLike.(*LazyLoadShard)
-			if !isLazy {
-				return nil
-			}
-			unwrapped, unwrapErr := lazy.Unwrap(ctx)
-			if unwrapErr != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr)
-				}
-				return nil
-			}
-			shard = unwrapped
-		}
+		// Use the db.ShardLike interface directly — both *Shard and
+		// *LazyLoadShard satisfy it and expose
+		// CleanStalePartialReindexState (the former natively, the
+		// latter via the lazy-loader forwarder).
+		shard := shardLike
 		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("shard %q: %w", name, err)

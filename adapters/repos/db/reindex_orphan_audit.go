@@ -313,7 +313,7 @@ func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, lo
 	if err != nil {
 		return
 	}
-	genSuffixStr := genSuffix(o.generation)
+	genSuffixStr := reindex.GenSuffixForDebug(o.generation)
 	for _, propName := range o.properties {
 		prefixes := []string{
 			"property_" + propName + "__",

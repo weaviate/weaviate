@@ -13,16 +13,13 @@ package reindex
 
 import (
 	"context"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // ShardLike is the surface a reindex worker needs from a shard. ShardLike
@@ -32,9 +29,12 @@ import (
 type ShardLike interface {
 	Name() string
 	ID() string
-	Index() IndexLike
+	// ParentIndex returns the index the shard belongs to as a
+	// [reindex.IndexLike] handle. Named differently from
+	// *db.Shard.Index() (which returns the concrete *Index) to avoid
+	// a return-type collision at the structural-typing boundary.
+	ParentIndex() IndexLike
 	Store() *lsmkv.Store
-	Status() storagestate.Status
 	PathLSM() string
 
 	// Inverted-index bucket writers, promoted from unexported in this
@@ -58,15 +58,11 @@ type ShardLike interface {
 	MarkSearchableBlockmaxProperties(propNames ...string)
 	MakeDefaultBucketOptions(strategy string, customOptions ...lsmkv.BucketOption) []lsmkv.BucketOption
 
-	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
-
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error)
 	AnalyzeObjectForMigrationWithOverlay(*storobj.Object, map[string]inverted.PropertyOverlay) ([]inverted.Property, []inverted.NilProperty, error)
 	SetTokenizationOverlay(propName, target string)
 	ClearTokenizationOverlay(propName string)
 	ObjectCountAsync(ctx context.Context) (int64, error)
-
-	CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error
 
 	// Unwrap returns the concrete shard underlying any lazy wrapper.
 	// *Shard returns itself; *LazyLoadShard ensures the underlying
@@ -111,17 +107,13 @@ type IndexConfig struct {
 	MemtablesMaxActiveSeconds int
 }
 
-// SchemaGetter is the subset of schemaUC.SchemaGetter reindex consumes.
-// Re-declared here so reindex doesn't need to import usecases/schema.
+// SchemaGetter is the subset of schemaUC.SchemaGetter reindex
+// consumes. Re-declared here so reindex doesn't need to import
+// usecases/schema. Kept minimal — extending it should be driven by
+// actual call sites, not speculative methods.
 type SchemaGetter interface {
 	ReadOnlyClass(className string) *models.Class
-	NodeName() string
-	ShardOwner(class, shard string) (string, error)
-	ShardReplicas(class, shard string) ([]string, error)
-	CopyShardingState(class string) *sharding.State
-	ShardingState(class string) *sharding.State
 }
-
 
 // DBLike is the surface reindex needs from the top-level *db.DB.
 type DBLike interface {

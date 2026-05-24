@@ -416,7 +416,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 	}
 
 	logger := t.logger.WithFields(map[string]any{
-		"collection": concreteShard.Index().ClassName().String(),
+		"collection": concreteShard.ParentIndex().ClassName().String(),
 		"shard":      concreteShard.Name(),
 		"method":     "RunPrepareOnShard",
 	})
@@ -524,7 +524,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	}
 
 	logger := t.logger.WithFields(map[string]any{
-		"collection": concreteShard.Index().ClassName().String(),
+		"collection": concreteShard.ParentIndex().ClassName().String(),
 		"shard":      concreteShard.Name(),
 		"method":     "RunSwapOnShard",
 	})
@@ -807,7 +807,7 @@ func unwrapShard(ctx context.Context, shard ShardLike) (ShardLike, error) {
 }
 
 func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard ShardLike) (err error) {
-	collectionName := shard.Index().ClassName().String()
+	collectionName := shard.ParentIndex().ClassName().String()
 	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
@@ -1036,7 +1036,7 @@ func (t *ShardReindexTaskGeneric) OnBeforeLsmInit(ctx context.Context, shard Sha
 }
 
 func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard ShardLike) (err error) {
-	collectionName := shard.Index().ClassName().String()
+	collectionName := shard.ParentIndex().ClassName().String()
 	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
@@ -1197,7 +1197,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard Shar
 
 func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
-	collectionName := shard.Index().ClassName().String()
+	collectionName := shard.ParentIndex().ClassName().String()
 	shardName := shard.Name()
 	logger := t.logger.WithFields(map[string]any{
 		"collection": collectionName,
@@ -2492,7 +2492,7 @@ func (t *ShardReindexTaskGeneric) disableCallbacks() {
 func (t *ShardReindexTaskGeneric) bucketOptions(shard ShardLike, strategy string,
 	keepLevelCompaction, keepTombstones bool, memtableOptFactor int,
 ) []lsmkv.BucketOption {
-	cfg := shard.Index().ConfigSnapshot()
+	cfg := shard.ParentIndex().ConfigSnapshot()
 
 	return shard.MakeDefaultBucketOptions(strategy,
 		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
@@ -2512,7 +2512,7 @@ func (t *ShardReindexTaskGeneric) bucketOptions(shard ShardLike, strategy string
 // -----------------------------------------------------------------------------
 
 func (t *ShardReindexTaskGeneric) findPropsToReindex(shard ShardLike) (props []string, save bool) {
-	collectionName := shard.Index().ClassName().String()
+	collectionName := shard.ParentIndex().ClassName().String()
 	shardName := shard.Name()
 	propNames := []string{}
 
@@ -2650,7 +2650,7 @@ func uuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKe
 
 		startedCh <- time.Now() // after cursor created (necessary locks acquired)
 		addProps := additional.Properties{}
-		className := shard.Index().ClassName().String()
+		className := shard.ParentIndex().ClassName().String()
 
 		var k, v []byte
 		if lastKey == nil {

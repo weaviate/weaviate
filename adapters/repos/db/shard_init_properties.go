@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -190,8 +191,8 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logru
 		}
 		return
 	}
-	prefixes := migrationDirsForPropertyIndex(propName, indexType)
-	preserved := completedMigrationGens(lsmPath, prefixes)
+	prefixes := reindex.MigrationDirsForPropertyIndex(propName, indexType)
+	preserved := reindex.CompletedMigrationGens(lsmPath, prefixes)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -207,7 +208,7 @@ func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logru
 		if !matches {
 			continue
 		}
-		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
+		if _, gen, ok := reindex.ParseMigrationDirName(name); ok && preserved[gen] {
 			logger.WithField("path", filepath.Join(migrationsRoot, name)).
 				WithField("gen", gen).
 				Info("partial-reindex cleanup: preserving deferred-finalize tracker dir (tidied/merged present)")
@@ -276,8 +277,8 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	// sidecar dir is the live backing store of the in-memory main bucket
 	// pointer — wiping it here is the #10675-shape silent data loss this
 	// gate exists to prevent (R2/R2b on the controller node).
-	preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
-	preserveGens := completedMigrationGens(s.pathLSM(), preservePrefixes)
+	preservePrefixes := reindex.MigrationDirsForPropertyIndex(propName, indexType)
+	preserveGens := reindex.CompletedMigrationGens(s.pathLSM(), preservePrefixes)
 
 	prefix := mainBucketName + "__"
 	loaded := s.store.GetBucketsByName()
@@ -298,7 +299,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		// dir on disk is the canonical bucket's data until next-restart
 		// finalize renames it).
 		if len(preserveGens) > 0 {
-			if _, gen, ok := parseMigrationDirName(bucketName); ok && preserveGens[gen] {
+			if _, gen, ok := reindex.ParseMigrationDirName(bucketName); ok && preserveGens[gen] {
 				continue
 			}
 		}
@@ -410,7 +411,7 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 			continue
 		}
 		if len(preserveGens) > 0 {
-			if _, gen, ok := parseMigrationDirName(entry.Name()); ok && preserveGens[gen] {
+			if _, gen, ok := reindex.ParseMigrationDirName(entry.Name()); ok && preserveGens[gen] {
 				s.index.logger.WithField("path", filepath.Join(s.pathLSM(), entry.Name())).
 					WithField("gen", gen).
 					Info("partial-reindex cleanup: preserving deferred-finalize sidecar dir (live bucket pointer)")

@@ -13,6 +13,7 @@ package db
 
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 // areAllSearchableBucketsBlockMax reports whether the shard's
@@ -22,7 +23,7 @@ import (
 func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 	for name, bucket := range s.Store().GetBucketsByName() {
 		_, indexType := reindex.GetPropNameAndIndexTypeFromBucketName(name)
-		if bucket.Strategy() == lsmkv.StrategyMapCollection && indexType == IndexTypePropSearchableValue {
+		if bucket.Strategy() == lsmkv.StrategyMapCollection && indexType == reindex.IndexTypePropSearchableValue {
 			return false
 		}
 	}

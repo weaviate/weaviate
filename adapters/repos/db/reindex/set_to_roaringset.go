@@ -27,7 +27,7 @@ func (t *ShardInvertedReindexTaskSetToRoaringSet) GetPropertiesToReindex(ctx con
 	reindexableProperties := []ReindexableProperty{}
 
 	bucketOptions := []lsmkv.BucketOption{
-		lsmkv.WithDirtyThreshold(time.Duration(shard.Index().ConfigSnapshot().MemtablesFlushDirtyAfter) * time.Second),
+		lsmkv.WithDirtyThreshold(time.Duration(shard.ParentIndex().ConfigSnapshot().MemtablesFlushDirtyAfter) * time.Second),
 	}
 
 	for name, bucket := range shard.Store().GetBucketsByName() {

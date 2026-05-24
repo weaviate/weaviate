@@ -92,3 +92,33 @@ func (l *LazyLoadShard) SetFallbackToSearchable(fallback bool) {
 	l.mustLoad()
 	l.shard.SetFallbackToSearchable(fallback)
 }
+
+// ParentIndex returns the parent index as a [reindex.IndexLike]
+// handle. See [Shard.ParentIndex] for the contract.
+func (l *LazyLoadShard) ParentIndex() reindex.IndexLike {
+	return l.Index().ReindexHandle()
+}
+
+func (l *LazyLoadShard) PathLSMOrEmpty() string {
+	if l.shard == nil {
+		return ""
+	}
+	return l.shard.PathLSM()
+}
+
+func (l *LazyLoadShard) SetTokenizationOverlay(propName, target string) {
+	l.mustLoad()
+	l.shard.SetTokenizationOverlay(propName, target)
+}
+
+func (l *LazyLoadShard) ClearTokenizationOverlay(propName string) {
+	l.mustLoad()
+	l.shard.ClearTokenizationOverlay(propName)
+}
+
+func (l *LazyLoadShard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.CleanStalePartialReindexState(ctx, propName, indexType)
+}

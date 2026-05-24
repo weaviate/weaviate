@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -105,8 +106,8 @@ type State struct {
 	// distributed-task provider. Exposed here so the REST cancel handler
 	// can wait for a cancelled task's local goroutine to drain before
 	// triggering the on-disk state cleanup — see
-	// [db.ReindexProvider.WaitForLocalTaskDrain].
-	ReindexProvider *db.ReindexProvider
+	// [reindex.ReindexProvider.WaitForLocalTaskDrain].
+	ReindexProvider *reindex.ReindexProvider
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
 	// (collection, property) tuple across BOTH the reindex-submit
