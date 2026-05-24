@@ -20,7 +20,7 @@ import (
 )
 
 // Test*TokenizationOverlay* pin the per-shard tokenization overlay
-// lifecycle that [reindex.ReindexProvider.OnGroupCompleted] orchestrates for
+// lifecycle that [ReindexProvider.OnGroupCompleted] orchestrates for
 // https://github.com/weaviate/0-weaviate-issues/issues/216 Gap B. The helpers
 // [reindex.MaybeSetTokenizationOverlayPreSwap] and
 // [reindex.MaybeClearTokenizationOverlayOnAllFailed] encapsulate the SET (pre-

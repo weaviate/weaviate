@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex
 
 import (
 	"context"
@@ -18,16 +18,15 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 func TestProcessingQueue(t *testing.T) {
 	t.Run("single key", func(t *testing.T) {
 		expKey := "some_key"
-		expTasks := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
+		expTasks := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
 		interval := 10 * time.Millisecond
 		expTime := time.Now().Add(interval)
-		q := reindex.NewShardsQueue()
+		q := NewShardsQueue()
 
 		q.Insert(expKey, expTasks, expTime)
 		key, tasks, err := q.GetWhenReady(context.Background())
@@ -45,11 +44,11 @@ func TestProcessingQueue(t *testing.T) {
 		expKey3 := "some_key_3"
 		expKey4 := "some_key_4"
 		expKey5 := "some_key_5"
-		expTasks1 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
-		expTasks2 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t2"}}
-		expTasks3 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t3"}}
-		expTasks4 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t4"}}
-		expTasks5 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t5"}}
+		expTasks1 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
+		expTasks2 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t2"}}
+		expTasks3 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t3"}}
+		expTasks4 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t4"}}
+		expTasks5 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t5"}}
 		interval := 10 * time.Millisecond
 		expTime1 := time.Now().Add(interval)
 		expTime2 := time.Now().Add(interval * 2)
@@ -57,7 +56,7 @@ func TestProcessingQueue(t *testing.T) {
 		expTime4 := time.Now().Add(interval * 4)
 		expTime5 := time.Now().Add(interval * 5)
 
-		q := reindex.NewShardsQueue()
+		q := NewShardsQueue()
 
 		q.Insert(expKey4, expTasks4, expTime4)
 		q.Insert(expKey3, expTasks3, expTime3)
@@ -109,18 +108,18 @@ func TestProcessingQueue(t *testing.T) {
 		expKey4 := "some_key_4"
 		expKey5 := "some_key_5"
 		interval := 10 * time.Millisecond
-		expTasks1 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
-		expTasks2 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t2"}}
-		expTasks3 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t3"}}
-		expTasks4 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t4"}}
-		expTasks5 := []reindex.ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t5"}}
+		expTasks1 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t1"}}
+		expTasks2 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t2"}}
+		expTasks3 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t3"}}
+		expTasks4 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t4"}}
+		expTasks5 := []ShardReindexTaskV3{&dummyShardReindexTaskV3{name: "t5"}}
 		expTime1 := time.Now().Add(interval)
 		expTime2 := time.Now().Add(interval * 2)
 		expTime3 := time.Now().Add(interval * 3)
 		expTime4 := time.Now().Add(interval * 4)
 		expTime5 := time.Now().Add(interval * 5)
 
-		q := reindex.NewShardsQueue()
+		q := NewShardsQueue()
 
 		q.Insert(expKey4, expTasks4, expTime4)
 		q.Insert(expKey3, expTasks3, expTime3)
@@ -177,15 +176,15 @@ func (t *dummyShardReindexTaskV3) Name() string {
 	return t.name
 }
 
-func (t *dummyShardReindexTaskV3) OnBeforeLsmInit(ctx context.Context, shard reindex.ShardLike) error {
+func (t *dummyShardReindexTaskV3) OnBeforeLsmInit(ctx context.Context, shard ShardLike) error {
 	return nil
 }
 
-func (t *dummyShardReindexTaskV3) OnAfterLsmInit(ctx context.Context, shard reindex.ShardLike) error {
+func (t *dummyShardReindexTaskV3) OnAfterLsmInit(ctx context.Context, shard ShardLike) error {
 	return nil
 }
 
-func (t *dummyShardReindexTaskV3) OnAfterLsmInitAsync(ctx context.Context, shard reindex.ShardLike,
+func (t *dummyShardReindexTaskV3) OnAfterLsmInitAsync(ctx context.Context, shard ShardLike,
 ) (rerunAt time.Time, reloadShard bool, err error) {
 	return time.Time{}, false, nil
 }

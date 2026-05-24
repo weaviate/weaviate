@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex
 
 import (
 	"context"
@@ -18,11 +18,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// Structural invariant tests for the reindex.ReindexProvider's drain /
+// Structural invariant tests for the ReindexProvider's drain /
 // cancel-and-wait surface.
 //
 // The DTM-layer pieces live in
@@ -40,31 +39,31 @@ import (
 // caller's context (so a cancel→cleanup orchestrator can give up
 // rather than wait forever on a runaway worker).
 
-// structuralInvariantNewBareProvider returns a reindex.ReindexProvider with
+// structuralInvariantNewBareProvider returns a ReindexProvider with
 // just the maps initialized, mimicking the literal-construction
 // pattern used by reindex_conflict_test.go. The constructor
-// (reindex.NewReindexProvider) needs a full *DB which we don't have in unit
+// (NewReindexProvider) needs a full *DB which we don't have in unit
 // tests; the maps cover everything we exercise here
 // (runningHandles + the WaitForLocalTaskDrain path).
-func structuralInvariantNewBareProvider() *reindex.ReindexProvider {
-	return &reindex.ReindexProvider{
-		RunningHandles: make(map[distributedtask.TaskDescriptor]*reindex.ReindexTaskHandle),
-		Payloads:       make(map[distributedtask.TaskDescriptor]*reindex.ReindexTaskPayload),
-		ReindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*reindex.ShardReindexTaskGeneric),
+func structuralInvariantNewBareProvider() *ReindexProvider {
+	return &ReindexProvider{
+		RunningHandles: make(map[distributedtask.TaskDescriptor]*ReindexTaskHandle),
+		Payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+		ReindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
 		ActiveWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
 	}
 }
 
-// structuralInvariantInjectHandle installs a hand-built reindex.ReindexTaskHandle
+// structuralInvariantInjectHandle installs a hand-built ReindexTaskHandle
 // for the given descriptor without going through StartTask (which
 // requires a fully wired DB / Index / schema manager). Returns the
 // injected handle so the test can close its doneCh on demand.
 func structuralInvariantInjectHandle(
-	p *reindex.ReindexProvider,
+	p *ReindexProvider,
 	desc distributedtask.TaskDescriptor,
-) *reindex.ReindexTaskHandle {
+) *ReindexTaskHandle {
 	_, cancel := context.WithCancel(context.Background())
-	handle := &reindex.ReindexTaskHandle{
+	handle := &ReindexTaskHandle{
 		Cancel: cancel,
 		DoneCh: make(chan struct{}),
 	}
@@ -180,7 +179,7 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_RespectsContextCancel(t *test
 }
 
 // TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker
-// is the fan-out drain counterpart: reindex.ReindexProvider.StartTask spawns
+// is the fan-out drain counterpart: ReindexProvider.StartTask spawns
 // a goroutine (the worker) and returns a TaskHandle whose Terminate
 // MUST cancel that worker's context. The worker's defer chain then
 // closes handle.DoneCh. So calling Terminate→<-Done() MUST observe
@@ -188,14 +187,14 @@ func TestStructuralInvariant_WaitForLocalTaskDrain_RespectsContextCancel(t *test
 //
 // We can't drive StartTask directly here (it needs a full DB).
 // Instead we exercise the invariant against a hand-built
-// reindex.ReindexTaskHandle whose cancel hook matches the StartTask wiring:
+// ReindexTaskHandle whose cancel hook matches the StartTask wiring:
 // Terminate triggers ctx cancellation, and a worker that respects ctx
 // closes doneCh in its defer. This pins the shape of the
 // handle.cancel + handle.DoneCh contract that StartTask exposes to
 // the Scheduler.
 func TestStructuralInvariant_StartTask_HandleTerminateDrainsSpawnedWorker(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	handle := &reindex.ReindexTaskHandle{
+	handle := &ReindexTaskHandle{
 		Cancel: cancel,
 		DoneCh: make(chan struct{}),
 	}

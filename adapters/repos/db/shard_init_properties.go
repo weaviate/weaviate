@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -161,65 +160,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 // affects the next re-enable, which will trigger the defense-in-depth
 // check in OnAfterLsmInitAsync and fail with a clear operator error.
 func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
-	cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
-}
-
-// cleanStaleMigrationDirsAt is the pure-function form of
-// [Shard.cleanStaleMigrationDirs]: takes an explicit lsmPath + logger so the
-// preservation logic can be unit-tested without standing up a Shard.
-//
-// Every migration tracker dir on disk carries a per-node generation
-// suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
-// generations on disk simultaneously when the last migration's trim
-// hasn't run (e.g. crash before markTidied → next-restart finalize
-// cleans up everything). Match by prefix and walk every entry so we
-// don't miss old generations.
-//
-// Tracker dirs with tidied.mig / merged.mig are PRESERVED — they are
-// live deferred-finalize state for a successfully completed migration,
-// NOT stale partial state. Wiping them out from under the in-memory
-// bucket pointer is what produces the #10675-shape silent data loss on
-// back-to-back submits without a restart (R2/R2b on the controller
-// node).
-func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logrus.FieldLogger) {
-	migrationsRoot := filepath.Join(lsmPath, ".migrations")
-	entries, err := os.ReadDir(migrationsRoot)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			logger.WithField("path", migrationsRoot).
-				Error(fmt.Errorf("read migrations dir for stale-state cleanup: %w", err))
-		}
-		return
-	}
-	prefixes := reindex.MigrationDirsForPropertyIndex(propName, indexType)
-	preserved := reindex.CompletedMigrationGens(lsmPath, prefixes)
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		matches := false
-		for _, p := range prefixes {
-			if name == p || strings.HasPrefix(name, p+"_") {
-				matches = true
-				break
-			}
-		}
-		if !matches {
-			continue
-		}
-		if _, gen, ok := reindex.ParseMigrationDirName(name); ok && preserved[gen] {
-			logger.WithField("path", filepath.Join(migrationsRoot, name)).
-				WithField("gen", gen).
-				Info("partial-reindex cleanup: preserving deferred-finalize tracker dir (tidied/merged present)")
-			continue
-		}
-		path := filepath.Join(migrationsRoot, name)
-		if err := os.RemoveAll(path); err != nil {
-			logger.WithField("path", path).
-				Error(fmt.Errorf("failed to clean up stale migration directory after index DELETE: %w; subsequent re-enable will fail loudly via the stale-sentinel check until this directory is removed manually", err))
-		}
-	}
+	reindex.CleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
 }
 
 // CleanStalePartialReindexState removes the on-disk state of a previously
