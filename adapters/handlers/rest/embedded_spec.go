@@ -5684,7 +5684,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found."
+            "description": "Collection or property not found, or (for cancel:true requests) no in-flight reindex task to cancel.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "409": {
             "description": "Conflicting reindex task already running.",
@@ -16718,7 +16721,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found."
+            "description": "Collection or property not found, or (for cancel:true requests) no in-flight reindex task to cancel.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "409": {
             "description": "Conflicting reindex task already running.",

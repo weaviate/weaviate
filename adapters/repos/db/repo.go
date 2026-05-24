@@ -112,6 +112,16 @@ type DB struct {
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
+	// reindexAuditMu guards reindexAuditLookupBuilder/Logger so the
+	// deps installed by [DB.SetReindexAuditDeps] are visible from any
+	// post-restore goroutine (the schema executor's RestoreClassDir
+	// hook in particular) without requiring an explicit happens-before
+	// edge from configure_api's bootstrap. See
+	// [DB.AuditOrphanReindexTrackersIfReady].
+	reindexAuditMu            sync.RWMutex
+	reindexAuditLookupBuilder KnownReindexTaskLookupBuilder
+	reindexAuditLogger        logrus.FieldLogger
+
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
 

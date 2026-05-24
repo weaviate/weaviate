@@ -876,6 +876,20 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "wrong backup file")
+
+		// 0-weaviate-issues#215 Adjacent 16: pin the additional diagnostic
+		// content. Pre-fix the error only said "expected X got Y" with
+		// no path — the operator had three IDs to confuse (request,
+		// metadata, and possibly a stale value) and no way to tell
+		// which file was wrong without `ls`-ing the backend manually.
+		assert.Contains(t, err.Error(), req.ID,
+			"error must surface the request ID so the operator sees what they asked for")
+		assert.Contains(t, err.Error(), "123",
+			"error must surface the metadata's stored ID so the operator sees what's actually in the slot")
+		assert.Contains(t, err.Error(), GlobalBackupFile,
+			"error must name the descriptor file path so the operator can `cat` it directly")
+		assert.Contains(t, err.Error(), path,
+			"error must include the destination path that holds the wrong-ID metadata")
 	})
 
 	t.Run("UnknownClass", func(t *testing.T) {

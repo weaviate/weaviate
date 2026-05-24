@@ -520,6 +520,54 @@ func TestMultiScheduler_FailedTaskFiresOnTaskCompletedOnEveryNode(t *testing.T) 
 	}
 }
 
+// TestMultiScheduler_CancelledTaskFiresOnTaskCompletedOnEveryNode pins
+// the cluster-wide cancel-cleanup path: a CANCELLED RAFT transition must
+// fire OnTaskCompleted on every node, not just the node that received
+// the cancel REST call. Without this, only the REST node's provider
+// could clean its per-node post-cancellation state — QA Claude's
+// repro on #11327 showed exactly this asymmetry leaving sidecar tracker
+// dirs on weaviate-0/-1 after a cancel handled by weaviate-2.
+func TestMultiScheduler_CancelledTaskFiresOnTaskCompletedOnEveryNode(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newMultiSchedulerHarness(t, []string{"node-1", "node-2", "node-3"})
+	defer h.close()
+
+	taskID := "multi-node-cancelled"
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"u-node-1", "u-node-2", "u-node-3"},
+	}), 1))
+	h.tickAll()
+
+	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		Version:               1,
+		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+	tasks := h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusCancelled, tasks[0].Status,
+		"CancelTask must transition FSM to CANCELLED")
+
+	h.tickAll()
+
+	for _, n := range h.nodes {
+		require.Equal(t, 1, n.provider.taskCompletedCount(taskID),
+			"node %s: OnTaskCompleted must fire on CANCELLED task", n.id)
+	}
+
+	// Idempotency across additional ticks: the pre-mark gate must hold.
+	h.tickAll()
+	h.tickAll()
+	for _, n := range h.nodes {
+		require.Equal(t, 1, n.provider.taskCompletedCount(taskID),
+			"node %s: OnTaskCompleted on CANCELLED must fire exactly once", n.id)
+	}
+}
+
 // TestMultiScheduler_OnGroupCompletedFiresPerNodeOnlyForLocalUnits
 // pins per-node group-callback scoping: a group's OnGroupCompleted on
 // node X must fire iff X owns at least one unit in that group. This is

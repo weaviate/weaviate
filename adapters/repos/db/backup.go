@@ -56,12 +56,43 @@ const (
 )
 
 // Backupable returns whether all given class can be backed up.
+//
+// Per-shard runtime-reindex precheck (0-weaviate-issues#215 Adjacent
+// 17): the coordinator's canCommit phase calls this on every node
+// BEFORE writing the initial backup_config.json staging metadata.
+// Refusing here means no on-disk staging dir is ever created when
+// the cluster has an in-flight migration — operators can retry the
+// same backup ID after the migration drains. The prior behavior was:
+// canCommit ack OK → coordinator writes backup_config.json with
+// Status:Started → commit fires HaltForTransfer → refusal → staging
+// dir is left behind with Status:Failed and Classes:[]; checkIfBackupExists
+// then rejects retry of the same ID because Failed != Cancelled.
+//
+// The check walks both loaded and unloaded shards via the schema
+// reader ([Index.readSchema]). Unloaded shards on the happy path
+// return nil; an unloaded shard that was deactivated mid-migration
+// still has its tracker dir on disk, and we must refuse for the same
+// reason the active path does — see the
+// [Index.backupInactiveShardWithHardlinks] godoc.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
 		if idx == nil || idx.Config.ClassName != className {
 			return fmt.Errorf("class %v doesn't exist", c)
+		}
+		shards, _, err := idx.readSchema()
+		if err != nil {
+			// readSchema's failure is the schema reader being unable
+			// to enumerate. Surface it as a backupable error so the
+			// operator gets a clear message; the next canCommit retry
+			// will see the same state.
+			return fmt.Errorf("enumerating local shards of class %q for backup-precheck: %w", c, err)
+		}
+		for _, shardName := range shards {
+			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -399,6 +430,16 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 		return fmt.Errorf("stat shard dir: %w", err)
 	}
 
+	// Even though no iteration goroutine can be running for an unloaded
+	// shard, the tracker directory still encodes an in-flight migration
+	// whose DTM unit lives only in RAFT — not in the backup payload. A
+	// restore of that tracker into a fresh cluster reproduces the orphan-
+	// state bug (see [ErrBackupBlockedByInFlightReindex] godoc) just as
+	// surely as the active path does. Refuse for the same reason.
+	if err := i.refuseIfReindexInFlight(name); err != nil {
+		return err
+	}
+
 	files, err := i.listInactiveShardFiles(name, sd)
 	if err != nil {
 		return fmt.Errorf("list inactive shard %s files: %w", name, err)
@@ -606,6 +647,14 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 			return errShardNoLocalData
 		}
 		return fmt.Errorf("stat shard dir: %w", err)
+	}
+
+	// See comment in [Index.backupInactiveShardWithHardlinks]: an in-flight
+	// tracker dir on an unloaded shard still cannot be safely round-tripped
+	// through a backup, because the corresponding DTM unit is not part of
+	// the backup payload.
+	if err := i.refuseIfReindexInFlight(name); err != nil {
+		return err
 	}
 
 	files, err := i.listInactiveShardFiles(name, sd)

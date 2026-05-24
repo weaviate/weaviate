@@ -278,6 +278,43 @@ func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexTy
 
 // -- Misc ------------------------------------------------------------------
 
+// GetFirstShardName resolves the first shard name for `collection` via
+// GET /v1/nodes?output=verbose. Returns "" if the collection has no
+// shards on any node.
+//
+// Several acceptance packages (reindex_singlenode, reindex_backup)
+// carry near-identical local copies of this lookup; this exported
+// canonical version exists so new callers don't keep adding their
+// own. Pre-existing local copies in upstream test files are left in
+// place to avoid bleeding scope into unrelated PRs.
+func GetFirstShardName(t *testing.T, restURI, collection string) string {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	var nodesResp struct {
+		Nodes []struct {
+			Shards []struct {
+				Class string `json:"class"`
+				Name  string `json:"name"`
+			} `json:"shards"`
+		} `json:"nodes"`
+	}
+	require.NoError(t, json.Unmarshal(body, &nodesResp))
+
+	for _, node := range nodesResp.Nodes {
+		for _, shard := range node.Shards {
+			if shard.Class == collection {
+				return shard.Name
+			}
+		}
+	}
+	return ""
+}
+
 // BoolPtr returns a pointer to its bool argument. Convenience for
 // populating optional pointer-valued fields on schema requests.
 func BoolPtr(b bool) *bool { return &b }

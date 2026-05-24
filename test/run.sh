@@ -54,6 +54,7 @@ function main() {
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
+  run_acceptance_reindex_backup=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -106,6 +107,7 @@ function main() {
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
+          --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -149,6 +151,7 @@ function main() {
               "--acceptance-reindex-singlenode-b | -arsb"\
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
+              "--acceptance-reindex-backup | -arb"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -335,6 +338,11 @@ function main() {
   if $run_acceptance_reindex_mt; then
     echo "running reindex multi-tenant acceptance tests"
     run_acceptance_reindex_mt
+  fi
+
+  if $run_acceptance_reindex_backup; then
+    echo "running backup × runtime-reindex acceptance tests"
+    run_acceptance_reindex_backup
   fi
   echo "Done!"
 }
@@ -860,6 +868,20 @@ function run_acceptance_reindex_mt() {
   # gated on this suite's duration.
   run_aof_group "reindex-mt" \
     test/acceptance/reindex_mt
+}
+
+function run_acceptance_reindex_backup() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup (backup × runtime-reindex hardening — #215)"
+  # Backup × runtime-reindex interaction suite. Pins the canCommit
+  # precheck, the MutationGuard-blocks-DELETE-during-in-flight gate,
+  # the cleanup-handler refusal during STARTED, and the
+  # orphan-tracker-on-disk → cleanup → backup round-trip journey
+  # (B1-B8 + Adj16/17 + MapToBlockmax engine-bug guard).
+  #
+  # Single-node testcontainer; ~8 subtests; ~5-10 min total wall-clock.
+  run_aof_group "reindex-backup" \
+    test/acceptance/reindex_backup
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

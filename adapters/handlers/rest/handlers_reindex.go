@@ -396,9 +396,11 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		// handlers_indexes.go::updateIndex — same shape as the matching
 		// default-case 400. A missing verb here lands as a confusing 400
 		// (valid body shape, "invalid" error). See
-		// weaviate/0-weaviate-issues#227 (Gap 7).
+		// weaviate/0-weaviate-issues#227 (Gap 7) and the matching
+		// handler-side 400 in handlers_indexes.go::updateIndex's default
+		// arm — both lists must stay in lockstep.
 		return fmt.Errorf("no actionable change detected; set one of: " +
-			"searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
+			"searchable.algorithm, searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
 			"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, " +
 			"rangeable.cancel, rangeable.enabled, rangeable.rebuild")
 	}

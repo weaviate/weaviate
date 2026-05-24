@@ -651,6 +651,7 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 
 	// Find the STARTED task that targets this (collection, prop, indexType).
 	var target *distributedtask.Task
+	var targetPayload db.ReindexTaskPayload
 	for _, task := range tasks[db.ReindexNamespace] {
 		if task.Status != distributedtask.TaskStatusStarted {
 			continue
@@ -669,11 +670,20 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			continue
 		}
 		target = task
+		targetPayload = payload
 		break
 	}
 
 	if target == nil {
-		return schema.NewSchemaObjectsIndexesUpdateNotFound()
+		// 0-weaviate-issues#215 B5: bare 404 with no body is
+		// indistinguishable from "endpoint not found" for operators
+		// chasing a stuck-state cancel. Return a structured error
+		// body identifying the (collection, property, indexType)
+		// tuple the operator was trying to cancel and the actionable
+		// remedy.
+		return schema.NewSchemaObjectsIndexesUpdateNotFound().WithPayload(errorResponse(principal, fmt.Sprintf(
+			"no in-flight reindex task to cancel for (collection=%q, property=%q, indexType=%q): the task may have already finished, been cancelled, or never been started; use GET /v1/schema/%s/indexes to inspect the current state",
+			collection, propertyName, indexType, collection)))
 	}
 
 	if err := h.appState.ClusterService.CancelDistributedTask(
@@ -724,13 +734,39 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 			// slate. Errors here are logged but don't fail the cancel —
 			// the user already received 202 conceptually, and the defense
 			// in depth at submit time will re-run cleanup.
-			if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, indexType); err != nil {
+			//
+			// 0-weaviate-issues#215 B8: walk EVERY indexType the
+			// migration touches, not just the indexType named in the
+			// request URL. change-tokenization spawns both a
+			// searchable and a filterable strategy under a single
+			// DTM task; a cancel that cleans only `indexType` leaves
+			// the sibling's `payload.mig` orphan (and, if the sibling's
+			// iteration had progressed past markStarted, its sidecar
+			// bucket too).
+			indexTypesToClean, known := indexTypesFromMigrationType(targetPayload.MigrationType)
+			if !known || len(indexTypesToClean) == 0 {
+				// Defensive: a payload whose migration type we don't
+				// recognise (e.g. an unknown future strategy) still
+				// gets at least the indexType the user named cleaned,
+				// so the cancel path stays in lockstep with submit-time
+				// pre-cleanup (which also degrades to "nothing to do"
+				// on unknown types).
+				indexTypesToClean = []string{indexType}
+			}
+			var cleanupErrs []error
+			for _, it := range indexTypesToClean {
+				if err := h.appState.DB.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
+					cleanupErrs = append(cleanupErrs, fmt.Errorf("indexType=%q: %w", it, err))
+				}
+			}
+			if len(cleanupErrs) > 0 {
 				h.appState.Logger.WithFields(logrus.Fields{
 					"taskID":     target.ID,
 					"collection": collection,
 					"property":   propertyName,
 					"index_type": indexType,
-				}).Errorf("cancel: cleaning partial reindex state on disk: %v; next submit's defense-in-depth cleanup will retry", err)
+					"strategies": indexTypesToClean,
+				}).Errorf("cancel: cleaning partial reindex state on disk for %d strategies failed: %v; next submit's defense-in-depth cleanup will retry", len(cleanupErrs), cleanupErrs)
 			} else {
 				h.appState.Logger.WithFields(logrus.Fields{
 					"taskID":     target.ID,
@@ -872,6 +908,23 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 		return indexType == "filterable", true
 	}
 	return false, false
+}
+
+// normaliseSearchableAlgorithm canonicalises an explicit
+// searchable.algorithm verb value into the single supported target
+// (BlockMaxWAND). Accepted aliases are case-insensitive:
+// "BlockMaxWAND", "blockmax", "BMW", "block_max_wand". Any other
+// value (including "WAND", "wand") returns "" — the BlockMax→WAND
+// reverse direction is intentionally not supported at this time
+// because the underlying repair-searchable migration only writes
+// blockmax-format segments. Callers map "" to a 400 with a clear
+// message; see 0-weaviate-issues#215 B7.
+func normaliseSearchableAlgorithm(value string) string {
+	switch strings.ToLower(strings.ReplaceAll(value, "_", "")) {
+	case "blockmaxwand", "blockmax", "bmw":
+		return "BlockMaxWAND"
+	}
+	return ""
 }
 
 // parsedReindexTask pairs a distributed task with its already-unmarshalled
