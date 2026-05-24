@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex
 
 import (
 	"fmt"
@@ -29,8 +29,8 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 ) error {
 	propLen := calcPropLenInverted(prop.Items)
 	for _, item := range prop.Items {
-		pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-		if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+		pair := shard.PairPropertyWithFrequency(docID, item.TermFrequency, propLen)
+		if err := shard.AddToPropertyMapBucket(bucket, pair, item.Data); err != nil {
 			return fmt.Errorf("adding prop '%s': %w", item.Data, err)
 		}
 	}
@@ -39,17 +39,17 @@ func writeBlockmaxSearchablePostings(shard ShardLike, bucket *lsmkv.Bucket,
 
 func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{},
-) onAddToPropertyValueIndex {
-	return func(shard *Shard, docID uint64, property *inverted.Property) error {
+) OnAddToPropertyValueIndex {
+	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if _, ok := propsByName[property.Name]; !ok {
 			return nil
 		}
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		bucket := shard.Store().Bucket(bucketName)
 		propLen := calcPropLenInverted(property.Items)
 		for _, item := range property.Items {
-			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-			if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+			pair := shard.PairPropertyWithFrequency(docID, item.TermFrequency, propLen)
+			if err := shard.AddToPropertyMapBucket(bucket, pair, item.Data); err != nil {
 				return fmt.Errorf("adding prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
 			}
 		}
@@ -59,15 +59,15 @@ func blockmaxSearchableAddCallback(bucketNamer func(string) string,
 
 func blockmaxSearchableDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{},
-) onDeleteFromPropertyValueIndex {
-	return func(shard *Shard, docID uint64, property *inverted.Property) error {
+) OnDeleteFromPropertyValueIndex {
+	return func(shard ShardLike, docID uint64, property *inverted.Property) error {
 		if _, ok := propsByName[property.Name]; !ok {
 			return nil
 		}
 		bucketName := bucketNamer(property.Name)
-		bucket := shard.store.Bucket(bucketName)
+		bucket := shard.Store().Bucket(bucketName)
 		for _, item := range property.Items {
-			if err := shard.deleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
+			if err := shard.DeleteInvertedIndexItemWithFrequencyLSM(bucket, item, docID); err != nil {
 				return fmt.Errorf("deleting prop '%s' from bucket '%s': %w", item.Data, bucketName, err)
 			}
 		}

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex
 
 import (
 	"context"
@@ -29,7 +29,7 @@ type RebuildSearchableStrategy struct {
 }
 
 func (s *RebuildSearchableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixRebuildSearchable, s.propNames) + genSuffix(s.generation)
+	return migrationDirWithProps(MigrationDirPrefixRebuildSearchable, s.propNames) + GenSuffix(s.generation)
 }
 
 func (s *RebuildSearchableStrategy) SourceBucketName(propName string) string {
@@ -37,15 +37,15 @@ func (s *RebuildSearchableStrategy) SourceBucketName(propName string) string {
 }
 
 func (s *RebuildSearchableStrategy) ReindexSuffix() string {
-	return "__rebuild_searchable_reindex" + genSuffix(s.generation)
+	return "__rebuild_searchable_reindex" + GenSuffix(s.generation)
 }
 
 func (s *RebuildSearchableStrategy) IngestSuffix() string {
-	return "__rebuild_searchable_ingest" + genSuffix(s.generation)
+	return "__rebuild_searchable_ingest" + GenSuffix(s.generation)
 }
 
 func (s *RebuildSearchableStrategy) BackupSuffix() string {
-	return "__rebuild_searchable_backup" + genSuffix(s.generation)
+	return "__rebuild_searchable_backup" + GenSuffix(s.generation)
 }
 
 func (s *RebuildSearchableStrategy) SourceStrategy() string { return lsmkv.StrategyInverted }
@@ -68,19 +68,19 @@ func (s *RebuildSearchableStrategy) ShouldProcessProperty(_ *inverted.Property) 
 
 func (s *RebuildSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, _ bool,
-) onAddToPropertyValueIndex {
+) OnAddToPropertyValueIndex {
 	return blockmaxSearchableAddCallback(bucketNamer, propsByName)
 }
 
 func (s *RebuildSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, _ bool,
-) onDeleteFromPropertyValueIndex {
+) OnDeleteFromPropertyValueIndex {
 	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName)
 }
 
 // PreReindexHook is a no-op — the target BlockMax bucket already exists
 // (API dispatch rejects WAND properties before this strategy runs).
-func (s *RebuildSearchableStrategy) PreReindexHook(_ *Shard, _ []string) {}
+func (s *RebuildSearchableStrategy) PreReindexHook(_ ShardLike, _ []string) {}
 
 // AnalyzerOverlay returns nil — rebuild MUST NOT change tokenization
 // (that's a separate verb: {searchable:{tokenization:X}}).

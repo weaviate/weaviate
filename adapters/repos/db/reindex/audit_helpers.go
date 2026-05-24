@@ -13,21 +13,20 @@ package reindex
 
 // SemanticMigrationIndexTypesForAudit returns the (property,
 // indexType) fan-out the audit's CleanStalePartialReindexState loop
-// iterates over. Mirrors the REST-layer's [indexTypesFromMigrationType]
+// iterates over. Mirrors the REST-layer's indexTypesFromMigrationType
 // (handlers_indexes.go) so audit cleanup covers the same per-property
 // classification as the cancel/cleanup dispatch.
 //
-// Truly class-level migrations (e.g. ChangeAlgorithm = Map→Blockmax,
-// which carries no per-property indexType) fall through to the
-// default and return nil; the audit then takes the direct
-// tracker-dir removal branch in DB.cleanupOrphanTrackerCompactionPaused.
+// Class-level migrations whose tracker has no per-property indexType
+// fall through to the default (nil); the audit then takes the direct
+// tracker-dir removal branch.
 func SemanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
 	switch mt {
 	case ReindexTypeChangeTokenization:
 		return []string{"searchable", "filterable"}
 	case ReindexTypeChangeTokenizationFilterable:
 		return []string{"filterable"}
-	case ReindexTypeEnableSearchable, ReindexTypeRepairSearchable:
+	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable:
 		return []string{"searchable"}
 	case ReindexTypeEnableFilterable, ReindexTypeRepairFilterable:
 		return []string{"filterable"}

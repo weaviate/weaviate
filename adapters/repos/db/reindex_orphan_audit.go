@@ -405,7 +405,7 @@ func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
 		return []string{"searchable", "filterable"}
 	case reindex.ReindexTypeChangeTokenizationFilterable:
 		return []string{"filterable"}
-	case reindex.ReindexTypeEnableSearchable, reindex.ReindexTypeChangeAlgorithm, reindex.ReindexTypeRebuildSearchable, reindex.ReindexTypeRepairSearchable:
+	case reindex.ReindexTypeEnableSearchable, reindex.ReindexTypeChangeAlgorithm, reindex.ReindexTypeRebuildSearchable:
 		return []string{"searchable"}
 	case reindex.ReindexTypeEnableFilterable, reindex.ReindexTypeRepairFilterable:
 		return []string{"filterable"}
