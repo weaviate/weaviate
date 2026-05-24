@@ -155,7 +155,7 @@ import (
 // swap / deferred-rename invariants that every code path in this file
 // must preserve.
 type ShardReindexTaskGeneric struct {
-	TaskName                 string
+	TaskName             string
 	Logger               logrus.FieldLogger
 	Strategy             MigrationStrategy
 	NewReindexTracker    func(lsmPath string) (ReindexTracker, error)
@@ -219,7 +219,7 @@ func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("task created")
 
 	t := &ShardReindexTaskGeneric{
-		TaskName:                 name,
+		TaskName:             name,
 		Logger:               logger,
 		Strategy:             strategy,
 		NewReindexTracker:    newReindexTracker,

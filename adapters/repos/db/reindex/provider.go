@@ -73,12 +73,12 @@ type ReindexProvider struct {
 	LocalNode     string
 	concurrency   func() int
 
-	// serverCtx is cancelled when the server is shutting down. OnGroupCompleted
+	// ServerCtx is cancelled when the server is shutting down. OnGroupCompleted
 	// fires after StartTask's per-task goroutine has already returned (its ctx
 	// is gone by then), so we cannot use the per-task ctx for the swap phase —
 	// we derive from the server ctx instead so a graceful shutdown can abort
 	// long-running swaps.
-	serverCtx context.Context
+	ServerCtx context.Context
 
 	RunningHandles map[distributedtask.TaskDescriptor]*ReindexTaskHandle
 
@@ -168,7 +168,7 @@ func NewReindexProvider(
 		Logger:         logger,
 		LocalNode:      localNode,
 		concurrency:    concurrency,
-		serverCtx:      serverCtx,
+		ServerCtx:      serverCtx,
 		RunningHandles: make(map[distributedtask.TaskDescriptor]*ReindexTaskHandle),
 		Payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
 		ReindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
@@ -1232,7 +1232,7 @@ func (p *ReindexProvider) RunPerUnitPhase(
 	parallel bool,
 	runPhase func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult,
 ) error {
-	ctx := p.serverCtx
+	ctx := p.ServerCtx
 	var agg phaseResult
 	var aggMu sync.Mutex
 
@@ -1374,7 +1374,7 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// SWAPPING. The split bounds the cross-replica stagger window at
 	// billion-scale to RAFT propagation latency rather than per-node
 	// PREP duration.
-	ctx := p.serverCtx
+	ctx := p.ServerCtx
 	// PREP path runs heavy IO per shard (FlushAndSwitch, ShutdownBucket,
 	// PrependSegmentsFromBucket). Sequential to avoid compounding IO
 	// contention; query consistency is not at stake here because queries
@@ -1463,7 +1463,7 @@ func (p *ReindexProvider) OnSwapRequested(task *distributedtask.Task, groupID st
 		return fmt.Errorf("collection %q not found on this node", payload.Collection)
 	}
 
-	ctx := p.serverCtx
+	ctx := p.ServerCtx
 	// SWAP path runs the in-memory pointer flip first (the user-observable
 	// event) and then per-shard post-flip work (Shutdown drain, dir
 	// rename, sentinel writes, trim). Parallel across this node's units
@@ -1559,7 +1559,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 
 	// p.serverCtx outlives the per-task ctx (which is gone by the time the
 	// scheduler tick fires OnTaskCompleted).
-	ctx := p.serverCtx
+	ctx := p.ServerCtx
 	if err := p.FlipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
 		// Leave the overlay in place: buckets are NEW-tokenized but the
@@ -1606,7 +1606,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
 	}
-	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
+	cleanupCtx, cancel := context.WithTimeout(p.ServerCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
 	for _, propName := range payload.Properties {
 		for _, indexType := range indexTypes {

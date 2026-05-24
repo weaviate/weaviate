@@ -13,11 +13,11 @@ package db
 
 import (
 	"context"
-	"sort"
 	"fmt"
+	"sort"
 
-	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 

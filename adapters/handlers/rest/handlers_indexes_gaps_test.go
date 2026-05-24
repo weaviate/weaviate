@@ -33,7 +33,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -47,25 +46,25 @@ func TestPropsOverlap_PrefixSimilarNamesDoNotCollide(t *testing.T) {
 	// Regression: properties whose names share a prefix must not be reported
 	// as overlapping. "title" should never conflict with "titleAlt" or
 	// "title_v2".
-	require.False(t, db.ReindexPropsOverlap([]string{"title"}, []string{"titleAlt"}),
+	require.False(t, reindex.ReindexPropsOverlap([]string{"title"}, []string{"titleAlt"}),
 		`"title" must not overlap "titleAlt"`)
-	require.False(t, db.ReindexPropsOverlap([]string{"title"}, []string{"title_v2"}),
+	require.False(t, reindex.ReindexPropsOverlap([]string{"title"}, []string{"title_v2"}),
 		`"title" must not overlap "title_v2"`)
-	require.False(t, db.ReindexPropsOverlap([]string{"foo"}, []string{"foobar", "barfoo"}),
+	require.False(t, reindex.ReindexPropsOverlap([]string{"foo"}, []string{"foobar", "barfoo"}),
 		`"foo" must not match "foobar" or "barfoo" by prefix`)
 }
 
 func TestPropsOverlap_ExactNameMatches(t *testing.T) {
-	require.True(t, db.ReindexPropsOverlap([]string{"a", "b"}, []string{"b", "c"}))
+	require.True(t, reindex.ReindexPropsOverlap([]string{"a", "b"}, []string{"b", "c"}))
 }
 
 func TestPropsOverlap_EmptyMeansAllProperties(t *testing.T) {
 	// Documented semantic: an empty Properties list means "all properties".
 	// That branch is reserved for future whole-collection migrations; the
 	// REST handler today always submits a single-property task.
-	require.True(t, db.ReindexPropsOverlap(nil, []string{"x"}))
-	require.True(t, db.ReindexPropsOverlap([]string{"x"}, nil))
-	require.True(t, db.ReindexPropsOverlap(nil, nil))
+	require.True(t, reindex.ReindexPropsOverlap(nil, []string{"x"}))
+	require.True(t, reindex.ReindexPropsOverlap([]string{"x"}, nil))
+	require.True(t, reindex.ReindexPropsOverlap(nil, nil))
 }
 
 // -----------------------------------------------------------------------------

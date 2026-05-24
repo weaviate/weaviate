@@ -141,7 +141,7 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	// (the cached task instance still has its double-write callbacks).
 	p, _ := barrierIntegrationProvider(t)
 	ok, res := p.RunShardPrepPhase(ctx, "unit-1", shard,
-		[]*reindex.ShardReindexTaskGeneric{task}, false, p.logger)
+		[]*reindex.ShardReindexTaskGeneric{task}, false, p.Logger)
 	require.True(t, ok, "PREP must succeed: %v", res.Errs)
 	require.Empty(t, res.Errs, "PREP must not accumulate errors")
 
@@ -188,7 +188,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 	// barrier observes via PreparationCompleteAck).
 	p, _ := barrierIntegrationProvider(t)
 	ok, prepRes := p.RunShardPrepPhase(ctx, "unit-1", shard,
-		[]*reindex.ShardReindexTaskGeneric{task}, false, p.logger)
+		[]*reindex.ShardReindexTaskGeneric{task}, false, p.Logger)
 	require.True(t, ok, "PREP setup must succeed: %v", prepRes.Errs)
 
 	rtMid := reindex.NewFileMapToBlockmaxReindexTracker(shard.PathLSM(), &reindex.UuidKeyParser{})
@@ -206,7 +206,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 		UnitToNode:    map[string]string{"unit-1": "node1"},
 	}
 	swapRes := p.RunShardSwapPhase(ctx, payload, "unit-1", shard.Name(), shard,
-		[]*reindex.ShardReindexTaskGeneric{task}, p.logger)
+		[]*reindex.ShardReindexTaskGeneric{task}, p.Logger)
 	require.Empty(t, swapRes.Errs, "SWAP must succeed")
 
 	// Post-SWAP invariants: IsSwapped + IsTidied. In runtimeSwap the
@@ -357,7 +357,7 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 	// re-stat it post-shutdown without relying on a tracker rebuild
 	// (rebuild would mask a file that was missing-but-cached).
 	migDir := filepath.Join(shard.PathLSM(),
-		".migrations", reindex.MigrationDirSearchableMapToBlockmax+genSuffix(1))
+		".migrations", reindex.MigrationDirSearchableMapToBlockmax+reindex.GenSuffix(1))
 	reindexedPath := filepath.Join(migDir, "reindexed.mig")
 
 	// Capture the file's content and stat before shutdown — content must
@@ -375,7 +375,7 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 	// in segment files, not just memtables. The reindex bucket sits at
 	// <lsm>/<bucketName + ReindexSuffix>/<segment files>.
 	reindexDirName := helpers.BucketSearchableFromPropNameLSM("title") +
-		"__blockmax_reindex" + genSuffix(1)
+		"__blockmax_reindex" + reindex.GenSuffix(1)
 	reindexBucketDir := filepath.Join(shard.PathLSM(), reindexDirName)
 	stat, err := os.Stat(reindexBucketDir)
 	require.NoError(t, err, "reindex bucket dir must exist after FlushAndSwitch barrier")
