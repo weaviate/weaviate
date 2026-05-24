@@ -9,19 +9,19 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package reindex
 
 // Coverage-gap unit tests for runtime-reindex helper logic that previously had
 // no direct test coverage:
 //
-//   - checkReindexConflict / typesConflict / propsOverlap
+//   - CheckReindexConflict / typesConflict / propsOverlap
 //     (concurrent same/different-type submits)
-//   - validateRangeableProperties / validateEnableFilterableProperty
-//     / validateEnableSearchableProperty (invalid request bodies)
+//   - ValidateRangeableProperties / ValidateEnableFilterableProperty
+//     / ValidateEnableSearchableProperty (invalid request bodies)
 //   - validateTokenizationChange edge cases (same tokenization, invalid value)
 //     are exercised indirectly here via the conflict matrix because they need
 //     a live DB; see acceptance tests for end-to-end coverage.
-//   - buildUnitMaps / buildUnitSpecs (sort stability + group-ID = shard
+//   - BuildUnitMaps / BuildUnitSpecs (sort stability + group-ID = shard
 //     contract used for per-tenant barrier semantics)
 //   - propsOverlap with prefix-similar property names (regression: must not
 //     match "foo" against "foobar")
@@ -150,7 +150,7 @@ func TestTypesConflict_DifferentPropertiesNeverConflict(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// checkReindexConflict — happy path + non-STARTED tasks ignored.
+// CheckReindexConflict — happy path + non-STARTED tasks ignored.
 // -----------------------------------------------------------------------------
 
 func mustPayload(t *testing.T, p reindex.ReindexTaskPayload) []byte {
@@ -171,7 +171,7 @@ func TestCheckReindexConflict_RejectsSameTypeSameProperty(t *testing.T) {
 		}),
 	}
 
-	reason, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
+	reason, err := CheckReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.NoError(t, err)
 	require.NotEmpty(t, reason)
@@ -190,7 +190,7 @@ func TestCheckReindexConflict_AllowsSameTypeDifferentProperty(t *testing.T) {
 		}),
 	}
 
-	reason, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
+	reason, err := CheckReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 		[]string{"bar"}, []*distributedtask.Task{existing})
 	require.NoError(t, err)
 	require.Empty(t, reason, "different property must not conflict")
@@ -215,7 +215,7 @@ func TestCheckReindexConflict_IgnoresTerminalTasks(t *testing.T) {
 					Properties:    []string{"foo"},
 				}),
 			}
-			reason, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
+			reason, err := CheckReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 				[]string{"foo"}, []*distributedtask.Task{existing})
 			require.NoError(t, err)
 			require.Empty(t, reason,
@@ -236,7 +236,7 @@ func TestCheckReindexConflict_DifferentCollections(t *testing.T) {
 		}),
 	}
 
-	reason, err := checkReindexConflict("B", reindex.ReindexTypeEnableFilterable,
+	reason, err := CheckReindexConflict("B", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.NoError(t, err)
 	require.Empty(t, reason)
@@ -254,7 +254,7 @@ func TestCheckReindexConflict_CollectionMatchIsCaseInsensitive(t *testing.T) {
 		}),
 	}
 
-	reason, err := checkReindexConflict("myclass", reindex.ReindexTypeEnableFilterable,
+	reason, err := CheckReindexConflict("myclass", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.NoError(t, err)
 	require.NotEmpty(t, reason, "case-insensitive collection match expected")
@@ -272,7 +272,7 @@ func TestCheckReindexConflict_MalformedPayloadIsRejected(t *testing.T) {
 		Status:         distributedtask.TaskStatusStarted,
 		Payload:        []byte(`{not valid json`),
 	}
-	reason, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
+	reason, err := CheckReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.Empty(t, reason)
 	require.Error(t, err, "unparseable payload must surface as an error so the handler can refuse the submit")
@@ -289,7 +289,7 @@ func TestCheckReindexConflict_MalformedPayloadDifferentCollectionAlsoRejected(t 
 		Status:         distributedtask.TaskStatusStarted,
 		Payload:        []byte(`{still not valid`),
 	}
-	_, err := checkReindexConflict("OtherCollection", reindex.ReindexTypeEnableFilterable,
+	_, err := CheckReindexConflict("OtherCollection", reindex.ReindexTypeEnableFilterable,
 		[]string{"foo"}, []*distributedtask.Task{existing})
 	require.Error(t, err)
 }
@@ -316,7 +316,7 @@ func TestCheckReindexConflict_EmptyJsonPayloadIsRejected(t *testing.T) {
 				Status:         distributedtask.TaskStatusStarted,
 				Payload:        []byte(c.payload),
 			}
-			_, err := checkReindexConflict("C", reindex.ReindexTypeEnableFilterable,
+			_, err := CheckReindexConflict("C", reindex.ReindexTypeEnableFilterable,
 				[]string{"foo"}, []*distributedtask.Task{existing})
 			require.Error(t, err, "payload %q parses but is informationally empty; must be rejected", c.payload)
 			require.Contains(t, err.Error(), "empty Collection or MigrationType")
@@ -325,7 +325,7 @@ func TestCheckReindexConflict_EmptyJsonPayloadIsRejected(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// validateRangeableProperties — invalid request bodies.
+// ValidateRangeableProperties — invalid request bodies.
 // -----------------------------------------------------------------------------
 
 func boolPtr(b bool) *bool { return &b }
@@ -346,29 +346,29 @@ func TestValidateRangeableProperties(t *testing.T) {
 	}
 
 	t.Run("valid numeric props", func(t *testing.T) {
-		require.NoError(t, validateRangeableProperties(class, []string{"score", "qty", "when"}))
+		require.NoError(t, ValidateRangeableProperties(class, []string{"score", "qty", "when"}))
 	})
 
 	t.Run("unknown property", func(t *testing.T) {
-		err := validateRangeableProperties(class, []string{"nope"})
+		err := ValidateRangeableProperties(class, []string{"nope"})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not found")
 	})
 
 	t.Run("non-numeric (text)", func(t *testing.T) {
-		err := validateRangeableProperties(class, []string{"label"})
+		err := ValidateRangeableProperties(class, []string{"label"})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not a numeric type")
 	})
 
 	t.Run("non-primitive (reference)", func(t *testing.T) {
-		err := validateRangeableProperties(class, []string{"ref"})
+		err := ValidateRangeableProperties(class, []string{"ref"})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not a numeric type")
 	})
 
 	t.Run("already rangeable", func(t *testing.T) {
-		err := validateRangeableProperties(class, []string{"alreadyRange"})
+		err := ValidateRangeableProperties(class, []string{"alreadyRange"})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "already")
 	})
@@ -380,26 +380,26 @@ func TestValidateRebuildRangeableProperty(t *testing.T) {
 
 	t.Run("rangeable enabled numeric ok", func(t *testing.T) {
 		prop := &models.Property{Name: "qty", DataType: []string{"int"}, IndexRangeFilters: &trueVal}
-		require.NoError(t, validateRebuildRangeableProperty(prop))
+		require.NoError(t, ValidateRebuildRangeableProperty(prop))
 	})
 
 	t.Run("rebuild rejected when rangeable not enabled", func(t *testing.T) {
 		prop := &models.Property{Name: "qty", DataType: []string{"int"}}
-		err := validateRebuildRangeableProperty(prop)
+		err := ValidateRebuildRangeableProperty(prop)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not have a rangeable index to rebuild")
 	})
 
 	t.Run("rebuild rejected when rangeable explicitly false", func(t *testing.T) {
 		prop := &models.Property{Name: "qty", DataType: []string{"int"}, IndexRangeFilters: &falseVal}
-		err := validateRebuildRangeableProperty(prop)
+		err := ValidateRebuildRangeableProperty(prop)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not have a rangeable index to rebuild")
 	})
 
 	t.Run("rebuild rejected for non-numeric type", func(t *testing.T) {
 		prop := &models.Property{Name: "label", DataType: []string{"text"}, IndexRangeFilters: &trueVal}
-		err := validateRebuildRangeableProperty(prop)
+		err := ValidateRebuildRangeableProperty(prop)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not a numeric type")
 	})
@@ -414,32 +414,32 @@ func TestValidateRebuildRangeableProperty(t *testing.T) {
 func TestValidateRebuildFilterableDataType(t *testing.T) {
 	t.Run("text ok", func(t *testing.T) {
 		prop := &models.Property{Name: "p", DataType: []string{"text"}}
-		require.NoError(t, validateRebuildFilterableDataType(prop))
+		require.NoError(t, ValidateRebuildFilterableDataType(prop))
 	})
 
 	t.Run("int ok", func(t *testing.T) {
 		prop := &models.Property{Name: "p", DataType: []string{"int"}}
-		require.NoError(t, validateRebuildFilterableDataType(prop))
+		require.NoError(t, ValidateRebuildFilterableDataType(prop))
 	})
 
 	t.Run("boolean ok", func(t *testing.T) {
 		prop := &models.Property{Name: "p", DataType: []string{"boolean"}}
-		require.NoError(t, validateRebuildFilterableDataType(prop))
+		require.NoError(t, ValidateRebuildFilterableDataType(prop))
 	})
 
 	t.Run("uuid ok", func(t *testing.T) {
 		prop := &models.Property{Name: "p", DataType: []string{"uuid"}}
-		require.NoError(t, validateRebuildFilterableDataType(prop))
+		require.NoError(t, ValidateRebuildFilterableDataType(prop))
 	})
 
 	t.Run("date ok", func(t *testing.T) {
 		prop := &models.Property{Name: "p", DataType: []string{"date"}}
-		require.NoError(t, validateRebuildFilterableDataType(prop))
+		require.NoError(t, ValidateRebuildFilterableDataType(prop))
 	})
 
 	t.Run("number ok", func(t *testing.T) {
 		prop := &models.Property{Name: "p", DataType: []string{"number"}}
-		require.NoError(t, validateRebuildFilterableDataType(prop))
+		require.NoError(t, ValidateRebuildFilterableDataType(prop))
 	})
 
 	t.Run("rebuild rejected for geoCoordinates", func(t *testing.T) {
@@ -447,7 +447,7 @@ func TestValidateRebuildFilterableDataType(t *testing.T) {
 		// geoCoordinates, so the prior "is the flag true?" check let this
 		// through and the rebuild crashed at swap time.
 		prop := &models.Property{Name: "p", DataType: []string{"geoCoordinates"}}
-		err := validateRebuildFilterableDataType(prop)
+		err := ValidateRebuildFilterableDataType(prop)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not support a filterable inverted index")
 		require.Contains(t, err.Error(), "nothing to rebuild")
@@ -456,7 +456,7 @@ func TestValidateRebuildFilterableDataType(t *testing.T) {
 
 	t.Run("rebuild rejected for phoneNumber", func(t *testing.T) {
 		prop := &models.Property{Name: "p", DataType: []string{"phoneNumber"}}
-		err := validateRebuildFilterableDataType(prop)
+		err := ValidateRebuildFilterableDataType(prop)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not support a filterable inverted index")
 		require.Contains(t, err.Error(), "phoneNumber")
@@ -464,7 +464,7 @@ func TestValidateRebuildFilterableDataType(t *testing.T) {
 
 	t.Run("rebuild rejected for blob", func(t *testing.T) {
 		prop := &models.Property{Name: "p", DataType: []string{"blob"}}
-		err := validateRebuildFilterableDataType(prop)
+		err := ValidateRebuildFilterableDataType(prop)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not support a filterable inverted index")
 		require.Contains(t, err.Error(), "blob")
@@ -473,7 +473,7 @@ func TestValidateRebuildFilterableDataType(t *testing.T) {
 	t.Run("rebuild rejected for reference type", func(t *testing.T) {
 		// Reference (non-primitive) data types have no inverted bucket.
 		prop := &models.Property{Name: "p", DataType: []string{"SomeClass"}}
-		err := validateRebuildFilterableDataType(prop)
+		err := ValidateRebuildFilterableDataType(prop)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does not support a filterable inverted index")
 		require.Contains(t, err.Error(), "nothing to rebuild")
@@ -482,7 +482,7 @@ func TestValidateRebuildFilterableDataType(t *testing.T) {
 
 func TestRequestedCancel(t *testing.T) {
 	t.Run("none", func(t *testing.T) {
-		typ, ok := requestedCancel(&models.IndexUpdateRequest{
+		typ, ok := RequestedCancel(&models.IndexUpdateRequest{
 			Searchable: &models.IndexUpdateSearchable{Enabled: true},
 		})
 		require.False(t, ok)
@@ -490,7 +490,7 @@ func TestRequestedCancel(t *testing.T) {
 	})
 
 	t.Run("searchable.cancel", func(t *testing.T) {
-		typ, ok := requestedCancel(&models.IndexUpdateRequest{
+		typ, ok := RequestedCancel(&models.IndexUpdateRequest{
 			Searchable: &models.IndexUpdateSearchable{Cancel: true},
 		})
 		require.True(t, ok)
@@ -498,7 +498,7 @@ func TestRequestedCancel(t *testing.T) {
 	})
 
 	t.Run("filterable.cancel", func(t *testing.T) {
-		typ, ok := requestedCancel(&models.IndexUpdateRequest{
+		typ, ok := RequestedCancel(&models.IndexUpdateRequest{
 			Filterable: &models.IndexUpdateFilterable{Cancel: true},
 		})
 		require.True(t, ok)
@@ -506,7 +506,7 @@ func TestRequestedCancel(t *testing.T) {
 	})
 
 	t.Run("rangeable.cancel", func(t *testing.T) {
-		typ, ok := requestedCancel(&models.IndexUpdateRequest{
+		typ, ok := RequestedCancel(&models.IndexUpdateRequest{
 			Rangeable: &models.IndexUpdateRangeable{Cancel: true},
 		})
 		require.True(t, ok)
@@ -538,7 +538,7 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(string(c.mt)+"/"+c.indexType, func(t *testing.T) {
-			matches, known := migrationTypeTargetsIndex(c.mt, c.indexType)
+			matches, known := MigrationTypeTargetsIndex(c.mt, c.indexType)
 			require.Equal(t, c.wantMatches, matches, "matches")
 			require.Equal(t, c.wantKnown, known, "isKnown")
 		})
@@ -572,7 +572,7 @@ func TestIndexTypesFromMigrationType(t *testing.T) {
 		{reindex.ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, true},
 		// change-tok-both spawns one sub-task per inverted index, each with
 		// its own per-property migration dir on disk. Pre-cleanup must wipe
-		// both — see godoc on indexTypesFromMigrationType.
+		// both — see godoc on IndexTypesFromMigrationType.
 		{reindex.ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, true},
 		// Unknown migration type — must return false so the submit handler
 		// degrades to "no pre-cleanup" rather than panicking.
@@ -580,7 +580,7 @@ func TestIndexTypesFromMigrationType(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(string(c.mt), func(t *testing.T) {
-			gotTypes, gotKnown := indexTypesFromMigrationType(c.mt)
+			gotTypes, gotKnown := IndexTypesFromMigrationType(c.mt)
 			require.Equal(t, c.wantKnown, gotKnown, "isKnown")
 			require.ElementsMatch(t, c.wantTypes, gotTypes,
 				"indexTypes for %s", c.mt)
@@ -589,7 +589,7 @@ func TestIndexTypesFromMigrationType(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// validateEnableFilterableProperty — type allow-list and already-filterable.
+// ValidateEnableFilterableProperty — type allow-list and already-filterable.
 // -----------------------------------------------------------------------------
 
 func TestValidateEnableFilterableProperty(t *testing.T) {
@@ -619,7 +619,7 @@ func TestValidateEnableFilterableProperty(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateEnableFilterableProperty(tc.prop)
+			err := ValidateEnableFilterableProperty(tc.prop)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 			} else {
@@ -631,7 +631,7 @@ func TestValidateEnableFilterableProperty(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// validateEnableSearchableProperty — tokenization required + valid + text type.
+// ValidateEnableSearchableProperty — tokenization required + valid + text type.
 // -----------------------------------------------------------------------------
 
 func TestValidateEnableSearchableProperty(t *testing.T) {
@@ -735,7 +735,7 @@ func TestValidateEnableSearchableProperty(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateEnableSearchableProperty(tc.prop, tc.tok)
+			err := ValidateEnableSearchableProperty(tc.prop, tc.tok)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 			} else {
@@ -747,7 +747,7 @@ func TestValidateEnableSearchableProperty(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// buildUnitMaps / buildUnitSpecs — sort stability + GroupID == shard contract.
+// BuildUnitMaps / BuildUnitSpecs — sort stability + GroupID == shard contract.
 // -----------------------------------------------------------------------------
 
 func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
@@ -757,7 +757,7 @@ func TestBuildUnitMaps_DeterministicSortAndCorrectMappings(t *testing.T) {
 		"node-2": {"shard-b", "shard-a"},
 		"node-1": {"shard-a"},
 	}
-	unitIDs, unitToShard, unitToNode := buildUnitMaps(ownership)
+	unitIDs, unitToShard, unitToNode := BuildUnitMaps(ownership)
 
 	// Sorted ascending — go map iteration order must not leak.
 	require.Equal(t, []string{
@@ -779,7 +779,7 @@ func TestBuildUnitSpecs_GroupIDIsShardName(t *testing.T) {
 		"node-1": {"tenant-a", "tenant-b"},
 		"node-2": {"tenant-a", "tenant-b"},
 	}
-	specs := buildUnitSpecs(ownership)
+	specs := BuildUnitSpecs(ownership)
 	require.Len(t, specs, 4)
 
 	// Each unit spec's GroupID must equal the tenant/shard portion of the ID.
@@ -807,7 +807,7 @@ func TestBuildUnitSpecs_DeterministicSort(t *testing.T) {
 		"zz": {"b", "a"},
 		"aa": {"b"},
 	}
-	specs := buildUnitSpecs(ownership)
+	specs := BuildUnitSpecs(ownership)
 	for i := 1; i < len(specs); i++ {
 		require.Less(t, specs[i-1].ID, specs[i].ID,
 			"specs must be sorted by ID — got %v", specs)
@@ -860,7 +860,7 @@ func TestTouchesFilterable(t *testing.T) {
 
 func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
 	require.PanicsWithValue(t,
-		`reindex.TouchesSearchable: unknown reindex.ReindexMigrationType "phantom" — add it to this switch`,
+		`TouchesSearchable: unknown ReindexMigrationType "phantom" — add it to this switch`,
 		func() { reindex.TouchesSearchable(reindex.ReindexMigrationType("phantom")) },
 		"unknown migration type must panic so the gap is caught loudly",
 	)
@@ -868,14 +868,14 @@ func TestTouchesSearchable_PanicsOnUnknownType(t *testing.T) {
 
 func TestTouchesFilterable_PanicsOnUnknownType(t *testing.T) {
 	require.PanicsWithValue(t,
-		`reindex.TouchesFilterable: unknown reindex.ReindexMigrationType "phantom" — add it to this switch`,
+		`TouchesFilterable: unknown ReindexMigrationType "phantom" — add it to this switch`,
 		func() { reindex.TouchesFilterable(reindex.ReindexMigrationType("phantom")) },
 		"unknown migration type must panic so the gap is caught loudly",
 	)
 }
 
 // -----------------------------------------------------------------------------
-// validateBodyExclusivity — switch-shadow guard.
+// ValidateBodyExclusivity — switch-shadow guard.
 //
 // updateIndex dispatches on a Go switch where the FIRST truthy arm wins.
 // Without this guard, a body with two groups (e.g. searchable.rebuild AND
@@ -1053,7 +1053,7 @@ func TestValidateBodyExclusivity(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateBodyExclusivity(tc.body)
+			err := ValidateBodyExclusivity(tc.body)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 			} else {
@@ -1084,18 +1084,18 @@ func TestNormalizeSearchableAlgorithm(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
-			require.Equal(t, tc.want, normalizeSearchableAlgorithm(tc.in))
+			require.Equal(t, tc.want, NormalizeSearchableAlgorithm(tc.in))
 		})
 	}
 }
 
 // -----------------------------------------------------------------------------
-// countStartedTasksForCollection / per-collection concurrent reindex cap.
+// CountStartedTasksForCollection / per-collection concurrent reindex cap.
 //
 // Pins (1) the count function only counts STARTED tasks targeting the named
 // collection, ignoring terminal-status tasks and tasks targeting other
 // collections; and (2) the comparison against
-// maxConcurrentReindexPerCollection has the right semantics: a fresh submit
+// MaxConcurrentReindexPerCollection has the right semantics: a fresh submit
 // is admitted exactly when there are strictly fewer than the cap already
 // STARTED, so the effective max number of simultaneously running tasks is
 // equal to the cap constant (not cap-1 and not cap+1).
@@ -1187,7 +1187,7 @@ func TestCountStartedTasksForCollection_FiltersByStatusAndCollection(t *testing.
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := countStartedTasksForCollection(tc.collection, tc.tasks)
+			got := CountStartedTasksForCollection(tc.collection, tc.tasks)
 			require.Equal(t, tc.want, got)
 		})
 	}
@@ -1216,7 +1216,7 @@ func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
 	}
 
 	const collection = "C"
-	cap := maxConcurrentReindexPerCollection
+	cap := MaxConcurrentReindexPerCollection
 
 	// At the cap minus one, a submit must be admitted.
 	tasksAtCapMinusOne := make([]*distributedtask.Task, 0, cap-1)
@@ -1224,14 +1224,14 @@ func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
 		tasksAtCapMinusOne = append(tasksAtCapMinusOne,
 			mkStarted(fmtTaskID(i), collection))
 	}
-	got := countStartedTasksForCollection(collection, tasksAtCapMinusOne)
+	got := CountStartedTasksForCollection(collection, tasksAtCapMinusOne)
 	require.Equal(t, cap-1, got)
 	require.False(t, got >= cap,
 		"with %d inflight (cap=%d) the submit must be admitted", got, cap)
 
 	// At exactly the cap, a submit must be rejected.
 	tasksAtCap := append(tasksAtCapMinusOne, mkStarted(fmtTaskID(cap-1), collection))
-	got = countStartedTasksForCollection(collection, tasksAtCap)
+	got = CountStartedTasksForCollection(collection, tasksAtCap)
 	require.Equal(t, cap, got)
 	require.True(t, got >= cap,
 		"with %d inflight (cap=%d) the submit must be rejected", got, cap)

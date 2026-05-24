@@ -9,12 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rest
+package reindex
 
 // Edge-case tests for the synthetic "indexing"/"pending" entry that
-// getIndexes / mergeReindexStatus emits when a property's schema flag is
+// getIndexes / MergeReindexStatus emits when a property's schema flag is
 // false but a reindex task is targeting it. These tests intentionally only
-// exercise the pure helper mergeReindexStatus, since that is where the
+// exercise the pure helper MergeReindexStatus, since that is where the
 // synthetic-entry decision is made.
 
 import (
@@ -49,8 +49,8 @@ func buildTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	}
 }
 
-func tasksMap(tasks ...*distributedtask.Task) []parsedReindexTask {
-	return parseReindexTasks(tasks)
+func tasksMap(tasks ...*distributedtask.Task) []ParsedReindexTask {
+	return ParseReindexTasks(tasks)
 }
 
 // Once a unit transitions to IN_PROGRESS the synthetic entry must read
@@ -80,7 +80,7 @@ func TestMergeReindexStatus_UnitInProgressZeroProgress_ShowsIndexing(t *testing.
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
 
 	require.Equal(t, "indexing", idx.Status,
 		"unit IN_PROGRESS without a checkpoint must surface as 'indexing', not 'pending' — work has started")
@@ -109,7 +109,7 @@ func TestMergeReindexStatus_OneUnitInProgressAmongPending_ShowsIndexing(t *testi
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
 
 	require.Equal(t, "indexing", idx.Status)
 }
@@ -134,7 +134,7 @@ func TestMergeReindexStatus_StartedNoProgress_ShowsPending(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
 
 	require.Equal(t, "pending", idx.Status, "STARTED task with zero progress should show pending")
 	require.Equal(t, float32(0), idx.Progress)
@@ -163,7 +163,7 @@ func TestMergeReindexStatus_StaleStartedTask_StillShowsPending(t *testing.T) {
 	task.StartedAt = staleTime
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
 
 	// A 72h-old STARTED task that has not made a byte of progress is
 	// reported as "pending" — same as a brand-new task. There is no
@@ -189,13 +189,13 @@ func TestMergeReindexStatus_StaleIndexing_StillShowsIndexing(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
 
 	require.Equal(t, "indexing", idx.Status)
 	require.InDelta(t, 0.4, idx.Progress, 0.0001)
 }
 
-// Edge case 3: FAILED task. mergeReindexStatus surfaces a "failed"
+// Edge case 3: FAILED task. MergeReindexStatus surfaces a "failed"
 // synthetic entry so the user can see from the /indexes endpoint that a
 // previous attempt failed (and inspect /distributed-tasks for the error).
 func TestMergeReindexStatus_FailedTask_ShowsFailedEntry(t *testing.T) {
@@ -212,7 +212,7 @@ func TestMergeReindexStatus_FailedTask_ShowsFailedEntry(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
 
 	require.Equal(t, "failed", idx.Status,
 		"FAILED task must surface as the 'failed' synthetic status; "+
@@ -236,7 +236,7 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
 
 	require.Equal(t, "cancelled", idx.Status,
 		"CANCELLED task must surface as the 'cancelled' synthetic status")
@@ -280,7 +280,7 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_KeepsFinalizingEntry(t *tes
 
 	t.Run("flag-off (swap not propagated yet)", func(t *testing.T) {
 		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-		mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(mkTask()), time.Hour, nil)
+		MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(mkTask()), time.Hour, nil)
 
 		// "indexing@100%" so the caller emits a synthetic entry while the
 		// flag is still false — without this the GET response goes empty
@@ -291,7 +291,7 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_KeepsFinalizingEntry(t *tes
 
 	t.Run("flag-on (schema already caught up)", func(t *testing.T) {
 		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-		mergeReindexStatus(idx, "C", "foo", "filterable", true, tasksMap(mkTask()), time.Hour, nil)
+		MergeReindexStatus(idx, "C", "foo", "filterable", true, tasksMap(mkTask()), time.Hour, nil)
 
 		// Base case wins — stale FINISHED task must not override the
 		// post-flip "ready" state.
@@ -308,7 +308,7 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_KeepsFinalizingEntry(t *tes
 		// the flag was flipped on by this task, DELETE flipped it back
 		// to false much later, and the "still finalizing" override
 		// would otherwise mis-classify it as in-progress.
-		mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), 5*time.Second, nil)
+		MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), 5*time.Second, nil)
 
 		require.Equal(t, "ready", idx.Status,
 			"stale FINISHED task with flag-off must not be classified as still finalizing — that's the indexing(1) bleed bug")
@@ -318,7 +318,7 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_KeepsFinalizingEntry(t *tes
 	t.Run("finalize window disabled (zero) — override never fires", func(t *testing.T) {
 		task := mkTask() // FinishedAt = now (legitimate window)
 		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-		mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), 0, nil)
+		MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), 0, nil)
 
 		require.Equal(t, "ready", idx.Status,
 			"finalize window of 0 must disable the override unconditionally")
@@ -336,7 +336,7 @@ func TestMergeReindexStatus_FinishedBeforeSchemaFlip_KeepsFinalizingEntry(t *tes
 // polling could see the answer change request-to-request. The
 // StartedAt tiebreak keeps the response stable.
 //
-// In practice checkReindexConflict rejects overlapping STARTED tasks
+// In practice CheckReindexConflict rejects overlapping STARTED tasks
 // on the same bucket, but a runtime fault (e.g. cluster forwarding
 // edge cases) could in theory produce this state and the response must
 // still be stable.
@@ -379,8 +379,8 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), time.Hour, nil)
+			MergeReindexStatus(idx, "C", "foo", "filterable", false,
+				ParseReindexTasks(order.tasks), time.Hour, nil)
 
 			require.InDelta(t, 0.9, idx.Progress, 0.0001,
 				"newest STARTED task (change-tokenization) must win regardless of slice order")
@@ -433,8 +433,8 @@ func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), time.Hour, nil)
+			MergeReindexStatus(idx, "C", "foo", "filterable", false,
+				ParseReindexTasks(order.tasks), time.Hour, nil)
 
 			require.Equal(t, "indexing", idx.Status,
 				"STARTED retry must beat older FAILED attempt regardless of slice order")
@@ -486,8 +486,8 @@ func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), time.Hour, nil)
+			MergeReindexStatus(idx, "C", "foo", "filterable", false,
+				ParseReindexTasks(order.tasks), time.Hour, nil)
 
 			require.Equal(t, "failed", idx.Status)
 			require.InDelta(t, 0.7, idx.Progress, 0.0001,
@@ -525,7 +525,7 @@ func TestMergeReindexStatus_EmptyProperties_EnableDoesNothing(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "anyprop", "filterable", false, tasksMap(task), time.Hour, nil)
+	MergeReindexStatus(idx, "C", "anyprop", "filterable", false, tasksMap(task), time.Hour, nil)
 
 	require.Equal(t, "ready", idx.Status,
 		"empty Properties is treated uniformly as 'match nothing'")
@@ -548,14 +548,14 @@ func TestMergeReindexStatus_EmptyProperties_RepairAlsoMatchesNothing(t *testing.
 	// Previously repair-* matched every property in the collection.
 	for _, propName := range []string{"alpha", "beta", "gamma"} {
 		idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-		mergeReindexStatus(idx, "C", propName, "searchable", false, tasksMap(task), time.Hour, nil)
+		MergeReindexStatus(idx, "C", propName, "searchable", false, tasksMap(task), time.Hour, nil)
 		require.Equal(t, "ready", idx.Status,
 			"empty Properties + repair-searchable must match no property (here: %s)", propName)
 		require.Equal(t, float32(0), idx.Progress)
 	}
 }
 
-// Sanity test: confirm mergeReindexStatus matches case-insensitively on
+// Sanity test: confirm MergeReindexStatus matches case-insensitively on
 // collection name (it uses strings.EqualFold). Documents this minor
 // edge case as intentional — case mismatch alone is not a bug.
 func TestMergeReindexStatus_CollectionCaseInsensitive(t *testing.T) {
@@ -572,7 +572,7 @@ func TestMergeReindexStatus_CollectionCaseInsensitive(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "myclass", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	MergeReindexStatus(idx, "myclass", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
 
 	require.Equal(t, "indexing", idx.Status, "collection name match is case-insensitive")
 }
@@ -652,7 +652,7 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 			)
 
 			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "searchable", false, tasksMap(task), time.Hour, nil)
+			MergeReindexStatus(idx, "C", "foo", "searchable", false, tasksMap(task), time.Hour, nil)
 
 			require.Equal(t, tt.expectStatus, idx.Status)
 			require.InDelta(t, tt.expectProgress, idx.Progress, 0.0001)
@@ -699,7 +699,7 @@ func TestMergeReindexStatus_NonSearchableTypes_DoNotSetTargetAlgorithm(t *testin
 			)
 
 			idx := &models.IndexStatus{Type: tt.indexType, Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", tt.indexType, false, tasksMap(task), time.Hour, nil)
+			MergeReindexStatus(idx, "C", "foo", tt.indexType, false, tasksMap(task), time.Hour, nil)
 
 			require.Empty(t, idx.TargetAlgorithm,
 				"%s must not set TargetAlgorithm — algorithm is a searchable-only concept", tt.migrationType)
@@ -715,7 +715,7 @@ func TestMergeReindexStatus_NonSearchableTypes_DoNotSetTargetAlgorithm(t *testin
 // target tokenization preview.
 //
 // This guards two regressions:
-//   - Forgetting PREPARING in [mergeReindexStatus]'s status switch
+//   - Forgetting PREPARING in [MergeReindexStatus]'s status switch
 //     (would leave PREPARING tasks with the base "ready" status and no
 //     synthetic targetTokenization, blanking the UI mid-barrier).
 //   - Forgetting PREPARING in [taskStatusPriority] (would let an older
@@ -746,7 +746,7 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 			)
 
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+			MergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
 
 			require.Equal(t, "indexing", idx.Status,
 				"%s must surface as 'indexing' — the cluster-wide post-completion barrier is still gating the schema flip", tt.name)

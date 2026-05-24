@@ -45,6 +45,7 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
+	reindexusecase "github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -140,6 +141,13 @@ type State struct {
 	// authoritative defense; this lock just collapses the local
 	// single-node race window that any realistic UI/CLI flow can hit.
 	ReindexSubmitLocks *ReindexSubmitLocks
+
+	// ReindexService owns the reindex submit / cancel business logic.
+	// REST handlers are thin shells that authorize, parse params, and
+	// delegate here; the service maps directly back to typed sentinel
+	// errors (see usecases/reindex/errors.go) that the handler maps to
+	// HTTP status codes.
+	ReindexService *reindexusecase.Service
 
 	// UsageLimits gates the object-count cap only. Collections/tenants/
 	// shards caps are read directly at the schema-handler use sites.

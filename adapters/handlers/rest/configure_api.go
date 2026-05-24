@@ -163,6 +163,7 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
+	reindexusecase "github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
@@ -1054,6 +1055,16 @@ func initReindexAndDistributedTasks(
 	providers[reindex.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
+	// The reindex usecase Service owns Submit / Cancel / Status
+	// business logic; REST handlers are thin shells over it.
+	appState.ReindexService = reindexusecase.New(reindexusecase.Deps{
+		Cluster:       appState.ClusterService,
+		DB:            repo,
+		SchemaManager: appState.SchemaManager,
+		Provider:      appState.ReindexProvider,
+		SubmitLocks:   appState.ReindexSubmitLocks,
+	}, appState.Logger)
+
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
 		TaskLister:         appState.ClusterService.Raft,
@@ -1257,7 +1268,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer, appState.Logger)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ReindexService, appState.ReindexSubmitLocks)
 	setupIndexesHandlers(api, appState)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
