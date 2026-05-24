@@ -359,16 +359,8 @@ func (p *ReindexProvider) processUnits(
 ) {
 	limiter := distributedtask.NewConcurrencyLimiter(p.concurrency())
 
-	// defer Wait so cancel-while-Acquire-blocked still drains spawned
-	// per-unit goroutines before this function returns. Without the
-	// defer, the early `return` on limiter.Acquire ctx-cancel exited
-	// the function while spawned goroutines kept writing to
-	// `.migrations/` — racing the cluster-wide cancel-cleanup that
-	// fires from OnTaskCompleted as soon as the handle's doneCh
-	// closes. QA Claude's #11327 17:35:23Z repro: 2 of 3 shard
-	// replicas on the affected node retained `started.mig` because
-	// the cleanup ran before the per-unit goroutines that owned them
-	// had exited.
+	// defer Wait so an early return on Acquire ctx-cancel still drains
+	// spawned per-unit goroutines before OnTaskCompleted's cleanup runs.
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for _, unitID := range localUnits {
@@ -1538,10 +1530,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.
-		// On FAILED + CANCELLED we auto-cleanup partial sidecar state on
-		// every node — closes weaviate/0-weaviate-issues#215 B6 (no
-		// operator cleanup verb). FAILED additionally logs the operator
-		// repair guidance for the bucket↔schema-inversion family.
+		// FAILED/CANCELLED auto-clean partial sidecar state on every node;
+		// FAILED additionally logs operator repair guidance.
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
@@ -1553,9 +1543,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 				distributedtask.TaskStatusPreparing,
 				distributedtask.TaskStatusSwapping,
 				distributedtask.TaskStatusFinished:
-				// SWAPPING is handled below; STARTED / PREPARING never
-				// reach OnTaskCompleted; FINISHED uses the swap pipeline's
-				// markTidied — no eager cleanup needed.
+				// SWAPPING handled below; STARTED/PREPARING never reach
+				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
 			}
 		}
 		return
@@ -1603,16 +1592,15 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
-// reaches FAILED or CANCELLED. Drains any still-running local goroutine,
-// then wipes partial sidecar state per (property, indexType) so neither
-// the operator nor the next-restart audit has to chase orphans.
-// Errors are logged and swallowed — the next-restart audit catches
-// anything this missed.
+// reaches FAILED or CANCELLED. Drains any still-running local
+// goroutine, then wipes partial sidecar state per (property, indexType).
+// Errors are logged and swallowed; the next-restart audit catches anything
+// missed.
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
 	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
-		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup (next-restart audit will retry): %v", reindexTerminalCleanupDrainTimeout, err)
+		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
 		return
 	}
 	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
@@ -1625,28 +1613,24 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		for _, indexType := range indexTypes {
 			if err := p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType); err != nil {
 				logger.WithField("property", propName).WithField("index_type", indexType).
-					Warnf("auto-cleanup after terminal status failed for this tuple (next-restart audit will retry): %v", err)
+					Warnf("auto-cleanup after terminal status failed: %v", err)
 			}
 		}
 	}
 	logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
 }
 
-// Drain budget. Matches reindexCancelDrainTimeout in REST handlers so the
-// REST cancel path's drain and this OnTaskCompleted-driven drain
-// converge on identical stuck-task behaviour.
+// reindexTerminalCleanupDrainTimeout matches reindexCancelDrainTimeout
+// in the REST handlers so both cancel paths converge on identical
+// stuck-task behavior.
 const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 
-// Cleanup budget per shard (sums across properties × indexTypes).
+// reindexTerminalCleanupTimeout bounds cleanup per shard across all
+// (property, indexType) pairs.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
 // IsLiveReindexTaskStatus reports whether a task in the given DTM status
-// still owns its on-disk tracker dirs. Live statuses (STARTED, PREPARING,
-// SWAPPING) own them; terminal statuses (FAILED, CANCELLED, FINISHED)
-// release ownership. The orphan-audit closure uses this to classify
-// tracker dirs whose owning task has reached a terminal state — those
-// are stragglers the eager OnTaskCompleted cleanup missed and need
-// defense-in-depth reaping on the next restart.
+// still owns its on-disk tracker dirs.
 func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	switch status {
 	case distributedtask.TaskStatusStarted,

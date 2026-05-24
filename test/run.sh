@@ -872,14 +872,7 @@ function run_acceptance_reindex_mt() {
 
 function run_acceptance_reindex_backup() {
   build_weaviate_test_image
-  echo_green "acceptance — reindex-backup (backup × runtime-reindex hardening — #215)"
-  # Backup × runtime-reindex interaction suite. Pins the canCommit
-  # precheck, the MutationGuard-blocks-DELETE-during-in-flight gate,
-  # the cleanup-handler refusal during STARTED, and the
-  # orphan-tracker-on-disk → cleanup → backup round-trip journey
-  # (B1-B8 + Adj16/17 + MapToBlockmax engine-bug guard).
-  #
-  # Single-node testcontainer; ~8 subtests; ~5-10 min total wall-clock.
+  echo_green "acceptance — reindex-backup"
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
 }

@@ -201,14 +201,6 @@ func (r *restorer) restoreAll(ctx context.Context,
 			WithField("class", cdesc.Name).Info("successfully restored")
 	}
 
-	// Note: the orphan-reindex audit is triggered downstream from the
-	// schema executor's RestoreClassDir hook — fired by the RAFT FSM
-	// apply that moves files from `<dataPath>/.backup.tmp/<class>/`
-	// to the final `<dataPath>/<class>/<shard>/lsm/...` layout. Wiring
-	// a separate hook here would fire too early (the FSM apply runs
-	// AFTER restoreAll returns) and the audit would miss the orphan
-	// files. See configure_api.go's restoreClassDirWithAudit wrapper.
-
 	return nil
 }
 
@@ -282,15 +274,8 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		return nil, nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
 	if meta.ID != req.ID {
-		// 0-weaviate-issues#215 Adjacent 16: pre-fix this only named
-		// the IDs. When the operator sees three IDs surface (their
-		// request, the metadata, and possibly a stale-cached value
-		// from another in-flight restore) they have no way to tell
-		// which file is wrong. Pin the exact descriptor path so the
-		// operator can `cat` it directly.
-		descriptorKey := req.ID
 		return nil, nil, fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
-			req.ID, path.Join(destPath, descriptorKey), meta.ID, destPath)
+			req.ID, path.Join(destPath, req.ID), meta.ID, destPath)
 	}
 	if meta.Status != backup.Success {
 		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)

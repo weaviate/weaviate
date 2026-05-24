@@ -25,10 +25,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// TestAuditOrphanReindexTrackers_NilLookup_Refuses pins the nil-lookup
-// guard so a future caller that forgets to wire the closure does not
-// silently wipe every legitimate in-flight migration. The audit must
-// refuse loudly, not auto-quarantine.
 func TestAuditOrphanReindexTrackers_NilLookup_Refuses(t *testing.T) {
 	db := &DB{}
 	logger := logrus.New()
@@ -37,11 +33,6 @@ func TestAuditOrphanReindexTrackers_NilLookup_Refuses(t *testing.T) {
 	assert.Contains(t, err.Error(), "KnownReindexTaskLookup is nil")
 }
 
-// TestSemanticMigrationIndexTypesForAudit_Coverage pins that every
-// known migration type maps to the right set of indexTypes (or nil for
-// class-level). A regression that adds a new migration type without
-// updating the audit mapping would silently miss orphans of that
-// shape; this test fails when that happens.
 func TestSemanticMigrationIndexTypesForAudit_Coverage(t *testing.T) {
 	cases := []struct {
 		mt         ReindexMigrationType
@@ -54,9 +45,9 @@ func TestSemanticMigrationIndexTypesForAudit_Coverage(t *testing.T) {
 		{ReindexTypeEnableFilterable, []string{"filterable"}, "schema-flip on filterable"},
 		{ReindexTypeEnableRangeable, []string{"rangeable"}, "from-scratch rangeable build"},
 		{ReindexTypeRepairRangeable, []string{"rangeable"}, "rebuild of existing rangeable"},
-		{ReindexTypeChangeAlgorithm, []string{"searchable"}, "class-level Map→Blockmax (verb: searchable.algorithm) — sidecar dirs live under <root>/.../searchable/"},
-		{ReindexTypeRebuildSearchable, []string{"searchable"}, "rebuild of existing blockmax (verb: searchable.rebuild) — sidecar dirs live under <root>/.../searchable/"},
-		{ReindexTypeRepairFilterable, []string{"filterable"}, "class-level roaringset refresh — sidecar dirs live under <root>/.../filterable/"},
+		{ReindexTypeChangeAlgorithm, []string{"searchable"}, "class-level Map to Blockmax"},
+		{ReindexTypeRebuildSearchable, []string{"searchable"}, "rebuild of existing blockmax"},
+		{ReindexTypeRepairFilterable, []string{"filterable"}, "class-level roaringset refresh"},
 	}
 	for _, c := range cases {
 		got := semanticMigrationIndexTypesForAudit(c.mt)
@@ -64,10 +55,6 @@ func TestSemanticMigrationIndexTypesForAudit_Coverage(t *testing.T) {
 	}
 }
 
-// TestOrphanTrackerString_PinsLogShape sanity-checks the structured
-// WARN payload so a regression that drops a field (taskID, dirName,
-// etc.) is caught — log queries downstream rely on the key=value
-// fields being present.
 func TestOrphanTrackerString_PinsLogShape(t *testing.T) {
 	o := orphanReindexTracker{
 		collection:  "MyClass",
@@ -97,11 +84,6 @@ func TestOrphanTrackerString_PinsLogShape(t *testing.T) {
 	}
 }
 
-// TestLoadAuditRecord_RoundTripsPayload verifies the on-disk format
-// the audit reads matches what [ReindexProvider.persistRecoveryRecord]
-// writes — same `reindexRecoveryRecord` JSON shape, same filename
-// (`payload.mig`). A regression that drifted the persistence shape
-// would be caught here even without a full integration loop.
 func TestLoadAuditRecord_RoundTripsPayload(t *testing.T) {
 	dir := t.TempDir()
 	rec := reindexRecoveryRecord{
@@ -141,19 +123,6 @@ func TestLoadAuditRecord_MalformedJSON(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned is the
-// end-to-end shape proof using a real shard. Two trackers are crafted
-// on disk:
-//
-//   - "known" — payload.mig references a (taskID, taskVersion) the
-//     closure marks as known. The audit must NOT touch it; the
-//     tracker dir must survive.
-//   - "orphan" — payload.mig references an unknown task. The audit
-//     must call CleanStalePartialReindexState, which removes the
-//     tracker dir and (if present) the sidecar bucket dirs.
-//
-// The orphan tracker also gets a fake sidecar bucket dir so the
-// cleanup's directory-removal side-effect is observable.
 func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T) {
 	ctx := testCtx()
 	className := "AuditOrphanClass"
@@ -162,7 +131,6 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	lsmPath := shd.(*Shard).pathLSM()
 	migsDir := filepath.Join(lsmPath, ".migrations")
 
-	// Tracker 1: "known" — DTM has the task. Don't touch.
 	knownDir := filepath.Join(migsDir, "searchable_retokenize_known_1")
 	require.NoError(t, os.MkdirAll(knownDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(knownDir, "started.mig"), nil, 0o600))
@@ -170,15 +138,12 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	writePayload(t, knownDir, "task-known", 5, "unit-known", className,
 		ReindexTypeChangeTokenization, []string{"known"})
 
-	// Tracker 2: "orphan" — DTM does not have this task. Wipe.
 	orphanDir := filepath.Join(migsDir, "searchable_retokenize_orphan_1")
 	require.NoError(t, os.MkdirAll(orphanDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(orphanDir, "started.mig"), nil, 0o600))
 	writePayload(t, orphanDir, "task-orphan", 9, "unit-orphan", className,
 		ReindexTypeChangeTokenization, []string{"orphan"})
 
-	// Set up the DB struct + closure so the audit only sees the
-	// indices map for this test shard.
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
 		config:  Config{RootPath: idx.Config.RootPath},
@@ -191,23 +156,18 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	logger.SetLevel(logrus.DebugLevel)
 	require.NoError(t, db.AuditOrphanReindexTrackers(ctx, known, logger))
 
-	// Known tracker survives.
 	_, err := os.Stat(knownDir)
-	require.NoError(t, err, "known tracker dir must survive the audit")
+	require.NoError(t, err)
 	_, err = os.Stat(filepath.Join(knownDir, "started.mig"))
-	require.NoError(t, err, "known tracker's started.mig must survive")
+	require.NoError(t, err)
 
-	// Orphan tracker is gone.
 	_, err = os.Stat(orphanDir)
-	assert.True(t, os.IsNotExist(err),
-		"orphan tracker dir must be removed by the audit; stat err=%v", err)
+	assert.True(t, os.IsNotExist(err), "orphan tracker dir must be removed; stat err=%v", err)
 }
 
-// Pins the multi-orphan-per-shard regression: the single-PauseCompaction
-// window in [DB.cleanLoadedShardOrphans] was added because the prior
-// per-orphan pause/resume let a fresh compaction start on the second
-// orphan's sidecar bucket between cleanups. With ≥2 orphans on one
-// loaded shard all of them must be cleaned in one audit run.
+// TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard pins that all
+// orphans on a single loaded shard are cleaned in one audit run, under
+// a single PauseCompaction window.
 func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 	ctx := testCtx()
 	className := "AuditMultiOrphan"
@@ -245,14 +205,9 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 	}
 }
 
-// TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone documents the
-// audit's hands-off contract for trackers past the in-flight window.
-// A tracker with `tidied.mig` is in the deferred-finalize state — it
-// represents a SUCCESSFUL migration whose canonical bucket rename is
-// pending the next-restart FinalizeCompletedMigrations. The audit
-// MUST NOT touch it, even when its DTM task is unknown (e.g.
-// FINISHED tasks aged out of RAFT). Misclassifying tidied state as
-// "orphan" would wipe the live canonical bucket pointer.
+// TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone pins that a
+// tracker with tidied.mig (deferred-finalize state) is never wiped by
+// the audit, even when its DTM task is unknown.
 func TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone(t *testing.T) {
 	ctx := testCtx()
 	className := "AuditTidiedClass"
@@ -274,16 +229,10 @@ func TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone(t *testing.T) {
 	knownNothing := func(string, uint64) bool { return false }
 	require.NoError(t, db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New()))
 
-	// Tidied tracker AND its sentinels survive: the deferred-finalize
-	// state must round-trip the next-restart promotion path untouched.
 	_, err := os.Stat(filepath.Join(dir, "tidied.mig"))
 	require.NoError(t, err, "tidied tracker must survive the audit even when classified as unknown")
 }
 
-// TestAuditOrphanReindexTrackers_NoMigrationsDir is the boring case:
-// a shard with no .migrations/ directory at all. The audit must
-// succeed (no-op) on every shard, not just the ones that have done a
-// runtime-reindex before.
 func TestAuditOrphanReindexTrackers_NoMigrationsDir(t *testing.T) {
 	ctx := testCtx()
 	className := "AuditNoMigsClass"
@@ -297,14 +246,9 @@ func TestAuditOrphanReindexTrackers_NoMigrationsDir(t *testing.T) {
 }
 
 // TestIsLiveReindexTaskStatus_TerminalReleasesOwnership pins the
-// status → ownership matrix the audit's knownTask closure uses. STARTED,
-// PREPARING, SWAPPING own the tracker (in-flight migration writes
-// to it); FAILED, CANCELLED, FINISHED release ownership so the audit
-// reaps stragglers the eager OnTaskCompleted cleanup missed. A
-// regression that misclassifies a terminal status as live would leak
-// orphans across a restart; one that misclassifies a live status as
-// terminal would wipe an in-flight migration's working state. Both
-// failure modes are surfaceable from this table.
+// status to ownership matrix the audit's knownTask closure uses:
+// STARTED/PREPARING/SWAPPING are live; FAILED/CANCELLED/FINISHED
+// release ownership.
 func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
 	cases := []struct {
 		status distributedtask.TaskStatus
@@ -326,9 +270,8 @@ func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
 	}
 }
 
-// writePayload is the test-side mirror of
-// ReindexProvider.persistRecoveryRecord — emits the same JSON shape
-// loadAuditRecord reads.
+// writePayload mirrors ReindexProvider.persistRecoveryRecord: emits the
+// same JSON shape loadAuditRecord reads.
 func writePayload(t *testing.T, dir, taskID string, taskVersion uint64, unitID, collection string, mt ReindexMigrationType, props []string) {
 	t.Helper()
 	rec := reindexRecoveryRecord{

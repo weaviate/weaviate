@@ -510,16 +510,14 @@ func (s *Scheduler) tick() {
 		_, providerIsUnitAware := provider.(UnitAwareProvider)
 		if suProvider, ok := provider.(UnitAwareProvider); ok {
 			for desc, task := range tasks {
-				// CANCELLED skips PREP / SWAP / ack barriers (none apply
-				// post-cancel) but still falls through to Phase 2 so
-				// OnTaskCompleted fires cluster-wide for per-provider
-				// post-cancellation work (reindex auto-cleanup, etc.).
+				// CANCELLED skips PREP/SWAP/ack barriers but still falls
+				// through to Phase 2 so OnTaskCompleted fires cluster-wide.
 				cancelled := task.Status == TaskStatusCancelled
 				if !cancelled {
 
-					// PHASE A — PREP-phase callback firing for barrier tasks
-					// in PREPARING. SWAP (PHASE B) is deferred until the
-					// cluster-wide PreparationCompleteAck barrier lifts.
+					// PHASE A: PREP-phase callback firing for barrier tasks
+					// in PREPARING. SWAP is deferred until the cluster-wide
+					// PreparationCompleteAck barrier lifts.
 					if task.NeedsPreparationBarrier && task.Status == TaskStatusPreparing {
 						for _, groupID := range task.Groups() {
 							if s.preparationCallbackFired[desc] != nil && s.preparationCallbackFired[desc][groupID] {
@@ -534,8 +532,8 @@ func (s *Scheduler) tick() {
 							}
 							s.preparationCallbackFired[desc][groupID] = true
 							groupErr := suProvider.OnGroupCompleted(task, groupID, localIDs)
-							// Same shutdown handling as PHASE B: drop the fired
-							// mark on context.Canceled so recovery re-fires next tick.
+							// On graceful shutdown drop the fired mark so
+							// recovery re-fires on next boot.
 							if errors.Is(groupErr, context.Canceled) {
 								delete(s.preparationCallbackFired[desc], groupID)
 								s.loggerWithTask(namespace, desc).
@@ -549,7 +547,7 @@ func (s *Scheduler) tick() {
 							s.preparationCompletionGroupErrors[desc][groupID] = groupErr
 						}
 
-						// PHASE A.5 — emit per-node PreparationCompleteAck once every
+						// Emit per-node PreparationCompleteAck once every
 						// local group has fired PREP.
 						if s.ackRecorder != nil &&
 							!s.preparationAckEmitted[desc] &&
@@ -571,8 +569,8 @@ func (s *Scheduler) tick() {
 									Error:   joined,
 									AckedAt: s.clock.Now(),
 								}
-								// Reflect the FSM-side PREPARING → FAILED on
-								// the local clone so PHASE B / Phase 2 see
+								// Mirror the FSM-side PREPARING -> FAILED on
+								// the local clone so PHASE B and Phase 2 see
 								// it in this same tick.
 								if !success && task.Status == TaskStatusPreparing {
 									task.Status = TaskStatusFailed
@@ -581,11 +579,10 @@ func (s *Scheduler) tick() {
 						}
 					}
 
-					// PHASE B — SWAP-phase callback firing. OnSwapRequested
-					// for barrier tasks, OnGroupCompleted for non-barrier.
-					// Non-barrier tasks also fire mid-flight per group via
-					// AllGroupUnitsTerminal; barrier tasks wait for postStarted
-					// because the FSM gates SWAP on the cluster-wide barrier.
+					// PHASE B: SWAP-phase callback firing. Barrier tasks fire
+					// OnSwapRequested only after postStarted (FSM gates SWAP
+					// on the cluster-wide barrier); non-barrier tasks fire
+					// OnGroupCompleted mid-flight via AllGroupUnitsTerminal.
 					postStarted := task.Status == TaskStatusSwapping ||
 						task.Status == TaskStatusFailed ||
 						task.Status == TaskStatusFinished
@@ -614,13 +611,11 @@ func (s *Scheduler) tick() {
 							} else {
 								groupErr = suProvider.OnGroupCompleted(task, groupID, localIDs)
 							}
-							// Shutdown handling: ctx.Canceled from a graceful
-							// SIGTERM (rolling restart) is transient — drop the
-							// fired mark so the post-restart tick re-fires the
-							// SWAP callback. Treating it as a permanent failure
-							// flips the task to FAILED and short-circuits
-							// recovery (CI repro:
-							// TestMultiNode_RollingRestartDuringFinalizing).
+							// ctx.Canceled from a graceful SIGTERM is transient;
+							// drop the fired mark so the post-restart tick
+							// re-fires SWAP. Treating it as a permanent failure
+							// would flip the task to FAILED and short-circuit
+							// recovery.
 							if errors.Is(groupErr, context.Canceled) {
 								delete(s.groupCallbackFired[desc], groupID)
 								s.loggerWithTask(namespace, desc).
@@ -628,9 +623,8 @@ func (s *Scheduler) tick() {
 									Info("SWAP callback aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack")
 								continue
 							}
-							// Capture even success (nil) so the ack-emission
-							// gate below can distinguish "fired and succeeded"
-							// from "hasn't fired yet on this node".
+							// Record nil too so the ack-emission gate can tell
+							// "fired and succeeded" from "not fired yet".
 							if s.postCompletionGroupErrors[desc] == nil {
 								s.postCompletionGroupErrors[desc] = map[string]error{}
 							}
@@ -638,9 +632,9 @@ func (s *Scheduler) tick() {
 						}
 					}
 
-					// Phase 1.5 — emit per-node post-completion ack once every
-					// local group has fired its SWAP callback. Single ack per
-					// (node, task). Survives restart via LocalCallbacksDone.
+					// Emit per-node post-completion ack once every local group
+					// has fired its SWAP callback. One ack per (node, task);
+					// survives restart via LocalCallbacksDone.
 					if s.ackRecorder != nil &&
 						!s.postCompletionAckEmitted[desc] &&
 						task.Status != TaskStatusStarted &&
@@ -650,17 +644,16 @@ func (s *Scheduler) tick() {
 							context.Background(), namespace, task.ID, task.Version,
 							s.localNode, success, joined,
 						); err != nil {
-							// Leave postCompletionAckEmitted unset for retry on
-							// next tick/wake; FSM-side ack is idempotent.
+							// Leave postCompletionAckEmitted unset; FSM-side
+							// ack is idempotent so retry is safe.
 							s.loggerWithTask(namespace, desc).
 								Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", err)
 						} else {
 							s.postCompletionAckEmitted[desc] = true
-							// Reflect the ack on the per-tick local clone so the
-							// OnTaskCompleted gate below sees it without
-							// re-listing; on failure, flip the local clone to
-							// FAILED so OnTaskCompleted fires on FAILED (which
-							// skips the schema flip but still runs cleanup).
+							// Mirror the ack onto the per-tick local clone so
+							// the OnTaskCompleted gate sees it; on failure
+							// flip to FAILED so OnTaskCompleted still runs
+							// cleanup (without the schema flip).
 							if task.PostCompletionAcks == nil {
 								task.PostCompletionAcks = map[string]PostCompletionAck{}
 							}
@@ -674,27 +667,14 @@ func (s *Scheduler) tick() {
 							}
 						}
 					}
-				} // end !cancelled
+				}
 
-				// Phase 2: global task completion. Fires on SWAPPING (success
-				// path — every unit COMPLETED, no failures), FAILED, or
-				// FINISHED. FINISHED is included so a node that observes
-				// the task only after MarkDistributedTaskFinalized has
-				// already flipped it past SWAPPING still gets to fire
-				// OnTaskCompleted exactly once: the first node to see
-				// SWAPPING will issue MarkFinalized inside the same
-				// tick, so other nodes' next tick sees FINISHED, not
-				// SWAPPING. Without FINISHED here, those other nodes
-				// silently skip the callback, breaking idempotent
-				// per-node post-completion work (reindex provider clears
-				// caches and emits its completion marker from here).
-				// Fire OnTaskCompleted on SWAPPING / FAILED / FINISHED /
-				// CANCELLED. On the SWAPPING path wait until every node
-				// has acked: the schema flip can't commit while any
-				// replica's swap is in an undetermined state. CANCELLED
-				// runs the callback cluster-wide so per-provider
-				// post-cancellation work (e.g. reindex auto-cleanup)
-				// reaches every node, not just the REST endpoint.
+				// Phase 2: fire OnTaskCompleted on SWAPPING/FAILED/FINISHED/
+				// CANCELLED. FINISHED is included because the first node to
+				// see SWAPPING issues MarkFinalized in the same tick, so
+				// other nodes' next tick may already see FINISHED. On the
+				// SWAPPING path wait until every node has acked: the schema
+				// flip can't commit while any replica's swap is undetermined.
 				readyForFinalize := task.Status == TaskStatusSwapping ||
 					task.Status == TaskStatusFailed ||
 					task.Status == TaskStatusFinished ||

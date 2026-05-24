@@ -20,27 +20,19 @@ import (
 	"strings"
 )
 
-// ErrBackupBlockedByInFlightReindex is the sentinel returned when a
-// backup attempt races a runtime-reindex on the same shard
-// (0-weaviate-issues#215). Concurrent backup + reindex hits a WAL
-// close race (~30% failures) AND a hardlink ENOENT race (~10%); even
-// when both miss, the captured state mixes pre-swap registrations
-// with post-swap sentinels and isn't reachable on restore (the DTM
-// unit isn't in the payload, so the half-migration never finishes).
-// Until the architectural fix lands (pause iteration during halt or
-// capture DTM state in the payload), the safe move is refusal.
+// ErrBackupBlockedByInFlightReindex is returned when a backup attempt
+// races a runtime-reindex on the same shard. The DTM unit driving the
+// migration is not part of the backup payload, so a captured tracker
+// dir cannot be safely restored.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
 
-// InFlightReindexTracker carries the fields the structured error
-// builder needs to name the blocking migration. One per directory
-// between [markStarted] and [markTidied]. Pure value type.
+// InFlightReindexTracker describes a migration tracker dir that is
+// between markStarted and markTidied.
 type InFlightReindexTracker struct {
 	DirName    string // bare `.migrations/<...>` entry
 	Prefix     string // strategy prefix without `_<gen>` suffix
 	Generation int    // per-node `_<N>` suffix, >= 1
 
-	// Sentinel snapshot at scan time. Started==true and Tidied==false
-	// for every returned entry (the scanner filters on both).
 	Started   bool
 	Reindexed bool
 	Tidied    bool
@@ -53,13 +45,10 @@ func (t InFlightReindexTracker) String() string {
 		t.DirName, t.Started, t.Reindexed, t.Tidied)
 }
 
-// inFlightReindexTrackers returns trackers with `started.mig` present
-// and neither `tidied.mig` nor `merged.mig`. `merged.mig` counts as
-// complete: [FinalizeCompletedMigrations] promotes merged-but-not-
-// tidied on restart, so capturing one in a backup is safe. Trackers
-// without started.mig are pre-iteration scratch — skipped.
-// Sorted by DirName for stable error messages. Missing migrations
-// dir → (nil, nil).
+// inFlightReindexTrackers returns trackers with started.mig present and
+// neither tidied.mig nor merged.mig. merged.mig counts as complete
+// because FinalizeCompletedMigrations promotes it on restart. Sorted by
+// DirName. Missing migrations dir returns (nil, nil).
 func inFlightReindexTrackers(lsmPath string) ([]InFlightReindexTracker, error) {
 	if lsmPath == "" {
 		return nil, nil
@@ -81,7 +70,6 @@ func inFlightReindexTrackers(lsmPath string) ([]InFlightReindexTracker, error) {
 		name := entry.Name()
 		prefix, gen, ok := parseMigrationDirName(name)
 		if !ok {
-			// Legacy pre-generation dir or operator surgery; defensive skip.
 			continue
 		}
 		dirPath := filepath.Join(migsDir, name)
@@ -93,8 +81,6 @@ func inFlightReindexTrackers(lsmPath string) ([]InFlightReindexTracker, error) {
 		if tidied {
 			continue
 		}
-		// `merged.mig` ≡ complete: FinalizeCompletedMigrations on the
-		// restored cluster promotes it cleanly on next startup.
 		if fileExistsInDir(dirPath, "merged.mig") {
 			continue
 		}
@@ -113,10 +99,7 @@ func inFlightReindexTrackers(lsmPath string) ([]InFlightReindexTracker, error) {
 }
 
 // refuseIfReindexInFlight is the inactive-shard counterpart to
-// [Shard.HaltForTransfer]'s in-flight check: a COLD/INACTIVE shard
-// deactivated mid-migration can't slip into the backup payload
-// either — the DTM unit driving it isn't captured, so the restored
-// cluster would inherit the orphan tracker + sidecar bucket.
+// [Shard.HaltForTransfer]'s in-flight check.
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	lsmPath := shardPathLSM(i.path(), shardName)
 	trackers, err := inFlightReindexTrackers(lsmPath)
@@ -127,10 +110,7 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 }
 
 // reindexInFlightError wraps [ErrBackupBlockedByInFlightReindex] with
-// a human-readable tracker list. errors.Is on the sentinel is
-// preserved so REST handlers map to a structured HTTP status without
-// string matching. Returns nil when trackers is empty — callers can
-// use it as a one-shot gate.
+// a human-readable tracker list. Returns nil when trackers is empty.
 func reindexInFlightError(shardName string, trackers []InFlightReindexTracker) error {
 	if len(trackers) == 0 {
 		return nil

@@ -23,22 +23,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// KnownReindexTaskLookup reports whether (taskID, taskVersion) is
-// "live" in the DTM scheduler snapshot. A KnownReindexTaskLookup
-// instance is single-audit-invocation-scoped: built once at the start
-// of an audit by [KnownReindexTaskLookupBuilder] so the audit's
-// per-tracker classification consults one consistent snapshot
-// instead of issuing a RAFT read per tracker (Copilot review).
+// KnownReindexTaskLookup reports whether (taskID, taskVersion) is live
+// in the DTM scheduler snapshot. One instance is built per audit
+// invocation so all per-tracker classifications share a consistent
+// snapshot.
 type KnownReindexTaskLookup func(taskID string, taskVersion uint64) bool
 
-// KnownReindexTaskLookupBuilder returns a fresh
-// [KnownReindexTaskLookup] for one audit invocation. The audit calls
-// it once at entry and reuses the returned lookup for the entire walk.
+// KnownReindexTaskLookupBuilder returns a fresh [KnownReindexTaskLookup]
+// for one audit invocation.
 type KnownReindexTaskLookupBuilder func() KnownReindexTaskLookup
 
-// SetReindexAuditDeps installs (builder, logger). Called once from
-// the Scheduler-bootstrap goroutine. The mutex makes the
-// (builder, logger) tuple atomically visible to concurrent readers.
+// SetReindexAuditDeps installs the builder and logger used by
+// [DB.AuditOrphanReindexTrackersIfReady].
 func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
@@ -46,11 +42,10 @@ func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger 
 	db.reindexAuditLogger = logger
 }
 
-// AuditOrphanReindexTrackersIfReady is the no-arg wrapper used by
-// callers that don't have the lookup builder in scope (canonical:
-// the post-restore RestoreClassDir hook on a RAFT FSM apply goroutine).
-// Returns nil when deps aren't set yet — startup audit will sweep
-// any orphans once wiring completes.
+// AuditOrphanReindexTrackersIfReady is the no-arg wrapper for callers
+// without the lookup builder in scope (e.g. the post-restore
+// RestoreClassDir hook). Returns nil when deps are not yet installed;
+// the startup audit will sweep later.
 func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) error {
 	db.reindexAuditMu.RLock()
 	builder := db.reindexAuditLookupBuilder
@@ -62,8 +57,8 @@ func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) error {
 	return db.AuditOrphanReindexTrackers(ctx, builder(), logger)
 }
 
-// orphanReindexTracker carries the fields the cleanup loop needs to
-// thread into its per-orphan WARN log.
+// orphanReindexTracker carries the fields the cleanup loop logs and
+// acts on per orphan.
 type orphanReindexTracker struct {
 	collection  string
 	shardName   string
@@ -77,8 +72,7 @@ type orphanReindexTracker struct {
 	indexTypes  []string
 }
 
-// String formats one keyed line per field — log queries can grep
-// any field (taskID, dir, collection) without parsing.
+// String formats one keyed line per field for greppable log queries.
 func (o *orphanReindexTracker) String() string {
 	return fmt.Sprintf(
 		"collection=%q shard=%q tracker=%q gen=%d taskID=%q taskVersion=%d unitID=%q properties=%v indexTypes=%v",
@@ -86,31 +80,21 @@ func (o *orphanReindexTracker) String() string {
 		o.taskID, o.taskVersion, o.unitID, o.properties, o.indexTypes)
 }
 
-// AuditOrphanReindexTrackers quarantines `.migrations/<tracker>/`
-// dirs whose payload.mig references a (TaskID, TaskVersion) the DTM
-// scheduler doesn't know about. Canonical case: restored cluster
-// whose backup captured the tracker but not the DTM unit driving it
-// (0-weaviate-issues#215 B3).
-//
-// Per orphan: structured WARN + [Shard.CleanStalePartialReindexState]
-// per touched (property, indexType) — shuts down + removes the
-// sidecar bucket, the dir, and the tracker. The canonical main
-// bucket is never touched (it serves pre-migration data on a
-// restored cluster because the schema flip never committed).
-//
-// Pre-conditions: DTM bootstrap done on this node, shards loaded.
-// Cold lazy MT shards are skipped (re-evaluated at next activation).
-// Best-effort: per-orphan errors logged, return value reserved for
-// future composition.
+// AuditOrphanReindexTrackers quarantines .migrations/<tracker>/ dirs
+// whose payload.mig references a (TaskID, TaskVersion) the DTM
+// scheduler does not know about (typical: restored cluster whose
+// backup captured the tracker but not the DTM unit driving it).
+// Calls [Shard.CleanStalePartialReindexState] per (property, indexType)
+// for loaded shards; cold lazy MT shards are skipped and re-evaluated
+// at next activation. Best-effort: per-orphan errors are logged.
 func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) error {
 	if logger == nil {
 		logger = logrus.New()
 	}
 	if knownTask == nil {
-		// Defensive: a nil lookup means "every task is unknown", which
-		// would auto-quarantine in-flight migrations during a normal
-		// restart. Refuse loudly rather than wreck production.
-		logger.Error("reindex orphan audit: KnownReindexTaskLookup is nil; skipping audit (every legitimate in-flight reindex would be misclassified as an orphan)")
+		// A nil lookup would misclassify every in-flight migration as an
+		// orphan. Refuse rather than auto-quarantine on a normal restart.
+		logger.Error("reindex orphan audit: KnownReindexTaskLookup is nil; skipping audit")
 		return fmt.Errorf("reindex orphan audit: KnownReindexTaskLookup is nil")
 	}
 
@@ -131,7 +115,7 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 		return nil
 	}
 
-	// indexID-dir → loaded Index map: routes per-shard cleanup through
+	// Snapshot loaded indexes so per-shard cleanup can route through
 	// in-memory state when the shard is loaded.
 	db.indexLock.RLock()
 	loadedByID := make(map[string]*Index, len(db.indices))
@@ -152,14 +136,12 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 			continue
 		}
 		idx := loadedByID[indexDir]
-		// Hold idx.dropIndex.RLock while we read idx.Config / idx.shards
+		// Hold idx.dropIndex.RLock while reading idx.Config / idx.shards
 		// to prevent a concurrent Drop/DeleteClass from tearing the
-		// Index down underneath the audit. See index.go:253-265 for
-		// the same convention on every other Index user.
+		// Index down underneath the audit.
 		processIndex := func() {
 			// Loaded-index branch uses the real class name; unloaded
-			// fallback uses the on-disk dir name (indexID transform is
-			// irreversible without consulting the schema).
+			// fallback uses the on-disk dir name.
 			collection := indexDir
 			if idx != nil {
 				idx.dropIndex.RLock()
@@ -178,10 +160,6 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				if len(orphans) == 0 {
 					continue
 				}
-				// Loaded shard: route through in-memory bucket pointers +
-				// GlobalBucketRegistry. Unloaded (post-restore-pre-load
-				// or cold MT tenant): direct disk-only cleanup;
-				// submit/cancel hooks handle stray state on activation.
 				var shard *Shard
 				if idx != nil {
 					if sl := idx.shards.Load(shardName); sl != nil {
@@ -202,19 +180,18 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 
 	if orphanCount > 0 {
 		auditLogger.WithField("orphan_count", orphanCount).
-			Warn("reindex orphan audit: cleanup complete; restored cluster reached self-consistent state (canonical buckets retained, orphan sidecars and tracker dirs removed)")
+			Warn("reindex orphan audit: cleanup complete")
 	} else {
 		auditLogger.Debug("reindex orphan audit: no orphan trackers found")
 	}
 	return nil
 }
 
-// collectOrphanTrackers walks `<lsmPath>/.migrations/` and returns
-// every tracker dir classified as an orphan (started.mig present,
+// collectOrphanTrackers walks <lsmPath>/.migrations/ and returns every
+// tracker dir classified as an orphan (started.mig present,
 // tidied.mig/merged.mig absent, payload.mig parseable, and the
-// referenced (taskID, version) NOT known to DTM). The function does
-// NOT modify any state — that's the caller's job, since the cleanup
-// path depends on whether the shard is loaded.
+// referenced task not known to DTM). Read-only; cleanup is the
+// caller's job.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -265,16 +242,10 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 }
 
 // cleanLoadedShardOrphans cleans every orphan on the shard under a
-// single PauseCompaction window. Per-orphan pause/resume previously
-// raced: the defer re-enabled compaction between orphans, a fresh
-// compaction started on the next orphan's sidecar bucket, and the
-// next pause timed out trying to drain it.
-//
-// The audit's pause path does NOT coordinate with backup's
-// [Index.HaltForTransfer] via haltForTransferMux. A concurrent backup
-// is gated upstream by [Backupable] / [Index.refuseIfReindexInFlight]
-// — it refuses on the not-yet-removed tracker dirs before reaching
-// Deactivate.
+// single PauseCompaction window. A per-orphan pause/resume cycle would
+// race the cycle manager: the resume between orphans lets a fresh
+// compaction start on the next sidecar bucket, and the next pause
+// times out trying to drain it.
 func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans []orphanReindexTracker, logger logrus.FieldLogger) int {
 	if len(orphans) == 0 {
 		return 0
@@ -283,14 +254,14 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 	defer cancelPause()
 	if err := shard.store.PauseCompaction(pauseCtx); err != nil {
 		logger.WithField("collection", orphans[0].collection).WithField("shard", orphans[0].shardName).
-			Warnf("reindex orphan audit: failed to pause compaction on shard; skipping all orphan cleanups on this shard (next restart will retry): %v", err)
+			Warnf("reindex orphan audit: failed to pause compaction; skipping shard cleanup: %v", err)
 		return 0
 	}
-	// Resume must fire even if the audit ctx was cancelled.
+	// Resume must fire even if the audit ctx was canceled.
 	defer func() {
 		if err := shard.store.ResumeCompaction(context.Background()); err != nil {
 			logger.WithField("shard", orphans[0].shardName).
-				Warnf("reindex orphan audit: failed to resume compaction after orphan cleanup; the next restart will resume it naturally: %v", err)
+				Warnf("reindex orphan audit: failed to resume compaction: %v", err)
 		}
 	}()
 
@@ -298,10 +269,10 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 	for i := range orphans {
 		o := &orphans[i]
 		logger.WithField("orphan", o.String()).
-			Warn("reindex orphan audit: found tracker for unknown task (typically backup-restore of a pre-#215-fix payload); quarantining sidecar bucket + tracker dir")
+			Warn("reindex orphan audit: found tracker for unknown task; quarantining sidecar bucket and tracker dir")
 		if err := db.cleanupOrphanTrackerCompactionPaused(ctx, shard, o, logger); err != nil {
 			logger.WithField("orphan", o.String()).
-				Warnf("reindex orphan audit: cleanup failed for tracker; manual intervention may be required to reclaim the disk space: %v", err)
+				Warnf("reindex orphan audit: cleanup failed for tracker: %v", err)
 			continue
 		}
 		cleaned++
@@ -309,28 +280,20 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 	return cleaned
 }
 
-// cleanUnloadedShardOrphans removes orphan tracker dirs + their
-// matching sidecar bucket dirs directly from disk. Used when the
-// shard has not been loaded into the live DB yet — the typical
-// post-restore-before-FSM-apply window. No in-memory bucket pointers
-// or GlobalBucketRegistry entries exist for the orphan, so plain
-// `os.RemoveAll` is sufficient.
-//
-// On the post-restore path the FSM has not yet applied the schema and
-// the *Shard struct does not exist — so there is no live state to
-// disturb. Direct disk removal is the correct cleanup primitive
-// here; when the FSM later loads the class for the first time, the
-// shard init walks a clean `.migrations/` and `lsm/` directory.
+// cleanUnloadedShardOrphans removes orphan tracker dirs and their
+// matching sidecar bucket dirs directly from disk. Used when the shard
+// has not been loaded into the live DB; no in-memory bucket pointers
+// or GlobalBucketRegistry entries exist for the orphan.
 func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) int {
 	cleaned := 0
 	for i := range orphans {
 		o := &orphans[i]
 		logger.WithField("orphan", o.String()).
-			Warn("reindex orphan audit: found tracker for unknown task on unloaded shard (post-restore window); removing tracker dir + sidecar dirs from disk")
+			Warn("reindex orphan audit: found tracker for unknown task on unloaded shard; removing tracker and sidecar dirs from disk")
 		trackerPath := filepath.Join(lsmPath, ".migrations", o.dirName)
 		if err := os.RemoveAll(trackerPath); err != nil {
 			logger.WithField("orphan", o.String()).
-				Warnf("reindex orphan audit: failed to remove orphan tracker dir; manual intervention may be required: %v", err)
+				Warnf("reindex orphan audit: failed to remove orphan tracker dir: %v", err)
 			continue
 		}
 		removeUnloadedSidecarsForOrphan(lsmPath, o, logger)
@@ -341,20 +304,9 @@ func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, l
 
 // removeUnloadedSidecarsForOrphan removes per-property sidecar bucket
 // directories that match the orphan's per-property prefix and
-// generation. Called only from the unloaded-shard cleanup path; no
-// in-memory state is involved.
-//
-// We can't reproduce the exact strategy-specific suffix names without
-// the strategy instance, so we scan the lsm dir and match by:
-//
-//   - canonical main-bucket prefix (e.g. `property_body__`,
-//     `property_body_searchable__`, `property_body_rangeable__`); and
-//   - the gen-suffix tail `_<N>` that the orphan tracker carries.
-//
-// This matches every sidecar variant the runtime-reindex code path
-// produces (`__retokenize_reindex_<N>`, `__filt_retokenize_ingest_<N>`,
-// `__blockmax_<N>`, etc.) without hard-coding the strategy suffix
-// vocabulary.
+// generation. The strategy-specific suffix is unknown without the
+// strategy instance, so it scans the lsm dir and matches by canonical
+// property prefix and the _<N> generation suffix.
 func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, logger logrus.FieldLogger) {
 	entries, err := os.ReadDir(lsmPath)
 	if err != nil {
@@ -388,56 +340,31 @@ func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, lo
 			path := filepath.Join(lsmPath, name)
 			if err := os.RemoveAll(path); err != nil {
 				logger.WithField("path", path).
-					Warnf("reindex orphan audit: failed to remove orphan sidecar dir; manual intervention may be required: %v", err)
+					Warnf("reindex orphan audit: failed to remove orphan sidecar dir: %v", err)
 			}
 		}
 	}
 }
 
-// orphanCleanupPauseTimeout caps how long the audit waits for an
-// in-flight compaction on the orphan sidecar bucket to drain before
-// proceeding with cleanup. The default lsmkv compaction cycle target
-// is in the low minutes for the segment sizes orphan sidecars usually
-// carry; 5 minutes leaves headroom for a slow CI runner while still
-// bounding worst case so a misbehaving compaction does not wedge the
-// audit forever. On timeout the audit defers cleanup of that one
-// tracker to the next process restart — that path picks up the same
-// orphan because the tracker dir is still on disk, but with a
-// different in-flight compaction state.
+// orphanCleanupPauseTimeout bounds how long the audit waits for an
+// in-flight compaction to drain before deferring cleanup of one
+// tracker to the next process restart.
 const orphanCleanupPauseTimeout = 5 * time.Minute
 
 // cleanupOrphanTrackerCompactionPaused invokes
 // CleanStalePartialReindexState for every (property, indexType) the
-// orphan claims, which is the existing shutdown+remove+registry-clear
-// path the cancel-handler uses.
-//
-// PRE-CONDITION: the caller (auditShardForOrphans) has already issued
-// [Store.PauseCompaction] on this shard and holds the pause for the
-// duration of every orphan cleanup on the shard. Pausing per-orphan
-// would race the cycle manager: the resume in the defer between two
-// orphans would allow a fresh compaction to start on a different
-// orphan sidecar bucket, and the next pause would time out trying to
-// drain it.
-//
-// Safe to call on a loaded shard concurrent with normal traffic: the
-// inner function acquires the shard-local locks the rest of the
-// runtime-reindex machinery already coordinates on, and the
-// pause/resume primitives are the same ones [Shard.HaltForTransfer]
-// uses on the backup path.
+// orphan claims. The caller must hold [Store.PauseCompaction] for the
+// duration of every orphan cleanup on the shard.
 func (db *DB) cleanupOrphanTrackerCompactionPaused(ctx context.Context, shard *Shard, o *orphanReindexTracker, logger logrus.FieldLogger) error {
 	if len(o.properties) == 0 || len(o.indexTypes) == 0 {
-		// No (prop, indexType) pair to act on — likely a class-level
-		// migration (Map→Blockmax) whose properties live inside the
-		// strategy's per-property bookkeeping rather than the payload.
-		// Fall back to a direct tracker-dir removal so disk usage is
-		// reclaimed even when CleanStalePartialReindexState wouldn't
-		// match anything.
+		// Class-level migration with no per-property indexType: fall back
+		// to direct tracker-dir removal to reclaim disk space.
 		trackerPath := filepath.Join(shard.pathLSM(), ".migrations", o.dirName)
 		if err := os.RemoveAll(trackerPath); err != nil {
 			return fmt.Errorf("remove orphan tracker dir %q: %w", trackerPath, err)
 		}
 		logger.WithField("orphan", o.String()).
-			Info("reindex orphan audit: removed class-level tracker dir (no property/indexType to clean via CleanStalePartialReindexState)")
+			Info("reindex orphan audit: removed class-level tracker dir")
 		return nil
 	}
 
@@ -451,12 +378,9 @@ func (db *DB) cleanupOrphanTrackerCompactionPaused(ctx context.Context, shard *S
 	return nil
 }
 
-// loadAuditRecord reads the on-disk recovery record for a tracker dir
-// using the same payload.mig contract as
-// [loadReindexRecoveryRecord], but with the looser sentinel-set gate
-// the audit needs: payload.mig must be present and parseable; the
-// started.mig / reindexed.mig / tidied.mig presence is the caller's
-// responsibility (already filtered above).
+// loadAuditRecord reads the payload.mig recovery record for a tracker
+// dir. Returns false if missing or unparseable. Sentinel-file presence
+// checks are the caller's responsibility.
 func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
 	var rec reindexRecoveryRecord
 	data, err := os.ReadFile(filepath.Join(trackerPath, reindexRecoveryPayloadFile))
@@ -469,17 +393,11 @@ func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
 	return rec, true
 }
 
-// semanticMigrationIndexTypesForAudit returns the (property,
-// indexType) fan-out the audit's CleanStalePartialReindexState loop
-// iterates over. Mirrors the REST-layer's [indexTypesFromMigrationType]
-// (handlers_indexes.go) so audit cleanup covers the same per-property
-// classification as the cancel/cleanup dispatch.
-//
-// Truly class-level migrations (e.g. ChangeAlgorithm = Map→Blockmax,
-// which carries no per-property indexType) fall through to the
-// default and return nil; the audit then takes the direct
-// tracker-dir removal branch in
-// [DB.cleanupOrphanTrackerCompactionPaused].
+// semanticMigrationIndexTypesForAudit returns the indexType fan-out
+// the audit's CleanStalePartialReindexState loop iterates over for a
+// given migration type. Mirrors [indexTypesFromMigrationType] in the
+// REST handler. Returns nil for class-level migrations; the audit then
+// falls back to direct tracker-dir removal.
 func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
 	switch mt {
 	case ReindexTypeChangeTokenization:
@@ -493,11 +411,5 @@ func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
 	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		return []string{"rangeable"}
 	}
-	// Defensive: a future MigrationType added without a mapping here
-	// must still be handled (direct removal is safe — orphan sidecar
-	// dirs the canonical bucket doesn't reference cannot leak query
-	// data). Class-level cleanup via os.RemoveAll on the tracker dir
-	// reclaims the disk space; the per-property sidecars remain only
-	// when a known prefix/indexType is added.
 	return nil
 }

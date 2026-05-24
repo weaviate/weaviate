@@ -30,31 +30,17 @@ import (
 // a zeroed `inactivityTimeout` implies no timeout.
 // If inactivity timeout is reached it will resume maintenance cycle independently on how many halt request has been made.
 //
-// Backup path (offloading=false): the call rejects with
-// [ErrBackupBlockedByInFlightReindex] when at least one runtime-reindex
-// tracker is in flight (started.mig present, tidied/merged absent).
-// Without this gate, the WAL flush below races against the iteration
-// goroutine writing to the source bucket via its double-write callbacks
-// — see the godoc on [ErrBackupBlockedByInFlightReindex] for the full
-// rationale and for why we refuse rather than pause-and-snapshot. The
-// gate is intentionally scoped to the BACKUP caller because the tenant
-// offload caller (offloading=true) has a separate set of invariants
-// (the tenant is being moved off this node entirely, mid-migration
-// state is moot post-transfer) that warrant separate treatment in a
-// follow-up.
+// On the backup path (offloading=false) it rejects with
+// [ErrBackupBlockedByInFlightReindex] when a runtime-reindex tracker is
+// in flight on this shard. The tenant offload path (offloading=true)
+// is intentionally not gated.
 func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) (err error) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
 
-	// In-flight reindex check runs BEFORE bumping haltForTransferCount so a
-	// rejection does not leave the per-shard halt counter incremented; that
-	// would require a matching `mayForceResumeMaintenanceCycles` from the
-	// caller (which would not happen on the error path) and would silently
-	// suppress future halt requests until the counter unwound.
-	//
-	// The check is fast (single readdir + per-entry stats) and runs while
-	// the haltForTransferMux is held, so a concurrent submit/cancel that
-	// adds or removes a tracker dir cannot observe a half-state.
+	// Check before bumping haltForTransferCount so a rejection does not
+	// leave the counter incremented; the error path would not run a
+	// matching resume.
 	if !offloading {
 		trackers, lookupErr := inFlightReindexTrackers(s.pathLSM())
 		if lookupErr != nil {

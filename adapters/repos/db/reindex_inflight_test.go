@@ -24,18 +24,11 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// TestInFlightReindexTrackers covers every phase QA Claude reproduced in
-// 0-weaviate-issues#215: no migration (P0), started-only (P1),
-// reindexed (P2), swapped (P3), tidied (P4/P5), merged-without-tidied
-// (recovery), plus negative-shape cases that must not be mistaken for
-// in-flight: pre-generation legacy entries, payload.mig only, an empty
-// .migrations dir, a missing .migrations dir, and non-dir entries.
 func TestInFlightReindexTrackers(t *testing.T) {
 	tests := []struct {
-		name string
-		// setup creates the on-disk shape inside <root>/lsm/.migrations/
+		name        string
 		setup       func(t *testing.T, migsDir string)
-		expectDirs  []string // dirnames returned (sorted); empty = no entries returned
+		expectDirs  []string
 		expectError bool
 	}{
 		{
@@ -113,21 +106,17 @@ func TestInFlightReindexTrackers(t *testing.T) {
 		{
 			name: "multiple trackers — sorted result, mix of in-flight and finished",
 			setup: func(t *testing.T, migsDir string) {
-				// In-flight (P1, P2, P3) — should appear.
 				makeTracker(t, migsDir, "searchable_retokenize_body_1", "started.mig")
 				makeTracker(t, migsDir, "filterable_retokenize_body_1",
 					"started.mig", "reindexed.mig")
 				makeTracker(t, migsDir, "searchable_retokenize_body_2",
 					"started.mig", "reindexed.mig", "swapped.mig")
-				// Finished (P4/P5) — should NOT appear.
 				makeTracker(t, migsDir, "filterable_retokenize_body_2",
 					"started.mig", "reindexed.mig", "tidied.mig")
-				// Merged recovery state — should NOT appear.
 				makeTracker(t, migsDir, "enable_searchable_other_1",
 					"started.mig", "merged.mig")
 			},
 			expectDirs: []string{
-				// Sorted alphabetically.
 				"filterable_retokenize_body_1",
 				"searchable_retokenize_body_1",
 				"searchable_retokenize_body_2",
@@ -173,10 +162,6 @@ func TestInFlightReindexTrackers(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			// Treat nil and an empty slice as equivalent for the "nothing
-			// in flight" case — both correctly represent the expected
-			// outcome and the function's return semantics don't promise
-			// one over the other.
 			var names []string
 			for _, tr := range got {
 				names = append(names, tr.DirName)
@@ -236,8 +221,6 @@ func TestReindexInFlightError_Wraps_Sentinel(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex),
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
-	// Sanity-check the human-readable message includes the shard name + tracker dir,
-	// so an operator log line surfaces both.
 	assert.Contains(t, err.Error(), "shard0")
 	assert.Contains(t, err.Error(), "searchable_retokenize_body_1")
 }
@@ -251,14 +234,10 @@ func TestReindexInFlightError_ListsEveryTracker(t *testing.T) {
 	require.Error(t, err)
 	for _, tr := range trackers {
 		assert.Contains(t, err.Error(), tr.DirName,
-			"error message must mention every active tracker; operator needs the full picture to decide which migration to wait for / cancel")
+			"error message must mention every active tracker")
 	}
 }
 
-// TestRefuseIfReindexInFlight_OnRealIndex builds a minimal *Index instance
-// with a real shard directory layout so the inactive-shard backup path's
-// call to refuseIfReindexInFlight exercises the same shardPathLSM
-// resolution as production.
 func TestRefuseIfReindexInFlight_OnRealIndex(t *testing.T) {
 	root := t.TempDir()
 	className := schema.ClassName("JourneyClass")
@@ -268,10 +247,8 @@ func TestRefuseIfReindexInFlight_OnRealIndex(t *testing.T) {
 
 	idx := &Index{Config: IndexConfig{RootPath: root, ClassName: className}}
 
-	// Clean shard — no .migrations entries — must not be refused.
 	require.NoError(t, idx.refuseIfReindexInFlight(shardName))
 
-	// Add an in-flight tracker and verify the refusal kicks in.
 	makeTracker(t, filepath.Join(lsmPath, ".migrations"),
 		"searchable_retokenize_body_1", "started.mig")
 	err := idx.refuseIfReindexInFlight(shardName)
@@ -281,7 +258,7 @@ func TestRefuseIfReindexInFlight_OnRealIndex(t *testing.T) {
 }
 
 // makeTracker creates a `.migrations/<dirName>/` directory containing the
-// listed sentinel files. The migrations dir is mkdir'd if needed.
+// listed sentinel files.
 func makeTracker(t *testing.T, migsDir, dirName string, sentinels ...string) {
 	t.Helper()
 	dir := filepath.Join(migsDir, dirName)
@@ -291,21 +268,6 @@ func makeTracker(t *testing.T, migsDir, dirName string, sentinels ...string) {
 	}
 }
 
-// TestShard_HaltForTransfer_RefusesWhenReindexInFlight wires the refusal
-// behavior end-to-end through a real *Shard. This pins the QA Claude
-// repro from 0-weaviate-issues#215: the backup path observed a "halt
-// shard for backup: pause compaction" failure roughly 30%–40% of the
-// time when a runtime-reindex was in flight. After this fix, the same
-// situation deterministically returns ErrBackupBlockedByInFlightReindex
-// before any flush is attempted.
-//
-// The test uses two phases on the same shard:
-//   - First: HaltForTransfer with an in-flight tracker on disk → refused.
-//   - Second: tidied.mig written → tracker is no longer in-flight, halt
-//     succeeds. Resume restores the shard to the live state.
-//
-// Offloading=true is explicitly NOT exercised in either phase, matching
-// the production gate that scopes the refusal to backup callers.
 func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 	ctx := testCtx()
 	className := "ShardHaltRefuseClass"
@@ -314,34 +276,23 @@ func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 	migsDir := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
 	dirName := "searchable_retokenize_body_1"
 
-	// Phase 1: in-flight tracker on disk — halt is refused.
 	makeTracker(t, migsDir, dirName, "started.mig", "reindexed.mig")
 	err := shd.HaltForTransfer(ctx, false, 100*time.Millisecond)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex),
-		"halt must wrap the sentinel so REST handlers can map via errors.Is")
-	require.Contains(t, err.Error(), dirName,
-		"error message must surface the blocking tracker so operators know which migration to wait for")
+	require.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex))
+	require.Contains(t, err.Error(), dirName)
 
-	// Confirm the refusal did not leave the halt counter incremented:
-	// a subsequent halt after the tracker is finished must NOT short-circuit
-	// via the "shard was already halted" branch and must do the full work.
 	require.NoError(t, os.WriteFile(
 		filepath.Join(migsDir, dirName, "tidied.mig"), nil, 0o600))
 
 	require.NoError(t, shd.HaltForTransfer(ctx, false, 100*time.Millisecond))
-	// Pair the halt with a resume so the test teardown can proceed cleanly.
+	// Pair the halt with a resume so test teardown can proceed cleanly.
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
 
-// TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex documents
-// that the refusal is intentionally scoped to backup callers. Tenant
-// offload's HaltForTransfer(ctx, true, ...) does not exercise the same
-// race surface (the tenant is moved off this node entirely), so the
-// gate intentionally lets it through. A regression that flipped this
-// would break offload of any tenant whose property happens to be in
-// the middle of a reindex; pinning it explicitly prevents accidental
-// scope creep on the offload path.
+// TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex pins that
+// the refusal is scoped to backup callers; offload (offloading=true)
+// must pass through.
 func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 	ctx := testCtx()
 	className := "ShardHaltOffloadClass"
@@ -350,7 +301,6 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 	migsDir := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
 	makeTracker(t, migsDir, "searchable_retokenize_body_1", "started.mig", "reindexed.mig")
 
-	require.NoError(t, shd.HaltForTransfer(ctx, true, 100*time.Millisecond),
-		"offload caller must not be blocked by an in-flight reindex; that scenario is out of scope for this fix and needs its own treatment if the underlying race is reproduced in offload")
+	require.NoError(t, shd.HaltForTransfer(ctx, true, 100*time.Millisecond))
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }

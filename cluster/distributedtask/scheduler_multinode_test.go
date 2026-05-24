@@ -522,11 +522,8 @@ func TestMultiScheduler_FailedTaskFiresOnTaskCompletedOnEveryNode(t *testing.T) 
 
 // TestMultiScheduler_CancelledTaskFiresOnTaskCompletedOnEveryNode pins
 // the cluster-wide cancel-cleanup path: a CANCELLED RAFT transition must
-// fire OnTaskCompleted on every node, not just the node that received
-// the cancel REST call. Without this, only the REST node's provider
-// could clean its per-node post-cancellation state — QA Claude's
-// repro on #11327 showed exactly this asymmetry leaving sidecar tracker
-// dirs on weaviate-0/-1 after a cancel handled by weaviate-2.
+// fire OnTaskCompleted on every node, not just the node that received the
+// cancel REST call, so per-node post-cancellation cleanup runs cluster-wide.
 func TestMultiScheduler_CancelledTaskFiresOnTaskCompletedOnEveryNode(t *testing.T) {
 	defer leaktest.Check(t)()
 
@@ -559,7 +556,7 @@ func TestMultiScheduler_CancelledTaskFiresOnTaskCompletedOnEveryNode(t *testing.
 			"node %s: OnTaskCompleted must fire on CANCELLED task", n.id)
 	}
 
-	// Idempotency across additional ticks: the pre-mark gate must hold.
+	// Idempotency across additional ticks.
 	h.tickAll()
 	h.tickAll()
 	for _, n := range h.nodes {

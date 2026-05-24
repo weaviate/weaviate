@@ -28,20 +28,16 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-// TestMultiNode_CancelClearsAcrossReplicas pins R5/R6 cluster-wide
-// for the c133b1fd0d `defer wg.Wait()` fix. Single-node tests can't
-// reproduce the processUnits limiter.Acquire-vs-ctx-cancel race —
-// it needs ≥3 nodes, ≥2 shards/node, and cancel inside ~1s of
-// STARTED so Acquire is still blocked. Setup: 3×3×RF=3, word→field
-// change-tokenization, cancel <1s. Asserts: tracker dirs drain
-// cluster-wide (R5a), backup succeeds (R5b: canCommit clears), and
-// DELETE class removes `<root>/<class-lower>/` on every node (R6).
+// TestMultiNode_CancelClearsAcrossReplicas asserts that cancel-cleanup
+// drains in-flight reindex trackers on every replica, that a subsequent
+// backup succeeds, and that DELETE class removes the class dir on every
+// node. Requires ≥3 nodes and cancel within ~1s of STARTED to exercise
+// the limiter.Acquire-vs-ctx-cancel path.
 func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	ctx := context.Background()
-	// S3/MinIO required: filesystem backend is per-node and the API
-	// refuses it for ≥2 nodes. REINDEX_CONCURRENCY=1 is the
-	// determinism knob — at default 2 the race window narrows and
-	// the test flakes on fast hardware.
+	// S3/MinIO required: filesystem backend is per-node and refused by
+	// the API for ≥2 nodes. REINDEX_CONCURRENCY=1 keeps the race window
+	// wide enough to reproduce reliably on fast hardware.
 	const backupBucket = "cancel-clears-bucket"
 	compose, err := docker.New().
 		With3NodeCluster().
@@ -60,10 +56,9 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	const (
 		className = "CancelClearsAcrossReplicas"
 		propName  = "body"
-		// 200k keeps the change-tokenization iteration alive for
-		// >3 s even on a fast laptop with 3 shards × concurrency=2;
-		// at 50k the migration finished before our cancel HTTP
-		// hit the network, and the canonical PUT returned 404.
+		// 200k keeps the change-tokenization iteration alive long enough
+		// that the cancel HTTP call lands mid-flight. Smaller values let
+		// the migration finish first, and the cancel hits 404.
 		dataset       = 200_000
 		cancelTimeout = 30 * time.Second
 	)
@@ -85,33 +80,24 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 		return map[string]interface{}{propName: paths[i%len(paths)]}
 	})
 
-	// Submit word→field. Tokenization-changing migration → both
-	// searchable + filterable trackers per (shard, replica).
+	// Tokenization-changing migration creates both searchable and
+	// filterable trackers per (shard, replica).
 	taskID := reindexhelpers.SubmitIndexUpdate(t, uri, className, propName,
 		`{"searchable":{"tokenization":"field"}}`)
 	t.Logf("submitted change-tokenization task: %s", taskID)
 
-	// Cancel within ~1 s of STARTED. We poll for the status flip and
-	// cancel immediately — network + dispatch latency alone gives the
-	// per-unit goroutines enough time to enter limiter.Acquire-blocked
-	// or first-pass iteration. Adding a sleep here makes the race
-	// stop reproducing on fast hardware (migration finishes first).
+	// Cancel as soon as the task hits STARTED. Inserting a sleep here
+	// would let the migration finish on fast hardware and stop
+	// reproducing the race.
 	awaitTaskStartedFast(t, uri, taskID, 30*time.Second)
 
 	allShards := collectShardNamesForClass(t, uri, className)
 	require.GreaterOrEqual(t, len(allShards), 3,
 		"sanity: expected ≥3 shards on a 3-shard class; got %v", allShards)
 
-	// QA Claude's 20:01Z review on PR #11327: pre-cancel positive
-	// observation. The post-cancel assertions all trivially PASS if
-	// the migration finishes before our cancel HTTP arrives — no
-	// `.migrations/` dirs, backup succeeds, DELETE succeeds, and the
-	// `defer wg.Wait()` fix isn't even exercised. Pinning ≥1 mid-flight
-	// tracker on disk before the cancel turns "test passes for the
-	// right reason" into an enforceable invariant. A future runner
-	// that closes the race window from the data side (e.g. compiler
-	// optimizations on a much faster CPU) will fail loudly here
-	// instead of silently shipping a no-op test.
+	// Sanity: must observe at least one mid-flight tracker dir before
+	// the cancel. Otherwise the migration finished early and the
+	// post-cancel assertions pass trivially without exercising the fix.
 	preCancelSurvivors := scanBodyMigrationsAllReplicas(ctx, t, compose, classDirLower, allShards, propName)
 	require.NotEmptyf(t, preCancelSurvivors,
 		"sanity: expected at least 1 .migrations/*_%s_* dir on disk mid-flight before cancel; got 0 — migration likely finished before cancel reached the cluster, so the post-cancel R5/R6 assertions would PASS trivially without exercising the fix",
@@ -121,9 +107,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 	t.Logf("issued cancel for searchable migration on %s/%s (pre-cancel survivors: %d)",
 		className, propName, len(preCancelSurvivors))
 
-	// R5a: every replica on every node drains its `.migrations/*_body_*`
-	// dirs within `cancelTimeout`.
-
+	// Every replica on every node must drain its .migrations/*_body_*
+	// dirs within cancelTimeout.
 	deadline := time.Now().Add(cancelTimeout)
 	for {
 		survivors := scanBodyMigrationsAllReplicas(ctx, t, compose, classDirLower, allShards, propName)
@@ -131,24 +116,21 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("R5a — cancel-cleanup left .migrations/*_%s_* dirs on %d replica slots after %s:\n  %s",
+			t.Fatalf("cancel-cleanup left .migrations/*_%s_* dirs on %d replica slots after %s:\n  %s",
 				propName, len(survivors), cancelTimeout, strings.Join(survivors, "\n  "))
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	// R5b: filesystem backup succeeds end-to-end. canCommit refuses
-	// the create while any in-flight tracker is present, so a green
-	// backup here is the load-bearing assertion that the inflight
-	// registration was cleared on every node.
+	// Backup must succeed. canCommit refuses while any in-flight tracker
+	// is present, so a green backup here proves the inflight registration
+	// was cleared on every node.
 	backupID := "cancel-clears-backup"
-	require.NoError(t, createS3Backup(t, uri, className, backupID, backupBucket), "R5b — backup must succeed after cancel-cleanup drains")
+	require.NoError(t, createS3Backup(t, uri, className, backupID, backupBucket), "backup must succeed after cancel-cleanup drains")
 
-	// R6: DELETE class succeeds, and the on-disk class dir is gone on
-	// every node within `cancelTimeout`. With the
-	// MutationGuard treating CANCELLED tasks as not-in-flight, this
-	// returns 200 immediately.
-	require.NoError(t, deleteClassExpectOK(t, uri, className), "R6 — DELETE class must succeed post-cancel")
+	// DELETE class must succeed (MutationGuard treats CANCELLED tasks as
+	// not-in-flight) and the on-disk class dir must disappear on every node.
+	require.NoError(t, deleteClassExpectOK(t, uri, className), "DELETE class must succeed post-cancel")
 
 	deleteDeadline := time.Now().Add(cancelTimeout)
 	for {
@@ -157,7 +139,7 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 			break
 		}
 		if time.Now().After(deleteDeadline) {
-			t.Fatalf("R6 — DELETE class left /data/%s on %d node(s) after %s: %v",
+			t.Fatalf("DELETE class left /data/%s on %d node(s) after %s: %v",
 				classDirLower, len(survivors), cancelTimeout, survivors)
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -165,10 +147,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 }
 
 // awaitTaskStartedFast polls /v1/tasks until the named task reaches
-// STARTED. Tight timeout because the cancel race needs the cancel to
-// land within ~1 s of STARTED — if we wait longer the iteration may
-// flush enough through its limiter window that the race no longer
-// triggers.
+// STARTED. Tight tick interval because the cancel must land within ~1s
+// of STARTED to reproduce the limiter race.
 func awaitTaskStartedFast(t *testing.T, restURI, taskID string, timeout time.Duration) {
 	t.Helper()
 	require.Eventually(t, func() bool {
@@ -191,9 +171,8 @@ func awaitTaskStartedFast(t *testing.T, restURI, taskID string, timeout time.Dur
 	}, timeout, 100*time.Millisecond, "task %s should reach STARTED", taskID)
 }
 
-// cancelReindexProperty sends `{<indexType>: {cancel: true}}` to the
-// canonical PUT /v1/schema/<class>/indexes/<prop> endpoint and
-// requires a 202.
+// cancelReindexProperty sends {<indexType>: {cancel: true}} to
+// PUT /v1/schema/<class>/indexes/<prop> and requires a 202.
 func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType string) {
 	t.Helper()
 	url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, propName)
@@ -210,9 +189,7 @@ func cancelReindexProperty(t *testing.T, restURI, className, propName, indexType
 }
 
 // collectShardNamesForClass returns every distinct shard name owned by
-// the given class across all nodes, via /v1/nodes?output=verbose. With
-// RF=3 every shard appears on every node, so the set is just the
-// shard partition (3 entries for a 3-shard class).
+// the given class across all nodes.
 func collectShardNamesForClass(t *testing.T, restURI, className string) []string {
 	t.Helper()
 	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
@@ -246,10 +223,9 @@ func collectShardNamesForClass(t *testing.T, restURI, className string) []string
 	return out
 }
 
-// scanBodyMigrationsAllReplicas returns "<nodeIdx>:<shard>" slot
-// identifiers for every (node, shard) replica that still has at least
-// one `.migrations/*_<propName>_*` directory on disk. Empty slice ==
-// every replica is clean.
+// scanBodyMigrationsAllReplicas returns "<nodeIdx>:<shard>" identifiers
+// for every replica that still has a .migrations/*_<propName>_* dir on
+// disk. Empty slice means every replica is clean.
 func scanBodyMigrationsAllReplicas(
 	ctx context.Context, t *testing.T, compose *docker.DockerCompose,
 	classDirLower string, shards []string, propName string,
@@ -280,9 +256,9 @@ func scanBodyMigrationsAllReplicas(
 	return survivors
 }
 
-// scanClassDirAllNodes returns node indexes (1-based) where
-// `/data/<classDirLower>` still exists. Empty slice == every node
-// cleaned. Used for the R6 invariant after DELETE class.
+// scanClassDirAllNodes returns the 1-based node indexes where
+// /data/<classDirLower> still exists. Empty slice means every node
+// is clean.
 func scanClassDirAllNodes(
 	ctx context.Context, t *testing.T, compose *docker.DockerCompose, classDirLower string,
 ) []int {
@@ -299,11 +275,8 @@ func scanClassDirAllNodes(
 	return survivors
 }
 
-// createS3Backup posts to /v1/backups/s3 with the
-// supplied id + className and waits up to 60 s for a SUCCESS terminal
-// status. canCommit returns 422 with the structured "backup blocked"
-// body if any local shard has an in-flight tracker — that's the R5b
-// invariant we want to assert flips to clean after cancel-cleanup.
+// createS3Backup posts to /v1/backups/s3 and waits up to 60s for a
+// SUCCESS terminal status.
 func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) error {
 	t.Helper()
 	body := map[string]interface{}{
@@ -351,8 +324,7 @@ func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) e
 	}
 }
 
-// deleteClassExpectOK sends DELETE /v1/schema/<class> and requires a
-// 200. Wraps the inline pattern so the test stays readable.
+// deleteClassExpectOK sends DELETE /v1/schema/<class> and requires 200.
 func deleteClassExpectOK(t *testing.T, restURI, className string) error {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodDelete,

@@ -675,14 +675,8 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	}
 
 	if target == nil {
-		// 0-weaviate-issues#215 B5: bare 404 with no body is
-		// indistinguishable from "endpoint not found" for operators
-		// chasing a stuck-state cancel. Return a structured error
-		// body identifying the (collection, property, indexType)
-		// tuple the operator was trying to cancel and the actionable
-		// remedy.
 		return schema.NewSchemaObjectsIndexesUpdateNotFound().WithPayload(errorResponse(principal, fmt.Sprintf(
-			"no in-flight reindex task to cancel for (collection=%q, property=%q, indexType=%q): the task may have already finished, been cancelled, or never been started; use GET /v1/schema/%s/indexes to inspect the current state",
+			"no in-flight reindex task to cancel for (collection=%q, property=%q, indexType=%q): the task may have already finished, been canceled, or never been started; use GET /v1/schema/%s/indexes to inspect the current state",
 			collection, propertyName, indexType, collection)))
 	}
 
@@ -729,28 +723,16 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 				"property":   propertyName,
 				"index_type": indexType,
 			}).Info("cancel: drain complete, running on-disk cleanup")
-			// Goroutine has drained. Safe to wipe the sidecars and the
-			// migration directory so the next submit starts from a clean
-			// slate. Errors here are logged but don't fail the cancel —
-			// the user already received 202 conceptually, and the defense
-			// in depth at submit time will re-run cleanup.
-			//
-			// 0-weaviate-issues#215 B8: walk EVERY indexType the
-			// migration touches, not just the indexType named in the
-			// request URL. change-tokenization spawns both a
-			// searchable and a filterable strategy under a single
-			// DTM task; a cancel that cleans only `indexType` leaves
-			// the sibling's `payload.mig` orphan (and, if the sibling's
-			// iteration had progressed past markStarted, its sidecar
-			// bucket too).
+			// Goroutine has drained. Wipe the sidecars and migration
+			// directories for every indexType this migration touches —
+			// change-tokenization spawns both a searchable and a
+			// filterable strategy under one task, so cleaning only the
+			// URL's indexType leaves the sibling orphaned. Errors are
+			// logged; submit-time pre-cleanup will retry.
 			indexTypesToClean, known := indexTypesFromMigrationType(targetPayload.MigrationType)
 			if !known || len(indexTypesToClean) == 0 {
-				// Defensive: a payload whose migration type we don't
-				// recognise (e.g. an unknown future strategy) still
-				// gets at least the indexType the user named cleaned,
-				// so the cancel path stays in lockstep with submit-time
-				// pre-cleanup (which also degrades to "nothing to do"
-				// on unknown types).
+				// Unknown migration type: fall back to the indexType
+				// named in the URL.
 				indexTypesToClean = []string{indexType}
 			}
 			var cleanupErrs []error
@@ -910,16 +892,12 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 	return false, false
 }
 
-// normaliseSearchableAlgorithm canonicalises an explicit
-// searchable.algorithm verb value into the single supported target
-// (BlockMaxWAND). Accepted aliases are case-insensitive:
-// "BlockMaxWAND", "blockmax", "BMW", "block_max_wand". Any other
-// value (including "WAND", "wand") returns "" — the BlockMax→WAND
-// reverse direction is intentionally not supported at this time
-// because the underlying repair-searchable migration only writes
-// blockmax-format segments. Callers map "" to a 400 with a clear
-// message; see 0-weaviate-issues#215 B7.
-func normaliseSearchableAlgorithm(value string) string {
+// normalizeSearchableAlgorithm maps an explicit searchable.algorithm
+// value to its canonical form ("BlockMaxWAND") or "" if unsupported.
+// The reverse direction (BlockMax→WAND) is not supported: the
+// repair-searchable migration only writes blockmax-format segments.
+// Callers map "" to a 400.
+func normalizeSearchableAlgorithm(value string) string {
 	switch strings.ToLower(strings.ReplaceAll(value, "_", "")) {
 	case "blockmaxwand", "blockmax", "bmw":
 		return "BlockMaxWAND"

@@ -1064,39 +1064,27 @@ func TestValidateBodyExclusivity(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// normaliseSearchableAlgorithm — accepted aliases for the explicit-algorithm
-// rebuild verb (0-weaviate-issues#215 B7). The reverse direction
-// (BlockMax→WAND) is intentionally not supported at this time; submitting it
-// returns ""  so the handler maps it to a 400.
-// -----------------------------------------------------------------------------
-
-func TestNormaliseSearchableAlgorithm(t *testing.T) {
+func TestNormalizeSearchableAlgorithm(t *testing.T) {
 	cases := []struct {
 		in   string
 		want string
 	}{
-		// Canonical form.
 		{"BlockMaxWAND", "BlockMaxWAND"},
-		// Lower-case aliases.
 		{"blockmax", "BlockMaxWAND"},
 		{"blockmaxwand", "BlockMaxWAND"},
 		{"bmw", "BlockMaxWAND"},
-		// Underscore variant — strip-underscores then lowercase.
 		{"block_max_wand", "BlockMaxWAND"},
 		{"BLOCK_MAX_WAND", "BlockMaxWAND"},
 		{"BMW", "BlockMaxWAND"},
-		// Reverse direction is rejected.
 		{"WAND", ""},
 		{"wand", ""},
-		// Empty / unknown.
 		{"", ""},
 		{"FastForward", ""},
 		{"blockMaxWAND-v2", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
-			require.Equal(t, tc.want, normaliseSearchableAlgorithm(tc.in))
+			require.Equal(t, tc.want, normalizeSearchableAlgorithm(tc.in))
 		})
 	}
 }
