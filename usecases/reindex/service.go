@@ -377,8 +377,13 @@ func (s *Service) Cancel(ctx context.Context, collection, propertyName, indexTyp
 	}
 
 	if target == nil {
-		return SubmitResult{}, fmt.Errorf("%w: no in-flight reindex task to cancel for (collection=%q, property=%q, indexType=%q); the task may have already finished, been canceled, or never been started",
-			ErrNotFound, collection, propertyName, indexType)
+		// Pin: TestBackupVsReindexSuite/CancelOnNoInFlightReturnsStructured404
+		// requires the structured 404 body to name the tuple AND point
+		// operators at GET /v1/schema/{collection}/indexes — bare 404
+		// is indistinguishable from "endpoint not found" for an operator
+		// chasing a stuck-state cancel.
+		return SubmitResult{}, fmt.Errorf("%w: no in-flight reindex task to cancel for (collection=%q, property=%q, indexType=%q); the task may have already finished, been canceled, or never been started; use GET /v1/schema/%s/indexes to inspect the current state",
+			ErrNotFound, collection, propertyName, indexType, collection)
 	}
 
 	if err := s.deps.Cluster.CancelDistributedTask(
