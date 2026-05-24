@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex
 
 import (
 	"testing"
@@ -19,7 +19,7 @@ import (
 )
 
 // TestOnGroupCompleted_TerminalStatusShortCircuit pins the recovery-replay
-// short-circuit at the top of [reindex.ReindexProvider.OnGroupCompleted]. When
+// short-circuit at the top of [ReindexProvider.OnGroupCompleted]. When
 // the scheduler invokes OnGroupCompleted for a task whose status is
 // already terminal (FINISHED / FAILED / CANCELLED) — e.g. a startup
 // recovery replay of a long-finished migration — the function must

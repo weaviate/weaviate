@@ -43,7 +43,7 @@ type testMigrationStrategy struct {
 	migrationCompleted bool
 }
 
-func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ reindex.ShardLike) error {
 	s.migrationCompleted = true
 	return nil
 }
@@ -54,20 +54,20 @@ type testShardReindexer struct {
 	task reindex.ShardReindexTaskV3
 }
 
-func (r *testShardReindexer) RunBeforeLsmInit(ctx context.Context, shard *Shard) error {
+func (r *testShardReindexer) RunBeforeLsmInit(ctx context.Context, shard reindex.ShardLike) error {
 	return r.task.OnBeforeLsmInit(ctx, shard)
 }
 
-func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
+func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard reindex.ShardLike) error {
 	return r.task.OnAfterLsmInit(ctx, shard)
 }
 
-func (r *testShardReindexer) RunAfterLsmInitAsync(ctx context.Context, shard *Shard) error {
+func (r *testShardReindexer) RunAfterLsmInitAsync(ctx context.Context, shard reindex.ShardLike) error {
 	_, _, err := r.task.OnAfterLsmInitAsync(ctx, shard)
 	return err
 }
 
-func (r *testShardReindexer) Stop(_ *Shard, _ error) {}
+func (r *testShardReindexer) Stop(_ reindex.ShardLike, _ error) {}
 
 func createTestObjectWithText(className, text string) *storobj.Object {
 	return &storobj.Object{
@@ -116,7 +116,7 @@ func newTestClassWithProps(className string, propNames []string) *models.Class {
 
 func newTestTask(logger logrus.FieldLogger, strategy reindex.MigrationStrategy) *reindex.ShardReindexTaskGeneric {
 	return reindex.NewShardReindexTaskGeneric("MapToBlockmax", logger, strategy,
-		reindexTaskConfig{
+		reindex.reindexTaskConfig{
 			swapBuckets:                   true,
 			tidyBuckets:                   true,
 			concurrency:                   2,
@@ -126,7 +126,7 @@ func newTestTask(logger logrus.FieldLogger, strategy reindex.MigrationStrategy) 
 			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
 		},
-		&reindex.UuidKeyParser{}, uuidObjectsIteratorAsync,
+		&reindex.UuidKeyParser{}, reindex.uuidObjectsIteratorAsync,
 	)
 }
 
@@ -140,7 +140,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(reindex.ShardLike)
 
 	searchBucketName := helpers.BucketSearchableFromPropNameLSM("title")
 	require.Equal(t, lsmkv.StrategyMapCollection,
@@ -166,7 +166,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	require.NotNil(t, shard.store.Bucket(reindexBucketName))
 	require.NotNil(t, shard.store.Bucket(ingestBucketName))
 
-	// Insert double-write objects BEFORE running the async reindex.
+	// Insert double-write objects BEFORE running the async
 	// These go to both the main bucket (MapCollection) and the ingest bucket
 	// (Inverted) via double-write callbacks.
 	doubleWriteObjects := make([]*storobj.Object, 5)
@@ -186,7 +186,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	}
 
 	// Verify migration completed — no restart needed!
-	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &reindex.UuidKeyParser{})
+	rt := reindex.NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &reindex.UuidKeyParser{})
 	assert.True(t, rt.IsPrepended(), "tracker should show prepended")
 	assert.True(t, rt.IsMerged(), "tracker should show merged")
 	assert.True(t, rt.IsSwapped(), "tracker should show swapped")
@@ -223,7 +223,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	// trim (`trimOlderGenerationsLocked`), which deletes the current
 	// gen's backup along with any older generations. This is part of
 	// the bounded-depth invariant — at most one tidied gen + one
-	// in-flight gen on disk at any time. See `docs/runtime-reindex.md`.
+	// in-flight gen on disk at any time. See `docs/runtime-md`.
 	assert.False(t, dirExists(filepath.Join(shard.pathLSM(), backupBucketName)),
 		"backup dir should be removed by end-of-swap trim")
 
@@ -247,7 +247,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(reindex.ShardLike)
 
 	// Insert objects and run full runtime swap
 	objects := make([]*storobj.Object, 10)
@@ -279,10 +279,10 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 	require.NoError(t, err)
-	shard2 := shd2.(*Shard)
+	shard2 := shd2.(reindex.ShardLike)
 	idx.shards.Store(shardName, shd2)
 
-	// After per-migration-generation refactor, reindex.FinalizeCompletedMigrations
+	// After per-migration-generation refactor, FinalizeCompletedMigrations
 	// runs at shard init, finalizes the tidied gen (renames ingest dir →
 	// canonical, removes backup, removes the tracker dir). With the
 	// tracker dir gone, the new task's OnAfterLsmInit sees IsStarted=
@@ -337,12 +337,12 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 	tests := []struct {
 		name     string
-		setupRT  func(rt reindexTracker)
+		setupRT  func(rt reindex.reindexTracker)
 		wantPath string
 	}{
 		{
 			name: "IsTidied/idempotent",
-			setupRT: func(rt reindexTracker) {
+			setupRT: func(rt reindex.reindexTracker) {
 				require.NoError(t, rt.markStarted(time.Now()))
 				require.NoError(t, rt.markReindexed())
 				require.NoError(t, rt.markPrepended())
@@ -354,7 +354,7 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 		},
 		{
 			name: "IsSwapped/!IsTidied/tidy_only",
-			setupRT: func(rt reindexTracker) {
+			setupRT: func(rt reindex.reindexTracker) {
 				require.NoError(t, rt.markStarted(time.Now()))
 				require.NoError(t, rt.markReindexed())
 				require.NoError(t, rt.markPrepended())
@@ -373,7 +373,7 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
-			shard := shd.(*Shard)
+			shard := shd.(reindex.ShardLike)
 			defer shard.Shutdown(ctx)
 
 			strategy := &testMigrationStrategy{reindex.MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{generation: 1}}
@@ -442,7 +442,7 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(reindex.ShardLike)
 
 	// Sanity: every prop's searchable bucket should start at
 	// StrategyMapCollection so the MapToBlockmax migration picks them
@@ -539,7 +539,7 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	// Sanity: assert markers landed as the contract specifies post-Phase
 	// 2c (since this is the inline path, runtimeSwap also runs 2b + 2c
 	// for the dead-bucket tidy and OnMigrationComplete + trim).
-	rt := NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &reindex.UuidKeyParser{})
+	rt := reindex.NewFileMapToBlockmaxReindexTracker(shard.pathLSM(), &reindex.UuidKeyParser{})
 	for _, p := range propNames {
 		assert.True(t, rt.IsSwappedProp(p),
 			"prop %q should be IsSwappedProp post-runtimeSwap", p)

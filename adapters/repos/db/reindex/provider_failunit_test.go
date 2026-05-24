@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex
 
 import (
 	"context"
@@ -21,7 +21,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
@@ -57,11 +56,11 @@ func (s *stubRecorder) UpdateDistributedTaskUnitProgress(
 	panic("UpdateDistributedTaskUnitProgress should not be called from failUnit tests")
 }
 
-func newTestProvider(t *testing.T) (*reindex.ReindexProvider, *test.Hook) {
+func newTestProvider(t *testing.T) (*ReindexProvider, *test.Hook) {
 	t.Helper()
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	return &reindex.ReindexProvider{
+	return &ReindexProvider{
 		logger:    logger,
 		localNode: "node-A",
 	}, hook

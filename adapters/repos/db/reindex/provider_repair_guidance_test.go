@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex
 
 import (
 	"testing"
@@ -17,7 +17,6 @@ import (
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
 // TestLogOperatorRepairGuidanceOnFailedSemanticMigration_* pin the
@@ -34,9 +33,9 @@ import (
 func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationBothIndexes(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
-	payload := &reindex.ReindexTaskPayload{
+	payload := &ReindexTaskPayload{
 		Collection:         "Products",
-		MigrationType:      reindex.ReindexTypeChangeTokenization,
+		MigrationType:      ReindexTypeChangeTokenization,
 		Properties:         []string{"name"},
 		TargetTokenization: "field",
 	}
@@ -46,7 +45,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationBo
 	entry := hook.Entries[0]
 	require.Equal(t, logrus.ErrorLevel, entry.Level)
 	require.Equal(t, "name", entry.Data["property"])
-	require.Equal(t, reindex.ReindexTypeChangeTokenization, entry.Data["migration_type"])
+	require.Equal(t, ReindexTypeChangeTokenization, entry.Data["migration_type"])
 	// change-tokenization can tear either inverted index; guidance must
 	// instruct the operator to rebuild both.
 	require.Equal(t,
@@ -59,9 +58,9 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationBo
 func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationFilterableOnly(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
-	payload := &reindex.ReindexTaskPayload{
+	payload := &ReindexTaskPayload{
 		Collection:         "Products",
-		MigrationType:      reindex.ReindexTypeChangeTokenizationFilterable,
+		MigrationType:      ReindexTypeChangeTokenizationFilterable,
 		Properties:         []string{"category"},
 		TargetTokenization: "field",
 	}
@@ -79,9 +78,9 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_ChangeTokenizationFi
 func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_MultipleProperties(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
-	payload := &reindex.ReindexTaskPayload{
+	payload := &ReindexTaskPayload{
 		Collection:    "Products",
-		MigrationType: reindex.ReindexTypeEnableFilterable,
+		MigrationType: ReindexTypeEnableFilterable,
 		Properties:    []string{"a", "b", "c"},
 	}
 	logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T3"), payload)
@@ -109,7 +108,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationI
 	} {
 		t.Run(string(mt), func(t *testing.T) {
 			hook.Reset()
-			payload := &reindex.ReindexTaskPayload{
+			payload := &ReindexTaskPayload{
 				Collection:    "Products",
 				MigrationType: mt,
 				Properties:    []string{"name"},
@@ -124,9 +123,9 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationI
 func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_EmptyPropertiesEmitsGenericGuidance(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
-	payload := &reindex.ReindexTaskPayload{
+	payload := &ReindexTaskPayload{
 		Collection:    "Products",
-		MigrationType: reindex.ReindexTypeChangeTokenization,
+		MigrationType: ReindexTypeChangeTokenization,
 		Properties:    nil, // reserved for future whole-collection rebuild
 	}
 	logOperatorRepairGuidanceOnFailedSemanticMigration(logger.WithField("taskID", "T4"), payload)
