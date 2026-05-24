@@ -21,7 +21,7 @@ import (
 //
 // The schema flip (Tokenization field) is no longer performed by this
 // strategy — it now happens cluster-wide in
-// [ReindexProvider.OnTaskCompleted] after every node's local
+// [AutoCleanupAfterTerminal.OnTaskCompleted] after every node's local
 // OnGroupCompleted has run the bucket pointer swap. The strategy
 // constructor therefore no longer needs the schema.Manager.
 func NewRuntimeFilterableRetokenizeTask(

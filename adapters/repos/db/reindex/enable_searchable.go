@@ -19,7 +19,7 @@ import (
 // for runtime (live) creation of blockmax searchable indexes on text/text[]
 // properties that currently have none. The schema flip
 // (IndexSearchable=true + Tokenization) now happens cluster-wide in
-// [ReindexProvider.OnTaskCompleted], not from this strategy's per-shard
+// [AutoCleanupAfterTerminal.OnTaskCompleted], not from this strategy's per-shard
 // OnMigrationComplete — so the constructor no longer needs the
 // schema.Manager.
 //

@@ -41,7 +41,7 @@ import (
 // state, which shouldn't exist on this branch but defensive code is
 // cheap) are ignored.
 //
-// Called from [ReindexProvider.processOneUnit] before constructing the
+// Called from [AutoCleanupAfterTerminal.processOneUnit] before constructing the
 // strategy instance, once per shard / prop / indexType tuple. Computed
 // per-node — different nodes may pick different generations for the
 // same RAFT task and that's correct: generation is purely a per-node
@@ -189,7 +189,7 @@ func FileExistsInDir(dirPath, fileName string) bool {
 //     (so the namespace becomes self-consistent on disk and the same
 //     finalize path runs) and then promote gen M the same way.
 //     CRITICAL: this means the cluster-wide schema flip
-//     [ReindexProvider.flipSemanticMigrationSchema] has likely already
+//     [AutoCleanupAfterTerminal.flipSemanticMigrationSchema] has likely already
 //     committed via RAFT (the DTM task was FINISHED before this node
 //     died, otherwise the unit would not have transitioned terminal),
 //     so the canonical bucket MUST have target-tokenization data on

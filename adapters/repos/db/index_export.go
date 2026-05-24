@@ -97,7 +97,7 @@ func (h reindexIndexHandle) ForEachLoadedShard(fn func(name string, shard reinde
 func asReindexShard(shard ShardLike) reindex.ShardLike {
 	r, ok := shard.(reindex.ShardLike)
 	if !ok {
-		panic(fmt.Sprintf("db.ShardLike of type %T does not satisfy reindex.ShardLike — extend the new wrapper with the reindex-facing exported surface (see shard_export.go / lazyloader_export.go)", shard))
+		panic(fmt.Sprintf("db.ShardLike of type %T does not satisfy reindex.ShardLike — extend the new wrapper with the reindex-facing exported surface (see shard_export and lazyloader_export)", shard))
 	}
 	return r
 }

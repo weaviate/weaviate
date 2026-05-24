@@ -83,7 +83,7 @@ func inFlightReindexTrackers(lsmPath string) ([]InFlightReindexTracker, error) {
 		if tidied {
 			continue
 		}
-		if fileExistsInDir(dirPath, "merged.mig") {
+		if reindex.FileExistsInDir(dirPath, "merged.mig") {
 			continue
 		}
 		out = append(out, InFlightReindexTracker{

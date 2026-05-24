@@ -19,7 +19,7 @@ import (
 // for runtime (live) creation of filterable (RoaringSet) indexes on
 // properties that currently have none. The schema flip
 // (IndexFilterable=true) now happens cluster-wide in
-// [ReindexProvider.OnTaskCompleted], not from this strategy's per-shard
+// [AutoCleanupAfterTerminal.OnTaskCompleted], not from this strategy's per-shard
 // OnMigrationComplete — so the constructor no longer needs the
 // schema.Manager.
 //

@@ -174,7 +174,7 @@ func (s *FilterableRetokenizeStrategy) PreReindexHook(_ ShardLike, _ []string) {
 
 // OnMigrationComplete is a no-op for semantic migrations. The schema
 // cutover (Tokenization flip via RAFT) now happens once cluster-wide
-// from [ReindexProvider.OnTaskCompleted] after every node's local
+// from [AutoCleanupAfterTerminal.OnTaskCompleted] after every node's local
 // OnGroupCompleted has run the bucket pointer swap. See the Journey 3
 // canonical pattern in cluster/distributedtask/doc.go:111-137.
 //

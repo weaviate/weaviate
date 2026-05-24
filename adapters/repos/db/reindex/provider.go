@@ -1557,7 +1557,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 		return
 	}
 
-	// p.serverCtx outlives the per-task ctx (which is gone by the time the
+	// p.ServerCtx outlives the per-task ctx (which is gone by the time the
 	// scheduler tick fires OnTaskCompleted).
 	ctx := p.ServerCtx
 	if err := p.FlipSemanticMigrationSchema(ctx, payload, logger); err != nil {
@@ -1590,13 +1590,13 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	}
 }
 
-// autoCleanupAfterTerminal runs on every node when a semantic migration
+// AutoCleanupAfterTerminal runs on every node when a semantic migration
 // reaches FAILED or CANCELLED. Drains any still-running local
 // goroutine, then wipes partial sidecar state per (property, indexType).
 // Errors are logged and swallowed; the next-restart audit catches anything
 // missed.
-func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
-	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
+func (p *ReindexProvider) AutoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
+	drainCtx, drainCancel := context.WithTimeout(p.ServerCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
 	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
 		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)

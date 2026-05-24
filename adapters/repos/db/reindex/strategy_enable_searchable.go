@@ -136,7 +136,7 @@ func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]in
 
 // OnMigrationComplete is a no-op for this semantic migration. The schema
 // cutover (IndexSearchable=true + Tokenization flip via RAFT) now happens
-// once cluster-wide from [ReindexProvider.OnTaskCompleted] after every
+// once cluster-wide from [AutoCleanupAfterTerminal.OnTaskCompleted] after every
 // node's local OnGroupCompleted has run the bucket pointer swap. See the
 // Journey 3 canonical pattern in cluster/distributedtask/doc.go:111-137.
 //

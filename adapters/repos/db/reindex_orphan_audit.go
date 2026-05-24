@@ -24,19 +24,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
-// KnownReindexTaskLookup reports whether (taskID, taskVersion) is live
+// reindex.KnownReindexTaskLookup reports whether (taskID, taskVersion) is live
 // in the DTM scheduler snapshot. One instance is built per audit
 // invocation so all per-tracker classifications share a consistent
 // snapshot.
-type KnownReindexTaskLookup func(taskID string, taskVersion uint64) bool
-
-// KnownReindexTaskLookupBuilder returns a fresh [KnownReindexTaskLookup]
+// reindex.KnownReindexTaskLookupBuilder returns a fresh [reindex.KnownReindexTaskLookup]
 // for one audit invocation.
-type KnownReindexTaskLookupBuilder func() KnownReindexTaskLookup
-
 // SetReindexAuditDeps installs the builder and logger used by
 // [DB.AuditOrphanReindexTrackersIfReady].
-func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
+func (db *DB) SetReindexAuditDeps(builder reindex.KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
 	db.reindexAuditLookupBuilder = builder
@@ -88,15 +84,15 @@ func (o *orphanReindexTracker) String() string {
 // Calls [Shard.CleanStalePartialReindexState] per (property, indexType)
 // for loaded shards; cold lazy MT shards are skipped and re-evaluated
 // at next activation. Best-effort: per-orphan errors are logged.
-func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) error {
+func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask reindex.KnownReindexTaskLookup, logger logrus.FieldLogger) error {
 	if logger == nil {
 		logger = logrus.New()
 	}
 	if knownTask == nil {
 		// A nil lookup would misclassify every in-flight migration as an
 		// orphan. Refuse rather than auto-quarantine on a normal restart.
-		logger.Error("reindex orphan audit: KnownReindexTaskLookup is nil; skipping audit")
-		return fmt.Errorf("reindex orphan audit: KnownReindexTaskLookup is nil")
+		logger.Error("reindex orphan audit: reindex.KnownReindexTaskLookup is nil; skipping audit")
+		return fmt.Errorf("reindex orphan audit: reindex.KnownReindexTaskLookup is nil")
 	}
 
 	auditLogger := logger.WithField("action", "reindex_orphan_audit")
@@ -193,7 +189,7 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 // tidied.mig/merged.mig absent, payload.mig parseable, and the
 // referenced task not known to DTM). Read-only; cleanup is the
 // caller's job.
-func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
+func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask reindex.KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
@@ -382,9 +378,9 @@ func (db *DB) cleanupOrphanTrackerCompactionPaused(ctx context.Context, shard *S
 // loadAuditRecord reads the payload.mig recovery record for a tracker
 // dir. Returns false if missing or unparseable. Sentinel-file presence
 // checks are the caller's responsibility.
-func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
-	var rec reindexRecoveryRecord
-	data, err := os.ReadFile(filepath.Join(trackerPath, reindexRecoveryPayloadFile))
+func loadAuditRecord(trackerPath string) (reindex.ReindexRecoveryRecord, bool) {
+	var rec reindex.ReindexRecoveryRecord
+	data, err := os.ReadFile(filepath.Join(trackerPath, reindex.ReindexRecoveryPayloadFile))
 	if err != nil {
 		return rec, false
 	}
@@ -399,7 +395,7 @@ func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
 // given migration type. Mirrors [indexTypesFromMigrationType] in the
 // REST handler. Returns nil for class-level migrations; the audit then
 // falls back to direct tracker-dir removal.
-func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
+func semanticMigrationIndexTypesForAudit(mt reindex.ReindexMigrationType) []string {
 	switch mt {
 	case reindex.ReindexTypeChangeTokenization:
 		return []string{"searchable", "filterable"}

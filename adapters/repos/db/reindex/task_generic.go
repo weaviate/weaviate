@@ -290,7 +290,7 @@ func (t *ShardReindexTaskGeneric) MigrationPath(lsmPath string) string {
 }
 
 // ReindexRecoveryPayloadFile is the filename of the on-disk JSON record
-// describing the in-flight reindex task. Written by [ReindexProvider]
+// describing the in-flight reindex task. Written by [AutoCleanupAfterTerminal]
 // before the reindex iteration starts; read at startup by
 // [DiscoverInFlightReindexTasks] to rebuild task instances for shards that
 // had a reindex in progress when the node went down. The sentinel lives
@@ -481,7 +481,7 @@ func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard S
 // Recovery semantics (post-restart rehydrate path):
 //
 // This function is the cluster's authoritative completion path for
-// semantic migrations, invoked by [ReindexProvider.OnGroupCompleted]
+// semantic migrations, invoked by [AutoCleanupAfterTerminal.OnGroupCompleted]
 // once all units in the group are terminal. On a node that restarted
 // inside the FINALIZING window (graceful rolling restart, OOM kill,
 // k8s pod hardware failure, etc.), the previous in-process runtimeSwap
