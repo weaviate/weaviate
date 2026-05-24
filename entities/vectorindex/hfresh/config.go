@@ -33,11 +33,13 @@ const (
 // UserConfig defines the configuration options for the HFresh index.
 // Will be populated once we decide what should be exposed.
 type UserConfig struct {
-	MaxPostingSizeKB uint32        `json:"maxPostingSizeKB"`
-	Replicas         uint32        `json:"replicas"`
-	SearchProbe      uint32        `json:"searchProbe"`
-	Distance         string        `json:"distance"`
-	RQ               hnsw.RQConfig `json:"rq"`
+	MaxPostingSizeKB   uint32        `json:"maxPostingSizeKB"`
+	Replicas           uint32        `json:"replicas"`
+	SearchProbe        uint32        `json:"searchProbe"`
+	Distance           string        `json:"distance"`
+	RQ                 hnsw.RQConfig `json:"rq"`
+	DataIntegrityCheck bool          `json:"dataIntegrityCheck"`
+	MagnitudeBound     float64       `json:"magnitudeBound"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -206,6 +208,18 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "distance", func(v string) {
 		uc.Distance = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalBoolFromMap(asMap, "dataIntegrityCheck", func(v bool) {
+		uc.DataIntegrityCheck = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalFloat64FromMap(asMap, "magnitudeBound", func(v float64) {
+		uc.MagnitudeBound = v
 	}); err != nil {
 		return uc, err
 	}

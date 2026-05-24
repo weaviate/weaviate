@@ -176,12 +176,16 @@ type hnsw struct {
 	disableSnapshots  bool
 	snapshotOnStartup bool
 
-	compressor compressionhelpers.VectorCompressor
-	pqConfig   ent.PQConfig
-	bqConfig   ent.BQConfig
-	sqConfig   ent.SQConfig
-	rqConfig   ent.RQConfig
-	rqActive   atomic.Bool
+	compressor         compressionhelpers.VectorCompressor
+	pqConfig           ent.PQConfig
+	bqConfig           ent.BQConfig
+	sqConfig           ent.SQConfig
+	rqConfig           ent.RQConfig
+	rqActive           atomic.Bool
+	dataIntegrityCheck atomic.Bool
+	// magnitudeBound holds the per-component magnitude bound, encoded with
+	// math.Float64bits. A value of 0 (the default) disables the check.
+	magnitudeBound atomic.Uint64
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -403,6 +407,8 @@ func New(cfg Config, uc ent.UserConfig,
 		"targetVector": index.getTargetVector(),
 	})
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+	index.dataIntegrityCheck.Store(uc.DataIntegrityCheck)
+	index.magnitudeBound.Store(math.Float64bits(uc.MagnitudeBound))
 
 	index.multivector.Store(uc.Multivector.Enabled)
 	index.muvera.Store(uc.Multivector.MuveraConfig.Enabled)

@@ -49,6 +49,8 @@ type UserConfig struct {
 	RQ                       RQUserConfig          `json:"rq"`
 	SkipDefaultQuantization  bool                  `json:"skipDefaultQuantization"`
 	TrackDefaultQuantization bool                  `json:"trackDefaultQuantization"`
+	DataIntegrityCheck       bool                  `json:"dataIntegrityCheck"`
+	MagnitudeBound           float64               `json:"magnitudeBound"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -118,6 +120,18 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 
 	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "trackDefaultQuantization", func(v bool) {
 		uc.TrackDefaultQuantization = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorindexcommon.OptionalBoolFromMap(asMap, "dataIntegrityCheck", func(v bool) {
+		uc.DataIntegrityCheck = v
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorindexcommon.OptionalFloat64FromMap(asMap, "magnitudeBound", func(v float64) {
+		uc.MagnitudeBound = v
 	}); err != nil {
 		return uc, err
 	}
