@@ -202,7 +202,7 @@ type ShardReindexTaskGeneric struct {
 	ProcessOneTidyPropFn func(propIdx int, propName, lsmPath string) error
 }
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // NewShardReindexTaskGeneric creates a new generic reindex task.
 func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
@@ -2456,7 +2456,7 @@ func (t *ShardReindexTaskGeneric) RemoveBucketsDirs(ctx context.Context, logger 
 	return eg.Wait()
 }
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 func DirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
@@ -2631,7 +2631,7 @@ type migrationData struct {
 type objectsIteratorAsync func(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey, propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool, schemaOverlay map[string]inverted.PropertyOverlay,
 ) (time.Time, <-chan *migrationData)
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 func UuidObjectsIteratorAsync(logger logrus.FieldLogger, shard ShardLike, lastKey indexKey, keyParse func([]byte) indexKey,
 	propExtraction *storobj.PropertyExtraction, reindexStarted time.Time, breakCh <-chan bool,
 	schemaOverlay map[string]inverted.PropertyOverlay,

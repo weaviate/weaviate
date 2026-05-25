@@ -1930,7 +1930,7 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // MaybeSetTokenizationOverlayPreSwap sets the per-shard tokenization
 // overlay before the swap loop on a tokenization-changing migration.
@@ -1952,7 +1952,7 @@ func MaybeSetTokenizationOverlayPreSwap(shard ShardLike, payload *ReindexTaskPay
 	return true
 }
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // MaybeClearTokenizationOverlayOnAllFailed is the defensive CLEAR
 // hook — called by [OnGroupCompleted] AFTER the per-task swap loop

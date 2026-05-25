@@ -20,7 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // RoaringSetRefreshStrategy implements MigrationStrategy for a same-strategy
 // reindex of filterable (RoaringSet) properties. This rebuilds the filterable

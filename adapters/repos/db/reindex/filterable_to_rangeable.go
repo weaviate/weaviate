@@ -16,7 +16,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // NewRuntimeFilterableToRangeableTask creates a ShardReindexTaskGeneric configured
 // for runtime (live) filterable→rangeable migration. It builds RoaringSetRange

@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 )
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // RebuildSearchableStrategy rebuilds an existing BlockMax (StrategyInverted)
 // searchable bucket from the objects store while preserving the property's

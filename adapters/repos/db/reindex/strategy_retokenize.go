@@ -23,7 +23,7 @@ import (
 // schemaManager field kept for future use but OnMigrationComplete is a no-op
 // for searchable — the filterable strategy (which runs second) updates the schema.
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // SearchableRetokenizeStrategy implements MigrationStrategy for rebuilding the
 // searchable (BM25) index for a text property with a different tokenization

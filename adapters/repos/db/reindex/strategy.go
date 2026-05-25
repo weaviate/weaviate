@@ -31,7 +31,7 @@ import (
 // reserved namespace for any future user-defined property whose name happens
 // to collide with a suffix base.
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // MigrationStrategy encapsulates the parts that differ per migration type
 // (e.g., Map→Blockmax, Set→RoaringSet). The lifecycle logic (state machine,
@@ -255,7 +255,7 @@ func applyPerPropertySchemaUpdate(
 	return missing, nil
 }
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
 // Renamed from mapToBlockmaxConfig to be strategy-agnostic.

@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 //
 // MapToBlockmaxStrategy implements MigrationStrategy for the
 // MapCollection → Inverted (blockmax WAND) migration of searchable properties.

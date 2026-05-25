@@ -34,7 +34,7 @@ type ShardReindexerV3 interface {
 	Stop(shard ShardLike, cause error)
 }
 
-// Test-only export: relocation follow-up tracked separately; no new external callers.
+// Test-only public surface — keep external use minimal.
 type ShardReindexTaskV3 interface {
 	Name() string
 	OnBeforeLsmInit(ctx context.Context, shard ShardLike) error
