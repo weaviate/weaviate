@@ -275,7 +275,7 @@ func scanClassDirAllNodes(
 	return survivors
 }
 
-// createS3Backup posts to /v1/backups/s3 and waits up to 60s for a
+// createS3Backup posts to /v1/backups/s3 and waits up to 120s for a
 // SUCCESS terminal status.
 func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) error {
 	t.Helper()
@@ -298,14 +298,6 @@ func createS3Backup(t *testing.T, restURI, className, backupID, bucket string) e
 		return fmt.Errorf("backup create returned %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// 120s, not 60s: 5th flake-hunt on weaviate/weaviate#11451 measured
-	// end-to-end backup wall clock at ~52-64s on a 3-node testcontainer
-	// cluster (per-participant uploader.all ~50-52s + 10s coord-poll
-	// cadence + final aggregate). 60s lands inside that distribution's
-	// long tail and produced a ~0.34% flake. 120s is well clear; backup
-	// speed is not the property under test here. The ~50s per-participant
-	// floor is itself worth investigating separately for this near-empty-
-	// shard scenario.
 	deadline := time.Now().Add(120 * time.Second)
 	for {
 		r, err := http.Get(fmt.Sprintf("http://%s/v1/backups/s3/%s", restURI, backupID))
