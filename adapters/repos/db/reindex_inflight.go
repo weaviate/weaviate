@@ -13,9 +13,21 @@ package db
 
 import (
 	"fmt"
+	"sync"
 
+	"github.com/sirupsen/logrus"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
+
+// unwiredGateWarnOnce ensures the operator-facing WARN for the
+// "lookup-not-installed" path fires at most once per process. The
+// warning is informational: production gates HTTP serving on bootstrap
+// completion, so under normal startup the unwired window is unreachable
+// by an external backup request. If the WARN does fire in production
+// logs, it means either (a) startup ordering is broken (lookup wiring
+// never fires) or (b) a non-HTTP code path called Backupable before
+// the lookup installed.
+var unwiredGateWarnOnce sync.Once
 
 // AnyLiveReindexForShard answers the cluster-wide question: does DTM
 // have any LIVE reindex task targeting (collection, shardName)?
@@ -23,24 +35,34 @@ import (
 // Replaces the prior filesystem-marker check, which only saw this node
 // and lagged DTM's actual state. The lookup builder is installed by
 // [DB.SetShardReindexActivityLookup] from the post-bootstrap goroutine
-// in configure_api.go; calls before installation are conservatively
-// refused so a backup landing pre-wire does not race a real reindex.
+// in configure_api.go.
+//
+// Default to "no live reindex" when the lookup is unwired (with a
+// one-time WARN). The original conservative default (refuse) was
+// correct in isolation but broke every module-test fixture that
+// spins up Weaviate without going through the post-bootstrap
+// install path; production HTTP gates on bootstrap completion so the
+// unwired window is unreachable by external traffic.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
 	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
 	db.reindexAuditMu.RUnlock()
 	if activityBuilder == nil {
-		// Wiring not complete (startup window). Conservative: assume a
-		// reindex IS in flight so a backup landing pre-wire does not race
-		// a real reindex.
-		return true
+		unwiredGateWarnOnce.Do(func() {
+			logger := db.logger
+			if logger == nil {
+				logger = logrus.New()
+			}
+			logger.WithField("action", "backup_reindex_gate").
+				Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
+					"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
+		})
+		return false
 	}
 	lookup := activityBuilder()
 	if lookup == nil {
-		// Defensive: the builder returned nil. Treat the same as the
-		// pre-wire window.
-		return true
+		return false
 	}
 	if lookup(collection, shardName) {
 		return true

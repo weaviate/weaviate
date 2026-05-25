@@ -200,15 +200,14 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 	if logger == nil {
 		logger = logrus.New()
 	}
+	auditLogger := logger.WithField("action", "reindex_orphan_audit")
 	if knownTask == nil {
 		// A nil lookup would misclassify every in-flight migration as an
 		// orphan. Refuse rather than auto-quarantine on a normal restart.
-		logger.Error("reindex orphan audit: KnownReindexTaskLookup is nil; skipping audit")
+		auditLogger.Error("reindex orphan audit: KnownReindexTaskLookup is nil; skipping audit")
 		return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "nil_lookup"},
 			fmt.Errorf("reindex orphan audit: KnownReindexTaskLookup is nil")
 	}
-
-	auditLogger := logger.WithField("action", "reindex_orphan_audit")
 
 	rootPath := db.config.RootPath
 	if rootPath == "" {

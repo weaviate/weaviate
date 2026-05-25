@@ -103,7 +103,7 @@ func TestBackupVsReindexSuite(t *testing.T) {
 	// PostRestartOrphanAuditClearsTracker above does a Stop+Start that
 	// rebinds the container to a new dynamic port.
 	t.Run("CancelOnNoInFlightReturnsStructured404", func(t *testing.T) {
-		testCancelOnNoInFlightReturns404(t, compose.GetWeaviate().URI())
+		testCancelOnNoInFlightReturnsStructured404(t, compose.GetWeaviate().URI())
 	})
 
 	t.Run("AlgorithmVerbRefusesOnAlreadyBlockmaxRejectsWAND", func(t *testing.T) {
@@ -383,11 +383,12 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 		"canonical data must survive the audit")
 }
 
-// testCancelOnNoInFlightReturns404 asserts that PUT
-// {"searchable":{"cancel":true}} with no task targeting the tuple
-// returns 404 with a structured body naming (collection, property,
-// indexType) and pointing at the GET endpoint for state inspection.
-func testCancelOnNoInFlightReturns404(t *testing.T, restURI string) {
+// testCancelOnNoInFlightReturnsStructured404 asserts the M6 contract:
+// PUT {"searchable":{"cancel":true}} with no task targeting the tuple
+// returns 202 Accepted with Status: NO_OP and no TaskID — cancel is
+// idempotent on the "nothing to cancel" path. Matches the singlenode
+// copy of the test in test/acceptance/reindex_singlenode/cancel_test.go.
+func testCancelOnNoInFlightReturnsStructured404(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_CancelNoTask"
 		propName  = "body"
@@ -416,19 +417,16 @@ func testCancelOnNoInFlightReturns404(t *testing.T, restURI string) {
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	require.Equalf(t, http.StatusNotFound, resp.StatusCode,
-		"expected 404 for cancel-with-no-task; got %d: %s", resp.StatusCode, string(respBody))
+	require.Equalf(t, http.StatusAccepted, resp.StatusCode,
+		"cancel-with-no-task should 202 NO_OP; got %d: %s", resp.StatusCode, string(respBody))
 
-	require.NotEmpty(t, respBody, "expected a structured body, got empty payload")
-
-	bodyStr := string(respBody)
-	assert.Contains(t, bodyStr, className, "404 body must name the collection")
-	assert.Contains(t, bodyStr, propName, "404 body must name the property")
-	assert.Contains(t, bodyStr, "searchable", "404 body must name the indexType")
-	assert.Contains(t, bodyStr, "no in-flight reindex task to cancel",
-		"404 body must explain why nothing was canceled")
-	assert.Contains(t, bodyStr, "GET /v1/schema/",
-		"404 body must point operators at the state-inspection endpoint")
+	var result models.IndexUpdateResponse
+	require.NoError(t, json.Unmarshal(respBody, &result),
+		"cancel-no-task response body should decode as IndexUpdateResponse: %s", string(respBody))
+	assert.Equal(t, "NO_OP", result.Status,
+		"cancel-no-task should report Status: NO_OP, got body: %s", string(respBody))
+	assert.Empty(t, result.TaskID,
+		"cancel-no-task should not name a TaskID, got body: %s", string(respBody))
 }
 
 // testAlgorithmVerb asserts that on an already-blockmax class:
