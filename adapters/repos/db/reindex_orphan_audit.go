@@ -319,11 +319,42 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 	return outcome, nil
 }
 
+// processStartTime captures the moment of process startup so the
+// audit can distinguish tracker dirs whose payload.mig was simply not
+// flushed yet (post-process-start, in-flight) from pre-PR cluster
+// state (pre-process-start, no payload.mig will ever land because the
+// writer side did not exist on the source cluster). Initialised once
+// at package init: the audit may run multiple times, but the
+// distinction is "was this tracker on disk before this process
+// existed?", which only the first-boot timestamp can answer.
+//
+// Subtle: a tracker dir created shortly before process start but read
+// shortly after will be classified as legacy. That is correct: the
+// only writer to .migrations/ on this process is ReindexProvider,
+// which writes payload.mig BEFORE creating started.mig. Any tracker
+// dir on disk at process start without payload.mig is therefore not
+// one this process wrote and must come from either a pre-PR cluster
+// version, a backup-restored class dir from such a cluster, or a
+// crash that interleaved between the not-yet-existent payload.mig
+// write and an earlier-version started.mig write (impossible on this
+// branch).
+var processStartTime = time.Now()
+
 // collectOrphanTrackers walks <lsmPath>/.migrations/ and returns every
 // tracker dir classified as an orphan (started.mig present,
 // tidied.mig/merged.mig absent, payload.mig parseable, and the
 // referenced task not known to DTM). Read-only; cleanup is the
 // caller's job.
+//
+// M8: a tracker dir with started.mig but NO payload.mig is the
+// pre-PR-cluster shape. We treat it as a class-level orphan iff the
+// tracker dir's mtime is at or before processStartTime — meaning the
+// dir predates this process and is not in-flight. The orphan has no
+// properties/indexTypes (the missing payload.mig is exactly the loss
+// of that information) so the cleanup path falls back to direct
+// tracker-dir removal. Newer trackers without payload.mig (mtime
+// after process start) are skipped with a WARN and left for the next
+// audit invocation — they may still be mid-flush.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -349,9 +380,43 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 		}
 		rec, recOK := loadAuditRecord(trackerPath)
 		if !recOK {
+			// M8: distinguish pre-PR legacy state (no payload.mig will
+			// ever land — the writer did not exist on the source
+			// cluster) from a tracker we're racing the writer on.
+			legacy, mtime, classifyErr := isLegacyTrackerWithoutPayload(trackerPath)
+			if classifyErr != nil {
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).
+					Warnf("reindex orphan audit: tracker missing payload.mig and mtime unreadable; manual cleanup may be needed: %v", classifyErr)
+				continue
+			}
+			if !legacy {
+				// Tracker dir created post-process-start: a write
+				// could still be in flight. Leave for next audit.
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).WithField("tracker_mtime", mtime).
+					Warn("reindex orphan audit: tracker missing payload.mig but mtime is post-process-start; " +
+						"leaving for next audit invocation (writer race or upstream bug)")
+				continue
+			}
+			// Pre-PR cluster orphan: enqueue as class-level cleanup.
+			// We cannot recover taskID / properties / indexTypes
+			// (they were never persisted), so the loaded-shard
+			// fallback in cleanupOrphanTrackerCompactionPaused
+			// removes the tracker dir directly to reclaim disk.
 			logger.WithField("collection", collection).WithField("shard", shardName).
-				WithField("tracker", dirName).
-				Warn("reindex orphan audit: tracker missing payload.mig; manual cleanup may be needed")
+				WithField("tracker", dirName).WithField("tracker_mtime", mtime).
+				Warn("reindex orphan audit: pre-PR-cluster tracker dir without payload.mig (mtime <= process start); quarantining as class-level orphan")
+			orphans = append(orphans, orphanReindexTracker{
+				collection: collection,
+				shardName:  shardName,
+				dirName:    dirName,
+				prefix:     prefix,
+				generation: generation,
+				// Empty taskID / properties / indexTypes drives the
+				// class-level cleanup branch in
+				// cleanupOrphanTrackerCompactionPaused.
+			})
 			continue
 		}
 		if knownTask(rec.TaskID, rec.TaskVersion) {
@@ -371,6 +436,19 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 		})
 	}
 	return orphans
+}
+
+// isLegacyTrackerWithoutPayload returns true if the tracker dir was
+// last modified at or before this process started, signalling
+// pre-PR-cluster state with no payload.mig. Returns the mtime so
+// callers can include it in logs for forensics.
+func isLegacyTrackerWithoutPayload(trackerPath string) (bool, time.Time, error) {
+	info, err := os.Stat(trackerPath)
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	mtime := info.ModTime()
+	return !mtime.After(processStartTime), mtime, nil
 }
 
 // cleanLoadedShardOrphans cleans every orphan on the shard under a

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -404,6 +405,103 @@ func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
 	_, err := os.Stat(dir)
 	assert.NoError(t, err,
 		"with zero deferred requests SetReindexAuditDeps must NOT run a replay sweep")
+}
+
+// TestAuditOrphanReindexTrackers_LegacyTrackerWithoutPayload_Cleaned
+// pins M8: pre-PR-cluster tracker dirs without payload.mig whose
+// mtime predates this process start MUST be classified as class-level
+// orphans and removed. Without the M8 fix they were skipped with a
+// WARN and accumulated indefinitely as disk leak.
+func TestAuditOrphanReindexTrackers_LegacyTrackerWithoutPayload_Cleaned(t *testing.T) {
+	ctx := testCtx()
+	className := "AuditLegacyTrackerClass"
+	shd, idx := testShard(t, ctx, className)
+
+	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
+	dir := filepath.Join(migs, "searchable_retokenize_legacy_1")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
+	// Deliberately do NOT write payload.mig (the pre-PR shape).
+	// Force the dir mtime to be before processStartTime.
+	legacyMtime := processStartTime.Add(-time.Hour)
+	require.NoError(t, os.Chtimes(dir, legacyMtime, legacyMtime))
+
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+	knownNothing := func(string, uint64) bool { return false }
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusOrphansFound, outcome.Status,
+		"legacy tracker must be classified as orphan and counted")
+	assert.Equal(t, 1, outcome.OrphansFound)
+	assert.Equal(t, 1, outcome.OrphansClean)
+	_, err = os.Stat(dir)
+	assert.Truef(t, os.IsNotExist(err),
+		"legacy tracker dir must be removed; stat err=%v", err)
+}
+
+// TestAuditOrphanReindexTrackers_TrackerWithoutPayloadButFresh_LeftAlone
+// pins M8's safety side: tracker dirs created AFTER process start
+// without payload.mig may be racing the writer and MUST NOT be wiped
+// — they are left for the next audit.
+func TestAuditOrphanReindexTrackers_TrackerWithoutPayloadButFresh_LeftAlone(t *testing.T) {
+	ctx := testCtx()
+	className := "AuditFreshNoPayloadClass"
+	shd, idx := testShard(t, ctx, className)
+
+	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
+	dir := filepath.Join(migs, "searchable_retokenize_fresh_1")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
+	// Force the dir mtime to be AFTER processStartTime — the M8
+	// safety branch: a writer race is possible, must leave alone.
+	freshMtime := processStartTime.Add(time.Hour)
+	require.NoError(t, os.Chtimes(dir, freshMtime, freshMtime))
+
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+	knownNothing := func(string, uint64) bool { return false }
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusRan, outcome.Status,
+		"fresh tracker without payload.mig is left for next audit; no orphan reported")
+	assert.Equal(t, 0, outcome.OrphansFound)
+	_, err = os.Stat(dir)
+	require.NoError(t, err, "fresh tracker MUST survive the audit")
+}
+
+// TestIsLegacyTrackerWithoutPayload_Boundary pins the mtime boundary
+// at processStartTime: strictly-before is legacy; at-process-start is
+// also legacy (mtime <= processStartTime); after-process-start is
+// fresh.
+func TestIsLegacyTrackerWithoutPayload_Boundary(t *testing.T) {
+	cases := []struct {
+		name      string
+		offset    time.Duration
+		wantLegacy bool
+	}{
+		{"hour_before", -time.Hour, true},
+		{"second_before", -time.Second, true},
+		{"at_boundary", 0, true},
+		{"second_after", time.Second, false},
+		{"hour_after", time.Hour, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			mtime := processStartTime.Add(c.offset)
+			require.NoError(t, os.Chtimes(dir, mtime, mtime))
+			legacy, gotMtime, err := isLegacyTrackerWithoutPayload(dir)
+			require.NoError(t, err)
+			assert.Equal(t, c.wantLegacy, legacy,
+				"mtime offset %v expected legacy=%v, got %v (mtime=%v, processStart=%v)",
+				c.offset, c.wantLegacy, legacy, gotMtime, processStartTime)
+		})
+	}
 }
 
 // TestIsLiveReindexTaskStatus_TerminalReleasesOwnership pins the
