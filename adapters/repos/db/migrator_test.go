@@ -385,6 +385,10 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
+	// HaltForTransfer's backup-gate would refuse the test's
+	// IncomingPauseFileActivity call without a wired lookup; install
+	// the no-live-reindex stub so the gate is satisfied.
+	index.db = stubDBWithNoLiveReindex()
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
