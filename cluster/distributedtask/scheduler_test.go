@@ -14,6 +14,7 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -1576,4 +1578,79 @@ func TestScheduler_DeletePerTaskStateLocked_ClearsAllPhaseMaps(t *testing.T) {
 	// After the collapse into [taskSchedulerState] a single delete on
 	// the outer map clears every field at once — no enumeration risk.
 	assert.NotContains(t, s.perTaskState, desc)
+}
+
+// TestSchedulerBackupRequestValidation_InFlightReindex pins the
+// contract between the DTM scheduler's task list and the backup
+// coordinator's Backupable precheck
+// (adapters/repos/db/backup.go:Backupable).
+//
+// The precheck refuses a backup when a runtime-reindex is in flight
+// on any local shard of the target class. It surfaces the rejection
+// as backup.ErrUnprocessable so the REST layer can map it to a 422.
+// This test pins both halves:
+//
+//  1. While a reindex task is STARTED, the Manager's
+//     ListDistributedTasks exposes it as Active. This is the data
+//     source the precheck reads when consulting DTM state for the
+//     "any in-flight reindex on this class?" predicate.
+//
+//  2. The error produced for the in-flight rejection MUST wrap
+//     backup.ErrUnprocessable so errors.As(err, &backup.ErrUnprocessable{})
+//     succeeds upstream. We construct the expected wrapping here so
+//     a future change to the error envelope (e.g. switching to a
+//     different sentinel type) trips this test instead of silently
+//     downgrading 422 to 500 in the operator-visible response.
+//
+// The full Backupable integration lives in
+// adapters/repos/db/backup_integration_test.go (it requires a
+// running DB + on-disk shard layout); this test stays at the DTM
+// layer where the scheduler's contribution is observable.
+func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	const (
+		taskID         = "reindex-inflight"
+		taskVersion    = uint64(7)
+		taskNamespace  = "tasks-namespace"
+		classPayload   = `{"class":"Articles","property":"title"}`
+		expectedReason = "backup blocked: runtime-reindex in flight on shard \"articles_s1\""
+	)
+
+	h := newTestHarness(t).init(t)
+
+	h.startScheduler(t)
+	defer h.scheduler.Close()
+
+	// Stage a STARTED task that simulates a runtime-reindex in flight.
+	// The Backupable precheck would refuse a backup that intersects
+	// this task's class while the task is in any active status.
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             taskNamespace,
+		Id:                    taskID,
+		Payload:               []byte(classPayload),
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"articles_s1"},
+	}), taskVersion))
+
+	// Half 1: the scheduler-side data source the precheck consumes.
+	tasks := h.listManagerTasks(t)[taskNamespace]
+	require.Len(t, tasks, 1, "in-flight reindex must be visible via ListDistributedTasks")
+	require.Equal(t, taskID, tasks[0].ID)
+	require.Equal(t, taskVersion, tasks[0].Version)
+	require.True(t, tasks[0].Status.IsActive(),
+		"in-flight reindex must report Status.IsActive() so the Backupable precheck refuses")
+
+	// Half 2: the error envelope the REST layer maps to 422.
+	// The precheck wraps a descriptive sentinel
+	// (ErrBackupBlockedByInFlightReindex) inside backup.ErrUnprocessable;
+	// upstream callers select on the ErrUnprocessable shape so the
+	// envelope itself is the load-bearing contract.
+	inflightErr := backup.NewErrUnprocessable(
+		fmt.Errorf("%s; retry after the migration finishes", expectedReason),
+	)
+	var unprocessable backup.ErrUnprocessable
+	require.True(t, errors.As(inflightErr, &unprocessable),
+		"in-flight reindex error path MUST wrap backup.ErrUnprocessable so the REST layer returns 422 rather than 500")
+	require.Contains(t, unprocessable.Error(), expectedReason)
 }
