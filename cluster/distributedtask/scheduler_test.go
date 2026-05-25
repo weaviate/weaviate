@@ -24,6 +24,7 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -1560,4 +1561,40 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 		"FINISHED barrier task's PreparationCompleteAck must be pre-marked as emitted")
 	require.True(t, s.postCompletionAckEmitted[finishedDesc],
 		"FINISHED barrier task's PostCompletionAck must be pre-marked as emitted")
+}
+
+// TestScheduler_DeletePerTaskStateLocked_ClearsAllPhaseMaps: a cleaned-up
+// barrier task must not leave behind PREP-phase state. The maps are
+// per-scheduler-instance and survive across task lifetimes, so a
+// missed key here grows unboundedly across migrations.
+func TestScheduler_DeletePerTaskStateLocked_ClearsAllPhaseMaps(t *testing.T) {
+	s := NewScheduler(SchedulerParams{
+		Logger:            func() logrus.FieldLogger { l, _ := logrustest.NewNullLogger(); return l }(),
+		Providers:         map[string]Provider{},
+		MetricsRegisterer: monitoring.NoopRegisterer,
+		LocalNode:         "node-a",
+		CompletedTaskTTL:  24 * time.Hour,
+		TickInterval:      30 * time.Second,
+	})
+
+	desc := TaskDescriptor{ID: "barrier-task", Version: 1}
+	s.completedCallbackFired[desc] = true
+	s.groupCallbackFired[desc] = map[string]bool{"g1": true}
+	s.preparationCallbackFired[desc] = map[string]bool{"g1": true}
+	s.postCompletionAckEmitted[desc] = true
+	s.preparationAckEmitted[desc] = true
+	s.postCompletionGroupErrors[desc] = map[string]error{"g1": nil}
+	s.preparationCompletionGroupErrors[desc] = map[string]error{"g1": nil}
+
+	s.mu.Lock()
+	s.deletePerTaskStateLocked(desc)
+	s.mu.Unlock()
+
+	assert.NotContains(t, s.completedCallbackFired, desc)
+	assert.NotContains(t, s.groupCallbackFired, desc)
+	assert.NotContains(t, s.preparationCallbackFired, desc)
+	assert.NotContains(t, s.postCompletionAckEmitted, desc)
+	assert.NotContains(t, s.preparationAckEmitted, desc)
+	assert.NotContains(t, s.postCompletionGroupErrors, desc)
+	assert.NotContains(t, s.preparationCompletionGroupErrors, desc)
 }

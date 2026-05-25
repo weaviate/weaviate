@@ -403,6 +403,13 @@ func (m *Manager) RecordUnitCompletion(c *api.ApplyRequest) error {
 			fmt.Sprintf("unit %s in task %s/%s/%d is already terminal", r.UnitId, r.Namespace, r.Id, task.Version))
 	}
 
+	// Defense in depth for weaviate/0-weaviate-issues#240:
+	// LocalGroupUnitIDs orphans units with empty NodeID, suppressing
+	// every post-completion callback for that (shard, replica).
+	if u.NodeID == "" {
+		u.NodeID = r.NodeId
+	}
+
 	finishedAt := time.UnixMilli(r.FinishedAtUnixMillis)
 
 	if r.Error != "" {

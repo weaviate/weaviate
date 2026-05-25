@@ -22,10 +22,10 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -71,6 +72,7 @@ type Searcher struct {
 	// nestedCrossRefLimit limits the number of nested cross refs returned for a query
 	nestedCrossRefLimit int64
 	bitmapFactory       *roaringset.BitmapFactory
+	nestedBitmapOps     *invnested.BitmapOps
 	// tokResolver, when non-nil, overrides prop.Tokenization on query
 	// input analysis. Used by the per-shard tokenization overlay to
 	// keep query tokenization aligned with the bucket content during
@@ -136,6 +138,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		tenant:                  tenant,
 		nestedCrossRefLimit:     nestedCrossRefLimit,
 		bitmapFactory:           bitmapFactory,
+		nestedBitmapOps:         invnested.NewBitmapOps(bitmapFactory.BufPool()),
 	}
 }
 
@@ -347,6 +350,9 @@ func (s *Searcher) extractPropValuePair(
 		if err != nil {
 			return nil, err
 		}
+		if filter.Operator == filters.OperatorAnd {
+			children = groupNestedByProp(children, class)
+		}
 		out.children = children
 		out.operator = filter.Operator
 		return out, nil
@@ -361,7 +367,11 @@ func (s *Searcher) extractPropValuePair(
 
 	// on value or non-nested filter
 	props := filter.On.Slice()
-	propName := props[0]
+	// Strip any arr[N] index from the first segment so that "addresses[1].city"
+	// correctly resolves to the "addresses" property in the schema.
+	// Only the first segment is cleaned here; extractNestedProp receives the
+	// original props[0] so that [N] indices on sub-paths are preserved.
+	propName := filnested.RootPropName(props[0])
 
 	if s.onInternalProp(propName) {
 		return s.extractInternalProp(propName, filter.Value.Type, filter.Value.Value, filter.Operator, class)
@@ -383,6 +393,10 @@ func (s *Searcher) extractPropValuePair(
 	property, err := schema.GetPropertyByName(class, propName)
 	if err != nil {
 		return nil, err
+	}
+
+	if _, ok := schema.AsNested(property.DataType); ok {
+		return s.extractNestedProp(filter, props[0], property, class)
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {
@@ -573,22 +587,14 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 	valueType schema.DataType, operator filters.Operator, class *models.Class,
 ) (*propValuePair, error) {
-	var byteValue []byte
-
-	switch valueType {
-	case schema.DataTypeText:
-		asStr, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected to see uuid as string in filter, got %T", value)
-		}
-		parsed, err := uuid.Parse(asStr)
-		if err != nil {
-			return nil, fmt.Errorf("parse uuid string: %w", err)
-		}
-		byteValue = parsed[:]
-	default:
+	if valueType != schema.DataTypeText {
 		return nil, fmt.Errorf("prop %q is of type uuid, the uuid to filter "+
 			"on must be specified as a string (e.g. valueText:<uuid>)", prop.Name)
+	}
+
+	byteValue, err := s.extractUUIDValue(value)
+	if err != nil {
+		return nil, err
 	}
 
 	hasFilterableIndex := HasFilterableIndex(prop)

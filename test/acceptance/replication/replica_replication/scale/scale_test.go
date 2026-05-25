@@ -63,7 +63,6 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.Nil(t, err)
@@ -259,7 +258,6 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.Nil(t, err)

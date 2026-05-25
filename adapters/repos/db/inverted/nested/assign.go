@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -119,6 +120,14 @@ func AssignPositions(prop *models.Property, value any) (*AssignResult, error) {
 		if err != nil {
 			return nil, fmt.Errorf("walk element %d of %q: %w", i, prop.Name, err)
 		}
+
+		// Root-level _idx entry: records which positions belong to root element i.
+		// Required for arr[N] positional filtering (e.g. "addresses[1].city = X").
+		result.Idx = append(result.Idx, IdxEntry{
+			Path:      "",
+			Index:     i,
+			Positions: elemPositions,
+		})
 
 		allPositions = append(allPositions, elemPositions...)
 	}
@@ -385,5 +394,5 @@ func joinPath(prefix, name string) string {
 	if prefix == "" {
 		return name
 	}
-	return prefix + "." + name
+	return filnested.JoinPath([]string{prefix, name})
 }

@@ -986,6 +986,12 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
+	logTime := updateTime
+	if !deletionTime.IsZero() {
+		logTime = deletionTime.UnixMilli()
+	}
+	s.AppendChangeLogDelete(idBytes, logTime)
+
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
 		return errors.Wrap(err, "object deletion in hashtree")
 	}

@@ -314,16 +314,52 @@ func (t *fileReindexTracker) markReindexed() error {
 	return t.createFile(t.config.filenameReindexed, []byte(t.encodeTimeNow()))
 }
 
-// unmarkReindexed deletes the reindexed.mig sentinel. Called by the
-// torn-state recovery in [ShardReindexTaskGeneric.OnAfterLsmInit] when
-// IsReindexed=true but the reindex bucket dirs are missing on disk —
-// i.e. a prior run forged/corrupted the sentinel without the
-// corresponding bucket data. Removing the sentinel forces the next
-// OnAfterLsmInitAsync call to treat the migration as not-yet-reindexed
-// and re-run the iteration loop. Symmetric with [unmarkSwapped] /
-// [unmarkSwappedProp]. Returns nil if the sentinel was already absent.
+// unmarkReindexed deletes the reindexed.mig sentinel AND every
+// progress.mig.<N> checkpoint. Called by the torn-state recovery in
+// [ShardReindexTaskGeneric.OnAfterLsmInit] when IsReindexed=true but
+// the reindex bucket dirs are missing on disk. Clearing the progress
+// checkpoints is what makes "unmark = redo from scratch" actually
+// hold — without it, the resumed iteration reads the stale
+// lastProcessedKey from disk and silently skips every object <= that
+// key. weaviate/0-weaviate-issues#244.
 func (t *fileReindexTracker) unmarkReindexed() error {
-	return t.removeFile(t.config.filenameReindexed)
+	if err := t.removeFile(t.config.filenameReindexed); err != nil {
+		return err
+	}
+	return t.clearProgressFiles()
+}
+
+// clearProgressFiles removes every progress.mig.<N> checkpoint and
+// resets the in-memory checkpoint counter. Used by unmarkReindexed to
+// keep the "next iteration runs from scratch" invariant.
+//
+// MUST NOT run concurrently with any markProgress emitter. Today this
+// holds because only the torn-state guard in OnBeforeLsmInit / OnAfterLsmInit
+// calls it, and both run before the async reindex loop spawns.
+func (t *fileReindexTracker) clearProgressFiles() error {
+	prefix := t.config.filenameProgress + "."
+	expectedLen := len(prefix) + 9 // matches findLastProgressFile
+	entries, err := os.ReadDir(t.config.migrationPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if len(name) != expectedLen || !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		if err := t.removeFile(name); err != nil {
+			return err
+		}
+	}
+	t.progressCheckpoint = 1
+	return nil
 }
 
 func (t *fileReindexTracker) getReindexed() (time.Time, error) {

@@ -191,13 +191,13 @@ func (s *Scheduler) Wake() {
 // bootstrap any already-active tasks, and spawns the background tick loop. It is safe to call
 // exactly once. Use [Scheduler.Close] to stop the loop and terminate all running tasks.
 func (s *Scheduler) Start(ctx context.Context) error {
-	// 3s caps per-unit progress writes on the Raft hot path without making
-	// the UI feel frozen on long-running migrations. A coarser cap (the
-	// old 30s) is invisible to users watching a 60–90s reindex — every
-	// other sample gets eaten and the progress bar appears to jump in
-	// large increments. 3s gives ~20 samples per minute per unit, well
-	// within Raft's write budget.
-	throttledRecorder := NewThrottledRecorder(s.completionRecorder, 3*time.Second, s.clock)
+	// [DefaultThrottleInterval] caps per-unit progress writes on the Raft hot
+	// path without making the UI feel frozen on long-running migrations. A
+	// coarser cap (the old 30s) is invisible to users watching a 60–90s
+	// reindex — every other sample gets eaten and the progress bar appears
+	// to jump in large increments. 3s gives ~20 samples per minute per unit,
+	// well within Raft's write budget.
+	throttledRecorder := NewThrottledRecorder(s.completionRecorder, DefaultThrottleInterval, s.clock)
 
 	s.setCompletionRecorders(throttledRecorder)
 
@@ -759,10 +759,7 @@ func (s *Scheduler) tick() {
 				continue
 			}
 
-			delete(s.completedCallbackFired, desc)
-			delete(s.groupCallbackFired, desc)
-			delete(s.postCompletionAckEmitted, desc)
-			delete(s.postCompletionGroupErrors, desc)
+			s.deletePerTaskStateLocked(desc)
 
 			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
@@ -925,4 +922,21 @@ func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDes
 		return true, ""
 	}
 	return false, strings.Join(msgs, "; ")
+}
+
+// deletePerTaskStateLocked is the single source of truth for the
+// per-task scheduler maps on the local-cleanup path. A missed map
+// here leaks one entry per cleaned-up barrier task. Caller holds s.mu.
+//
+// When you add a new per-task map to the Scheduler struct, register
+// it here too — otherwise the next barrier task to clean up will
+// leak the new map's entry.
+func (s *Scheduler) deletePerTaskStateLocked(desc TaskDescriptor) {
+	delete(s.completedCallbackFired, desc)
+	delete(s.groupCallbackFired, desc)
+	delete(s.preparationCallbackFired, desc)
+	delete(s.postCompletionAckEmitted, desc)
+	delete(s.preparationAckEmitted, desc)
+	delete(s.postCompletionGroupErrors, desc)
+	delete(s.preparationCompletionGroupErrors, desc)
 }
