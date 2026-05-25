@@ -242,7 +242,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 	class := h.appState.SchemaManager.ReadOnlyClass(collection)
 	if class == nil {
-		return schema.NewSchemaObjectsIndexesUpdateNotFound()
+		return schema.NewSchemaObjectsIndexesUpdateNotFound().WithPayload(
+			errorResponse(principal, fmt.Sprintf("collection %q not found", collection)),
+		)
 	}
 
 	// Find the property.
@@ -254,7 +256,9 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		}
 	}
 	if targetProp == nil {
-		return schema.NewSchemaObjectsIndexesUpdateNotFound()
+		return schema.NewSchemaObjectsIndexesUpdateNotFound().WithPayload(
+			errorResponse(principal, fmt.Sprintf("property %q not found on collection %q", propertyName, collection)),
+		)
 	}
 
 	body := params.Body
