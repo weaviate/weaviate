@@ -67,11 +67,13 @@ Moved to Go (don't need the python-client surface):
   doesn't poison the next.
 """
 
+import json as _json
+import urllib.error
+import urllib.request
 import uuid
-from typing import Callable, Dict, Generator, Iterator, List, Tuple
+from typing import Callable, Dict, Generator, Iterator, List, Optional, Tuple
 
 import pytest
-import requests
 import weaviate
 import weaviate.classes as wvc
 from weaviate import WeaviateClient
@@ -101,10 +103,56 @@ def _admin_headers() -> Dict[str, str]:
     return {"Authorization": f"Bearer {ADMIN_KEY}", "Content-Type": "application/json"}
 
 
+class _RestResponse:
+    """Tiny stand-in for the bits of requests.Response we use at call sites.
+    Decouples the rest of the file from the underlying HTTP transport so the
+    raw-REST helpers can stay stdlib-only."""
+
+    def __init__(self, status_code: int, body: bytes):
+        self.status_code = status_code
+        self._body = body
+
+    @property
+    def text(self) -> str:
+        try:
+            return self._body.decode("utf-8")
+        except UnicodeDecodeError:
+            return repr(self._body)
+
+    def json(self) -> dict:
+        return _json.loads(self._body)
+
+    def raise_for_status(self) -> None:
+        if not (200 <= self.status_code < 300):
+            raise AssertionError(f"HTTP {self.status_code}: {self.text}")
+
+
+def _http(
+    method: str,
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    json_body: Optional[dict] = None,
+) -> _RestResponse:
+    """Single-call HTTP wrapper using only stdlib urllib. urllib raises
+    HTTPError on non-2xx — catch it so the caller can inspect status_code
+    uniformly (mirrors requests.Response semantics)."""
+    data = None
+    req_headers = dict(headers or {})
+    if json_body is not None:
+        data = _json.dumps(json_body).encode("utf-8")
+        req_headers.setdefault("Content-Type", "application/json")
+    req = urllib.request.Request(url, data=data, method=method, headers=req_headers)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return _RestResponse(resp.status, resp.read())
+    except urllib.error.HTTPError as e:
+        return _RestResponse(e.code, e.read() or b"")
+
+
 def _create_namespace(http_port: int, name: str) -> None:
     """POST /namespaces/{name}. 409 (already exists) is treated as success
     so re-running the file against an existing cluster is idempotent."""
-    r = requests.post(f"{_rest_base(http_port)}/namespaces/{name}", headers=_admin_headers())
+    r = _http("POST", f"{_rest_base(http_port)}/namespaces/{name}", headers=_admin_headers())
     if r.status_code not in (201, 409):
         r.raise_for_status()
 
@@ -119,17 +167,19 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
     """
     qualified = f"{namespace}:{user_id}"
     for _ in range(2):
-        r = requests.post(
+        r = _http(
+            "POST",
             f"{_rest_base(http_port)}/users/db/{user_id}",
             headers=_admin_headers(),
-            json={"namespace": namespace},
+            json_body={"namespace": namespace},
         )
         if r.status_code == 201:
             apikey = r.json().get("apikey")
             assert apikey, f"createUser returned no apikey: {r.text}"
             return apikey
         if r.status_code == 409:
-            d = requests.delete(
+            d = _http(
+                "DELETE",
                 f"{_rest_base(http_port)}/users/db/{qualified}",
                 headers=_admin_headers(),
             )
@@ -151,7 +201,8 @@ def _wait_for_key(http_port: int, key: str) -> None:
     deadline = __import__("time").time() + 10.0
     last = None
     while __import__("time").time() < deadline:
-        r = requests.get(
+        r = _http(
+            "GET",
             f"{_rest_base(http_port)}/users/own-info",
             headers={"Authorization": f"Bearer {key}"},
         )
@@ -230,7 +281,8 @@ def _delete_qualified_collection(http_port: int, qualified: str) -> None:
     collection names locally and rejects ':' before the request leaves
     the process. 404 is success (already gone).
     """
-    r = requests.delete(
+    r = _http(
+        "DELETE",
         f"{_rest_base(http_port)}/schema/{qualified}",
         headers=_admin_headers(),
     )
