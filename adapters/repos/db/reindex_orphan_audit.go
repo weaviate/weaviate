@@ -473,7 +473,7 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask rein
 			taskVersion: rec.TaskVersion,
 			unitID:      rec.UnitID,
 			properties:  append([]string(nil), rec.Payload.Properties...),
-			indexTypes:  semanticMigrationIndexTypesForAudit(rec.Payload.MigrationType),
+			indexTypes:  reindex.SemanticMigrationIndexTypesForAudit(rec.Payload.MigrationType),
 		})
 	}
 	return orphans
@@ -820,23 +820,3 @@ func loadAuditRecord(trackerPath string) (reindex.ReindexRecoveryRecord, bool) {
 	return rec, true
 }
 
-// semanticMigrationIndexTypesForAudit returns the indexType fan-out
-// the audit's CleanStalePartialReindexState loop iterates over for a
-// given migration type. Mirrors [indexTypesFromMigrationType] in the
-// REST handler. Returns nil for class-level migrations; the audit then
-// falls back to direct tracker-dir removal.
-func semanticMigrationIndexTypesForAudit(mt reindex.ReindexMigrationType) []string {
-	switch mt {
-	case reindex.ReindexTypeChangeTokenization:
-		return []string{"searchable", "filterable"}
-	case reindex.ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}
-	case reindex.ReindexTypeEnableSearchable, reindex.ReindexTypeChangeAlgorithm, reindex.ReindexTypeRebuildSearchable:
-		return []string{"searchable"}
-	case reindex.ReindexTypeEnableFilterable, reindex.ReindexTypeRepairFilterable:
-		return []string{"filterable"}
-	case reindex.ReindexTypeEnableRangeable, reindex.ReindexTypeRepairRangeable:
-		return []string{"rangeable"}
-	}
-	return nil
-}

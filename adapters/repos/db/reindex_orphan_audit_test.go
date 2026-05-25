@@ -54,7 +54,7 @@ func TestSemanticMigrationIndexTypesForAudit_Coverage(t *testing.T) {
 		{reindex.ReindexTypeRepairFilterable, []string{"filterable"}, "class-level roaringset refresh"},
 	}
 	for _, c := range cases {
-		got := semanticMigrationIndexTypesForAudit(c.mt)
+		got := reindex.SemanticMigrationIndexTypesForAudit(c.mt)
 		assert.Equal(t, c.wantTypes, got, "migration type %q (%s)", c.mt, c.wantPolicy)
 	}
 }
