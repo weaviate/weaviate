@@ -87,7 +87,7 @@ require (
 	github.com/weaviate/fgprof v0.0.1
 	github.com/weaviate/mockoidc v0.0.0-20250611114324-56bff60d94c2
 	github.com/weaviate/s5cmd/v2 v2.0.1
-	github.com/weaviate/sroar v0.0.14-0.20260425092300-c79995b0f0ba
+	github.com/weaviate/sroar v0.0.14-0.20260511125437-5d49ac3cb4c0
 	github.com/weaviate/tiktoken-go v0.0.3
 	go.etcd.io/bbolt v1.4.3
 	go.opentelemetry.io/otel v1.43.0
