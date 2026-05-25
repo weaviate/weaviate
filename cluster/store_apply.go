@@ -126,6 +126,20 @@ func (st *Store) Apply(l *raft.Log) any {
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
 		// however we do not update the metrics so the metric will be the source of truth
 		// about AppliedIndex
+		// QA flake-hunt diagnostic (weaviate/0-weaviate-issues#249): Info-level
+		// trace on every RAFT log apply so the next failure dump has positive
+		// "node-X advanced from N to N+1" signal alongside the existing
+		// negative "wait for update version got=N want=M" Debug logs. Strip
+		// before merging; intended for the qa/flake-hunt-bundle-apply-trace
+		// branch only.
+		st.log.WithFields(logrus.Fields{
+			"action":          "raft_apply_trace",
+			"log_index":       l.Index,
+			"cmd_type":        cmd.Type,
+			"cmd_type_name":   cmd.Type.String(),
+			"cmd_class":       cmd.Class,
+			"apply_error_nil": ret.Error == nil,
+		}).Info("raft apply: log entry applied; advancing lastAppliedIndex")
 		st.lastAppliedIndex.Store(l.Index)
 
 		if ret.Error != nil {

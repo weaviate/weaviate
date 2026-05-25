@@ -604,6 +604,13 @@ func filterMigrationLogLines(s string) []string {
 		"recovered untidied", "swap INCOMPLETE", "swap complete",
 		"runtime swap", "trim:",
 		"distributed task", "distributedtask",
+		// raft_apply_trace (production-side diagnostics added on this
+		// branch only; see cluster/store_apply.go + cluster/store.go).
+		// Surfaces both "applied log_index N" positive signal and the
+		// "wait for update version got=N want=M" waiter signal in the
+		// failure dump so weaviate/0-weaviate-issues#249 lag can be
+		// localised positively.
+		"raft_apply_trace", "wait for update version",
 	}
 	var out []string
 	for _, line := range strings.Split(s, "\n") {

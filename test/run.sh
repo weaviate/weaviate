@@ -55,6 +55,7 @@ function main() {
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
+  run_flake_hunt_bundle_apply_trace=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -108,6 +109,7 @@ function main() {
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
+          --flake-hunt-bundle-apply-trace|-fhbat) run_all_tests=false; run_flake_hunt_bundle_apply_trace=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -152,6 +154,7 @@ function main() {
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
+              "--flake-hunt-bundle-apply-trace | -fhbat"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -343,6 +346,11 @@ function main() {
   if $run_acceptance_reindex_backup; then
     echo "running backup × runtime-reindex acceptance tests"
     run_acceptance_reindex_backup
+  fi
+
+  if $run_flake_hunt_bundle_apply_trace; then
+    echo "running flake-hunt: bundle × 3 with raft_apply_trace"
+    run_flake_hunt_bundle_apply_trace
   fi
   echo "Done!"
 }
@@ -875,6 +883,34 @@ function run_acceptance_reindex_backup() {
   echo_green "acceptance — reindex-backup"
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
+}
+
+# QA flake-hunt: drive the full --acceptance-reindex-multinode-scale bundle
+# 3× per shard, against a binary that includes Info-level raft_apply_trace
+# logging (see cluster/store_apply.go + cluster/store.go diffs on this branch).
+# Each failure dump will now include both sides of the schema-version trail:
+# "raft apply: log entry applied" on each successful apply, AND "wait for
+# update version got=N want=M" when a waiter blocks. Across 30 × 3 = 90
+# bundled runs we expect ~5-6 failures at the 6% rate from #11455.
+function run_flake_hunt_bundle_apply_trace() {
+  build_weaviate_test_image
+  echo_green "flake-hunt: --acceptance-reindex-multinode-scale × 3 with raft_apply_trace"
+  local pass=0 fail=0
+  for i in $(seq 1 3); do
+    echo
+    echo "=== bundle iter $i/3 — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    if AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
+        run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode; then
+      echo "bundle iter $i: PASS"
+      pass=$((pass+1))
+    else
+      echo "bundle iter $i: FAIL"
+      fail=$((fail+1))
+    fi
+  done
+  echo
+  echo "=== flake-hunt summary: pass=$pass fail=$fail / 3 (shard $(hostname -s 2>/dev/null || echo unknown)) ==="
+  [[ $pass -gt 0 ]]
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

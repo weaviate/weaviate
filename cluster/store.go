@@ -688,10 +688,14 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 			if idx = st.lastAppliedIndex.Load(); idx >= version {
 				return nil
 			} else {
+				// QA flake-hunt diagnostic: bumped from Debug to Info so the
+				// wait-for-version trail surfaces in failure dumps without
+				// needing a verbose container LOG_LEVEL. Strip before merging.
 				st.log.WithFields(logrus.Fields{
-					"got":  idx,
-					"want": version,
-				}).Debug("wait for update version")
+					"action": "raft_apply_trace",
+					"got":    idx,
+					"want":   version,
+				}).Info("wait for update version")
 			}
 		}
 	}
