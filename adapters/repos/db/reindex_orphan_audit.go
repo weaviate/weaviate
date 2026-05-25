@@ -43,9 +43,11 @@ func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger 
 }
 
 // AuditOrphanReindexTrackersIfReady is the no-arg wrapper for callers
-// without the lookup builder in scope (e.g. the post-restore
-// RestoreClassDir hook). Returns nil when deps are not yet installed;
-// the startup audit will sweep later.
+// without the lookup builder in scope. The post-restore hook lives in
+// `adapters/handlers/rest/configure_api.go`'s `restoreClassDirWithAudit`
+// closure (around line 711) which wraps `backup.RestoreClassDir`.
+// Returns nil when deps are not yet installed; the startup audit will
+// sweep later.
 func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) error {
 	db.reindexAuditMu.RLock()
 	builder := db.reindexAuditLookupBuilder
