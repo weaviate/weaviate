@@ -161,9 +161,20 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		}
 
 		if qualifiedTarget == "" {
-			// Multi-target ref where autodetect couldn't resolve the class —
-			// nothing meaningful to authorize. AddBatchReferences will surface
-			// the unresolved target downstream.
+			// Classless beacon on a multi-target ref property: autodetect
+			// short-circuits when len(prop.DataType) > 1, leaving ref.To.Class
+			// empty and qualifiedTarget empty. On NS-enabled clusters this is
+			// the same gate the delete path enforces (references_delete.go) —
+			// removeReference's structural match strips classes on both sides,
+			// so persisting a classless ref would make it undeletable except
+			// via a classless delete beacon, which the delete handler now
+			// rejects. Mark the ref so AddBatchReferences skips it and the
+			// per-ref error surfaces in the response. On non-NS clusters
+			// stored beacons compare byte-exact, so a classless write can be
+			// matched by a classless delete — keep the legacy behaviour.
+			if b.config.Config.Namespaces.Enabled {
+				refs[i].Err = fmt.Errorf("multi-target references require the class name in the target beacon url")
+			}
 			continue
 		}
 		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}

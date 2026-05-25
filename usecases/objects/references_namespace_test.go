@@ -716,4 +716,62 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 				"authz must never be called with an empty resources slice")
 		}
 	})
+
+	t.Run("NS: classless beacon on multi-target ref property is rejected per-row", func(t *testing.T) {
+		// Write-side mirror of references_delete.go's NS gate: a classless
+		// beacon on a multi-target property is ambiguous (autodetect can't
+		// pick a class). Persisting it would leave an undeletable ref because
+		// the delete path now explicitly rejects classless beacons on NS
+		// clusters. Mark the ref with Err so AddBatchReferences skips it.
+		// The class-qualified ref next to it must still go through.
+		_, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+		repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
+			if len(refs) != 2 {
+				return false
+			}
+			return refs[0].Err != nil &&
+				strings.Contains(refs[0].Err.Error(), "multi-target references require") &&
+				refs[1].Err == nil && refs[1].To != nil && refs[1].To.Class == "Alpha"
+		})).Return(nil).Once()
+
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		refs := []*models.BatchReference{
+			// Classless beacon on multi-target prop — must be rejected on NS.
+			{
+				From: strfmt.URI("weaviate://localhost/Source/" + string(id) + "/hasOther"),
+				To:   strfmt.URI("weaviate://localhost/" + string(refID)),
+			},
+			// Same prop, class supplied — passes the gate.
+			{
+				From: strfmt.URI("weaviate://localhost/Source/" + string(id) + "/hasOther"),
+				To:   strfmt.URI("weaviate://localhost/Alpha/" + string(refID)),
+			},
+		}
+		_, err := b.AddReferences(context.Background(), principal, refs, nil)
+		require.NoError(t, err)
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("non-NS: classless beacon on multi-target ref property is not gated", func(t *testing.T) {
+		// Non-NS clusters do byte-exact beacon matching on delete, so a
+		// classless write CAN be matched by a classless delete. Preserve the
+		// legacy behaviour: the ref reaches AddBatchReferences with no Err
+		// and no class on the target. (The NS gate above is the only new
+		// rejection introduced.)
+		_, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(false), false)
+		repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
+			return len(refs) == 1 && refs[0].Err == nil &&
+				refs[0].To != nil && refs[0].To.Class == ""
+		})).Return(nil).Once()
+
+		refs := []*models.BatchReference{
+			{
+				From: strfmt.URI("weaviate://localhost/Source/" + string(id) + "/hasOther"),
+				To:   strfmt.URI("weaviate://localhost/" + string(refID)),
+			},
+		}
+		_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+		require.NoError(t, err)
+		repo.AssertExpectations(t)
+	})
 }
