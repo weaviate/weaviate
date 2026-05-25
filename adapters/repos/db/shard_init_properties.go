@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -311,6 +312,13 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 			}
 		}
 		if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
+			if errors.Is(err, lsmkv.ErrBucketNotFound) {
+				// Race with another teardown path (in-flight task's own
+				// cancel sidecar shutdown, or restart-bootstrap pre-mark)
+				// that already removed this bucket. The desired post-state
+				// — bucket gone — is satisfied; keep going.
+				continue
+			}
 			return fmt.Errorf(
 				"shutting down stale sidecar bucket %q before partial-reindex cleanup: %w",
 				bucketName, err)

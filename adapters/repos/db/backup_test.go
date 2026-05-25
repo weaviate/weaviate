@@ -218,6 +218,7 @@ func TestListInactiveShardFiles(t *testing.T) {
 	idx := &Index{
 		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
+		db:        stubDBWithNoLiveReindex(),
 	}
 
 	var sd backup.ShardDescriptor
@@ -318,6 +319,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	idx := &Index{
 		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
+		db:        stubDBWithNoLiveReindex(),
 	}
 
 	var sd backup.ShardDescriptor
@@ -381,6 +383,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 			backupLock:       esync.NewKeyRWLocker(),
 			shardCreateLocks: esync.NewKeyRWLocker(),
 			closingCtx:       context.Background(),
+			db:               stubDBWithNoLiveReindex(),
 		}
 	}
 
@@ -476,6 +479,7 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 	idx := &Index{
 		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
+		db:        stubDBWithNoLiveReindex(),
 	}
 
 	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
@@ -521,6 +525,7 @@ func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState 
 		backupLock:       esync.NewKeyRWLocker(),
 		shardCreateLocks: esync.NewKeyRWLocker(),
 		closingCtx:       context.Background(),
+		db:               stubDBWithNoLiveReindex(),
 	}
 }
 
