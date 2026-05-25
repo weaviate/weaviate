@@ -952,16 +952,6 @@ func migrationTypeTargetsIndex(mt db.ReindexMigrationType, indexType string) (ma
 // normalizeSearchableAlgorithm maps an explicit searchable.algorithm
 // value to its canonical form ("BlockMaxWAND") or "" if unsupported.
 // The reverse direction (BlockMax→WAND) is not supported: the
-// repair-searchable migration only writes blockmax-format segments.
-// Callers map "" to a 400.
-func normalizeSearchableAlgorithm(value string) string {
-	switch strings.ToLower(strings.ReplaceAll(value, "_", "")) {
-	case "blockmaxwand", "blockmax", "bmw":
-		return "BlockMaxWAND"
-	}
-	return ""
-}
-
 // parsedReindexTask pairs a distributed task with its already-unmarshalled
 // reindex payload. The handler builds a slice of these once per request
 // so mergeReindexStatus doesn't re-unmarshal task.Payload N times where
