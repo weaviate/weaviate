@@ -20,11 +20,11 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// PathSep is the separator character for nested property paths.
-// All path construction and parsing goes through SplitPath/JoinPath so
-// this is the single place to change if the separator ever changes.
-// Exported so hot-path callers can concatenate without paying the
-// []string + strings.Join allocation that JoinPath incurs.
+// PathSep is the separator character for nested property paths. It is
+// the single source of truth for the separator: SplitPath/JoinPath use it
+// internally, and hot-path callers may concatenate with it directly to
+// avoid the []string + strings.Join allocation that JoinPath incurs.
+// Changing the separator only requires updating this constant.
 const PathSep = "."
 
 // indexOpen / indexClose delimit an arr[N] index suffix inside a path

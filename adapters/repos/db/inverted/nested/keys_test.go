@@ -133,6 +133,31 @@ func TestIdxKeyToBuf(t *testing.T) {
 	})
 }
 
+func TestIdxKeyPrefix(t *testing.T) {
+	t.Run("matches first hashSize bytes of IdxKey for named path", func(t *testing.T) {
+		path := "addresses"
+		assert.Equal(t, IdxKeyPrefix(path), IdxKey(path, 0)[:hashSize])
+		assert.Equal(t, IdxKeyPrefix(path), IdxKey(path, 42)[:hashSize])
+	})
+
+	t.Run("matches first hashSize bytes of IdxKey for root path", func(t *testing.T) {
+		assert.Equal(t, IdxKeyPrefix(""), IdxKey("", 0)[:hashSize])
+		assert.Equal(t, IdxKeyPrefix(""), IdxKey("", 7)[:hashSize])
+	})
+
+	t.Run("root path hashes _idx without dot (aligned with IdxKey)", func(t *testing.T) {
+		assert.Equal(t, wantHashPrefix("_idx"), IdxKeyPrefix(""))
+	})
+
+	t.Run("named path hashes _idx-prefixed path", func(t *testing.T) {
+		assert.Equal(t, wantHashPrefix("_idx.cars"), IdxKeyPrefix("cars"))
+	})
+
+	t.Run("root differs from named paths", func(t *testing.T) {
+		assert.NotEqual(t, IdxKeyPrefix(""), IdxKeyPrefix("cars"))
+	})
+}
+
 func TestExistsKey(t *testing.T) {
 	t.Run("named path hashes _exists prefix with path", func(t *testing.T) {
 		key := ExistsKey("owner.firstname")

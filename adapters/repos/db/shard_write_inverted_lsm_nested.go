@@ -137,9 +137,12 @@ func nestedMetaEntries(np inverted.NestedProperty, docID uint64) []lsmkv.Roaring
 		keys = make([]byte, n*nested.IdxKeySize)
 	}
 	for i, idx := range np.Idx {
-		buf := keys[i*nested.IdxKeySize : (i+1)*nested.IdxKeySize]
+		// 3-index slice caps cap at len so a downstream append on Key can't
+		// clobber the next entry's bytes in the shared slab.
+		start := i * nested.IdxKeySize
+		end := start + nested.IdxKeySize
 		entries = append(entries, lsmkv.RoaringSetBatchEntry{
-			Key:    nested.IdxKeyToBuf(idx.Path, idx.Index, buf),
+			Key:    nested.IdxKeyToBuf(idx.Path, idx.Index, keys[start:end:end]),
 			Values: nested.OrDocID(idx.Positions, docID),
 		})
 	}

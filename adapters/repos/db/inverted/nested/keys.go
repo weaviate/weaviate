@@ -68,6 +68,16 @@ func IdxKey(path string, index int) []byte {
 	return hashKey(idxKeyPrefix(path), binary.BigEndian.AppendUint16(nil, uint16(index)))
 }
 
+// IdxKeyPrefix returns the hash-only prefix used by IdxKey / IdxKeyToBuf for
+// a path (no BE16 index suffix). Consumers building Seek-then-HasPrefix
+// iterators must use this instead of PathPrefix("_idx."+path) so the
+// empty-path handling stays aligned with the producer — otherwise a
+// root-LCA iteration would compute hash("_idx.") while Seek lands on
+// hash("_idx") and the first HasPrefix check would always fail.
+func IdxKeyPrefix(path string) []byte {
+	return hashKey(idxKeyPrefix(path), nil)
+}
+
 // IdxKeyToBuf writes an _idx key into buf and returns the populated slice.
 // buf must be at least IdxKeySize bytes. Use this in loops to avoid
 // per-iteration allocation; declare a [IdxKeySize]byte on the stack and pass
