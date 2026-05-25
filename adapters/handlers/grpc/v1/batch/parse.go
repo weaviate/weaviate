@@ -34,7 +34,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
+func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error), principal *models.Principal, namespacesEnabled bool) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
@@ -74,7 +74,7 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 					objectErrors[i] = err
 					continue
 				}
-				if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props); err != nil {
+				if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props, principal, namespacesEnabled); err != nil {
 					objectErrors[i] = err
 					continue
 				}
@@ -158,7 +158,7 @@ func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_Si
 	return nil
 }
 
-func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_MultiTargetRefProps, props map[string]interface{}) error {
+func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_MultiTargetRefProps, props map[string]interface{}, principal *models.Principal, namespacesEnabled bool) error {
 	for _, refMulti := range properties {
 		propName := refMulti.GetPropName()
 		prop, err := schema.GetPropertyByName(class, propName)
@@ -168,10 +168,22 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 		if len(prop.DataType) < 2 {
 			return fmt.Errorf("target is a single-target reference, need multi-target %v", prop.DataType)
 		}
+		// Unlike extractSingleRefTarget (where the target comes from
+		// the pre-qualified Property.DataType), the multi-target name
+		// is user-supplied via TargetCollection. Route it through
+		// QualifyRefTarget so the cross-namespace policy (foreign-NS
+		// reject; namespaced caller can't type any prefix) and the
+		// storage-shape rule (beacon carries the SHORT class name)
+		// apply here too. Pass-through on NS-disabled clusters.
+		targetCollection := schema.UppercaseClassName(refMulti.TargetCollection)
+		_, shortTarget, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, class.Class, targetCollection)
+		if err != nil {
+			return err
+		}
+		refMulti.TargetCollection = shortTarget
 		beacons := make([]interface{}, len(refMulti.Uuids))
-		refMulti.TargetCollection = schema.UppercaseClassName(refMulti.TargetCollection)
 		for j, uid := range refMulti.Uuids {
-			beacons[j] = map[string]interface{}{"beacon": BEACON_START + refMulti.TargetCollection + "/" + uid}
+			beacons[j] = map[string]interface{}{"beacon": BEACON_START + shortTarget + "/" + uid}
 		}
 		if props[propName] == nil {
 			props[propName] = beacons
