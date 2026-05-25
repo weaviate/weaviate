@@ -162,6 +162,14 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 // Backup coordinates a distributed backup among participants
 func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
+	phaseLog := c.log.WithFields(logrus.Fields{
+		"action":      "backup_phase",
+		"backup_id":   req.ID,
+		"backup_op":   string(OpCreate),
+		"backup_path": req.Path,
+	})
+	phaseLog.WithField("backup_phase", "start").Info("backup: coordinator entered")
+
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
 		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
@@ -170,6 +178,9 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if err != nil {
 		return err
 	}
+	phaseLog.WithField("backup_phase", "group_by_shard").
+		WithField("node_count", len(groups)).
+		Info("backup: shard grouping complete")
 	// make sure there is no active backup
 	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
@@ -195,11 +206,20 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		delete(c.Participants, key)
 	}
 
+	phaseLog.WithField("backup_phase", "can_commit_start").Info("backup: canCommit fan-out starting")
+	canCommitStart := time.Now()
 	nodes, err := c.canCommit(ctx, req)
 	if err != nil {
+		phaseLog.WithField("backup_phase", "can_commit_failed").
+			WithField("duration_ms", time.Since(canCommitStart).Milliseconds()).
+			Warnf("backup: canCommit refused; backup will not start: %v", err)
 		c.lastOp.reset()
 		return err
 	}
+	phaseLog.WithField("backup_phase", "can_commit_ok").
+		WithField("duration_ms", time.Since(canCommitStart).Milliseconds()).
+		WithField("nodes_accepted", len(nodes)).
+		Info("backup: canCommit accepted on all nodes")
 
 	overrideBucket := req.Bucket
 	overridePath := req.Path
@@ -207,6 +227,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		c.lastOp.reset()
 		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
+	phaseLog.WithField("backup_phase", "meta_written").Info("backup: initial meta file written")
 
 	statusReq := StatusRequest{
 		Method:       OpCreate,
@@ -220,7 +241,13 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	f := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
+		commitStart := time.Now()
+		phaseLog.WithField("backup_phase", "commit_start").Info("backup: commit phase starting (async)")
 		c.commit(ctx, &statusReq, nodes, false)
+		phaseLog.WithField("backup_phase", "commit_done").
+			WithField("duration_ms", time.Since(commitStart).Milliseconds()).
+			WithField("descriptor_status", string(c.descriptor.Status)).
+			Info("backup: commit phase complete")
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
 		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
@@ -588,9 +615,23 @@ func (c *coordinator) commit(ctx context.Context,
 		return
 	}
 
+	phaseLog := c.log.WithFields(logrus.Fields{
+		"action":      "backup_phase",
+		"backup_id":   req.ID,
+		"backup_op":   string(req.Method),
+		"backup_path": req.Path,
+	})
+	phaseLog.WithField("backup_phase", "commit_all_start").
+		WithField("nodes_in_flight", len(node2Host)).
+		Info("commit: firing per-node commit RPCs")
 	nFailures := c.commitAll(ctx, req, node2Host)
+	phaseLog.WithField("backup_phase", "commit_all_done").
+		WithField("nodes_still_in_flight", len(node2Host)).
+		WithField("failures_so_far", nFailures).
+		Info("commit: first round complete; entering poll loop")
 	retryAfter := c.timeoutNextRound / 5 // 2s for first time
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
+	pollIter := 0
 	for canContinue {
 		// Check for external cancellation in polling loop
 		if c.lastOp.get().Status == backup.Cancelled {
@@ -616,9 +657,16 @@ func (c *coordinator) commit(ctx context.Context,
 			c.descriptor.Error = "restore cancelled: context cancelled"
 			return
 		}
+		pollIter++
 		retryAfter = c.timeoutNextRound
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
+		phaseLog.WithField("backup_phase", "commit_poll").
+			WithField("poll_iter", pollIter).
+			WithField("nodes_still_in_flight", len(node2Host)).
+			WithField("failures_so_far", nFailures).
+			WithField("continue", canContinue).
+			Info("commit: polled in-flight nodes")
 	}
 	if !toleratePartialFailure && nFailures > 0 {
 		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
