@@ -585,4 +585,135 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		}
 		repo.AssertExpectations(t)
 	})
+
+	t.Run("every ref fails MT validation: no empty-resource authz call, no 500", func(t *testing.T) {
+		// Regression: when every ref hits a per-ref pre-authz error (here,
+		// every MT existence check returns false), uniqueClassShard ends up
+		// empty in the inner addReferences. Before the fix the function still
+		// invoked b.authorizer.Authorize(READ) with an empty resources slice;
+		// the real RBAC authorizer rejects that with "at least 1 resource is
+		// required", which the REST handler maps to 500. The expected
+		// behaviour is a 200 OK with per-ref errors preserved.
+		classes := []*models.Class{
+			{
+				Class:              "SourceMT",
+				VectorIndexConfig:  hnsw.UserConfig{},
+				Vectorizer:         config.VectorizerModuleNone,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties: []*models.Property{
+					{Name: "refTo", DataType: []string{"TargetMT"}},
+				},
+			},
+			{
+				Class:              "TargetMT",
+				VectorIndexConfig:  hnsw.UserConfig{},
+				Vectorizer:         config.VectorizerModuleNone,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			},
+		}
+		_, b, repo, _, authz := newNSManagers(t, classes, false)
+		// Source object does not exist in tenant1 — validateTenantRefObject
+		// fails the first existence check and aborts the rest of MT
+		// validation for that ref. Mirrors the acceptance fixture
+		// (TestAuthZBatchRefAuthZTenantFiltering) where the test sets up MT
+		// classes but never creates the source object inside the tenant.
+		repo.On("Exists", "SourceMT", id).Return(false, nil)
+		// AddBatchReferences must still be invoked so per-ref Err propagates
+		// back in the response payload — the 200-with-per-ref-errors contract
+		// the REST layer relies on.
+		repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
+			if len(refs) != 2 {
+				return false
+			}
+			for _, r := range refs {
+				if r.Err == nil {
+					return false
+				}
+			}
+			return true
+		})).Return(nil).Once()
+
+		refs := []*models.BatchReference{
+			{
+				From:   strfmt.URI("weaviate://localhost/SourceMT/" + string(id) + "/refTo"),
+				To:     strfmt.URI("weaviate://localhost/TargetMT/" + string(refID)),
+				Tenant: "tenant1",
+			},
+			{
+				From:   strfmt.URI("weaviate://localhost/SourceMT/" + string(id) + "/refTo"),
+				To:     strfmt.URI("weaviate://localhost/TargetMT/" + string(refID)),
+				Tenant: "tenant1",
+			},
+		}
+		_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+		require.NoError(t, err)
+
+		for _, c := range authz.Calls() {
+			require.NotEmpty(t, c.Resources,
+				"authz must never be called with an empty resources slice "+
+					"(the real authorizer rejects it as a 500-level error)")
+		}
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("mixed valid and malformed-target URIs: autodetectToClass survives nil To", func(t *testing.T) {
+		// Regression: validateReference produces a BatchReference with To=nil
+		// whenever crossref.Parse on the target URI fails. Before the fix
+		// autodetectToClass evaluated `ref.To.Class != ""` before checking
+		// ref.Err, panicking on the nil dereference. The bug surfaces only
+		// when at least one valid ref keeps allClasses non-empty (so the
+		// outer short-circuit doesn't fire); the panic would otherwise crash
+		// the whole batch.
+		_, b, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(false), false)
+		repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
+			if len(refs) != 2 {
+				return false
+			}
+			return refs[0].Err != nil && refs[1].Err == nil
+		})).Return(nil).Once()
+
+		refs := []*models.BatchReference{
+			// Bad target URI: target is parsed as nil, ref.Err is set.
+			{
+				From: strfmt.URI("weaviate://localhost/Zoo/" + string(id) + "/hasAnimals"),
+				To:   strfmt.URI("not-a-uri"),
+			},
+			// Good ref keeps the outer allClasses non-empty so we exercise
+			// autodetectToClass with at least one nil-To entry alongside a
+			// resolvable one.
+			{
+				From: strfmt.URI("weaviate://localhost/Zoo/" + string(id) + "/hasAnimals"),
+				To:   strfmt.URI("weaviate://localhost/Animal/" + string(refID)),
+			},
+		}
+		_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+		require.NoError(t, err)
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("every ref has a malformed URI: no empty-resource authz call, no 500", func(t *testing.T) {
+		// Regression for the outer AddReferences. When every input ref has an
+		// unparseable URI, the resolve/uniqueClass loops produce empty maps,
+		// so allClasses ends up empty. Before the fix GetCachedClass was then
+		// invoked with no names — its internal authz READ call hit the same
+		// "at least 1 resource is required" path and returned a 500. The
+		// expected response is the per-ref parse errors carried back to the
+		// caller, not a server error.
+		_, b, _, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
+
+		refs := []*models.BatchReference{
+			{From: strfmt.URI("not-a-uri"), To: strfmt.URI("also-not-a-uri")},
+			{From: strfmt.URI("weaviate://localhost"), To: strfmt.URI("weaviate://localhost")},
+		}
+		out, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+		require.NoError(t, err)
+		require.Len(t, out, 2)
+		for _, r := range out {
+			require.Error(t, r.Err)
+		}
+		for _, c := range authz.Calls() {
+			require.NotEmpty(t, c.Resources,
+				"authz must never be called with an empty resources slice")
+		}
+	})
 }

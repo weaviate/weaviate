@@ -76,6 +76,17 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	for classname := range uniqueClass {
 		allClasses = append(allClasses, classname)
 	}
+
+	// Every ref failed parsing or NS resolution above; there is no source
+	// class to authorize, fetch, or write against. Return the per-ref errors
+	// as a 200 OK response (matches the parse-only failure semantics) instead
+	// of falling through to GetCachedClass / Authorize with an empty slice,
+	// which the authorizer rejects with "at least 1 resource is required"
+	// and the REST handler maps to 500.
+	if len(allClasses) == 0 {
+		return batchReferences, nil
+	}
+
 	fetchedClasses, err := b.schemaManager.GetCachedClass(ctx, principal, allClasses...)
 	if err != nil {
 		return nil, err
@@ -164,9 +175,17 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 	}
 
 	// target object is checked for existence - this is currently ONLY done with tenants enabled, but we should require
-	// the permission for everything, to not complicate things too much
-	if err := b.authorizer.Authorize(ctx, principal, authorization.READ, shardsDataPaths...); err != nil {
-		return nil, err
+	// the permission for everything, to not complicate things too much.
+	// When every ref hit a pre-authz error (bad URI, autodetect miss, MT
+	// validation failure), shardsDataPaths is empty. The authorizer rejects
+	// an empty resources slice with "at least 1 resource is required" — a
+	// non-Forbidden error that the REST handler maps to 500. Skip the call
+	// so AddBatchReferences below propagates the per-ref Err in a 200 OK
+	// response, matching the pre-fix behaviour of this code path.
+	if len(shardsDataPaths) > 0 {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.READ, shardsDataPaths...); err != nil {
+			return nil, err
+		}
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
@@ -210,8 +229,13 @@ func validateReferencesConcurrently(ctx context.Context, refs []*models.BatchRef
 func (b *BatchManager) autodetectToClass(batchReferences BatchReferences, fetchedClasses map[string]versioned.Class) error {
 	classPropTarget := make(map[string]string, len(batchReferences))
 	for i, ref := range batchReferences {
-		// get to class from property datatype
-		if ref.To.Class != "" || ref.Err != nil {
+		// get to class from property datatype.
+		// Err is checked before ref.To: when the target URI fails to parse in
+		// validateReference, ref.To is nil and ref.Err is set — dereferencing
+		// ref.To.Class first would panic. ref.To nil with no Err is not a
+		// reachable state today, but the explicit guard keeps the path safe
+		// against future caller-side construction.
+		if ref.Err != nil || ref.To == nil || ref.To.Class != "" {
 			continue
 		}
 		className := string(ref.From.Class)
