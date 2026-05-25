@@ -544,10 +544,28 @@ func (s *Scheduler) tick() {
 				// authoritative status, not a hidden in-tick mutation.
 				effectiveStatus := task.Status
 
-				// CANCELLED skips PREP/SWAP/ack barriers but still falls
-				// through to Phase 2 so OnTaskCompleted fires cluster-wide.
-				cancelled := effectiveStatus == TaskStatusCancelled
-				if !cancelled {
+				// State-machine dispatch by effectiveStatus.
+				//
+				// CANCELLED is a first-class branch: today the Manager's
+				// CancelTask only accepts cancel from STARTED (see
+				// manager.go:CancelTask), so a CANCELLED task by
+				// construction has not yet hit PREP / SWAP / any ack
+				// barrier. Skipping those phases on this branch is the
+				// FSM rule, not an in-scheduler optimization — making it
+				// a named case (instead of a `if !cancelled` wrapper)
+				// keeps the dispatch readable and surfaces the
+				// dependency on the FSM rule for any future change.
+				//
+				// All other branches (STARTED, PREPARING, SWAPPING,
+				// FAILED, FINISHED) fall through to the in-flight ack
+				// pipeline and then Phase 2.
+				switch effectiveStatus {
+				case TaskStatusCancelled:
+					// Skip PHASE A / PHASE B / ack barriers; Phase 2
+					// below still fires OnTaskCompleted exactly once
+					// so the provider can run its cancel-cleanup.
+
+				default:
 
 					// PHASE A: PREP-phase callback firing for barrier tasks
 					// in PREPARING. SWAP is deferred until the cluster-wide
@@ -761,7 +779,7 @@ func (s *Scheduler) tick() {
 							}
 						}
 					}
-				}
+				} // end switch effectiveStatus
 
 				// Phase 2: fire OnTaskCompleted on SWAPPING/FAILED/FINISHED/
 				// CANCELLED. FINISHED is included because the first node to
