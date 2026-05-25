@@ -59,8 +59,16 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 
 	// Correlated nested AND created during extraction: all children target the
 	// same root property (stored in pv.prop) and require same-element semantics.
-	if pv.nested.isCorrelated {
-		return pv.resolveNestedCorrelated(ctx, s)
+	if pv.nested.isWithinRootSubtree {
+		return pv.resolveNestedSubtree(ctx, s)
+	}
+
+	// Nested ContainsNone is a first-class operator (first-class-operator approach) with the
+	// scalar-array path on pv.nested.relPath. Dispatch BEFORE the isNested
+	// check because the ContainsNone wrapper itself is not a leaf — its
+	// children are the per-value pvps.
+	if pv.operator == filters.ContainsNone && pv.nested.relPath != "" {
+		return pv.fetchNestedContainsNone(ctx, s)
 	}
 
 	// All nested-specific dispatch: IsNull, value filters, and correlated AND
@@ -70,7 +78,7 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		case pv.operator == filters.OperatorIsNull:
 			return pv.fetchNestedIsNull(s)
 		case pv.operator.OnValue():
-			return pv.fetchNestedDocIDs(ctx, s, limit)
+			return pv.fetchNestedDocIDs(ctx, s)
 		}
 	}
 

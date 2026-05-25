@@ -12,16 +12,26 @@
 package nested
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // pathSep is the separator character for nested property paths.
 // All path construction and parsing goes through SplitPath/JoinPath so
 // this is the single place to change if the separator ever changes.
 const pathSep = "."
+
+// indexOpen / indexClose delimit an arr[N] index suffix inside a path
+// segment (e.g. "cars[0]"). All bracket parsing in this package uses
+// these constants so callers don't hard-code the characters.
+const (
+	indexOpen  = "["
+	indexClose = "]"
+)
 
 // SplitPath splits a dot-notation nested path into its property name segments.
 // The inverse of JoinPath.
@@ -108,10 +118,10 @@ func RootPropName(path string) string {
 // "tags[2]" → ("tags", 2, true); "tags" → ("tags", 0, false).
 func parseSegmentIndex(seg string) (clean string, index int, hasIndex bool) {
 	// The closing bracket must be the very last character.
-	if len(seg) == 0 || seg[len(seg)-1] != ']' {
+	if !strings.HasSuffix(seg, indexClose) {
 		return seg, 0, false
 	}
-	start := strings.Index(seg, "[")
+	start := strings.Index(seg, indexOpen)
 	if start < 0 {
 		return seg, 0, false
 	}
@@ -134,4 +144,138 @@ func FindNestedProp(props []*models.NestedProperty, name string) *models.NestedP
 		}
 	}
 	return nil
+}
+
+// FindLeaf walks property-name segments through a NestedProperties tree to
+// locate the leaf. Segments must be clean names without [N] indices — use
+// ParseIndexedPath/ParseSegments to strip indices first.
+//
+//	_, cleanRelSegs, _ := nested.ParseIndexedPath("cars[0].tires[1].brand")
+//	leaf, err := nested.FindLeaf(cleanRelSegs, rootProp.NestedProperties)
+func FindLeaf(segments []string, props []*models.NestedProperty) (*models.NestedProperty, error) {
+	if len(segments) == 0 {
+		return nil, fmt.Errorf("empty nested path")
+	}
+	var np *models.NestedProperty
+	for _, seg := range segments {
+		np = FindNestedProp(props, seg)
+		if np == nil {
+			return nil, fmt.Errorf("sub-property %q not found", seg)
+		}
+		props = np.NestedProperties
+	}
+	return np, nil
+}
+
+// HasNestedSyntax reports whether path uses nested-property syntax — a
+// dotted name like "cars.make" or an indexed name like "cars[0]" or
+// "cars[1].tags". Purely syntactic; performs no schema lookup. Use
+// IsNestedPath for the full schema-aware check.
+//
+// Useful at ingress layers (REST/GraphQL/gRPC) that need to route a
+// path string to the nested filter pipeline before a schema is in scope.
+// Keeps the syntactic conventions (the separator character, the index
+// bracket character) localized in this package.
+func HasNestedSyntax(path string) bool {
+	return strings.ContainsAny(path, pathSep+indexOpen)
+}
+
+// IsNestedPath reports whether path is a nested-property filter path on
+// the given class — i.e. it has nested-path syntax AND its root segment
+// is an object/object[] property. The separator character is internal to
+// this package; callers should treat the check as opaque.
+//
+// A path that contains the separator but whose root is a flat property
+// (or doesn't exist on the class) is NOT a nested path — those should
+// fall through to the flat-property code path so they surface the right
+// "no such property" or "not a nested property" error instead of an
+// off-target "sub-property not found".
+func IsNestedPath(class *models.Class, path string) bool {
+	if !strings.Contains(path, pathSep) {
+		return false
+	}
+	if class == nil {
+		return false
+	}
+	rootProp, err := schema.GetPropertyByName(class, RootPropName(path))
+	if err != nil || rootProp == nil || len(rootProp.DataType) == 0 {
+		return false
+	}
+	rootDT := schema.DataType(rootProp.DataType[0])
+	return rootDT == schema.DataTypeObject || rootDT == schema.DataTypeObjectArray
+}
+
+// ResolveLeaf walks a full nested filter path (dotted, optionally with [N]
+// indices) on the given class and returns the leaf NestedProperty.
+//
+// Performs the same path-shape checks the filter validator does:
+//
+//   - root property [N] index requires an array type
+//   - sub-property must exist in the schema
+//   - intermediate sub-property must be object or object[]
+//   - sub-property [N] index requires an array type
+//
+// Does NOT reject filters that *terminate* at an object-typed leaf — that
+// rule depends on the filter operator (IsNull tolerates it; everything
+// else rejects it), so it stays with the caller.
+//
+//	leaf, err := nested.ResolveLeaf(class, "cars[0].tires[1].brand")
+func ResolveLeaf(class *models.Class, path string) (*models.NestedProperty, error) {
+	rootProp, err := schema.GetPropertyByName(class, RootPropName(path))
+	if err != nil {
+		return nil, err
+	}
+	return ResolveLeafFromRoot(rootProp, path)
+}
+
+// ResolveLeafFromRoot is like ResolveLeaf but takes the already-resolved
+// root property. Used by callers that have looked the root property up
+// themselves (e.g. the filter validator).
+func ResolveLeafFromRoot(rootProp *models.Property, path string) (*models.NestedProperty, error) {
+	if rootProp == nil || len(rootProp.DataType) == 0 {
+		return nil, fmt.Errorf("ResolveLeafFromRoot: root property is nil or has no datatype (path %q)", path)
+	}
+	pathSegs := ParseSegments(path)
+	if pathSegs[0].HasIndex {
+		rootDT := schema.DataType(rootProp.DataType[0])
+		if _, ok := schema.IsArrayType(rootDT); !ok {
+			return nil, fmt.Errorf(
+				"property %q is of type %q — [N] indexing requires an array type",
+				pathSegs[0].Name, rootDT)
+		}
+	}
+	if len(pathSegs) <= 1 {
+		return nil, fmt.Errorf("property %q has no sub-property segments", pathSegs[0].Name)
+	}
+	return walkPath(rootProp.NestedProperties, pathSegs[1:], path)
+}
+
+// walkPath is the per-segment walk shared by ResolveLeaf/ResolveLeafFromRoot.
+// It applies "sub-property exists", "intermediate must be nested", and
+// "[N] requires array" checks; the leaf may be any type.
+func walkPath(props []*models.NestedProperty, segs []PathSegment, fullPath string) (*models.NestedProperty, error) {
+	for i, seg := range segs {
+		np := FindNestedProp(props, seg.Name)
+		if np == nil {
+			return nil, fmt.Errorf("nested path %q: sub-property %q not found", fullPath, seg.Name)
+		}
+		dt := schema.DataType(np.DataType[0])
+		if seg.HasIndex {
+			if _, ok := schema.IsArrayType(dt); !ok {
+				return nil, fmt.Errorf(
+					"nested path %q: sub-property %q is of type %q — [N] indexing requires an array type",
+					fullPath, seg.Name, dt)
+			}
+		}
+		if i == len(segs)-1 {
+			return np, nil
+		}
+		if !schema.IsNested(dt) {
+			return nil, fmt.Errorf(
+				"nested path %q: sub-property %q must be object or object[], got %q",
+				fullPath, seg.Name, dt)
+		}
+		props = np.NestedProperties
+	}
+	return nil, fmt.Errorf("nested path %q: empty sub-property path", fullPath)
 }
