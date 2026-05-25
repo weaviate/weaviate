@@ -656,11 +656,25 @@ func requestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 
 // cancelReindexTask finds the STARTED reindex task targeting
 // (collection, propertyName, indexType) and asks DTM to cancel it.
-// Returns 404 if no matching task exists, 202 with the cancelled
-// task ID on success. The DTM scheduler picks up the CANCELLED state on
-// its next tick and terminates the local handle; the task's ctx (the
-// provider's per-task ctx via runningHandles) is then cancelled, and
-// the worker goroutine returns.
+//
+// Idempotent cancel: by the time this runs the caller's (collection,
+// property) tuple has already been verified to exist by [updateIndex] —
+// a missing class or property would have produced a 404 there. So when
+// no STARTED task matches the cancel target we return 202 + Status:
+// NO_OP rather than 404. That mirrors how callers think about cancel:
+// "make sure no reindex is running on this property" is the same
+// idempotent intent whether or not a task happened to be in flight at
+// request time. The previous 404 conflated "the cancel target is
+// unknown" with "there is nothing to cancel" — callers couldn't
+// disambiguate without parsing the response body, and scripts that
+// expect "this task is cancelled now" had to special-case 404 as a
+// success.
+//
+// On success: 202 + Status: CANCELLED with the cancelled task's ID. The
+// DTM scheduler picks up the CANCELLED state on its next tick and
+// terminates the local handle; the task's ctx (the provider's per-task
+// ctx via runningHandles) is then cancelled, and the worker goroutine
+// returns.
 func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, propertyName, indexType string, principal *models.Principal) middleware.Responder {
 	if h.appState.ClusterService == nil {
 		return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal,
@@ -699,9 +713,21 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	}
 
 	if target == nil {
-		return schema.NewSchemaObjectsIndexesUpdateNotFound().WithPayload(errorResponse(principal, fmt.Sprintf(
-			"no in-flight reindex task to cancel for (collection=%q, property=%q, indexType=%q): the task may have already finished, been canceled, or never been started; use GET /v1/schema/%s/indexes to inspect the current state",
-			collection, propertyName, indexType, collection)))
+		// Idempotent cancel: caller's (collection, property) is known to
+		// exist (updateIndex verified before dispatch). No task to cancel
+		// means the request is a no-op — surface that explicitly via
+		// Status: NO_OP at 202 rather than overloading 404 with two
+		// distinct semantics (caller-error vs already-done).
+		h.appState.Logger.WithFields(logrus.Fields{
+			"audit_event": "reindex_task_cancel_noop",
+			"collection":  collection,
+			"property":    propertyName,
+			"index_type":  indexType,
+			"principal":   principalUsername(principal),
+		}).Info("cancel: no in-flight task to cancel; returning NO_OP")
+		return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
+			Status: reindexCancelStatusNoOp,
+		})
 	}
 
 	if err := h.appState.ClusterService.CancelDistributedTask(
@@ -805,6 +831,13 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 		Status: "CANCELLED",
 	})
 }
+
+// reindexCancelStatusNoOp is the IndexUpdateResponse.Status value the
+// cancel handler emits when there is nothing to cancel. Lets scripts
+// treat "cancel was a no-op" and "cancel cancelled an in-flight task"
+// as a single success path rather than the previous "200 vs 404"
+// disambiguation — see the cancelReindexTask godoc.
+const reindexCancelStatusNoOp = "NO_OP"
 
 // reindexCancelDrainTimeout caps how long the cancel handler waits for
 // the local reindex goroutine to exit before falling back to "let the
