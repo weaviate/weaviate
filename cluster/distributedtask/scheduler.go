@@ -562,7 +562,7 @@ func (s *Scheduler) tick() {
 							s.preparationCallbackFired[desc] = map[string]bool{}
 						}
 						s.preparationCallbackFired[desc][groupID] = true
-						groupErr := suProvider.OnGroupCompleted(task, groupID, localIDs)
+						groupErr := suProvider.OnGroupCompleted(s.loopCtx, task, groupID, localIDs)
 						// Same shutdown handling as PHASE B: drop the fired
 						// mark on context.Canceled so recovery re-fires next tick.
 						if errors.Is(groupErr, context.Canceled) {
@@ -585,7 +585,7 @@ func (s *Scheduler) tick() {
 						s.allLocalGroupsPreparationFiredLocked(task, desc) {
 						success, joined := s.aggregatePreparationAckErrorsLocked(task, desc)
 						if err := s.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
-							context.Background(), namespace, task.ID, task.Version,
+							s.loopCtx, namespace, task.ID, task.Version,
 							s.localNode, success, joined,
 						); err != nil {
 							s.loggerWithTask(namespace, desc).
@@ -639,9 +639,9 @@ func (s *Scheduler) tick() {
 						s.groupCallbackFired[desc][groupID] = true
 						var groupErr error
 						if task.NeedsPreparationBarrier {
-							groupErr = suProvider.OnSwapRequested(task, groupID, localIDs)
+							groupErr = suProvider.OnSwapRequested(s.loopCtx, task, groupID, localIDs)
 						} else {
-							groupErr = suProvider.OnGroupCompleted(task, groupID, localIDs)
+							groupErr = suProvider.OnGroupCompleted(s.loopCtx, task, groupID, localIDs)
 						}
 						// Shutdown handling: ctx.Canceled from a graceful
 						// SIGTERM (rolling restart) is transient — drop the
@@ -676,7 +676,7 @@ func (s *Scheduler) tick() {
 					s.allLocalGroupsFiredLocked(task, desc) {
 					success, joined := s.aggregateAckErrorsLocked(task, desc)
 					if err := s.ackRecorder.RecordDistributedTaskPostCompletionAck(
-						context.Background(), namespace, task.ID, task.Version,
+						s.loopCtx, namespace, task.ID, task.Version,
 						s.localNode, success, joined,
 					); err != nil {
 						// Leave postCompletionAckEmitted unset for retry on
@@ -731,7 +731,7 @@ func (s *Scheduler) tick() {
 						}
 					}
 					s.completedCallbackFired[desc] = true
-					suProvider.OnTaskCompleted(task)
+					suProvider.OnTaskCompleted(s.loopCtx, task)
 				}
 			}
 		}
@@ -748,7 +748,7 @@ func (s *Scheduler) tick() {
 					continue
 				}
 				if err := s.taskFinalizer.MarkDistributedTaskFinalized(
-					context.Background(), namespace, task.ID, task.Version,
+					s.loopCtx, namespace, task.ID, task.Version,
 				); err != nil {
 					s.loggerWithTask(namespace, desc).
 						Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", err)
@@ -770,7 +770,7 @@ func (s *Scheduler) tick() {
 			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
 		})
 		for _, task := range cleanableTasks {
-			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
+			err = s.taskCleaner.CleanUpDistributedTask(s.loopCtx, namespace, task.ID, task.Version)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 					s.loggerWithTask(namespace, task.TaskDescriptor).
