@@ -2073,9 +2073,6 @@ func setupGoProfiling(appState *state.State) {
 	// Two independent gates:
 	//   - GO_PROFILING_DISABLE=true (legacy) → never bind.
 	//   - DEBUG_ENDPOINTS_ENABLED=true (default false) → must opt in to bind.
-	// The default-off behavior closes the unauthenticated /debug/* surface
-	// described in the security report; operators wanting profiling must set
-	// DEBUG_ENDPOINTS_ENABLED=true explicitly.
 	enabled := config.Profiling.DebugEndpointsEnabled
 	if config.Profiling.Disabled || enabled == nil || !enabled.Get() {
 		port := config.Profiling.Port
