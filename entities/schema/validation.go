@@ -14,6 +14,20 @@ package schema
 import (
 	"fmt"
 	"regexp"
+	"strings"
+)
+
+// Canonical suffixes appended to property names to form internal bucket or
+// directory names for inverted and auxiliary indices. Also re-exported from
+// entities/filters (InternalPropertyLength, InternalNullIndex) for API
+// stability.
+const (
+	InternalPropertyLengthSuffix = "_propertyLength"
+	InternalNullStateSuffix      = "_nullState"
+	InternalSearchableSuffix     = "_searchable"
+	InternalRangeableSuffix      = "_rangeable"
+	InternalTempSuffix           = "_temp"
+	InternalMetaCountSuffix      = "__meta_count"
 )
 
 var (
@@ -22,6 +36,16 @@ var (
 	validatePropertyNameRegex       = regexp.MustCompile(`^` + PropertyNameRegex + `$`)
 	validateNestedPropertyNameRegex = regexp.MustCompile(`^` + NestedPropertyNameRegex + `$`)
 	reservedPropertyNames           = []string{"_additional", "_id", "id"}
+	// reservedPropertyNameSuffixes lists the suffixes a user property may not
+	// end in — each would collide with a bucket derived from another property.
+	reservedPropertyNameSuffixes = []string{
+		InternalSearchableSuffix,
+		InternalRangeableSuffix,
+		InternalTempSuffix,
+		InternalMetaCountSuffix,
+		InternalPropertyLengthSuffix,
+		InternalNullStateSuffix,
+	}
 )
 
 const (
@@ -161,6 +185,19 @@ func ValidateReservedPropertyName(name string) error {
 	for i := range reservedPropertyNames {
 		if name == reservedPropertyNames[i] {
 			return fmt.Errorf("'%s' is a reserved property name", name)
+		}
+	}
+	return nil
+}
+
+// ValidateReservedPropertyNameSuffix rejects property names whose suffix would
+// collide with internal bucket/directory names derived from other properties.
+// Only applied on creation paths — existing schemas (backup restore, startup)
+// must continue to load even if they contain legacy names matching these suffixes.
+func ValidateReservedPropertyNameSuffix(name string) error {
+	for _, suffix := range reservedPropertyNameSuffixes {
+		if strings.HasSuffix(name, suffix) {
+			return fmt.Errorf("'%s' is not a valid property name: suffix '%s' is reserved for internal indices", name, suffix)
 		}
 	}
 	return nil

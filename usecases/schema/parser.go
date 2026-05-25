@@ -349,7 +349,7 @@ func propertyAsMap(in any) (map[string]any, error) {
 	out := make(map[string]any)
 
 	v := reflect.ValueOf(in)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 
