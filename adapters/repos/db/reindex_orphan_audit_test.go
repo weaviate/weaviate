@@ -407,6 +407,123 @@ func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
 		"with zero deferred requests SetReindexAuditDeps must NOT run a replay sweep")
 }
 
+// TestSidecarDirsForOrphan_StrategyRegistry pins S3: sidecar dir
+// names are computed through migrationSuffixes (the strategy registry)
+// rather than re-derived from hard-coded "property_*" prefix strings.
+// One test case per strategy so adding a new strategy that touches
+// migrationSuffixes auto-extends this audit path.
+func TestSidecarDirsForOrphan_StrategyRegistry(t *testing.T) {
+	cases := []struct {
+		name        string
+		dirName     string
+		prefix      string
+		generation  int
+		properties  []string
+		wantSidecar []string
+	}{
+		{
+			name:       "searchable_retokenize_per_prop",
+			dirName:    "searchable_retokenize_body_2",
+			prefix:     "searchable_retokenize_body",
+			generation: 2,
+			properties: []string{"body"},
+			wantSidecar: []string{
+				"property_body_searchable__retokenize_ingest_2",
+				"property_body_searchable__retokenize_backup_2",
+				"property_body_searchable__retokenize_reindex_2",
+			},
+		},
+		{
+			name:       "filterable_retokenize_per_prop",
+			dirName:    "filterable_retokenize_title_3",
+			prefix:     "filterable_retokenize_title",
+			generation: 3,
+			properties: []string{"title"},
+			wantSidecar: []string{
+				"property_title__filt_retokenize_ingest_3",
+				"property_title__filt_retokenize_backup_3",
+				"property_title__filt_retokenize_reindex_3",
+			},
+		},
+		{
+			name:       "enable_filterable_per_prop",
+			dirName:    "enable_filterable_alpha_1",
+			prefix:     "enable_filterable_alpha",
+			generation: 1,
+			properties: []string{"alpha"},
+			wantSidecar: []string{
+				"property_alpha__enable_filterable_ingest_1",
+				"property_alpha__enable_filterable_backup_1",
+				"property_alpha__enable_filterable_reindex_1",
+			},
+		},
+		{
+			name:       "enable_searchable_per_prop",
+			dirName:    "enable_searchable_beta_4",
+			prefix:     "enable_searchable_beta",
+			generation: 4,
+			properties: []string{"beta"},
+			wantSidecar: []string{
+				"property_beta_searchable__enable_searchable_ingest_4",
+				"property_beta_searchable__enable_searchable_backup_4",
+				"property_beta_searchable__enable_searchable_reindex_4",
+			},
+		},
+		{
+			name:       "rebuild_searchable_per_prop",
+			dirName:    "rebuild_searchable_gamma_5",
+			prefix:     "rebuild_searchable_gamma",
+			generation: 5,
+			properties: []string{"gamma"},
+			wantSidecar: []string{
+				"property_gamma_searchable__rebuild_searchable_ingest_5",
+				"property_gamma_searchable__rebuild_searchable_backup_5",
+				"property_gamma_searchable__rebuild_searchable_reindex_5",
+			},
+		},
+		{
+			name:       "map_to_blockmax_class_level_with_prop",
+			dirName:    "searchable_map_to_blockmax_6",
+			prefix:     "searchable_map_to_blockmax",
+			generation: 6,
+			properties: []string{"delta"},
+			wantSidecar: []string{
+				"property_delta_searchable__blockmax_ingest_6",
+				"property_delta_searchable__blockmax_map_6",
+				"property_delta_searchable__blockmax_reindex_6",
+			},
+		},
+		{
+			name:        "no_properties_returns_empty",
+			dirName:     "searchable_retokenize_body_2",
+			prefix:      "searchable_retokenize_body",
+			generation:  2,
+			properties:  nil,
+			wantSidecar: nil,
+		},
+		{
+			name:        "unknown_strategy_returns_empty",
+			dirName:     "unknown_strategy_foo_1",
+			prefix:      "unknown_strategy_foo",
+			generation:  1,
+			properties:  []string{"bar"},
+			wantSidecar: nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			o := &orphanReindexTracker{
+				dirName:    c.dirName,
+				prefix:     c.prefix,
+				generation: c.generation,
+				properties: c.properties,
+			}
+			got := sidecarDirsForOrphan(o)
+			assert.Equal(t, c.wantSidecar, got)
+		})
+	}
+}
+
 // TestAuditOrphanReindexTrackers_LegacyTrackerWithoutPayload_Cleaned
 // pins M8: pre-PR-cluster tracker dirs without payload.mig whose
 // mtime predates this process start MUST be classified as class-level

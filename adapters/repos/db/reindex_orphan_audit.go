@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -529,47 +528,72 @@ func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, l
 }
 
 // removeUnloadedSidecarsForOrphan removes per-property sidecar bucket
-// directories that match the orphan's per-property prefix and
-// generation. The strategy-specific suffix is unknown without the
-// strategy instance, so it scans the lsm dir and matches by canonical
-// property prefix and the _<N> generation suffix.
+// directories owned by the orphan tracker. Routes through the strategy
+// registry (migrationSuffixes) keyed by the orphan's tracker dirName
+// — the strategy's MigrationDirName() and IngestSuffix/BackupSuffix/
+// ReindexSuffix methods are the single source of truth for the on-disk
+// dir layout (S3 fix). Falls back to no-op if the tracker dirName does
+// not match any registered strategy: defensive, but it also means a
+// future strategy added to migrationSuffixes will be picked up here
+// automatically.
+//
+// Sidecar dir names that this consults:
+//   - <main>__<ingestSuffix>_<gen>      (ingest sidecar)
+//   - <main>__<backupSuffix>_<gen>      (backup sidecar)
+//   - <main>__<reindexSuffix>_<gen>     (reindex sidecar)
+//
+// where `<main>` is the strategy's sourceBucketName(propName) for the
+// canonical bucket the migration writes back to. The strategy decides
+// what those names are — the audit MUST NOT re-derive them by string
+// prefix.
 func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, logger logrus.FieldLogger) {
-	entries, err := os.ReadDir(lsmPath)
-	if err != nil {
-		return
+	for _, sidecar := range sidecarDirsForOrphan(o) {
+		path := filepath.Join(lsmPath, sidecar)
+		if !fileExists(path) {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			logger.WithField("path", path).
+				Warnf("reindex orphan audit: failed to remove orphan sidecar dir: %v", err)
+		}
 	}
-	genSuffixStr := genSuffix(o.generation)
+}
+
+// sidecarDirsForOrphan returns the lsm-relative sidecar bucket dir
+// names the strategy registry says are owned by this orphan's tracker
+// dir + property set + generation. Computed by consulting
+// [migrationSuffixes] keyed off the orphan's tracker dirName: the
+// strategy itself owns the IngestSuffix / BackupSuffix /
+// ReindexSuffix tail base, and the audit appends the matching
+// `_<gen>` to each. Returns an empty slice when the tracker dirName
+// does not match any registered strategy or when the orphan carries
+// no properties (class-level cleanup is handled by the caller via
+// direct tracker-dir removal).
+//
+// Closes S3 by routing through the strategy registry instead of
+// re-deriving sidecar names by hard-coded string prefix.
+func sidecarDirsForOrphan(o *orphanReindexTracker) []string {
+	if len(o.properties) == 0 {
+		return nil
+	}
+	suffixes := migrationSuffixes(o.dirName)
+	if suffixes == nil {
+		return nil
+	}
+	reindexSuffix := reindexSuffixForFinalize(o.prefix)
+	genTail := genSuffix(o.generation)
+	out := make([]string, 0, 3*len(o.properties))
 	for _, propName := range o.properties {
-		prefixes := []string{
-			"property_" + propName + "__",
-			"property_" + propName + "_searchable__",
-			"property_" + propName + "_rangeable__",
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			matched := false
-			for _, p := range prefixes {
-				if strings.HasPrefix(name, p) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				continue
-			}
-			if !strings.HasSuffix(name, genSuffixStr) {
-				continue
-			}
-			path := filepath.Join(lsmPath, name)
-			if err := os.RemoveAll(path); err != nil {
-				logger.WithField("path", path).
-					Warnf("reindex orphan audit: failed to remove orphan sidecar dir: %v", err)
-			}
+		main := suffixes.sourceBucketName(propName)
+		out = append(out,
+			main+suffixes.ingestSuffix+genTail,
+			main+suffixes.backupSuffix+genTail,
+		)
+		if reindexSuffix != "" {
+			out = append(out, main+reindexSuffix+genTail)
 		}
 	}
+	return out
 }
 
 // orphanCleanupPauseTimeout bounds how long the audit waits for an
