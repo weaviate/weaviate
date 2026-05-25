@@ -65,6 +65,28 @@ type taskSchedulerState struct {
 // Scheduler is the component which is responsible for polling the active tasks in the cluster (via the Manager)
 // and making sure that the tasks are running on the local node.
 //
+// # Backup precheck scope (coordinator-local fast-fail)
+//
+// The scheduler keeps the local node's view of which tasks are in
+// flight; consumers like the backup coordinator's Backupable precheck
+// (adapters/repos/db/backup.go) consult that view to refuse a backup
+// whose target class has a runtime-reindex still in flight.
+//
+// That precheck is intentionally coordinator-local: it only walks
+// shards on the node that received the backup request. Remote refusals
+// are NOT escalated through the scheduler; they happen later in the
+// backup state machine on every replica's canCommit step. The
+// asymmetry is by design — coordinator-local hit is a fast-fail
+// optimization (most backup attempts will hit a remote shard's
+// canCommit anyway, so paying a cross-node RAFT round-trip in the
+// precheck path is wasted latency), and any reindex that exists on a
+// remote shard but not locally still gets caught by the global
+// canCommit barrier before the backup writes anything durable.
+//
+// If a future change pushes the precheck down into a cluster-wide
+// query, this paragraph and the matching comment in
+// db/backup.go:Backupable should be updated together.
+//
 // The general flow of a distributed task is as follows:
 // 1. A Provider is registered with the Scheduler at startup to handle all tasks under a specific namespace.
 // 2. A task is created and added to the cluster via the Manager.AddTask.
