@@ -534,15 +534,25 @@ func (s *Scheduler) tick() {
 		_, providerIsUnitAware := provider.(UnitAwareProvider)
 		if suProvider, ok := provider.(UnitAwareProvider); ok {
 			for desc, task := range tasks {
+				// effectiveStatus carries the per-tick state-machine view: it
+				// starts at task.Status (what ListDistributedTasks returned)
+				// and the PREP-ack / SWAP-ack failure paths advance it to
+				// FAILED so PHASE B and Phase 2 can react inside the same
+				// tick without overwriting the FSM clone. The clone stays
+				// equal to the RAFT-replicated state for the entire tick;
+				// any downstream code that re-reads from `tasks` sees the
+				// authoritative status, not a hidden in-tick mutation.
+				effectiveStatus := task.Status
+
 				// CANCELLED skips PREP/SWAP/ack barriers but still falls
 				// through to Phase 2 so OnTaskCompleted fires cluster-wide.
-				cancelled := task.Status == TaskStatusCancelled
+				cancelled := effectiveStatus == TaskStatusCancelled
 				if !cancelled {
 
 					// PHASE A: PREP-phase callback firing for barrier tasks
 					// in PREPARING. SWAP is deferred until the cluster-wide
 					// PreparationCompleteAck barrier lifts.
-					if task.NeedsPreparationBarrier && task.Status == TaskStatusPreparing {
+					if task.NeedsPreparationBarrier && effectiveStatus == TaskStatusPreparing {
 						for _, groupID := range task.Groups() {
 							state := s.perTaskStateLocked(desc)
 							if state != nil && state.preparationCallbackFired[groupID] {
@@ -596,11 +606,11 @@ func (s *Scheduler) tick() {
 									Error:   joined,
 									AckedAt: s.clock.Now(),
 								}
-								// Mirror the FSM-side PREPARING -> FAILED on
-								// the local clone so PHASE B and Phase 2 see
-								// it in this same tick.
-								if !success && task.Status == TaskStatusPreparing {
-									task.Status = TaskStatusFailed
+								// Advance effectiveStatus to FAILED (in lieu of
+								// overwriting task.Status) so PHASE B and
+								// Phase 2 react inside this same tick.
+								if !success && effectiveStatus == TaskStatusPreparing {
+									effectiveStatus = TaskStatusFailed
 								}
 							}
 						}
@@ -610,9 +620,9 @@ func (s *Scheduler) tick() {
 					// OnSwapRequested only after postStarted (FSM gates SWAP
 					// on the cluster-wide barrier); non-barrier tasks fire
 					// OnGroupCompleted mid-flight via AllGroupUnitsTerminal.
-					postStarted := task.Status == TaskStatusSwapping ||
-						task.Status == TaskStatusFailed ||
-						task.Status == TaskStatusFinished
+					postStarted := effectiveStatus == TaskStatusSwapping ||
+						effectiveStatus == TaskStatusFailed ||
+						effectiveStatus == TaskStatusFinished
 					for _, groupID := range task.Groups() {
 						state := s.perTaskStateLocked(desc)
 						if state != nil && state.groupCallbackFired[groupID] {
@@ -667,7 +677,7 @@ func (s *Scheduler) tick() {
 					ackState := s.perTaskStateLocked(desc)
 					if s.ackRecorder != nil &&
 						(ackState == nil || !ackState.postCompletionAckEmitted) &&
-						task.Status != TaskStatusStarted &&
+						effectiveStatus != TaskStatusStarted &&
 						s.allLocalGroupsFiredLocked(task, desc) {
 						success, joined := s.aggregateAckErrorsLocked(task, desc)
 						if err := s.ackRecorder.RecordDistributedTaskPostCompletionAck(
@@ -680,10 +690,12 @@ func (s *Scheduler) tick() {
 								Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", err)
 						} else {
 							s.perTaskStateLockedOrInit(desc).postCompletionAckEmitted = true
-							// Mirror the ack onto the per-tick local clone so
-							// the OnTaskCompleted gate sees it; on failure
-							// flip to FAILED so OnTaskCompleted still runs
-							// cleanup (without the schema flip).
+							// Reflect the ack on the per-tick local clone's
+							// ack map (mirror of what the FSM apply path
+							// records) so the Phase 2 gate has the up-to-date
+							// view without re-listing. Status itself stays on
+							// effectiveStatus; the clone's Status field is
+							// never overwritten.
 							if task.PostCompletionAcks == nil {
 								task.PostCompletionAcks = map[string]PostCompletionAck{}
 							}
@@ -692,8 +704,8 @@ func (s *Scheduler) tick() {
 								Error:   joined,
 								AckedAt: s.clock.Now(),
 							}
-							if !success && task.Status == TaskStatusSwapping {
-								task.Status = TaskStatusFailed
+							if !success && effectiveStatus == TaskStatusSwapping {
+								effectiveStatus = TaskStatusFailed
 							}
 						}
 					}
@@ -705,13 +717,13 @@ func (s *Scheduler) tick() {
 				// other nodes' next tick may already see FINISHED. On the
 				// SWAPPING path wait until every node has acked: the schema
 				// flip can't commit while any replica's swap is undetermined.
-				readyForFinalize := task.Status == TaskStatusSwapping ||
-					task.Status == TaskStatusFailed ||
-					task.Status == TaskStatusFinished ||
-					task.Status == TaskStatusCancelled
+				readyForFinalize := effectiveStatus == TaskStatusSwapping ||
+					effectiveStatus == TaskStatusFailed ||
+					effectiveStatus == TaskStatusFinished ||
+					effectiveStatus == TaskStatusCancelled
 				phase2State := s.perTaskStateLocked(desc)
 				if readyForFinalize && (phase2State == nil || !phase2State.completedCallbackFired) {
-					if s.ackRecorder != nil && task.Status == TaskStatusSwapping {
+					if s.ackRecorder != nil && effectiveStatus == TaskStatusSwapping {
 						missing := task.MissingPostCompletionAckNodes()
 						if len(missing) > 0 {
 							continue
