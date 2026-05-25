@@ -14,10 +14,6 @@ package db
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
 )
 
 // ErrBackupBlockedByInFlightReindex is returned when a backup attempt
@@ -26,104 +22,66 @@ import (
 // dir cannot be safely restored.
 var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
 
-// InFlightReindexTracker describes a migration tracker dir that is
-// between markStarted and markTidied.
-type InFlightReindexTracker struct {
-	DirName    string // bare `.migrations/<...>` entry
-	Prefix     string // strategy prefix without `_<gen>` suffix
-	Generation int    // per-node `_<N>` suffix, >= 1
-
-	Started   bool
-	Reindexed bool
-	Tidied    bool
+// AnyLiveReindexForShard answers the cluster-wide question: does DTM
+// have any LIVE reindex task targeting (collection, shardName)?
+//
+// Replaces the prior filesystem-marker check, which only saw this node
+// and lagged DTM's actual state. The lookup builder is installed by
+// [DB.SetShardReindexActivityLookup] from the post-bootstrap goroutine
+// in configure_api.go; calls before installation are conservatively
+// refused so a backup landing pre-wire does not race a real reindex.
+func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
+	db.reindexAuditMu.RLock()
+	builder := db.shardReindexActivityLookupBuilder
+	db.reindexAuditMu.RUnlock()
+	if builder == nil {
+		// Wiring not complete (startup window). Conservative: assume a
+		// reindex IS in flight so a backup landing pre-wire does not race
+		// a real reindex.
+		return true
+	}
+	lookup := builder()
+	if lookup == nil {
+		// Defensive: the builder returned nil. Treat the same as the
+		// pre-wire window.
+		return true
+	}
+	return lookup(collection, shardName)
 }
 
-// String produces a one-line summary suitable for log fields / error
-// messages: "<dir> [started=true reindexed=false tidied=false]".
-func (t InFlightReindexTracker) String() string {
-	return fmt.Sprintf("%s [started=%v reindexed=%v tidied=%v]",
-		t.DirName, t.Started, t.Reindexed, t.Tidied)
-}
-
-// inFlightReindexTrackers returns trackers with started.mig present and
-// neither tidied.mig nor merged.mig. merged.mig counts as complete
-// because FinalizeCompletedMigrations promotes it on restart. Sorted by
-// DirName. Missing migrations dir returns (nil, nil).
-func inFlightReindexTrackers(lsmPath string) ([]InFlightReindexTracker, error) {
-	if lsmPath == "" {
-		return nil, nil
-	}
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	entries, err := os.ReadDir(migsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read migrations dir %q: %w", migsDir, err)
-	}
-
-	out := make([]InFlightReindexTracker, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		prefix, gen, ok := parseMigrationDirName(name)
-		if !ok {
-			continue
-		}
-		dirPath := filepath.Join(migsDir, name)
-		started := fileExistsInDir(dirPath, "started.mig")
-		if !started {
-			continue
-		}
-		tidied := fileExistsInDir(dirPath, "tidied.mig")
-		if tidied {
-			continue
-		}
-		if fileExistsInDir(dirPath, "merged.mig") {
-			continue
-		}
-		out = append(out, InFlightReindexTracker{
-			DirName:    name,
-			Prefix:     prefix,
-			Generation: gen,
-			Started:    true,
-			Reindexed:  fileExistsInDir(dirPath, "reindexed.mig"),
-			Tidied:     false,
-		})
-	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].DirName < out[j].DirName })
-	return out, nil
-}
-
-// refuseIfReindexInFlight is the inactive-shard counterpart to
-// [Shard.HaltForTransfer]'s in-flight check.
+// refuseIfReindexInFlight is the per-shard backup-gate check used by
+// [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
+// [Index.backupInactiveShardWithoutHardlinks], and
+// [Shard.HaltForTransfer]. Consults DTM via
+// [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
+// replaced only saw the local node and lagged DTM's actual state.
+//
+// If i.db is nil the gate is conservative: it refuses the backup, on
+// the assumption that wiring is in progress.
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
-	lsmPath := shardPathLSM(i.path(), shardName)
-	trackers, err := inFlightReindexTrackers(lsmPath)
-	if err != nil {
-		return fmt.Errorf("check in-flight reindex state for shard %q: %w", shardName, err)
+	if i.db == nil {
+		// Index was constructed without a back-reference (test
+		// fixtures, partial init). Be conservative.
+		return reindexInFlightError(i.Config.ClassName.String(), shardName, true)
 	}
-	return reindexInFlightError(shardName, trackers)
-}
-
-// reindexInFlightError wraps [ErrBackupBlockedByInFlightReindex] with
-// a human-readable tracker list. Returns nil when trackers is empty.
-func reindexInFlightError(shardName string, trackers []InFlightReindexTracker) error {
-	if len(trackers) == 0 {
+	if !i.db.AnyLiveReindexForShard(i.Config.ClassName.String(), shardName) {
 		return nil
 	}
-	parts := make([]string, len(trackers))
-	for i, t := range trackers {
-		parts[i] = t.String()
+	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)
+}
+
+// reindexInFlightError formats the operator-facing rejection. The
+// `preWire` flag distinguishes "DTM lookup says live" from "lookup not
+// yet installed" so the error body can hint at the right next step.
+func reindexInFlightError(collection, shardName string, preWire bool) error {
+	if preWire {
+		return fmt.Errorf(
+			"%w: shard %q (collection %q): backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
+			ErrBackupBlockedByInFlightReindex, shardName, collection,
+		)
 	}
 	return fmt.Errorf(
-		"%w: shard %q has %d active tracker(s): %s; retry after the migration finishes (poll GET /v1/schema/<class> until indexes are 'ready') or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
-		ErrBackupBlockedByInFlightReindex,
-		shardName,
-		len(trackers),
-		strings.Join(parts, ", "),
+		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
+		ErrBackupBlockedByInFlightReindex, shardName, collection,
 	)
 }

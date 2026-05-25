@@ -42,11 +42,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// leave the counter incremented; the error path would not run a
 	// matching resume.
 	if !offloading {
-		trackers, lookupErr := inFlightReindexTrackers(s.pathLSM())
-		if lookupErr != nil {
-			return fmt.Errorf("check in-flight reindex state: %w", lookupErr)
-		}
-		if blockedErr := reindexInFlightError(s.name, trackers); blockedErr != nil {
+		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
 			return blockedErr
 		}
 	}
