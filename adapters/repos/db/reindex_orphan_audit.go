@@ -33,6 +33,66 @@ type KnownReindexTaskLookup func(taskID string, taskVersion uint64) bool
 // for one audit invocation.
 type KnownReindexTaskLookupBuilder func() KnownReindexTaskLookup
 
+// AuditOutcomeStatus distinguishes the three operationally distinct
+// reasons an [DB.AuditOrphanReindexTrackers] invocation can return
+// without an error. Closes S4 (collapsed three outcomes into one
+// silent nil): callers and operators now have a typed signal for
+// "audit sweep ran" vs. "audit deferred" vs. "audit ran but some
+// per-tracker cleanups failed".
+type AuditOutcomeStatus int
+
+const (
+	// AuditStatusSkipped: deps not installed, root path empty, or
+	// root path unreadable. No tracker dirs were inspected. The
+	// audit's startup retry path is expected to retry later.
+	AuditStatusSkipped AuditOutcomeStatus = iota
+	// AuditStatusRan: the sweep traversed every shard under
+	// RootPath and inspected every .migrations tracker. No orphans
+	// found AND no per-tracker errors. The expected steady-state
+	// outcome.
+	AuditStatusRan
+	// AuditStatusOrphansFound: the sweep ran end-to-end and at
+	// least one orphan tracker was identified and successfully
+	// cleaned.
+	AuditStatusOrphansFound
+	// AuditStatusPartialFail: the sweep ran end-to-end but at
+	// least one per-tracker cleanup failed (e.g. PauseCompaction
+	// timed out, os.RemoveAll returned EACCES). Other trackers may
+	// have been cleaned successfully. Operators must investigate;
+	// the next process restart will retry the failed dirs.
+	AuditStatusPartialFail
+)
+
+// String returns the stable, lower-snake-case label used in logs and
+// (in the future) metrics labels.
+func (s AuditOutcomeStatus) String() string {
+	switch s {
+	case AuditStatusSkipped:
+		return "skipped"
+	case AuditStatusRan:
+		return "ran"
+	case AuditStatusOrphansFound:
+		return "orphans_found"
+	case AuditStatusPartialFail:
+		return "partial_fail"
+	}
+	return "unknown"
+}
+
+// AuditOutcome is the typed result returned by
+// [DB.AuditOrphanReindexTrackers] and the no-arg wrapper
+// [DB.AuditOrphanReindexTrackersIfReady]. Every successful invocation
+// emits one Info-level log line with these counters so absence of the
+// line is detectable in operator logs (S4 fix).
+type AuditOutcome struct {
+	Status        AuditOutcomeStatus
+	ScannedCount  int
+	OrphansFound  int
+	OrphansClean  int
+	FailedDirs    []string
+	SkipReason    string
+}
+
 // SetReindexAuditDeps installs the builder and logger used by
 // [DB.AuditOrphanReindexTrackersIfReady].
 func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
@@ -46,15 +106,20 @@ func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger 
 // without the lookup builder in scope. The post-restore hook lives in
 // `adapters/handlers/rest/configure_api.go`'s `restoreClassDirWithAudit`
 // closure (around line 711) which wraps `backup.RestoreClassDir`.
-// Returns nil when deps are not yet installed; the startup audit will
-// sweep later.
-func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) error {
+// Returns an outcome with Status==Skipped when deps are not yet
+// installed; the post-install replay in [DB.SetReindexAuditDeps] is
+// responsible for catching any audit that was requested during the
+// race window. Closes B2.
+func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) (AuditOutcome, error) {
 	db.reindexAuditMu.RLock()
 	builder := db.reindexAuditLookupBuilder
 	logger := db.reindexAuditLogger
 	db.reindexAuditMu.RUnlock()
 	if builder == nil {
-		return nil
+		return AuditOutcome{
+			Status:     AuditStatusSkipped,
+			SkipReason: "deps_not_installed",
+		}, nil
 	}
 	return db.AuditOrphanReindexTrackers(ctx, builder(), logger)
 }
@@ -89,7 +154,13 @@ func (o *orphanReindexTracker) String() string {
 // Calls [Shard.CleanStalePartialReindexState] per (property, indexType)
 // for loaded shards; cold lazy MT shards are skipped and re-evaluated
 // at next activation. Best-effort: per-orphan errors are logged.
-func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) error {
+//
+// Returns a typed [AuditOutcome] so callers can distinguish "audit
+// skipped because deps missing" from "audit ran and found N orphans"
+// from "audit ran but K cleanups failed". The outcome is also logged
+// at Info level on every successful invocation (S4 fix: absence of
+// that log line in operator dashboards is now detectable).
+func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) (AuditOutcome, error) {
 	if logger == nil {
 		logger = logrus.New()
 	}
@@ -97,24 +168,28 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 		// A nil lookup would misclassify every in-flight migration as an
 		// orphan. Refuse rather than auto-quarantine on a normal restart.
 		logger.Error("reindex orphan audit: KnownReindexTaskLookup is nil; skipping audit")
-		return fmt.Errorf("reindex orphan audit: KnownReindexTaskLookup is nil")
+		return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "nil_lookup"},
+			fmt.Errorf("reindex orphan audit: KnownReindexTaskLookup is nil")
 	}
 
 	auditLogger := logger.WithField("action", "reindex_orphan_audit")
 
 	rootPath := db.config.RootPath
 	if rootPath == "" {
-		return nil
+		auditLogger.Warn("reindex orphan audit: RootPath empty; skipping audit. This should not happen in steady-state; check DB.config wiring.")
+		return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "empty_root_path"}, nil
 	}
 
 	indexEntries, err := os.ReadDir(rootPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			auditLogger.WithField("path", rootPath).
+				Info("reindex orphan audit: root path does not exist; skipping audit (no shards on disk)")
+			return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "root_path_missing"}, nil
 		}
 		auditLogger.WithField("path", rootPath).
 			Warnf("reindex orphan audit: cannot read root path; skipping audit: %v", err)
-		return nil
+		return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "root_path_unreadable"}, nil
 	}
 
 	// Snapshot loaded indexes so per-shard cleanup can route through
@@ -126,7 +201,7 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 	}
 	db.indexLock.RUnlock()
 
-	var orphanCount int
+	outcome := AuditOutcome{Status: AuditStatusRan}
 	for _, indexEntry := range indexEntries {
 		if !indexEntry.IsDir() {
 			continue
@@ -158,10 +233,12 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				}
 				shardName := shardEntry.Name()
 				lsmPath := filepath.Join(indexPath, shardName, "lsm")
+				outcome.ScannedCount++
 				orphans := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
 				if len(orphans) == 0 {
 					continue
 				}
+				outcome.OrphansFound += len(orphans)
 				var shard *Shard
 				if idx != nil {
 					if sl := idx.shards.Load(shardName); sl != nil {
@@ -170,23 +247,39 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 						}
 					}
 				}
+				var cleaned int
+				var failed []string
 				if shard != nil {
-					orphanCount += db.cleanLoadedShardOrphans(ctx, shard, orphans, auditLogger)
+					cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, orphans, auditLogger)
 				} else {
-					orphanCount += cleanUnloadedShardOrphans(lsmPath, orphans, auditLogger)
+					cleaned, failed = cleanUnloadedShardOrphans(lsmPath, orphans, auditLogger)
 				}
+				outcome.OrphansClean += cleaned
+				outcome.FailedDirs = append(outcome.FailedDirs, failed...)
 			}
 		}
 		processIndex()
 	}
 
-	if orphanCount > 0 {
-		auditLogger.WithField("orphan_count", orphanCount).
-			Warn("reindex orphan audit: cleanup complete")
-	} else {
-		auditLogger.Debug("reindex orphan audit: no orphan trackers found")
+	if len(outcome.FailedDirs) > 0 {
+		outcome.Status = AuditStatusPartialFail
+	} else if outcome.OrphansFound > 0 {
+		outcome.Status = AuditStatusOrphansFound
 	}
-	return nil
+
+	// Single canonical Info log emitted on every successful audit
+	// sweep. Absence of this line in operator logs is the detection
+	// signal for "audit silently skipped".
+	auditLogger.
+		WithField("status", outcome.Status.String()).
+		WithField("scanned_count", outcome.ScannedCount).
+		WithField("orphans_found", outcome.OrphansFound).
+		WithField("orphans_cleaned", outcome.OrphansClean).
+		WithField("failed_dirs", len(outcome.FailedDirs)).
+		Infof("reindex orphan audit: complete (status=%s scanned=%d orphans=%d cleaned=%d failed=%d)",
+			outcome.Status, outcome.ScannedCount, outcome.OrphansFound,
+			outcome.OrphansClean, len(outcome.FailedDirs))
+	return outcome, nil
 }
 
 // collectOrphanTrackers walks <lsmPath>/.migrations/ and returns every
@@ -248,16 +341,25 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 // race the cycle manager: the resume between orphans lets a fresh
 // compaction start on the next sidecar bucket, and the next pause
 // times out trying to drain it.
-func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans []orphanReindexTracker, logger logrus.FieldLogger) int {
+//
+// Returns (cleanedCount, failedDirs) so the audit driver can roll up
+// per-shard results into the typed [AuditOutcome] (S4).
+func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans []orphanReindexTracker, logger logrus.FieldLogger) (int, []string) {
 	if len(orphans) == 0 {
-		return 0
+		return 0, nil
 	}
 	pauseCtx, cancelPause := context.WithTimeout(ctx, orphanCleanupPauseTimeout)
 	defer cancelPause()
 	if err := shard.store.PauseCompaction(pauseCtx); err != nil {
 		logger.WithField("collection", orphans[0].collection).WithField("shard", orphans[0].shardName).
 			Warnf("reindex orphan audit: failed to pause compaction; skipping shard cleanup: %v", err)
-		return 0
+		// Every orphan on this shard counts as a failed cleanup so the
+		// outcome captures the shard's missed work.
+		failed := make([]string, 0, len(orphans))
+		for i := range orphans {
+			failed = append(failed, orphans[i].dirName)
+		}
+		return 0, failed
 	}
 	// Resume must fire even if the audit ctx was canceled.
 	defer func() {
@@ -268,6 +370,7 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 	}()
 
 	cleaned := 0
+	var failed []string
 	for i := range orphans {
 		o := &orphans[i]
 		logger.WithField("orphan", o.String()).
@@ -275,19 +378,24 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 		if err := db.cleanupOrphanTrackerCompactionPaused(ctx, shard, o, logger); err != nil {
 			logger.WithField("orphan", o.String()).
 				Warnf("reindex orphan audit: cleanup failed for tracker: %v", err)
+			failed = append(failed, o.dirName)
 			continue
 		}
 		cleaned++
 	}
-	return cleaned
+	return cleaned, failed
 }
 
 // cleanUnloadedShardOrphans removes orphan tracker dirs and their
 // matching sidecar bucket dirs directly from disk. Used when the shard
 // has not been loaded into the live DB; no in-memory bucket pointers
 // or GlobalBucketRegistry entries exist for the orphan.
-func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) int {
+//
+// Returns (cleanedCount, failedDirs) so the audit driver can roll up
+// per-shard results into the typed [AuditOutcome] (S4).
+func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) (int, []string) {
 	cleaned := 0
+	var failed []string
 	for i := range orphans {
 		o := &orphans[i]
 		logger.WithField("orphan", o.String()).
@@ -296,12 +404,13 @@ func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, l
 		if err := os.RemoveAll(trackerPath); err != nil {
 			logger.WithField("orphan", o.String()).
 				Warnf("reindex orphan audit: failed to remove orphan tracker dir: %v", err)
+			failed = append(failed, o.dirName)
 			continue
 		}
 		removeUnloadedSidecarsForOrphan(lsmPath, o, logger)
 		cleaned++
 	}
-	return cleaned
+	return cleaned, failed
 }
 
 // removeUnloadedSidecarsForOrphan removes per-property sidecar bucket

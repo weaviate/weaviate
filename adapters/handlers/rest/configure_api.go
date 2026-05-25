@@ -705,8 +705,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	// Wrap RestoreClassDir so each post-RAFT-apply class-dir move also
 	// fires the orphan-reindex audit on the restored on-disk state.
-	// AuditOrphanReindexTrackersIfReady no-ops until the deps closure
-	// is installed (below, from the Scheduler.Start goroutine).
+	// AuditOrphanReindexTrackersIfReady returns a Skipped outcome until
+	// the deps closure is installed (below, from the Scheduler.Start
+	// goroutine); SetReindexAuditDeps replays any audits requested
+	// during the install race window so per-class restores that win
+	// the race against deps install do not silently no-op (B2).
 	classDirMover := backup.RestoreClassDir(dataPath)
 	restoreClassDirWithAudit := func(class string) error {
 		if err := classDirMover(class); err != nil {
@@ -714,10 +717,19 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 		// Background ctx: invoked from the RAFT FSM apply path,
 		// which does not propagate an audit-scoped ctx.
-		if err := repo.AuditOrphanReindexTrackersIfReady(context.Background()); err != nil {
+		outcome, err := repo.AuditOrphanReindexTrackersIfReady(context.Background())
+		if err != nil {
 			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
 				WithField("class", class).
 				Warnf("reindex orphan audit failed after class-dir restore; the next process restart will retry: %v", err)
+		} else if outcome.Status == db.AuditStatusSkipped {
+			// Skipped is benign during normal startup (the install
+			// goroutine hasn't run yet) but the post-install replay
+			// path in SetReindexAuditDeps will pick this up.
+			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
+				WithField("class", class).
+				WithField("skip_reason", outcome.SkipReason).
+				Info("reindex orphan audit skipped after class-dir restore; deferred for post-install replay")
 		}
 		return nil
 	}
@@ -1007,7 +1019,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				return live[taskKey{taskID, taskVersion}]
 			}
 		}
-		if err := repo.AuditOrphanReindexTrackers(auditCtx, buildKnownTask(), appState.Logger); err != nil {
+		if _, err := repo.AuditOrphanReindexTrackers(auditCtx, buildKnownTask(), appState.Logger); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Warnf("reindex orphan audit did not run cleanly; restored clusters may retain orphan sidecar buckets: %v", err)
 		}

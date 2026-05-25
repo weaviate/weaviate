@@ -28,9 +28,11 @@ import (
 func TestAuditOrphanReindexTrackers_NilLookup_Refuses(t *testing.T) {
 	db := &DB{}
 	logger := logrus.New()
-	err := db.AuditOrphanReindexTrackers(context.Background(), nil, logger)
+	outcome, err := db.AuditOrphanReindexTrackers(context.Background(), nil, logger)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "KnownReindexTaskLookup is nil")
+	assert.Equal(t, AuditStatusSkipped, outcome.Status)
+	assert.Equal(t, "nil_lookup", outcome.SkipReason)
 }
 
 func TestSemanticMigrationIndexTypesForAudit_Coverage(t *testing.T) {
@@ -154,9 +156,15 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	require.NoError(t, db.AuditOrphanReindexTrackers(ctx, known, logger))
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, known, logger)
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusOrphansFound, outcome.Status,
+		"one orphan tracker present and cleaned, status must reflect that")
+	assert.Equal(t, 1, outcome.OrphansFound)
+	assert.Equal(t, 1, outcome.OrphansClean)
+	assert.Empty(t, outcome.FailedDirs)
 
-	_, err := os.Stat(knownDir)
+	_, err = os.Stat(knownDir)
 	require.NoError(t, err)
 	_, err = os.Stat(filepath.Join(knownDir, "started.mig"))
 	require.NoError(t, err)
@@ -196,7 +204,11 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 		config:  Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
-	require.NoError(t, db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New()))
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusOrphansFound, outcome.Status)
+	assert.Equal(t, len(orphans), outcome.OrphansFound)
+	assert.Equal(t, len(orphans), outcome.OrphansClean)
 
 	for _, o := range orphans {
 		_, err := os.Stat(filepath.Join(migs, o.dir))
@@ -227,9 +239,13 @@ func TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone(t *testing.T) {
 		config:  Config{RootPath: idx.Config.RootPath},
 	}
 	knownNothing := func(string, uint64) bool { return false }
-	require.NoError(t, db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New()))
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusRan, outcome.Status,
+		"tidied tracker is not an orphan; status must be ran with zero orphans")
+	assert.Equal(t, 0, outcome.OrphansFound)
 
-	_, err := os.Stat(filepath.Join(dir, "tidied.mig"))
+	_, err = os.Stat(filepath.Join(dir, "tidied.mig"))
 	require.NoError(t, err, "tidied tracker must survive the audit even when classified as unknown")
 }
 
@@ -242,7 +258,61 @@ func TestAuditOrphanReindexTrackers_NoMigrationsDir(t *testing.T) {
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
 		config:  Config{RootPath: idx.Config.RootPath},
 	}
-	require.NoError(t, db.AuditOrphanReindexTrackers(ctx, func(string, uint64) bool { return false }, logrus.New()))
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, func(string, uint64) bool { return false }, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusRan, outcome.Status)
+	assert.Equal(t, 0, outcome.OrphansFound)
+}
+
+// TestAuditOutcomeStatus_StringLabels pins the snake-case labels used
+// in logs and (future) metrics. Changing one would break dashboards.
+func TestAuditOutcomeStatus_StringLabels(t *testing.T) {
+	cases := []struct {
+		status AuditOutcomeStatus
+		want   string
+	}{
+		{AuditStatusSkipped, "skipped"},
+		{AuditStatusRan, "ran"},
+		{AuditStatusOrphansFound, "orphans_found"},
+		{AuditStatusPartialFail, "partial_fail"},
+		{AuditOutcomeStatus(99), "unknown"},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, c.status.String())
+	}
+}
+
+// TestAuditOrphanReindexTrackers_EmptyRootPath pins the typed Skipped
+// outcome and SkipReason when the DB has no RootPath configured.
+func TestAuditOrphanReindexTrackers_EmptyRootPath(t *testing.T) {
+	db := &DB{config: Config{RootPath: ""}}
+	outcome, err := db.AuditOrphanReindexTrackers(context.Background(),
+		func(string, uint64) bool { return false }, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusSkipped, outcome.Status)
+	assert.Equal(t, "empty_root_path", outcome.SkipReason)
+}
+
+// TestAuditOrphanReindexTrackers_RootPathMissing pins the typed
+// Skipped outcome when RootPath points at a non-existent directory.
+func TestAuditOrphanReindexTrackers_RootPathMissing(t *testing.T) {
+	db := &DB{config: Config{RootPath: filepath.Join(t.TempDir(), "does-not-exist")}}
+	outcome, err := db.AuditOrphanReindexTrackers(context.Background(),
+		func(string, uint64) bool { return false }, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusSkipped, outcome.Status)
+	assert.Equal(t, "root_path_missing", outcome.SkipReason)
+}
+
+// TestAuditOrphanReindexTrackersIfReady_DepsMissing pins the
+// post-restore wrapper's Skipped outcome path used by the
+// per-class-dir restore hook before SetReindexAuditDeps lands (B2).
+func TestAuditOrphanReindexTrackersIfReady_DepsMissing(t *testing.T) {
+	db := &DB{}
+	outcome, err := db.AuditOrphanReindexTrackersIfReady(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusSkipped, outcome.Status)
+	assert.Equal(t, "deps_not_installed", outcome.SkipReason)
 }
 
 // TestIsLiveReindexTaskStatus_TerminalReleasesOwnership pins the
