@@ -436,6 +436,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		HFreshEnabled:          true,
 		replicator:             replicator,
 		router:                 mockRouter,
+		db:                     repo,
 	}
 	{
 		var presetDetectors map[string]*stopwords.Detector
