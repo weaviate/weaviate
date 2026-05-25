@@ -34,7 +34,7 @@ type movement struct {
 	shard  string
 }
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
+func (suite *ReplicationTestSuiteSlow) TestReplicationReplicateScaleOut() {
 	t := suite.T()
 	mainCtx := context.Background()
 
@@ -140,12 +140,17 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 	t.Log("Waiting for all replication operations to be in READY state...")
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		t.Log("Not all ops are in READY state, checking again...")
+		include := true
 		ops, err := helper.Client(t).Replication.ListReplication(
-			replication.NewListReplicationParams().WithCollection(&cls.Class), nil,
+			replication.NewListReplicationParams().WithCollection(&cls.Class).WithIncludeHistory(&include), nil,
 		)
 		require.Nil(ct, err, "failed to list replication operations")
 		for _, op := range ops.Payload {
 			assert.Equal(ct, "READY", op.Status.State, "replication operation should be in READY state")
+			if len(op.Status.Errors) > 0 {
+				lastError := op.Status.Errors[len(op.Status.Errors)-1]
+				t.Logf("op %s most recently failed with %s", op.ID, lastError.Message)
+			}
 		}
 	}, 10*time.Minute, 1*time.Second, "not all replication operations are in READY state")
 

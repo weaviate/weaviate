@@ -329,6 +329,16 @@ function main() {
     run_acceptance_recovery
   fi
 
+  # Dispatch the dedicated --acceptance-distributed-tasks shard at the top
+  # level. Nesting inside run_acceptance_tests() silently dropped the
+  # shard because that function is gated by the big-IF a few hundred
+  # lines below, which does not include $run_acceptance_distributed_tasks.
+  if $run_acceptance_distributed_tasks; then
+    echo "running acceptance distributed_tasks"
+    build_weaviate_test_image
+    run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
+  fi
+
   if $run_acceptance_reindex_multinode; then
     echo "running reindex multinode acceptance tests (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
     run_acceptance_reindex_multinode
@@ -469,8 +479,13 @@ function run_acceptance_tests() {
       run_acceptance_only_fast_group 4
     fi
   fi
-  if $run_acceptance_distributed_tasks || $run_acceptance_tests || $run_all_tests; then
-    echo "running acceptance distributed_tasks"
+  # Catch-all for --acceptance-only / --all-tests. The dedicated
+  # --acceptance-distributed-tasks shard is dispatched at the top level
+  # (search for "distributed_tasks" above); $run_acceptance_distributed_tasks
+  # is intentionally absent from this predicate.
+  if $run_acceptance_tests || $run_all_tests; then
+    echo "running acceptance distributed_tasks (via catch-all)"
+    build_weaviate_test_image
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then

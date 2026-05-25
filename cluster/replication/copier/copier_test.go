@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package copier
+package copier_test
 
 import (
 	"context"
@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
+	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -55,7 +56,7 @@ func TestCopyReplicaFiles(t *testing.T) {
 	// local unexpected file that must be deleted
 	_ = write(localTmpDir, "collection/shard/old", []byte("OLD"))
 
-	mockClient := NewMockFileReplicationServiceClient(t)
+	mockClient := copier.NewMockFileReplicationServiceClient(t)
 	mockRemoteIndex := types.NewMockRemoteIndex(t)
 
 	// Pause / resume
@@ -95,7 +96,7 @@ func TestCopyReplicaFiles(t *testing.T) {
 
 	// File download streams
 	for _, f := range remoteFiles {
-		stream := NewMockFileChunkStream(t)
+		stream := copier.NewMockFileChunkStream(t)
 
 		stream.EXPECT().Recv().Return(&protocol.FileChunk{
 			Data: []byte(f.buf),
@@ -118,8 +119,10 @@ func TestCopyReplicaFiles(t *testing.T) {
 
 	logger, _ := logrusTest.NewNullLogger()
 
-	c := New(
-		func(ctx context.Context, addr string) (FileReplicationServiceClient, error) { return mockClient, nil },
+	c := copier.New(
+		func(ctx context.Context, addr string) (copier.FileReplicationServiceClient, error) {
+			return mockClient, nil
+		},
 		mockRemoteIndex,
 		fakeSelector,
 		2,

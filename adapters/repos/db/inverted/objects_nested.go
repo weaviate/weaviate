@@ -16,46 +16,10 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
+	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
-
-// Per-property index predicates — one function per index type, used both
-// in the Has* helpers below and in collectNestedIndexConfig.
-
-func isNestedFilterable(prop *models.NestedProperty) bool {
-	if prop.IndexFilterable == nil {
-		return true
-	}
-	return *prop.IndexFilterable
-}
-
-func isNestedSearchable(np *models.NestedProperty, dt schema.DataType) bool {
-	switch dt {
-	case schema.DataTypeText, schema.DataTypeTextArray:
-		if np.IndexSearchable == nil {
-			return true
-		}
-		return *np.IndexSearchable
-	default:
-		return false
-	}
-}
-
-func isNestedRangeable(np *models.NestedProperty, dt schema.DataType) bool {
-	switch dt {
-	case schema.DataTypeInt, schema.DataTypeIntArray,
-		schema.DataTypeNumber, schema.DataTypeNumberArray,
-		schema.DataTypeDate, schema.DataTypeDateArray:
-		if np.IndexRangeFilters == nil {
-			return false
-		}
-		return *np.IndexRangeFilters
-	default:
-		return false
-	}
-}
 
 // Has* helpers — check whether any descendant of a top-level Property has a
 // given index type enabled. Used to decide which buckets to create.
@@ -68,7 +32,7 @@ func HasNestedFilterableIndex(prop *models.Property) bool {
 }
 
 func hasNestedFilterableRecursive(prop *models.NestedProperty) bool {
-	return isNestedFilterable(prop) ||
+	return schema.IsNestedFilterable(prop) ||
 		slices.ContainsFunc(prop.NestedProperties, hasNestedFilterableRecursive)
 }
 
@@ -81,7 +45,7 @@ func HasNestedSearchableIndex(prop *models.Property) bool {
 
 func hasNestedSearchableRecursive(prop *models.NestedProperty) bool {
 	dt := schema.DataType(prop.DataType[0])
-	return isNestedSearchable(prop, dt) ||
+	return schema.IsNestedSearchable(prop, dt) ||
 		slices.ContainsFunc(prop.NestedProperties, hasNestedSearchableRecursive)
 }
 
@@ -94,7 +58,7 @@ func HasNestedRangeableIndex(prop *models.Property) bool {
 
 func hasNestedRangeableRecursive(prop *models.NestedProperty) bool {
 	dt := schema.DataType(prop.DataType[0])
-	return isNestedRangeable(prop, dt) ||
+	return schema.IsNestedRangeable(prop, dt) ||
 		slices.ContainsFunc(prop.NestedProperties, hasNestedRangeableRecursive)
 }
 
@@ -107,9 +71,9 @@ func HasAnyNestedInvertedIndex(prop *models.Property) bool {
 
 func hasAnyNestedInvertedIndexRecursive(prop *models.NestedProperty) bool {
 	dt := schema.DataType(prop.DataType[0])
-	return isNestedFilterable(prop) ||
-		isNestedSearchable(prop, dt) ||
-		isNestedRangeable(prop, dt) ||
+	return schema.IsNestedFilterable(prop) ||
+		schema.IsNestedSearchable(prop, dt) ||
+		schema.IsNestedRangeable(prop, dt) ||
 		slices.ContainsFunc(prop.NestedProperties, hasAnyNestedInvertedIndexRecursive)
 }
 
@@ -138,9 +102,9 @@ func collectNestedIndexConfig(prefix string, props []*models.NestedProperty) map
 		dt := schema.DataType(np.DataType[0])
 		if !schema.IsNested(dt) {
 			configs[path] = nestedIndexConfig{
-				filterable: isNestedFilterable(np),
-				searchable: isNestedSearchable(np, dt),
-				rangeable:  isNestedRangeable(np, dt),
+				filterable: schema.IsNestedFilterable(np),
+				searchable: schema.IsNestedSearchable(np, dt),
+				rangeable:  schema.IsNestedRangeable(np, dt),
 			}
 		}
 		maps.Copy(configs, collectNestedIndexConfig(path, np.NestedProperties))
@@ -161,7 +125,7 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedP
 		return nil, nil
 	}
 
-	assignResult, err := nested.AssignPositions(prop, value)
+	assignResult, err := invnested.AssignPositions(prop, value)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +191,7 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedP
 // analyzeNestedValue converts a raw positioned value into one or more
 // NestedValue entries with analyzed byte representations. Text values
 // may produce multiple entries (one per token).
-func (a *Analyzer) analyzeNestedValue(pv nested.PositionedValue, cfg nestedIndexConfig) ([]NestedValue, error) {
+func (a *Analyzer) analyzeNestedValue(pv invnested.PositionedValue, cfg nestedIndexConfig) ([]NestedValue, error) {
 	// TODO aliszka:nested_filtering verify whether pv.PropName (leaf nested property
 	// name, e.g. "city") is the correct identifier for the text analyzer lookup,
 	// or whether the top-level property name (e.g. "addresses") should be used instead.

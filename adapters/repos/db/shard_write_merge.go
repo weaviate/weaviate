@@ -172,6 +172,10 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return errors.Wrap(err, "upsert object data")
 		}
 
+		// Tee before hashtree: the bucket is the SSOT for movement catchup.
+		// This path does NOT funnel through putObjectLSM, so it needs its own tee.
+		s.AppendChangeLogPut(idBytes, obj.LastUpdateTimeUnix(), objBytes)
+
 		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
 			return errors.Wrap(err, "object merge in hashtree")
 		}
@@ -262,6 +266,10 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 	if err := s.upsertObjectDataLSM(bucket, idBytes, objBytes, status.docID); err != nil {
 		return out, errors.Wrap(err, "upsert object data")
 	}
+
+	// Tee before hashtree: the bucket is the SSOT for movement catchup.
+	// Mutable merge cannot produce skipUpsert, so no skip-gate is needed.
+	s.AppendChangeLogPut(idBytes, obj.LastUpdateTimeUnix(), objBytes)
 
 	if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
 		return out, fmt.Errorf("object merge in hashtree: %w", err)
