@@ -183,10 +183,10 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 
 	require.Contains(t, errMsg, "backup blocked: runtime-reindex in flight on this shard",
 		"error body must name the blocking condition; got: %s", errMsg)
-	require.Contains(t, errMsg, "tracker(s):",
-		"error body must list the active tracker(s); got: %s", errMsg)
-	require.Contains(t, errMsg, "searchable_retokenize_body",
-		"error body must name the tracker dir; got: %s", errMsg)
+	require.Contains(t, errMsg, className,
+		"error body must name the affected collection; got: %s", errMsg)
+	require.Contains(t, errMsg, "active runtime-reindex task in DTM",
+		"error body must explain the gate consulted DTM; got: %s", errMsg)
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step")
 
@@ -199,7 +199,13 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	assert.NotEqual(t, 0, code,
 		"refused backup must not leave a staging dir at %s", stagingPath)
 
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(120*time.Second))
+	// Wait via the index-status surface (status:"ready") rather than DTM
+	// task status. With the DTM-backed gate, FINISHED already releases
+	// the gate, but status:"ready" additionally confirms the underlying
+	// index has flipped to the new tokenization, which is closer to the
+	// queryable end-state operators care about.
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable",
+		reindexhelpers.WithTimeout(120*time.Second))
 
 	// Same-id retry must now succeed cleanly.
 	_, err = helper.CreateBackup(t, helper.DefaultBackupConfig(), className, "filesystem", backupID)
@@ -244,7 +250,12 @@ func testBackupSucceedsAfterMigrationFinishes(t *testing.T, restURI string) {
 
 	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(60*time.Second))
+	// Use the index-status surface (status:"ready") rather than DTM
+	// FINISHED: both signal the gate is open, but status:"ready" is
+	// closer to operator expectations and survives future DTM-status
+	// reshuffles.
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable",
+		reindexhelpers.WithTimeout(60*time.Second))
 
 	backupAndRestoreRoundTrip(t, className, "reindex-backup-after-finish", preCount,
 		"post-migration backup must round-trip object count cleanly")
