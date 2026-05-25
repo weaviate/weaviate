@@ -11,7 +11,7 @@
 
 //go:build integrationTest
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -69,7 +70,7 @@ func barrierIntegrationProvider(t *testing.T) (*reindex.ReindexProvider, *logrus
 func barrierIntegrationDrivenToReindexed(
 	t *testing.T,
 	ctx context.Context,
-	shard *Shard,
+	shard *db.Shard,
 	logger logrus.FieldLogger,
 ) (*reindex.ShardReindexTaskGeneric, *testMigrationStrategy) {
 	t.Helper()
@@ -98,7 +99,7 @@ func barrierIntegrationDrivenToReindexed(
 // barrierIntegrationSeedObjects writes a deterministic set of objects so
 // the iteration has something to process. 25 objects is plenty for the
 // LSM cursor to produce per-prop posting lists without inflating runtime.
-func barrierIntegrationSeedObjects(t *testing.T, ctx context.Context, shard *Shard, className string, n int) []*storobj.Object {
+func barrierIntegrationSeedObjects(t *testing.T, ctx context.Context, shard *db.Shard, className string, n int) []*storobj.Object {
 	t.Helper()
 	out := make([]*storobj.Object, n)
 	for i := 0; i < n; i++ {
@@ -121,15 +122,15 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	className := "BarrierIntegPrep"
 	class := newTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	barrierIntegrationSeedObjects(t, ctx, shard, className, 25)
 
 	// Drive to IsReindexed via the barrier path.
-	task, _ := barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
+	task, _ := barrierIntegrationDrivenToReindexed(t, ctx, shard, f.Logger())
 
 	// Pre-PREP invariants: reindexed yes, merged no.
 	rtPre := reindex.NewFileMapToBlockmaxReindexTracker(shard.PathLSM(), &reindex.UuidKeyParser{})
@@ -174,15 +175,15 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 	className := "BarrierIntegSwap"
 	class := newTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	barrierIntegrationSeedObjects(t, ctx, shard, className, 25)
 
 	// Stage 1: drive to IsReindexed.
-	task, strategy := barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
+	task, strategy := barrierIntegrationDrivenToReindexed(t, ctx, shard, f.Logger())
 
 	// Stage 2: run PREP to advance to IsMerged (what the cluster-wide
 	// barrier observes via PreparationCompleteAck).
@@ -249,9 +250,9 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	className := "BarrierIntegCrashRecord"
 	class := newTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, idx, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	barrierIntegrationSeedObjects(t, ctx, shard, className, 10)
@@ -259,7 +260,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	// Construct a task instance (matches what processOneUnit's
 	// createReindexTasks would produce for ChangeAlgorithm/MapToBlockmax).
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 
 	// Build a synthetic task + payload that processOneUnit would have
 	// constructed before calling persistRecoveryRecord.
@@ -310,7 +311,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	// disk and never invokes schema operations until buildRecoveryTasks
 	// fires (which only fires for dirs with started + reindexed).
 	rootPath := idx.Config.RootPath
-	recovered, err := reindex.DiscoverInFlightReindexTasks(rootPath, idx.logger, nil)
+	recovered, err := reindex.DiscoverInFlightReindexTasks(rootPath, f.Logger(), nil)
 	require.NoError(t, err, "discover must not error on a started.mig-less dir")
 	for _, r := range recovered {
 		assert.NotEqualf(t, taskID, r.Descriptor.ID,
@@ -342,16 +343,16 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 	className := "BarrierIntegDurability"
 	class := newTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 
 	barrierIntegrationSeedObjects(t, ctx, shard, className, 25)
 
 	// Drive iteration to the barrier point — markReindexed has fired
 	// AFTER the FlushAndSwitch durability barrier
 	// (inverted_reindex_task_generic.go:1461-1469).
-	_, _ = barrierIntegrationDrivenToReindexed(t, ctx, shard, idx.logger)
+	_, _ = barrierIntegrationDrivenToReindexed(t, ctx, shard, f.Logger())
 
 	// Record the on-disk path of reindexed.mig BEFORE shutdown so we can
 	// re-stat it post-shutdown without relying on a tracker rebuild
