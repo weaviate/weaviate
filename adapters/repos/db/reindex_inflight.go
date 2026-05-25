@@ -27,21 +27,47 @@ import (
 // refused so a backup landing pre-wire does not race a real reindex.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	db.reindexAuditMu.RLock()
-	builder := db.shardReindexActivityLookupBuilder
+	activityBuilder := db.shardReindexActivityLookupBuilder
+	cleanupBuilder := db.reindexCleanupInProgressLookupBldr
 	db.reindexAuditMu.RUnlock()
-	if builder == nil {
+	if activityBuilder == nil {
 		// Wiring not complete (startup window). Conservative: assume a
 		// reindex IS in flight so a backup landing pre-wire does not race
 		// a real reindex.
 		return true
 	}
-	lookup := builder()
+	lookup := activityBuilder()
 	if lookup == nil {
 		// Defensive: the builder returned nil. Treat the same as the
 		// pre-wire window.
 		return true
 	}
-	return lookup(collection, shardName)
+	if lookup(collection, shardName) {
+		return true
+	}
+	// Cleanup lookup is OR-d in: the DTM task may have flipped to
+	// terminal while autoCleanupAfterTerminal is still tearing the
+	// sidecar buckets. The cleanup builder is optional — older
+	// wiring paths and test fixtures that install only the activity
+	// lookup keep the prior semantics.
+	if cleanupBuilder == nil {
+		return false
+	}
+	cleanupLookup := cleanupBuilder()
+	if cleanupLookup == nil {
+		return false
+	}
+	return cleanupLookup(collection, shardName)
+}
+
+// SetReindexCleanupInProgressLookup installs the builder used by
+// [DB.AnyLiveReindexForShard] to detect terminal-task cleanup that has
+// not yet finished tearing __reindex / __ingest sidecar dirs. Wired in
+// post-bootstrap alongside [DB.SetShardReindexActivityLookup].
+func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupBuilder) {
+	db.reindexAuditMu.Lock()
+	defer db.reindexAuditMu.Unlock()
+	db.reindexCleanupInProgressLookupBldr = builder
 }
 
 // refuseIfReindexInFlight is the per-shard backup-gate check used by

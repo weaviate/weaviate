@@ -1066,6 +1066,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
+		// S1: the DTM-activity lookup flips a shard "free" the moment a
+		// task lands in a terminal status; autoCleanupAfterTerminal then
+		// tears the sidecar __reindex / __ingest dirs over the next
+		// tens of seconds. The cleanup-in-progress lookup keeps the gate
+		// closed for that window so a backup landing in the gap doesn't
+		// snapshot half-removed sidecars.
+		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
 	}, appState.Logger)
 
 	return appState

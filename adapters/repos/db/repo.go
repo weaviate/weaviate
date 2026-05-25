@@ -125,11 +125,12 @@ type DB struct {
 	// SetReindexAuditDeps call, if the counter is non-zero, the
 	// install path runs a single replay sweep so the deferred
 	// per-class audits are not silently lost. Closes B2.
-	reindexAuditMu                    sync.RWMutex
-	reindexAuditLookupBuilder         KnownReindexTaskLookupBuilder
-	reindexAuditLogger                logrus.FieldLogger
-	reindexAuditDeferredRequests      int
-	shardReindexActivityLookupBuilder ShardReindexActivityLookupBuilder
+	reindexAuditMu                     sync.RWMutex
+	reindexAuditLookupBuilder          KnownReindexTaskLookupBuilder
+	reindexAuditLogger                 logrus.FieldLogger
+	reindexAuditDeferredRequests       int
+	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
+	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
