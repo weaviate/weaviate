@@ -18,11 +18,15 @@ import (
 	"iter"
 	"slices"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
+
+const postingMapMigrationBatchSize = 10_000
 
 // PostingMetadata holds the list of vector IDs associated with a posting.
 type PostingMetadata struct {
@@ -42,7 +46,7 @@ type PostingMap struct {
 }
 
 func NewPostingMap(bucket *lsmkv.Bucket) *PostingMap {
-	b := NewPostingMapStore(bucket, postingMapBucketPrefix)
+	b := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
 
 	return &PostingMap{
 		data:   common.NewGroupedPagedArray[postingMapSlot](16*1024, 64*1024), // 1 billion posting IDs with 64k per page
@@ -228,9 +232,13 @@ func NewPostingMapStore(bucket *lsmkv.Bucket, keyPrefix []byte) *PostingMapStore
 }
 
 func (p *PostingMapStore) key(postingID uint64) []byte {
-	buf := make([]byte, len(p.keyPrefix)+8)
-	copy(buf, p.keyPrefix)
-	binary.LittleEndian.PutUint64(buf[len(p.keyPrefix):], postingID)
+	return postingMapKey(p.keyPrefix, postingID)
+}
+
+func postingMapKey(prefix []byte, postingID uint64) []byte {
+	buf := make([]byte, len(prefix)+8)
+	copy(buf, prefix)
+	binary.LittleEndian.PutUint64(buf[len(prefix):], postingID)
 	return buf
 }
 
@@ -509,6 +517,105 @@ func (p *PostingMapStore) Iter(ctx context.Context, fn func(uint64, PackedPostin
 	}
 
 	return ctx.Err()
+}
+
+type postingMapMigrationEntry struct {
+	key       []byte
+	postingID uint64
+	metadata  PackedPostingMetadata
+}
+
+func migratePostingMapV1ToV2(ctx context.Context, bucket *lsmkv.Bucket, logger logrus.FieldLogger) error {
+	store := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
+	sizes := NewPostingSizesStore(bucket, postingSizesBucketPrefix)
+	start := time.Now()
+	var migrated int
+	var loggedStart bool
+
+	for {
+		batch, err := legacyPostingMapBatch(ctx, bucket, postingMapMigrationBatchSize)
+		if err != nil {
+			return err
+		}
+		if len(batch) == 0 {
+			if loggedStart {
+				logger.WithFields(logrus.Fields{
+					"action":   "hfresh_posting_map_migration",
+					"migrated": migrated,
+					"elapsed":  time.Since(start),
+				}).Info("finished migrating HFresh posting map metadata")
+			}
+			return nil
+		}
+
+		if !loggedStart {
+			loggedStart = true
+			logger.WithField("action", "hfresh_posting_map_migration").
+				Info("migrating HFresh posting map metadata")
+		}
+
+		for _, entry := range batch {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := store.Set(ctx, entry.postingID, entry.metadata); err != nil {
+				return errors.Wrapf(err, "migrate posting map metadata for posting %d", entry.postingID)
+			}
+			if err := sizes.Set(ctx, entry.postingID, entry.metadata.Count()); err != nil {
+				return errors.Wrapf(err, "migrate posting size for posting %d", entry.postingID)
+			}
+		}
+
+		for _, entry := range batch {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := bucket.Delete(entry.key); err != nil {
+				return errors.Wrapf(err, "delete legacy posting map metadata for posting %d", entry.postingID)
+			}
+		}
+
+		migrated += len(batch)
+		logger.WithFields(logrus.Fields{
+			"action":   "hfresh_posting_map_migration",
+			"batch":    len(batch),
+			"migrated": migrated,
+			"elapsed":  time.Since(start),
+		}).Info("migrated HFresh posting map metadata batch")
+	}
+}
+
+func legacyPostingMapBatch(ctx context.Context, bucket *lsmkv.Bucket, limit int) ([]postingMapMigrationEntry, error) {
+	c := bucket.Cursor()
+	defer c.Close()
+
+	batch := make([]postingMapMigrationEntry, 0, limit)
+	for k, v := c.Seek(postingMapBucketPrefixV1); len(k) > 0 && bytes.HasPrefix(k, postingMapBucketPrefixV1); k, v = c.Next() {
+		if len(v) == 0 {
+			continue
+		}
+		if len(batch)%1000 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+
+		postingID := binary.LittleEndian.Uint64(k[len(postingMapBucketPrefixV1):])
+		key := make([]byte, len(k))
+		copy(key, k)
+		metadata := normalizePackedPostingMetadata(PackedPostingMetadata(v), true)
+		batch = append(batch, postingMapMigrationEntry{
+			key:       key,
+			postingID: postingID,
+			metadata:  metadata,
+		})
+
+		if len(batch) == limit {
+			break
+		}
+	}
+
+	return batch, ctx.Err()
 }
 
 // normalizePackedPostingMetadata checks if the given metadata is in a compact format and if not,

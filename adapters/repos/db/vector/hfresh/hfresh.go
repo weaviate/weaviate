@@ -114,10 +114,11 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 	if err != nil {
 		return nil, err
 	}
+	logger := cfg.Logger.WithField("component", "HFresh")
 
 	h := HFresh{
 		id:            cfg.ID,
-		logger:        cfg.Logger.WithField("component", "HFresh"),
+		logger:        logger,
 		config:        cfg,
 		scheduler:     cfg.Scheduler,
 		store:         store,

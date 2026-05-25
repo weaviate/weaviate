@@ -12,9 +12,11 @@
 package hfresh
 
 import (
+	"bytes"
 	"sync/atomic"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -25,10 +27,17 @@ import (
 func makePostingMetadataStore(t *testing.T) *PostingMap {
 	t.Helper()
 
+	bucket := makePostingMetadataBucket(t)
+	return NewPostingMap(bucket)
+}
+
+func makePostingMetadataBucket(t *testing.T) *lsmkv.Bucket {
+	t.Helper()
+
 	store := testinghelpers.NewDummyStore(t)
 	bucket, err := NewSharedBucket(store, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-	return NewPostingMap(bucket)
+	return bucket
 }
 
 var idCounter atomic.Uint64
@@ -514,5 +523,48 @@ func TestPostingMetadataStore(t *testing.T) {
 			count += uint64(metadata.Count())
 		}
 		require.EqualValues(t, 10, count)
+	})
+
+	t.Run("migrates legacy prefix before restore", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+		store := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
+
+		legacy := PackedPostingMetadata{
+			byte(schemeID2Byte),
+			3, 0, 0, 0,
+			10, 0, 1,
+			20, 0, 2,
+			30, 0, 3,
+		}
+		legacyKey := postingMapKey(postingMapBucketPrefixV1, 42)
+		err := bucket.Put(legacyKey, legacy)
+		require.NoError(t, err)
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+
+		pm := NewPostingMap(bucket)
+		err = pm.Restore(ctx)
+		require.NoError(t, err)
+
+		metadata, err := pm.Get(ctx, 42)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{10, 20, 30}, decodePacked(metadata.PackedPostingMetadata))
+
+		v2, err := store.Get(ctx, 42)
+		require.NoError(t, err)
+		require.Equal(t, []uint64{10, 20, 30}, decodePacked(v2))
+
+		size, err := NewPostingSizesStore(bucket, postingSizesBucketPrefix).Get(ctx, 42)
+		require.NoError(t, err)
+		require.EqualValues(t, 3, size)
+
+		c := bucket.Cursor()
+		defer c.Close()
+		k, _ := c.Seek(postingMapBucketPrefixV1)
+		require.False(t, bytes.HasPrefix(k, postingMapBucketPrefixV1))
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
 	})
 }

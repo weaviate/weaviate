@@ -40,12 +40,16 @@ const (
 // These constants define the prefixes used in the
 // lsmkv bucket to namespace different types of data.
 var (
-	indexMetadataBucketPrefix  = []byte{sharedBucketVersionV1, 0}
-	versionMapBucketPrefix     = []byte{sharedBucketVersionV1, 1}
-	postingMapBucketPrefix     = []byte{sharedBucketVersionV1, 2}
+	indexMetadataBucketPrefix = []byte{sharedBucketVersionV1, 0}
+	versionMapBucketPrefix    = []byte{sharedBucketVersionV1, 1}
+	// postingMapBucketPrefixV1 is migrated to postingMapBucketPrefixV2 by migratePostingMapV1ToV2.
+	postingMapBucketPrefixV1   = []byte{sharedBucketVersionV1, 2}
 	postingVersionBucketPrefix = []byte{sharedBucketVersionV1, 3}
 	reassignBucketKey          = []byte{sharedBucketVersionV1, 4, 0}
-	postingSizesBucketPrefix   = []byte{sharedBucketVersionV1, 5}
+	// postingMapBucketPrefixV2 stores posting IDs without vector version bytes.
+	postingMapBucketPrefixV2 = []byte{sharedBucketVersionV1, 5}
+	// postingSizesBucketPrefix was added with postingMapBucketPrefixV2.
+	postingSizesBucketPrefix = []byte{sharedBucketVersionV1, 6}
 )
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
@@ -147,37 +151,17 @@ func (h *HFresh) restoreMetadata() error {
 		return err
 	}
 
+	if err := migratePostingMapV1ToV2(h.ctx, h.PostingMap.bucket.bucket, h.logger); err != nil {
+		return err
+	}
 	if err := h.PostingMap.Restore(h.ctx); err != nil {
 		return err
 	}
 	if err := h.PostingSizes.Restore(h.ctx); err != nil {
 		return err
 	}
-	if h.PostingSizes.Count() != uint64(h.PostingMap.Size()) {
-		if err := h.restorePostingSizesFromPostingMap(h.ctx); err != nil {
-			return err
-		}
-	}
 
 	return h.restoreMetrics()
-}
-
-func (h *HFresh) restorePostingSizesFromPostingMap(ctx context.Context) error {
-	for postingID, metadata := range h.PostingMap.Iter() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		h.PostingMap.RLock(postingID)
-		size := metadata.Count()
-		h.PostingMap.RUnlock(postingID)
-
-		if err := h.PostingSizes.Set(ctx, postingID, int(size)); err != nil {
-			return errors.Wrapf(err, "restore posting size for posting %d", postingID)
-		}
-	}
-
-	return nil
 }
 
 // restoreDimensions restores dimension-dependent components from persisted
