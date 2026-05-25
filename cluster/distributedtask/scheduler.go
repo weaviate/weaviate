@@ -552,6 +552,16 @@ func (s *Scheduler) tick() {
 					// PHASE A: PREP-phase callback firing for barrier tasks
 					// in PREPARING. SWAP is deferred until the cluster-wide
 					// PreparationCompleteAck barrier lifts.
+					//
+					// s.mu is released around OnGroupCompleted (provider does
+					// real I/O — fs moves, fsyncs) so concurrent Wake(),
+					// totalRunningTaskCount, Close, and other ticks don't
+					// block on a slow callback. Pattern:
+					//   1) under lock: set the fired mark + read identity
+					//   2) release lock, call provider
+					//   3) re-acquire, re-look-up state (entry may have been
+					//      deleted by local cleanup), and decide whether to
+					//      record the result.
 					if task.NeedsPreparationBarrier && effectiveStatus == TaskStatusPreparing {
 						for _, groupID := range task.Groups() {
 							state := s.perTaskStateLocked(desc)
@@ -567,7 +577,20 @@ func (s *Scheduler) tick() {
 								state.preparationCallbackFired = map[string]bool{}
 							}
 							state.preparationCallbackFired[groupID] = true
-							groupErr := suProvider.OnGroupCompleted(task, groupID, localIDs)
+
+							var groupErr error
+							s.callWithoutMu(func() {
+								groupErr = suProvider.OnGroupCompleted(task, groupID, localIDs)
+							})
+
+							// Re-look-up state: a concurrent local-cleanup
+							// tick may have deleted the entry while the
+							// callback ran. A nil state means the task is
+							// gone locally — nothing to record.
+							state = s.perTaskStateLocked(desc)
+							if state == nil {
+								continue
+							}
 							// On graceful shutdown drop the fired mark so
 							// recovery re-fires on next boot.
 							if errors.Is(groupErr, context.Canceled) {
@@ -590,14 +613,24 @@ func (s *Scheduler) tick() {
 							(prepState == nil || !prepState.preparationAckEmitted) &&
 							s.allLocalGroupsPreparationFiredLocked(task, desc) {
 							success, joined := s.aggregatePreparationAckErrorsLocked(task, desc)
-							if err := s.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
-								context.Background(), namespace, task.ID, task.Version,
-								s.localNode, success, joined,
-							); err != nil {
+
+							var ackErr error
+							s.callWithoutMu(func() {
+								ackErr = s.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
+									context.Background(), namespace, task.ID, task.Version,
+									s.localNode, success, joined,
+								)
+							})
+
+							if ackErr != nil {
 								s.loggerWithTask(namespace, desc).
-									Warnf("failed to record distributed task prep-complete ack; will retry on next tick or wake: %v", err)
+									Warnf("failed to record distributed task prep-complete ack; will retry on next tick or wake: %v", ackErr)
 							} else {
-								s.perTaskStateLockedOrInit(desc).preparationAckEmitted = true
+								// Re-look-up state in case it was cleaned up
+								// while the ack RAFT-write was in flight.
+								if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
+									afterAckState.preparationAckEmitted = true
+								}
 								if task.PreparationCompletionAcks == nil {
 									task.PreparationCompletionAcks = map[string]PostCompletionAck{}
 								}
@@ -620,6 +653,9 @@ func (s *Scheduler) tick() {
 					// OnSwapRequested only after postStarted (FSM gates SWAP
 					// on the cluster-wide barrier); non-barrier tasks fire
 					// OnGroupCompleted mid-flight via AllGroupUnitsTerminal.
+					//
+					// s.mu is released around the provider callback (same
+					// pattern as PHASE A).
 					postStarted := effectiveStatus == TaskStatusSwapping ||
 						effectiveStatus == TaskStatusFailed ||
 						effectiveStatus == TaskStatusFinished
@@ -644,11 +680,19 @@ func (s *Scheduler) tick() {
 								state.groupCallbackFired = map[string]bool{}
 							}
 							state.groupCallbackFired[groupID] = true
+
 							var groupErr error
-							if task.NeedsPreparationBarrier {
-								groupErr = suProvider.OnSwapRequested(task, groupID, localIDs)
-							} else {
-								groupErr = suProvider.OnGroupCompleted(task, groupID, localIDs)
+							s.callWithoutMu(func() {
+								if task.NeedsPreparationBarrier {
+									groupErr = suProvider.OnSwapRequested(task, groupID, localIDs)
+								} else {
+									groupErr = suProvider.OnGroupCompleted(task, groupID, localIDs)
+								}
+							})
+
+							state = s.perTaskStateLocked(desc)
+							if state == nil {
+								continue
 							}
 							// ctx.Canceled from a graceful SIGTERM is transient;
 							// drop the fired mark so the post-restart tick
@@ -680,16 +724,24 @@ func (s *Scheduler) tick() {
 						effectiveStatus != TaskStatusStarted &&
 						s.allLocalGroupsFiredLocked(task, desc) {
 						success, joined := s.aggregateAckErrorsLocked(task, desc)
-						if err := s.ackRecorder.RecordDistributedTaskPostCompletionAck(
-							context.Background(), namespace, task.ID, task.Version,
-							s.localNode, success, joined,
-						); err != nil {
+
+						var ackErr error
+						s.callWithoutMu(func() {
+							ackErr = s.ackRecorder.RecordDistributedTaskPostCompletionAck(
+								context.Background(), namespace, task.ID, task.Version,
+								s.localNode, success, joined,
+							)
+						})
+
+						if ackErr != nil {
 							// Leave postCompletionAckEmitted unset; FSM-side
 							// ack is idempotent so retry is safe.
 							s.loggerWithTask(namespace, desc).
-								Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", err)
+								Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", ackErr)
 						} else {
-							s.perTaskStateLockedOrInit(desc).postCompletionAckEmitted = true
+							if afterAckState := s.perTaskStateLocked(desc); afterAckState != nil {
+								afterAckState.postCompletionAckEmitted = true
+							}
 							// Reflect the ack on the per-tick local clone's
 							// ack map (mirror of what the FSM apply path
 							// records) so the Phase 2 gate has the up-to-date
@@ -717,6 +769,8 @@ func (s *Scheduler) tick() {
 				// other nodes' next tick may already see FINISHED. On the
 				// SWAPPING path wait until every node has acked: the schema
 				// flip can't commit while any replica's swap is undetermined.
+				//
+				// s.mu is released around OnTaskCompleted (same pattern).
 				readyForFinalize := effectiveStatus == TaskStatusSwapping ||
 					effectiveStatus == TaskStatusFailed ||
 					effectiveStatus == TaskStatusFinished ||
@@ -730,7 +784,10 @@ func (s *Scheduler) tick() {
 						}
 					}
 					s.perTaskStateLockedOrInit(desc).completedCallbackFired = true
-					suProvider.OnTaskCompleted(task)
+
+					s.callWithoutMu(func() {
+						suProvider.OnTaskCompleted(task)
+					})
 				}
 			}
 		}
@@ -738,6 +795,9 @@ func (s *Scheduler) tick() {
 		// MarkDistributedTaskFinalized issues SWAPPING → FINISHED. For
 		// unit-aware providers, gate on OnTaskCompleted having fired so
 		// FINISHED lines up with "every post-completion callback committed".
+		//
+		// s.mu is released around the finalize RAFT-write so concurrent
+		// Wake / Close / status reads aren't blocked behind it.
 		if s.taskFinalizer != nil {
 			for desc, task := range tasks {
 				if task.Status != TaskStatusSwapping {
@@ -747,11 +807,17 @@ func (s *Scheduler) tick() {
 				if providerIsUnitAware && (finState == nil || !finState.completedCallbackFired) {
 					continue
 				}
-				if err := s.taskFinalizer.MarkDistributedTaskFinalized(
-					context.Background(), namespace, task.ID, task.Version,
-				); err != nil {
+
+				var finErr error
+				s.callWithoutMu(func() {
+					finErr = s.taskFinalizer.MarkDistributedTaskFinalized(
+						context.Background(), namespace, task.ID, task.Version,
+					)
+				})
+
+				if finErr != nil {
 					s.loggerWithTask(namespace, desc).
-						Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", err)
+						Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", finErr)
 					// TODO(scheduler): the rollback below re-fires
 					// OnTaskCompleted on the next tick. Today the only
 					// production [UnitAwareProvider] (reindex) is
@@ -762,8 +828,12 @@ func (s *Scheduler) tick() {
 					// [UnitAwareProvider.OnTaskCompleted]) or the
 					// scheduler (don't roll back until the FSM confirms
 					// the task is still SWAPPING).
-					if providerIsUnitAware && finState != nil {
-						finState.completedCallbackFired = false
+					if providerIsUnitAware {
+						// Re-look-up state: the entry may have been
+						// cleaned up between the unlock and the rollback.
+						if rollbackState := s.perTaskStateLocked(desc); rollbackState != nil {
+							rollbackState.completedCallbackFired = false
+						}
 					}
 				}
 			}
@@ -973,6 +1043,22 @@ func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDes
 		return true, ""
 	}
 	return false, strings.Join(msgs, "; ")
+}
+
+// callWithoutMu releases s.mu, invokes fn (which must NOT touch s.mu
+// directly), then re-acquires s.mu. The defer ensures we re-acquire
+// even if fn panics, so the outer `defer s.mu.Unlock()` in [Scheduler.tick]
+// unlocks a held mutex on the way out instead of panicking on an
+// already-unlocked one.
+//
+// Used to keep slow provider callbacks (OnGroupCompleted,
+// OnSwapRequested, OnTaskCompleted), RAFT-write ack recorders, and
+// MarkDistributedTaskFinalized off the global scheduler mutex.
+// Caller MUST hold s.mu on entry; control returns with s.mu held.
+func (s *Scheduler) callWithoutMu(fn func()) {
+	s.mu.Unlock()
+	defer s.mu.Lock()
+	fn()
 }
 
 // perTaskStateLocked returns the per-task scheduler state for desc, or
