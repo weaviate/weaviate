@@ -803,6 +803,24 @@ func (s *Scheduler) tick() {
 					}
 					s.perTaskStateLockedOrInit(desc).completedCallbackFired = true
 
+					// Idempotency contract: this call may re-fire on the
+					// next tick if MarkDistributedTaskFinalized (below)
+					// fails and the rollback path clears
+					// completedCallbackFired. Providers implementing
+					// [UnitAwareProvider.OnTaskCompleted] MUST therefore
+					// be safe to invoke more than once per task —
+					// otherwise a transient RAFT-write failure produces
+					// a double-applied side effect (a schema flip
+					// reverted, a marker emitted twice, etc.).
+					//
+					// Today the only production implementation (the
+					// runtime-reindex provider) is idempotent. If a new
+					// provider lands that does non-idempotent work
+					// here, either harden the interface godoc (in
+					// types.go) to make the requirement explicit, or
+					// guard the rollback below (do not clear the fired
+					// mark unless the FSM confirms the task is still
+					// SWAPPING).
 					s.callWithoutMu(func() {
 						suProvider.OnTaskCompleted(task)
 					})
@@ -836,16 +854,17 @@ func (s *Scheduler) tick() {
 				if finErr != nil {
 					s.loggerWithTask(namespace, desc).
 						Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", finErr)
-					// TODO(scheduler): the rollback below re-fires
-					// OnTaskCompleted on the next tick. Today the only
-					// production [UnitAwareProvider] (reindex) is
-					// idempotent, but the interface contract doesn't
-					// require that. If a future provider does
-					// non-idempotent work in OnTaskCompleted, harden
-					// either the contract (godoc on
-					// [UnitAwareProvider.OnTaskCompleted]) or the
-					// scheduler (don't roll back until the FSM confirms
-					// the task is still SWAPPING).
+					// TODO(scheduler): clearing completedCallbackFired
+					// here causes OnTaskCompleted to re-fire on the next
+					// tick. This is safe today because the reindex
+					// provider's OnTaskCompleted is idempotent, but
+					// [UnitAwareProvider.OnTaskCompleted] (in types.go)
+					// doesn't yet declare that requirement. Track this
+					// contract in the interface godoc, or change the
+					// rollback to only clear after the FSM confirms the
+					// task is still SWAPPING. See the matching
+					// "Idempotency contract" comment at the
+					// OnTaskCompleted call site above.
 					if providerIsUnitAware {
 						// Re-look-up state: the entry may have been
 						// cleaned up between the unlock and the rollback.
