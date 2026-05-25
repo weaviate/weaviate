@@ -18,11 +18,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -539,11 +541,14 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			// .../indexes/$p; done` against an N-property collection submits N
 			// independent RAFT tasks, each fanning out ingest+backup buckets
 			// on every replica. The LSM compaction layer and disk would not
-			// survive that. Reject with 429 once the cap is reached.
+			// survive that. Reject with 429 once the cap is reached — the
+			// semantics ("retry later, you're over a concurrency limit") map
+			// exactly to RFC 6585's Too Many Requests, not to 503's "server
+			// is unavailable". Returning 503 here misled callers and
+			// monitoring into thinking the cluster was unhealthy rather than
+			// rate-limiting them.
 			if inflight := countStartedTasksForCollection(collection, tasks[db.ReindexNamespace]); inflight >= maxConcurrentReindexPerCollection {
-				return schema.NewSchemaObjectsIndexesUpdateServiceUnavailable().WithPayload(errorResponse(principal, fmt.Sprintf(
-					"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
-					collection, inflight, maxConcurrentReindexPerCollection)))
+				return reindexCapExceededResponder(principal, collection, inflight, maxConcurrentReindexPerCollection)
 			}
 		}
 	}
@@ -1313,6 +1318,31 @@ func normalizeSearchableAlgorithm(s string) string {
 // reindex_concurrent acceptance test which exercises 15 simultaneous
 // non-conflicting submits.
 const maxConcurrentReindexPerCollection = 32
+
+// reindexCapExceededResponder returns a 429 Too Many Requests response with
+// the standard ErrorResponse body shape. The swagger spec for
+// PUT /v1/schema/{class}/indexes/{prop} does not declare a 429 response —
+// it predates the per-collection cap — so we hand-roll the responder
+// instead of adding to the generated code.
+//
+// The status is intentionally 429 and not 503: the rejection is driven by
+// a concurrency limit specific to this caller's collection, not by the
+// cluster being unavailable. Returning 503 misled monitoring (and the
+// reindex_concurrent acceptance test asserts the cap is reached, not that
+// the service went unhealthy).
+func reindexCapExceededResponder(principal *models.Principal, collection string, inflight, capLimit int) middleware.Responder {
+	body := errorResponse(principal, fmt.Sprintf(
+		"collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
+		collection, inflight, capLimit))
+	return middleware.ResponderFunc(func(w http.ResponseWriter, producer runtime.Producer) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		if err := producer.Produce(w, body); err != nil {
+			// Match the generated swagger responders' behaviour for body
+			// write failures; the recovery middleware logs and returns 500.
+			panic(err)
+		}
+	})
+}
 
 // countStartedTasksForCollection counts in-flight reindex tasks for a
 // collection. Counts every non-terminal status (STARTED/PREPARING/SWAPPING

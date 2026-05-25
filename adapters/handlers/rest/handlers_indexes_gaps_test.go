@@ -28,8 +28,11 @@ package rest
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1239,6 +1242,33 @@ func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
 
 func fmtTaskID(i int) string {
 	return "t-" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))
+}
+
+// -----------------------------------------------------------------------------
+// reindexCapExceededResponder — per-collection concurrent reindex cap returns
+// 429 Too Many Requests (not 503 Service Unavailable). Pins both the status
+// code and the body shape so a regression on either (e.g. swap back to the
+// generated 503 responder, drop the structured ErrorResponse body) is caught
+// at unit-test time rather than at acceptance/CI.
+// -----------------------------------------------------------------------------
+
+func TestReindexCapExceededResponder_StatusAndBody(t *testing.T) {
+	resp := reindexCapExceededResponder(nil, "MyCollection", 32, 32)
+
+	rec := httptest.NewRecorder()
+	resp.WriteResponse(rec, runtime.JSONProducer())
+
+	require.Equal(t, http.StatusTooManyRequests, rec.Code,
+		"cap rejection must surface as 429, not 503 — 503 misled monitoring into thinking the cluster was unhealthy")
+
+	var body models.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body),
+		"cap rejection body must be the standard ErrorResponse shape")
+	require.Len(t, body.Error, 1, "body must contain exactly one error item")
+	assert.Contains(t, body.Error[0].Message, `"MyCollection"`,
+		"error message must name the offending collection")
+	assert.Contains(t, body.Error[0].Message, "32",
+		"error message must surface the cap and inflight count for operator triage")
 }
 
 // -----------------------------------------------------------------------------
