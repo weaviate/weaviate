@@ -144,6 +144,68 @@ func TestDecodeAndConvertFromBlocksReusable_PreservesPLZeroInvariant(t *testing.
 	})
 }
 
+// TestDecodeAndConvertFromBlocksReusable_Roundtrip drives encode → decode
+// with reused mapPairBuf and kvArena across multiple distinct payloads,
+// and confirms that on each decode every entry's docId and TF round-trip
+// exactly and Value[4:8] is zero. The varenc TF encoder rounds floats to
+// uint64, so the test uses integer TFs to keep the round-trip exact.
+func TestDecodeAndConvertFromBlocksReusable_Roundtrip(t *testing.T) {
+	deltaEnc := &varenc.VarIntDeltaEncoder{}
+	tfEnc := &varenc.VarIntEncoder{}
+
+	makePayload := func(n int, docIdBase uint64, tfBase float32) ([]byte, []MapPair) {
+		input := make([]MapPair, n)
+		plm := make(map[uint64]uint32, n)
+		for i := 0; i < n; i++ {
+			docId := docIdBase + uint64(i)
+			tf := tfBase + float32(i)
+			input[i] = makeInvertedPair(docId, tf, float32(i+1))
+			plm[docId] = uint32(i + 1)
+		}
+		encoded, _ := createAndEncodeBlocks(input, plm, deltaEnc, tfEnc, 1.2, 0.75, 10.0)
+		return encoded, input
+	}
+
+	// Sequence of payloads with distinct sizes so the arena/mapPairBuf
+	// are sometimes reused at full size, sometimes truncated.
+	payloads := []struct {
+		n         int
+		docIdBase uint64
+		tfBase    float32
+	}{
+		{200, 1000, 10},
+		{50, 5000, 1},
+		{300, 7000, 20},
+		{1, 9000, 7},
+		{129, 11000, 3},
+	}
+
+	var mapPairBuf []MapPair
+	var arena []byte
+
+	for _, p := range payloads {
+		t.Run(fmt.Sprintf("n=%d/docIdBase=%d", p.n, p.docIdBase), func(t *testing.T) {
+			encoded, input := makePayload(p.n, p.docIdBase, p.tfBase)
+			mapPairBuf, arena, _ = decodeAndConvertFromBlocksReusable(
+				encoded, mapPairBuf, arena, deltaEnc, tfEnc)
+
+			require.Len(t, mapPairBuf, p.n)
+			for i, mp := range mapPairBuf {
+				wantDocId := binary.BigEndian.Uint64(input[i].Key)
+				gotDocId := binary.BigEndian.Uint64(mp.Key)
+				assert.Equalf(t, wantDocId, gotDocId, "docId mismatch at i=%d", i)
+
+				wantTF := math.Float32frombits(binary.LittleEndian.Uint32(input[i].Value[0:4]))
+				gotTF := math.Float32frombits(binary.LittleEndian.Uint32(mp.Value[0:4]))
+				assert.Equalf(t, wantTF, gotTF, "TF mismatch at i=%d (docId=%d)", i, gotDocId)
+
+				assert.Equalf(t, float32(0), plFromValue(mp.Value),
+					"Value[4:8] must be zero at i=%d", i)
+			}
+		})
+	}
+}
+
 // TestCreateAndEncodeBlocksCompaction_MatchesNonReusable confirms that the
 // compaction-optimised encoder produces byte-identical output to the
 // canonical encoder when both receive the same input and a fully-populated
