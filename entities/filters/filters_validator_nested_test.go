@@ -12,13 +12,22 @@
 package filters
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+// Nested filtering is preview-gated. Tests in this file exercise the
+// validator's nested branch and need the gate on. Sets the env var
+// process-wide so all tests in this binary see the gate as enabled;
+// individual tests that want the off state use t.Setenv (which
+// auto-restores and panics on t.Parallel()).
+func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
 
 // nestedClass builds the shared test class used across nested filter tests:
 //
