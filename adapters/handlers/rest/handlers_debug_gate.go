@@ -19,10 +19,9 @@ import (
 
 // makeDebugEndpointsGate returns a middleware that re-checks the
 // DebugEndpointsEnabled flag on every request and returns 404 when it is
-// false. Pairs with the startup-time check in setupGoProfiling: the listener
-// only binds when the flag is true at boot, but once bound this gate makes
-// runtime overrides effective so an operator can kill-switch the debug
-// surface (or re-enable it after a temporary disable) without restarting.
+// false. The listener in setupGoProfiling binds unconditionally (subject only
+// to the GO_PROFILING_DISABLE kill switch), so runtime flips of this flag in
+// either direction take effect without a restart.
 func makeDebugEndpointsGate(enabled *configRuntime.DynamicValue[bool]) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

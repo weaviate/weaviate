@@ -461,6 +461,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	setupDebugHandlers(appState)
 	setupGoProfiling(appState)
+	setupRuntimeProfiling(appState)
 
 	migrator := db.NewMigrator(repo, appState.Logger, appState.Cluster.LocalName())
 	migrator.SetNode(appState.Cluster.LocalName())
@@ -2070,16 +2071,16 @@ func reasonableHttpClient(authConfig cluster.AuthConfig, minimumInternalTimeout 
 func setupGoProfiling(appState *state.State) {
 	config := appState.ServerConfig.Config
 	logger := appState.Logger
-	// Two independent gates:
-	//   - GO_PROFILING_DISABLE=true (legacy) → never bind.
-	//   - DEBUG_ENDPOINTS_ENABLED=true (default false) → must opt in to bind.
-	enabled := config.Profiling.DebugEndpointsEnabled
-	if config.Profiling.Disabled || enabled == nil || !enabled.Get() {
-		port := config.Profiling.Port
-		if port == 0 {
-			port = 6060
-		}
-		logger.Infof("debug HTTP listener (port %d) disabled; set DEBUG_ENDPOINTS_ENABLED=true and/or unset GO_PROFILING_DISABLE to enable", port)
+	port := config.Profiling.Port
+	if port == 0 {
+		port = 6060
+	}
+	// GO_PROFILING_DISABLE=true (legacy) is a hard kill switch — never bind.
+	// DEBUG_ENDPOINTS_ENABLED is enforced per-request by the gate below, so
+	// the listener binds unconditionally and runtime flips in either direction
+	// take effect without a restart.
+	if config.Profiling.Disabled {
+		logger.Infof("debug HTTP listener (port %d) disabled by GO_PROFILING_DISABLE; unset to enable", port)
 		return
 	}
 
@@ -2099,26 +2100,30 @@ func setupGoProfiling(appState *state.State) {
 	}
 	http.DefaultServeMux.Handle("/debug/fgprof", fgprof.Handler(functionsToIgnoreInProfiling...))
 
-	// Per-request gate so a runtime override that flips DebugEndpointsEnabled
-	// to false takes effect without a restart. The listener stays bound but
-	// every request gets a 404 until the flag is flipped back. (Going from
-	// default-off to enabled still requires a restart since the listener was
-	// never bound in the first place.)
+	enabled := config.Profiling.DebugEndpointsEnabled
+	gateOpen := enabled != nil && enabled.Get()
+	logger.Infof("debug HTTP listener bound on :%d (DebugEndpointsEnabled=%t; requests return 404 until enabled)", port, gateOpen)
 	debugHandler := makeDebugEndpointsGate(enabled)(http.DefaultServeMux)
 	enterrors.GoWrapper(func() {
-		portNumber := config.Profiling.Port
-		if portNumber == 0 {
-			portNumber = 6060
-		}
-		if err := http.ListenAndServe(fmt.Sprintf(":%d", portNumber), debugHandler); err != nil {
-			logger.WithError(err).Errorf("error listening and serve :%d", portNumber)
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", port), debugHandler); err != nil {
+			logger.WithError(err).Errorf("error listening and serve :%d", port)
 		}
 	}, logger)
+}
 
+// setupRuntimeProfiling configures the Go runtime block/mutex profile rates.
+// Independent of DEBUG_ENDPOINTS_ENABLED and the debug HTTP listener — an
+// operator can collect profiles via signal handlers or runtime/pprof file
+// dumps without ever exposing /debug/*. GO_PROFILING_DISABLE remains a global
+// kill switch: if set, neither the rates nor the listener are configured.
+func setupRuntimeProfiling(appState *state.State) {
+	config := appState.ServerConfig.Config
+	if config.Profiling.Disabled {
+		return
+	}
 	if config.Profiling.BlockProfileRate > 0 {
 		goruntime.SetBlockProfileRate(config.Profiling.BlockProfileRate)
 	}
-
 	if config.Profiling.MutexProfileFraction > 0 {
 		goruntime.SetMutexProfileFraction(config.Profiling.MutexProfileFraction)
 	}

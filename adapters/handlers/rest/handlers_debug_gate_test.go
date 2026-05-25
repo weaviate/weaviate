@@ -69,4 +69,19 @@ func TestDebugEndpointsGate(t *testing.T) {
 		h.ServeHTTP(w3, httptest.NewRequest(http.MethodGet, "/debug/config", nil))
 		assert.Equal(t, http.StatusOK, w3.Code, "after flip back to true")
 	})
+
+	t.Run("runtime flip from false to true starts passing through", func(t *testing.T) {
+		flag := configRuntime.NewDynamicValue(false)
+		h := makeDebugEndpointsGate(flag)(ok)
+
+		w1 := httptest.NewRecorder()
+		h.ServeHTTP(w1, httptest.NewRequest(http.MethodGet, "/debug/config", nil))
+		assert.Equal(t, http.StatusNotFound, w1.Code, "before flip")
+
+		flag.SetValue(true)
+
+		w2 := httptest.NewRecorder()
+		h.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/debug/config", nil))
+		assert.Equal(t, http.StatusOK, w2.Code, "after flip to true")
+	})
 }
