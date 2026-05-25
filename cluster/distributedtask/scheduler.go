@@ -553,8 +553,8 @@ func (s *Scheduler) tick() {
 		// maps' pre-mark from [Scheduler.bootstrapProviders] (and the
 		// deferred-bootstrap path in this tick) also marks FINISHED tasks
 		// as already-fired so a node restart cannot replay them.
-		_, providerIsUnitAware := provider.(UnitAwareProvider)
-		if suProvider, ok := provider.(UnitAwareProvider); ok {
+		suProvider, providerIsUnitAware := provider.(UnitAwareProvider)
+		if providerIsUnitAware {
 			for desc, task := range tasks {
 				// effectiveStatus carries the per-tick state-machine view: it
 				// starts at task.Status (what ListDistributedTasks returned)
