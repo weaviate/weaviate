@@ -55,6 +55,7 @@ function main() {
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
+  run_flake_hunt_multinode_scale_bundle=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -108,6 +109,7 @@ function main() {
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
+          --flake-hunt-multinode-scale-bundle|-fhsb) run_all_tests=false; run_flake_hunt_multinode_scale_bundle=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -152,6 +154,7 @@ function main() {
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
+              "--flake-hunt-multinode-scale-bundle | -fhsb"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -343,6 +346,11 @@ function main() {
   if $run_acceptance_reindex_backup; then
     echo "running backup × runtime-reindex acceptance tests"
     run_acceptance_reindex_backup
+  fi
+
+  if $run_flake_hunt_multinode_scale_bundle; then
+    echo "running flake-hunt: full multinode-scale bundle (5×)"
+    run_flake_hunt_multinode_scale_bundle
   fi
   echo "Done!"
 }
@@ -875,6 +883,40 @@ function run_acceptance_reindex_backup() {
   echo_green "acceptance — reindex-backup"
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
+}
+
+# QA flake-hunt: drive the full --acceptance-reindex-multinode-scale bundle
+# 5×. Each bundle runs 6 multinode tests in sequence (HappyPath,
+# QueryConsistencyDuringReindex, ConcurrentDifferentMigrations,
+# EnableRangeable_NoPartialCountsInFlight, RepeatedParallelMigrationJourney,
+# PostRestartReapplyMigrations) — the same surface where
+# RepeatedParallelMigrationJourney_PerReplicaConsistency flaked once in
+# production CI (#11453 run 26417631472). Used from
+# qa/flake-hunt-multinode-scale-bundle only. 30 shards × 5 = 150 bundled
+# runs. Per-bundle PASS only if all 6 tests pass.
+function run_flake_hunt_multinode_scale_bundle() {
+  build_weaviate_test_image
+  echo_green "flake-hunt: --acceptance-reindex-multinode-scale × 5 iterations"
+  local pass=0 fail=0
+  for i in $(seq 1 5); do
+    echo
+    echo "=== bundle iter $i/5 — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    # Run the AOF group exactly as the real shard does.
+    if AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
+        run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode; then
+      echo "bundle iter $i: PASS"
+      pass=$((pass+1))
+    else
+      echo "bundle iter $i: FAIL"
+      fail=$((fail+1))
+    fi
+  done
+  echo
+  echo "=== flake-hunt summary: pass=$pass fail=$fail / 5 (shard $(hostname -s 2>/dev/null || echo unknown)) ==="
+  # Don't fail the shard on individual bundle failures — collect all 5 samples
+  # so the shard summary captures the bundled flake rate. Only fail if every
+  # bundle failed.
+  [[ $pass -gt 0 ]]
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
