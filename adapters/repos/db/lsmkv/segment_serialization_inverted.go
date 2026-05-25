@@ -367,7 +367,11 @@ func convertFromBlocksReusable(blockEntries []*terms.BlockEntry, encodedBlocks [
 			arenaOff += 8
 
 			value := kvArena[arenaOff : arenaOff+8]
-			binary.LittleEndian.PutUint32(value, math.Float32bits(float32(tfs[j])))
+			// Pack TF as uint64; the high 4 bytes are zero, which is the
+			// expected propLength placeholder (set later from propLengths
+			// map). Using PutUint64 instead of PutUint32 avoids leaving
+			// stale arena bytes in value[4:8].
+			binary.LittleEndian.PutUint64(value, uint64(math.Float32bits(float32(tfs[j]))))
 			arenaOff += 8
 
 			out = append(out, MapPair{
@@ -403,6 +407,10 @@ func decodeAndConvertFromBlocksReusable(data []byte, mapPairBuf []MapPair, kvAre
 			arenaOff += 8
 			value := kvArena[arenaOff : arenaOff+8]
 			copy(value, data[offset+8:offset+12])
+			// Value layout is [0:4]=TF, [4:8]=propLength. The on-disk
+			// format only carries TF; zero the PL slot so it isn't
+			// reused from a prior entry's bytes in the arena.
+			binary.LittleEndian.PutUint32(value[4:], 0)
 			arenaOff += 8
 			mapPairBuf = append(mapPairBuf, MapPair{
 				Key:   key,
