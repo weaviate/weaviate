@@ -13,6 +13,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -911,4 +912,114 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
 		assert.Contains(t, coordinator.Participants["N1"].Reason, context.Canceled.Error())
 	})
+}
+
+// TestCoordinator_TypesErrorFromRemoteErrKind verifies that a refused
+// CanCommitResponse with ErrKind == CanCommitErrInFlightReindex is promoted
+// to a typed ErrBackupBlockedByInFlightReindex by the coordinator, so
+// upstream `errors.Is` checks succeed across the RPC boundary. Older nodes
+// that don't populate ErrKind must continue to surface as errCannotCommit
+// for backward compatibility.
+func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
+	t.Parallel()
+	var (
+		backendName = "s3"
+		any         = mock.Anything
+		backupID    = "type-err-test"
+		ctx         = context.Background()
+		nodes       = []string{"N1", "N2"}
+		classes     = []string{"Class-A"}
+		// One participant always accepts so we can isolate the refusal path.
+		acceptResp = &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}
+	)
+
+	tests := []struct {
+		name            string
+		refusalResp     *CanCommitResponse
+		expectInFlight  bool
+		expectCanCommit bool
+		expectContain   string
+	}{
+		{
+			name: "ErrKind=in_flight_reindex maps to typed sentinel",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     "Node-2/Class-A: " + inFlightReindexSentinelMsg + ": shard \"shard-a\" has 1 active tracker(s)",
+				ErrKind: CanCommitErrInFlightReindex,
+			},
+			expectInFlight: true,
+			expectContain:  inFlightReindexSentinelMsg,
+		},
+		{
+			name: "ErrKind=cannot_commit keeps legacy errCannotCommit",
+			refusalResp: &CanCommitResponse{
+				Method:  OpCreate,
+				ID:      backupID,
+				Err:     "some other refusal",
+				ErrKind: CanCommitErrCannotCommit,
+			},
+			expectCanCommit: true,
+			expectContain:   "some other refusal",
+		},
+		{
+			name: "empty ErrKind (older node) falls back to errCannotCommit",
+			refusalResp: &CanCommitResponse{
+				Method: OpCreate,
+				ID:     backupID,
+				// Err empty + ErrKind empty + Timeout == 0 still triggers
+				// the refusal path; this models a buggy older participant
+				// returning a zero-value response.
+			},
+			expectCanCommit: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			nodeResolver := newFakeNodeResolver(nodes)
+			fc := newFakeCoordinator(nodeResolver)
+			fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+
+			// N1 (the leader) accepts; N2 refuses with the response shape under test.
+			fc.client.On("CanCommit", any, nodes[0], mock.MatchedBy(func(r *Request) bool {
+				return r.Method == OpCreate && r.ID == backupID
+			})).Return(acceptResp, nil).Maybe()
+			fc.client.On("CanCommit", any, nodes[1], mock.MatchedBy(func(r *Request) bool {
+				return r.Method == OpCreate && r.ID == backupID
+			})).Return(tc.refusalResp, nil)
+
+			// On refusal the coordinator aborts the participant that accepted.
+			fc.client.On("Abort", any, nodes[0], mock.Anything).Return(nil).Maybe()
+			fc.client.On("Abort", any, nodes[1], mock.Anything).Return(nil).Maybe()
+			fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+
+			coordinator := *fc.coordinator()
+			req := newReq(classes, backendName, backupID)
+			store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+			err := coordinator.Backup(ctx, store, &req)
+			assert.Error(t, err)
+
+			if tc.expectInFlight {
+				assert.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex),
+					"expected errors.Is(err, ErrBackupBlockedByInFlightReindex), got: %v", err)
+				// errCannotCommit must NOT be in the chain when we have the
+				// typed sentinel — keep the two paths cleanly separable.
+				assert.False(t, errors.Is(err, errCannotCommit),
+					"in-flight-reindex error must not also match errCannotCommit, got: %v", err)
+			}
+			if tc.expectCanCommit {
+				assert.True(t, errors.Is(err, errCannotCommit),
+					"expected errors.Is(err, errCannotCommit), got: %v", err)
+				assert.False(t, errors.Is(err, ErrBackupBlockedByInFlightReindex),
+					"generic refusal must not match the typed sentinel, got: %v", err)
+			}
+			if tc.expectContain != "" {
+				assert.Contains(t, err.Error(), tc.expectContain)
+			}
+			// Surface the offending node so the operator knows where to look.
+			assert.Contains(t, err.Error(), nodes[1])
+		})
+	}
 }

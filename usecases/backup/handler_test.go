@@ -13,10 +13,13 @@ package backup
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -104,5 +107,67 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 		}
 		ret := bm.OnStatus(ctx, &req)
 		assert.Contains(t, ret.Err, errUnknownOp.Error())
+	}
+}
+
+// TestCanCommitResponse_PreservesInFlightReindexErrorKind verifies that when
+// the local sourcer (DB.Backupable) refuses with the
+// "backup blocked: runtime-reindex in flight on this shard" sentinel
+// message, OnCanCommit stamps CanCommitErrInFlightReindex on the response so
+// the coordinator can promote it back to a typed error. Other refusal
+// reasons must keep falling back to CanCommitErrCannotCommit.
+func TestCanCommitResponse_PreservesInFlightReindexErrorKind(t *testing.T) {
+	ctx := context.Background()
+	backendName := "s3"
+
+	tests := []struct {
+		name        string
+		backupErr   error
+		wantContain string
+		wantKind    CanCommitErrorKind
+	}{
+		{
+			name: "in-flight reindex sentinel surfaces as CanCommitErrInFlightReindex",
+			// Shape this exactly like reindexInFlightError() in
+			// adapters/repos/db/reindex_inflight.go so the substring matcher
+			// in classifyCanCommitErr exercises the realistic message.
+			backupErr:   fmt.Errorf("Node-1/MyClass: %s: shard %q has 1 active tracker(s): ...; retry after the migration finishes", inFlightReindexSentinelMsg, "shard-a"),
+			wantContain: inFlightReindexSentinelMsg,
+			wantKind:    CanCommitErrInFlightReindex,
+		},
+		{
+			name:        "generic refusal falls back to CanCommitErrCannotCommit",
+			backupErr:   errors.New("unrelated boom"),
+			wantContain: "unrelated boom",
+			wantKind:    CanCommitErrCannotCommit,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			backend := &fakeBackend{}
+			backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/backups/1")
+			backend.On("GetObject", ctx, mock.Anything, BackupFile).Return(nil, errNotFound).Maybe()
+
+			sourcer := &fakeSourcer{}
+			sourcer.On("Backupable", ctx, mock.Anything).Return(tc.backupErr)
+
+			bm := createManager(sourcer, nil, backend, nil)
+
+			req := Request{
+				Method:   OpCreate,
+				ID:       "1",
+				Classes:  []string{"MyClass"},
+				Backend:  backendName,
+				Duration: time.Millisecond * 20,
+				Bucket:   "bucket",
+				Path:     "path",
+			}
+			resp := bm.OnCanCommit(ctx, &req)
+
+			assert.Contains(t, resp.Err, tc.wantContain)
+			assert.Equal(t, tc.wantKind, resp.ErrKind)
+			assert.Equal(t, time.Duration(0), resp.Timeout)
+		})
 	}
 }
