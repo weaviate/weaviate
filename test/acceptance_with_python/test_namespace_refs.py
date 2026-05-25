@@ -94,6 +94,14 @@ ADMIN_KEY = "admin-key"
 NS1 = "customer1"
 NS2 = "customer2"
 
+# Pin every test in this file to a single pytest-xdist worker. The module-scoped
+# `namespaces` fixture creates one DB user per namespace via REST; without
+# this marker, every parallel worker races to create the same users, and the
+# 409→DELETE→recreate fallback in _create_namespaced_user kills the prior
+# worker's apikey, leaving _wait_for_key polling 401 forever. Same pattern as
+# test_readonly_recovery.py.
+pytestmark = pytest.mark.xdist_group(name="namespace_refs")
+
 
 def _rest_base(http_port: int) -> str:
     return f"http://localhost:{http_port}/v1"
