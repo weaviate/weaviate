@@ -12,15 +12,10 @@
 package db
 
 import (
-	"errors"
 	"fmt"
-)
 
-// ErrBackupBlockedByInFlightReindex is returned when a backup attempt
-// races a runtime-reindex on the same shard. The DTM unit driving the
-// migration is not part of the backup payload, so a captured tracker
-// dir cannot be safely restored.
-var ErrBackupBlockedByInFlightReindex = errors.New("backup blocked: runtime-reindex in flight on this shard")
+	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+)
 
 // AnyLiveReindexForShard answers the cluster-wide question: does DTM
 // have any LIVE reindex task targeting (collection, shardName)?
@@ -77,12 +72,12 @@ func reindexInFlightError(collection, shardName string, preWire bool) error {
 	if preWire {
 		return fmt.Errorf(
 			"%w: shard %q (collection %q): backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
-			ErrBackupBlockedByInFlightReindex, shardName, collection,
+			entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
 		)
 	}
 	return fmt.Errorf(
 		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry after the migration finishes (poll GET /v1/schema/<class>/indexes until all indexes report status=\"ready\") or cancel it via PUT /v1/schema/<class>/indexes/<prop> {\"<indexType>\":{\"cancel\":true}}",
-		ErrBackupBlockedByInFlightReindex, shardName, collection,
+		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
 	)
 }
 

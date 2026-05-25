@@ -13,9 +13,9 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -27,22 +27,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// inFlightReindexSentinelMsg is the leading substring of the error message
-// produced by db.ErrBackupBlockedByInFlightReindex. We match against it from
-// the backup package to avoid an adapters/repos/db import cycle
-// (clients -> backup -> db). The db package owns the canonical text in
-// adapters/repos/db/reindex_inflight.go and any change there MUST be
-// mirrored here.
-const inFlightReindexSentinelMsg = "backup blocked: runtime-reindex in flight on this shard"
-
 // classifyCanCommitErr maps a free-form canCommit error to a
 // [CanCommitErrorKind]. nil err returns the empty kind so callers can keep
 // using empty-string semantics when nothing went wrong.
+//
+// Classification uses errors.Is against the shared
+// [backup.ErrBackupBlockedByInFlightReindex] sentinel rather than substring
+// comparison; the storage layer's Backupable() wraps that sentinel inside
+// errors.Join when multiple shards refuse, and errors.Is walks the join.
 func classifyCanCommitErr(err error) CanCommitErrorKind {
 	if err == nil {
 		return ""
 	}
-	if strings.Contains(err.Error(), inFlightReindexSentinelMsg) {
+	if errors.Is(err, backup.ErrBackupBlockedByInFlightReindex) {
 		return CanCommitErrInFlightReindex
 	}
 	return CanCommitErrCannotCommit

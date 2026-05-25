@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -118,7 +119,7 @@ func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
 
 	err := idx.refuseIfReindexInFlight("ABC123")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex),
+	assert.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
 	assert.Contains(t, err.Error(), "ABC123", "error must name the shard")
 	assert.Contains(t, err.Error(), "JourneyClass", "error must name the collection")
@@ -144,7 +145,7 @@ func TestRefuseIfReindexInFlight_DbNilIsConservative(t *testing.T) {
 	idx := &Index{Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")}}
 	err := idx.refuseIfReindexInFlight("ABC123")
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex))
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.True(t, strings.Contains(err.Error(), "startup window"))
 }
 
@@ -153,7 +154,7 @@ func TestRefuseIfReindexInFlight_DbNilIsConservative(t *testing.T) {
 func TestReindexInFlightError_PreWire(t *testing.T) {
 	err := reindexInFlightError("MyClass", "shard1", true)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex))
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), "shard1")
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "startup window")
@@ -164,7 +165,7 @@ func TestReindexInFlightError_PreWire(t *testing.T) {
 func TestReindexInFlightError_DTMHit(t *testing.T) {
 	err := reindexInFlightError("MyClass", "shard1", false)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex))
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), "shard1")
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
@@ -187,7 +188,7 @@ func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 
 	err := shd.HaltForTransfer(ctx, false, 100*time.Millisecond)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex))
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), shd.Name())
 
 	// Flip the lookup so the next call allows the halt; this also

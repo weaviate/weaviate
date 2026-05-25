@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -916,10 +917,10 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 
 // TestCoordinator_TypesErrorFromRemoteErrKind verifies that a refused
 // CanCommitResponse with ErrKind == CanCommitErrInFlightReindex is promoted
-// to a typed ErrBackupBlockedByInFlightReindex by the coordinator, so
-// upstream `errors.Is` checks succeed across the RPC boundary. Older nodes
-// that don't populate ErrKind must continue to surface as errCannotCommit
-// for backward compatibility.
+// to a typed backup.ErrBackupBlockedByInFlightReindex by the coordinator,
+// so upstream `errors.Is` checks succeed across the RPC boundary. Older
+// nodes that don't populate ErrKind must continue to surface as
+// errCannotCommit for backward compatibility.
 func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 	t.Parallel()
 	var (
@@ -945,11 +946,11 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			refusalResp: &CanCommitResponse{
 				Method:  OpCreate,
 				ID:      backupID,
-				Err:     "Node-2/Class-A: " + inFlightReindexSentinelMsg + ": shard \"shard-a\" has 1 active tracker(s)",
+				Err:     "Node-2/Class-A: " + backup.ErrBackupBlockedByInFlightReindex.Error() + ": shard \"shard-a\" has 1 active tracker(s)",
 				ErrKind: CanCommitErrInFlightReindex,
 			},
 			expectInFlight: true,
-			expectContain:  inFlightReindexSentinelMsg,
+			expectContain:  backup.ErrBackupBlockedByInFlightReindex.Error(),
 		},
 		{
 			name: "ErrKind=cannot_commit keeps legacy errCannotCommit",
@@ -1002,8 +1003,8 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			assert.Error(t, err)
 
 			if tc.expectInFlight {
-				assert.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex),
-					"expected errors.Is(err, ErrBackupBlockedByInFlightReindex), got: %v", err)
+				assert.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
+					"expected errors.Is(err, backup.ErrBackupBlockedByInFlightReindex), got: %v", err)
 				// errCannotCommit must NOT be in the chain when we have the
 				// typed sentinel — keep the two paths cleanly separable.
 				assert.False(t, errors.Is(err, errCannotCommit),
@@ -1012,7 +1013,7 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			if tc.expectCanCommit {
 				assert.True(t, errors.Is(err, errCannotCommit),
 					"expected errors.Is(err, errCannotCommit), got: %v", err)
-				assert.False(t, errors.Is(err, ErrBackupBlockedByInFlightReindex),
+				assert.False(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
 					"generic refusal must not match the typed sentinel, got: %v", err)
 			}
 			if tc.expectContain != "" {
@@ -1022,4 +1023,50 @@ func TestCoordinator_TypesErrorFromRemoteErrKind(t *testing.T) {
 			assert.Contains(t, err.Error(), nodes[1])
 		})
 	}
+}
+
+// TestErrInFlightReindex_IsShared pins that the in-flight-reindex sentinel
+// is a single value drawn from entities/backup, not duplicated in either
+// the coordinator (usecases/backup) or the storage layer (adapters/repos/db).
+//
+// Catches the regression where someone re-introduces a parallel
+// `var ErrBackupBlockedByInFlightReindex = errors.New(...)` in either
+// layer: a parallel declaration would compare equal by string but fail
+// pointer-identity, breaking errors.Is across the RPC seam.
+//
+// We verify identity from this package by:
+//  1. Wrapping the shared sentinel through canCommitErrFromResponse — the
+//     public coordinator path that consumes a remote CanCommitResponse.
+//  2. Asserting errors.Is succeeds against backup.ErrBackupBlockedByInFlightReindex
+//     (the entities/backup symbol).
+//
+// Identity from the adapters/repos/db side is enforced by
+// reindex_inflight_test.go, which calls errors.Is against the same shared
+// symbol. Both layers therefore depend on the entities/backup value; a
+// drift would make one layer's tests red.
+func TestErrInFlightReindex_IsShared(t *testing.T) {
+	t.Parallel()
+
+	// Shared symbol must be non-nil and carry the expected operator text.
+	require.NotNil(t, backup.ErrBackupBlockedByInFlightReindex)
+	require.Equal(t,
+		"backup blocked: runtime-reindex in flight on this shard",
+		backup.ErrBackupBlockedByInFlightReindex.Error(),
+		"operator-visible sentinel text is part of the contract; do not edit lightly",
+	)
+
+	// Round-trip through the coordinator's canCommit error promoter: a
+	// CanCommitErrInFlightReindex response must produce an error chain
+	// that errors.Is matches against the SHARED sentinel.
+	resp := &CanCommitResponse{
+		Method:  OpCreate,
+		ID:      "shared-sentinel-id",
+		Err:     "Node-2/Class-A: shard \"sa\" has 1 active tracker(s)",
+		ErrKind: CanCommitErrInFlightReindex,
+	}
+	err := canCommitErrFromResponse(resp)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, backup.ErrBackupBlockedByInFlightReindex),
+		"coordinator must wrap the shared sentinel from entities/backup; "+
+			"if this fails, a parallel declaration has been re-introduced")
 }
