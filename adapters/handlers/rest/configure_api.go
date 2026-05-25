@@ -1019,6 +1019,34 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				return live[taskKey{taskID, taskVersion}]
 			}
 		}
+		// Wait until ListDistributedTasks succeeds at least once before
+		// running the startup audit. Without this, a transient DTM-list
+		// failure during the bootstrap window leaves the audit running
+		// with the "all known" fallback closure → orphans never get
+		// classified → orphan tracker dirs survive. Exponential backoff
+		// capped at 5s; bound the total wait so an offline cluster
+		// doesn't block startup indefinitely.
+		auditReadyBackoff := 100 * time.Millisecond
+		auditReadyDeadline := time.Now().Add(60 * time.Second)
+		for {
+			_, listErr := appState.ClusterService.ListDistributedTasks(auditCtx)
+			if listErr == nil {
+				break
+			}
+			if time.Now().After(auditReadyDeadline) {
+				appState.Logger.WithField("action", "reindex_orphan_audit").
+					Warnf("reindex orphan audit: DTM list unavailable after 60s; running audit anyway (orphans may be deferred): %v", listErr)
+				break
+			}
+			appState.Logger.WithField("action", "reindex_orphan_audit").
+				Debugf("reindex orphan audit: DTM list not yet ready; retrying in %s: %v", auditReadyBackoff, listErr)
+			select {
+			case <-time.After(auditReadyBackoff):
+			case <-auditCtx.Done():
+				return
+			}
+			auditReadyBackoff = min(auditReadyBackoff*2, 5*time.Second)
+		}
 		if _, err := repo.AuditOrphanReindexTrackers(auditCtx, buildKnownTask(), appState.Logger); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Warnf("reindex orphan audit did not run cleanly; restored clusters may retain orphan sidecar buckets: %v", err)
