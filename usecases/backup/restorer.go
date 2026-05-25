@@ -275,7 +275,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	}
 	if meta.ID != req.ID {
 		return nil, nil, fmt.Errorf("wrong backup file: restore request asked for %q but the per-node descriptor at %q reports backup ID %q (this happens when metadata from a different backup was placed into this slot, or a prior aborted restore wrote stale state; remove %s/ on the backend and retry with the original backup ID)",
-			req.ID, path.Join(destPath, req.ID), meta.ID, destPath)
+			req.ID, path.Join(destPath, BackupFile), meta.ID, destPath)
 	}
 	if meta.Status != backup.Success {
 		err = fmt.Errorf("invalid backup in restorer %s status: %s", destPath, meta.Status)

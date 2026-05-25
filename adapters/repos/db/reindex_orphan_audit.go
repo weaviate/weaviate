@@ -104,9 +104,13 @@ type AuditOutcome struct {
 // counter is non-zero and a single replay sweep runs synchronously so
 // the deferred audit work is not silently lost. Closes B2.
 //
-// Callers must therefore invoke SetReindexAuditDeps with the audit
-// context they want any replay sweep to inherit; a closed context will
-// cause the replay sweep to early-return on PauseCompaction.
+// The deferred-replay path runs with [context.Background]; it does not
+// inherit the caller's context. A caller-side cancellation that needs to
+// abort an in-flight replay must wait for [PauseCompaction]'s internal
+// timeout. Switching to a caller-supplied context would let SIGTERM /
+// shutdown abort the replay cleanly, but the current shape — fire-and-
+// forget background — matches the post-bootstrap goroutine that calls
+// us in production.
 func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
 	db.reindexAuditMu.Lock()
 	db.reindexAuditLookupBuilder = builder

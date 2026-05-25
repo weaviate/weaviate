@@ -102,8 +102,8 @@ func TestBackupVsReindexSuite(t *testing.T) {
 	// The subtests below re-resolve URI each call because
 	// PostRestartOrphanAuditClearsTracker above does a Stop+Start that
 	// rebinds the container to a new dynamic port.
-	t.Run("CancelOnNoInFlightReturnsStructured404", func(t *testing.T) {
-		testCancelOnNoInFlightReturnsStructured404(t, compose.GetWeaviate().URI())
+	t.Run("CancelOnNoInFlightReturns202NoOp", func(t *testing.T) {
+		testCancelOnNoInFlightReturns202NoOp(t, compose.GetWeaviate().URI())
 	})
 
 	t.Run("AlgorithmVerbRefusesOnAlreadyBlockmaxRejectsWAND", func(t *testing.T) {
@@ -383,12 +383,12 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 		"canonical data must survive the audit")
 }
 
-// testCancelOnNoInFlightReturnsStructured404 asserts the M6 contract:
+// testCancelOnNoInFlightReturns202NoOp asserts the M6 contract:
 // PUT {"searchable":{"cancel":true}} with no task targeting the tuple
 // returns 202 Accepted with Status: NO_OP and no TaskID — cancel is
 // idempotent on the "nothing to cancel" path. Matches the singlenode
 // copy of the test in test/acceptance/reindex_singlenode/cancel_test.go.
-func testCancelOnNoInFlightReturnsStructured404(t *testing.T, restURI string) {
+func testCancelOnNoInFlightReturns202NoOp(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_CancelNoTask"
 		propName  = "body"
