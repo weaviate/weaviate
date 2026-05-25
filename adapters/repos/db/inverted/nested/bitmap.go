@@ -149,6 +149,16 @@ func (o *BitmapOps) AndAll(raws []*sroar.Bitmap, maxConcurrency int) (raw *sroar
 	return raw, release
 }
 
+// AndNot clones base into a pool buffer and subtracts subtract in place,
+// returning the resulting bitmap and a release callback. Used to materialize
+// the positive bitmap for NotEqual (universe AND-NOT denylist) without
+// mutating the source universe bitmap.
+func (o *BitmapOps) AndNot(base, subtract *sroar.Bitmap, maxConcurrency int) (raw *sroar.Bitmap, release func()) {
+	raw, release = o.pool.CloneToBuf(base)
+	raw.AndNotConc(subtract, maxConcurrency)
+	return raw, release
+}
+
 // AndAllMaskLeaf zeroes the leaf bits of each raw bitmap, ANDs them all, and
 // returns the rootDoc bitmap in a pool buffer. Returns an empty (non-pooled)
 // bitmap when raws is empty. The loop exits early when the running

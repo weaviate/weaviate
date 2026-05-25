@@ -197,17 +197,19 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 		runRec(t, s, pv, []uint64{docMatch})
 	})
 
-	t.Run("isnull_true_with_positive_excludes_at_raw_level", func(t *testing.T) {
+	t.Run("isnull_true_strict_existential_at_operand_lca", func(t *testing.T) {
 		// addresses.postcode = "10115" AND addresses.city IS NULL.
 		// docMatch: postcode=10115 at leaf 1, no city anywhere.
 		// docNoMatch: postcode=10115 at leaf 1, city exists at leaf 2 (a
 		// different address than the postcode hit).
 		//
-		// Phase 2 per-element IsNull: AndNot at raw level subtracts only
-		// positions where city exists AT THE SAME LEAF as postcode. doc2's
-		// city is at leaf 2 (a different address element) so the postcode
-		// position at leaf 1 survives — both docs match. Pre-Phase 2 used
-		// universal-at-rootDoc semantics, dropping doc2 entirely.
+		// correlated-AND IsNull alignment strict-existential: IsNull on a top-level addresses
+		// sub-field has operand LCA "" (root). The IsNull leaf materializes
+		// as _exists."" AndNot _exists.city, restricted to the leaf's
+		// arr[N] pins. Both docs have an address-element without city
+		// (docNoMatch has addr[0] without city; addr[1] has city), so the
+		// existential bitmap is non-empty for both. Combined with the
+		// postcode=10115 positive at addr[0], both docs match.
 		const (
 			docMatch   = uint64(51)
 			docNoMatch = uint64(52)
@@ -220,6 +222,10 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 		vb := store.Bucket(valueBucket)
 		mb := store.Bucket(metaBucket)
 		writeNestedValue(t, vb, "postcode", "10115", []uint64{enc(1, 1, docMatch), enc(1, 1, docNoMatch)})
+		// correlated-AND IsNull alignment requires _exists."" to be populated: existential =
+		// _exists."" AndNot _exists.{operand}. Both docs have addr[0];
+		// docNoMatch also has addr[1] (where city lives).
+		writeExistsAt(t, mb, "", []uint64{enc(1, 1, docMatch), enc(1, 1, docNoMatch), enc(1, 2, docNoMatch)})
 		// Only docNoMatch has a city present anywhere.
 		writeExistsAt(t, mb, "city", []uint64{enc(1, 2, docNoMatch)})
 
@@ -230,10 +236,10 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 		runRec(t, s, pv, []uint64{docMatch, docNoMatch})
 	})
 
-	t.Run("isnull_true_only_uses_rootAnchor_seed", func(t *testing.T) {
-		// addresses.city IS NULL — no positives, only an exclude. Normalization
-		// fetches _exists."" as the root anchor, AndNots the city exists set,
-		// then MaskLeaf+MaskRootLeaf to docs.
+	t.Run("isnull_true_standalone_produces_strict_existential_positive", func(t *testing.T) {
+		// addresses.city IS NULL — the only condition. correlated-AND IsNull alignment materializes
+		// this as a positive: _exists."" AndNot _exists.city restricted to the
+		// leaf's arr[N] pins (none here, so the full root universe).
 		// docMatch: has at least one address (root present) but no city anywhere.
 		// docNoMatch: has at least one address AND a city present somewhere.
 		const (
@@ -256,11 +262,10 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 		runRec(t, s, pv, []uint64{docMatch})
 	})
 
-	t.Run("isnull_true_with_arrN_restricts_anchor", func(t *testing.T) {
-		// addresses[1].city IS NULL — no positives, exclude with arr[N]=1.
-		// fetchRootAnchor restricts _exists."" by addresses[1] to only consider
-		// the second address element. Match docs where addresses[1] exists AND
-		// addresses[1] has no city.
+	t.Run("isnull_true_with_arrN_restricts_existential_universe", func(t *testing.T) {
+		// addresses[1].city IS NULL — correlated-AND IsNull alignment materializes as a positive:
+		// _exists."" AndNot _exists.city, both restricted by addresses[1].
+		// Match docs where addresses[1] exists AND addresses[1] has no city.
 		// docMatch: addresses[1] exists with no city set on it.
 		// docNoMatch: addresses[1] exists and has city set.
 		const (

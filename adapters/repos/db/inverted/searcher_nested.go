@@ -244,11 +244,12 @@ func nestedRootProp(child *propValuePair) string {
 	}
 }
 
-// groupNestedByProp rewrites a flat slice of AND children so that conditions
-// targeting the same root nested property are grouped into a single
-// isWithinRootSubtree AND node that the resolver will handle with position-aware
-// same-element semantics. Flat (non-nested) conditions and nested conditions
-// from different props are returned unchanged in their original order.
+// groupNestedByProp rewrites a flat slice of AND or OR children so that
+// conditions targeting the same root nested property are grouped into a
+// single isWithinRootSubtree wrapper node (with the caller's parentOperator,
+// AND or OR) that the resolver will handle with position-aware semantics.
+// Flat (non-nested) conditions and nested conditions from different props
+// are returned unchanged in their original order.
 //
 // A child is eligible for grouping when it is:
 //   - a direct nested leaf (nested.isNested == true), or
@@ -257,7 +258,7 @@ func nestedRootProp(child *propValuePair) string {
 // If no nested children are found, the original slice is returned as-is.
 // Single-child groups are kept as plain children (no wrapper node created).
 //
-// Example — given an AND filter with:
+// Example — given an AND filter with parentOperator=AND:
 //
 //	addresses.city = "Berlin"     (nested, root=addresses)
 //	age > 30                      (flat)
@@ -266,10 +267,12 @@ func nestedRootProp(child *propValuePair) string {
 //
 // the result is:
 //
-//	isWithinRootSubtree(addresses) [city="Berlin", postcode="10115"]
+//	isWithinRootSubtree(addresses, AND) [city="Berlin", postcode="10115"]
 //	age > 30
 //	cars.make = "BMW"
-func groupNestedByProp(children []*propValuePair, class *models.Class) []*propValuePair {
+//
+// The same call with parentOperator=OR produces the analogous OR wrapper.
+func groupNestedByProp(children []*propValuePair, class *models.Class, parentOperator filters.Operator) []*propValuePair {
 	// First pass: build groups per prop (preserving first-seen order).
 	groups := make(map[string][]*propValuePair)
 	var propOrder []string
@@ -288,8 +291,12 @@ func groupNestedByProp(children []*propValuePair, class *models.Class) []*propVa
 	}
 
 	// Second pass: reconstruct the children slice, replacing multi-condition
-	// nested groups with a single isWithinRootSubtree AND node. Single-condition
-	// groups are kept as plain children. Flat conditions retain their position.
+	// nested groups with a single isWithinRootSubtree wrapper node carrying the
+	// caller's parentOperator. Single-condition groups are kept as plain
+	// children unless the singleton is a nested NOT/OR operator subtree —
+	// wrapping it ensures the planner evaluates scope-aware NOT/OR at the
+	// operand's natural LCA even when the parent AND has cross-root or scalar
+	// siblings (singleton-NOT/OR wrapping). Flat conditions retain their position.
 	result := make([]*propValuePair, 0, len(children))
 	emitted := make(map[string]bool, len(propOrder))
 	for _, child := range children {
@@ -303,17 +310,41 @@ func groupNestedByProp(children []*propValuePair, class *models.Class) []*propVa
 		}
 		emitted[prop] = true
 		group := groups[prop]
-		if len(group) == 1 {
+		if len(group) == 1 && !shouldWrapNestedSingleton(group[0]) {
 			result = append(result, group[0])
-		} else {
-			result = append(result, &propValuePair{
-				operator: filters.OperatorAnd,
-				nested:   nestedInfo{isWithinRootSubtree: true},
-				prop:     prop,
-				children: group,
-				Class:    class,
-			})
+			continue
 		}
+		result = append(result, &propValuePair{
+			operator: parentOperator,
+			nested:   nestedInfo{isWithinRootSubtree: true},
+			prop:     prop,
+			children: group,
+			Class:    class,
+		})
 	}
 	return result
+}
+
+// shouldWrapNestedSingleton reports whether a singleton nested group child
+// needs an isWithinRootSubtree wrapper. Direct leaves (isNested=true) share
+// docID-level semantics with their wrapped form, so wrapping adds overhead
+// without changing results. Already-wrapped children (tokenization wrappers,
+// inner AND-isWRS) carry their own scope-aware processing and don't need
+// another layer. Nested NOT/OR operator children DO need wrapping so the
+// scope-aware planner inverts NOT or unions OR at the operand's LCA per
+// element — without this, a NOT (or OR) singleton with a scalar/cross-root
+// sibling falls back to docID-level resolution.
+func shouldWrapNestedSingleton(child *propValuePair) bool {
+	if child.nested.isWithinRootSubtree {
+		return false
+	}
+	if child.nested.isNested {
+		return false
+	}
+	switch child.operator {
+	case filters.OperatorNot, filters.OperatorOr:
+		return true
+	default:
+		return false
+	}
 }

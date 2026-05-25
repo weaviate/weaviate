@@ -818,250 +818,13 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 	})
 }
 
-// TestRecExecutorRootAnchor exercises the executeRootAnchor path of execute()
-// — the branch taken when plan==nil. The path applies for correlated AND
-// filters that contain only IsNull conditions: there is no positive anchor, so
-// the executor uses _exists.{scope} as the element universe. Each exclude (a
-// raw _exists.{path} position bitmap) is AndNot'd at raw level (preserving
-// leaf alignment with the anchor); the caller strips to docIDs via
-// MaskRootLeaf when needed.
-//
-// This test exercises absolute-result and lifecycle invariants: single vs.
-// multiple excludes, partial-element subtraction (one element of a
-// multi-element doc excluded while another survives), and the nil-anchor
-// error.
-func TestRecExecutorRootAnchor(t *testing.T) {
-	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
-
-	t.Run("anchor_minus_single_exclude_drops_doc", func(t *testing.T) {
-		// doc100 has one element at (root=1, leaf=1); doc101 has one element
-		// at (root=2, leaf=1). The exclude removes doc100's only element.
-		anchor := roaringset.NewBitmap(enc(1, 1, 100), enc(2, 1, 101))
-		exclude := roaringset.NewBitmap(enc(1, 1, 100))
-
-		ops := newLifecycleOps(t)
-		exec := newRecExecutor(nil, nil, ops, concurrency.SROAR_MERGE).
-			withRootAnchor(anchor).
-			withExcludes([]recExclude{{bitmap: exclude}})
-
-		raw, rawRel, err := exec.execute(context.Background(), nil)
-		require.NoError(t, err)
-		defer rawRel()
-		result, release := ops.MaskRootLeaf(raw)
-		defer release()
-		requireBitmapValid(t, result)
-		assert.Equal(t, []uint64{101}, result.ToArray())
-	})
-
-	t.Run("anchor_minus_multiple_excludes_loops", func(t *testing.T) {
-		// The AndNot loop must run for every exclude and accumulate
-		// subtractions. Two excludes drop two distinct docs from the universe.
-		anchor := roaringset.NewBitmap(
-			enc(1, 1, 200), enc(1, 1, 201), enc(1, 1, 202),
-			enc(1, 1, 203), enc(1, 1, 204),
-		)
-		excl1 := roaringset.NewBitmap(enc(1, 1, 201))
-		excl2 := roaringset.NewBitmap(enc(1, 1, 203))
-
-		ops := newLifecycleOps(t)
-		exec := newRecExecutor(nil, nil, ops, concurrency.SROAR_MERGE).
-			withRootAnchor(anchor).
-			withExcludes([]recExclude{{bitmap: excl1}, {bitmap: excl2}})
-
-		raw, rawRel, err := exec.execute(context.Background(), nil)
-		require.NoError(t, err)
-		defer rawRel()
-		result, release := ops.MaskRootLeaf(raw)
-		defer release()
-		requireBitmapValid(t, result)
-		assert.Equal(t, []uint64{200, 202, 204}, result.ToArray())
-	})
-
-	t.Run("partial_element_exclude_keeps_doc_via_other_leaf", func(t *testing.T) {
-		// Leaf-precise subtraction: doc300 has two elements (leaf=1 and
-		// leaf=2). The exclude removes only leaf=1's position — leaf=2
-		// survives the AndNot, so MaskLeaf+MaskRootLeaf still emits doc300.
-		// doc301's only element is excluded so doc301 drops out entirely.
-		anchor := roaringset.NewBitmap(
-			enc(1, 1, 300), enc(1, 2, 300),
-			enc(1, 1, 301),
-		)
-		exclude := roaringset.NewBitmap(
-			enc(1, 1, 300),
-			enc(1, 1, 301),
-		)
-
-		ops := newLifecycleOps(t)
-		exec := newRecExecutor(nil, nil, ops, concurrency.SROAR_MERGE).
-			withRootAnchor(anchor).
-			withExcludes([]recExclude{{bitmap: exclude}})
-
-		raw, rawRel, err := exec.execute(context.Background(), nil)
-		require.NoError(t, err)
-		defer rawRel()
-		result, release := ops.MaskRootLeaf(raw)
-		defer release()
-		requireBitmapValid(t, result)
-		assert.Equal(t, []uint64{300}, result.ToArray())
-	})
-
-	t.Run("nil_rootAnchor_returns_error", func(t *testing.T) {
-		ops := newLifecycleOps(t)
-		exec := newRecExecutor(nil, nil, ops, concurrency.SROAR_MERGE)
-		_, _, err := exec.execute(context.Background(), nil)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "rootAnchor")
-	})
-}
-
-// TestRecExecutorExcludePositions exercises the exclude-subtraction loop in
-// execute() — the non-rootAnchor path. evalNode produces a rootDoc bitmap; for
-// each exclude (a raw _exists.{path} bitmap) execute MaskLeafs the exclude and
-// AndNots it from bm. Subtraction is at root+docID level — distinct from the
-// raw-level (leaf-precise) subtraction in executeRootAnchor.
-func TestRecExecutorExcludePositions(t *testing.T) {
-	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
-	class := filterExamplesClass()
-	props := rootNestedProps(t, class, "countries")
-
-	t.Run("multi_exclude_loop_subtracts_at_raw_level", func(t *testing.T) {
-		// Plan-driven path: single positive condition `garages.city=berlin`
-		// produces GROUP@"garages" here=[garages.city]. canUseRawAndAll
-		// returns raw bm. The exclude loop in execute() AndNots each
-		// exclude at raw level (Phase 2: no MaskLeaf collapse). Verifies
-		// the loop iterates and accumulates across multiple excludes.
-		//
-		// Excludes overlap positives at the same leaf so raw AndNot fires:
-		//   doc1: city at leaf 1, no excludes — kept.
-		//   doc2: city at leaf 1, excludeZip at leaf 1 — excludeZip drops it.
-		//   doc3: city at leaf 1, excludeAge at leaf 1 — excludeAge drops it.
-		//   doc4: city at leaf 1, both excludes at leaf 1 — both drop it
-		//     (idempotent AndNot for the second exclude).
-		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
-		rawCity := roaringset.NewBitmap(
-			enc(1, 1, 1),
-			enc(2, 1, 2),
-			enc(3, 1, 3),
-			enc(4, 1, 4),
-		)
-		excludeZip := roaringset.NewBitmap(
-			enc(2, 1, 2),
-			enc(4, 1, 4),
-		)
-		excludeAge := roaringset.NewBitmap(
-			enc(3, 1, 3),
-			enc(4, 1, 4),
-		)
-
-		ops := newLifecycleOps(t)
-		plan := newRecPlanBuilder(props).build([]*propValuePair{city})
-		exec := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, ops, concurrency.SROAR_MERGE).
-			withExcludes([]recExclude{{bitmap: excludeZip}, {bitmap: excludeAge}})
-
-		raw, rawRel, err := exec.execute(context.Background(), plan)
-		require.NoError(t, err)
-		defer rawRel()
-		result, release := ops.MaskRootLeaf(raw)
-		defer release()
-		requireBitmapValid(t, result)
-		assert.Equal(t, []uint64{1}, result.ToArray())
-	})
-
-	t.Run("exclude_drops_only_matching_root_element_other_root_survives", func(t *testing.T) {
-		// Subtraction granularity is the (root_idx, docID) pair, not the doc
-		// alone. doc500 has city=berlin in two different root elements
-		// (root_idx=1 and root_idx=2). zip exists only in root_idx=1. The
-		// excluded MaskLeaf'd entry (1, 0, 500) is AndNot'd; (2, 0, 500)
-		// survives, so doc500 still appears after MaskRootLeaf.
-		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
-		rawCity := roaringset.NewBitmap(enc(1, 1, 500), enc(2, 1, 500))
-		excludeZip := roaringset.NewBitmap(enc(1, 5, 500))
-
-		ops := newLifecycleOps(t)
-		plan := newRecPlanBuilder(props).build([]*propValuePair{city})
-		exec := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, ops, concurrency.SROAR_MERGE).
-			withExcludes([]recExclude{{bitmap: excludeZip}})
-
-		raw, rawRel, err := exec.execute(context.Background(), plan)
-		require.NoError(t, err)
-		defer rawRel()
-		result, release := ops.MaskRootLeaf(raw)
-		defer release()
-		requireBitmapValid(t, result)
-		assert.Equal(t, []uint64{500}, result.ToArray())
-	})
-
-	t.Run("matching_lcaPath_subtracts_raw_inside_canUseRawAndAll_group", func(t *testing.T) {
-		// §8.5: when the exclude's lcaPath equals the group's lcaPath, the
-		// exclude is AndNot'd at raw level on the group's AndAll'd raw bitmap
-		// (before MaskLeaf). This preserves leaf-precise per-element semantics.
-		// Plan: GROUP@"garages" here=[garages.city] (single contributor →
-		// canUseRawAndAll). Exclude: garages.zip _exists at lcaPath="garages"
-		// matches. doc1 has city in garages[1] (leaf=3) and garages[2] (leaf=5),
-		// zip exists in garages[1] only (leaf=3). Raw AndNot drops only the
-		// leaf=3 position; leaf=5 survives MaskLeaf → doc1 is kept.
-		// doc2 has city only in garages[1] where zip also exists → dropped.
-		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
-		rawCity := roaringset.NewBitmap(
-			enc(1, 3, 1), enc(1, 5, 1),
-			enc(1, 3, 2),
-		)
-		excludeZip := roaringset.NewBitmap(
-			enc(1, 3, 1),
-			enc(1, 3, 2),
-		)
-
-		ops := newLifecycleOps(t)
-		plan := newRecPlanBuilder(props).build([]*propValuePair{city})
-		exec := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, ops, concurrency.SROAR_MERGE).
-			withExcludes([]recExclude{{bitmap: excludeZip, lcaPath: "garages"}}).
-			withPlanLCAs(collectPlanLCAs(plan))
-
-		raw, rawRel, err := exec.execute(context.Background(), plan)
-		require.NoError(t, err)
-		defer rawRel()
-		result, release := ops.MaskRootLeaf(raw)
-		defer release()
-		requireBitmapValid(t, result)
-		assert.Equal(t, []uint64{1}, result.ToArray())
-	})
-
-	t.Run("non_matching_lcaPath_subtracts_at_raw_level", func(t *testing.T) {
-		// When the exclude's lcaPath is NOT in planLCAs, execute() applies
-		// the subtraction at raw level (Phase 2: bm is raw throughout, so
-		// AndNot is leaf-precise and preserves per-element semantics).
-		//
-		// doc1 has city at leaves 3 and 5 but zip only at leaf 3 — leaf 5
-		// survives the AndNot, so doc1 is included. doc2 has city and zip
-		// both at leaf 3 — drops.
-		//
-		// Pre-Phase-2 the exclude was MaskLeaf'd then AndNot'd at rootDoc,
-		// which dropped both docs at (root, doc) granularity.
-		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
-		rawCity := roaringset.NewBitmap(
-			enc(1, 3, 1), enc(1, 5, 1),
-			enc(1, 3, 2),
-		)
-		excludeZip := roaringset.NewBitmap(
-			enc(1, 3, 1),
-			enc(1, 3, 2),
-		)
-
-		ops := newLifecycleOps(t)
-		plan := newRecPlanBuilder(props).build([]*propValuePair{city})
-		exec := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, ops, concurrency.SROAR_MERGE).
-			withExcludes([]recExclude{{bitmap: excludeZip, lcaPath: "garages.cars"}}).
-			withPlanLCAs(collectPlanLCAs(plan))
-
-		raw, rawRel, err := exec.execute(context.Background(), plan)
-		require.NoError(t, err)
-		defer rawRel()
-		result, release := ops.MaskRootLeaf(raw)
-		defer release()
-		requireBitmapValid(t, result)
-		assert.Equal(t, []uint64{1}, result.ToArray(), "raw AndNot preserves doc1 via the surviving leaf-5 city position")
-	})
-}
+// TestRecExecutorRootAnchor and TestRecExecutorExcludePositions are retired:
+// correlated-AND IsNull alignment moved IsNull=true to a strict-existential positive at the operand
+// LCA. The executor's exclude machinery (withExcludes, recExclude,
+// withPlanLCAs) and the no-positive path (executeRootAnchor) are gone.
+// End-to-end IsNull coverage lives in the DB-level integration tests
+// (TestNestedFilteringIsNullInCorrelatedAnd /
+// TestNestedFilteringIsNullWithArrNInCorrelatedAnd).
 
 // TestRecExecutorContextCancellation asserts that the recursive executor
 // honors a cancelled context across all entry paths.
@@ -1069,11 +832,12 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 // Two layers are exercised:
 //
 //   - Top-level: execute() checks ctxExpired at the very top, so any cancelled
-//     context short-circuits regardless of plan shape. The four
-//     `cancelled_via_*` sub-tests cover the four execute() dispatches:
-//     rootAnchor (plan==nil), canUseRawAndAll (raw AndAll, no idx loop),
+//     context short-circuits regardless of plan shape. The
+//     `cancelled_via_*` sub-tests cover the three execute() dispatches with
+//     a non-nil plan: canUseRawAndAll (raw AndAll, no idx loop),
 //     runIdxLoopRecursive (per-element idx iteration), and evalSplit
-//     (multi-branch dispatch).
+//     (multi-branch dispatch). correlated-AND IsNull alignment removed the rootAnchor (plan==nil)
+//     path; nil plan now returns an error.
 //
 //   - Inner: runIdxLoopRecursive's start-of-function check and evalSplit's
 //     per-branch check. These guard long-running work after the top-level
@@ -1091,17 +855,6 @@ func TestRecExecutorContextCancellation(t *testing.T) {
 		cancel()
 		return ctx
 	}
-
-	t.Run("cancelled_via_rootAnchor_path", func(t *testing.T) {
-		// plan==nil → executeRootAnchor; the top-level check fires before
-		// the rootAnchor branch is taken.
-		anchor := roaringset.NewBitmap(enc(1, 1, 100))
-		ops := newLifecycleOps(t)
-		exec := newRecExecutor(nil, nil, ops, concurrency.SROAR_MERGE).
-			withRootAnchor(anchor)
-		_, _, err := exec.execute(cancelled(), nil)
-		require.ErrorIs(t, err, context.Canceled)
-	})
 
 	t.Run("cancelled_via_canUseRawAndAll_path", func(t *testing.T) {
 		// Single positive at intermediate scope → GROUP@"garages.cars" with a

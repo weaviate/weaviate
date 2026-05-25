@@ -354,18 +354,25 @@ func (s *Searcher) extractPropValuePair(
 }
 
 // groupNestedSubtrees walks pv's tree post-order and applies the
-// same-root grouping rule of groupNestedByProp at every AND node it
-// finds. OR / NOT / leaf nodes pass through; their children are still
-// walked so AND nodes deeper in the tree get grouped. Pre-marked
-// wrappers (isWithinRootSubtree=true, e.g. tokenization wrappers from
-// buildNestedTextFilterPair) are skipped — their children are already
-// the leaves of one same-root subtree and need no further grouping.
+// same-root grouping rule of groupNestedByProp at every AND / OR node
+// it finds, and additionally marks NOT-of-nested-operand as
+// isWithinRootSubtree so the scope-aware planner inverts the NOT at
+// the operand's natural LCA (top-level NOT wrapping). Leaf nodes pass through;
+// their children are still walked so AND / OR / NOT nodes deeper in
+// the tree get processed. Pre-marked wrappers (isWithinRootSubtree=
+// true, e.g. tokenization wrappers from buildNestedTextFilterPair)
+// are skipped — their children are already the leaves of one same-
+// root subtree and need no further grouping.
 //
-// When grouping collapses every child of an AND into a single same-root
-// wrapper, the AND is promoted in place: its own isWithinRootSubtree
-// flag and prop are set, and the redundant single-child wrapping level
-// is elided. Mixed-root ANDs keep the per-group wrappers as separate
-// children.
+// When grouping collapses every child of an AND / OR into a single
+// same-root wrapper, the outer operator is promoted in place: its own
+// isWithinRootSubtree flag and prop are set, and the redundant single-
+// child wrapping level is elided. Mixed-root nodes keep the per-group
+// wrappers as separate children.
+//
+// NOT-of-IsNull never reaches here — buildPropValuePair rewrites it to
+// its DeMorgan dual (singleton-NOT/OR wrapping) so the NOT cancels at
+// extraction time. Any NOT seen here has a non-IsNull operand.
 func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair {
 	if pv == nil || len(pv.children) == 0 {
 		return pv
@@ -373,22 +380,61 @@ func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair 
 	for i := range pv.children {
 		pv.children[i] = groupNestedSubtrees(pv.children[i], class)
 	}
-	if pv.operator != filters.OperatorAnd || pv.nested.isWithinRootSubtree {
+	if pv.nested.isWithinRootSubtree {
 		return pv
 	}
-	grouped := groupNestedByProp(pv.children, class)
-	if len(grouped) == 1 && grouped[0].nested.isWithinRootSubtree {
-		// Collapse: every child landed in one same-root wrapper.
-		// Promote pv to be that wrapper instead of holding it as a
-		// useless single-child outer AND.
-		w := grouped[0]
+	switch pv.operator {
+	case filters.OperatorAnd, filters.OperatorOr:
+		grouped := groupNestedByProp(pv.children, class, pv.operator)
+		if len(grouped) == 1 && grouped[0].nested.isWithinRootSubtree {
+			// Collapse: every child landed in one same-root wrapper.
+			// Promote pv to be that wrapper instead of holding it as a
+			// useless single-child outer node. pv keeps its operator
+			// (AND or OR), so the planner sees the right shape.
+			w := grouped[0]
+			pv.nested.isWithinRootSubtree = true
+			pv.prop = w.prop
+			pv.children = w.children
+			return pv
+		}
+		pv.children = grouped
+		return pv
+	case filters.OperatorNot:
+		if len(pv.children) != 1 {
+			return pv
+		}
+		operand := pv.children[0]
+		operandRoot := nestedRootProp(operand)
+		if operandRoot == "" {
+			return pv
+		}
 		pv.nested.isWithinRootSubtree = true
-		pv.prop = w.prop
-		pv.children = w.children
+		pv.prop = operandRoot
+		return pv
+	default:
 		return pv
 	}
-	pv.children = grouped
-	return pv
+}
+
+// flipNestedIsNull returns a copy of pv with its IsNull boolean byte
+// inverted (0x01 ↔ 0x00). Used by buildPropValuePair to apply the
+// DeMorgan rewrite NOT(IsNull=v) → IsNull=!v on nested IsNull leaves.
+// pv must satisfy operator==OperatorIsNull and nested.isNested==true.
+//
+// The value slice is copied to avoid mutating any shared underlying
+// array; pv itself is shallow-cloned for the same reason (the original
+// pv may still be referenced by other parts of the filter tree under
+// pathological reuse, although today's extraction does not share).
+func flipNestedIsNull(pv *propValuePair) *propValuePair {
+	flipped := *pv
+	flipped.value = make([]byte, max(1, len(pv.value)))
+	copy(flipped.value, pv.value)
+	if flipped.value[0] == 0x01 {
+		flipped.value[0] = 0x00
+	} else {
+		flipped.value[0] = 0x01
+	}
+	return &flipped
 }
 
 // buildPropValuePair constructs the propValuePair from filter without
@@ -407,6 +453,16 @@ func (s *Searcher) buildPropValuePair(
 		children, err := s.extractPropValuePairs(ctx, filter.Operands, filter.Operator, className)
 		if err != nil {
 			return nil, err
+		}
+		// DeMorgan rewrite: NOT(IsNull=v) on a nested
+		// path is equivalent to IsNull=!v under Phase 6's scope-aware IsNull
+		// semantics (both invert at the operand's natural LCA, so NOT cancels
+		// algebraically). Rewriting here eliminates the NOT before grouping
+		// and avoids routing IsNull leaves through operator subtrees, which
+		// fetchOperatorSubtreeBitmaps does not support.
+		if filter.Operator == filters.OperatorNot && len(children) == 1 &&
+			children[0].operator == filters.OperatorIsNull && children[0].nested.isNested {
+			return flipNestedIsNull(children[0]), nil
 		}
 		out.children = children
 		out.operator = filter.Operator

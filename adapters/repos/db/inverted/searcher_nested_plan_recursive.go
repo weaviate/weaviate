@@ -557,11 +557,19 @@ func constraintAtScope(scope string, indices arrayIndices) (int, bool) {
 // the deepest object[] segment, or "" if none exists. Mirrors the helper in
 // the older executionPlanBuilder so both planners agree on LCA semantics.
 func (b *recPlanBuilder) lastIntermediateObjectArray(path string) string {
+	return lastIntermediateObjectArrayInProps(b.props, path)
+}
+
+// lastIntermediateObjectArrayInProps is the schema-walking core of
+// lastIntermediateObjectArray, decoupled from recPlanBuilder so non-planner
+// callers (e.g. fetchNestedIsNull) can use the same LCA semantics without
+// constructing a builder. Walks segs of path through props; returns the
+// deepest object[] segment encountered, or "" if none exists.
+func lastIntermediateObjectArrayInProps(props []*models.NestedProperty, path string) string {
 	if path == "" {
 		return ""
 	}
 	segs := filnested.SplitPath(path)
-	props := b.props
 	last := ""
 	for i, seg := range segs {
 		np := filnested.FindNestedProp(props, seg)
@@ -605,33 +613,6 @@ func (b *recPlanBuilder) nextObjectArrayAfter(scope, path string) string {
 		props = np.NestedProperties
 	}
 	return ""
-}
-
-// collectPlanLCAs walks node and returns the set of recGroupNode lcaPaths.
-// Used by recExecutor to decide which excludes are consumed inside groups
-// (per §8.5) and which fall through to the rootDoc subtraction in execute().
-// recSplitNode lcaPaths are not collected — splits don't apply excludes; their
-// branches recurse into recGroupNode children which contribute lcaPaths.
-func collectPlanLCAs(node recPlanNode) map[string]struct{} {
-	out := map[string]struct{}{}
-	var walk func(n recPlanNode)
-	walk = func(n recPlanNode) {
-		switch t := n.(type) {
-		case *recGroupNode:
-			out[t.lca] = struct{}{}
-			for _, sub := range t.subs {
-				walk(sub)
-			}
-		case *recSplitNode:
-			for _, br := range t.branches {
-				walk(br.plan)
-			}
-		}
-	}
-	if node != nil {
-		walk(node)
-	}
-	return out
 }
 
 // describePlan renders the plan as a multi-line string for structural unit
