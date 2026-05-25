@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -25,6 +26,27 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 )
+
+// inFlightReindexSentinelMsg is the leading substring of the error message
+// produced by db.ErrBackupBlockedByInFlightReindex. We match against it from
+// the backup package to avoid an adapters/repos/db import cycle
+// (clients -> backup -> db). The db package owns the canonical text in
+// adapters/repos/db/reindex_inflight.go and any change there MUST be
+// mirrored here.
+const inFlightReindexSentinelMsg = "backup blocked: runtime-reindex in flight on this shard"
+
+// classifyCanCommitErr maps a free-form canCommit error to a
+// [CanCommitErrorKind]. nil err returns the empty kind so callers can keep
+// using empty-string semantics when nothing went wrong.
+func classifyCanCommitErr(err error) CanCommitErrorKind {
+	if err == nil {
+		return ""
+	}
+	if strings.Contains(err.Error(), inFlightReindexSentinelMsg) {
+		return CanCommitErrInFlightReindex
+	}
+	return CanCommitErrCannotCommit
+}
 
 // Version of backup structure
 const (
@@ -169,6 +191,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	store, err := nodeBackend(nodeName, m.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		ret.Err = fmt.Sprintf("no backup backend %q, did you enable the right module?", req.Backend)
+		ret.ErrKind = CanCommitErrCannotCommit
 		return ret
 	}
 
@@ -176,15 +199,18 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 	case OpCreate:
 		if err := m.backupper.sourcer.Backupable(ctx, req.Classes); err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = classifyCanCommitErr(err)
 			return ret
 		}
 		if err = store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
+			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
 		res, err := m.backupper.backup(store, req)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = classifyCanCommitErr(err)
 			return ret
 		}
 		ret.Timeout = res.Timeout
@@ -192,16 +218,19 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 		meta, _, err := m.restorer.validate(ctx, &store, req)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
 		res, err := m.restorer.restore(req, meta, store)
 		if err != nil {
 			ret.Err = err.Error()
+			ret.ErrKind = CanCommitErrCannotCommit
 			return ret
 		}
 		ret.Timeout = res.Timeout
 	default:
 		ret.Err = fmt.Sprintf("unknown backup operation: %s", req.Method)
+		ret.ErrKind = CanCommitErrCannotCommit
 		return ret
 	}
 
