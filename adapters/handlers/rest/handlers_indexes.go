@@ -312,7 +312,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 		// should use {filterable: {tokenization: X}} instead.
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("property %q has no searchable index; use {\"filterable\":{\"tokenization\":...}} to retokenize the filterable bucket, or {\"searchable\":{\"enabled\":true,\"tokenization\":...}} to add a searchable index", propertyName)))
+				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintTokenization)))
 		}
 
 		var err error
@@ -341,7 +341,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	case body.Searchable != nil && body.Searchable.Rebuild:
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
+				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintRebuildOrAlgorithm)))
 		}
 		// rebuild preserves the current BM25 algorithm and tokenization.
 		// WAND searchable indexes cannot be rebuilt — the only supported
@@ -357,7 +357,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	case body.Searchable != nil && body.Searchable.Algorithm != "":
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
-				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
+				db.NoSearchableIndexError(propertyName, db.NoSearchableIndexHintRebuildOrAlgorithm)))
 		}
 		// Canonicalise the algorithm name through normalizeSearchableAlgorithm,
 		// then dispatch on the canonical value with an explicit allowlist.

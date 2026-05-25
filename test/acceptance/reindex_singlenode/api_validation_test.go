@@ -225,7 +225,7 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			collection: stClass, property: "text_unindexed",
 			body:        `{"searchable":{"algorithm":"blockmax"}}`,
 			wantStatus:  http.StatusBadRequest,
-			wantBodyHas: "does not have a searchable index",
+			wantBodyHas: "has no searchable index",
 		},
 		{
 			name:       "filterable.rebuild on property with no filterable index",
