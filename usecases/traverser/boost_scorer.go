@@ -25,13 +25,20 @@ import (
 	"fmt"
 	"math"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 )
+
+// dateLayouts lists the time formats tried when parsing date property values
+// and origin strings. Declared at package scope to avoid per-call allocation.
+var dateLayouts = [...]string{
+	time.RFC3339Nano, time.RFC3339,
+	"2006-01-02T15:04:05", "2006-01-02",
+}
 
 func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.Result {
 	if boost == nil || len(boost.Conditions) == 0 || len(results) == 0 {
@@ -49,7 +56,7 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 	decayParams := make([]parsedDecay, len(boost.Conditions))
 	for i, cond := range boost.Conditions {
 		if cond.Decay != nil {
-			decayParams[i] = parseDecayParams(cond.Decay)
+			decayParams[i] = parseDecayParams(cond.Decay, nowTime)
 		}
 	}
 
@@ -60,7 +67,7 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 	// Compute boost score for each result.
 	boostScores := make([]float32, len(results))
 	for i := range results {
-		boostScores[i] = scoreResult(&results[i], boost.Conditions, decayParams, propertyValueScores, i, nowTime)
+		boostScores[i] = scoreResult(&results[i], boost.Conditions, decayParams, propertyValueScores, i)
 	}
 
 	// Normalize primary scores to [0,1] using min-max.
@@ -119,11 +126,20 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 	}
 
 	// Re-sort by combined score descending.
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].Score != results[j].Score {
-			return results[i].Score > results[j].Score
+	slices.SortFunc(results, func(a, b search.Result) int {
+		if a.Score != b.Score {
+			if a.Score > b.Score {
+				return -1
+			}
+			return 1
 		}
-		return results[i].ID < results[j].ID
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
 	})
 
 	// Apply offset, then truncate to limit.
@@ -147,7 +163,6 @@ func applyBoostScoring(results []search.Result, boost *filters.Boost) []search.R
 // uses abs(weight) so the score range is [-1, 1].
 func scoreResult(r *search.Result, conditions []filters.BoostCondition,
 	decayParams []parsedDecay, propertyValueScores [][]float32, resultIdx int,
-	nowTime time.Time,
 ) float32 {
 	var weightedSum, weightSum float32
 
@@ -166,7 +181,7 @@ func scoreResult(r *search.Result, conditions []filters.BoostCondition,
 				condScore = 1.0
 			}
 		} else if cond.Decay != nil {
-			condScore = computeDecayForResult(cond.Decay, decayParams[i], props, nowTime)
+			condScore = computeDecayForResult(cond.Decay, decayParams[i], props)
 		} else if cond.PropertyValue != nil {
 			condScore = propertyValueScores[i][resultIdx]
 		}
@@ -199,6 +214,12 @@ func distToScore(results []search.Result) {
 // after the modifier so that the highest value in the result set scores 1.0.
 // Returns a slice indexed by [conditionIdx][resultIdx].
 func precomputePropertyValueScores(results []search.Result, conditions []filters.BoostCondition) [][]float32 {
+	// Extract props once per result to avoid re-extracting for each condition.
+	propsByIdx := make([]map[string]any, len(results))
+	for j := range results {
+		propsByIdx[j] = extractProps(&results[j])
+	}
+
 	scores := make([][]float32, len(conditions))
 	for i, cond := range conditions {
 		if cond.PropertyValue == nil {
@@ -210,11 +231,10 @@ func precomputePropertyValueScores(results []search.Result, conditions []filters
 		raw := make([]float64, len(results))
 
 		for j := range results {
-			props := extractProps(&results[j])
-			if props == nil {
+			if propsByIdx[j] == nil {
 				continue
 			}
-			val, err := toFloat64(props[propName])
+			val, err := toFloat64(propsByIdx[j][propName])
 			if err != nil {
 				continue
 			}
@@ -419,10 +439,17 @@ type parsedDecay struct {
 	scale      float64
 	decayValue float64
 	curve      filters.DecayCurveType
-	valid      bool
+
+	// Pre-parsed origin values so computeDistance avoids re-parsing per result.
+	originTime      time.Time
+	originTimeValid bool
+	originNum       float64
+	originNumValid  bool
+
+	valid bool
 }
 
-func parseDecayParams(d *filters.Decay) parsedDecay {
+func parseDecayParams(d *filters.Decay, nowTime time.Time) parsedDecay {
 	var offset, scale float64
 	if d.IsNumeric {
 		offset = d.OffsetNumeric
@@ -446,16 +473,36 @@ func parseDecayParams(d *filters.Decay) parsedDecay {
 	if curve == "" {
 		curve = filters.DecayCurveExp
 	}
-	return parsedDecay{
+
+	p := parsedDecay{
 		offset:     offset,
 		scale:      scale,
 		decayValue: decayValue,
 		curve:      curve,
 		valid:      true,
 	}
+
+	// Pre-parse origin as time and as number so computeDistance doesn't
+	// repeat the work for every result.
+	origin := d.Origin
+	if d.IsNumeric {
+		p.originNum = d.OriginNumeric
+		p.originNumValid = true
+	} else if origin != "" {
+		if t, err := parseOriginAsTime(origin, nowTime); err == nil {
+			p.originTime = t
+			p.originTimeValid = true
+		}
+		if n, err := strconv.ParseFloat(origin, 64); err == nil {
+			p.originNum = n
+			p.originNumValid = true
+		}
+	}
+
+	return p
 }
 
-func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, props map[string]any, nowTime time.Time) float32 {
+func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, props map[string]any) float32 {
 	if !parsed.valid || props == nil || decay.Path == nil {
 		return 0
 	}
@@ -466,7 +513,7 @@ func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, props map[s
 		return 0
 	}
 
-	dist, err := computeDistance(decay, propVal, nowTime)
+	dist, err := computeDistance(parsed, propVal)
 	if err != nil {
 		return 0
 	}
@@ -474,17 +521,12 @@ func computeDecayForResult(decay *filters.Decay, parsed parsedDecay, props map[s
 	return computeDecayFunction(parsed.curve, dist, parsed.offset, parsed.scale, parsed.decayValue)
 }
 
-func computeDistance(decay *filters.Decay, propValue any, nowTime time.Time) (float64, error) {
+func computeDistance(parsed parsedDecay, propValue any) (float64, error) {
 	if dateVal, ok := tryParseDate(propValue); ok {
-		origin := decay.Origin
-		if origin == "" {
-			origin = "now"
+		if !parsed.originTimeValid {
+			return 0, fmt.Errorf("no valid time origin for date property")
 		}
-		originTime, err := parseOriginAsTime(origin, nowTime)
-		if err != nil {
-			return 0, err
-		}
-		return math.Abs(float64(dateVal.Sub(originTime))), nil
+		return math.Abs(float64(dateVal.Sub(parsed.originTime))), nil
 	}
 
 	numVal, err := toFloat64(propValue)
@@ -492,17 +534,11 @@ func computeDistance(decay *filters.Decay, propValue any, nowTime time.Time) (fl
 		return 0, err
 	}
 
-	var originNum float64
-	if decay.IsNumeric {
-		originNum = decay.OriginNumeric
-	} else {
-		originNum, err = strconv.ParseFloat(decay.Origin, 64)
-		if err != nil {
-			return 0, err
-		}
+	if !parsed.originNumValid {
+		return 0, fmt.Errorf("no valid numeric origin")
 	}
 
-	return math.Abs(numVal - originNum), nil
+	return math.Abs(numVal - parsed.originNum), nil
 }
 
 func computeDecayFunction(curve filters.DecayCurveType, dist, offset, scale, decayValue float64) float32 {
@@ -535,10 +571,7 @@ func tryParseDate(val any) (time.Time, bool) {
 	case time.Time:
 		return v, true
 	case string:
-		for _, layout := range []string{
-			time.RFC3339Nano, time.RFC3339,
-			"2006-01-02T15:04:05", "2006-01-02",
-		} {
+		for _, layout := range dateLayouts {
 			if t, err := time.Parse(layout, v); err == nil {
 				return t, true
 			}
@@ -551,10 +584,7 @@ func parseOriginAsTime(origin string, nowTime time.Time) (time.Time, error) {
 	if origin == "now" {
 		return nowTime, nil
 	}
-	for _, layout := range []string{
-		time.RFC3339Nano, time.RFC3339,
-		"2006-01-02T15:04:05", "2006-01-02",
-	} {
+	for _, layout := range dateLayouts {
 		if t, err := time.Parse(layout, origin); err == nil {
 			return t, nil
 		}
