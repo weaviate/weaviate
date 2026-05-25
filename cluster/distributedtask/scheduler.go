@@ -28,6 +28,40 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+// taskSchedulerState bundles the per-task scheduler-side state for a
+// single TaskDescriptor. It collapses what was previously seven parallel
+// maps (each keyed by TaskDescriptor) into one struct so adding new
+// per-task fields no longer requires touching a separate "register
+// here too" cleanup helper.
+//
+// All access is gated by [Scheduler.mu]. Entries are created lazily on
+// first write and deleted as a unit on local task cleanup; the lazy
+// nature is preserved by [Scheduler.perTaskStateLockedOrInit] /
+// [Scheduler.perTaskStateLocked].
+//
+//   - completedCallbackFired: per-task one-shot for [UnitAwareProvider.OnTaskCompleted].
+//   - groupCallbackFired: per-group one-shot for [UnitAwareProvider.OnGroupCompleted]
+//     (PHASE B / non-barrier path) and [UnitAwareProvider.OnSwapRequested] (barrier PHASE B).
+//   - preparationCallbackFired: per-group one-shot for [UnitAwareProvider.OnGroupCompleted]
+//     in barrier PHASE A.
+//   - postCompletionAckEmitted: per-task one-shot for emitting the per-node
+//     PostCompletionAck via [PostCompletionAckRecorder.RecordDistributedTaskPostCompletionAck].
+//   - preparationAckEmitted: per-task one-shot for emitting the per-node
+//     PreparationCompleteAck.
+//   - postCompletionGroupErrors / preparationCompletionGroupErrors: capture
+//     return values from the per-group callbacks (incl. nil) so the
+//     ack-emission gate can distinguish "fired and succeeded" from "not
+//     fired yet".
+type taskSchedulerState struct {
+	completedCallbackFired           bool
+	groupCallbackFired               map[string]bool
+	preparationCallbackFired         map[string]bool
+	postCompletionAckEmitted         bool
+	preparationAckEmitted            bool
+	postCompletionGroupErrors        map[string]error
+	preparationCompletionGroupErrors map[string]error
+}
+
 // Scheduler is the component which is responsible for polling the active tasks in the cluster (via the Manager)
 // and making sure that the tasks are running on the local node.
 //
@@ -60,21 +94,16 @@ type Scheduler struct {
 
 	tasksRunning *prometheus.GaugeVec
 
-	completedCallbackFired map[TaskDescriptor]bool
-
-	// groupCallbackFired/preparationCallbackFired and
-	// postCompletionAckEmitted/preparationAckEmitted /
-	// postCompletionGroupErrors/preparationCompletionGroupErrors are
-	// per-scheduler-instance state for the two-phase callback firing and
-	// ack emission. preparation* entries are populated only for barrier
-	// tasks; in either case they are rebuilt on restart and the recovery
-	// path re-fires the callback so the cluster never loses the barrier.
-	groupCallbackFired               map[TaskDescriptor]map[string]bool
-	preparationCallbackFired         map[TaskDescriptor]map[string]bool
-	postCompletionAckEmitted         map[TaskDescriptor]bool
-	preparationAckEmitted            map[TaskDescriptor]bool
-	postCompletionGroupErrors        map[TaskDescriptor]map[string]error
-	preparationCompletionGroupErrors map[TaskDescriptor]map[string]error
+	// perTaskState holds all per-scheduler-instance per-task state for
+	// the two-phase callback firing and ack emission. Entries are
+	// per-task by TaskDescriptor; preparation* fields are populated
+	// only for barrier tasks. The whole struct is rebuilt on restart
+	// and the recovery path re-fires callbacks so the cluster never
+	// loses the barrier. See [taskSchedulerState] for the field
+	// semantics; the single-struct replaces seven parallel maps that
+	// previously required a manual "register here too" entry in
+	// [Scheduler.deletePerTaskStateLocked] for every new field.
+	perTaskState map[TaskDescriptor]*taskSchedulerState
 
 	// bootstrapped flips to true once the scheduler has snapshotted the
 	// RAFT-replicated task list and pre-marked every task that was
@@ -140,20 +169,14 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 	return &Scheduler{
 		runningTasks: map[string]map[TaskDescriptor]TaskHandle{},
 
-		providers:                        params.Providers,
-		completionRecorder:               params.CompletionRecorder,
-		completedCallbackFired:           map[TaskDescriptor]bool{},
-		groupCallbackFired:               map[TaskDescriptor]map[string]bool{},
-		preparationCallbackFired:         map[TaskDescriptor]map[string]bool{},
-		postCompletionAckEmitted:         map[TaskDescriptor]bool{},
-		preparationAckEmitted:            map[TaskDescriptor]bool{},
-		postCompletionGroupErrors:        map[TaskDescriptor]map[string]error{},
-		preparationCompletionGroupErrors: map[TaskDescriptor]map[string]error{},
-		taskLister:                       params.TaskLister,
-		taskCleaner:                      params.TaskCleaner,
-		taskFinalizer:                    params.TaskFinalizer,
-		ackRecorder:                      params.AckRecorder,
-		clock:                            params.Clock,
+		providers:          params.Providers,
+		completionRecorder: params.CompletionRecorder,
+		perTaskState:       map[TaskDescriptor]*taskSchedulerState{},
+		taskLister:         params.TaskLister,
+		taskCleaner:        params.TaskCleaner,
+		taskFinalizer:      params.TaskFinalizer,
+		ackRecorder:        params.AckRecorder,
+		clock:              params.Clock,
 
 		localNode:        params.LocalNode,
 		completedTaskTTL: params.CompletedTaskTTL,
@@ -309,20 +332,21 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 					}
 				}
 			}
-			s.completedCallbackFired[desc] = true
-			if s.groupCallbackFired[desc] == nil {
-				s.groupCallbackFired[desc] = map[string]bool{}
+			state := s.perTaskStateLockedOrInit(desc)
+			state.completedCallbackFired = true
+			if state.groupCallbackFired == nil {
+				state.groupCallbackFired = map[string]bool{}
 			}
-			if s.preparationCallbackFired[desc] == nil {
-				s.preparationCallbackFired[desc] = map[string]bool{}
+			if state.preparationCallbackFired == nil {
+				state.preparationCallbackFired = map[string]bool{}
 			}
 			for _, groupID := range task.Groups() {
-				s.groupCallbackFired[desc][groupID] = true
+				state.groupCallbackFired[groupID] = true
 				// Pre-mark prep as fired too — a terminal task is past
 				// both phases of the barrier so neither the prep nor
 				// the swap callback should re-fire on this scheduler
 				// instance.
-				s.preparationCallbackFired[desc][groupID] = true
+				state.preparationCallbackFired[groupID] = true
 			}
 			// Tasks that were already terminal at bootstrap have, by
 			// definition, already gone through the ack barrier (or
@@ -330,8 +354,8 @@ func (s *Scheduler) preMarkTerminalCallbacksLocked(tasksByNamespace map[string]m
 			// per-node prep-ack and the swap-ack as emitted so the
 			// next tick does not re-emit for a task that's already
 			// past either gate.
-			s.postCompletionAckEmitted[desc] = true
-			s.preparationAckEmitted[desc] = true
+			state.postCompletionAckEmitted = true
+			state.preparationAckEmitted = true
 		}
 	}
 }
@@ -520,37 +544,40 @@ func (s *Scheduler) tick() {
 					// PreparationCompleteAck barrier lifts.
 					if task.NeedsPreparationBarrier && task.Status == TaskStatusPreparing {
 						for _, groupID := range task.Groups() {
-							if s.preparationCallbackFired[desc] != nil && s.preparationCallbackFired[desc][groupID] {
+							state := s.perTaskStateLocked(desc)
+							if state != nil && state.preparationCallbackFired[groupID] {
 								continue
 							}
 							localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
 							if len(localIDs) == 0 {
 								continue
 							}
-							if s.preparationCallbackFired[desc] == nil {
-								s.preparationCallbackFired[desc] = map[string]bool{}
+							state = s.perTaskStateLockedOrInit(desc)
+							if state.preparationCallbackFired == nil {
+								state.preparationCallbackFired = map[string]bool{}
 							}
-							s.preparationCallbackFired[desc][groupID] = true
+							state.preparationCallbackFired[groupID] = true
 							groupErr := suProvider.OnGroupCompleted(task, groupID, localIDs)
 							// On graceful shutdown drop the fired mark so
 							// recovery re-fires on next boot.
 							if errors.Is(groupErr, context.Canceled) {
-								delete(s.preparationCallbackFired[desc], groupID)
+								delete(state.preparationCallbackFired, groupID)
 								s.loggerWithTask(namespace, desc).
 									WithField("groupID", groupID).
 									Info("PREP phase aborted by graceful shutdown; recovery on next boot will re-fire and emit the prep-complete ack")
 								continue
 							}
-							if s.preparationCompletionGroupErrors[desc] == nil {
-								s.preparationCompletionGroupErrors[desc] = map[string]error{}
+							if state.preparationCompletionGroupErrors == nil {
+								state.preparationCompletionGroupErrors = map[string]error{}
 							}
-							s.preparationCompletionGroupErrors[desc][groupID] = groupErr
+							state.preparationCompletionGroupErrors[groupID] = groupErr
 						}
 
 						// Emit per-node PreparationCompleteAck once every
 						// local group has fired PREP.
+						prepState := s.perTaskStateLocked(desc)
 						if s.ackRecorder != nil &&
-							!s.preparationAckEmitted[desc] &&
+							(prepState == nil || !prepState.preparationAckEmitted) &&
 							s.allLocalGroupsPreparationFiredLocked(task, desc) {
 							success, joined := s.aggregatePreparationAckErrorsLocked(task, desc)
 							if err := s.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
@@ -560,7 +587,7 @@ func (s *Scheduler) tick() {
 								s.loggerWithTask(namespace, desc).
 									Warnf("failed to record distributed task prep-complete ack; will retry on next tick or wake: %v", err)
 							} else {
-								s.preparationAckEmitted[desc] = true
+								s.perTaskStateLockedOrInit(desc).preparationAckEmitted = true
 								if task.PreparationCompletionAcks == nil {
 									task.PreparationCompletionAcks = map[string]PostCompletionAck{}
 								}
@@ -587,7 +614,8 @@ func (s *Scheduler) tick() {
 						task.Status == TaskStatusFailed ||
 						task.Status == TaskStatusFinished
 					for _, groupID := range task.Groups() {
-						if s.groupCallbackFired[desc] != nil && s.groupCallbackFired[desc][groupID] {
+						state := s.perTaskStateLocked(desc)
+						if state != nil && state.groupCallbackFired[groupID] {
 							continue
 						}
 						if task.NeedsPreparationBarrier {
@@ -601,10 +629,11 @@ func (s *Scheduler) tick() {
 						}
 						localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
 						if len(localIDs) > 0 {
-							if s.groupCallbackFired[desc] == nil {
-								s.groupCallbackFired[desc] = map[string]bool{}
+							state = s.perTaskStateLockedOrInit(desc)
+							if state.groupCallbackFired == nil {
+								state.groupCallbackFired = map[string]bool{}
 							}
-							s.groupCallbackFired[desc][groupID] = true
+							state.groupCallbackFired[groupID] = true
 							var groupErr error
 							if task.NeedsPreparationBarrier {
 								groupErr = suProvider.OnSwapRequested(task, groupID, localIDs)
@@ -617,7 +646,7 @@ func (s *Scheduler) tick() {
 							// would flip the task to FAILED and short-circuit
 							// recovery.
 							if errors.Is(groupErr, context.Canceled) {
-								delete(s.groupCallbackFired[desc], groupID)
+								delete(state.groupCallbackFired, groupID)
 								s.loggerWithTask(namespace, desc).
 									WithField("groupID", groupID).
 									Info("SWAP callback aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack")
@@ -625,18 +654,19 @@ func (s *Scheduler) tick() {
 							}
 							// Record nil too so the ack-emission gate can tell
 							// "fired and succeeded" from "not fired yet".
-							if s.postCompletionGroupErrors[desc] == nil {
-								s.postCompletionGroupErrors[desc] = map[string]error{}
+							if state.postCompletionGroupErrors == nil {
+								state.postCompletionGroupErrors = map[string]error{}
 							}
-							s.postCompletionGroupErrors[desc][groupID] = groupErr
+							state.postCompletionGroupErrors[groupID] = groupErr
 						}
 					}
 
 					// Emit per-node post-completion ack once every local group
 					// has fired its SWAP callback. One ack per (node, task);
 					// survives restart via LocalCallbacksDone.
+					ackState := s.perTaskStateLocked(desc)
 					if s.ackRecorder != nil &&
-						!s.postCompletionAckEmitted[desc] &&
+						(ackState == nil || !ackState.postCompletionAckEmitted) &&
 						task.Status != TaskStatusStarted &&
 						s.allLocalGroupsFiredLocked(task, desc) {
 						success, joined := s.aggregateAckErrorsLocked(task, desc)
@@ -649,7 +679,7 @@ func (s *Scheduler) tick() {
 							s.loggerWithTask(namespace, desc).
 								Warnf("failed to record distributed task post-completion ack; will retry on next tick or wake: %v", err)
 						} else {
-							s.postCompletionAckEmitted[desc] = true
+							s.perTaskStateLockedOrInit(desc).postCompletionAckEmitted = true
 							// Mirror the ack onto the per-tick local clone so
 							// the OnTaskCompleted gate sees it; on failure
 							// flip to FAILED so OnTaskCompleted still runs
@@ -679,14 +709,15 @@ func (s *Scheduler) tick() {
 					task.Status == TaskStatusFailed ||
 					task.Status == TaskStatusFinished ||
 					task.Status == TaskStatusCancelled
-				if readyForFinalize && !s.completedCallbackFired[desc] {
+				phase2State := s.perTaskStateLocked(desc)
+				if readyForFinalize && (phase2State == nil || !phase2State.completedCallbackFired) {
 					if s.ackRecorder != nil && task.Status == TaskStatusSwapping {
 						missing := task.MissingPostCompletionAckNodes()
 						if len(missing) > 0 {
 							continue
 						}
 					}
-					s.completedCallbackFired[desc] = true
+					s.perTaskStateLockedOrInit(desc).completedCallbackFired = true
 					suProvider.OnTaskCompleted(task)
 				}
 			}
@@ -700,7 +731,8 @@ func (s *Scheduler) tick() {
 				if task.Status != TaskStatusSwapping {
 					continue
 				}
-				if providerIsUnitAware && !s.completedCallbackFired[desc] {
+				finState := s.perTaskStateLocked(desc)
+				if providerIsUnitAware && (finState == nil || !finState.completedCallbackFired) {
 					continue
 				}
 				if err := s.taskFinalizer.MarkDistributedTaskFinalized(
@@ -708,9 +740,18 @@ func (s *Scheduler) tick() {
 				); err != nil {
 					s.loggerWithTask(namespace, desc).
 						Warnf("failed to mark distributed task finalized; will retry on next tick or wake: %v", err)
-					// OnTaskCompleted is idempotent (provider re-fires safely).
-					if providerIsUnitAware {
-						s.completedCallbackFired[desc] = false
+					// TODO(scheduler): the rollback below re-fires
+					// OnTaskCompleted on the next tick. Today the only
+					// production [UnitAwareProvider] (reindex) is
+					// idempotent, but the interface contract doesn't
+					// require that. If a future provider does
+					// non-idempotent work in OnTaskCompleted, harden
+					// either the contract (godoc on
+					// [UnitAwareProvider.OnTaskCompleted]) or the
+					// scheduler (don't roll back until the FSM confirms
+					// the task is still SWAPPING).
+					if providerIsUnitAware && finState != nil {
+						finState.completedCallbackFired = false
 					}
 				}
 			}
@@ -838,12 +879,13 @@ func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *l
 // groups' OnGroupCompleted only fires on the nodes that own units in
 // them, so this node never has anything to ack for them.
 func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) bool {
+	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {
 		localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
 		if len(localIDs) == 0 {
 			continue
 		}
-		if s.groupCallbackFired[desc] == nil || !s.groupCallbackFired[desc][groupID] {
+		if state == nil || !state.groupCallbackFired[groupID] {
 			return false
 		}
 	}
@@ -853,12 +895,13 @@ func (s *Scheduler) allLocalGroupsFiredLocked(task *Task, desc TaskDescriptor) b
 // allLocalGroupsPreparationFiredLocked — PREP counterpart to allLocalGroupsFiredLocked.
 // Gates per-node RecordPreparationCompleteAck emission. Caller must hold s.mu.
 func (s *Scheduler) allLocalGroupsPreparationFiredLocked(task *Task, desc TaskDescriptor) bool {
+	state := s.perTaskStateLocked(desc)
 	for _, groupID := range task.Groups() {
 		localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
 		if len(localIDs) == 0 {
 			continue
 		}
-		if s.preparationCallbackFired[desc] == nil || !s.preparationCallbackFired[desc][groupID] {
+		if state == nil || !state.preparationCallbackFired[groupID] {
 			return false
 		}
 	}
@@ -875,7 +918,11 @@ func (s *Scheduler) allLocalGroupsPreparationFiredLocked(task *Task, desc TaskDe
 // FSM persists the joined string as-is on PostCompletionAck.Error for
 // forensic visibility.
 func (s *Scheduler) aggregateAckErrorsLocked(task *Task, desc TaskDescriptor) (bool, string) {
-	errs := s.postCompletionGroupErrors[desc]
+	state := s.perTaskStateLocked(desc)
+	if state == nil {
+		return true, ""
+	}
+	errs := state.postCompletionGroupErrors
 	if len(errs) == 0 {
 		return true, ""
 	}
@@ -895,7 +942,11 @@ func (s *Scheduler) aggregateAckErrorsLocked(task *Task, desc TaskDescriptor) (b
 // aggregatePreparationAckErrorsLocked — PREP counterpart to aggregateAckErrorsLocked.
 // Caller must hold s.mu.
 func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDescriptor) (bool, string) {
-	errs := s.preparationCompletionGroupErrors[desc]
+	state := s.perTaskStateLocked(desc)
+	if state == nil {
+		return true, ""
+	}
+	errs := state.preparationCompletionGroupErrors
 	if len(errs) == 0 {
 		return true, ""
 	}
@@ -912,19 +963,31 @@ func (s *Scheduler) aggregatePreparationAckErrorsLocked(task *Task, desc TaskDes
 	return false, strings.Join(msgs, "; ")
 }
 
-// deletePerTaskStateLocked is the single source of truth for the
-// per-task scheduler maps on the local-cleanup path. A missed map
-// here leaks one entry per cleaned-up barrier task. Caller holds s.mu.
-//
-// When you add a new per-task map to the Scheduler struct, register
-// it here too — otherwise the next barrier task to clean up will
-// leak the new map's entry.
+// perTaskStateLocked returns the per-task scheduler state for desc, or
+// nil if no entry exists. Caller must hold s.mu. Read-only callers
+// should use this to avoid creating empty entries on map reads.
+func (s *Scheduler) perTaskStateLocked(desc TaskDescriptor) *taskSchedulerState {
+	return s.perTaskState[desc]
+}
+
+// perTaskStateLockedOrInit returns the per-task scheduler state for
+// desc, creating an empty entry on demand. Caller must hold s.mu.
+// Used at write sites where the absence of an entry should be treated
+// the same as a zero-valued entry.
+func (s *Scheduler) perTaskStateLockedOrInit(desc TaskDescriptor) *taskSchedulerState {
+	state, ok := s.perTaskState[desc]
+	if !ok {
+		state = &taskSchedulerState{}
+		s.perTaskState[desc] = state
+	}
+	return state
+}
+
+// deletePerTaskStateLocked removes the per-task scheduler state for
+// desc. Caller must hold s.mu. After the collapse into
+// [taskSchedulerState] a single delete on the outer map is enough;
+// the previous version had to enumerate seven parallel maps and
+// silently leaked any map a contributor forgot to register.
 func (s *Scheduler) deletePerTaskStateLocked(desc TaskDescriptor) {
-	delete(s.completedCallbackFired, desc)
-	delete(s.groupCallbackFired, desc)
-	delete(s.preparationCallbackFired, desc)
-	delete(s.postCompletionAckEmitted, desc)
-	delete(s.preparationAckEmitted, desc)
-	delete(s.postCompletionGroupErrors, desc)
-	delete(s.preparationCompletionGroupErrors, desc)
+	delete(s.perTaskState, desc)
 }

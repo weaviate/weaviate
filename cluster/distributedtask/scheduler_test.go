@@ -1280,29 +1280,27 @@ func TestPreMarkTerminalCallbacksLocked_OnlyTerminalsAreMarked(t *testing.T) {
 	s.mu.Unlock()
 
 	// Finished, failed, cancelled: marked as fired.
-	require.True(t, s.completedCallbackFired[finishedDesc],
+	require.True(t, s.perTaskState[finishedDesc].completedCallbackFired,
 		"Finished task must be pre-marked as completed-callback-fired")
-	require.True(t, s.completedCallbackFired[failedDesc],
+	require.True(t, s.perTaskState[failedDesc].completedCallbackFired,
 		"Failed task must be pre-marked as completed-callback-fired")
-	require.True(t, s.completedCallbackFired[cancelledDesc],
+	require.True(t, s.perTaskState[cancelledDesc].completedCallbackFired,
 		"Cancelled task must be pre-marked as completed-callback-fired")
 
 	// All groups of terminal tasks: marked as fired.
-	require.True(t, s.groupCallbackFired[finishedDesc]["g1"],
+	require.True(t, s.perTaskState[finishedDesc].groupCallbackFired["g1"],
 		"Finished task's g1 must be pre-marked")
-	require.True(t, s.groupCallbackFired[finishedDesc]["g2"],
+	require.True(t, s.perTaskState[finishedDesc].groupCallbackFired["g2"],
 		"Finished task's g2 must be pre-marked")
-	require.True(t, s.groupCallbackFired[failedDesc][""],
+	require.True(t, s.perTaskState[failedDesc].groupCallbackFired[""],
 		"Failed task's implicit group must be pre-marked")
-	require.True(t, s.groupCallbackFired[cancelledDesc]["g1"],
+	require.True(t, s.perTaskState[cancelledDesc].groupCallbackFired["g1"],
 		"Cancelled task's g1 must be pre-marked")
 
 	// Started task: NOT marked. Its callbacks must still fire when it
 	// transitions to terminal.
-	require.False(t, s.completedCallbackFired[startedDesc],
+	require.Nil(t, s.perTaskState[startedDesc],
 		"Started task must NOT be pre-marked — its OnTaskCompleted needs to fire on terminal transition")
-	require.False(t, s.groupCallbackFired[startedDesc]["g1"],
-		"Started task's group must NOT be pre-marked — its OnGroupCompleted needs to fire when the group completes")
 }
 
 // recoveryAwareTestProvider is a minimal provider that implements
@@ -1391,23 +1389,19 @@ func TestPreMarkTerminalCallbacksLocked_RecoveryAwareSkipsPending(t *testing.T) 
 	s.mu.Unlock()
 
 	// pending-recovery: LocalCallbacksDone=false → NOT pre-marked.
-	require.False(t, s.completedCallbackFired[pendingDesc],
+	require.Nil(t, s.perTaskState[pendingDesc],
 		"pending-recovery task MUST NOT be pre-marked — OnGroupCompleted needs to re-fire to complete the half-applied swap")
-	require.False(t, s.groupCallbackFired[pendingDesc]["g1"],
-		"pending-recovery task's g1 MUST NOT be pre-marked")
-	require.False(t, s.groupCallbackFired[pendingDesc]["g2"],
-		"pending-recovery task's g2 MUST NOT be pre-marked")
 
 	// done: LocalCallbacksDone=true → pre-marked normally.
-	require.True(t, s.completedCallbackFired[doneDesc],
+	require.True(t, s.perTaskState[doneDesc].completedCallbackFired,
 		"done task MUST be pre-marked")
-	require.True(t, s.groupCallbackFired[doneDesc]["g1"],
+	require.True(t, s.perTaskState[doneDesc].groupCallbackFired["g1"],
 		"done task's g1 MUST be pre-marked")
 
 	// failed: hook NOT consulted; pre-marked normally.
-	require.True(t, s.completedCallbackFired[failedDesc],
+	require.True(t, s.perTaskState[failedDesc].completedCallbackFired,
 		"failed task MUST be pre-marked — the recovery-aware hook only applies to FINISHED tasks")
-	require.True(t, s.groupCallbackFired[failedDesc]["g1"],
+	require.True(t, s.perTaskState[failedDesc].groupCallbackFired["g1"],
 		"failed task's g1 MUST be pre-marked")
 }
 
@@ -1446,8 +1440,8 @@ func TestPreMarkTerminalCallbacksLocked_NonRecoveryAwareProviderUnchanged(t *tes
 	s.preMarkTerminalCallbacksLocked(snapshot)
 	s.mu.Unlock()
 
-	require.True(t, s.completedCallbackFired[finishedDesc])
-	require.True(t, s.groupCallbackFired[finishedDesc]["g1"])
+	require.True(t, s.perTaskState[finishedDesc].completedCallbackFired)
+	require.True(t, s.perTaskState[finishedDesc].groupCallbackFired["g1"])
 }
 
 // TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked pins the
@@ -1525,41 +1519,28 @@ func TestPreMarkTerminalCallbacksLocked_BarrierPhasesNotPreMarked(t *testing.T) 
 	s.mu.Unlock()
 
 	// PREPARING: non-terminal. Nothing pre-marked.
-	require.False(t, s.completedCallbackFired[preparingDesc],
-		"PREPARING task MUST NOT be pre-marked — bootstrap pre-mark only applies to terminal tasks")
-	require.False(t, s.groupCallbackFired[preparingDesc]["g1"],
-		"PREPARING task's PHASE B (SWAP) callback must NOT be pre-marked — next tick must re-fire OnGroupCompleted (PHASE A)")
-	require.False(t, s.preparationCallbackFired[preparingDesc]["g1"],
-		"PREPARING task's PHASE A (PREP) callback must NOT be pre-marked — next tick must re-fire OnGroupCompleted (PHASE A)")
-	require.False(t, s.preparationAckEmitted[preparingDesc],
-		"PREPARING task's PreparationCompleteAck must NOT be pre-marked as emitted — the ack will fire from the next tick after PREP completes")
-	require.False(t, s.postCompletionAckEmitted[preparingDesc],
-		"PREPARING task's PostCompletionAck must NOT be pre-marked as emitted — that ack only fires after PHASE B")
+	require.Nil(t, s.perTaskState[preparingDesc],
+		"PREPARING task MUST NOT have any per-task state — bootstrap pre-mark only applies to terminal tasks; next tick must re-fire OnGroupCompleted (PHASE A) and emit the prep-complete ack")
 
 	// SWAPPING: non-terminal. Nothing pre-marked.
-	require.False(t, s.completedCallbackFired[swappingDesc],
-		"SWAPPING task MUST NOT be pre-marked — bootstrap pre-mark only applies to terminal tasks")
-	require.False(t, s.groupCallbackFired[swappingDesc]["g1"],
-		"SWAPPING task's PHASE B (SWAP) callback must NOT be pre-marked — next tick must re-fire OnSwapRequested")
-	require.False(t, s.preparationCallbackFired[swappingDesc]["g1"],
-		"SWAPPING task's PHASE A flag must NOT be pre-marked — PHASE A already ran in PREPARING phase pre-restart")
-	require.False(t, s.preparationAckEmitted[swappingDesc],
-		"SWAPPING task's PreparationCompleteAck must NOT be pre-marked as emitted on this fresh scheduler")
-	require.False(t, s.postCompletionAckEmitted[swappingDesc],
-		"SWAPPING task's PostCompletionAck must NOT be pre-marked as emitted — that ack fires after PHASE B")
+	require.Nil(t, s.perTaskState[swappingDesc],
+		"SWAPPING task MUST NOT have any per-task state — next tick must re-fire OnSwapRequested and emit the post-completion ack")
 
 	// FINISHED: terminal. Pre-marked as fully done (no recovery
 	// override registered for this desc in the test provider, so the
 	// default-true LocalCallbacksDone path applies).
-	require.True(t, s.completedCallbackFired[finishedDesc],
+	finished := s.perTaskState[finishedDesc]
+	require.NotNil(t, finished,
 		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
-	require.True(t, s.groupCallbackFired[finishedDesc]["g1"],
+	require.True(t, finished.completedCallbackFired,
+		"FINISHED barrier task MUST be pre-marked — bootstrap pre-mark applies to terminal tasks regardless of barrier flag")
+	require.True(t, finished.groupCallbackFired["g1"],
 		"FINISHED barrier task's group must be pre-marked")
-	require.True(t, s.preparationCallbackFired[finishedDesc]["g1"],
+	require.True(t, finished.preparationCallbackFired["g1"],
 		"FINISHED barrier task's PHASE A flag must be pre-marked — both phases already cleared the ack barrier pre-restart")
-	require.True(t, s.preparationAckEmitted[finishedDesc],
+	require.True(t, finished.preparationAckEmitted,
 		"FINISHED barrier task's PreparationCompleteAck must be pre-marked as emitted")
-	require.True(t, s.postCompletionAckEmitted[finishedDesc],
+	require.True(t, finished.postCompletionAckEmitted,
 		"FINISHED barrier task's PostCompletionAck must be pre-marked as emitted")
 }
 
@@ -1578,23 +1559,21 @@ func TestScheduler_DeletePerTaskStateLocked_ClearsAllPhaseMaps(t *testing.T) {
 	})
 
 	desc := TaskDescriptor{ID: "barrier-task", Version: 1}
-	s.completedCallbackFired[desc] = true
-	s.groupCallbackFired[desc] = map[string]bool{"g1": true}
-	s.preparationCallbackFired[desc] = map[string]bool{"g1": true}
-	s.postCompletionAckEmitted[desc] = true
-	s.preparationAckEmitted[desc] = true
-	s.postCompletionGroupErrors[desc] = map[string]error{"g1": nil}
-	s.preparationCompletionGroupErrors[desc] = map[string]error{"g1": nil}
+	s.perTaskState[desc] = &taskSchedulerState{
+		completedCallbackFired:           true,
+		groupCallbackFired:               map[string]bool{"g1": true},
+		preparationCallbackFired:         map[string]bool{"g1": true},
+		postCompletionAckEmitted:         true,
+		preparationAckEmitted:            true,
+		postCompletionGroupErrors:        map[string]error{"g1": nil},
+		preparationCompletionGroupErrors: map[string]error{"g1": nil},
+	}
 
 	s.mu.Lock()
 	s.deletePerTaskStateLocked(desc)
 	s.mu.Unlock()
 
-	assert.NotContains(t, s.completedCallbackFired, desc)
-	assert.NotContains(t, s.groupCallbackFired, desc)
-	assert.NotContains(t, s.preparationCallbackFired, desc)
-	assert.NotContains(t, s.postCompletionAckEmitted, desc)
-	assert.NotContains(t, s.preparationAckEmitted, desc)
-	assert.NotContains(t, s.postCompletionGroupErrors, desc)
-	assert.NotContains(t, s.preparationCompletionGroupErrors, desc)
+	// After the collapse into [taskSchedulerState] a single delete on
+	// the outer map clears every field at once — no enumeration risk.
+	assert.NotContains(t, s.perTaskState, desc)
 }
