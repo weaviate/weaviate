@@ -55,6 +55,7 @@ function main() {
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
+  run_flake_hunt_multinode_repeated_parallel=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -108,6 +109,7 @@ function main() {
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
+          --flake-hunt-multinode-repeated-parallel|-fhrp) run_all_tests=false; run_flake_hunt_multinode_repeated_parallel=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -152,6 +154,7 @@ function main() {
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
+              "--flake-hunt-multinode-repeated-parallel | -fhrp"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -343,6 +346,11 @@ function main() {
   if $run_acceptance_reindex_backup; then
     echo "running backup × runtime-reindex acceptance tests"
     run_acceptance_reindex_backup
+  fi
+
+  if $run_flake_hunt_multinode_repeated_parallel; then
+    echo "running flake-hunt: TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency (10×)"
+    run_flake_hunt_multinode_repeated_parallel
   fi
   echo "Done!"
 }
@@ -875,6 +883,32 @@ function run_acceptance_reindex_backup() {
   echo_green "acceptance — reindex-backup"
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
+}
+
+# QA flake-hunt: drive TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency 10×.
+# Used from the qa/flake-hunt-multinode-repeated-parallel branch only — there
+# the CI matrix is reduced to 30 shards all running this. 30 × 10 = 300 runs
+# to estimate the flake rate.
+function run_flake_hunt_multinode_repeated_parallel() {
+  build_weaviate_test_image
+  echo_green "flake-hunt: TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency (10 iterations)"
+  local pass=0 fail=0
+  for i in $(seq 1 10); do
+    echo
+    echo "=== iter $i/10 — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    if go test -v -count=1 -timeout=15m \
+        -run '^TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency$' \
+        ./test/acceptance/reindex_multinode/...; then
+      echo "iter $i: PASS"
+      pass=$((pass+1))
+    else
+      echo "iter $i: FAIL"
+      fail=$((fail+1))
+    fi
+  done
+  echo
+  echo "=== flake-hunt summary: pass=$pass fail=$fail / 10 (shard $(hostname -s 2>/dev/null || echo unknown)) ==="
+  [[ $pass -gt 0 ]]
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
