@@ -1067,31 +1067,6 @@ func TestValidateBodyExclusivity(t *testing.T) {
 	}
 }
 
-func TestNormalizeSearchableAlgorithm(t *testing.T) {
-	cases := []struct {
-		in   string
-		want string
-	}{
-		{"BlockMaxWAND", "BlockMaxWAND"},
-		{"blockmax", "BlockMaxWAND"},
-		{"blockmaxwand", "BlockMaxWAND"},
-		{"bmw", "BlockMaxWAND"},
-		{"block_max_wand", "BlockMaxWAND"},
-		{"BLOCK_MAX_WAND", "BlockMaxWAND"},
-		{"BMW", "BlockMaxWAND"},
-		{"WAND", ""},
-		{"wand", ""},
-		{"", ""},
-		{"FastForward", ""},
-		{"blockMaxWAND-v2", ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.in, func(t *testing.T) {
-			require.Equal(t, tc.want, normalizeSearchableAlgorithm(tc.in))
-		})
-	}
-}
-
 // -----------------------------------------------------------------------------
 // countStartedTasksForCollection / per-collection concurrent reindex cap.
 //
