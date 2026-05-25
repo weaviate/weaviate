@@ -94,12 +94,38 @@ type AuditOutcome struct {
 }
 
 // SetReindexAuditDeps installs the builder and logger used by
-// [DB.AuditOrphanReindexTrackersIfReady].
+// [DB.AuditOrphanReindexTrackersIfReady]. If
+// [DB.AuditOrphanReindexTrackersIfReady] was invoked one or more times
+// before this call (race between RAFT replay firing per-class-dir
+// restores and the Scheduler.Start goroutine that installs deps), the
+// counter is non-zero and a single replay sweep runs synchronously so
+// the deferred audit work is not silently lost. Closes B2.
+//
+// Callers must therefore invoke SetReindexAuditDeps with the audit
+// context they want any replay sweep to inherit; a closed context will
+// cause the replay sweep to early-return on PauseCompaction.
 func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
 	db.reindexAuditMu.Lock()
-	defer db.reindexAuditMu.Unlock()
 	db.reindexAuditLookupBuilder = builder
 	db.reindexAuditLogger = logger
+	deferred := db.reindexAuditDeferredRequests
+	db.reindexAuditDeferredRequests = 0
+	db.reindexAuditMu.Unlock()
+
+	if deferred == 0 || builder == nil {
+		return
+	}
+	replayLogger := logger
+	if replayLogger == nil {
+		replayLogger = logrus.New()
+	}
+	replayLogger.WithField("action", "reindex_orphan_audit").
+		WithField("deferred_requests", deferred).
+		Info("reindex orphan audit: replaying audits requested before deps were installed (B2 race window)")
+	if _, err := db.AuditOrphanReindexTrackers(context.Background(), builder(), logger); err != nil {
+		replayLogger.WithField("action", "reindex_orphan_audit").
+			Warnf("reindex orphan audit: deferred-replay sweep returned an error; the next process restart will retry: %v", err)
+	}
 }
 
 // AuditOrphanReindexTrackersIfReady is the no-arg wrapper for callers
@@ -107,20 +133,31 @@ func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger 
 // `adapters/handlers/rest/configure_api.go`'s `restoreClassDirWithAudit`
 // closure (around line 711) which wraps `backup.RestoreClassDir`.
 // Returns an outcome with Status==Skipped when deps are not yet
-// installed; the post-install replay in [DB.SetReindexAuditDeps] is
-// responsible for catching any audit that was requested during the
-// race window. Closes B2.
+// installed; the deferred-request counter is incremented so
+// [DB.SetReindexAuditDeps] replays the audit when deps land. A WARN
+// log is emitted on the skip path so the no-op is detectable. Closes B2.
 func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) (AuditOutcome, error) {
-	db.reindexAuditMu.RLock()
+	db.reindexAuditMu.Lock()
 	builder := db.reindexAuditLookupBuilder
 	logger := db.reindexAuditLogger
-	db.reindexAuditMu.RUnlock()
 	if builder == nil {
+		db.reindexAuditDeferredRequests++
+		deferredNow := db.reindexAuditDeferredRequests
+		db.reindexAuditMu.Unlock()
+		warnLogger := logger
+		if warnLogger == nil {
+			warnLogger = logrus.New()
+		}
+		warnLogger.WithField("action", "reindex_orphan_audit").
+			WithField("deferred_requests", deferredNow).
+			Warn("reindex orphan audit: deps not yet installed; deferring audit until SetReindexAuditDeps lands. " +
+				"If this WARN persists past process startup, the install path is broken.")
 		return AuditOutcome{
 			Status:     AuditStatusSkipped,
 			SkipReason: "deps_not_installed",
 		}, nil
 	}
+	db.reindexAuditMu.Unlock()
 	return db.AuditOrphanReindexTrackers(ctx, builder(), logger)
 }
 

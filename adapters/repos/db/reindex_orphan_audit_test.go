@@ -315,6 +315,97 @@ func TestAuditOrphanReindexTrackersIfReady_DepsMissing(t *testing.T) {
 	assert.Equal(t, "deps_not_installed", outcome.SkipReason)
 }
 
+// TestSetReindexAuditDeps_ReplaysDeferredRequests pins B2: a
+// pre-install AuditOrphanReindexTrackersIfReady invocation increments
+// the deferred-requests counter; SetReindexAuditDeps consumes the
+// counter and runs one replay sweep. Verifies the deferred orphan is
+// cleaned by the replay rather than silently lost.
+func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
+	ctx := testCtx()
+	className := "AuditDeferredReplayClass"
+	shd, idx := testShard(t, ctx, className)
+
+	// Set up an on-disk orphan tracker BEFORE deps are installed.
+	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
+	dir := filepath.Join(migs, "searchable_retokenize_body_1")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
+	writePayload(t, dir, "task-orphan-deferred", 7, "unit-deferred", className,
+		ReindexTypeChangeTokenization, []string{"body"})
+
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+	// First call: deps not installed, so audit must Skip and increment
+	// the deferred-requests counter.
+	outcome, err := db.AuditOrphanReindexTrackersIfReady(ctx)
+	require.NoError(t, err)
+	require.Equal(t, AuditStatusSkipped, outcome.Status,
+		"first call before SetReindexAuditDeps must be Skipped")
+	require.Equal(t, "deps_not_installed", outcome.SkipReason)
+
+	db.reindexAuditMu.RLock()
+	deferred := db.reindexAuditDeferredRequests
+	db.reindexAuditMu.RUnlock()
+	require.Equal(t, 1, deferred,
+		"deferred-requests counter must reflect the one skipped call")
+
+	// Orphan must STILL exist (no audit ran yet).
+	_, err = os.Stat(dir)
+	require.NoError(t, err, "orphan must survive the deps-missing skip")
+
+	// Install deps; SetReindexAuditDeps must drain the deferred
+	// counter and replay the audit synchronously.
+	knownNothing := func(string, uint64) bool { return false }
+	builder := func() KnownReindexTaskLookup { return knownNothing }
+	db.SetReindexAuditDeps(builder, logrus.New())
+
+	// Replay must have cleaned the orphan AND reset the counter.
+	_, err = os.Stat(dir)
+	assert.Truef(t, os.IsNotExist(err),
+		"orphan tracker must be cleaned by the SetReindexAuditDeps replay; stat err=%v", err)
+
+	db.reindexAuditMu.RLock()
+	deferred = db.reindexAuditDeferredRequests
+	db.reindexAuditMu.RUnlock()
+	assert.Equal(t, 0, deferred, "deferred-requests counter must reset after replay")
+}
+
+// TestSetReindexAuditDeps_NoReplayWhenCounterZero pins that a normal
+// startup (no pre-install audits) does NOT run an extra replay sweep.
+// Without this, every SetReindexAuditDeps call would trigger a sweep
+// (including the steady-state install from the Scheduler.Start
+// goroutine where the post-bootstrap audit already ran), doubling
+// the disk read traffic for no benefit.
+func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
+	ctx := testCtx()
+	className := "AuditNoReplayClass"
+	shd, idx := testShard(t, ctx, className)
+
+	// Place an orphan on disk. If SetReindexAuditDeps incorrectly
+	// always replays, the orphan would be removed.
+	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
+	dir := filepath.Join(migs, "searchable_retokenize_body_1")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
+	writePayload(t, dir, "task-noreplay", 11, "unit-noreplay", className,
+		ReindexTypeChangeTokenization, []string{"body"})
+
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+	_ = ctx
+	knownNothing := func(string, uint64) bool { return false }
+	builder := func() KnownReindexTaskLookup { return knownNothing }
+	// Counter is 0 here — no prior AuditOrphanReindexTrackersIfReady call.
+	db.SetReindexAuditDeps(builder, logrus.New())
+	_, err := os.Stat(dir)
+	assert.NoError(t, err,
+		"with zero deferred requests SetReindexAuditDeps must NOT run a replay sweep")
+}
+
 // TestIsLiveReindexTaskStatus_TerminalReleasesOwnership pins the
 // status to ownership matrix the audit's knownTask closure uses:
 // STARTED/PREPARING/SWAPPING are live; FAILED/CANCELLED/FINISHED
