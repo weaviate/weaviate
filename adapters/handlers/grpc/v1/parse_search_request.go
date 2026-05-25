@@ -380,7 +380,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Boost != nil {
-		boost, err := p.extractBoost(req.Boost, req.Collection, req.Tenant, config.Namespaces.Enabled)
+		boost, err := p.extractBoost(req.Boost, req.Collection, req.Tenant, p.namespacesEnabled)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -392,7 +392,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, config.Namespaces.Enabled, p.principal)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.namespacesEnabled, p.principal)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
