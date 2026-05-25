@@ -297,7 +297,8 @@ func (pv *propValuePair) buildRecGroupExecutor(
 	exec := newRecExecutor(input.rawsByCond, metaBucket, s.nestedBitmapOps, concurrency.SROAR_MERGE).
 		withExcludes(excludes).
 		withPlanLCAs(collectPlanLCAs(plan)).
-		withRootAnchor(input.rootAnchor)
+		withRootAnchor(input.rootAnchor).
+		withProps(rootProp.NestedProperties)
 
 	return plan, exec, input.releases, nil
 }
