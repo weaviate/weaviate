@@ -404,7 +404,7 @@ type searcherBitmapFetcher struct {
 }
 
 func (f *searcherBitmapFetcher) fetchValue(ctx context.Context, leaf *propValuePair) (*sroar.Bitmap, func(), error) {
-	dbm, err := leaf.fetchNestedPositions(ctx, f.s, 0)
+	dbm, err := leaf.fetchNestedPositions(ctx, f.s)
 	if err != nil {
 		return nil, nil, err
 	}

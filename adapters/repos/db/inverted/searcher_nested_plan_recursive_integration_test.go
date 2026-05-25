@@ -14,13 +14,19 @@
 package inverted
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 )
+
+// Nested filtering is preview-gated. Enable the gate at package init via
+// the env var; individual tests that want the off state use t.Setenv.
+func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
 
 // rootNestedProps returns the NestedProperties slice for the named root
 // property in filterExamplesClass(). Used by recursive plan structural tests

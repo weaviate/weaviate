@@ -15,6 +15,7 @@ package inverted
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,9 +25,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 )
+
+// Nested filtering is preview-gated. Enable the gate at package init via
+// the env var; individual tests that want the off state use t.Setenv.
+func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
 
 // TestRecExecutorFilterExamples mirrors the eight F-scenarios from
 // TestCorrelatedAndFilterExamplesIndexed but exercises the new recursive plan

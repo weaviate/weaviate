@@ -78,7 +78,7 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 		case pv.operator == filters.OperatorIsNull:
 			return pv.fetchNestedIsNull(s)
 		case pv.operator.OnValue():
-			return pv.fetchNestedDocIDs(ctx, s, limit)
+			return pv.fetchNestedDocIDs(ctx, s)
 		}
 	}
 

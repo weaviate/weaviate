@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -105,6 +106,13 @@ func validateClause(authorizedGetClass func(string) (*models.Class, error), cw *
 	}
 
 	if _, ok := schema.AsNested(prop.DataType); ok {
+		// Preview gate — fires before any other nested validation so the user
+		// sees a single actionable message instead of a downstream
+		// "sub-property not found" / contradiction error. See
+		// entities/config/feature_flags.go.
+		if !entcfg.NestedFilteringEnabled() {
+			return entcfg.NestedFilteringDisabledError()
+		}
 		return validateNestedProp(prop, propName, isPropLengthFilter, cw)
 	}
 

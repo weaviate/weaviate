@@ -168,13 +168,26 @@ func (a *Analyzer) analyzeNestedProp(prop *models.Property, value any) (*NestedP
 		}
 	}
 
-	exists := make([]NestedMeta, len(assignResult.Exists))
-	for i, entry := range assignResult.Exists {
-		exists[i] = NestedMeta{
+	// _exists entries are gated by the same per-leaf config as values:
+	// a leaf with no inverted index can't be filtered on (the validator
+	// rejects IS NULL on non-filterable leaves), so writing its _exists
+	// is pure waste. The root sentinel (Path="") and intermediate
+	// object-array paths (e.g. "cars" or "cars.tires") are not in
+	// indexConfigs and stay — they back IS NULL on the array property
+	// itself, which is a doc-level / element-level question independent
+	// of any leaf flag.
+	exists := make([]NestedMeta, 0, len(assignResult.Exists))
+	for _, entry := range assignResult.Exists {
+		if entry.Path != "" {
+			if cfg, isLeaf := indexConfigs[entry.Path]; isLeaf && !cfg.hasAny() {
+				continue
+			}
+		}
+		exists = append(exists, NestedMeta{
 			Path:      entry.Path,
 			Index:     -1,
 			Positions: entry.Positions,
-		}
+		})
 	}
 
 	return &NestedProperty{

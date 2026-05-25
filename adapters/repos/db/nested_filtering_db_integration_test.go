@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/entities/additional"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -35,6 +37,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
+
+// Nested filtering is preview-gated. Enable the gate at package init via
+// the env var; individual tests that want the off state use t.Setenv.
+func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
 
 // TestNestedFilteringViaShardWritePath exercises nested property filtering
 // end-to-end using the full production write and search pipelines:
@@ -22459,5 +22465,233 @@ func TestNestedFilteringIntraSubArrayOrCrossSubArrayAnd3Levels(t *testing.T) {
 			docs,
 			[]strfmt.UUID{idSpoiler205, idSpoilerPirelli},
 		)
+	})
+}
+
+// TestNestedFilteringLimitRespectedOnRangeScan is a regression test for the
+// cursor early-exit bug on nested filter reads (Copilot review #10974).
+//
+// Before fetchNestedDocIDs / fetchNestedPositions dropped their limit
+// parameters, the bucket cursor for nested range / LIKE / Equal-via-
+// RoaringSet scans short-circuited when the raw position bitmap's
+// GetCardinality reached the user limit — but positions (root|leaf|docID)
+// don't map 1:1 to docs, so a single doc with multiple matching nested
+// elements could exhaust the position quota before later matching docs
+// were read. Result: queries like "cars.year > 2010 LIMIT 5" returned far
+// fewer than 5 docs even though many more matched.
+//
+// After the fix the nested fetch is always unlimited at the bucket-read
+// layer; the iterator clamp (objectsByDocID for Search, LimitedIterator
+// for FindUUIDs) applies the user limit at the docID layer instead.
+//
+// Fixture: 10 docs, each with 5 cars all at the same year (year unique per
+// doc, in [2011..2020]). The range scan for "cars.year > 2010" reads keys
+// in ascending order; with the bug, reading key=2011 alone produces 5
+// positions (from doc1's 5 cars), which exceeds limit=5 and stops the
+// cursor — leaving docs 2..10 unread and returning just 1 doc to the
+// caller. With the fix, all 10 keys are read, the resolver returns all
+// 10 matching docs, and the iterator clamps to exactly the requested 5.
+func TestNestedFilteringLimitRespectedOnRangeScan(t *testing.T) {
+	const nestedClass = "NestedLimitRangeRegression"
+	vTrue := true
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{Name: "doc", DataType: schema.DataTypeObject.PropString(), NestedProperties: []*models.NestedProperty{
+				{
+					Name: "cars", DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "year", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+					},
+				},
+			}},
+		},
+	}
+
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	const totalDocs = 10
+	const carsPerDoc = 5
+	matchingIDs := make(map[strfmt.UUID]bool, totalDocs)
+	for i := 1; i <= totalDocs; i++ {
+		id := uuid(i)
+		matchingIDs[id] = true
+		year := 2010 + i // 2011..2020, unique per doc
+		// All cars in the same doc share the same year so the doc contributes
+		// carsPerDoc (=5) positions to a single key, exceeding the limit on
+		// the first key the cursor reads.
+		cars := make([]any, carsPerDoc)
+		for j := range cars {
+			cars[j] = map[string]any{"year": year}
+		}
+		require.NoError(t, db.PutObject(ctx, &models.Object{
+			Class: nestedClass, ID: id,
+			Properties: map[string]any{
+				"doc": map[string]any{"cars": cars},
+			},
+		}, nil, nil, nil, nil, 0))
+	}
+
+	filter := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorGreaterThan,
+		Value:    &filters.Value{Type: schema.DataTypeInt, Value: 2010},
+		On:       &filters.Path{Class: nestedClass, Property: schema.PropertyName("doc.cars.year")},
+	}}
+
+	const limit = 5
+	res, err := db.Search(ctx, dto.GetParams{
+		ClassName:  nestedClass,
+		Pagination: &filters.Pagination{Limit: limit},
+		Filters:    filter,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, res, limit, "limit must be honored exactly (got %d, expected %d)", len(res), limit)
+	for _, r := range res {
+		assert.True(t, matchingIDs[r.ID], "unexpected doc id %s in result", r.ID)
+	}
+}
+
+// TestNestedFilteringIsNullWithNonIndexableSibling is a smoke test for the
+// per-leaf _exists gating in analyzeNestedProp. Confirms IS NULL on an
+// indexed leaf still resolves correctly end-to-end when the cars
+// sub-property has a sibling leaf with IndexFilterable explicitly off —
+// that sibling's _exists entry is dropped from the meta bucket, and the
+// validator rejects IsNull filters that target it.
+//
+// Catches regressions where dropping a sibling's _exists could
+// accidentally affect the indexed leaf's IsNull semantics. The two
+// _exists keys (_exists.cars.make / _exists.cars.color) are independent
+// in the meta bucket; dropping one must leave the other intact.
+func TestNestedFilteringIsNullWithNonIndexableSibling(t *testing.T) {
+	const nestedClass = "NestedNonIndexableSibling"
+	vTrue := true
+	vFalse := false
+	tok := models.NestedPropertyTokenizationField
+
+	class := &models.Class{
+		Class:             nestedClass,
+		VectorIndexConfig: enthnsw.UserConfig{Skip: true},
+		Properties: []*models.Property{
+			{
+				Name:     "cars",
+				DataType: schema.DataTypeObjectArray.PropString(),
+				NestedProperties: []*models.NestedProperty{
+					{
+						Name:            "make",
+						DataType:        schema.DataTypeText.PropString(),
+						Tokenization:    tok,
+						IndexFilterable: &vTrue,
+					},
+					{
+						// Non-indexable sibling — IndexFilterable AND
+						// IndexSearchable forced off so collectNestedIndexConfig
+						// reports cfg.hasAny()=false and the new gating drops
+						// the per-leaf _exists.cars.color entry.
+						Name:            "color",
+						DataType:        schema.DataTypeText.PropString(),
+						Tokenization:    tok,
+						IndexFilterable: &vFalse,
+						IndexSearchable: &vFalse,
+					},
+				},
+			},
+		},
+	}
+
+	uuid := func(n int) strfmt.UUID {
+		return strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012x", n))
+	}
+
+	db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
+	ctx := context.Background()
+
+	// Two docs: one with make populated, one with make omitted. Both have
+	// the (non-indexable) color populated to confirm the writer doesn't
+	// trip on its meta entry being dropped.
+	const (
+		hasMake     = "00000000-0000-0000-0000-000000000001"
+		missingMake = "00000000-0000-0000-0000-000000000002"
+	)
+	require.NoError(t, db.PutObject(ctx, &models.Object{
+		Class: nestedClass, ID: uuid(1),
+		Properties: map[string]any{
+			"cars": []any{map[string]any{"make": "Toyota", "color": "red"}},
+		},
+	}, nil, nil, nil, nil, 0))
+	require.NoError(t, db.PutObject(ctx, &models.Object{
+		Class: nestedClass, ID: uuid(2),
+		Properties: map[string]any{
+			"cars": []any{map[string]any{"color": "blue"}},
+		},
+	}, nil, nil, nil, nil, 0))
+
+	search := func(t *testing.T, filter *filters.LocalFilter) []string {
+		t.Helper()
+		res, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    filter,
+		})
+		require.NoError(t, err)
+		ids := make([]string, len(res))
+		for i, r := range res {
+			ids[i] = string(r.ID)
+		}
+		return ids
+	}
+
+	t.Run("equal_on_indexed_leaf_matches_populated_doc", func(t *testing.T) {
+		got := search(t, &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			Value:    &filters.Value{Type: schema.DataTypeText, Value: "Toyota"},
+			On:       &filters.Path{Class: nestedClass, Property: "cars.make"},
+		}})
+		assert.ElementsMatch(t, []string{hasMake}, got)
+	})
+
+	t.Run("is_null_on_indexed_leaf_matches_doc_with_missing_field", func(t *testing.T) {
+		// Universe at the cars LCA still includes both docs (cars present
+		// in both); operand _exists.cars.make covers only doc 1. The
+		// AndNot yields doc 2, which lacks make. Dropping
+		// _exists.cars.color from the meta bucket must not interfere.
+		got := search(t, &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: true},
+			On:       &filters.Path{Class: nestedClass, Property: "cars.make"},
+		}})
+		assert.ElementsMatch(t, []string{missingMake}, got)
+	})
+
+	t.Run("is_null_false_on_indexed_leaf_matches_populated_doc", func(t *testing.T) {
+		got := search(t, &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			Value:    &filters.Value{Type: schema.DataTypeBoolean, Value: false},
+			On:       &filters.Path{Class: nestedClass, Property: "cars.make"},
+		}})
+		assert.ElementsMatch(t, []string{hasMake}, got)
+	})
+
+	t.Run("filter_on_non_indexable_sibling_is_rejected_by_validator", func(t *testing.T) {
+		// Sanity: the sibling leaf isn't filterable so the validator
+		// must reject before the searcher attempts a meta-bucket read.
+		_, err := db.Search(ctx, dto.GetParams{
+			ClassName:  nestedClass,
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters: &filters.LocalFilter{Root: &filters.Clause{
+				Operator: filters.OperatorEqual,
+				Value:    &filters.Value{Type: schema.DataTypeText, Value: "red"},
+				On:       &filters.Path{Class: nestedClass, Property: "cars.color"},
+			}},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not filterable")
 	})
 }
