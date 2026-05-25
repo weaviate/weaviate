@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -185,6 +186,20 @@ type ShardLike interface {
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
 	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
+	// ActivateChangeLog registers a change-capture log under opID and returns
+	// it for in-process callers.
+	ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error)
+	// SnapshotChangeLogLSN returns the current LSN without sealing the log.
+	SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error)
+	// FinalizeChangeLog drains the pre-seal in-flight PREPARE set, then
+	// seals the log and returns the final LSN. Tailers drain to finalLSN
+	// and EOF.
+	FinalizeChangeLog(ctx context.Context, opID string) (uint64, error)
+	// StopChangeCapture unregisters and deactivates the log without sealing.
+	StopChangeCapture(ctx context.Context, opID string) error
+	// GetChangeLog returns the active log for opID, or (nil, false) if none.
+	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
+
 	// CreateAsyncCheckpoint takes createdAt from the initiator as the
 	// strict-greater-than tie-breaker; older/equal proposals are rejected.
 	CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error
@@ -256,6 +271,12 @@ type Shard struct {
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
 
+	// Lock order, outermost → innermost:
+	//   Index.backupLock.RLock(shard) > asyncReplicationRWMux > docIdLock[poolId].
+	changeLogs atomic.Pointer[changelog.Set]
+	// changeLogsActivateMu serializes ActivateChangeLog so concurrent
+	// activates can't sweep each other's freshly-opened .log file.
+	changeLogsActivateMu sync.Mutex
 	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a
 	// frozen clone of s.hashtree taken at create time. All in-memory only
 	// (not persisted, not replicated via RAFT); a restart drops it and the

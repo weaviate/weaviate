@@ -105,6 +105,31 @@ type ReindexProvider struct {
 	// Guarded by [mu]. Set after the guard, cleared from a defer so any
 	// return path (failure, context.Canceled, panic) releases the slot.
 	activeWorkers map[distributedtask.TaskDescriptor]map[string]bool
+
+	// cleanupInProgressMu guards [cleanupInProgress]. Held only for the
+	// register/unregister/lookup increment/decrement; never held across
+	// the actual sidecar-teardown call (that runs unlocked, the registry
+	// only records "a cleanup is mid-flight on this tuple").
+	cleanupInProgressMu sync.RWMutex
+	// cleanupInProgress is the per-(collection, shard) refcount of
+	// in-flight terminal-task cleanups. The backup gate consults this
+	// alongside the DTM activity lookup so a backup landing in the
+	// "task is terminal in DTM but [autoCleanupAfterTerminal] is still
+	// tearing __reindex / __ingest sidecars" gap sees the shard as
+	// busy and refuses. Refcount (not bool) so re-entrant cleanups —
+	// two terminal-state transitions on different (property,
+	// indexType) tuples sharing the same shard — don't lose each
+	// other's registration.
+	cleanupInProgress map[reindexCleanupKey]int
+}
+
+// reindexCleanupKey identifies a per-(collection, shard) slot in the
+// [ReindexProvider.cleanupInProgress] registry. Used as the map key so
+// the backup gate's "is cleanup mid-flight on this shard?" lookup is
+// a single map probe.
+type reindexCleanupKey struct {
+	collection string
+	shard      string
 }
 
 // phaseUnitResolution holds the per-unit setup work that every per-shard
@@ -164,16 +189,17 @@ func NewReindexProvider(
 		serverCtx = context.Background()
 	}
 	return &ReindexProvider{
-		db:             db,
-		schemaManager:  schemaManager,
-		logger:         logger,
-		localNode:      localNode,
-		concurrency:    concurrency,
-		serverCtx:      serverCtx,
-		runningHandles: make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
-		payloads:       make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
-		reindexTasks:   make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
-		activeWorkers:  make(map[distributedtask.TaskDescriptor]map[string]bool),
+		db:                db,
+		schemaManager:     schemaManager,
+		logger:            logger,
+		localNode:         localNode,
+		concurrency:       concurrency,
+		serverCtx:         serverCtx,
+		runningHandles:    make(map[distributedtask.TaskDescriptor]*reindexTaskHandle),
+		payloads:          make(map[distributedtask.TaskDescriptor]*ReindexTaskPayload),
+		reindexTasks:      make(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric),
+		activeWorkers:     make(map[distributedtask.TaskDescriptor]map[string]bool),
+		cleanupInProgress: make(map[reindexCleanupKey]int),
 	}
 }
 
@@ -359,7 +385,10 @@ func (p *ReindexProvider) processUnits(
 ) {
 	limiter := distributedtask.NewConcurrencyLimiter(p.concurrency())
 
+	// defer Wait so an early return on Acquire ctx-cancel still drains
+	// spawned per-unit goroutines before OnTaskCompleted's cleanup runs.
 	var wg sync.WaitGroup
+	defer wg.Wait()
 	for _, unitID := range localUnits {
 		unit := task.Units[unitID]
 		if unit != nil && (unit.Status == distributedtask.UnitStatusCompleted || unit.Status == distributedtask.UnitStatusFailed) {
@@ -379,8 +408,6 @@ func (p *ReindexProvider) processUnits(
 			p.processOneUnit(ctx, task, payload, idx, unitID, recorder)
 		}, p.logger)
 	}
-
-	wg.Wait()
 }
 
 // processOneUnit executes reindex on a single unit (shard replica).
@@ -1528,9 +1555,22 @@ func (p *ReindexProvider) OnTaskCompleted(ctx context.Context, task *distributed
 
 	if task.Status != distributedtask.TaskStatusSwapping {
 		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.
-		// On FAILED we still emit the operator repair guidance.
-		if task.Status == distributedtask.TaskStatusFailed && payloadErr == nil {
-			logOperatorRepairGuidanceOnFailedSemanticMigration(logger, payload)
+		// FAILED/CANCELLED auto-clean partial sidecar state on every node;
+		// FAILED additionally logs operator repair guidance.
+		if payloadErr == nil {
+			switch task.Status {
+			case distributedtask.TaskStatusFailed:
+				logOperatorRepairGuidanceOnFailedSemanticMigration(logger, payload)
+				p.autoCleanupAfterTerminal(task, payload, logger)
+			case distributedtask.TaskStatusCancelled:
+				p.autoCleanupAfterTerminal(task, payload, logger)
+			case distributedtask.TaskStatusStarted,
+				distributedtask.TaskStatusPreparing,
+				distributedtask.TaskStatusSwapping,
+				distributedtask.TaskStatusFinished:
+				// SWAPPING handled below; STARTED/PREPARING never reach
+				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
+			}
 		}
 		return
 	}
@@ -1575,6 +1615,191 @@ func (p *ReindexProvider) OnTaskCompleted(ctx context.Context, task *distributed
 			})
 		}
 	}
+}
+
+// autoCleanupAfterTerminal runs on every node when a semantic migration
+// reaches FAILED or CANCELLED. Drains any still-running local
+// goroutine, then wipes partial sidecar state per (property, indexType).
+// Errors are logged and swallowed; the next-restart audit catches anything
+// missed.
+//
+// Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
+// to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
+// teardown sees [IsLiveReindexTaskStatus]==false but the on-disk
+// __reindex / __ingest sidecars are still being torn out. Registering
+// every shard the task touched in [cleanupInProgress] before
+// CleanStalePartialReindexState fires (and unregistering after) makes
+// "cleanup is still happening on this shard" an explicit state the
+// gate consults — closing the cleanup-vs-status-visibility gap the
+// DTM-only lookup leaves open.
+func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
+	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
+	defer drainCancel()
+	if err := p.WaitForLocalTaskDrain(drainCtx, task.TaskDescriptor); err != nil {
+		logger.Warnf("auto-cleanup after terminal status: drain did not finish in %s; skipping cleanup: %v", reindexTerminalCleanupDrainTimeout, err)
+		return
+	}
+	indexTypes := semanticMigrationIndexTypesForAudit(payload.MigrationType)
+	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
+		return
+	}
+	// Register every shard the task touched as "cleanup in progress"
+	// for the duration of the per-(property, indexType) teardown loop.
+	// The unregister fires from the defer so any return path — including
+	// a panic inside CleanStalePartialReindexState — releases the slot.
+	shards := uniqueShardsFromPayload(payload)
+	for _, shardName := range shards {
+		p.registerCleanup(payload.Collection, shardName)
+	}
+	defer func() {
+		for _, shardName := range shards {
+			p.unregisterCleanup(payload.Collection, shardName)
+		}
+	}()
+	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
+	defer cancel()
+	for _, propName := range payload.Properties {
+		for _, indexType := range indexTypes {
+			if err := p.db.CleanStalePartialReindexState(cleanupCtx, payload.Collection, propName, indexType); err != nil {
+				logger.WithField("property", propName).WithField("index_type", indexType).
+					Warnf("auto-cleanup after terminal status failed: %v", err)
+			}
+		}
+	}
+	logger.Info("auto-cleanup after terminal status: partial sidecar state cleared on this node")
+}
+
+// uniqueShardsFromPayload returns the distinct shard names referenced
+// in payload.UnitToShard. Used by [autoCleanupAfterTerminal] to register
+// each shard exactly once in [cleanupInProgress] — multiple units can
+// map to the same shard for multi-property migrations.
+func uniqueShardsFromPayload(payload *ReindexTaskPayload) []string {
+	if len(payload.UnitToShard) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(payload.UnitToShard))
+	out := make([]string, 0, len(payload.UnitToShard))
+	for _, shardName := range payload.UnitToShard {
+		if shardName == "" {
+			continue
+		}
+		if _, ok := seen[shardName]; ok {
+			continue
+		}
+		seen[shardName] = struct{}{}
+		out = append(out, shardName)
+	}
+	return out
+}
+
+// registerCleanup marks (collection, shard) as having an in-flight
+// terminal-task cleanup. Refcounted: paired calls to
+// [unregisterCleanup] release the slot, with the entry dropping out of
+// the map once the count returns to zero. Safe to call concurrently
+// from multiple terminal-state transitions (different tasks, different
+// (property, indexType) tuples) that share a shard.
+func (p *ReindexProvider) registerCleanup(collection, shard string) {
+	p.cleanupInProgressMu.Lock()
+	defer p.cleanupInProgressMu.Unlock()
+	p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: shard}]++
+}
+
+// unregisterCleanup releases one outstanding "cleanup-in-progress"
+// registration on (collection, shard). When the refcount returns to
+// zero the map entry is removed so [IsCleanupInProgress] reports false
+// for that tuple and the registry doesn't grow unbounded across
+// task lifetimes.
+//
+// Calling unregisterCleanup without a matching registerCleanup is a
+// programming error and would underflow the count; the [autoCleanup
+// AfterTerminal] defer pairs every register with one unregister via
+// the same shard slice so this cannot happen in practice.
+func (p *ReindexProvider) unregisterCleanup(collection, shard string) {
+	p.cleanupInProgressMu.Lock()
+	defer p.cleanupInProgressMu.Unlock()
+	k := reindexCleanupKey{collection: collection, shard: shard}
+	p.cleanupInProgress[k]--
+	if p.cleanupInProgress[k] <= 0 {
+		delete(p.cleanupInProgress, k)
+	}
+}
+
+// IsCleanupInProgress reports whether [autoCleanupAfterTerminal] is
+// currently tearing partial sidecar state on (collection, shard).
+//
+// Backup gate consumer: the cluster-wide [DB.AnyLiveReindexForShard]
+// answer must include this signal — the DTM activity lookup it wraps
+// flips a task to terminal as soon as the FSM lands, but the
+// node-local sidecar buckets are still being shut down for tens of
+// seconds after that. A backup that snapshots the shard in that gap
+// would capture half-removed __reindex / __ingest dirs.
+//
+// Wiring: install [CleanupInProgressLookupBuilder] (returns a closure
+// over this method) on the DB alongside [DB.SetShardReindexActivity
+// Lookup] so [DB.AnyLiveReindexForShard] consults both. Returns false
+// if the registry is nil (test fixtures that construct the provider
+// without going through [NewReindexProvider]).
+func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
+	p.cleanupInProgressMu.RLock()
+	defer p.cleanupInProgressMu.RUnlock()
+	if p.cleanupInProgress == nil {
+		return false
+	}
+	return p.cleanupInProgress[reindexCleanupKey{collection: collection, shard: shard}] > 0
+}
+
+// CleanupInProgressLookup is the per-(collection, shard) "is the
+// terminal-task cleanup goroutine still inside its
+// CleanStalePartialReindexState loop?" probe. Sibling type to
+// [ShardReindexActivityLookup] (which is the cluster-wide DTM-backed
+// "is there a LIVE reindex task on this shard?" probe). The backup
+// gate OR-s them: a shard is busy if EITHER a DTM task is live OR a
+// terminal-cleanup is still running.
+type CleanupInProgressLookup func(collection, shard string) bool
+
+// CleanupInProgressLookupBuilder returns a fresh snapshot. Mirrors the
+// builder pattern used by [ShardReindexActivityLookupBuilder] so the
+// wiring in configure_api.go can install both lookups identically.
+type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
+
+// CleanupInProgressLookupBuilder returns a builder whose closures
+// re-read the live [cleanupInProgress] registry on every invocation.
+// Use to wire the backup gate into the provider without coupling the
+// DB struct to the concrete *ReindexProvider type.
+//
+// Returning the closure (rather than a direct method handle) keeps
+// the contract symmetric with [ShardReindexActivityLookupBuilder] and
+// lets the gate take a snapshot per probe rather than caching the
+// underlying state.
+func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLookupBuilder {
+	return func() CleanupInProgressLookup {
+		return p.IsCleanupInProgress
+	}
+}
+
+// reindexTerminalCleanupDrainTimeout matches reindexCancelDrainTimeout
+// in the REST handlers so both cancel paths converge on identical
+// stuck-task behavior.
+const reindexTerminalCleanupDrainTimeout = 10 * time.Second
+
+// reindexTerminalCleanupTimeout bounds cleanup per shard across all
+// (property, indexType) pairs.
+const reindexTerminalCleanupTimeout = 60 * time.Second
+
+// IsLiveReindexTaskStatus reports whether a task in the given DTM status
+// still owns its on-disk tracker dirs.
+func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
+	switch status {
+	case distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping:
+		return true
+	case distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusCancelled,
+		distributedtask.TaskStatusFailed:
+		return false
+	}
+	return false
 }
 
 // logOperatorRepairGuidanceOnFailedSemanticMigration logs the exact REST

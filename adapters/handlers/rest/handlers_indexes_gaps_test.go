@@ -28,8 +28,11 @@ package rest
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1214,4 +1217,83 @@ func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
 
 func fmtTaskID(i int) string {
 	return "t-" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))
+}
+
+// -----------------------------------------------------------------------------
+// reindexCapExceededResponder — per-collection concurrent reindex cap returns
+// 429 Too Many Requests (not 503 Service Unavailable). Pins both the status
+// code and the body shape so a regression on either (e.g. swap back to the
+// generated 503 responder, drop the structured ErrorResponse body) is caught
+// at unit-test time rather than at acceptance/CI.
+// -----------------------------------------------------------------------------
+
+func TestReindexCapExceededResponder_StatusAndBody(t *testing.T) {
+	resp := reindexCapExceededResponder(nil, "MyCollection", 32, 32)
+
+	rec := httptest.NewRecorder()
+	resp.WriteResponse(rec, runtime.JSONProducer())
+
+	require.Equal(t, http.StatusTooManyRequests, rec.Code,
+		"cap rejection must surface as 429, not 503 — 503 misled monitoring into thinking the cluster was unhealthy")
+
+	var body models.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body),
+		"cap rejection body must be the standard ErrorResponse shape")
+	require.Len(t, body.Error, 1, "body must contain exactly one error item")
+	assert.Contains(t, body.Error[0].Message, `"MyCollection"`,
+		"error message must name the offending collection")
+	assert.Contains(t, body.Error[0].Message, "32",
+		"error message must surface the cap and inflight count for operator triage")
+}
+
+// -----------------------------------------------------------------------------
+// normalizeSearchableAlgorithm — canonical aliases for the BM25 algorithm
+// name on PUT /v1/schema/{class}/indexes/{prop}. The dispatcher routes the
+// caller-supplied string through this helper, then applies a strict
+// allowlist on the canonical value (see N4 in the QA review). Adding an
+// alias here without updating both the dispatcher AND the swagger enum
+// would be silently ineffective; the matrix below pins the accepted shape
+// so a future refactor cannot drift either direction.
+// -----------------------------------------------------------------------------
+
+func TestNormalizeSearchableAlgorithm(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		// blockmax — canonical spelling and case variants
+		{"canonical blockmax", "blockmax", models.IndexStatusAlgorithmBlockmax},
+		{"titlecase Blockmax", "Blockmax", models.IndexStatusAlgorithmBlockmax},
+		{"uppercase BLOCKMAX", "BLOCKMAX", models.IndexStatusAlgorithmBlockmax},
+		{"hyphenated block-max", "block-max", models.IndexStatusAlgorithmBlockmax},
+		{"underscored block_max", "block_max", models.IndexStatusAlgorithmBlockmax},
+		{"verbose blockmaxwand", "blockmaxwand", models.IndexStatusAlgorithmBlockmax},
+		{"verbose BlockMaxWAND", "BlockMaxWAND", models.IndexStatusAlgorithmBlockmax},
+		{"acronym bmw", "bmw", models.IndexStatusAlgorithmBlockmax},
+		{"with surrounding whitespace", " blockmax ", models.IndexStatusAlgorithmBlockmax},
+
+		// wand — canonical and case variants
+		{"canonical wand", "wand", models.IndexStatusAlgorithmWand},
+		{"uppercase WAND", "WAND", models.IndexStatusAlgorithmWand},
+		{"mixed case Wand", "Wand", models.IndexStatusAlgorithmWand},
+
+		// unknown — every other input must canonicalise to "" so the
+		// dispatcher's switch lands on default → 400.
+		{"empty string", "", ""},
+		{"unknown algo", "fancy-new-algo", ""},
+		{"prefix-only", "block", ""},
+		{"suffix-only", "max", ""},
+		// "blockwand" is NOT a recognised alias — only blockmax variants
+		// and bare wand canonicalise. Surfaces the "alias set is closed"
+		// contract.
+		{"blockwand not an alias", "blockwand", ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeSearchableAlgorithm(tc.input)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

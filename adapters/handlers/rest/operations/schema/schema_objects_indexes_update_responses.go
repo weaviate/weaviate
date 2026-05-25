@@ -188,11 +188,16 @@ func (o *SchemaObjectsIndexesUpdateForbidden) WriteResponse(rw http.ResponseWrit
 const SchemaObjectsIndexesUpdateNotFoundCode int = 404
 
 /*
-SchemaObjectsIndexesUpdateNotFound Collection or property not found.
+SchemaObjectsIndexesUpdateNotFound Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.
 
 swagger:response schemaObjectsIndexesUpdateNotFound
 */
 type SchemaObjectsIndexesUpdateNotFound struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsIndexesUpdateNotFound creates SchemaObjectsIndexesUpdateNotFound with default headers values
@@ -201,12 +206,27 @@ func NewSchemaObjectsIndexesUpdateNotFound() *SchemaObjectsIndexesUpdateNotFound
 	return &SchemaObjectsIndexesUpdateNotFound{}
 }
 
+// WithPayload adds the payload to the schema objects indexes update not found response
+func (o *SchemaObjectsIndexesUpdateNotFound) WithPayload(payload *models.ErrorResponse) *SchemaObjectsIndexesUpdateNotFound {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the schema objects indexes update not found response
+func (o *SchemaObjectsIndexesUpdateNotFound) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *SchemaObjectsIndexesUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(404)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // SchemaObjectsIndexesUpdateConflictCode is the HTTP code returned for type SchemaObjectsIndexesUpdateConflict

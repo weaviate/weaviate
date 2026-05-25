@@ -25,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
+func (suite *ReplicationTestSuiteSlow) TestReplicationReplicateOfLargeShard() {
 	t := suite.T()
 	mainCtx := context.Background()
 

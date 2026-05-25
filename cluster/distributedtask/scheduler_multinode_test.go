@@ -151,9 +151,11 @@ type fanoutNotifier struct {
 }
 
 func (f *fanoutNotifier) Wake() {
-	f.mu.Lock()
-	targets := append([]*Scheduler(nil), f.targets...)
-	f.mu.Unlock()
+	targets := func() []*Scheduler {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return append([]*Scheduler(nil), f.targets...)
+	}()
 	for _, s := range targets {
 		s.Wake()
 	}
@@ -517,6 +519,51 @@ func TestMultiScheduler_FailedTaskFiresOnTaskCompletedOnEveryNode(t *testing.T) 
 	for _, n := range h.nodes {
 		require.Equal(t, 1, n.provider.taskCompletedCount(taskID),
 			"node %s: OnTaskCompleted on FAILED must fire exactly once", n.id)
+	}
+}
+
+// TestMultiScheduler_CancelledTaskFiresOnTaskCompletedOnEveryNode pins
+// the cluster-wide cancel-cleanup path: a CANCELLED RAFT transition must
+// fire OnTaskCompleted on every node, not just the node that received the
+// cancel REST call, so per-node post-cancellation cleanup runs cluster-wide.
+func TestMultiScheduler_CancelledTaskFiresOnTaskCompletedOnEveryNode(t *testing.T) {
+	defer leaktest.Check(t)()
+
+	h := newMultiSchedulerHarness(t, []string{"node-1", "node-2", "node-3"})
+	defer h.close()
+
+	taskID := "multi-node-cancelled"
+	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		SubmittedAtUnixMillis: h.clock.Now().UnixMilli(),
+		UnitIds:               []string{"u-node-1", "u-node-2", "u-node-3"},
+	}), 1))
+	h.tickAll()
+
+	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace:             h.namespace,
+		Id:                    taskID,
+		Version:               1,
+		CancelledAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+	tasks := h.listManagerTasks(t)[h.namespace]
+	require.Equal(t, TaskStatusCancelled, tasks[0].Status,
+		"CancelTask must transition FSM to CANCELLED")
+
+	h.tickAll()
+
+	for _, n := range h.nodes {
+		require.Equal(t, 1, n.provider.taskCompletedCount(taskID),
+			"node %s: OnTaskCompleted must fire on CANCELLED task", n.id)
+	}
+
+	// Idempotency across additional ticks.
+	h.tickAll()
+	h.tickAll()
+	for _, n := range h.nodes {
+		require.Equal(t, 1, n.provider.taskCompletedCount(taskID),
+			"node %s: OnTaskCompleted on CANCELLED must fire exactly once", n.id)
 	}
 }
 

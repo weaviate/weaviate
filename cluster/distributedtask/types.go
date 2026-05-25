@@ -322,9 +322,24 @@ type UnitAwareProvider interface {
 	// Same ctx contract as [OnGroupCompleted].
 	OnSwapRequested(ctx context.Context, task *Task, groupID string, localGroupUnitIDs []string) error
 
-	// OnTaskCompleted fires once when the task is terminal. Same ctx
-	// contract as the other callbacks; implementations that do RAFT
-	// writes here (e.g. schema flips) MUST honor cancellation.
+	// OnTaskCompleted is invoked by the [Scheduler] once per task that has
+	// reached a terminal status, after every local unit terminated and
+	// (for unit-aware providers) every per-node post-completion ack
+	// landed. The scheduler MAY re-invoke this method for the same task
+	// if a downstream finalize-record write fails — concretely, when
+	// [TaskFinalizer.MarkDistributedTaskFinalized] returns an error the
+	// rollback path clears the per-task fired-marker so the next tick
+	// re-fires OnTaskCompleted before retrying the finalize. Implementations
+	// MUST therefore be idempotent against repeat calls with the same
+	// (TaskDescriptor, Status): re-running must not double-apply a
+	// destructive side effect (a schema flip reverted, a marker emitted
+	// twice, etc.). Today's concrete provider (db/reindex_provider.go's
+	// OnTaskCompleted → autoCleanupAfterTerminal) already is; new
+	// implementations MUST preserve this contract.
+	//
+	// ctx is the scheduler's tick context (cancelled on Scheduler.Close).
+	// Implementations doing RAFT writes here (e.g. schema flips) MUST
+	// honor it so a shutdown can't deadlock against a stuck callback.
 	OnTaskCompleted(ctx context.Context, task *Task)
 }
 

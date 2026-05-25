@@ -5684,7 +5684,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found."
+            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "409": {
             "description": "Conflicting reindex task already running.",
@@ -9817,6 +9820,7 @@ func init() {
             "REGISTERED",
             "HYDRATING",
             "FINALIZING",
+            "INTEGRATING",
             "DEHYDRATING",
             "READY",
             "CANCELLED"
@@ -16717,7 +16721,10 @@ func init() {
             }
           },
           "404": {
-            "description": "Collection or property not found."
+            "description": "Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "409": {
             "description": "Conflicting reindex task already running.",
@@ -21219,6 +21226,7 @@ func init() {
             "REGISTERED",
             "HYDRATING",
             "FINALIZING",
+            "INTEGRATING",
             "DEHYDRATING",
             "READY",
             "CANCELLED"

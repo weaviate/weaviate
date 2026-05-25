@@ -690,9 +690,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
 			db.ReindexNamespace: db.ExtractReindexTaskCollection,
 		},
-		ReplicaMovementEnabled:          appState.ServerConfig.Config.ReplicaMovementEnabled,
-		ReplicaMovementMinimumAsyncWait: appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait,
-		DrainSleep:                      appState.ServerConfig.Config.Raft.DrainSleep.Get(),
+		ReplicaMovementEnabled: appState.ServerConfig.Config.ReplicaMovementEnabled,
+		DrainSleep:             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -704,9 +703,40 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.AuthzSnapshotter, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 
+	// Wrap RestoreClassDir so each post-RAFT-apply class-dir move also
+	// fires the orphan-reindex audit on the restored on-disk state.
+	// AuditOrphanReindexTrackersIfReady returns a Skipped outcome until
+	// the deps closure is installed (below, from the Scheduler.Start
+	// goroutine); SetReindexAuditDeps replays any audits requested
+	// during the install race window so per-class restores that win
+	// the race against deps install do not silently no-op (B2).
+	classDirMover := backup.RestoreClassDir(dataPath)
+	restoreClassDirWithAudit := func(class string) error {
+		if err := classDirMover(class); err != nil {
+			return err
+		}
+		// Background ctx: invoked from the RAFT FSM apply path,
+		// which does not propagate an audit-scoped ctx.
+		outcome, err := repo.AuditOrphanReindexTrackersIfReady(context.Background())
+		if err != nil {
+			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
+				WithField("class", class).
+				Warnf("reindex orphan audit failed after class-dir restore; the next process restart will retry: %v", err)
+		} else if outcome.Status == db.AuditStatusSkipped {
+			// Skipped is benign during normal startup (the install
+			// goroutine hasn't run yet) but the post-install replay
+			// path in SetReindexAuditDeps will pick this up.
+			appState.Logger.WithField("action", "reindex_orphan_audit_post_class_dir_restore").
+				WithField("class", class).
+				WithField("skip_reason", outcome.SkipReason).
+				Info("reindex orphan audit skipped after class-dir restore; deferred for post-install replay")
+		}
+		return nil
+	}
+
 	executor := schema.NewExecutor(migrator,
 		appState.ClusterService.SchemaReader(),
-		appState.Logger, backup.RestoreClassDir(dataPath),
+		appState.Logger, restoreClassDirWithAudit,
 	)
 
 	offloadmod, _ := appState.Modules.OffloadBackend("offload-s3")
@@ -955,7 +985,128 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithError(err).WithField("action", "startup").
 				Error("failed to start distributed task scheduler")
+			return
 		}
+
+		// Post-bootstrap orphan-reindex audit. Must run AFTER
+		// Scheduler.Start so the lookup observes the steady-state
+		// view of RAFT-known tasks.
+		//
+		// Use serverShutdownCtx, not the outer MakeAppState ctx: the
+		// outer ctx is canceled by configureAPI's defer once HTTP
+		// server init returns, which is before this goroutine runs.
+		// That cancellation propagates into Store.PauseCompaction and
+		// surfaces as a misleading "context canceled" error.
+		auditCtx := serverShutdownCtx
+		type taskKey struct {
+			id      string
+			version uint64
+		}
+		// buildKnownTask returns an error on ListDistributedTasks
+		// failure. Callers MUST propagate the error rather than
+		// substitute a soft default — prior versions returned a
+		// "treat every tracker as known" closure, which silently
+		// misclassified orphans during a DTM partition. Explicit
+		// error makes the failure path operator-observable.
+		buildKnownTask := func() (db.KnownReindexTaskLookup, error) {
+			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
+			if err != nil {
+				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
+			}
+			live := make(map[taskKey]bool, len(tasksByNamespace[db.ReindexNamespace]))
+			for _, task := range tasksByNamespace[db.ReindexNamespace] {
+				live[taskKey{task.ID, task.Version}] = db.IsLiveReindexTaskStatus(task.Status)
+			}
+			return func(taskID string, taskVersion uint64) bool {
+				return live[taskKey{taskID, taskVersion}]
+			}, nil
+		}
+		// Wait until ListDistributedTasks succeeds at least once before
+		// running the startup audit. Without this, a transient DTM-list
+		// failure during the bootstrap window means buildKnownTask
+		// returns nil and the audit skips → orphan tracker dirs left
+		// behind by a backup-restore are never classified. Exponential
+		// backoff capped at 5s; bound the total wait so an offline
+		// cluster doesn't block startup indefinitely.
+		auditReadyBackoff := 100 * time.Millisecond
+		auditReadyDeadline := time.Now().Add(60 * time.Second)
+		for {
+			_, listErr := appState.ClusterService.ListDistributedTasks(auditCtx)
+			if listErr == nil {
+				break
+			}
+			if time.Now().After(auditReadyDeadline) {
+				appState.Logger.WithField("action", "reindex_orphan_audit").
+					Errorf("reindex orphan audit: DTM list unavailable after 60s; skipping startup audit. Orphans from a prior restore (if any) will be picked up by the next process restart: %v", listErr)
+				break
+			}
+			appState.Logger.WithField("action", "reindex_orphan_audit").
+				Debugf("reindex orphan audit: DTM list not yet ready; retrying in %s: %v", auditReadyBackoff, listErr)
+			select {
+			case <-time.After(auditReadyBackoff):
+			case <-auditCtx.Done():
+				return
+			}
+			auditReadyBackoff = min(auditReadyBackoff*2, 5*time.Second)
+		}
+		startupLookup, startupBuildErr := buildKnownTask()
+		if startupBuildErr != nil {
+			appState.Logger.WithField("action", "startup").
+				Errorf("reindex orphan audit: builder failed; skipping startup audit. The next process restart will retry: %v", startupBuildErr)
+		} else if _, err := repo.AuditOrphanReindexTrackers(auditCtx, startupLookup, appState.Logger); err != nil {
+			appState.Logger.WithField("action", "startup").
+				Warnf("reindex orphan audit did not run cleanly; restored clusters may retain orphan sidecar buckets: %v", err)
+		}
+
+		// Install the audit deps so the post-restore-class-dir hook
+		// (wired into RestoreClassDir above) can run the audit.
+		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
+
+		// Install the backup-gate activity lookup so refuseIfReindexInFlight
+		// consults DTM rather than per-shard filesystem markers. Built per
+		// backup precheck so the snapshot is fresh; on list failure we
+		// fall back to refusing every backup until DTM is reachable, to
+		// avoid races against in-flight reindexes that the local node
+		// cannot see.
+		type shardKey struct {
+			collection string
+			shardName  string
+		}
+		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
+			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
+			if err != nil {
+				appState.Logger.WithField("action", "backup_reindex_gate").
+					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
+				return func(string, string) bool { return true }
+			}
+			live := make(map[shardKey]bool)
+			for _, task := range tasksByNamespace[db.ReindexNamespace] {
+				if !db.IsLiveReindexTaskStatus(task.Status) {
+					continue
+				}
+				var payload db.ReindexTaskPayload
+				if err := json.Unmarshal(task.Payload, &payload); err != nil {
+					appState.Logger.WithField("action", "backup_reindex_gate").
+						WithField("task_id", task.ID).
+						Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
+					continue
+				}
+				for _, shardName := range payload.UnitToShard {
+					live[shardKey{payload.Collection, shardName}] = true
+				}
+			}
+			return func(collection, shardName string) bool {
+				return live[shardKey{collection, shardName}]
+			}
+		}
+		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
+		// S1: the DTM-activity lookup flips a shard "free" the moment a
+		// task lands in a terminal status; autoCleanupAfterTerminal then
+		// tears the sidecar __reindex / __ingest dirs over the next
+		// tens of seconds. The cleanup-in-progress lookup keeps the gate
+		// closed for that window so a backup landing in the gap doesn't
+		// snapshot half-removed sidecars.
+		repo.SetReindexCleanupInProgressLookup(appState.ReindexProvider.CleanupInProgressLookupBuilder())
 	}, appState.Logger)
 
 	return appState
@@ -2396,7 +2547,6 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 		registered.AsyncReplicationPropagationDelay = appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay
 		registered.ReplicationGRPCEnabled = appState.ServerConfig.Config.Replication.ReplicationGRPCEnabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
-		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
 		registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
 		registered.RevectorizeCheckDisabled = appState.ServerConfig.Config.RevectorizeCheckDisabled
