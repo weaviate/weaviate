@@ -235,7 +235,10 @@ func removeReference(obj *models.Object, prop string, remove *crossref.Ref, remo
 
 	refs, ok := properties[prop].(models.MultipleRef)
 	if !ok {
-		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, refs)
+		// Format against the original value, not the failed-assertion result —
+		// refs is the zero models.MultipleRef on a failed assertion, so it
+		// would always report the expected type instead of the actual one.
+		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, properties[prop])
 	}
 
 	var after models.MultipleRef

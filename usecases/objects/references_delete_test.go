@@ -181,7 +181,10 @@ func TestRemoveReference(t *testing.T) {
 
 // TestRemoveReference_NonRefProperty pins the errmsg path: a property that
 // exists on the object but isn't a MultipleRef returns an error string
-// (caller maps it to 500) and leaves the property untouched.
+// (caller maps it to 500) and leaves the property untouched. The %T must
+// report the type actually stored — formatting against the failed
+// type-assertion result would always print "models.MultipleRef" and hide
+// what was really there from operators.
 func TestRemoveReference_NonRefProperty(t *testing.T) {
 	obj := &models.Object{
 		Properties: map[string]interface{}{"bogus": "not-a-ref"},
@@ -192,6 +195,10 @@ func TestRemoveReference_NonRefProperty(t *testing.T) {
 	ok, errmsg := removeReference(obj, "bogus", r, strfmt.URI(""), true, logger)
 	assert.False(t, ok)
 	assert.Contains(t, errmsg, "not a valid cross-reference")
+	assert.Contains(t, errmsg, "string",
+		"errmsg must name the actual stored type, not the failed assertion's zero value")
+	assert.NotContains(t, errmsg, "MultipleRef",
+		"errmsg must not lie about the stored type by reporting the expected one")
 }
 
 // TestRemoveReference_MissingProperty: no-op when the property is absent.
