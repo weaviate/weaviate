@@ -639,4 +639,24 @@ func TestPostingMetadataStore(t *testing.T) {
 		require.Equal(t, total, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
 		require.Equal(t, total, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
 	})
+
+	t.Run("deletes empty legacy rows", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+
+		emptyKey := postingMapKey(postingMapBucketPrefixV1, 42)
+		err := bucket.Put(emptyKey, nil)
+		require.NoError(t, err)
+		err = bucket.Put(postingMapKey(postingMapBucketPrefixV1, 43), legacyPackedPostingMetadata(100, 200))
+		require.NoError(t, err)
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+
+		require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
+		require.Equal(t, 1, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
+		require.Equal(t, 1, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
+
+		_, err = NewPostingMapStore(bucket, postingMapBucketPrefixV2).Get(ctx, 42)
+		require.ErrorIs(t, err, ErrPostingNotFound)
+	})
 }

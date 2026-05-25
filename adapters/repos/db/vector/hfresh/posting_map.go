@@ -523,6 +523,7 @@ type postingMapMigrationEntry struct {
 	key       []byte
 	postingID uint64
 	metadata  PackedPostingMetadata
+	empty     bool
 }
 
 func migratePostingMapV1ToV2(ctx context.Context, bucket *lsmkv.Bucket, logger logrus.FieldLogger) error {
@@ -558,6 +559,9 @@ func migratePostingMapV1ToV2(ctx context.Context, bucket *lsmkv.Bucket, logger l
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			if entry.empty {
+				continue
+			}
 			if err := store.Set(ctx, entry.postingID, entry.metadata); err != nil {
 				return errors.Wrapf(err, "migrate posting map metadata for posting %d", entry.postingID)
 			}
@@ -591,9 +595,6 @@ func legacyPostingMapBatch(ctx context.Context, bucket *lsmkv.Bucket, limit int)
 
 	batch := make([]postingMapMigrationEntry, 0, limit)
 	for k, v := c.Seek(postingMapBucketPrefixV1); len(k) > 0 && bytes.HasPrefix(k, postingMapBucketPrefixV1); k, v = c.Next() {
-		if len(v) == 0 {
-			continue
-		}
 		if len(batch)%1000 == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, err
@@ -603,6 +604,15 @@ func legacyPostingMapBatch(ctx context.Context, bucket *lsmkv.Bucket, limit int)
 		postingID := binary.LittleEndian.Uint64(k[len(postingMapBucketPrefixV1):])
 		key := make([]byte, len(k))
 		copy(key, k)
+		if len(v) == 0 {
+			batch = append(batch, postingMapMigrationEntry{
+				key:       key,
+				postingID: postingID,
+				empty:     true,
+			})
+			continue
+		}
+
 		metadata := normalizePackedPostingMetadata(PackedPostingMetadata(v), true)
 		batch = append(batch, postingMapMigrationEntry{
 			key:       key,
