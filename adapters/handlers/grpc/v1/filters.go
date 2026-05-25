@@ -17,6 +17,7 @@ import (
 	"strconv"
 
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -264,16 +265,31 @@ func extractDataTypeProperty(authorizedGetClass classGetterWithAuthzFunc, operat
 		if class == nil {
 			return dataType, fmt.Errorf("could not find class %s in schema", className)
 		}
-		prop, err := schema.GetPropertyByName(class, propToCheck)
-		if err != nil {
-			return dataType, err
+
+		// Nested filter path: walk into NestedProperties to find the leaf
+		// type instead of stopping at the root. The nested package owns
+		// path-syntax details (separator, [N] indices) so this branch
+		// doesn't need to know them. ResolveLeaf produces the same path-
+		// navigation error messages the validator would emit, so callers
+		// don't need to wrap or rephrase them here.
+		if nested.IsNestedPath(class, propToCheck) {
+			leaf, err := nested.ResolveLeaf(class, propToCheck)
+			if err != nil {
+				return dataType, err
+			}
+			dataType = schema.DataType(leaf.DataType[0])
+		} else {
+			prop, err := schema.GetPropertyByName(class, propToCheck)
+			if err != nil {
+				return dataType, err
+			}
+			if schema.IsRefDataType(prop.DataType) {
+				// This is a filter on a reference property without a path so is counting
+				// the number of references. Needs schema.DataTypeInt: entities/filters/filters_validator.go#L116-L127
+				return schema.DataTypeInt, nil
+			}
+			dataType = schema.DataType(prop.DataType[0])
 		}
-		if schema.IsRefDataType(prop.DataType) {
-			// This is a filter on a reference property without a path so is counting
-			// the number of references. Needs schema.DataTypeInt: entities/filters/filters_validator.go#L116-L127
-			return schema.DataTypeInt, nil
-		}
-		dataType = schema.DataType(prop.DataType[0])
 	}
 
 	// searches on array datatypes always need the base-type as value-type
