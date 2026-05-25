@@ -146,6 +146,10 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	require.NoError(t, os.WriteFile(filepath.Join(orphanDir, "started.mig"), nil, 0o600))
 	writePayload(t, orphanDir, "task-orphan", 9, "unit-orphan", className,
 		ReindexTypeChangeTokenization, []string{"orphan"})
+	// S2: pre-age the quarantine sentinel so this single sweep exercises
+	// the post-quarantine destructive-cleanup path. The first sweep
+	// would otherwise only quarantine and defer cleanup.
+	writePreAgedQuarantineSentinel(t, orphanDir)
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -198,6 +202,9 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 		writePayload(t, dir, fmt.Sprintf("task-orphan-%d", i), uint64(i+1),
 			fmt.Sprintf("unit-orphan-%d", i), className,
 			ReindexTypeChangeTokenization, []string{o.prop})
+		// S2: pre-age the quarantine sentinel so this single sweep
+		// runs the destructive cleanup path.
+		writePreAgedQuarantineSentinel(t, dir)
 	}
 
 	db := &DB{
@@ -333,6 +340,10 @@ func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
 	writePayload(t, dir, "task-orphan-deferred", 7, "unit-deferred", className,
 		ReindexTypeChangeTokenization, []string{"body"})
+	// S2: pre-age the quarantine sentinel so the replay sweep
+	// completes destructive cleanup synchronously rather than only
+	// quarantining and deferring.
+	writePreAgedQuarantineSentinel(t, dir)
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -405,6 +416,135 @@ func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
 	_, err := os.Stat(dir)
 	assert.NoError(t, err,
 		"with zero deferred requests SetReindexAuditDeps must NOT run a replay sweep")
+}
+
+// TestAuditOrphanReindexTrackers_TwoSweepCycle_ClassicalOrphan pins
+// the full S2 two-sweep cycle for a tracker that is genuinely orphan
+// from sweep 1 through sweep 2:
+//   - Sweep 1: tracker exists, sentinel does not. Audit quarantines.
+//   - Wait until quarantine window has elapsed (simulated by pre-aging
+//     the sentinel mtime after sweep 1).
+//   - Sweep 2: sentinel has aged. Audit destroys.
+func TestAuditOrphanReindexTrackers_TwoSweepCycle_ClassicalOrphan(t *testing.T) {
+	ctx := testCtx()
+	className := "AuditTwoSweepCycle"
+	shd, idx := testShard(t, ctx, className)
+
+	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
+	dir := filepath.Join(migs, "searchable_retokenize_body_1")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
+	writePayload(t, dir, "task-orphan", 9, "unit-orphan", className,
+		ReindexTypeChangeTokenization, []string{"body"})
+
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+	knownNothing := func(string, uint64) bool { return false }
+
+	// Sweep 1: quarantine only.
+	outcome1, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, 0, outcome1.OrphansClean,
+		"sweep 1 must quarantine without destroying")
+
+	// Pre-age the sentinel mtime to simulate quarantine window elapse.
+	sentinel := filepath.Join(dir, reindexAuditQuarantineFile)
+	aged := time.Now().Add(-2 * reindexAuditQuarantineWindow)
+	require.NoError(t, os.Chtimes(sentinel, aged, aged))
+
+	// Sweep 2: destroy.
+	outcome2, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusOrphansFound, outcome2.Status)
+	assert.Equal(t, 1, outcome2.OrphansFound)
+	assert.Equal(t, 1, outcome2.OrphansClean,
+		"sweep 2 must destroy after quarantine window has elapsed")
+
+	_, err = os.Stat(dir)
+	assert.Truef(t, os.IsNotExist(err),
+		"tracker dir must be removed by sweep 2; stat err=%v", err)
+}
+
+// TestAuditOrphanReindexTrackers_FirstSweep_OnlyQuarantines pins S2:
+// the first audit sweep over an orphan MUST write the
+// audit_quarantined.mig sentinel and MUST NOT destroy disk state. A
+// follower with a stale DTM snapshot misclassifying a live migration
+// as orphan would otherwise immediately delete it.
+func TestAuditOrphanReindexTrackers_FirstSweep_OnlyQuarantines(t *testing.T) {
+	ctx := testCtx()
+	className := "AuditFirstSweepQuarantine"
+	shd, idx := testShard(t, ctx, className)
+
+	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
+	dir := filepath.Join(migs, "searchable_retokenize_body_1")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
+	writePayload(t, dir, "task-orphan", 9, "unit-orphan", className,
+		ReindexTypeChangeTokenization, []string{"body"})
+
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+	knownNothing := func(string, uint64) bool { return false }
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownNothing, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusOrphansFound, outcome.Status,
+		"orphan must still be counted as found on the quarantine sweep")
+	assert.Equal(t, 1, outcome.OrphansFound)
+	assert.Equal(t, 0, outcome.OrphansClean,
+		"first sweep must NOT clean: only quarantine")
+
+	_, err = os.Stat(dir)
+	require.NoError(t, err, "tracker dir MUST survive the first sweep — quarantine only")
+	sentinel := filepath.Join(dir, reindexAuditQuarantineFile)
+	_, err = os.Stat(sentinel)
+	require.NoError(t, err, "audit_quarantined.mig sentinel MUST be present after the first sweep")
+}
+
+// TestAuditOrphanReindexTrackers_SecondSweep_ClearsSentinelWhenTaskLive
+// pins S2's recovery side: if between sweep 1 (where the audit
+// quarantined a misclassified orphan) and sweep 2 the DTM lookup
+// flips the task back to "known live" (e.g. follower caught up),
+// the sentinel MUST be cleared rather than the orphan deleted on a
+// future legitimately-orphan sweep with an inherited quarantine age.
+func TestAuditOrphanReindexTrackers_SecondSweep_ClearsSentinelWhenTaskLive(t *testing.T) {
+	ctx := testCtx()
+	className := "AuditSecondSweepClear"
+	shd, idx := testShard(t, ctx, className)
+
+	migs := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
+	dir := filepath.Join(migs, "searchable_retokenize_body_1")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
+	writePayload(t, dir, "task-recovering", 17, "unit-recovering", className,
+		ReindexTypeChangeTokenization, []string{"body"})
+	// Pre-write a quarantine sentinel as if a previous sweep had
+	// already classified this tracker as orphan.
+	writePreAgedQuarantineSentinel(t, dir)
+
+	db := &DB{
+		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
+		config:  Config{RootPath: idx.Config.RootPath},
+	}
+	// Second sweep: this time the task IS known live (fresh DTM
+	// snapshot from the leader). The audit must clear the sentinel
+	// and leave the tracker alone.
+	knownAll := func(string, uint64) bool { return true }
+	outcome, err := db.AuditOrphanReindexTrackers(ctx, knownAll, logrus.New())
+	require.NoError(t, err)
+	assert.Equal(t, AuditStatusRan, outcome.Status,
+		"the recovered-live task must produce a clean Ran outcome with zero orphans")
+	assert.Equal(t, 0, outcome.OrphansFound)
+
+	_, err = os.Stat(dir)
+	require.NoError(t, err, "tracker dir MUST survive when the task is now known live")
+	sentinel := filepath.Join(dir, reindexAuditQuarantineFile)
+	_, err = os.Stat(sentinel)
+	assert.Truef(t, os.IsNotExist(err),
+		"audit_quarantined.mig sentinel MUST be cleared when the task flipped back to known-live; stat err=%v", err)
 }
 
 // TestSidecarDirsForOrphan_StrategyRegistry pins S3: sidecar dir
@@ -539,7 +679,12 @@ func TestAuditOrphanReindexTrackers_LegacyTrackerWithoutPayload_Cleaned(t *testi
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
 	// Deliberately do NOT write payload.mig (the pre-PR shape).
-	// Force the dir mtime to be before processStartTime.
+	// Pre-age the S2 quarantine sentinel so this single sweep
+	// exercises the destructive cleanup path. Then force the dir
+	// mtime to be before processStartTime (the legacy classifier
+	// signal); this must come AFTER the sentinel write so the dir's
+	// mtime is not bumped past processStartTime by the file write.
+	writePreAgedQuarantineSentinel(t, dir)
 	legacyMtime := processStartTime.Add(-time.Hour)
 	require.NoError(t, os.Chtimes(dir, legacyMtime, legacyMtime))
 
@@ -644,6 +789,20 @@ func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
 			assert.Equal(t, c.live, IsLiveReindexTaskStatus(c.status))
 		})
 	}
+}
+
+// writePreAgedQuarantineSentinel writes the S2 quarantine sentinel
+// into trackerDir with an mtime older than reindexAuditQuarantineWindow,
+// so the *next* AuditOrphanReindexTrackers sweep observes the
+// quarantine as expired and proceeds with destructive cleanup. Used to
+// exercise the post-quarantine cleanup path in tests without sleeping
+// 5 minutes.
+func writePreAgedQuarantineSentinel(t *testing.T, trackerDir string) {
+	t.Helper()
+	p := filepath.Join(trackerDir, reindexAuditQuarantineFile)
+	require.NoError(t, os.WriteFile(p, nil, 0o600))
+	aged := time.Now().Add(-2 * reindexAuditQuarantineWindow)
+	require.NoError(t, os.Chtimes(p, aged, aged))
 }
 
 // writePayload mirrors ReindexProvider.persistRecoveryRecord: emits the

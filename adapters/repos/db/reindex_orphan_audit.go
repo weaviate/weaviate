@@ -272,9 +272,29 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				outcome.ScannedCount++
 				orphans := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
 				if len(orphans) == 0 {
+					// No orphans this sweep: clear any stale quarantine
+					// sentinels — a tracker that flipped back to "known
+					// live" between sweeps must not retain its quarantine
+					// or a subsequent legitimately-orphan sweep would
+					// immediately destroy it.
+					clearStaleQuarantineSentinels(lsmPath, knownTask, auditLogger)
 					continue
 				}
 				outcome.OrphansFound += len(orphans)
+
+				// S2: gate destructive cleanup on a quarantine window.
+				// On first detection, partitionOrphansByQuarantine writes
+				// audit_quarantined.mig into each tracker dir and returns
+				// only the orphans whose sentinel is older than
+				// reindexAuditQuarantineWindow. A stale single-node DTM
+				// snapshot (typical on a freshly-rejoined follower)
+				// loses by default: the audit emits a WARN, sleeps the
+				// quarantine window, and re-evaluates with fresh DTM
+				// state on the next sweep.
+				confirmed := partitionOrphansByQuarantine(lsmPath, orphans, auditLogger)
+				if len(confirmed) == 0 {
+					continue
+				}
 				var shard *Shard
 				if idx != nil {
 					if sl := idx.shards.Load(shardName); sl != nil {
@@ -286,9 +306,9 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 				var cleaned int
 				var failed []string
 				if shard != nil {
-					cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, orphans, auditLogger)
+					cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, confirmed, auditLogger)
 				} else {
-					cleaned, failed = cleanUnloadedShardOrphans(lsmPath, orphans, auditLogger)
+					cleaned, failed = cleanUnloadedShardOrphans(lsmPath, confirmed, auditLogger)
 				}
 				outcome.OrphansClean += cleaned
 				outcome.FailedDirs = append(outcome.FailedDirs, failed...)
@@ -338,6 +358,28 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 // write and an earlier-version started.mig write (impossible on this
 // branch).
 var processStartTime = time.Now()
+
+// reindexAuditQuarantineFile is the sentinel file the audit writes
+// into a tracker dir on first orphan detection (S2 quarantine).
+// Subsequent audits read its mtime to gate the destructive cleanup
+// behind the quarantine window. Concrete file name lives here so the
+// inverted_reindex_finalize.go startup finalizer (which also iterates
+// .migrations/) cannot accidentally consume it as a sentinel.
+const reindexAuditQuarantineFile = "audit_quarantined.mig"
+
+// reindexAuditQuarantineWindow is the minimum age (mtime) of
+// audit_quarantined.mig before the next audit sweep is allowed to
+// commit to destructive cleanup. 5 minutes is the balance point: long
+// enough for a freshly-rejoined follower to catch up RAFT and observe
+// the leader's full DTM state via the next audit's
+// ListDistributedTasks; short enough that operators expecting
+// post-restore audit cleanup do not see indefinite delay.
+//
+// On a follower that mis-classified a live migration as orphan due to
+// stale RAFT (S2), the second audit will see the same tracker but with
+// fresh DTM state from the leader → classification flips to "known
+// live" → quarantine sentinel is removed without destruction.
+const reindexAuditQuarantineWindow = 5 * time.Minute
 
 // collectOrphanTrackers walks <lsmPath>/.migrations/ and returns every
 // tracker dir classified as an orphan (started.mig present,
@@ -448,6 +490,141 @@ func isLegacyTrackerWithoutPayload(trackerPath string) (bool, time.Time, error) 
 	}
 	mtime := info.ModTime()
 	return !mtime.After(processStartTime), mtime, nil
+}
+
+// partitionOrphansByQuarantine implements the S2 two-pass safeguard:
+//   - For each orphan, if audit_quarantined.mig is absent → write it
+//     and skip cleanup this sweep. Operator-visible WARN emitted.
+//   - If audit_quarantined.mig is present but its mtime is younger than
+//     reindexAuditQuarantineWindow → still inside the quarantine
+//     window; skip cleanup this sweep. WARN emitted.
+//   - If audit_quarantined.mig is present and its mtime is at or older
+//     than reindexAuditQuarantineWindow → quarantine confirmed; orphan
+//     passes through to destructive cleanup.
+//
+// Effect: a stale single-node DTM snapshot (e.g. a follower that has
+// not caught up RAFT) causes the audit to QUARANTINE on the first
+// sweep but NOT delete; a future audit running with fresh DTM state
+// will either confirm (truly an orphan) or clear the sentinel
+// (lookup flipped to "known live", handled by
+// clearStaleQuarantineSentinels).
+//
+// Per-orphan disk writes are best-effort; a sentinel-write failure
+// passes the orphan through to cleanup (the legacy behavior) on the
+// theory that a permanently-broken disk path is worse than a missed
+// quarantine. Audit logs include the failure so operators can spot a
+// pattern of disk failures.
+func partitionOrphansByQuarantine(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) []orphanReindexTracker {
+	confirmed := make([]orphanReindexTracker, 0, len(orphans))
+	for i := range orphans {
+		o := &orphans[i]
+		trackerPath := filepath.Join(lsmPath, ".migrations", o.dirName)
+		sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
+		info, err := os.Stat(sentinelPath)
+		switch {
+		case err == nil:
+			age := time.Since(info.ModTime())
+			if age >= reindexAuditQuarantineWindow {
+				logger.WithField("orphan", o.String()).
+					WithField("quarantine_age", age.String()).
+					Warn("reindex orphan audit: quarantine window elapsed; confirming destructive cleanup")
+				confirmed = append(confirmed, *o)
+			} else {
+				logger.WithField("orphan", o.String()).
+					WithField("quarantine_age", age.String()).
+					WithField("quarantine_window", reindexAuditQuarantineWindow.String()).
+					Warn("reindex orphan audit: orphan still inside quarantine window; deferring cleanup to next audit sweep")
+			}
+		case os.IsNotExist(err):
+			if writeErr := writeQuarantineSentinel(trackerPath); writeErr != nil {
+				// Disk write failed. Pass through to cleanup with a
+				// distinct WARN so the destructive path is traceable
+				// to the missed quarantine.
+				logger.WithField("orphan", o.String()).
+					Warnf("reindex orphan audit: could not write quarantine sentinel; falling back to immediate destructive cleanup: %v", writeErr)
+				confirmed = append(confirmed, *o)
+				continue
+			}
+			logger.WithField("orphan", o.String()).
+				WithField("quarantine_window", reindexAuditQuarantineWindow.String()).
+				Warn("reindex orphan audit: orphan tracker detected; quarantining for second-sweep confirmation before destructive cleanup")
+		default:
+			// Sentinel stat failed with a non-ENOENT error (EACCES,
+			// EIO, etc.). Pass through to cleanup with a WARN — same
+			// rationale as the writeErr branch.
+			logger.WithField("orphan", o.String()).
+				Warnf("reindex orphan audit: could not stat quarantine sentinel; falling back to immediate destructive cleanup: %v", err)
+			confirmed = append(confirmed, *o)
+		}
+	}
+	return confirmed
+}
+
+// writeQuarantineSentinel creates audit_quarantined.mig in trackerPath
+// with the current time as mtime. The file's mtime is the
+// authoritative timestamp the next audit compares against
+// reindexAuditQuarantineWindow.
+func writeQuarantineSentinel(trackerPath string) error {
+	sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
+	f, err := os.OpenFile(sentinelPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		// EEXIST is benign — a concurrent audit may have written it.
+		if os.IsExist(err) {
+			return nil
+		}
+		return fmt.Errorf("create quarantine sentinel %q: %w", sentinelPath, err)
+	}
+	return f.Close()
+}
+
+// clearStaleQuarantineSentinels removes audit_quarantined.mig from
+// tracker dirs whose recovery record (now / freshly-evaluated) maps
+// to a known-live DTM task. Called per-shard when the orphan list is
+// empty: it covers the case where a previous audit sweep mis-
+// classified a live migration as orphan (e.g. follower with stale
+// RAFT) and wrote a quarantine sentinel — the subsequent sweep on a
+// caught-up follower sees the same tracker as "known live" and must
+// clear the sentinel so a future legitimate orphan classification
+// does not inherit the prior quarantine age.
+//
+// Errors are logged at Warn and never propagated: the worst case is
+// a stale sentinel that converts a future-detected orphan into an
+// immediate destructive cleanup — at which point the orphan was
+// real and the operator visibility is preserved.
+func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) {
+	migsDir := filepath.Join(lsmPath, ".migrations")
+	entries, err := os.ReadDir(migsDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dirName := entry.Name()
+		trackerPath := filepath.Join(migsDir, dirName)
+		sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
+		if !fileExists(sentinelPath) {
+			continue
+		}
+		rec, recOK := loadAuditRecord(trackerPath)
+		if !recOK {
+			continue
+		}
+		if !knownTask(rec.TaskID, rec.TaskVersion) {
+			// Tracker is still classified as orphan from the
+			// recovery-record perspective; the empty-orphans branch
+			// got here only because collectOrphanTrackers already
+			// filtered upstream (e.g. tracker has tidied.mig now).
+			// Either way the sentinel is now load-bearing for a
+			// future orphan sweep, so leave it alone.
+			continue
+		}
+		if rmErr := os.Remove(sentinelPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.WithField("tracker", dirName).
+				Warnf("reindex orphan audit: failed to clear stale quarantine sentinel after task flipped back to known-live: %v", rmErr)
+		}
+	}
 }
 
 // cleanLoadedShardOrphans cleans every orphan on the shard under a
