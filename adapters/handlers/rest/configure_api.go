@@ -1002,14 +1002,19 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			id      string
 			version uint64
 		}
+		// buildKnownTask returns nil on ListDistributedTasks failure.
+		// The caller MUST treat nil as "audit not safe to run right now"
+		// — the audit's nil-lookup branch refuses with a SkipReason of
+		// "nil_lookup" so the operator-facing signal is explicit.
+		// Prior versions silently treated every tracker as known on
+		// list failure, which hid the DTM-unavailable case and let
+		// orphans survive an unrelated audit window.
 		buildKnownTask := func() db.KnownReindexTaskLookup {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
 			if err != nil {
-				// On list failure, treat every tracker as known to
-				// avoid wiping a legitimate in-flight migration.
 				appState.Logger.WithField("action", "reindex_orphan_audit").
-					Warnf("reindex orphan audit: cannot list DTM tasks; treating all trackers as known (audit deferred): %v", err)
-				return func(string, uint64) bool { return true }
+					Errorf("reindex orphan audit: ListDistributedTasks failed; this invocation will be skipped: %v", err)
+				return nil
 			}
 			live := make(map[taskKey]bool, len(tasksByNamespace[db.ReindexNamespace]))
 			for _, task := range tasksByNamespace[db.ReindexNamespace] {
@@ -1021,11 +1026,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}
 		// Wait until ListDistributedTasks succeeds at least once before
 		// running the startup audit. Without this, a transient DTM-list
-		// failure during the bootstrap window leaves the audit running
-		// with the "all known" fallback closure → orphans never get
-		// classified → orphan tracker dirs survive. Exponential backoff
-		// capped at 5s; bound the total wait so an offline cluster
-		// doesn't block startup indefinitely.
+		// failure during the bootstrap window means buildKnownTask
+		// returns nil and the audit skips → orphan tracker dirs left
+		// behind by a backup-restore are never classified. Exponential
+		// backoff capped at 5s; bound the total wait so an offline
+		// cluster doesn't block startup indefinitely.
 		auditReadyBackoff := 100 * time.Millisecond
 		auditReadyDeadline := time.Now().Add(60 * time.Second)
 		for {
@@ -1035,7 +1040,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			if time.Now().After(auditReadyDeadline) {
 				appState.Logger.WithField("action", "reindex_orphan_audit").
-					Warnf("reindex orphan audit: DTM list unavailable after 60s; running audit anyway (orphans may be deferred): %v", listErr)
+					Errorf("reindex orphan audit: DTM list unavailable after 60s; skipping startup audit. Orphans from a prior restore (if any) will be picked up by the next process restart: %v", listErr)
 				break
 			}
 			appState.Logger.WithField("action", "reindex_orphan_audit").
