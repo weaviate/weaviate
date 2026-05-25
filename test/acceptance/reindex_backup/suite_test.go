@@ -702,16 +702,27 @@ func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCoun
 //   - .migrations/<orphanDir>/started.mig
 //   - .migrations/<orphanDir>/reindexed.mig
 //   - .migrations/<orphanDir>/payload.mig (with the supplied JSON body)
+//   - .migrations/<orphanDir>/audit_quarantined.mig (mtime pre-aged
+//     well past `reindexAuditQuarantineWindow` so the audit's S2
+//     two-pass safeguard collapses to a single destructive sweep —
+//     otherwise the test would need to wait the full quarantine
+//     window for a second audit pass that doesn't fire post-bootstrap)
 //   - <sidecarBucket>/marker.flag
 func injectOrphanTrackerOnDisk(t *testing.T, ctx context.Context, container testcontainers.Container,
 	lsmPath, orphanDir, sidecarBucket, payloadJSON string,
 ) {
 	t.Helper()
+	trackerDir := filepath.Join(lsmPath, ".migrations", orphanDir)
 	for _, cmd := range [][]string{
-		{"mkdir", "-p", filepath.Join(lsmPath, ".migrations", orphanDir)},
-		{"touch", filepath.Join(lsmPath, ".migrations", orphanDir, "started.mig")},
-		{"touch", filepath.Join(lsmPath, ".migrations", orphanDir, "reindexed.mig")},
-		{"sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", filepath.Join(lsmPath, ".migrations", orphanDir, "payload.mig"), payloadJSON)},
+		{"mkdir", "-p", trackerDir},
+		{"touch", filepath.Join(trackerDir, "started.mig")},
+		{"touch", filepath.Join(trackerDir, "reindexed.mig")},
+		{"sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", filepath.Join(trackerDir, "payload.mig"), payloadJSON)},
+		// Pre-aged quarantine sentinel: mirror the unit-test
+		// `writePreAgedQuarantineSentinel` helper. Without this,
+		// PostRestartOrphanAuditClearsTracker would race the 5-minute
+		// quarantine window and time out (the test only waits 60s).
+		{"touch", "-d", "1 hour ago", filepath.Join(trackerDir, "audit_quarantined.mig")},
 		{"mkdir", "-p", filepath.Join(lsmPath, sidecarBucket)},
 		{"touch", filepath.Join(lsmPath, sidecarBucket, "marker.flag")},
 	} {

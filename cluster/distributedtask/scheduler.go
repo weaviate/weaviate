@@ -470,27 +470,26 @@ func (s *Scheduler) tick() {
 		return
 	}
 
-	// Deferred bootstrap: if listTasks failed at Start() (typically RAFT
-	// not ready yet), s.bootstrapped is still false. On this first
-	// successful tick, pre-mark every already-terminal task so the
-	// callback-firing loop below doesn't replay OnGroupCompleted /
-	// OnTaskCompleted for tasks that finished before this scheduler
-	// instance existed.
-	s.mu.Lock()
-	needsBootstrap := !s.bootstrapped
-	if needsBootstrap {
-		s.preMarkTerminalCallbacksLocked(tasksByNamespace)
-		s.bootstrapped = true
-	}
-	// Snapshot providers so the iteration below holds no lock. Providers
-	// are registered once at startup; the map mutates only via DeregisterProvider
-	// (called from Close). Copying once per tick is cheap and removes the
-	// last reason for an outer-tick lock.
-	providers := make(map[string]Provider, len(s.providers))
-	for ns, p := range s.providers {
-		providers[ns] = p
-	}
-	s.mu.Unlock()
+	// Deferred bootstrap + providers-map snapshot in a single brief lock
+	// scope. Closure so the Unlock is deferred — a panic in
+	// preMarkTerminalCallbacksLocked would otherwise leak the mutex.
+	var (
+		needsBootstrap bool
+		providers      map[string]Provider
+	)
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		needsBootstrap = !s.bootstrapped
+		if needsBootstrap {
+			s.preMarkTerminalCallbacksLocked(tasksByNamespace)
+			s.bootstrapped = true
+		}
+		providers = make(map[string]Provider, len(s.providers))
+		for ns, p := range s.providers {
+			providers[ns] = p
+		}
+	}()
 	if needsBootstrap {
 		s.logger.Info("distributed task scheduler: deferred bootstrap pre-mark complete on first successful tick")
 	}
@@ -649,9 +648,11 @@ func (s *Scheduler) tick() {
 				continue
 			}
 
-			s.mu.Lock()
-			s.deletePerTaskStateLocked(desc)
-			s.mu.Unlock()
+			func() {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				s.deletePerTaskStateLocked(desc)
+			}()
 
 			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
@@ -678,40 +679,45 @@ func (s *Scheduler) reconcileRunningTasks(
 	tasks map[TaskDescriptor]*Task,
 ) map[TaskDescriptor]*Task {
 	// Phase 1: drop dead handles and snapshot the started-set decision.
-	s.mu.Lock()
-	for desc, taskHandle := range s.runningTasks[namespace] {
-		select {
-		case <-taskHandle.Done():
-			delete(s.runningTasks[namespace], desc)
-		default:
-		}
-	}
-	startedTasks := s.filterStartedTasks(tasks)
-	var toStart []*Task
-	for _, activeTask := range startedTasks {
-		if _, alreadyLaunched := s.runningTasks[namespace][activeTask.TaskDescriptor]; alreadyLaunched {
-			continue
-		}
-		toStart = append(toStart, activeTask)
-	}
-	var toTerminate []struct {
+	// Inline closure so the Unlock is deferred — a panic inside
+	// filterStartedTasks or a map operation would otherwise leak the lock.
+	type terminateEntry struct {
 		desc   TaskDescriptor
 		handle TaskHandle
 	}
-	for desc, taskHandle := range s.runningTasks[namespace] {
-		if _, ok := startedTasks[desc]; ok {
-			continue
+	var (
+		startedTasks map[TaskDescriptor]*Task
+		toStart      []*Task
+		toTerminate  []terminateEntry
+	)
+	func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for desc, taskHandle := range s.runningTasks[namespace] {
+			select {
+			case <-taskHandle.Done():
+				delete(s.runningTasks[namespace], desc)
+			default:
+			}
 		}
-		toTerminate = append(toTerminate, struct {
-			desc   TaskDescriptor
-			handle TaskHandle
-		}{desc, taskHandle})
-		delete(s.runningTasks[namespace], desc)
-	}
-	s.mu.Unlock()
+		startedTasks = s.filterStartedTasks(tasks)
+		for _, activeTask := range startedTasks {
+			if _, alreadyLaunched := s.runningTasks[namespace][activeTask.TaskDescriptor]; alreadyLaunched {
+				continue
+			}
+			toStart = append(toStart, activeTask)
+		}
+		for desc, taskHandle := range s.runningTasks[namespace] {
+			if _, ok := startedTasks[desc]; ok {
+				continue
+			}
+			toTerminate = append(toTerminate, terminateEntry{desc, taskHandle})
+			delete(s.runningTasks[namespace], desc)
+		}
+	}()
 
 	// Phase 2: launch and terminate without the lock — both can block on
-	// I/O. Acquire the lock briefly to record each new handle.
+	// I/O. Each per-handle commit is its own deferred-Unlock closure.
 	for _, activeTask := range toStart {
 		handle, err := provider.StartTask(activeTask)
 		if err != nil {
@@ -721,9 +727,11 @@ func (s *Scheduler) reconcileRunningTasks(
 			})
 			continue
 		}
-		s.mu.Lock()
-		s.recordRunningTaskHandleLocked(namespace, activeTask.TaskDescriptor, handle)
-		s.mu.Unlock()
+		func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.recordRunningTaskHandleLocked(namespace, activeTask.TaskDescriptor, handle)
+		}()
 		s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 	}
 	for _, kill := range toTerminate {
@@ -762,26 +770,30 @@ func (s *Scheduler) runPreparationPhase(
 	suProvider UnitAwareProvider,
 	effectiveStatus TaskStatus,
 ) TaskStatus {
-	// Snapshot: collect per-group work + pre-set fired marks.
-	s.mu.Lock()
-	var worklist []preparationGroupWork
-	for _, groupID := range task.Groups() {
-		state := s.perTaskStateLocked(desc)
-		if state != nil && state.preparationCallbackFired[groupID] {
-			continue
+	// Snapshot: collect per-group work + pre-set fired marks, under a
+	// deferred-Unlock closure for panic safety.
+	worklist := func() []preparationGroupWork {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		var list []preparationGroupWork
+		for _, groupID := range task.Groups() {
+			state := s.perTaskStateLocked(desc)
+			if state != nil && state.preparationCallbackFired[groupID] {
+				continue
+			}
+			localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
+			if len(localIDs) == 0 {
+				continue
+			}
+			state = s.perTaskStateLockedOrInit(desc)
+			if state.preparationCallbackFired == nil {
+				state.preparationCallbackFired = map[string]bool{}
+			}
+			state.preparationCallbackFired[groupID] = true
+			list = append(list, preparationGroupWork{groupID: groupID, localIDs: localIDs})
 		}
-		localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
-		if len(localIDs) == 0 {
-			continue
-		}
-		state = s.perTaskStateLockedOrInit(desc)
-		if state.preparationCallbackFired == nil {
-			state.preparationCallbackFired = map[string]bool{}
-		}
-		state.preparationCallbackFired[groupID] = true
-		worklist = append(worklist, preparationGroupWork{groupID: groupID, localIDs: localIDs})
-	}
-	s.mu.Unlock()
+		return list
+	}()
 
 	// Process without the lock. Provider does real I/O.
 	groupErrors := make([]error, len(worklist))
@@ -789,39 +801,48 @@ func (s *Scheduler) runPreparationPhase(
 		groupErrors[i] = suProvider.OnGroupCompleted(task, w.groupID, w.localIDs)
 	}
 
-	// Commit group errors. Re-fetch state per result (entry may have been
-	// cleaned up between phases). On graceful shutdown drop the fired
-	// mark so recovery re-fires on next boot.
-	s.mu.Lock()
-	for i, w := range worklist {
-		groupErr := groupErrors[i]
-		state := s.perTaskStateLocked(desc)
-		if state == nil {
-			continue
-		}
-		if errors.Is(groupErr, context.Canceled) {
-			delete(state.preparationCallbackFired, w.groupID)
-			s.loggerWithTask(namespace, desc).
-				WithField("groupID", w.groupID).
-				Info("PREP phase aborted by graceful shutdown; recovery on next boot will re-fire and emit the prep-complete ack")
-			continue
-		}
-		if state.preparationCompletionGroupErrors == nil {
-			state.preparationCompletionGroupErrors = map[string]error{}
-		}
-		state.preparationCompletionGroupErrors[w.groupID] = groupErr
+	// Commit group errors + ack eligibility snapshot under deferred-Unlock.
+	// Returns the ack-snapshot result (eligible=false means caller skips
+	// the RAFT-write).
+	type prepAckSnapshot struct {
+		eligible bool
+		success  bool
+		joined   string
 	}
-
-	// Ack eligibility snapshot.
-	prepState := s.perTaskStateLocked(desc)
-	if s.ackRecorder == nil ||
-		(prepState != nil && prepState.preparationAckEmitted) ||
-		!s.allLocalGroupsPreparationFiredLocked(task, desc) {
-		s.mu.Unlock()
+	ackSnap := func() prepAckSnapshot {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for i, w := range worklist {
+			groupErr := groupErrors[i]
+			state := s.perTaskStateLocked(desc)
+			if state == nil {
+				continue
+			}
+			if errors.Is(groupErr, context.Canceled) {
+				delete(state.preparationCallbackFired, w.groupID)
+				s.loggerWithTask(namespace, desc).
+					WithField("groupID", w.groupID).
+					Info("PREP phase aborted by graceful shutdown; recovery on next boot will re-fire and emit the prep-complete ack")
+				continue
+			}
+			if state.preparationCompletionGroupErrors == nil {
+				state.preparationCompletionGroupErrors = map[string]error{}
+			}
+			state.preparationCompletionGroupErrors[w.groupID] = groupErr
+		}
+		prepState := s.perTaskStateLocked(desc)
+		if s.ackRecorder == nil ||
+			(prepState != nil && prepState.preparationAckEmitted) ||
+			!s.allLocalGroupsPreparationFiredLocked(task, desc) {
+			return prepAckSnapshot{}
+		}
+		success, joined := s.aggregatePreparationAckErrorsLocked(task, desc)
+		return prepAckSnapshot{eligible: true, success: success, joined: joined}
+	}()
+	if !ackSnap.eligible {
 		return effectiveStatus
 	}
-	success, joined := s.aggregatePreparationAckErrorsLocked(task, desc)
-	s.mu.Unlock()
+	success, joined := ackSnap.success, ackSnap.joined
 
 	// Ack RAFT-write without the lock.
 	ackErr := s.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
@@ -885,39 +906,43 @@ func (s *Scheduler) runSwapPhase(
 		effectiveStatus == TaskStatusFailed ||
 		effectiveStatus == TaskStatusFinished
 
-	// Snapshot: per-group eligibility + pre-set fired marks.
-	s.mu.Lock()
-	var worklist []swapGroupWork
-	for _, groupID := range task.Groups() {
-		state := s.perTaskStateLocked(desc)
-		if state != nil && state.groupCallbackFired[groupID] {
-			continue
-		}
-		if task.NeedsPreparationBarrier {
-			if !postStarted {
+	// Snapshot: per-group eligibility + pre-set fired marks under a
+	// deferred-Unlock closure.
+	worklist := func() []swapGroupWork {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		var list []swapGroupWork
+		for _, groupID := range task.Groups() {
+			state := s.perTaskStateLocked(desc)
+			if state != nil && state.groupCallbackFired[groupID] {
 				continue
 			}
-		} else {
-			if !postStarted && !task.AllGroupUnitsTerminal(groupID) {
+			if task.NeedsPreparationBarrier {
+				if !postStarted {
+					continue
+				}
+			} else {
+				if !postStarted && !task.AllGroupUnitsTerminal(groupID) {
+					continue
+				}
+			}
+			localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
+			if len(localIDs) == 0 {
 				continue
 			}
+			state = s.perTaskStateLockedOrInit(desc)
+			if state.groupCallbackFired == nil {
+				state.groupCallbackFired = map[string]bool{}
+			}
+			state.groupCallbackFired[groupID] = true
+			list = append(list, swapGroupWork{
+				groupID:  groupID,
+				localIDs: localIDs,
+				isSwap:   task.NeedsPreparationBarrier,
+			})
 		}
-		localIDs := task.LocalGroupUnitIDs(groupID, s.localNode)
-		if len(localIDs) == 0 {
-			continue
-		}
-		state = s.perTaskStateLockedOrInit(desc)
-		if state.groupCallbackFired == nil {
-			state.groupCallbackFired = map[string]bool{}
-		}
-		state.groupCallbackFired[groupID] = true
-		worklist = append(worklist, swapGroupWork{
-			groupID:  groupID,
-			localIDs: localIDs,
-			isSwap:   task.NeedsPreparationBarrier,
-		})
-	}
-	s.mu.Unlock()
+		return list
+	}()
 
 	// Process without the lock.
 	groupErrors := make([]error, len(worklist))
@@ -929,44 +954,53 @@ func (s *Scheduler) runSwapPhase(
 		}
 	}
 
-	// Commit group errors. Re-fetch state per result.
-	s.mu.Lock()
-	for i, w := range worklist {
-		groupErr := groupErrors[i]
-		state := s.perTaskStateLocked(desc)
-		if state == nil {
-			continue
-		}
-		// ctx.Canceled from a graceful SIGTERM is transient; drop the
-		// fired mark so the post-restart tick re-fires SWAP. Treating
-		// it as a permanent failure would flip the task to FAILED and
-		// short-circuit recovery.
-		if errors.Is(groupErr, context.Canceled) {
-			delete(state.groupCallbackFired, w.groupID)
-			s.loggerWithTask(namespace, desc).
-				WithField("groupID", w.groupID).
-				Info("SWAP callback aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack")
-			continue
-		}
-		// Record nil too so the ack-emission gate can tell "fired and
-		// succeeded" from "not fired yet".
-		if state.postCompletionGroupErrors == nil {
-			state.postCompletionGroupErrors = map[string]error{}
-		}
-		state.postCompletionGroupErrors[w.groupID] = groupErr
+	// Commit group errors + ack eligibility snapshot under deferred-Unlock.
+	type swapAckSnapshot struct {
+		eligible bool
+		success  bool
+		joined   string
 	}
-
-	// Ack eligibility snapshot.
-	ackState := s.perTaskStateLocked(desc)
-	if s.ackRecorder == nil ||
-		(ackState != nil && ackState.postCompletionAckEmitted) ||
-		effectiveStatus == TaskStatusStarted ||
-		!s.allLocalGroupsFiredLocked(task, desc) {
-		s.mu.Unlock()
+	ackSnap := func() swapAckSnapshot {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for i, w := range worklist {
+			groupErr := groupErrors[i]
+			state := s.perTaskStateLocked(desc)
+			if state == nil {
+				continue
+			}
+			// ctx.Canceled from a graceful SIGTERM is transient; drop the
+			// fired mark so the post-restart tick re-fires SWAP. Treating
+			// it as a permanent failure would flip the task to FAILED and
+			// short-circuit recovery.
+			if errors.Is(groupErr, context.Canceled) {
+				delete(state.groupCallbackFired, w.groupID)
+				s.loggerWithTask(namespace, desc).
+					WithField("groupID", w.groupID).
+					Info("SWAP callback aborted by graceful shutdown; recovery on next boot will re-fire and emit the post-completion ack")
+				continue
+			}
+			// Record nil too so the ack-emission gate can tell "fired and
+			// succeeded" from "not fired yet".
+			if state.postCompletionGroupErrors == nil {
+				state.postCompletionGroupErrors = map[string]error{}
+			}
+			state.postCompletionGroupErrors[w.groupID] = groupErr
+		}
+		ackState := s.perTaskStateLocked(desc)
+		if s.ackRecorder == nil ||
+			(ackState != nil && ackState.postCompletionAckEmitted) ||
+			effectiveStatus == TaskStatusStarted ||
+			!s.allLocalGroupsFiredLocked(task, desc) {
+			return swapAckSnapshot{}
+		}
+		success, joined := s.aggregateAckErrorsLocked(task, desc)
+		return swapAckSnapshot{eligible: true, success: success, joined: joined}
+	}()
+	if !ackSnap.eligible {
 		return effectiveStatus
 	}
-	success, joined := s.aggregateAckErrorsLocked(task, desc)
-	s.mu.Unlock()
+	success, joined := ackSnap.success, ackSnap.joined
 
 	// Ack RAFT-write without the lock.
 	ackErr := s.ackRecorder.RecordDistributedTaskPostCompletionAck(
@@ -1035,15 +1069,20 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		}
 	}
 
-	// Eligibility + pre-set fired mark under s.mu. A concurrent tick that
-	// reads completedCallbackFired==true skips re-firing.
-	s.mu.Lock()
-	if phase2State := s.perTaskStateLocked(desc); phase2State != nil && phase2State.completedCallbackFired {
-		s.mu.Unlock()
+	// Eligibility + pre-set fired mark under a deferred-Unlock closure.
+	// Returns false when a concurrent tick already fired the callback.
+	alreadyFired := func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if phase2State := s.perTaskStateLocked(desc); phase2State != nil && phase2State.completedCallbackFired {
+			return true
+		}
+		s.perTaskStateLockedOrInit(desc).completedCallbackFired = true
+		return false
+	}()
+	if alreadyFired {
 		return
 	}
-	s.perTaskStateLockedOrInit(desc).completedCallbackFired = true
-	s.mu.Unlock()
 
 	// Fire OnTaskCompleted without the lock. See the "Idempotency contract"
 	// note at the matching rollback site in runFinalizePhase.
@@ -1068,22 +1107,24 @@ func (s *Scheduler) runFinalizePhase(
 	tasks map[TaskDescriptor]*Task,
 	providerIsUnitAware bool,
 ) {
-	// Snapshot under s.mu: eligible task identities. For unit-aware
-	// providers, gate on OnTaskCompleted having fired so FINISHED lines
-	// up with "every post-completion callback committed".
-	s.mu.Lock()
-	var worklist []finalizeWork
-	for desc, task := range tasks {
-		if task.Status != TaskStatusSwapping {
-			continue
+	// Snapshot eligible task identities under a deferred-Unlock closure
+	// so a panic inside perTaskStateLocked can't leak the lock.
+	worklist := func() []finalizeWork {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		var list []finalizeWork
+		for desc, task := range tasks {
+			if task.Status != TaskStatusSwapping {
+				continue
+			}
+			finState := s.perTaskStateLocked(desc)
+			if providerIsUnitAware && (finState == nil || !finState.completedCallbackFired) {
+				continue
+			}
+			list = append(list, finalizeWork{desc: desc, task: task})
 		}
-		finState := s.perTaskStateLocked(desc)
-		if providerIsUnitAware && (finState == nil || !finState.completedCallbackFired) {
-			continue
-		}
-		worklist = append(worklist, finalizeWork{desc: desc, task: task})
-	}
-	s.mu.Unlock()
+		return list
+	}()
 
 	if len(worklist) == 0 {
 		return
