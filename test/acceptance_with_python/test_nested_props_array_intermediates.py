@@ -1,7 +1,7 @@
-"""End-to-end tests for nested object property filtering.
+"""End-to-end tests for nested object property filtering — array intermediates.
 
-One collection (COLLECTION_PROPS below) has three nested root paths defined side
-by side, so we can probe the filter pipeline at three depths:
+Three variants where the path to the cars[] leaf goes through OBJECT_ARRAY
+containers at one or more levels:
 
     L0:        cars[]                       — OBJECT_ARRAY at the root
     L2_object: country.garages[].cars[]     — single OBJECT at L0, OBJECT_ARRAY at L1/L2
@@ -14,6 +14,10 @@ are placed at.
 These tests prove the wire path: API write → DB index → filter dispatch →
 result. Filter-correctness corner cases live in the DB-level nested-filtering
 integration tests under adapters/repos/db/.
+
+The companion file `test_nested_props_object_intermediates.py` covers the
+complementary axis — paths where the intermediates are single OBJECTs and the
+deepest array sits at L2 (or there's no array at all).
 """
 
 from __future__ import annotations
