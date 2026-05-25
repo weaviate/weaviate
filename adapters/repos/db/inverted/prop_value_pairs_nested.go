@@ -160,6 +160,145 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 	return &docBitmap{docIDs: docIDs, release: docIDsRel}, nil
 }
 
+// fetchNestedContainsNone resolves a ContainsNone filter on a nested
+// scalar-array path (text[], int[], etc.) or single-value scalar. Strict
+// existential semantics: a doc matches iff ∃ a position at the operand's
+// path whose value is NOT in the listed set.
+//
+// Implementation: read `_exists.{relPath}` as the universe (restricted by
+// any arr[N] pins on this pv); compute operand = OR over each value's
+// bitmap (with multi-token text values AndAll'd through their tokenization
+// wrapper child); strict-existential = universe AndNot operand; strip to
+// docIDs.
+//
+// The universe is the operand's own scalar-array path — `_exists.tags` for
+// `country.tags`, never `_exists.""`. This means sibling-branch leaves
+// (e.g. `cities`) and phantom leaves from empty containers cannot leak
+// through the AndNot.
+func (pv *propValuePair) fetchNestedContainsNone(ctx context.Context, s *Searcher) (*docBitmap, error) {
+	metaBucket := s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(pv.prop))
+	if metaBucket == nil {
+		return nil, errors.Errorf("nested ContainsNone: meta bucket for %q not found", pv.prop)
+	}
+	if len(pv.children) == 0 {
+		return nil, errors.Errorf("nested ContainsNone: no values for %q", pv.prop)
+	}
+
+	operand, operandRel, err := pv.collectNestedContainsOperand(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	defer operandRel()
+
+	universeRaw, universeRel, err := metaBucket.RoaringSetGet(invnested.ExistsKey(pv.nested.relPath))
+	if err != nil {
+		return nil, fmt.Errorf("nested ContainsNone: read exists key for %q: %w", pv.nested.relPath, err)
+	}
+	universe, err := pv.restrictByNestedIdx(s, &docBitmap{docIDs: universeRaw, release: universeRel})
+	if err != nil {
+		return nil, err
+	}
+	defer universe.release()
+
+	positive, positiveRel := s.nestedBitmapOps.AndNot(universe.docIDs, operand, concurrency.SROAR_MERGE)
+	defer positiveRel()
+
+	docIDs, docIDsRel := s.nestedBitmapOps.MaskRootLeaf(positive)
+	return &docBitmap{docIDs: docIDs, release: docIDsRel}, nil
+}
+
+// collectNestedContainsOperand fetches each ContainsNone child's position
+// bitmap and OR-s them. Children come from extractContains and are either:
+//
+//   - Single-token value leaves (`isNested=true`, `operator=Equal`): one
+//     fetchNestedPositions read.
+//   - Tokenization wrappers (`childrenFromTokenization=true`): AndAll over
+//     grandchildren tokens so all tokens land on the same leaf (multi-token
+//     text value semantics).
+//
+// Returns a borrowed bitmap and a release that cleans up all intermediates.
+func (pv *propValuePair) collectNestedContainsOperand(ctx context.Context, s *Searcher) (*sroar.Bitmap, func(), error) {
+	releases := make([]func(), 0, len(pv.children))
+	cleanup := func() {
+		for _, rel := range releases {
+			rel()
+		}
+	}
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			cleanup()
+		}
+	}()
+
+	perValue := make([]*sroar.Bitmap, 0, len(pv.children))
+	for _, child := range pv.children {
+		bm, rel, err := pv.fetchContainsChildBitmap(ctx, s, child)
+		if err != nil {
+			return nil, nil, err
+		}
+		releases = append(releases, rel)
+		perValue = append(perValue, bm)
+	}
+
+	if len(perValue) == 1 {
+		succeeded = true
+		return perValue[0], cleanup, nil
+	}
+	or, orRel := s.nestedBitmapOps.OrAll(perValue, concurrency.SROAR_MERGE)
+	releases = append(releases, orRel)
+	succeeded = true
+	return or, cleanup, nil
+}
+
+// fetchContainsChildBitmap returns the position bitmap for one ContainsNone
+// child value. Multi-token values (childrenFromTokenization=true) AndAll
+// their grandchildren tokens so all tokens of the same value land on the
+// same leaf.
+func (pv *propValuePair) fetchContainsChildBitmap(ctx context.Context, s *Searcher, child *propValuePair) (*sroar.Bitmap, func(), error) {
+	if child.nested.childrenFromTokenization {
+		if len(child.children) == 0 {
+			return nil, nil, errors.Errorf("nested ContainsNone: tokenization wrapper with no tokens for %q", pv.prop)
+		}
+		tokenBitmaps := make([]*sroar.Bitmap, 0, len(child.children))
+		releases := make([]func(), 0, len(child.children))
+		succeeded := false
+		defer func() {
+			if !succeeded {
+				for _, rel := range releases {
+					rel()
+				}
+			}
+		}()
+		for _, gc := range child.children {
+			dbm, err := gc.fetchNestedPositions(ctx, s, 0)
+			if err != nil {
+				return nil, nil, err
+			}
+			tokenBitmaps = append(tokenBitmaps, dbm.docIDs)
+			releases = append(releases, dbm.release)
+		}
+		if len(tokenBitmaps) == 1 {
+			succeeded = true
+			return tokenBitmaps[0], releases[0], nil
+		}
+		anded, andedRel := s.nestedBitmapOps.AndAll(tokenBitmaps, concurrency.SROAR_MERGE)
+		releases = append(releases, andedRel)
+		cleanup := func() {
+			for _, rel := range releases {
+				rel()
+			}
+		}
+		succeeded = true
+		return anded, cleanup, nil
+	}
+	dbm, err := child.fetchNestedPositions(ctx, s, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	return dbm.docIDs, dbm.release, nil
+}
+
 // isNullOperandLCA returns the operand's natural LCA for an IS NULL filter on
 // a sub-property (pv.nested.relPath != ""). Result is the deepest object[]
 // segment strictly above relPath, or "" if the field is at the top level of
@@ -313,11 +452,13 @@ func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap,
 // level in filter validation. Until that lands, unconstrained items in that
 // shape are silently dropped during plan construction.
 func (pv *propValuePair) resolveNestedSubtree(ctx context.Context, s *Searcher) (*docBitmap, error) {
-	if pv.operator == filters.OperatorOr || pv.operator == filters.OperatorNot {
+	if pv.operator == filters.OperatorOr || pv.operator == filters.OperatorNot ||
+		pv.operator == filters.ContainsAny {
 		// Single-group fast path: the planner's buildOrAtScope /
 		// buildNotAtScope handle per-child arr[N] pins internally;
 		// top-level partitioning would fan out into single-child groups
-		// and lose leaf bitmap references.
+		// and lose leaf bitmap references. ContainsAny is an OR alias
+		// under first-class-operator approach — same path as OperatorOr.
 		return pv.resolveNestedSubtreeGroup(ctx, s, pv.children)
 	}
 

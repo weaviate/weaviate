@@ -138,7 +138,22 @@ func (s *Searcher) buildNestedTextFilterPair(filter *filters.Clause, propName, f
 	case 1:
 		return pvps[0], nil
 	default:
-		return &propValuePair{operator: filters.OperatorAnd, children: pvps, nested: nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true}, prop: propName, Class: class}, nil
+		// Propagate relPath and arrayIndices onto the wrapper so callers that
+		// inspect the wrapper directly (e.g. extractContains' first-class
+		// ContainsNone path) see the same operand metadata as the inner
+		// per-token leaves.
+		return &propValuePair{
+			operator: filters.OperatorAnd,
+			children: pvps,
+			nested: nestedInfo{
+				isWithinRootSubtree:      true,
+				childrenFromTokenization: true,
+				relPath:                  relPath,
+				arrayIndices:             arrayIndices,
+			},
+			prop:  propName,
+			Class: class,
+		}, nil
 	}
 }
 
@@ -225,7 +240,14 @@ func nestedRootProp(child *propValuePair) string {
 		return child.prop
 	}
 	switch child.operator {
-	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
+	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
+		filters.ContainsAll, filters.ContainsAny, filters.ContainsNone:
+		// ContainsAll / ContainsAny / ContainsNone are AND / OR / NOT(OR) aliases
+		// on a nested path (first-class-operator approach — operator identity
+		// preserved by extractContains). Including ContainsNone here lets
+		// groupNestedByProp same-root-wrap `AND(name=…, ContainsNone(tags,…))`
+		// so the correlated-AND path enforces same-element semantics across
+		// the two predicates.
 		if len(child.children) == 0 {
 			return ""
 		}

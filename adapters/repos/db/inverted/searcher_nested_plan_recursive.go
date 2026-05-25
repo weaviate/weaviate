@@ -194,10 +194,11 @@ func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPla
 	var operatorSubs []recPlanNode
 	for _, it := range items {
 		switch it.operator {
-		case filters.OperatorOr, filters.OperatorNot:
+		case filters.OperatorOr, filters.OperatorNot, filters.ContainsAny:
+			// ContainsAny is an OR alias on a nested path (first-class-operator approach).
 			lca := b.naturalLCA(it)
 			if lca == scope {
-				if it.operator == filters.OperatorOr {
+				if it.operator == filters.OperatorOr || it.operator == filters.ContainsAny {
 					operatorSubs = append(operatorSubs, b.buildOrAtScope(it, scope))
 				} else {
 					operatorSubs = append(operatorSubs, b.buildNotAtScope(it, scope))
@@ -248,13 +249,15 @@ func (b *recPlanBuilder) buildGroup(items []*propValuePair, scope string) recPla
 
 // flattenAndOperators unwraps non-tokenization AND wrappers in items. AND is
 // associative, so `[A, AND(B, C)]` is logically the same as `[A, B, C]` and
-// the planner can treat them identically. Tokenization wrappers
-// (childrenFromTokenization=true) are NOT unwrapped — they behave as single
-// virtual leaves at normalize time.
+// the planner can treat them identically. ContainsAll is treated as an AND
+// alias here under first-class-operator approach — its semantics is identical to AND-of-values-
+// at-same-element, so unwrapping puts its value leaves at the same scope as
+// sibling conditions. Tokenization wrappers (childrenFromTokenization=true)
+// are NOT unwrapped — they behave as single virtual leaves at normalize time.
 func flattenAndOperators(items []*propValuePair) []*propValuePair {
 	hasFlattenable := false
 	for _, it := range items {
-		if it.operator == filters.OperatorAnd && !it.nested.childrenFromTokenization && !it.nested.isNested {
+		if isAndFlattenable(it) {
 			hasFlattenable = true
 			break
 		}
@@ -264,13 +267,25 @@ func flattenAndOperators(items []*propValuePair) []*propValuePair {
 	}
 	out := make([]*propValuePair, 0, len(items))
 	for _, it := range items {
-		if it.operator == filters.OperatorAnd && !it.nested.childrenFromTokenization && !it.nested.isNested {
+		if isAndFlattenable(it) {
 			out = append(out, flattenAndOperators(it.children)...)
 			continue
 		}
 		out = append(out, it)
 	}
 	return out
+}
+
+// isAndFlattenable reports whether it is a non-leaf AND-shaped operator
+// wrapper that can be inlined into its parent. OperatorAnd and ContainsAll
+// share AND semantics (same-element at LCA). Tokenization wrappers
+// (childrenFromTokenization=true) stay intact — they collapse to a single
+// virtual leaf during normalization.
+func isAndFlattenable(it *propValuePair) bool {
+	if it.nested.childrenFromTokenization || it.nested.isNested {
+		return false
+	}
+	return it.operator == filters.OperatorAnd || it.operator == filters.ContainsAll
 }
 
 // naturalLCA returns the deepest LCA at which all leaves of pv's subtree

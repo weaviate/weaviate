@@ -525,8 +525,10 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("top-level ContainsAll on int[] collapses to same-root wrapper", func(t *testing.T) {
 		// input:  ContainsAll(nested.numbers, [1, 2])
-		// output:
-		// └── AND {isWRS:nested}    ← desugared AND collapsed
+		// output (first-class-operator approach: operator identity preserved; same-root wrapping
+		// still collapses since ContainsAll is treated as an AND alias by
+		// groupNestedSubtrees / planner):
+		// └── ContainsAll {isWRS:nested}
 		//     ├── numbers=1
 		//     └── numbers=2
 		clause := &filters.Clause{
@@ -537,8 +539,9 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
 		require.NoError(t, err)
 
-		assert.Equal(t, filters.OperatorAnd, pv.operator)
-		assert.True(t, pv.nested.isWithinRootSubtree, "ContainsAll's AND collapses into a wrapper")
+		assert.Equal(t, filters.ContainsAll, pv.operator,
+			"nested ContainsAll preserves operator identity (first-class-operator approach)")
+		assert.True(t, pv.nested.isWithinRootSubtree, "ContainsAll same-root wraps")
 		assert.Equal(t, "nested", pv.prop)
 		require.Len(t, pv.children, 2)
 		assert.True(t, pv.children[0].nested.isNested)
@@ -547,9 +550,10 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 	t.Run("top-level ContainsAny collapses to same-root OR wrapper", func(t *testing.T) {
 		// input:  ContainsAny(nested.numbers, [1, 2])
-		// output (desugared OR collapses under OR-of-same-root wrapping; OR-of-same-root
-		// wraps so the planner evaluates per-element at the nested LCA):
-		// └── OR {isWRS:nested}
+		// output (first-class-operator approach: operator identity preserved; same-root wrapping
+		// still collapses since ContainsAny is treated as an OR alias by
+		// groupNestedSubtrees / planner):
+		// └── ContainsAny {isWRS:nested}
 		//     ├── numbers=1
 		//     └── numbers=2
 		clause := &filters.Clause{
@@ -560,21 +564,59 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
 		require.NoError(t, err)
 
-		assert.Equal(t, filters.OperatorOr, pv.operator)
-		assert.True(t, pv.nested.isWithinRootSubtree, "ContainsAny's OR same-root wraps")
+		assert.Equal(t, filters.ContainsAny, pv.operator,
+			"nested ContainsAny preserves operator identity (first-class-operator approach)")
+		assert.True(t, pv.nested.isWithinRootSubtree, "ContainsAny same-root wraps")
 		assert.Equal(t, "nested", pv.prop)
 		require.Len(t, pv.children, 2)
 		assert.True(t, pv.children[0].nested.isNested)
 	})
 
-	t.Run("top-level ContainsNone wraps both NOT and inner OR", func(t *testing.T) {
+	t.Run("single-value nested ContainsAll collapses to bare leaf", func(t *testing.T) {
+		// input:  ContainsAll(nested.numbers, [1])
+		// output (single-value Contains ≡ Equal — return the leaf directly
+		// so resolveDocIDs sees a nested leaf, not an unbacked compound):
+		// └── numbers=1
+		clause := &filters.Clause{
+			Operator: filters.ContainsAll,
+			Value:    &filters.Value{Type: schema.DataTypeIntArray, Value: []int{1}},
+			On:       &filters.Path{Class: "Article", Property: "nested.numbers"},
+		}
+		pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorEqual, pv.operator,
+			"single-value Contains collapses to the bare Equal leaf")
+		assert.True(t, pv.nested.isNested)
+		assert.Equal(t, "nested", pv.prop)
+		assert.Equal(t, "numbers", pv.nested.relPath)
+	})
+
+	t.Run("single-value nested ContainsAny collapses to bare leaf", func(t *testing.T) {
+		// input:  ContainsAny(nested.numbers, [1])
+		// output: same shape as ContainsAll single-value.
+		clause := &filters.Clause{
+			Operator: filters.ContainsAny,
+			Value:    &filters.Value{Type: schema.DataTypeIntArray, Value: []int{1}},
+			On:       &filters.Path{Class: "Article", Property: "nested.numbers"},
+		}
+		pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
+		require.NoError(t, err)
+
+		assert.Equal(t, filters.OperatorEqual, pv.operator,
+			"single-value Contains collapses to the bare Equal leaf")
+		assert.True(t, pv.nested.isNested)
+		assert.Equal(t, "nested", pv.prop)
+		assert.Equal(t, "numbers", pv.nested.relPath)
+	})
+
+	t.Run("top-level nested ContainsNone is a first-class operator", func(t *testing.T) {
 		// input:  ContainsNone(nested.numbers, [1, 2])
-		// output (NOT(OR) — inner OR same-root wraps under OR-of-same-root wrapping
-		// and outer NOT same-root operand wraps under top-level NOT wrapping):
-		// └── NOT {isWRS:nested}
-		//     └── OR {isWRS:nested}
-		//         ├── numbers=1
-		//         └── numbers=2
+		// output (first-class-operator approach: no desugar to NOT(OR), single ContainsNone pvp
+		// carrying the operand relPath and the per-value children):
+		// └── ContainsNone {prop:nested, relPath:numbers}
+		//     ├── numbers=1
+		//     └── numbers=2
 		clause := &filters.Clause{
 			Operator: filters.ContainsNone,
 			Value:    &filters.Value{Type: schema.DataTypeIntArray, Value: []int{1, 2}},
@@ -583,25 +625,28 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 		pv, err := s.extractPropValuePair(t.Context(), clause, "Article")
 		require.NoError(t, err)
 
-		assert.Equal(t, filters.OperatorNot, pv.operator)
-		assert.True(t, pv.nested.isWithinRootSubtree, "outer NOT wraps under top-level NOT wrapping")
+		assert.Equal(t, filters.ContainsNone, pv.operator,
+			"nested ContainsNone preserves operator identity (first-class-operator approach)")
 		assert.Equal(t, "nested", pv.prop)
-		require.Len(t, pv.children, 1)
-
-		inner := pv.children[0]
-		assert.Equal(t, filters.OperatorOr, inner.operator)
-		assert.True(t, inner.nested.isWithinRootSubtree, "inner OR same-root wraps")
-		assert.Equal(t, "nested", inner.prop)
-		require.Len(t, inner.children, 2)
+		assert.Equal(t, "numbers", pv.nested.relPath,
+			"operand path carried on the wrapper so the resolver / planner can read _exists.numbers as universe")
+		assert.False(t, pv.nested.isNested, "compound operator node, not a leaf")
+		assert.False(t, pv.nested.isWithinRootSubtree, "not a same-root AND group")
+		require.Len(t, pv.children, 2, "one child per forbidden value")
+		for _, child := range pv.children {
+			assert.True(t, child.nested.isNested)
+			assert.Equal(t, "numbers", child.nested.relPath)
+		}
 	})
 
 	t.Run("ContainsAny inside AND wraps both levels", func(t *testing.T) {
 		// input:  AND(nested.city=berlin, ContainsAny(nested.numbers, [1, 2]))
-		// output (outer AND collapses; inner OR also collapses under
-		// OR-of-same-root wrapping — both same-root wrappers):
+		// output (outer AND collapses; inner ContainsAny also collapses
+		// under OR-of-same-root wrapping — both same-root wrappers, ContainsAny keeps
+		// its operator identity under first-class-operator approach):
 		// └── AND {isWRS:nested}
 		//     ├── city:berlin
-		//     └── OR {isWRS:nested}
+		//     └── ContainsAny {isWRS:nested}
 		//         ├── numbers=1
 		//         └── numbers=2
 		containsAny := filters.Clause{
@@ -621,11 +666,12 @@ func TestExtractPropValuePairNestedGrouping(t *testing.T) {
 
 		assertNestedLeaf(t, pv.children[0], "city", []byte("berlin"))
 
-		orChild := pv.children[1]
-		assert.Equal(t, filters.OperatorOr, orChild.operator)
-		assert.True(t, orChild.nested.isWithinRootSubtree, "inner OR same-root wraps")
-		assert.Equal(t, "nested", orChild.prop)
-		require.Len(t, orChild.children, 2)
+		anyChild := pv.children[1]
+		assert.Equal(t, filters.ContainsAny, anyChild.operator,
+			"inner ContainsAny preserves operator identity (first-class-operator approach)")
+		assert.True(t, anyChild.nested.isWithinRootSubtree, "inner ContainsAny same-root wraps")
+		assert.Equal(t, "nested", anyChild.prop)
+		require.Len(t, anyChild.children, 2)
 	})
 
 	t.Run("standalone OR of same-root leaves wraps and collapses", func(t *testing.T) {

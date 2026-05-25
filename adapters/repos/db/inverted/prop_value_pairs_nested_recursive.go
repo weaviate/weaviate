@@ -147,8 +147,25 @@ func normalizeRecGroup(
 			continue
 		}
 		switch child.operator {
-		case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
+		case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
+			filters.ContainsAll, filters.ContainsAny:
+			// ContainsAll / ContainsAny are AND / OR aliases on nested
+			// paths (first-class-operator approach); same fetch path as OperatorAnd/Or — the
+			// planner reads them as operator subtrees and either flattens
+			// (ContainsAll → AND) or plans an OR scope (ContainsAny).
 			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
+				return nil, err
+			}
+			input.positives = append(input.positives, child)
+		case filters.ContainsNone:
+			// First-class ContainsNone inside a correlated AND. Materialize
+			// the strict-existential result (universe at operand path AndNot
+			// OR-of-value-bitmaps) as a raw position bitmap, stored in
+			// rawsByCond keyed by the ContainsNone pvp. The planner places
+			// the pvp at its natural LCA (via childRelPath → operand path)
+			// and the executor correlates it with sibling leaves at root
+			// scope via the existing same-element AndAll path.
+			if err := materializeNestedContainsNone(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
 				return nil, err
 			}
 			input.positives = append(input.positives, child)
@@ -159,6 +176,69 @@ func normalizeRecGroup(
 
 	succeeded = true
 	return input, nil
+}
+
+// materializeNestedContainsNone computes a ContainsNone leaf's strict-
+// existential bitmap for use inside a correlated AND or operator subtree.
+// Mirrors fetchNestedContainsNone's algorithm but builds the result inline
+// against the recBitmapFetcher abstraction so it composes with the rest of
+// normalizeRecGroup. Children may be value leaves or tokenization wrappers
+// (multi-token text values).
+func materializeNestedContainsNone(
+	ctx context.Context,
+	pv *propValuePair,
+	fetcher recBitmapFetcher,
+	bitmapOps *invnested.BitmapOps,
+	maxConcurrency int,
+	input *recGroupInput,
+) error {
+	if len(pv.children) == 0 {
+		return fmt.Errorf("materializeNestedContainsNone: no values for %q", pv.prop)
+	}
+
+	// Operand: OR over each forbidden value's position bitmap. Multi-token
+	// text values AndAll their tokens at the leaf level (same as standalone
+	// fetchNestedContainsNone) before contributing to the OR.
+	perValue := make([]*sroar.Bitmap, 0, len(pv.children))
+	for _, child := range pv.children {
+		if child.nested.childrenFromTokenization {
+			combined, releases, err := fetchAndAndAllTokens(ctx, child.children, fetcher, bitmapOps, maxConcurrency)
+			if err != nil {
+				return fmt.Errorf("materializeNestedContainsNone: tokens for %q: %w", pv.prop, err)
+			}
+			input.releases = append(input.releases, releases...)
+			perValue = append(perValue, combined)
+			continue
+		}
+		bm, rel, err := fetcher.fetchValue(ctx, child)
+		if err != nil {
+			return fmt.Errorf("materializeNestedContainsNone: fetch value for %q: %w", pv.prop, err)
+		}
+		input.releases = append(input.releases, rel)
+		perValue = append(perValue, bm)
+	}
+
+	var operand *sroar.Bitmap
+	if len(perValue) == 1 {
+		operand = perValue[0]
+	} else {
+		var operandRel func()
+		operand, operandRel = bitmapOps.OrAll(perValue, maxConcurrency)
+		input.releases = append(input.releases, operandRel)
+	}
+
+	// Universe at the operand's scalar-array scope, restricted by any
+	// arr[N] pins carried on the ContainsNone pvp itself.
+	universe, universeRel, err := fetcher.fetchExistsAtPath(pv, pv.nested.relPath)
+	if err != nil {
+		return fmt.Errorf("materializeNestedContainsNone: fetch exists at %q: %w", pv.nested.relPath, err)
+	}
+	input.releases = append(input.releases, universeRel)
+
+	result, resultRel := bitmapOps.AndNot(universe, operand, maxConcurrency)
+	input.releases = append(input.releases, resultRel)
+	input.rawsByCond[pv] = result
+	return nil
 }
 
 // routeDirectLeaf classifies a single isNested child and appends to the right
@@ -257,13 +337,20 @@ func fetchOperatorSubtreeBitmaps(
 		return nil
 	}
 	switch node.operator {
-	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
+	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
+		filters.ContainsAll, filters.ContainsAny:
+		// ContainsAll / ContainsAny treated as AND / OR aliases (first-class-operator approach).
 		for _, child := range node.children {
 			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
 				return err
 			}
 		}
 		return nil
+	case filters.ContainsNone:
+		// First-class ContainsNone inside an operator subtree (OR/NOT/AND).
+		// Materialize the strict-existential bitmap inline, same as the
+		// correlated-AND child case in normalizeRecGroup.
+		return materializeNestedContainsNone(ctx, node, fetcher, bitmapOps, maxConcurrency, input)
 	default:
 		return fmt.Errorf("normalizeRecGroup: unsupported node in operator subtree (operator=%q, isNested=%v)", node.operator.Name(), node.nested.isNested)
 	}
@@ -381,12 +468,12 @@ func (pv *propValuePair) buildRecGroupExecutor(
 	// Dispatch on outer operator. Wrapping for all shapes is decided
 	// at extraction time by groupNestedSubtrees; here we just plant
 	// the right plan node.
-	//   AND-of-same-root → recGroupNode (same-element correlation).
-	//   OR-of-same-root → recOrNode (union at deepest common LCA).
-	//   NOT-of-same-root → recNotNode (invert at operand LCA).
+	//   AND / ContainsAll → recGroupNode (same-element correlation).
+	//   OR / ContainsAny  → recOrNode (union at deepest common LCA).
+	//   NOT               → recNotNode (invert at operand LCA).
 	var plan recPlanNode
 	switch pv.operator {
-	case filters.OperatorOr:
+	case filters.OperatorOr, filters.ContainsAny:
 		plan = builder.buildOrAtScope(pv, "")
 	case filters.OperatorNot:
 		plan = builder.buildNotAtScope(pv, "")
