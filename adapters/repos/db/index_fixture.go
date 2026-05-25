@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -53,6 +54,45 @@ type IndexFixtureOpts struct {
 	IndexOpts                []func(*Index)
 }
 
+// IndexFixture is the return value from [BuildIndexFixture]. It
+// embeds the constructed [*Index] and the initial [ShardLike], plus
+// every test-affordance method the reindex-package tests need so
+// they can run from `package reindex` without us having to export a
+// pile of `XForTesting` methods on [*Index] itself.
+//
+// Reach for these methods only from test code. The naming is
+// deliberately fixture-scoped (not on [*Index] directly) so the
+// surface stays out of operator-facing godoc.
+type IndexFixture struct {
+	Index *Index
+	Shard ShardLike
+}
+
+// SetShardReindexer swaps the shard-reindexer wired into the fixture
+// index. Used by tests that install a hand-built reindex task
+// (e.g. torn-state recovery).
+func (f *IndexFixture) SetShardReindexer(r reindex.ShardReindexerV3) {
+	f.Index.shardReindexer = r
+}
+
+// InitShard runs the fixture index's shard-initialisation path and
+// returns the resulting shard. Wraps the unexported `initShard`.
+func (f *IndexFixture) InitShard(ctx context.Context, name string, class *models.Class,
+	disableLazyLoad, implicitShardLoading bool,
+) (ShardLike, error) {
+	return f.Index.initShard(ctx, name, class, nil, disableLazyLoad, implicitShardLoading)
+}
+
+// StoreShard places the given shard into the fixture index's shard
+// map under name. Mirrors `Index.shards.Store`.
+func (f *IndexFixture) StoreShard(name string, shard ShardLike) {
+	f.Index.shards.Store(name, shard)
+}
+
+// Logger returns the fixture index's logger so tests don't have to
+// reach into the unexported field.
+func (f *IndexFixture) Logger() logrus.FieldLogger { return f.Index.logger }
+
 // BuildIndexFixture wires up a single-shard (or single-tenant)
 // [Index] backed by a tmpdir-rooted [DB], suitable for in-package
 // tests in any subpackage. Returned [ShardLike] and [*Index] are
@@ -62,7 +102,7 @@ type IndexFixtureOpts struct {
 // adapters/repos/db/reindex. Not part of the production API surface
 // in any meaningful sense — operators do not construct indices this
 // way.
-func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts) (ShardLike, *Index) {
+func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts) *IndexFixture {
 	t.Helper()
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -215,5 +255,5 @@ func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts)
 
 	idx.shards.Store(shardName, shard)
 
-	return idx.shards.Load(shardName), idx
+	return &IndexFixture{Index: idx, Shard: idx.shards.Load(shardName)}
 }

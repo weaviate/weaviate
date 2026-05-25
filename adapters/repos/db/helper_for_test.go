@@ -301,7 +301,7 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models.Class,
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	return BuildIndexFixture(t, ctx, IndexFixtureOpts{
+	f := BuildIndexFixture(t, ctx, IndexFixtureOpts{
 		Class:                    class,
 		VectorIndexConfig:        vic,
 		WithStopwords:            withStopwords,
@@ -310,6 +310,7 @@ func setupTestShardWithSettings(t *testing.T, ctx context.Context, class *models
 		WithAsyncIndexingEnabled: withAsyncIndexingEnabled,
 		IndexOpts:                indexOpts,
 	})
+	return f.Shard, f.Index
 }
 
 // Simplified functions that delegate to the common helper
