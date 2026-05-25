@@ -35,12 +35,14 @@ func writeExistsAt(t *testing.T, mb *lsmkv.Bucket, relPath string, positions []u
 }
 
 // makeTokenizationWrapper wraps tokens of a single multi-token text value.
-// The outer pv has childrenFromTokenization=false but isNested=false; tokens
-// are direct leaves at the same path. Used to model Pattern 2 tokenization.
+// Production tokenization wrappers from buildNestedTextFilterPair set
+// childrenFromTokenization=true; this is the discriminator that keeps the
+// planner from unwrapping AND children of the wrapper.
 func makeTokenizationWrapper(class *models.Class, tokens ...*propValuePair) *propValuePair {
 	return &propValuePair{
 		operator: filters.OperatorAnd,
 		children: tokens,
+		nested:   nestedInfo{childrenFromTokenization: true},
 		Class:    class,
 	}
 }
@@ -67,8 +69,10 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 				rel()
 			}
 		}()
-		docs, docRel, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		docs, docRel := s.nestedBitmapOps.MaskRootLeaf(raw)
 		defer docRel()
 		requireBitmapValid(t, docs)
 		assert.Equal(t, want, docs.ToArray())
@@ -153,7 +157,7 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 
 		pv := &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			nested:   nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true},
 			prop:     "addresses",
 			children: []*propValuePair{
 				makeLeafPvp(class, "addresses", "city", "new"),
@@ -193,11 +197,17 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 		runRec(t, s, pv, []uint64{docMatch})
 	})
 
-	t.Run("isnull_true_with_positive_excludes_at_rootDoc_level", func(t *testing.T) {
-		// addresses.postcode = "10115" AND addresses.city IS NULL — match docs
-		// that have an address with postcode 10115 AND have NO city anywhere.
-		// docMatch: postcode=10115 AND no city present at all.
-		// docNoMatch: postcode=10115 AND has a city in some address → excluded.
+	t.Run("isnull_true_with_positive_excludes_at_raw_level", func(t *testing.T) {
+		// addresses.postcode = "10115" AND addresses.city IS NULL.
+		// docMatch: postcode=10115 at leaf 1, no city anywhere.
+		// docNoMatch: postcode=10115 at leaf 1, city exists at leaf 2 (a
+		// different address than the postcode hit).
+		//
+		// Phase 2 per-element IsNull: AndNot at raw level subtracts only
+		// positions where city exists AT THE SAME LEAF as postcode. doc2's
+		// city is at leaf 2 (a different address element) so the postcode
+		// position at leaf 1 survives — both docs match. Pre-Phase 2 used
+		// universal-at-rootDoc semantics, dropping doc2 entirely.
 		const (
 			docMatch   = uint64(51)
 			docNoMatch = uint64(52)
@@ -217,7 +227,7 @@ func TestRecGroupExecutorTokenizationAndIsNull(t *testing.T) {
 			makeLeafPvp(class, "addresses", "postcode", "10115"),
 			makeIsNullPvp(class, "addresses", "city", true),
 		)
-		runRec(t, s, pv, []uint64{docMatch})
+		runRec(t, s, pv, []uint64{docMatch, docNoMatch})
 	})
 
 	t.Run("isnull_true_only_uses_rootAnchor_seed", func(t *testing.T) {

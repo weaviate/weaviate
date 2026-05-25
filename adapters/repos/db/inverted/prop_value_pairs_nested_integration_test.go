@@ -39,7 +39,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // correlationTestClass returns a minimal class with nested object-array
-// properties used across resolveNestedCorrelated tests.
+// properties used across resolveNestedSubtree tests.
 //
 //	addresses: object[] { city text, postcode text }
 //	cars:      object[] { make text, tires object[]{width int}, accessories object[]{type text} }
@@ -133,11 +133,11 @@ func makeLeafPvp(class *models.Class, prop, relPath, term string) *propValuePair
 	}
 }
 
-// makeCorrelatedPvp wraps children in an isCorrelatedNested AND node for prop.
+// makeCorrelatedPvp wraps children in an isWithinRootSubtree AND node for prop.
 func makeCorrelatedPvp(class *models.Class, prop string, children ...*propValuePair) *propValuePair {
 	return &propValuePair{
 		operator: filters.OperatorAnd,
-		nested:   nestedInfo{isCorrelated: true},
+		nested:   nestedInfo{isWithinRootSubtree: true},
 		prop:     prop,
 		children: children,
 		Class:    class,
@@ -149,6 +149,24 @@ func makeAndPvp(class *models.Class, children ...*propValuePair) *propValuePair 
 	return &propValuePair{
 		operator: filters.OperatorAnd,
 		children: children,
+		Class:    class,
+	}
+}
+
+// makeOrPvp wraps children in an OR propValuePair.
+func makeOrPvp(class *models.Class, children ...*propValuePair) *propValuePair {
+	return &propValuePair{
+		operator: filters.OperatorOr,
+		children: children,
+		Class:    class,
+	}
+}
+
+// makeNotPvp wraps a single operand in a NOT propValuePair.
+func makeNotPvp(class *models.Class, operand *propValuePair) *propValuePair {
+	return &propValuePair{
+		operator: filters.OperatorNot,
+		children: []*propValuePair{operand},
 		Class:    class,
 	}
 }
@@ -315,7 +333,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		addrVb := store.Bucket(addrBucketName)
 		writeNestedValue(t, addrVb, "city", "berlin", []uint64{invnested.Encode(1, 1, doc5)})
 
-		// groupNestedByProp creates one isCorrelatedNested node per prop;
+		// groupNestedByProp creates one isWithinRootSubtree node per prop;
 		// here we build the same structure directly.
 		pv := makeAndPvp(class,
 			makeCorrelatedPvp(class, "cars",
@@ -502,7 +520,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		//
 		// Both conditions hit the same relPath "cars.tags" and land in
 		// positionsByPath["cars.tags"].independent. "cars" is a DataTypeObjectArray
-		// within garages, so the fix in resolveNestedCorrelated detects this and
+		// within garages, so the fix in resolveNestedSubtree detects this and
 		// calls runIdxLoop("cars", [germanBm, electricBm]) before plan building.
 		// This enforces same-car semantics, not just same-garage semantics.
 		//
@@ -820,7 +838,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 
 		pv := &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			nested:   nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true},
 			prop:     "addresses",
 			children: []*propValuePair{
 				makeLeafPvp(class, "addresses", "city", "new"),
@@ -1607,10 +1625,11 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 	// intermediate (intermediate ObjectArray LCA).
 	// -----------------------------------------------------------------------
 
-	// tokenCompound builds a non-isNested compound AND whose children are
-	// routed as tokens by resolveNestedCorrelated. The outer correlated pvp's
-	// childrenFromTokenization is false, so this non-isNested child enters the
-	// else branch and its grandchildren become tokens for the given relPath.
+	// tokenCompound models the production tokenization wrapper from
+	// buildNestedTextFilterPair: childrenFromTokenization=true keeps the
+	// planner from unwrapping the AND as an associative compound, and
+	// normalizeRecGroup AndAlls the token grandchildren into one virtual
+	// leaf bitmap.
 	tokenCompound := func(class *models.Class, prop, relPath string, terms ...string) *propValuePair {
 		children := make([]*propValuePair, len(terms))
 		for i, term := range terms {
@@ -1618,7 +1637,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 		}
 		return &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{}, // isNested=false → grandchildren become tokens
+			nested:   nestedInfo{childrenFromTokenization: true},
 			children: children,
 			Class:    class,
 		}
@@ -1942,7 +1961,7 @@ func TestResolveNestedCorrelatedAnd(t *testing.T) {
 
 		valueBucketName := helpers.BucketNestedFromPropNameLSM("cars")
 		metaBucketName := helpers.BucketNestedMetaFromPropNameLSM("cars")
-		// Meta bucket is required by resolveNestedCorrelated, but intentionally left
+		// Meta bucket is required by resolveNestedSubtree, but intentionally left
 		// empty — this test proves that no _idx entries are accessed or needed.
 		searcher, store := newNestedTestSearcher(t, valueBucketName, metaBucketName)
 		class := correlationTestClass()
@@ -3280,7 +3299,7 @@ func TestPlanCasesIntegration(t *testing.T) {
 
 		// -----------------------------------------------------------------------
 		// Single-condition cases — each produces one leaf pvp resolved via
-		// fetchNestedDocIDs (not resolveNestedCorrelated). These verify that the
+		// fetchNestedDocIDs (not resolveNestedSubtree). These verify that the
 		// basic bucket read + MaskRootLeaf path works correctly at every nesting
 		// depth and for every leaf type.
 		//
@@ -3761,14 +3780,14 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 			})
 
 			t.Run("complex — cars.make=bmw AND (cars.tires.width=205 OR cars.accessories.type=sunroof)", func(t *testing.T) {
-				// Outer AND groups all into one correlated node. OR children resolve to docIDs independently.
-				// bmw: [d1,d2,d3]. OR(tires,acc): [d1,d2,d3(nestedArray)/d1,d2,d4(nested)].
-				// nested: OR(tires,acc)=[d1,d2,d4]; ∩ bmw=[d1,d2,d3] → [d1,d2]
-				// nestedArray: OR(tires,acc)=[d1,d2,d3,d4]; ∩ bmw=[d1,d2,d3] → [d1,d2,d3]
+				// Same-cars-element AND: a single car must satisfy bmw
+				// AND (205 OR sunroof). d2 (bmw in cars[0], OR in
+				// cars[1]) drops in both variants; d3 in nestedArray
+				// (bmw in root=1, OR in root=2) also drops.
 				run(t, and(
 					textFlt(prop+".cars.make", "bmw"),
 					*or(intFlt(prop+".cars.tires.width", 205), textFlt(prop+".cars.accessories.type", "sunroof")),
-				), want([]uint64{d1, d2}, []uint64{d1, d2, d3}))
+				), []uint64{d1})
 			})
 
 			t.Run("complex — cars.make=bmw AND cars.tires.width=205 AND addresses.city=berlin", func(t *testing.T) {
@@ -3782,11 +3801,14 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 			})
 
 			t.Run("complex — (cars.make=bmw OR cars.make=honda) AND addresses.city=berlin", func(t *testing.T) {
-				// OR(bmw,honda)=[d1,d2,d3,d4]; berlin=[d1,d3,d4]. Intersection=[d1,d3,d4].
+				// Same-root-element AND: a single root entry must have
+				// (bmw OR honda) AND berlin. nested d3 (single root with
+				// bmw + berlin) stays in; nestedArray d3 (bmw in root=1,
+				// berlin in root=2) drops out.
 				run(t, and(
 					*or(textFlt(prop+".cars.make", "bmw"), textFlt(prop+".cars.make", "honda")),
 					textFlt(prop+".addresses.city", "berlin"),
-				), []uint64{d1, d3, d4})
+				), want([]uint64{d1, d3, d4}, []uint64{d1, d4}))
 			})
 
 			t.Run("complex — tags=premium AND cars.make=bmw AND cars.tires.width=205 AND cars.accessories.type=sunroof", func(t *testing.T) {
@@ -4747,7 +4769,7 @@ func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
 	// Root-level: nestedArray.addresses.city="berlin" AND nestedArray[1].cars.make="bmw"
 	//
 	// city ({}) and make ({[1]}) are compatible → same group → single
-	// resolveNestedCorrelatedGroup call. Plan: two sub-groups (addresses and cars
+	// resolveNestedSubtreeGroup call. Plan: two sub-groups (addresses and cars
 	// byFirst), resolved with AndAllMaskLeaf → same root element required.
 	//
 	// doc5: nestedArray[1] has berlin(root=2,leaf=1) AND bmw(root=2,leaf=2)
@@ -4806,7 +4828,7 @@ func TestNestedFilteringMixedArrayIndexConstraints(t *testing.T) {
 	// Intermediate-level: nested.cars.colors="red" AND nested.cars[1].make="bmw"
 	//
 	// colors ({}) and make ({cars:1}) are compatible → same group → single
-	// resolveNestedCorrelatedGroup call. Plan: LCA="cars", groupAndAll — ANDs raw
+	// resolveNestedSubtreeGroup call. Plan: LCA="cars", groupAndAll — ANDs raw
 	// position bitmaps. make is restricted to cars[1] (leaf=2); colors spans all
 	// cars (leaf=1 for cars[0], leaf=2 for cars[1]). AND requires same leaf →
 	// both must be satisfied by cars[1].
@@ -5441,7 +5463,7 @@ func TestIsNullInCorrelatedAnd(t *testing.T) {
 
 		makeTokenNode := &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			nested:   nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true},
 			prop:     "cars",
 			children: []*propValuePair{
 				makeLeafPvp(class, "cars", "make", "honda"),
@@ -5476,7 +5498,7 @@ func TestIsNullInCorrelatedAnd(t *testing.T) {
 
 		makeTokenNode := &propValuePair{
 			operator: filters.OperatorAnd,
-			nested:   nestedInfo{isCorrelated: true, childrenFromTokenization: true},
+			nested:   nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true},
 			prop:     "cars",
 			children: []*propValuePair{
 				makeLeafPvp(class, "cars", "make", "honda"),
@@ -5848,7 +5870,12 @@ func TestIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 	t.Run("root arr[N] IsNull=true — garages[1].city=berlin AND cars.make absent", func(t *testing.T) {
 		// Both conditions carry {RelPath:"", Index:1} so they resolve in the same group.
 		// doc1: garages[1] = {city:"berlin", no cars.make} → match
-		// doc2: garages[1] = {city:"berlin", cars.make present} → no match
+		// doc2: garages[1] = {city:"berlin", cars.make present} →
+		//   Phase 2 per-element IsNull: city's leaf (2) and cars.make's
+		//   existence leaf (1) are different leaves of the same garages[1].
+		//   The city position survives raw AndNot because cars.make doesn't
+		//   exist at THAT leaf. Pre-Phase 2 used universal-at-rootDoc
+		//   semantics which dropped doc2 entirely.
 		searcher, vb, mb := newIsNullCorrelationSearcher(t, "garages")
 		class := isNullCorrelationClass()
 
@@ -5870,7 +5897,7 @@ func TestIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 		require.NoError(t, err)
 		defer result.release()
 		requireBitmapValid(t, result.docIDs)
-		assert.Equal(t, []uint64{doc1}, result.docIDs.ToArray())
+		assert.Equal(t, []uint64{doc1, doc2}, result.docIDs.ToArray())
 	})
 
 	// Test 4: garages[1].cars.make IS NOT NULL — root arr[N], IsNull=false
@@ -7171,8 +7198,10 @@ func TestCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 	//
 	// Two compatibility groups — {cars[0]} and {cars[1]} — conflict at
 	// RelPath="cars", so allRootConstrained is false and dispatch goes through
-	// resolveMultiGroupRootDocIDAnd (returnMasked=true → AND at root+docID
-	// level → MaskRootLeaf). Within each group the plan is SPLIT@"cars"[idx]
+	// resolveMultiGroupRootDocIDAnd: each group resolves to a raw position
+	// bitmap and the per-group raw bitmaps are combined via
+	// CrossLeafCopresenceAll before MaskRootLeaf. Within each group the
+	// plan is SPLIT@"cars"[idx]
 	// → GROUP@"cars" with two deeper subs (tires + accessories), exercising
 	// runIdxLoopRecursive at lcaPath="cars" inside the per-group execution.
 	//
@@ -7409,9 +7438,9 @@ func TestCorrelatedAndFilterExamplesIndexed(t *testing.T) {
 	// Compatibility grouping always yields three groups (for ABCD order it is
 	// {A}, {B, C}, {D}; for DACB order it is {D, B}, {A}, {C}). In both cases
 	// allRootConstrained=false (outermost RelPath="garages") so dispatch goes
-	// through resolveMultiGroupRootDocIDAnd: each group resolves with
-	// returnMasked=true, and the per-group root+docID outputs are AndAll'd
-	// before MaskRootLeaf.
+	// through resolveMultiGroupRootDocIDAnd: each group resolves to a raw
+	// position bitmap and the per-group raw bitmaps are combined via
+	// CrossLeafCopresenceAll before MaskRootLeaf.
 	//
 	// Per-group plans (ABCD order):
 	//   {A}     SPLIT@"garages"[0] → GROUP@"garages" here=[city]

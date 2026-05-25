@@ -26,14 +26,14 @@ func nestedPvp(prop, relPath string) *propValuePair {
 }
 
 // compoundAndPvp builds a compound AND propValuePair as produced by multi-token
-// text tokenization (childrenFromTokenization=true, isCorrelatedNested=true).
+// text tokenization (childrenFromTokenization=true, isWithinRootSubtree=true).
 // prop is derived from the first child, mirroring buildNestedTextFilterPair.
 func compoundAndPvp(children ...*propValuePair) *propValuePair {
 	var prop string
 	if len(children) > 0 {
 		prop = children[0].prop
 	}
-	return &propValuePair{operator: filters.OperatorAnd, children: children, nested: nestedInfo{isCorrelated: true, childrenFromTokenization: true}, prop: prop}
+	return &propValuePair{operator: filters.OperatorAnd, children: children, nested: nestedInfo{isWithinRootSubtree: true, childrenFromTokenization: true}, prop: prop}
 }
 
 // userNestedAndPvp builds a compound AND propValuePair as produced by user
@@ -46,7 +46,7 @@ func userNestedAndPvp(children ...*propValuePair) *propValuePair {
 // wantChild describes one expected element in the groupNestedByProp output.
 type wantChild struct {
 	// correlatedProp is non-empty when the output child should be an
-	// isCorrelatedNested=true AND node wrapping conditions for that prop.
+	// isWithinRootSubtree=true AND node wrapping conditions for that prop.
 	correlatedProp string
 	// groupSize is the number of children inside the correlated group.
 	// Only inspected when correlatedProp is non-empty.
@@ -232,10 +232,12 @@ func TestGroupNestedByProp(t *testing.T) {
 		},
 
 		// output:
-		// ├── addresses.city         ← single-child group, no wrapper
-		// └── OR(addresses.postcode) ← flat: not an AND node
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── OR(postcode)  ← OR-of-same-root folds into the subtree
+		// Recursive nestedRootProp recognises the OR as addresses-rooted.
 		{
-			name: "non-AND compound child goes to flat",
+			name: "OR with same-root child folds into subtree",
 			children: []*propValuePair{
 				nestedPvp("addresses", "city"),
 				{
@@ -243,10 +245,144 @@ func TestGroupNestedByProp(t *testing.T) {
 					children: []*propValuePair{nestedPvp("addresses", "postcode")},
 				},
 			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
+		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── OR(postcode, country)  ← all same-root, folds in
+		{
+			name: "OR with multiple same-root children folds into subtree",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorOr,
+					children: []*propValuePair{
+						nestedPvp("addresses", "postcode"),
+						nestedPvp("addresses", "country"),
+					},
+				},
+			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
+		},
+
+		// output:
+		// ├── addresses.city                  ← single-child group, no wrapper
+		// └── OR(addresses.postcode, cars.x)  ← mixed-root OR stays opaque
+		{
+			name: "OR with mixed-root children stays opaque",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorOr,
+					children: []*propValuePair{
+						nestedPvp("addresses", "postcode"),
+						nestedPvp("cars", "make"),
+					},
+				},
+			},
 			want: []wantChild{
 				{isPlain: true},
 				{isPlain: true},
 			},
+		},
+
+		// output:
+		// ├── addresses.city               ← single-child group, no wrapper
+		// └── OR(addresses.postcode, flat) ← OR with flat stays opaque
+		{
+			name: "OR with flat child stays opaque",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorOr,
+					children: []*propValuePair{
+						nestedPvp("addresses", "postcode"),
+						flatPvp(),
+					},
+				},
+			},
+			want: []wantChild{
+				{isPlain: true},
+				{isPlain: true},
+			},
+		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── NOT(postcode)  ← NOT-of-same-root folds in
+		{
+			name: "NOT with same-root child folds into subtree",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorNot,
+					children: []*propValuePair{nestedPvp("addresses", "postcode")},
+				},
+			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
+		},
+
+		// output:
+		// ├── addresses.city            ← single-child group, no wrapper
+		// └── NOT(cars.make)            ← different root, stays opaque
+		{
+			name: "NOT with different-root child stays opaque",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				{
+					operator: filters.OperatorNot,
+					children: []*propValuePair{nestedPvp("cars", "make")},
+				},
+			},
+			want: []wantChild{
+				{isPlain: true},
+				{isPlain: true},
+			},
+		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── AND(postcode, country)  ← AND-of-same-root folds in
+		// Recognises a user-written AND of same-root leaves as a same-root
+		// subtree (in contrast to the existing test for AND with mixed roots
+		// or AND with flat children which stay opaque).
+		{
+			name: "AND with multiple same-root nested leaves folds into subtree",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				userNestedAndPvp(
+					nestedPvp("addresses", "postcode"),
+					nestedPvp("addresses", "country"),
+				),
+			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
+		},
+
+		// output:
+		// └── correlated(addresses)
+		//     ├── city
+		//     └── AND(postcode, OR(country, region))  ← deep nesting all same-root
+		// Recursive analysis crosses multiple levels of operator nesting.
+		{
+			name: "deeply nested same-root operators fold into subtree",
+			children: []*propValuePair{
+				nestedPvp("addresses", "city"),
+				userNestedAndPvp(
+					nestedPvp("addresses", "postcode"),
+					&propValuePair{
+						operator: filters.OperatorOr,
+						children: []*propValuePair{
+							nestedPvp("addresses", "country"),
+							nestedPvp("addresses", "region"),
+						},
+					},
+				),
+			},
+			want: []wantChild{{correlatedProp: "addresses", groupSize: 2}},
 		},
 
 		// output:
@@ -293,12 +429,12 @@ func TestGroupNestedByProp(t *testing.T) {
 			for i, wc := range tt.want {
 				child := result[i]
 				if wc.correlatedProp != "" {
-					assert.True(t, child.nested.isCorrelated, "child[%d] should be correlated", i)
+					assert.True(t, child.nested.isWithinRootSubtree, "child[%d] should be correlated", i)
 					assert.Equal(t, filters.OperatorAnd, child.operator, "child[%d] operator", i)
 					assert.Equal(t, wc.correlatedProp, child.prop, "child[%d] prop", i)
 					assert.Len(t, child.children, wc.groupSize, "child[%d] group size", i)
 				} else {
-					assert.False(t, child.nested.isCorrelated, "child[%d] should not be correlated", i)
+					assert.False(t, child.nested.isWithinRootSubtree, "child[%d] should not be correlated", i)
 				}
 			}
 		})

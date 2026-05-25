@@ -59,8 +59,8 @@ func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit i
 
 	// Correlated nested AND created during extraction: all children target the
 	// same root property (stored in pv.prop) and require same-element semantics.
-	if pv.nested.isCorrelated {
-		return pv.resolveNestedCorrelated(ctx, s)
+	if pv.nested.isWithinRootSubtree {
+		return pv.resolveNestedSubtree(ctx, s)
 	}
 
 	// All nested-specific dispatch: IsNull, value filters, and correlated AND

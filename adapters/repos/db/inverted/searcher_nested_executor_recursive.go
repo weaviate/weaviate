@@ -33,8 +33,10 @@ type recExclude struct {
 	lcaPath string
 }
 
-// recExecutor evaluates a recPlanNode tree to produce the docID bitmap of
-// matching documents.
+// recExecutor evaluates a recPlanNode tree to produce a raw position bitmap.
+// Callers strip to docIDs via bitmapOps.MaskRootLeaf when needed — the
+// executor itself stays position-level so multi-group fallback can combine
+// raw bitmaps via CrossLeafCopresenceAll before stripping.
 //
 // Each leaf condition in the plan (a *propValuePair appearing in some
 // recGroupNode.here) maps to a raw position bitmap via rawsByCond. The
@@ -47,10 +49,9 @@ type recExclude struct {
 // LCA. When the LCA matches a group's lcaPath in the plan (planLCAs), the
 // exclude is subtracted raw-level inside that group — preserving leaf-precise
 // per-element semantics for §8.5 sibling-element negation. Otherwise it is
-// subtracted at rootDoc level via MaskLeaf+AndNot in execute(). rootAnchor is
+// subtracted at raw level by execute() after evalNode returns. rootAnchor is
 // the seed for the no-positive path: when plan is nil, the executor clones
-// the anchor, AndNots excludes at raw level (preserving leaf alignment), then
-// MaskLeaf to produce a rootDoc bitmap.
+// the anchor and AndNots excludes at raw level (preserving leaf alignment).
 //
 // Position lifecycle: every bitmap returned to a caller comes with a release
 // function. Internal intermediates are released before this method returns.
@@ -62,7 +63,6 @@ type recExecutor struct {
 	metaBucket     *lsmkv.Bucket
 	bitmapOps      *invnested.BitmapOps
 	maxConcurrency int
-	returnMasked   bool
 	// props is the nested schema of the root property the executor operates
 	// on. Used by collectFlatSubtree to identify scalar-array (text[], int[],
 	// uuid[], …) here paths — those values get distinct leaves per element
@@ -106,11 +106,11 @@ func (e *recExecutor) withPlanLCAs(lcas map[string]struct{}) *recExecutor {
 
 // excludeMatchesGroup reports whether the given exclude must be subtracted
 // inside this group at raw level. True iff exclude.lcaPath is non-empty and
-// equals g.lcaPath. The caller still has to be in a code path that can mix
+// equals g.lca. The caller still has to be in a code path that can mix
 // raw-shape exclude bitmaps with raw-shape inputs (canUseRawAndAll path or
 // runIdxLoopRecursive); other paths fall back to rootDoc subtraction.
 func (e *recExecutor) excludeMatchesGroup(excl recExclude, g *recGroupNode) bool {
-	return excl.lcaPath != "" && excl.lcaPath == g.lcaPath
+	return excl.lcaPath != "" && excl.lcaPath == g.lca
 }
 
 // excludeConsumedByPlan reports whether the exclude is subtracted somewhere
@@ -131,15 +131,6 @@ func (e *recExecutor) withRootAnchor(anchor *sroar.Bitmap) *recExecutor {
 	return e
 }
 
-// withReturnMasked toggles masked-output mode. When true, execute returns a
-// root+docID position bitmap (leaf bits zeroed) instead of plain docIDs — i.e.
-// it skips the trailing MaskRootLeaf. Used by resolveMultiGroupRootDocIDAnd to
-// AND multiple groups at root+docID level before stripping root bits.
-func (e *recExecutor) withReturnMasked(returnMasked bool) *recExecutor {
-	e.returnMasked = returnMasked
-	return e
-}
-
 // withProps attaches the root property's nested schema. Required for the
 // flat raw-AndAll path in evalGroup to detect scalar-array (narrow-leaf)
 // here paths.
@@ -148,20 +139,17 @@ func (e *recExecutor) withProps(props []*models.NestedProperty) *recExecutor {
 	return e
 }
 
-// execute runs the plan and returns either the final docID bitmap (root and
-// leaf bits stripped) or the intermediate root+docID position bitmap when
-// returnMasked is set. The caller must invoke the returned release.
+// execute runs the plan and returns a raw position bitmap. The caller is
+// responsible for stripping to docIDs via bitmapOps.MaskRootLeaf when needed
+// and must invoke the returned release.
 //
-// When plan is nil the executor takes the rootAnchor path: clone the anchor,
-// AndNot each exclude at raw position level (preserves leaf alignment with the
-// anchor's positions), MaskLeaf to a rootDoc bitmap, then MaskRootLeaf (skipped
-// if returnMasked).
+// When plan is nil the executor takes the rootAnchor path: clone the anchor
+// and AndNot each exclude at raw level (preserves leaf alignment).
 //
-// When plan is non-nil: evalNode produces a rootDoc bitmap; each exclude that
-// is NOT consumed inside the plan tree is MaskLeaf'd and AndNot'd from it
-// (root+docID-level subtraction). Excludes with lcaPath ∈ planLCAs were already
-// applied raw-level inside the matching group(s) — see §8.5. MaskRootLeaf
-// produces the final docID set (skipped if returnMasked).
+// When plan is non-nil: evalNode produces a raw bitmap; each exclude that
+// is NOT consumed inside the plan tree is AndNot'd at raw level (leaf-precise
+// per-element subtraction). Excludes with lcaPath ∈ planLCAs were already
+// applied raw-level inside the matching group(s) — see §8.5.
 func (e *recExecutor) execute(ctx context.Context, plan recPlanNode) (*sroar.Bitmap, func(), error) {
 	if err := ctxExpired(ctx); err != nil {
 		return nil, nil, err
@@ -175,60 +163,57 @@ func (e *recExecutor) execute(ctx context.Context, plan recPlanNode) (*sroar.Bit
 		return nil, nil, err
 	}
 
+	// Apply non-plan-consumed excludes at raw level. bm is raw; excludes are
+	// raw _exists.{path} bitmaps. AndNot is leaf-precise, preserving
+	// per-element semantics — a sibling element at the same LCA without the
+	// absent property's existence survives.
 	for _, excl := range e.excludes {
 		if e.excludeConsumedByPlan(excl) {
 			continue
 		}
-		maskedExcl, relExcl := e.bitmapOps.MaskLeaf(excl.bitmap)
-		bm.AndNotConc(maskedExcl, e.maxConcurrency)
-		relExcl()
+		bm.AndNotConc(excl.bitmap, e.maxConcurrency)
 	}
-
-	if e.returnMasked {
-		// Caller takes ownership of bm — its release is the returned release.
-		return bm, release, nil
-	}
-	defer release()
-	docs, docRel := e.bitmapOps.MaskRootLeaf(bm)
-	return docs, docRel, nil
+	return bm, release, nil
 }
 
 // executeRootAnchor handles the no-positive path. The anchor is the universe
-// of element positions (from _exists.{scope}); excludes are subtracted at raw
-// level so leaf-position alignment with the anchor is preserved before the
-// per-element MaskLeaf collapses the result to (root, 0, docID). The trailing
-// MaskRootLeaf is skipped when returnMasked is set.
+// of element positions (from _exists.{scope}); excludes are subtracted at
+// raw level so leaf-position alignment with the anchor is preserved. Returns
+// the resulting raw position bitmap — callers strip to docIDs via
+// bitmapOps.MaskRootLeaf when needed.
 func (e *recExecutor) executeRootAnchor() (*sroar.Bitmap, func(), error) {
 	if e.rootAnchor == nil {
 		return nil, nil, fmt.Errorf("recExecutor.execute: nil plan requires a non-nil rootAnchor")
 	}
-	anchor := e.rootAnchor.Clone()
+	// Clone the anchor into a pool buffer so AndNot mutations don't disturb
+	// the shared rootAnchor; the clone becomes the result.
+	raw, rawRel := e.bitmapOps.AndAll([]*sroar.Bitmap{e.rootAnchor}, e.maxConcurrency)
 	for _, excl := range e.excludes {
-		anchor.AndNotConc(excl.bitmap, e.maxConcurrency)
+		raw.AndNotConc(excl.bitmap, e.maxConcurrency)
 	}
-	masked, maskedRel := e.bitmapOps.MaskLeaf(anchor)
-	if e.returnMasked {
-		return masked, maskedRel, nil
-	}
-	defer maskedRel()
-	docs, docRel := e.bitmapOps.MaskRootLeaf(masked)
-	return docs, docRel, nil
+	return raw, rawRel, nil
 }
 
 // evalNode dispatches by node type. parentScope (a raw position bitmap) limits
 // evaluation to positions within those array elements; nil means no restriction.
 //
-// The returned bitmap is a position bitmap with leaf bits zeroed. Most nodes
-// return a rootDoc bitmap (root_idx + docID). The single exception is a
-// recSplitNode at lcaPath="" — its branches must be ANDed at docID level
-// because they pin to different root_idx values, so the result has both root
-// and leaf bits zeroed. MaskRootLeaf in execute is idempotent in that case.
+// Most nodes return a raw position bitmap (root_idx | leaf_idx | docID) with
+// leaves intact so downstream operands can keep composing on raw positions; the
+// caller strips to docIDs via MaskRootLeaf when docIDs are needed. The single
+// exception is a recSplitNode at lcaPath="" — its branches pin to different
+// root_idx values, so andBranchesAtDocID MaskRootLeaf's each branch and ANDs
+// them at docID level; the result is a doc-only bitmap. A caller-side
+// MaskRootLeaf is idempotent on that doc-only result.
 func (e *recExecutor) evalNode(ctx context.Context, node recPlanNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
 	switch n := node.(type) {
 	case *recGroupNode:
 		return e.evalGroup(ctx, n, parentScope)
 	case *recSplitNode:
 		return e.evalSplit(ctx, n, parentScope)
+	case *recOrNode:
+		return e.evalOr(ctx, n, parentScope)
+	case *recNotNode:
+		return e.evalNot(ctx, n, parentScope)
 	default:
 		return nil, nil, fmt.Errorf("recExecutor: unknown node type %T", node)
 	}
@@ -261,7 +246,7 @@ func (e *recExecutor) evalNode(ctx context.Context, node recPlanNode, parentScop
 // The here=0, subs=1 case is collapsed away by the planner so it does not
 // reach evalGroup (see buildGroup).
 func (e *recExecutor) evalGroup(ctx context.Context, g *recGroupNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
-	if e.canUseRawAndAll(g) || g.lcaPath == "" {
+	if e.canUseRawAndAll(g) || g.lca == "" {
 		return e.evalGroupRoot(ctx, g, parentScope)
 	}
 	if flat, ok := e.collectFlatSubtree(g); ok {
@@ -326,7 +311,7 @@ func (e *recExecutor) collectFlatSubtree(g *recGroupNode) (*flatSubtree, bool) {
 				return false
 			}
 		}
-		out.lcaPaths[grp.lcaPath] = struct{}{}
+		out.lcaPaths[grp.lca] = struct{}{}
 		for _, leaf := range grp.here {
 			path := childRelPath(leaf)
 			if _, dup := seen[path]; dup {
@@ -387,9 +372,7 @@ func (e *recExecutor) evalFlatRawAndAll(ctx context.Context, flat *flatSubtree, 
 			anded.AndNotConc(excl.bitmap, e.maxConcurrency)
 		}
 	}
-	result, resultRel := e.bitmapOps.MaskLeaf(anded)
-	andedRel()
-	return result, resultRel, nil
+	return anded, andedRel, nil
 }
 
 // evalGroupRoot collects raw bitmaps for here conditions and rootDoc bitmaps
@@ -444,32 +427,35 @@ func (e *recExecutor) evalGroupRoot(ctx context.Context, g *recGroupNode, parent
 		bitmaps = append(bitmaps, parentScope)
 	}
 	if len(bitmaps) == 0 {
-		return nil, nil, fmt.Errorf("evalGroupRoot: no inputs for group at lcaPath=%q", g.lcaPath)
+		return nil, nil, fmt.Errorf("evalGroupRoot: no inputs for group at lcaPath=%q", g.lca)
 	}
 
 	if e.canUseRawAndAll(g) {
 		anded, andedRel := e.bitmapOps.AndAll(bitmaps, e.maxConcurrency)
-		// Apply matching excludes (lcaPath == g.lcaPath) at raw level — the
-		// anded bitmap is still raw-shape (leaf-precise) here, so AndNot'ing a
-		// raw _exists.{path} bitmap removes only the exact same-element leaf
-		// position that carries the absent property's existence. This is the
-		// §8.5 sibling-element semantics: a sibling element at the same LCA
+		// Apply matching excludes (lcaPath == g.lca) at raw level — the
+		// anded bitmap is raw-shape (leaf-precise), so AndNot'ing a raw
+		// _exists.{path} bitmap removes only the exact same-element leaf
+		// position that carries the absent property's existence. §8.5
+		// sibling-element semantics: a sibling element at the same LCA
 		// without the absent property's existence survives.
 		for _, excl := range e.excludes {
 			if e.excludeMatchesGroup(excl, g) {
 				anded.AndNotConc(excl.bitmap, e.maxConcurrency)
 			}
 		}
-		result, resultRel := e.bitmapOps.MaskLeaf(anded)
-		andedRel()
 		succeeded = true
 		for _, rel := range releases {
 			rel()
 		}
-		return result, resultRel, nil
+		return anded, andedRel, nil
 	}
 
-	result, resultRel := e.bitmapOps.AndAllMaskLeaf(bitmaps, e.maxConcurrency)
+	// Non-bridged path: Phase 3 inheritance doesn't span the group's
+	// operands (multi-sub, dup paths, or sub-result mixed with here-raws).
+	// CrossLeafCopresenceAll keeps positions whose (root, doc) co-presents
+	// across every operand and preserves the contributing leaves for
+	// downstream raw composition.
+	result, resultRel := e.bitmapOps.CrossLeafCopresenceAll(bitmaps)
 	succeeded = true
 	for _, rel := range releases {
 		rel()
@@ -529,13 +515,13 @@ func (e *recExecutor) canUseRawAndAll(g *recGroupNode) bool {
 // into the accumulator.
 func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
 	if e.metaBucket == nil {
-		return nil, nil, fmt.Errorf("runIdxLoopRecursive: meta bucket is nil for %q", g.lcaPath)
+		return nil, nil, fmt.Errorf("runIdxLoopRecursive: meta bucket is nil for %q", g.lca)
 	}
 	if err := ctxExpired(ctx); err != nil {
 		return nil, nil, err
 	}
 
-	idxPrefix := invnested.PathPrefix("_idx." + g.lcaPath)
+	idxPrefix := invnested.PathPrefix("_idx." + g.lca)
 
 	capHint := 64
 	for _, leaf := range g.here {
@@ -557,7 +543,7 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 	c := e.metaBucket.CursorRoaringSet()
 	defer c.Close()
 
-	for k, elemBitmap := c.Seek(invnested.IdxKey(g.lcaPath, 0)); k != nil; k, elemBitmap = c.Next() {
+	for k, elemBitmap := c.Seek(invnested.IdxKey(g.lca, 0)); k != nil; k, elemBitmap = c.Next() {
 		if err := ctxExpired(ctx); err != nil {
 			return nil, nil, err
 		}
@@ -573,7 +559,7 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 			effRelease()
 			continue
 		}
-		// Apply matching excludes (lcaPath == g.lcaPath) at raw level on a
+		// Apply matching excludes (lcaPath == g.lca) at raw level on a
 		// per-element copy of effective. AndNot'ing the raw _exists.{path}
 		// bitmap removes leaf positions that carry the absent property's
 		// existence, so matchElementRecursive only intersects positives
@@ -623,62 +609,67 @@ func (e *recExecutor) applyMatchingExcludes(g *recGroupNode, effective *sroar.Bi
 	return cloned, clonedRel
 }
 
-// matchElementRecursive computes the per-element rootDoc as the intersection of
-// all here MaskLeafAnd results and all sub plan results, evaluated under
-// effective. On any empty intermediate it short-circuits and the element is
-// skipped. On success the per-element rootDoc is OR'd into result.
+// matchElementRecursive gathers per-condition raw bitmaps for the element
+// represented by effective, combines them via CrossLeafCopresenceAll, and
+// ORs the result into the accumulator.
+//
+// Each here leaf contributes raw AndAll(rawLeaf, effective) — positions of
+// that condition inside the element. Each sub-plan contributes its raw
+// output (Phase 2 architecture: subs emit raw). Cross-condition combining
+// uses CrossLeafCopresenceAll so positions co-presenting on (root, doc)
+// are kept regardless of leaf alignment — correct for the non-bridged path
+// (Phase 3 inheritance doesn't span the group's operands; that's why
+// evalGroup routed here instead of canUseRawAndAll or evalFlatRawAndAll).
+// Empty inputs short-circuit the element entirely.
 func (e *recExecutor) matchElementRecursive(ctx context.Context, g *recGroupNode, effective, result *sroar.Bitmap) error {
-	var partial *sroar.Bitmap
-	var partialRel func()
-	releasePartial := func() {
-		if partialRel != nil {
-			partialRel()
+	bitmaps := make([]*sroar.Bitmap, 0, len(g.here)+len(g.subs))
+	releases := make([]func(), 0, len(g.here)+len(g.subs))
+	releaseAll := func() {
+		for _, rel := range releases {
+			rel()
 		}
-	}
-
-	addRootDoc := func(bm *sroar.Bitmap, rel func()) (empty bool) {
-		if partial == nil {
-			partial = bm
-			partialRel = rel
-			return partial.IsEmpty()
-		}
-		partial.AndConc(bm, e.maxConcurrency)
-		rel()
-		return partial.IsEmpty()
 	}
 
 	for _, leaf := range g.here {
 		rawLeaf, ok := e.rawsByCond[leaf]
 		if !ok {
-			releasePartial()
+			releaseAll()
 			return fmt.Errorf("matchElementRecursive: no raw bitmap for leaf %q", childRelPath(leaf))
 		}
-		bm, rel := e.bitmapOps.MaskLeafAnd(rawLeaf, effective)
-		if addRootDoc(bm, rel) {
-			releasePartial()
+		bm, rel := e.bitmapOps.AndAll([]*sroar.Bitmap{rawLeaf, effective}, e.maxConcurrency)
+		if bm.IsEmpty() {
+			rel()
+			releaseAll()
 			return nil
 		}
+		bitmaps = append(bitmaps, bm)
+		releases = append(releases, rel)
 	}
 
 	for _, sub := range g.subs {
 		subResult, subRelease, err := e.evalNode(ctx, sub, effective)
 		if err != nil {
-			releasePartial()
+			releaseAll()
 			return err
 		}
-		if addRootDoc(subResult, subRelease) {
-			releasePartial()
+		if subResult.IsEmpty() {
+			subRelease()
+			releaseAll()
 			return nil
 		}
+		bitmaps = append(bitmaps, subResult)
+		releases = append(releases, subRelease)
 	}
 
-	if partial == nil {
+	if len(bitmaps) == 0 {
 		// A group with no here and no subs is a builder bug. Treat as no match.
 		return nil
 	}
 
-	result.OrConc(partial, e.maxConcurrency)
-	releasePartial()
+	combined, combinedRel := e.bitmapOps.CrossLeafCopresenceAll(bitmaps)
+	result.OrConc(combined, e.maxConcurrency)
+	combinedRel()
+	releaseAll()
 	return nil
 }
 
@@ -696,10 +687,10 @@ func (e *recExecutor) matchElementRecursive(ctx context.Context, g *recGroupNode
 //     root, so a plain rootDoc AND gives the correct same-root semantics.
 func (e *recExecutor) evalSplit(ctx context.Context, n *recSplitNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
 	if e.metaBucket == nil {
-		return nil, nil, fmt.Errorf("evalSplit: meta bucket is nil for %q", n.lcaPath)
+		return nil, nil, fmt.Errorf("evalSplit: meta bucket is nil for %q", n.lca)
 	}
 	if len(n.branches) == 0 {
-		return nil, nil, fmt.Errorf("evalSplit: split with no branches at %q", n.lcaPath)
+		return nil, nil, fmt.Errorf("evalSplit: split with no branches at %q", n.lca)
 	}
 
 	branchResults := make([]*sroar.Bitmap, 0, len(n.branches))
@@ -717,7 +708,7 @@ func (e *recExecutor) evalSplit(ctx context.Context, n *recSplitNode, parentScop
 		if err := ctxExpired(ctx); err != nil {
 			return nil, nil, err
 		}
-		bm, rel, err := e.evalSplitBranch(ctx, n.lcaPath, br, parentScope)
+		bm, rel, err := e.evalSplitBranch(ctx, n.lca, br, parentScope)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -730,10 +721,16 @@ func (e *recExecutor) evalSplit(ctx context.Context, n *recSplitNode, parentScop
 		return branchResults[0], branchReleases[0], nil
 	}
 
-	if n.lcaPath == "" {
+	if n.lca == "" {
 		return e.andBranchesAtDocID(branchResults, branchReleases, &succeeded)
 	}
-	result, resultRel := e.bitmapOps.AndAll(branchResults, e.maxConcurrency)
+	// Non-root multi-branch: branches pin to different arr[N] slices of
+	// the same intermediate scope. Each branch returns raw positions in
+	// its pinned slice; different branches' leaves are disjoint by
+	// construction (different elements at the lca). CrossLeafCopresenceAll
+	// keeps positions whose (root, doc) co-presents across every branch —
+	// i.e. the same root contains a passing element in every pinned slice.
+	result, resultRel := e.bitmapOps.CrossLeafCopresenceAll(branchResults)
 	succeeded = true
 	for _, rel := range branchReleases {
 		rel()
@@ -797,4 +794,150 @@ func (e *recExecutor) intersectScope(scope, parentScope *sroar.Bitmap) (*sroar.B
 		return scope, func() {}
 	}
 	return e.bitmapOps.AndAll([]*sroar.Bitmap{scope, parentScope}, e.maxConcurrency)
+}
+
+// evalOr evaluates each child of an OR node and returns their union via OrAll.
+// Output shape matches the children's shape — OrAll preserves position bits, so
+// the OR works regardless of whether children return raw or rootDoc bitmaps
+// (transitional during the position-level evaluation rollout: Phase 1 inner functions
+// still emit rootDoc; Phase 2 flips them to raw and OR semantics are unchanged).
+//
+// parentScope is passed through to each child's evalNode unchanged. Children's
+// own evaluation logic applies the scope; the OR doesn't need to re-apply.
+func (e *recExecutor) evalOr(ctx context.Context, n *recOrNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
+	if err := ctxExpired(ctx); err != nil {
+		return nil, nil, err
+	}
+	if len(n.children) == 0 {
+		return nil, nil, fmt.Errorf("evalOr: OR with zero children at lca=%q", n.lca)
+	}
+
+	bitmaps := make([]*sroar.Bitmap, 0, len(n.children))
+	releases := make([]func(), 0, len(n.children))
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			for _, rel := range releases {
+				rel()
+			}
+		}
+	}()
+
+	for _, child := range n.children {
+		bm, rel, err := e.evalNode(ctx, child, parentScope)
+		if err != nil {
+			return nil, nil, err
+		}
+		bitmaps = append(bitmaps, bm)
+		releases = append(releases, rel)
+	}
+
+	result, resultRel := e.bitmapOps.OrAll(bitmaps, e.maxConcurrency)
+	succeeded = true
+	for _, rel := range releases {
+		rel()
+	}
+	return result, resultRel, nil
+}
+
+// evalNot inverts its operand at the operand's natural LCA against the
+// per-LCA universe (`_exists.{lca}`). pins (when present) intersect the
+// universe with `_idx.{pin.RelPath}[pin.Index]` slices — for example, pins
+// for `NOT cars.tires[1].width=205` restrict the universe to tire-position
+// entries at index 1. parentScope further narrows the universe so per-element
+// inversion respects an enclosing idx-loop's effective scope.
+//
+// The output shape matches the operand's shape (transitional during Phase 1:
+// operands return rootDoc, so this method MaskLeaf's the universe to match
+// before AndNot. Phase 2 will refactor the rest of the executor to emit raw;
+// the MaskLeaf step in evalNot can be dropped then, and the universe stays
+// raw end-to-end).
+func (e *recExecutor) evalNot(ctx context.Context, n *recNotNode, parentScope *sroar.Bitmap) (*sroar.Bitmap, func(), error) {
+	if err := ctxExpired(ctx); err != nil {
+		return nil, nil, err
+	}
+	if e.metaBucket == nil {
+		return nil, nil, fmt.Errorf("evalNot: meta bucket is nil at lca=%q", n.lca)
+	}
+
+	// 1. Read the universe of positions at the operand's LCA. Empty universe
+	// means the operand can't match anything in any element — NOT result is
+	// also empty (existential per-element: no element exists to satisfy
+	// "this element does not satisfy operand").
+	universeBucket, universeBucketRel, err := e.metaBucket.RoaringSetGet(invnested.ExistsKey(n.lca))
+	if err != nil {
+		return nil, nil, fmt.Errorf("evalNot: read _exists for %q: %w", n.lca, err)
+	}
+	if universeBucket == nil || universeBucket.IsEmpty() {
+		if universeBucketRel != nil {
+			universeBucketRel()
+		}
+		empty, emptyRel := e.bitmapOps.NewEmpty(0)
+		return empty, emptyRel, nil
+	}
+
+	// 2. Clone the universe into a pool buffer so subsequent steps can mutate
+	// it without disturbing the bucket-owned bitmap. We can release the
+	// bucket entry as soon as the clone is made.
+	universe, universeRel := e.bitmapOps.AndAll([]*sroar.Bitmap{universeBucket}, e.maxConcurrency)
+	universeBucketRel()
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			universeRel()
+		}
+	}()
+
+	// 3. Apply pin restrictions. Each pin intersects the universe with the
+	// _idx slice for that arr[N] tuple.
+	var keyBuf [invnested.IdxKeySize]byte
+	for _, pin := range n.pins {
+		pinBm, pinRel, err := e.metaBucket.RoaringSetGet(
+			invnested.IdxKeyToBuf(pin.RelPath, pin.Index, keyBuf[:]))
+		if err != nil {
+			return nil, nil, fmt.Errorf("evalNot: read _idx for pin %q[%d]: %w", pin.RelPath, pin.Index, err)
+		}
+		if pinBm == nil {
+			if pinRel != nil {
+				pinRel()
+			}
+			// Pin slice not present in any doc — universe becomes empty.
+			empty, emptyRel := e.bitmapOps.NewEmpty(0)
+			succeeded = true
+			universeRel()
+			return empty, emptyRel, nil
+		}
+		universe.AndConc(pinBm, e.maxConcurrency)
+		pinRel()
+		if universe.IsEmpty() {
+			succeeded = true
+			return universe, universeRel, nil
+		}
+	}
+
+	// 4. Apply parentScope. parentScope is a raw bitmap from an enclosing
+	// idx-loop; AND'ing narrows the universe to that loop's element scope.
+	if parentScope != nil {
+		universe.AndConc(parentScope, e.maxConcurrency)
+		if universe.IsEmpty() {
+			succeeded = true
+			return universe, universeRel, nil
+		}
+	}
+
+	// 5. Evaluate operand under parentScope. Operand evaluation handles its
+	// own scope restrictions internally.
+	operand, operandRel, err := e.evalNode(ctx, n.operand, parentScope)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer operandRel()
+
+	// 6. AndNot at raw level: universe ∖ operand. Both are raw position
+	// bitmaps; AndNot is leaf-precise, giving existential per-element NOT
+	// semantics — "this element does not satisfy operand".
+	universe.AndNotConc(operand, e.maxConcurrency)
+
+	succeeded = true
+	return universe, universeRel, nil
 }

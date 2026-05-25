@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -51,8 +50,10 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 		ops := newLifecycleOps(t)
 		plan := newRecPlanBuilder(props).build(pv.children)
 		exec := newRecExecutor(rawsByCond, mb, ops, concurrency.SROAR_MERGE)
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, want, result.ToArray())
@@ -726,8 +727,10 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 		ops := newLifecycleOps(t)
 		plan := newRecPlanBuilder(props).build(pv.children)
 		exec := newRecExecutor(rawsByCond, mb, ops, concurrency.SROAR_MERGE)
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		assert.Empty(t, result.ToArray())
 	}
@@ -815,125 +818,16 @@ func TestRecExecutorFilterExamples(t *testing.T) {
 	})
 }
 
-// TestRecExecutorReturnMasked exercises withReturnMasked across both execute
-// paths. It runs the same scenario twice — once unmasked (final docIDs), once
-// masked (root+docID positions) — and asserts that MaskRootLeaf'ing the masked
-// output produces the same docID set as the unmasked output. This is the
-// invariant resolveMultiGroupRootDocIDAnd relies on when ANDing groups at
-// root+docID level before stripping root bits.
-func TestRecExecutorReturnMasked(t *testing.T) {
-	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
-
-	t.Run("normal_path_returnMasked_then_MaskRootLeaf_equals_unmasked", func(t *testing.T) {
-		const (
-			docMatch   = uint64(101)
-			docNoMatch = uint64(102)
-		)
-		valueBucket := helpers.BucketNestedFromPropNameLSM("addresses")
-		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
-		s, store := newNestedTestSearcher(t, valueBucket, metaBucket)
-		class := correlationTestClass()
-
-		vb := store.Bucket(valueBucket)
-		writeNestedValue(t, vb, "city", "berlin", []uint64{enc(1, 1, docMatch), enc(1, 1, docNoMatch)})
-		writeNestedValue(t, vb, "postcode", "10115", []uint64{enc(1, 1, docMatch), enc(1, 2, docNoMatch)})
-
-		pv := makeCorrelatedPvp(class, "addresses",
-			makeLeafPvp(class, "addresses", "city", "berlin"),
-			makeLeafPvp(class, "addresses", "postcode", "10115"),
-		)
-
-		// Unmasked: plain docIDs.
-		planU, execU, relsU, err := pv.buildRecGroupExecutor(context.Background(), s, pv.children)
-		require.NoError(t, err)
-		docs, docsRel, err := execU.execute(context.Background(), planU)
-		require.NoError(t, err)
-		unmaskedDocs := docs.ToArray()
-		docsRel()
-		for _, rel := range relsU {
-			rel()
-		}
-
-		// Masked: root+docID positions. MaskRootLeaf'ing must give the same docs.
-		planM, execM, relsM, err := pv.buildRecGroupExecutor(context.Background(), s, pv.children)
-		require.NoError(t, err)
-		execM.withReturnMasked(true)
-		masked, maskedRel, err := execM.execute(context.Background(), planM)
-		require.NoError(t, err)
-		ops := newLifecycleOps(t)
-		fromMasked, fromMaskedRel := ops.MaskRootLeaf(masked)
-		assert.Equal(t, unmaskedDocs, fromMasked.ToArray(),
-			"MaskRootLeaf(returnMasked output) must equal unmasked output")
-		fromMaskedRel()
-		maskedRel()
-		for _, rel := range relsM {
-			rel()
-		}
-	})
-
-	t.Run("root_anchor_path_returnMasked_then_MaskRootLeaf_equals_unmasked", func(t *testing.T) {
-		// addresses.city IS NULL — no positives, only excludes; execute takes the
-		// rootAnchor branch in both modes. Same MaskRootLeaf invariant must hold.
-		const (
-			docMatch   = uint64(111)
-			docNoMatch = uint64(112)
-		)
-		valueBucket := helpers.BucketNestedFromPropNameLSM("addresses")
-		metaBucket := helpers.BucketNestedMetaFromPropNameLSM("addresses")
-		s, store := newNestedTestSearcher(t, valueBucket, metaBucket)
-		class := correlationTestClass()
-
-		mb := store.Bucket(metaBucket)
-		require.NoError(t, mb.RoaringSetAddList(invnested.ExistsKey(""), []uint64{
-			enc(1, 1, docMatch), enc(1, 1, docNoMatch),
-		}))
-		require.NoError(t, mb.RoaringSetAddList(invnested.ExistsKey("city"), []uint64{
-			enc(1, 1, docNoMatch),
-		}))
-
-		pv := makeCorrelatedPvp(class, "addresses",
-			makeIsNullPvp(class, "addresses", "city", true),
-		)
-
-		planU, execU, relsU, err := pv.buildRecGroupExecutor(context.Background(), s, pv.children)
-		require.NoError(t, err)
-		docs, docsRel, err := execU.execute(context.Background(), planU)
-		require.NoError(t, err)
-		unmaskedDocs := docs.ToArray()
-		docsRel()
-		for _, rel := range relsU {
-			rel()
-		}
-
-		planM, execM, relsM, err := pv.buildRecGroupExecutor(context.Background(), s, pv.children)
-		require.NoError(t, err)
-		execM.withReturnMasked(true)
-		masked, maskedRel, err := execM.execute(context.Background(), planM)
-		require.NoError(t, err)
-		assert.Nil(t, planM, "rootAnchor scenario yields nil plan")
-		ops := newLifecycleOps(t)
-		fromMasked, fromMaskedRel := ops.MaskRootLeaf(masked)
-		assert.Equal(t, unmaskedDocs, fromMasked.ToArray(),
-			"MaskRootLeaf(returnMasked rootAnchor output) must equal unmasked output")
-		fromMaskedRel()
-		maskedRel()
-		for _, rel := range relsM {
-			rel()
-		}
-	})
-}
-
 // TestRecExecutorRootAnchor exercises the executeRootAnchor path of execute()
 // — the branch taken when plan==nil. The path applies for correlated AND
 // filters that contain only IsNull conditions: there is no positive anchor, so
 // the executor uses _exists.{scope} as the element universe. Each exclude (a
 // raw _exists.{path} position bitmap) is AndNot'd at raw level (preserving
-// leaf alignment with the anchor), then MaskLeaf collapses to rootDoc, then
-// MaskRootLeaf to docIDs.
+// leaf alignment with the anchor); the caller strips to docIDs via
+// MaskRootLeaf when needed.
 //
-// TestRecExecutorReturnMasked already proves the masked-vs-unmasked invariant
-// for this path. This test exercises absolute-result and lifecycle invariants:
-// single vs. multiple excludes, partial-element subtraction (one element of a
+// This test exercises absolute-result and lifecycle invariants: single vs.
+// multiple excludes, partial-element subtraction (one element of a
 // multi-element doc excluded while another survives), and the nil-anchor
 // error.
 func TestRecExecutorRootAnchor(t *testing.T) {
@@ -950,8 +844,10 @@ func TestRecExecutorRootAnchor(t *testing.T) {
 			withRootAnchor(anchor).
 			withExcludes([]recExclude{{bitmap: exclude}})
 
-		result, release, err := exec.execute(context.Background(), nil)
+		raw, rawRel, err := exec.execute(context.Background(), nil)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{101}, result.ToArray())
@@ -972,8 +868,10 @@ func TestRecExecutorRootAnchor(t *testing.T) {
 			withRootAnchor(anchor).
 			withExcludes([]recExclude{{bitmap: excl1}, {bitmap: excl2}})
 
-		result, release, err := exec.execute(context.Background(), nil)
+		raw, rawRel, err := exec.execute(context.Background(), nil)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{200, 202, 204}, result.ToArray())
@@ -998,8 +896,10 @@ func TestRecExecutorRootAnchor(t *testing.T) {
 			withRootAnchor(anchor).
 			withExcludes([]recExclude{{bitmap: exclude}})
 
-		result, release, err := exec.execute(context.Background(), nil)
+		raw, rawRel, err := exec.execute(context.Background(), nil)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{300}, result.ToArray())
@@ -1024,18 +924,19 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 	class := filterExamplesClass()
 	props := rootNestedProps(t, class, "countries")
 
-	t.Run("multi_exclude_loop_subtracts_at_rootDoc_level", func(t *testing.T) {
+	t.Run("multi_exclude_loop_subtracts_at_raw_level", func(t *testing.T) {
 		// Plan-driven path: single positive condition `garages.city=berlin`
-		// produces GROUP@"garages" here=[garages.city]. canUseRawAndAll runs
-		// AndAll([raw_city]) → MaskLeaf → bm at rootDoc shape. The exclude
-		// loop in execute() then MaskLeafs each exclude (collapsing leaf bits)
-		// and AndNots from bm. Two excludes, one applying to two docs each
-		// (with overlap on doc4), verify the loop iterates and accumulates.
+		// produces GROUP@"garages" here=[garages.city]. canUseRawAndAll
+		// returns raw bm. The exclude loop in execute() AndNots each
+		// exclude at raw level (Phase 2: no MaskLeaf collapse). Verifies
+		// the loop iterates and accumulates across multiple excludes.
 		//
-		// doc1: city only — kept.
-		// doc2: city + zip exists in a different leaf — excludeZip drops it.
-		// doc3: city + age exists — excludeAge drops it.
-		// doc4: city + zip + age — both excludes apply (idempotent AndNot).
+		// Excludes overlap positives at the same leaf so raw AndNot fires:
+		//   doc1: city at leaf 1, no excludes — kept.
+		//   doc2: city at leaf 1, excludeZip at leaf 1 — excludeZip drops it.
+		//   doc3: city at leaf 1, excludeAge at leaf 1 — excludeAge drops it.
+		//   doc4: city at leaf 1, both excludes at leaf 1 — both drop it
+		//     (idempotent AndNot for the second exclude).
 		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
 		rawCity := roaringset.NewBitmap(
 			enc(1, 1, 1),
@@ -1044,12 +945,12 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 			enc(4, 1, 4),
 		)
 		excludeZip := roaringset.NewBitmap(
-			enc(2, 5, 2),
-			enc(4, 5, 4),
+			enc(2, 1, 2),
+			enc(4, 1, 4),
 		)
 		excludeAge := roaringset.NewBitmap(
-			enc(3, 7, 3),
-			enc(4, 7, 4),
+			enc(3, 1, 3),
+			enc(4, 1, 4),
 		)
 
 		ops := newLifecycleOps(t)
@@ -1057,8 +958,10 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 		exec := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, ops, concurrency.SROAR_MERGE).
 			withExcludes([]recExclude{{bitmap: excludeZip}, {bitmap: excludeAge}})
 
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{1}, result.ToArray())
@@ -1079,8 +982,10 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 		exec := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, ops, concurrency.SROAR_MERGE).
 			withExcludes([]recExclude{{bitmap: excludeZip}})
 
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{500}, result.ToArray())
@@ -1112,20 +1017,26 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 			withExcludes([]recExclude{{bitmap: excludeZip, lcaPath: "garages"}}).
 			withPlanLCAs(collectPlanLCAs(plan))
 
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
 		assert.Equal(t, []uint64{1}, result.ToArray())
 	})
 
-	t.Run("non_matching_lcaPath_falls_through_to_rootDoc_subtract", func(t *testing.T) {
+	t.Run("non_matching_lcaPath_subtracts_at_raw_level", func(t *testing.T) {
 		// When the exclude's lcaPath is NOT in planLCAs, execute() applies
-		// rootDoc-level subtraction (MaskLeaf+AndNot). Same data layout as the
-		// §8.5 raw test, but lcaPath="garages.cars" is below the plan's only
-		// group lcaPath "garages" — so the exclude collapses to rootDoc shape
-		// (per-garage element) and drops doc1 entirely (root_idx=1 has zip in
-		// some leaf), reproducing the pre-fix behavior for that combination.
+		// the subtraction at raw level (Phase 2: bm is raw throughout, so
+		// AndNot is leaf-precise and preserves per-element semantics).
+		//
+		// doc1 has city at leaves 3 and 5 but zip only at leaf 3 — leaf 5
+		// survives the AndNot, so doc1 is included. doc2 has city and zip
+		// both at leaf 3 — drops.
+		//
+		// Pre-Phase-2 the exclude was MaskLeaf'd then AndNot'd at rootDoc,
+		// which dropped both docs at (root, doc) granularity.
 		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
 		rawCity := roaringset.NewBitmap(
 			enc(1, 3, 1), enc(1, 5, 1),
@@ -1142,44 +1053,13 @@ func TestRecExecutorExcludePositions(t *testing.T) {
 			withExcludes([]recExclude{{bitmap: excludeZip, lcaPath: "garages.cars"}}).
 			withPlanLCAs(collectPlanLCAs(plan))
 
-		result, release, err := exec.execute(context.Background(), plan)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
 		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
 		defer release()
 		requireBitmapValid(t, result)
-		assert.Empty(t, result.ToArray(), "rootDoc subtract drops both docs at (root,docID) granularity")
-	})
-
-	t.Run("returnMasked_keeps_rootDoc_after_excludes", func(t *testing.T) {
-		// With returnMasked=true, execute returns the post-AndNot rootDoc
-		// bitmap directly — MaskRootLeaf is skipped. Verify the equivalence
-		// invariant: MaskRootLeaf'ing the masked result equals the unmasked
-		// docID set. Confirms the exclude loop runs identically in both modes
-		// (the returnMasked check happens after the loop, not before).
-		city := makeLeafPvp(class, "countries", "garages.city", "berlin")
-		rawCity := roaringset.NewBitmap(enc(1, 1, 700), enc(2, 1, 701))
-		excludeZip := roaringset.NewBitmap(enc(2, 5, 701))
-
-		opsU := newLifecycleOps(t)
-		planU := newRecPlanBuilder(props).build([]*propValuePair{city})
-		execU := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, opsU, concurrency.SROAR_MERGE).
-			withExcludes([]recExclude{{bitmap: excludeZip}})
-		unmasked, unmaskedRel, err := execU.execute(context.Background(), planU)
-		require.NoError(t, err)
-		unmaskedDocs := unmasked.ToArray()
-		unmaskedRel()
-
-		opsM := newLifecycleOps(t)
-		planM := newRecPlanBuilder(props).build([]*propValuePair{city})
-		execM := newRecExecutor(map[*propValuePair]*sroar.Bitmap{city: rawCity}, nil, opsM, concurrency.SROAR_MERGE).
-			withExcludes([]recExclude{{bitmap: excludeZip}}).
-			withReturnMasked(true)
-		masked, maskedRel, err := execM.execute(context.Background(), planM)
-		require.NoError(t, err)
-		ops := newLifecycleOps(t)
-		fromMasked, fromMaskedRel := ops.MaskRootLeaf(masked)
-		assert.Equal(t, unmaskedDocs, fromMasked.ToArray())
-		fromMaskedRel()
-		maskedRel()
+		assert.Equal(t, []uint64{1}, result.ToArray(), "raw AndNot preserves doc1 via the surviving leaf-5 city position")
 	})
 }
 
@@ -1387,7 +1267,7 @@ func TestRecExecutorRunIdxLoopRecursiveCursor(t *testing.T) {
 			leaves[i] = newLeaf("cars.x")
 			raws[leaves[i]] = bm
 		}
-		g := &recGroupNode{lcaPath: "cars", here: leaves}
+		g := &recGroupNode{lca: "cars", here: leaves}
 		exec := newRecExecutor(raws, bucket, ops, concurrency.SROAR_MERGE)
 		result, release, err := exec.runIdxLoopRecursive(context.Background(), g, nil)
 		require.NoError(t, err)
@@ -1407,7 +1287,7 @@ func TestRecExecutorRunIdxLoopRecursiveCursor(t *testing.T) {
 			leaves[i] = newLeaf("cars.x")
 			raws[leaves[i]] = bm
 		}
-		g := &recGroupNode{lcaPath: "cars", here: leaves}
+		g := &recGroupNode{lca: "cars", here: leaves}
 		exec := newRecExecutor(raws, bucket, ops, concurrency.SROAR_MERGE)
 		result, release, err := exec.runIdxLoopRecursive(context.Background(), g, nil)
 		require.NoError(t, err)
@@ -1592,5 +1472,280 @@ func TestRecExecutorRunIdxLoopRecursiveCursor(t *testing.T) {
 		condA := roaringset.NewBitmap(invnested.Encode(4, 1, doc5))
 		condB := roaringset.NewBitmap(invnested.Encode(4, 2, doc5))
 		assert.Equal(t, []uint64{doc5}, runLoop(t, bucket, condA, condB))
+	})
+}
+
+// TestRecExecutorEvalOr exercises evalOr against hand-constructed OR plans.
+// The planner produces recOrNode for OR-operator pvps (Step 3); evalOr unions
+// child results via the OrAll primitive. Output shape matches children's
+// shape — under Phase 1 of position-level evaluation, children return rootDoc, so
+// the OR result is rootDoc. execute() then MaskRootLeaf's to docIDs.
+func TestRecExecutorEvalOr(t *testing.T) {
+	class := filterExamplesClass()
+	props := rootNestedProps(t, class, "countries")
+	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
+
+	runRec := func(t *testing.T, pv *propValuePair, mb *lsmkv.Bucket, raws map[*propValuePair]*sroar.Bitmap, want []uint64) {
+		t.Helper()
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{pv})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, want, result.ToArray())
+	}
+
+	t.Run("OR_of_two_leaves_union_docIDs", func(t *testing.T) {
+		// OR(make=tesla, model=civic): docs where either holds.
+		const (
+			docTesla = uint64(1) // make=tesla only
+			docCivic = uint64(2) // model=civic only
+			docBoth  = uint64(3) // both
+			docNone  = uint64(4) // neither
+		)
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		modelBm := makeLeafPvp(class, "countries", "garages.cars.model", "civic")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm:  roaringset.NewBitmap(enc(1, 1, docTesla), enc(1, 1, docBoth)),
+			modelBm: roaringset.NewBitmap(enc(1, 1, docCivic), enc(1, 1, docBoth)),
+		}
+
+		runRec(t, makeOrPvp(class, makeBm, modelBm), mb, raws,
+			[]uint64{docTesla, docCivic, docBoth})
+	})
+
+	t.Run("OR_with_one_empty_operand_returns_other", func(t *testing.T) {
+		const (
+			docMatch = uint64(1)
+		)
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		modelBm := makeLeafPvp(class, "countries", "garages.cars.model", "civic")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm:  roaringset.NewBitmap(enc(1, 1, docMatch)),
+			modelBm: sroar.NewBitmap(), // empty
+		}
+
+		runRec(t, makeOrPvp(class, makeBm, modelBm), mb, raws, []uint64{docMatch})
+	})
+
+	t.Run("OR_with_all_empty_operands_returns_empty", func(t *testing.T) {
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		modelBm := makeLeafPvp(class, "countries", "garages.cars.model", "civic")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm:  sroar.NewBitmap(),
+			modelBm: sroar.NewBitmap(),
+		}
+
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{makeOrPvp(class, makeBm, modelBm)})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("OR_of_three_leaves", func(t *testing.T) {
+		const (
+			doc1 = uint64(1) // make=tesla
+			doc2 = uint64(2) // model=civic
+			doc3 = uint64(3) // color=red
+			doc4 = uint64(4) // none
+		)
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		modelBm := makeLeafPvp(class, "countries", "garages.cars.model", "civic")
+		colorBm := makeLeafPvp(class, "countries", "garages.cars.color", "red")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm:  roaringset.NewBitmap(enc(1, 1, doc1)),
+			modelBm: roaringset.NewBitmap(enc(1, 1, doc2)),
+			colorBm: roaringset.NewBitmap(enc(1, 1, doc3)),
+		}
+
+		runRec(t, makeOrPvp(class, makeBm, modelBm, colorBm), mb, raws,
+			[]uint64{doc1, doc2, doc3})
+	})
+}
+
+// TestRecExecutorEvalNot exercises evalNot against hand-constructed NOT plans.
+// The planner produces recNotNode for NOT-operator pvps (Step 3); evalNot
+// inverts at the operand's natural LCA against `_exists.{lca}`. Pin
+// restrictions narrow the universe; parentScope further narrows when an
+// enclosing idx-loop is active. Output shape: rootDoc under Phase 1 (the
+// MaskLeaf step inside evalNot reconciles the raw universe with the operand's
+// rootDoc shape; Phase 2 will drop the MaskLeaf and the universe stays raw).
+func TestRecExecutorEvalNot(t *testing.T) {
+	class := filterExamplesClass()
+	props := rootNestedProps(t, class, "countries")
+	enc := func(root, leaf uint16, docID uint64) uint64 { return invnested.Encode(root, leaf, docID) }
+
+	runRec := func(t *testing.T, pv *propValuePair, mb *lsmkv.Bucket, raws map[*propValuePair]*sroar.Bitmap, want []uint64) {
+		t.Helper()
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{pv})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, want, result.ToArray())
+	}
+
+	t.Run("NOT_of_leaf_universe_minus_operand", func(t *testing.T) {
+		// NOT garages.cars.make=tesla:
+		// universe = _exists.garages.cars
+		// operand  = positions where make=tesla
+		// result   = (per-element NOT) positions of cars where make != tesla
+		const (
+			docTesla    = uint64(1) // one car, make=tesla — excluded under both semantics
+			docCivic    = uint64(2) // one car, make=civic — included under both
+			docMixedCar = uint64(3) // cars[0]=tesla, cars[1]=civic
+			//                        — universal-NOT (Phase 1): excluded (has a tesla)
+			//                        — per-element NOT (Phase 2): included (civic car satisfies)
+		)
+		mb := newIdxBucket(t)
+
+		// _exists.garages.cars: every car position in every doc.
+		writeExistsAt(t, mb, "garages.cars", []uint64{
+			enc(1, 1, docTesla),                            // docTesla cars[0]
+			enc(1, 1, docCivic),                            // docCivic cars[0]
+			enc(1, 1, docMixedCar), enc(1, 2, docMixedCar), // docMixedCar cars[0] and cars[1]
+		})
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm: roaringset.NewBitmap(
+				enc(1, 1, docTesla),    // make=tesla in docTesla
+				enc(1, 1, docMixedCar), // make=tesla in cars[0] of docMixedCar
+			),
+		}
+
+		// Per-element NOT: docMixedCar's civic car satisfies "this car is
+		// not tesla", so the doc is included alongside docCivic.
+		runRec(t, makeNotPvp(class, makeBm), mb, raws, []uint64{docCivic, docMixedCar})
+	})
+
+	t.Run("NOT_with_root_pin_restricts_universe_to_pinned_root", func(t *testing.T) {
+		// NOT countries[1].garages.cars.make=tesla:
+		// universe restricted to root_idx=2's cars-positions.
+		// NOT.lca = "" (root SPLIT), but in this Phase 1 test we use a leaf
+		// operand directly to keep the universe at garages.cars LCA.
+		//
+		// Use intermediate pin instead, more representative of pin handling:
+		t.Skip("covered by NOT_with_intermediate_pin test")
+	})
+
+	t.Run("NOT_with_intermediate_pin_restricts_universe_to_pinned_subarray", func(t *testing.T) {
+		// NOT cars.tires[1].width=205:
+		// universe = _exists.garages.cars.tires ∩ _idx.garages.cars.tires[1]
+		// operand  = positions where width=205 (at tires-leaves)
+		// result   = positions of tires[1] elements where width != 205
+		const (
+			docMatch1 = uint64(1) // tires[1] exists, width != 205 — included
+			docMatch2 = uint64(2) // tires[1] exists, width = 205 — excluded
+		)
+		mb := newIdxBucket(t)
+
+		// _exists.garages.cars.tires for both docs.
+		writeExistsAt(t, mb, "garages.cars.tires", []uint64{
+			enc(1, 1, docMatch1), enc(1, 2, docMatch1), // tires[0], tires[1]
+			enc(1, 3, docMatch2), enc(1, 4, docMatch2), // tires[0], tires[1]
+		})
+		// _idx.garages.cars.tires[1]: only the tires[1] entries.
+		writeIdx(t, mb, "garages.cars.tires", 1, []uint64{
+			enc(1, 2, docMatch1),
+			enc(1, 4, docMatch2),
+		})
+
+		pin := filnested.ArrayIndex{RelPath: "garages.cars.tires", Index: 1}
+		width := makeLeafPvpWithIdx(class, "countries", "garages.cars.tires.width", "205", pin)
+		raws := map[*propValuePair]*sroar.Bitmap{
+			width: roaringset.NewBitmap(enc(1, 4, docMatch2)), // width=205 only in docMatch2's tires[1]
+		}
+
+		// docMatch1 has tires[1] with width!=205 → included.
+		// docMatch2 has tires[1] with width=205 → excluded.
+		runRec(t, makeNotPvp(class, width), mb, raws, []uint64{docMatch1})
+	})
+
+	t.Run("NOT_when_operand_exhausts_universe_returns_empty", func(t *testing.T) {
+		// Every car in every doc has make=tesla. NOT must produce empty
+		// because the operand result covers the full universe.
+		const docID = uint64(1)
+		mb := newIdxBucket(t)
+
+		writeExistsAt(t, mb, "garages.cars", []uint64{enc(1, 1, docID)})
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm: roaringset.NewBitmap(enc(1, 1, docID)),
+		}
+
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{makeNotPvp(class, makeBm)})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("NOT_when_operand_empty_returns_full_universe", func(t *testing.T) {
+		// No car has make=tesla. NOT covers the entire universe.
+		const (
+			doc1 = uint64(1)
+			doc2 = uint64(2)
+		)
+		mb := newIdxBucket(t)
+
+		writeExistsAt(t, mb, "garages.cars", []uint64{enc(1, 1, doc1), enc(1, 1, doc2)})
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm: sroar.NewBitmap(),
+		}
+
+		runRec(t, makeNotPvp(class, makeBm), mb, raws, []uint64{doc1, doc2})
+	})
+
+	t.Run("NOT_with_empty_universe_returns_empty", func(t *testing.T) {
+		// No _exists.{path} entry in the meta bucket → universe is empty.
+		// NOT result is also empty (nothing to invert).
+		mb := newIdxBucket(t)
+
+		makeBm := makeLeafPvp(class, "countries", "garages.cars.make", "tesla")
+		raws := map[*propValuePair]*sroar.Bitmap{
+			makeBm: sroar.NewBitmap(),
+		}
+
+		ops := newLifecycleOps(t)
+		plan := newRecPlanBuilder(props).build([]*propValuePair{makeNotPvp(class, makeBm)})
+		exec := newRecExecutor(raws, mb, ops, concurrency.SROAR_MERGE)
+		raw, rawRel, err := exec.execute(context.Background(), plan)
+		require.NoError(t, err)
+		defer rawRel()
+		result, release := ops.MaskRootLeaf(raw)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
 	})
 }

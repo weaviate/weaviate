@@ -3896,7 +3896,10 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 			valueFilter("countries[1].name", "germany"),
 			isNullFilter("countries[1].garages.cars.model", true),
 		)
-		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchModelOnlyInOtherCntr})
+		// Phase 2 per-element IsNull: idNoMatchModelInOtherGarage flips to
+		// match because the no-model leaf in garages[0] satisfies the
+		// existential per-element IsNull on countries[1].garages.cars.model.
+		runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchModelOnlyInOtherCntr, idNoMatchModelInOtherGarage})
 	})
 
 	// 1b: countries[1].name = "germany" AND countries[1].garages.cars IS NULL
@@ -3961,7 +3964,10 @@ func TestNestedFilteringIsNullWithArrNInCorrelatedAnd(t *testing.T) {
 			valueFilter("countries[1].name", "germany"),
 			isNullFilter("countries[1].garages.cars", true),
 		)
-		runScenario(t, docs, filter, []strfmt.UUID{idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchEmptyCarsArray, idMatchCarsOnlyInOtherCntr})
+		// Phase 2 per-element IsNull: idNoMatchCarsInOtherGarage flips to
+		// match because the no-cars leaf in garages[0] satisfies the
+		// existential per-element IsNull on countries[1].garages.cars.
+		runScenario(t, docs, filter, []strfmt.UUID{idMatchNoGarages, idMatchEmptyGarages, idMatchGarageNoCars, idMatchEmptyCarsArray, idMatchCarsOnlyInOtherCntr, idNoMatchCarsInOtherGarage})
 	})
 
 	// 1c: countries[1].name = "germany" AND countries[1].garages IS NULL
@@ -5380,7 +5386,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france", "garages": asArr(map[string]any{"cars": asArr(car("make", "x"))})}}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages.cars.model", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmpty, idMatchNoCarsAtAll})
+			// Phase 2 per-element IsNull: idNoMatchModelInOtherGarage flips to
+			// match — the no-model leaf in the first garage's car survives
+			// raw AndNot against the existing-model leaf in the second garage.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmpty, idMatchNoCarsAtAll, idNoMatchModelInOtherGarage})
 		})
 
 		// Sub-test 11 (cross-level): country.name = "germany" AND country.garages.cars.model IS NOT NULL
@@ -5428,7 +5437,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars.make", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars})
+			// Phase 2 per-element IsNull: idNoMatchMakeInOtherGarage flips —
+			// berlin's leaf survives raw AndNot because the make-existence
+			// is at a different garage's leaf.
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars, idNoMatchMakeInOtherGarage})
 		})
 
 		// Sub-test 13 (no-positive / rootAnchor path):
@@ -5548,7 +5560,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"country": map[string]any{"name": "france"}}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("country.name", "germany"), isNullFilter("country.garages.cars", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatchNoCarsAnywhere, idMatchNoGarages, idMatchAllGaragesNoCars})
+			// Phase 2 per-element IsNull: idNoMatchCarsInOtherGarage flips —
+			// the no-cars leaf in garages[0] (berlin) survives raw AndNot
+			// against the cars-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatchNoCarsAnywhere, idMatchNoGarages, idMatchAllGaragesNoCars, idNoMatchCarsInOtherGarage})
 		})
 
 		// Sub-test 18 (inverse cross-level): country.garages.cars.make = "honda"
@@ -5594,7 +5609,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})}}, note: "wrong make"},
 			}
 			filter := andFilter(valueFilter("country.garages.cars.make", "honda"), isNullFilter("country.garages.postcode", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchHondaInSecondGarage})
+			// Phase 2 per-element IsNull: idNoMatchPostcodeInOtherGarage flips —
+			// honda's leaf in garages[0] survives raw AndNot against the
+			// postcode-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchHondaInSecondGarage, idNoMatchPostcodeInOtherGarage})
 		})
 
 		// Sub-test 20 (no-positive / rootAnchor with three excludes):
@@ -5646,7 +5664,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages})
+			// Phase 2 per-element IsNull: idNoMatchHasCarsOtherGarage flips —
+			// berlin's leaf in garages[0] survives raw AndNot against the
+			// cars-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages, idNoMatchHasCarsOtherGarage})
 		})
 
 		// Sub-test 22: country.garages.cars.make = "honda" AND
@@ -5675,7 +5696,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongMake, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})}}, note: "wrong make"},
 			}
 			filter := andFilter(valueFilter("country.garages.cars.make", "honda"), isNullFilter("country.garages.cars.tires", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars})
+			// Phase 2 per-element IsNull: idNoMatchHasTiresOtherCar flips —
+			// honda's leaf in cars[0] survives raw AndNot against the
+			// tires-existence leaf in cars[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars, idNoMatchHasTiresOtherCar})
 		})
 
 		// Sub-test 23 (cross-level L1+L2): country.garages.city = "berlin" AND
@@ -5700,7 +5724,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"country": map[string]any{"garages": asArr(map[string]any{"city": "munich"})}}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("country.garages.city", "berlin"), isNullFilter("country.garages.cars.tires", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires})
+			// Phase 2 per-element IsNull: idNoMatchTiresInOtherGarage flips —
+			// berlin's leaf in garages[0] survives raw AndNot against the
+			// tires-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires, idNoMatchTiresInOtherGarage})
 		})
 	})
 
@@ -6000,7 +6027,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages.cars.model", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchModelInOtherCntr, idMatchEmptyCntr, idMatchNoCarsAtAll})
+			// Phase 2 per-element IsNull: idNoMatchModelInDeepCar flips —
+			// the no-model leaf in g[0] survives raw AndNot against the
+			// model-existence leaf in g[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchModelInOtherCntr, idMatchEmptyCntr, idMatchNoCarsAtAll, idNoMatchModelInDeepCar})
 		})
 
 		// Sub-test 11 (cross-level): countries.name = "germany" AND countries.garages.cars.model IS NOT NULL
@@ -6060,7 +6090,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars.make", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars, idMatchInSecondCntr, idMatchSplitAcrossCountries})
+			// Phase 2 per-element IsNull: idNoMatchMakeInOtherGarageSameCntr
+			// flips — berlin's leaf in garages[0] survives raw AndNot
+			// against the make-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchEmptyCars, idMatchInSecondCntr, idMatchSplitAcrossCountries, idNoMatchMakeInOtherGarageSameCntr})
 		})
 
 		// Sub-test 13 (no-positive / rootAnchor path):
@@ -6194,7 +6227,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongName, props: map[string]any{"countries": asArr(map[string]any{"name": "france"})}, note: "wrong name"},
 			}
 			filter := andFilter(valueFilter("countries.name", "germany"), isNullFilter("countries.garages.cars", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchCarsInOtherCntr})
+			// Phase 2 per-element IsNull: idNoMatchCarsInOtherGarage flips —
+			// berlin's leaf in garages[0] survives raw AndNot against the
+			// cars-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchNoGarages, idMatchCarsInOtherCntr, idNoMatchCarsInOtherGarage})
 		})
 
 		// Sub-test 18 (inverse cross-level): countries.garages.cars.make = "honda"
@@ -6305,7 +6341,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages, idMatchInSecondCntr})
+			// Phase 2 per-element IsNull: idNoMatchHasCarsOtherGarageSameCntr
+			// flips — berlin's leaf in garages[0] survives raw AndNot against
+			// the cars-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleGarages, idMatchInSecondCntr, idNoMatchHasCarsOtherGarageSameCntr})
 		})
 
 		// Sub-test 22: countries.garages.cars.make = "honda" AND
@@ -6338,7 +6377,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongMake, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"cars": asArr(car("make", "toyota"))})})}, note: "wrong make"},
 			}
 			filter := andFilter(valueFilter("countries.garages.cars.make", "honda"), isNullFilter("countries.garages.cars.tires", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars, idMatchInSecondCntr})
+			// Phase 2 per-element IsNull: idNoMatchHasTiresOtherCarSameCntr
+			// flips — honda's leaf in cars[0] survives raw AndNot against
+			// the tires-existence leaf in cars[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchMultipleCars, idMatchInSecondCntr, idNoMatchHasTiresOtherCarSameCntr})
 		})
 
 		// Sub-test 23 (cross-level L1+L2): countries.garages.city = "berlin" AND
@@ -6368,7 +6410,10 @@ func TestNestedFilteringIsNullInCorrelatedAnd(t *testing.T) {
 				{id: idNoMatchWrongCity, props: map[string]any{"countries": asArr(map[string]any{"garages": asArr(map[string]any{"city": "munich"})})}, note: "wrong city"},
 			}
 			filter := andFilter(valueFilter("countries.garages.city", "berlin"), isNullFilter("countries.garages.cars.tires", true))
-			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires, idMatchInSecondCntr})
+			// Phase 2 per-element IsNull: idNoMatchTiresInOtherGarageSameCntr
+			// flips — berlin's leaf in garages[0] survives raw AndNot against
+			// the tires-existence leaf in garages[1].
+			runScenario(t, docs, filter, []strfmt.UUID{idMatch, idMatchCarsNoTires, idMatchInSecondCntr, idNoMatchTiresInOtherGarageSameCntr})
 		})
 	})
 }
@@ -8337,7 +8382,7 @@ func TestNestedFilteringArrayIndexLevels(t *testing.T) {
 // clauses at the same LCA have *different* arr[N] constraint sets — one
 // unconstrained, the other pinned. Compatibility grouping treats {} and {N}
 // as compatible (same compatibility key) → both clauses share the same
-// resolveNestedCorrelatedGroup call, and same-element semantics force the
+// resolveNestedSubtreeGroup call, and same-element semantics force the
 // unconstrained side to match the same physical element pinned by the [N]
 // side. This is the cross-cutting case between Levels (1b) and the basic
 // arr[N] same-K AND in Access (1a).
@@ -9673,20 +9718,16 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 					textFilter(pk+".cars.make", "honda"),
 				), []strfmt.UUID{d1, d4})
 			})
-			// TODO aliszka:nested_filtering: this sub-test asserts CURRENT
-			// docID-level AND-of-OR behavior. The d2 expectation (cars[0]=bmw
-			// alone, cars[1]=tires+accessories alone) depends on AND not
-			// propagating same-element correlation across the OR boundary.
-			// When OR distribution lands (OR-in-AND distribution rewrite),
-			// d2 will no longer match — only docs with a single car satisfying
-			// (bmw AND 205) or (bmw AND sunroof) would match.
-			// See TestNestedFilteringAndOfOrRegression for a dedicated
-			// discriminator test.
+			// Same-cars-element AND of OR: a single car must satisfy bmw
+			// AND (205 OR sunroof). d2 (bmw in cars[0], tires/acc in
+			// cars[1]) and d3 in docs_array (bmw in docs[0], tires/acc
+			// in docs[1]) drop. See TestNestedFilteringAndOfOrRegression
+			// for a dedicated discriminator test.
 			t.Run("complex_make_bmw_AND_OR_tires_OR_accessories", func(t *testing.T) {
 				runFilter(t, andFilter(
 					textFilter(pk+".cars.make", "bmw"),
 					orFilter(intFilter(pk+".cars.tires.width", 205), textFilter(pk+".cars.accessories.type", "sunroof")),
-				), want([]strfmt.UUID{d1, d2}, []strfmt.UUID{d1, d2, d3}))
+				), []strfmt.UUID{d1})
 			})
 			t.Run("complex_make_AND_tires_AND_addresses_all_same_root", func(t *testing.T) {
 				runFilter(t, andFilter(
@@ -9695,19 +9736,17 @@ func TestNestedFilteringComprehensive(t *testing.T) {
 					textFilter(pk+".addresses.city", "berlin"),
 				), []strfmt.UUID{d1})
 			})
-			// TODO aliszka:nested_filtering: this sub-test asserts CURRENT
-			// docID-level AND-of-OR behavior. d3 in docs_array variant has
-			// bmw in docs[0] and berlin in docs[1] (cross-root) — currently
-			// matches via docID-level intersection. When OR distribution
-			// lands (OR-in-AND distribution rewrite), the
-			// rewritten filter `(bmw AND berlin) OR (honda AND berlin)`
-			// requires same-root for each branch, so d3 (docs_array) would
-			// no longer match. doc_object expectation unchanged (single root).
+			// Same-element AND of (bmw OR honda) with berlin requires
+			// single doc-body (doc_object) or single docs[N]
+			// (docs_array) to have both. doc_object's d3 has bmw+berlin
+			// in one body so it stays in; docs_array's d3 has bmw and
+			// berlin in different docs[N] so it drops out. doc_object
+			// expectation unchanged (single root).
 			t.Run("complex_OR_makes_AND_addresses", func(t *testing.T) {
 				runFilter(t, andFilter(
 					orFilter(textFilter(pk+".cars.make", "bmw"), textFilter(pk+".cars.make", "honda")),
 					textFilter(pk+".addresses.city", "berlin"),
-				), []strfmt.UUID{d1, d3, d4})
+				), want([]strfmt.UUID{d1, d3, d4}, []strfmt.UUID{d1, d4}))
 			})
 			t.Run("complex_4clause_tags_make_tires_accessories", func(t *testing.T) {
 				runFilter(t, andFilter(
@@ -11658,28 +11697,17 @@ func TestNestedFilteringOrOfCorrelatedAndsWithArrN(t *testing.T) {
 	})
 }
 
-// TestNestedFilteringAndOfOrRegression locks in the *current* docID-level
-// semantics of `A AND (B OR C)` for nested-leaf paths. Today the OR child
-// resolves to a docID set independently and the outer AND intersects at
-// docID level — same-element correlation does NOT propagate across the OR
-// boundary. See OR-in-AND distribution rewrite for the proposed
-// fix (distribute OR over AND at extractPropValuePair time, giving same-
-// element semantics per DNF branch).
-//
-// The discriminator docs (idDiscriminator*) currently MATCH because the
-// dispatch only requires "honda exists somewhere AND (205 or 225 exists
-// somewhere)". Under per-element AND-of-OR (the proposed direction), they
-// would NOT match because no single car satisfies (honda AND 205) or
-// (honda AND 225).
-//
-// When OR distribution lands, this test will fail and the expected list
-// must flip from [idSameCarMatch, idSameCarMatchAlt, idDiscriminatorSplit*,
-// idDiscriminatorAcrossCars] (current docID-level) to
-// [idSameCarMatch, idSameCarMatchAlt] (per-element).
+// TestNestedFilteringAndOfOrRegression verifies the per-element semantics
+// of `A AND (B OR C)` for nested-leaf paths. Same-element correlation
+// propagates across the OR boundary via the planner's LCA pushdown: the
+// OR is planted inside the same cars[] subgroup as the AND's other leg,
+// so the AND demands a single car satisfying make=honda together with
+// width=205 or width=225 in that same car. Discriminator docs (with
+// honda and 205/225 in different cars) do NOT match.
 //
 // A companion sub-test in TestNestedFilteringComprehensive
-// (`complex_make_bmw_AND_OR_tires_OR_accessories`) carries an inline
-// cross-reference comment pointing back to this regression test.
+// (`complex_make_bmw_AND_OR_tires_OR_accessories`) follows the same
+// per-element rule.
 func TestNestedFilteringAndOfOrRegression(t *testing.T) {
 	const nestedClass = "AndOfOrRegression"
 	vTrue := true
@@ -11782,20 +11810,10 @@ func TestNestedFilteringAndOfOrRegression(t *testing.T) {
 
 	// Filter: cars.make = "honda" AND (cars.tires.width = 205 OR cars.tires.width = 225)
 	//
-	// Current (docID-level): match if SOME car has honda AND SOME car has
-	// (205 or 225) — honda and width may be in different cars.
-	//
-	// Per-element (proposed): match if SOME car has both honda AND (205 or
-	// 225) at that same car. Equivalent to distributing the OR:
-	//   (cars.make=honda AND cars.tires.width=205)
-	//      OR (cars.make=honda AND cars.tires.width=225)
-	//
-	// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND-of-OR
-	// behavior. Flips when OR distribution lands
-	// (OR-in-AND distribution rewrite) — discriminator docs
-	// (idDiscriminatorSplit205, idDiscriminatorSplit225,
-	// idDiscriminatorAcrossCars) stop matching, expected list shrinks to
-	// [idSameCarMatch, idSameCarMatchAlt] (per-element same-car).
+	// Per-element: match if SOME car has both honda AND (205 or 225) at
+	// that same car. The discriminator docs (honda and 205/225 in
+	// different cars) do not match because no single car satisfies both
+	// legs of the AND.
 	t.Run("regression_AND_of_OR_universal_docID_level_simple", func(t *testing.T) {
 		idSameCarMatch := uuid(1)            // [{honda,205}] — both interpretations: match
 		idSameCarMatchAlt := uuid(2)         // [{honda,225}] — both: match
@@ -11822,12 +11840,12 @@ func TestNestedFilteringAndOfOrRegression(t *testing.T) {
 				intFilter("doc.cars.tires.width", 225),
 			),
 		)
-		// Current: discriminators match (docID-level intersection succeeds).
-		// Per-element (after distribution): only the same-car matches survive.
-		// Expected list must flip if OR distribution lands.
+		// Per-element same-car: only the docs whose single car satisfies
+		// both legs survive. Discriminator docs (idDiscriminatorSplit205,
+		// idDiscriminatorSplit225, idDiscriminatorAcrossCars) stay in the
+		// doc set to prove the AND does not propagate across cars.
 		runScenario(t, docs, filter, []strfmt.UUID{
 			idSameCarMatch, idSameCarMatchAlt,
-			idDiscriminatorSplit205, idDiscriminatorSplit225, idDiscriminatorAcrossCars,
 		})
 	})
 
@@ -12541,16 +12559,13 @@ func TestNestedFilteringDeeplyNestedAndOrTree(t *testing.T) {
 	// countries (object[]) root
 	// =========================================================================
 
-	// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND-of-OR
-	// behavior at the outer-AND boundary across multiple root elements.
-	// Two discriminator docs (idTeslaWithBerlinInSecondCountry,
-	// idTeslaInOneCountryBerlinInAnother) currently match because the
-	// outer AND treats the OR as a docID-level set — tesla in one
-	// country and berlin in another satisfies docID-level intersection.
-	// Under the planned OR-in-AND distribution rewrite, both would stop
-	// matching: each distributed branch (`tesla AND berlin`,
-	// `tesla AND munich AND 80331`) requires same-country semantics.
-	// Same root cause as regression_AND_of_OR_universal_docID_level_simple.
+	// regression_countries_array_3level_AND_OR_innerAND — same-element
+	// AND at countries[]: a single countries entry must have tesla AND
+	// satisfy the OR (berlin OR (munich AND 80331)). Discriminator docs
+	// (tesla in one country, berlin in another) drop OUT because no
+	// single country satisfies both legs. Same root cause as
+	// TestNestedFilteringAndOfOrRegression's same-car semantics, applied
+	// at the countries[] LCA.
 	t.Run("regression_countries_array_3level_AND_OR_innerAND", func(t *testing.T) {
 		idTeslaPlusBerlin := uuid(1)
 		idTeslaPlusMunich80331 := uuid(2)
@@ -12588,9 +12603,11 @@ func TestNestedFilteringDeeplyNestedAndOrTree(t *testing.T) {
 				),
 			),
 		)
+		// idTeslaWithBerlinInSecondCountry and
+		// idTeslaInOneCountryBerlinInAnother drop OUT — no single
+		// country has tesla AND satisfies the OR.
 		runScenario(t, docs, filter, []strfmt.UUID{
 			idTeslaPlusBerlin, idTeslaPlusMunich80331,
-			idTeslaWithBerlinInSecondCountry, idTeslaInOneCountryBerlinInAnother,
 		})
 	})
 }
@@ -12804,17 +12821,12 @@ func TestNestedFilteringOperatorSweep(t *testing.T) {
 //   - ContainsAny  → OR  of Equal clauses
 //   - ContainsNone → NOT(OR of Equal clauses)
 //
-// CURRENT BEHAVIOR — OBSERVED 2026-05-07:
-//
-// ContainsAll on a nested array path performs **docID-level AND** — it
-// intersects the "doc has A anywhere" set with "doc has B anywhere".
-// This means a doc whose nested elements collectively cover both values
-// matches even if no single element contains both. Sub-tests where the
-// path traverses one or more object[] levels are marked
-// regression_ContainsAll: under a future planner improvement that
-// recognizes same-path AND as a correlated AND, these would tighten to
-// same-element AND and the discriminator docs would stop matching. See
-// plan_contains_all_same_element_semantics for the fix direction.
+// ContainsAll on a nested array path performs **same-element AND** at
+// the deepest-LCA element: it requires a single element of that LCA to
+// contain every listed value. Sub-tests where the path traverses one or
+// more object[] levels are kept under the regression_ContainsAll name
+// (they were the discriminators that flipped when the same-path AND
+// correlation landed) and now lock in the per-element contract.
 //
 // ContainsAny resolves at docID level (matches if any element has any
 // listed value) — natural existential semantics, no regression marker.
@@ -13034,16 +13046,12 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				)), note: "g0.tags=[muscle]"},
 				{id: d5, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
 			}
-			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
-			// for ContainsAll on a same-path pair where the array prop sits
-			// inside one object[] level (garages). d2 (split-garages within
-			// the single country) currently matches because the doc has both
-			// 'sport' and 'luxury' somewhere; under the planned same-path
-			// correlated-AND fix, only d1 (single garage with both) would
-			// match.
+			// regression_ContainsAll — same-element AND at garages[]:
+			// requires a single garage to contain both 'sport' and
+			// 'luxury'. d2 (split-garages) flips out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.tags", filters.ContainsAll, "sport", "luxury"),
-					[]strfmt.UUID{d1, d2})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.tags", filters.ContainsAny, "sport", "luxury"),
@@ -13081,14 +13089,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				)), note: "g0.city='boston'"},
 				{id: d5, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
 			}
-			// TODO aliszka:nested_filtering: same shape as L1_garages_tags
-			// regression_ContainsAll — locks in CURRENT docID-level AND
-			// under one object[] level. d2 (split tokens across garages)
-			// currently matches; under same-path correlated-AND fix only d1
-			// (both tokens in single garage's city) would match.
+			// regression_ContainsAll — same shape as L1_garages_tags
+			// regression_ContainsAll, applied to word-tokenized text:
+			// both tokens must live in a single garage's city. d2
+			// (split tokens across garages) flips out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.city", filters.ContainsAll, "new", "york"),
-					[]strfmt.UUID{d1, d2})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.city", filters.ContainsAny, "new", "york"),
@@ -13127,14 +13134,12 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				)), note: "g0.cars[0].tags=[muscle]"},
 				{id: d6, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
 			}
-			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
-			// for ContainsAll under two object[] levels. d2 (split-cars in
-			// single garage) and d3 (split-garages in single country) match
-			// because the doc has both values somewhere; under same-path
-			// correlated-AND fix only d1 (single car with both) would match.
+			// regression_ContainsAll — same-element AND at cars[]:
+			// requires a single car to contain both tags. d2 (split-
+			// cars in single garage) and d3 (split-garages) flip out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.cars.tags", filters.ContainsAll, "sport", "luxury"),
-					[]strfmt.UUID{d1, d2, d3})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.cars.tags", filters.ContainsAny, "sport", "luxury"),
@@ -13172,13 +13177,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				)), note: "make='boston' (neither)"},
 				{id: d6, props: map[string]any{"country": map[string]any{}}, note: "empty country"},
 			}
-			// TODO aliszka:nested_filtering: same shape as L2_cars_tags
-			// regression_ContainsAll — locks in CURRENT docID-level AND
-			// under two object[] levels. Splits across cars/garages match
-			// today; same-path correlated-AND fix would tighten to d1 only.
+			// regression_ContainsAll — same shape as L2_cars_tags
+			// regression_ContainsAll, applied to word-tokenized text:
+			// both tokens must live in a single car's make field. d2
+			// (split-cars) and d3 (split-garages) flip out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.cars.make", filters.ContainsAll, "new", "york"),
-					[]strfmt.UUID{d1, d2, d3})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("country.garages.cars.make", filters.ContainsAny, "new", "york"),
@@ -13212,14 +13217,12 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				{id: d4, props: wrapCountries(countryBody("", []string{"muscle"})), note: "[muscle]"},
 				{id: d5, props: map[string]any{"countries": []any{}}, note: "empty countries"},
 			}
-			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
-			// for ContainsAll under one object[] level (countries). d2
-			// (split-countries) currently matches because the doc has both
-			// 'sport' and 'luxury' somewhere; under same-path correlated-AND
-			// fix only d1 (single country with both tags) would match.
+			// regression_ContainsAll — same-element AND at countries[]:
+			// requires a single country to contain both tags. d2
+			// (split-countries) flips out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.tags", filters.ContainsAll, "sport", "luxury"),
-					[]strfmt.UUID{d1, d2})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.tags", filters.ContainsAny, "sport", "luxury"),
@@ -13248,13 +13251,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				{id: d4, props: wrapCountries(countryBody("boston", nil)), note: "boston"},
 				{id: d5, props: map[string]any{"countries": []any{}}, note: "empty countries"},
 			}
-			// TODO aliszka:nested_filtering: same shape as L0_tags
-			// regression_ContainsAll — docID-level AND under one object[]
-			// level. d2 (split-countries) currently matches; fix would
-			// tighten to d1 only.
+			// regression_ContainsAll — same shape as L0_tags
+			// regression_ContainsAll, applied to word-tokenized text:
+			// both tokens must live in a single country's name. d2
+			// (split-countries) flips out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.name", filters.ContainsAll, "new", "york"),
-					[]strfmt.UUID{d1, d2})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.name", filters.ContainsAny, "new", "york"),
@@ -13292,13 +13295,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				)), note: "[muscle]"},
 				{id: d6, props: map[string]any{"countries": []any{}}, note: "empty countries"},
 			}
-			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
-			// for ContainsAll under two object[] levels. d2 (split-garages
-			// in single country) and d3 (split-countries) currently match;
-			// fix to same-path correlated-AND would tighten to d1 only.
+			// regression_ContainsAll — same-element AND at garages[]:
+			// requires a single garage to contain both tags. d2
+			// (split-garages in single country) and d3 (split-countries)
+			// flip out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.tags", filters.ContainsAll, "sport", "luxury"),
-					[]strfmt.UUID{d1, d2, d3})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.tags", filters.ContainsAny, "sport", "luxury"),
@@ -13330,13 +13333,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				{id: d5, props: wrapCountries(countryBody("", nil, garage("boston", nil))), note: "boston"},
 				{id: d6, props: map[string]any{"countries": []any{}}, note: "empty countries"},
 			}
-			// TODO aliszka:nested_filtering: same shape as L1_garages_tags
-			// regression_ContainsAll — docID-level AND under two object[]
-			// levels. Splits across garages or countries currently match;
-			// fix tightens to single-garage matches only.
+			// regression_ContainsAll — same shape as L1_garages_tags
+			// regression_ContainsAll, applied to word-tokenized text:
+			// both tokens must live in a single garage's city. d2
+			// (split-garages) and d3 (split-countries) flip out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.city", filters.ContainsAll, "new", "york"),
-					[]strfmt.UUID{d1, d2, d3})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.city", filters.ContainsAny, "new", "york"),
@@ -13376,14 +13379,13 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				)), note: "[muscle]"},
 				{id: d7, props: map[string]any{"countries": []any{}}, note: "empty countries"},
 			}
-			// TODO aliszka:nested_filtering: locks in CURRENT docID-level AND
-			// for ContainsAll under three object[] levels. All three split
-			// shapes (split-cars, split-garages, split-countries) currently
-			// match; fix to same-path correlated-AND would tighten to d1
-			// only (single car with both tags).
+			// regression_ContainsAll — same-element AND at cars[]:
+			// requires a single car to contain both tags. d2
+			// (split-cars), d3 (split-garages), d4 (split-countries)
+			// all flip out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.cars.tags", filters.ContainsAll, "sport", "luxury"),
-					[]strfmt.UUID{d1, d2, d3, d4})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.cars.tags", filters.ContainsAny, "sport", "luxury"),
@@ -13424,13 +13426,14 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 				)), note: "make='boston' (neither)"},
 				{id: d7, props: map[string]any{"countries": []any{}}, note: "empty countries"},
 			}
-			// TODO aliszka:nested_filtering: same shape as L2_cars_tags
-			// regression_ContainsAll — docID-level AND under three object[]
-			// levels. Splits across cars/garages/countries match today; fix
-			// would tighten to d1 only.
+			// regression_ContainsAll — same shape as L2_cars_tags
+			// regression_ContainsAll, applied to word-tokenized text:
+			// both tokens must live in a single car's make field.
+			// d2 (split-cars), d3 (split-garages), d4 (split-countries)
+			// all flip out.
 			t.Run("regression_ContainsAll", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.cars.make", filters.ContainsAll, "new", "york"),
-					[]strfmt.UUID{d1, d2, d3, d4})
+					[]strfmt.UUID{d1})
 			})
 			t.Run("ContainsAny", func(t *testing.T) {
 				runScenario(t, docs, containsFilter("countries.garages.cars.make", filters.ContainsAny, "new", "york"),
@@ -13445,28 +13448,19 @@ func TestNestedFilteringContainsOperators(t *testing.T) {
 	})
 }
 
-// TestNestedFilteringAndShapeFlatVsAndOfAnd contrasts two AND shapes that
-// are logically equivalent under classical boolean associativity but
-// produce DIFFERENT results in the nested-filter dispatch:
+// TestNestedFilteringAndShapeFlatVsAndOfAnd verifies that two AND shapes
+// equivalent under classical boolean associativity produce IDENTICAL
+// results in the nested-filter dispatch:
 //
 //	flat:   AND(f1, f2, f3, f4)
 //	nested: AND(AND(f1, f2), AND(f3, f4))
 //
-// All four leaf filters target the same nested root (cars). The dispatch
-// runs `groupNestedByProp` at each AND level, scoping same-element
-// correlation to that AND's children. Sibling ANDs are then combined at
-// docID level, never crossed.
-//
-// Effect on the same data:
-//
-//   - Flat: ONE car must satisfy all four leaves.
-//   - Nested: ONE car must satisfy (f1 AND f2); some — possibly different —
-//     car must satisfy (f3 AND f4).
-//
-// Verified 2026-05-07. Same root cause family as the OR-in-AND
-// distribution gap (plan_or_in_correlated_and_distribution): correlation
-// doesn't cross combinator boundaries, even associatively-equivalent
-// ones.
+// All four leaf filters target the same nested root (cars). The planner's
+// `flattenAndOperators` collapses non-tokenization, non-isWithinRootSubtree
+// AND wrappers into a single AND at the same scope, and a single post-order
+// `groupNestedSubtrees` pass folds the four leaves into one
+// `isWithinRootSubtree` wrapper at LCA cars. Both shapes therefore require
+// ONE car to satisfy all four leaves.
 func TestNestedFilteringAndShapeFlatVsAndOfAnd(t *testing.T) {
 	const nestedClass = "AndShapeFlatVsAndOfAnd"
 	vTrue := true
@@ -13599,26 +13593,24 @@ func TestNestedFilteringAndShapeFlatVsAndOfAnd(t *testing.T) {
 	}
 
 	// Flat: AND(f1, f2, f3, f4) — groupNestedByProp folds all four leaves
-	// into one isCorrelated wrapper at LCA cars. The executor enforces
+	// into one isWithinRootSubtree wrapper at LCA cars. The executor enforces
 	// same-element AND across all four — ONE car must satisfy every leaf.
 	t.Run("flat_AND_requires_single_car_for_all_four", func(t *testing.T) {
 		runScenario(t, andFilter(f1, f2, f3, f4),
 			[]strfmt.UUID{idAllOneCar})
 	})
 
-	// Nested: AND(AND(f1,f2), AND(f3,f4)) — each inner AND becomes its own
-	// isCorrelated wrapper at LCA cars. The outer AND combines the two
-	// inner results at docID level. So a doc matches when SOME car has
-	// (make+year) AND SOME — possibly different — car has (color+fuel).
-	//
-	// idSplitPairs and idGroupedDiffMakes are the contrast docs: they
-	// match the nested shape but NOT the flat shape, demonstrating that
-	// parenthesization scopes same-element correlation.
-	t.Run("nested_AND_of_AND_allows_split_across_cars", func(t *testing.T) {
+	// Nested: AND(AND(f1,f2), AND(f3,f4)) — flattenAndOperators unwraps the
+	// inner ANDs at the outer AND's scope, and groupNestedSubtrees folds all
+	// four leaves into one isWithinRootSubtree wrapper at LCA cars. The
+	// executor enforces same-element AND across all four, matching the flat
+	// shape exactly. idSplitPairs and idGroupedDiffMakes split the leaves
+	// across cars and therefore do NOT match — no single car has all four.
+	t.Run("nested_AND_of_AND_collapses_to_flat", func(t *testing.T) {
 		runScenario(t, andFilter(
 			andFilter(f1, f2),
 			andFilter(f3, f4),
-		), []strfmt.UUID{idAllOneCar, idSplitPairs, idGroupedDiffMakes})
+		), []strfmt.UUID{idAllOneCar})
 	})
 }
 
@@ -13754,13 +13746,13 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT docID-level NOT
-		// behavior for "<path>.make=tesla AND NOT <path>.tires.width=205".
-		// Under scope-aware NOT (NOT inverts at operand's natural LCA =
-		// <path>.tires), the expected list flips to existential
-		// per-element semantics: doc matches if some tesla car has at
-		// least one non-205 tire (with same-element correlation across
-		// the AND).
+		// regression_gap3_NOT_inside_AND_cross_LCA_siblings —
+		// scope-aware NOT at <path>.tires (operand LCA, existential
+		// per-element) inside same-cars-element AND. Doc matches when
+		// at least one tesla car has at least one non-205 tire.
+		// Tesla-no-tires docs drop (vacuous existential); mixed-tires
+		// and cross-car split docs (tesla(non-205) + bmw(205)) flip
+		// to match.
 		t.Run("regression_gap3_NOT_inside_AND_cross_LCA_siblings", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -13820,21 +13812,19 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make", "cars.tires.width",
 			docs,
-			// gap #3 today
-			[]strfmt.UUID{idTeslaNo205, idTeslaNoTires},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idTeslaNo205, idTeslaMixed, idSplitTeslaBmw}
-			//   (idTeslaNoTires drops — vacuous; idTeslaMixed and
-			//   idSplitTeslaBmw flip to match — tesla car has at least one
-			//   non-205 tire.)
+			// gap #3 — scope-aware NOT, existential per-element.
+			// idTeslaNoTires drops (vacuous); idTeslaMixed (mixed
+			// tires on a single tesla car) and idSplitTeslaBmw (tesla
+			// car with non-205 tire) flip to match.
+			[]strfmt.UUID{idTeslaNo205, idTeslaMixed, idSplitTeslaBmw},
 
-			// gap #9 today
+			// gap #9 — still locks in CURRENT docID-level NOT of a
+			// compound AND. TODO aliszka:nested_filtering: under
+			// scope-aware NOT applied to compound operands (not yet
+			// landed), expectation flips to
+			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
+			//               idSplitTeslaBmw, idTeslaPlusOther, idBmwOnly}.
 			[]strfmt.UUID{idTeslaNo205, idTeslaNoTires, idSplitTeslaBmw, idBmwOnly, idEmpty},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires, idSplitTeslaBmw,
-			//               idTeslaPlusOther, idBmwOnly}
-			//   (idEmpty drops — vacuous; idTeslaPlusOther flips to match —
-			//   cars[1] (bmw,225) is in the inverted set.)
 		)
 	})
 
@@ -13897,30 +13887,32 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.tires.width",
 			docs,
-			// gap #3 today
-			[]strfmt.UUID{idTeslaNo205, idTeslaNoTires},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idTeslaNo205, idTeslaMixed,
-			//               idSplitTeslaBmwSameGarage,
-			//               idSplitAcrossGarages, idTwoTeslasOneSatisfiesG}
-			//   (idTeslaNoTires drops — vacuous; mixed-tires, split-cars,
-			//   split-across-garages, and two-tesla-one-satisfies all flip
-			//   to match — tesla car has at least one non-205 tire.)
-
-			// gap #9 today
+			// gap #3 — scope-aware NOT, existential per-element.
+			// Tesla-no-tires drops (vacuous); mixed-tires,
+			// split-cars-same-garage, split-across-garages, and
+			// two-teslas-one-satisfies all flip to match.
 			[]strfmt.UUID{
-				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
-				idBmwOnly, idEmpty, idSplitAcrossGarages,
+				idTeslaNo205, idTeslaMixed,
+				idSplitTeslaBmwSameGarage,
+				idSplitAcrossGarages, idTwoTeslasOneSatisfiesG,
 			},
-			// expected after scope-aware NOT:
+
+			// gap #9 — still locks in CURRENT docID-level NOT of
+			// compound AND. TODO aliszka:nested_filtering: under
+			// scope-aware compound NOT (top-level NOT-of-compound),
+			// expectation flips to
 			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
 			//               idSplitTeslaBmwSameGarage,
 			//               idTeslaPlusOtherSameGarage, idBmwOnly,
 			//               idSplitAcrossGarages, idTeslaG0PlusOtherG1,
 			//               idTwoTeslasOneSatisfiesG}
-			//   (idEmpty drops — vacuous; tesla+other-same-garage,
-			//   tesla-g0-plus-other-g1, and two-teslas-one-satisfies flip
-			//   to match — at least one car not in inner-AND positive.)
+			//   (idEmpty drops — no cars universe; tesla+other-same-
+			//   garage, tesla-g0-plus-other-g1, and two-teslas-one-
+			//   satisfies flip in.)
+			[]strfmt.UUID{
+				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
+				idBmwOnly, idEmpty, idSplitAcrossGarages,
+			},
 		)
 	})
 
@@ -13976,25 +13968,28 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"garage.cars.make", "garage.cars.tires.width",
 			docs,
-			// gap #3 today
-			[]strfmt.UUID{idTeslaNo205, idTeslaNoTires},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idTeslaNo205, idTeslaMixed,
-			//               idSplitTeslaBmwSameGarage}
-			//   (idTeslaNoTires drops — vacuous; mixed-tires and
-			//   split-cars-same-garage flip to match.)
+			// gap #3 — scope-aware NOT, existential per-element.
+			// Tesla-no-tires drops; mixed-tires and split-cars-same-
+			// garage flip to match. No split-across-garages variant
+			// because the root is a single object, not an array.
+			[]strfmt.UUID{
+				idTeslaNo205, idTeslaMixed,
+				idSplitTeslaBmwSameGarage,
+			},
 
-			// gap #9 today
+			// gap #9 — still locks in CURRENT docID-level NOT of
+			// compound AND. TODO aliszka:nested_filtering: under
+			// scope-aware compound NOT, expectation flips to
+			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
+			//               idSplitTeslaBmwSameGarage,
+			//               idTeslaPlusOtherSameGarage, idBmwOnly}
+			//   (idEmptyDoc and idEmptyGarage drop — no cars universe;
+			//   tesla+other-same-garage flips in. No split-across-
+			//   garages variant because the root is a single object.)
 			[]strfmt.UUID{
 				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
 				idBmwOnly, idEmptyDoc, idEmptyGarage,
 			},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
-			//               idSplitTeslaBmwSameGarage,
-			//               idTeslaPlusOtherSameGarage, idBmwOnly}
-			//   (idEmptyDoc, idEmptyGarage drop — vacuous;
-			//   tesla+other-same-garage flips to match.)
 		)
 	})
 
@@ -14053,36 +14048,34 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 			{id: idTwoTeslasAcrossCountries, props: wrapC(country(garage(car("tesla", tire(225)))), country(garage(car("tesla", tire(205))))), note: "tesla in both c[0],c[1]; only c[1] has 205 — DISCRIM L2 the multi-element / multi-leaf encoding gap"},
 		}
 
-		// Today's expected at L2:
-		// gap #3: tesla AND no 205 anywhere. d2, d4 match.
-		// gap #9: all docs without a (tesla AND has-205) car.
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.tires.width",
 			docs,
-			// gap #3 today
-			[]strfmt.UUID{idTeslaNo205, idTeslaNoTires},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idTeslaNo205, idTeslaMixed,
-			//               idSplitTeslaBmwSameGarage,
-			//               idSplitAcrossGarages, idSplitAcrossCountries,
-			//               idTwoTeslasAcrossCountries}
-			//   (idTeslaNoTires drops — vacuous; mixed-tires, split-cars,
-			//   split-across-garages, split-across-countries, and
-			//   two-teslas-across-countries flip to match.)
-
-			// gap #9 today
+			// gap #3 — scope-aware NOT, existential per-element.
+			// Tesla-no-tires drops (vacuous); mixed-tires, split-cars-
+			// same-garage, split-across-garages, split-across-countries,
+			// and two-teslas-across-countries all flip to match.
 			[]strfmt.UUID{
-				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
-				idBmwOnly, idEmpty, idSplitAcrossGarages, idSplitAcrossCountries,
+				idTeslaNo205, idTeslaMixed,
+				idSplitTeslaBmwSameGarage,
+				idSplitAcrossGarages, idSplitAcrossCountries,
+				idTwoTeslasAcrossCountries,
 			},
-			// expected after scope-aware NOT:
+
+			// gap #9 — still locks in CURRENT docID-level NOT of
+			// compound AND. TODO aliszka:nested_filtering: under
+			// scope-aware compound NOT, expectation flips to
 			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
 			//               idSplitTeslaBmwSameGarage,
 			//               idTeslaPlusOtherSameGarage, idBmwOnly,
 			//               idSplitAcrossGarages, idSplitAcrossCountries,
 			//               idTwoTeslasAcrossCountries}
-			//   (idEmpty drops — vacuous; tesla+other-same-garage and
-			//   two-teslas-across-countries flip to match.)
+			//   (idEmpty drops; tesla+other-same-garage and
+			//   two-teslas-across-countries flip in.)
+			[]strfmt.UUID{
+				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
+				idBmwOnly, idEmpty, idSplitAcrossGarages, idSplitAcrossCountries,
+			},
 		)
 	})
 
@@ -14146,27 +14139,29 @@ func TestNestedFilteringNotInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"country.garages.cars.make", "country.garages.cars.tires.width",
 			docs,
-			// gap #3 today
-			[]strfmt.UUID{idTeslaNo205, idTeslaNoTires},
-			// expected after scope-aware NOT:
-			// []strfmt.UUID{idTeslaNo205, idTeslaMixed,
-			//               idSplitTeslaBmwSameGarage, idSplitAcrossGarages}
-			//   (idTeslaNoTires drops — vacuous; mixed-tires, split-cars,
-			//   split-across-garages flip to match.)
-
-			// gap #9 today
+			// gap #3 — scope-aware NOT, existential per-element.
+			// Tesla-no-tires drops (vacuous); mixed-tires, split-cars-
+			// same-garage, and split-across-garages flip to match. No
+			// split-across-countries variant because the root is a
+			// single object, not an array.
 			[]strfmt.UUID{
-				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
-				idBmwOnly, idEmptyDoc, idEmptyCountry, idSplitAcrossGarages,
+				idTeslaNo205, idTeslaMixed,
+				idSplitTeslaBmwSameGarage, idSplitAcrossGarages,
 			},
-			// expected after scope-aware NOT:
+
+			// gap #9 — still locks in CURRENT docID-level NOT of
+			// compound AND. TODO aliszka:nested_filtering: under
+			// scope-aware compound NOT, expectation flips to
 			// []strfmt.UUID{idTeslaNo205, idTeslaNoTires,
 			//               idSplitTeslaBmwSameGarage,
 			//               idTeslaPlusOtherSameGarage, idBmwOnly,
 			//               idSplitAcrossGarages, idTeslaG0PlusOtherG1}
-			//   (idEmptyDoc, idEmptyCountry drop — vacuous;
-			//   tesla+other-same-garage and tesla-g0-plus-other-g1 flip to
-			//   match.)
+			//   (idEmptyDoc and idEmptyCountry drop; tesla+other-same-
+			//   garage and tesla-g0-plus-other-g1 flip in.)
+			[]strfmt.UUID{
+				idTeslaNo205, idTeslaNoTires, idSplitTeslaBmwSameGarage,
+				idBmwOnly, idEmptyDoc, idEmptyCountry, idSplitAcrossGarages,
+			},
 		)
 	})
 }
@@ -14662,10 +14657,10 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 	})
 }
 
-// TestNestedFilteringNotShapeAMultiVsCompound covers gaps #10 and #11
-// for "Shape A": both NOT operands at a deeper LCA than the positive
-// sibling, comparing the multi-NOT form `A AND NOT B AND NOT C`
-// against the compound-NOT form `A AND NOT(B AND C)`.
+// TestNestedFilteringNotShapeAMultiVsCompound covers "Shape A": both
+// NOT operands at a deeper LCA than the positive sibling, comparing
+// the multi-NOT form `A AND NOT B AND NOT C` against the compound-NOT
+// form `A AND NOT(B AND C)`.
 //
 // Filters per level:
 //
@@ -14676,9 +14671,11 @@ func TestNestedFilteringNotPin3Levels(t *testing.T) {
 //	          NOT(<chain>.cars.tires.brand=michelin AND
 //	              <chain>.cars.tires.width=205)
 //
-// By De Morgan, multi ≡ NOT(B OR C) and compound ≡ (NOT B) OR (NOT C),
-// so the two forms produce different results today already, and shift
-// independently under scope-aware NOT.
+// Under scope-aware NOT both forms inherit per-tire semantics (both
+// NOT operands share LCA cars.tires; AND-ing at that LCA forces same-
+// tire correlation). By De Morgan, multi ≡ NOT(B OR C) reads as
+// "∃ tire that is neither michelin nor 205", while compound reads as
+// "∃ tire that is not (michelin AND 205)" — strictly more permissive.
 //
 // Three nesting levels: L0_root_cars, L1_garages_cars (object[]),
 // L2_countries_garages_cars (object[]). Object-root variants are
@@ -14798,13 +14795,10 @@ func TestNestedFilteringNotShapeAMultiVsCompound(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: multi-NOT form locks in CURRENT
-		// docID-level NOT behavior. Each NOT inverts independently at
-		// docID. Under scope-aware NOT (each NOT inverts at its operand's
-		// LCA = cars.tires, projects up to cars), the form becomes
-		// "tesla cars where (some tire ≠ michelin) AND (some tire ≠ 205)"
-		// — both conditions must hold for a single car (different tires
-		// can satisfy each).
+		// regression_multi_NOT_shapeA — both NOTs share LCA cars.tires,
+		// AND-ing at that LCA forces same-tire correlation. By De Morgan
+		// (multi ≡ NOT(B OR C)) the predicate is "tesla car with
+		// ∃ tire that is neither michelin nor 205".
 		t.Run("regression_multi_NOT_shapeA", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -14813,13 +14807,11 @@ func TestNestedFilteringNotShapeAMultiVsCompound(t *testing.T) {
 			), multiWant)
 		})
 
-		// TODO aliszka:nested_filtering: compound-NOT form locks in CURRENT
-		// behavior. Inner AND is a same-tire correlated AND (tires where
-		// brand=michelin AND width=205). NOT inverts at docID. Under
-		// scope-aware NOT, NOT inverts at the inner AND's LCA =
-		// cars.tires; result becomes "tesla cars with at least one tire
-		// that is NOT (michelin AND 205)" — strictly more permissive
-		// than the multi-NOT form.
+		// regression_compound_NOT_shapeA — inner AND is same-tire
+		// correlated (both operands at cars.tires); NOT inverts at
+		// cars.tires per-tire. Predicate: "tesla car with ∃ tire that
+		// is NOT (michelin AND 205)" — strictly more permissive than
+		// the multi-NOT form.
 		t.Run("regression_compound_NOT_shapeA", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -14869,25 +14861,21 @@ func TestNestedFilteringNotShapeAMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make", "cars.tires.brand", "cars.tires.width",
 			docs,
-			// multi-NOT today: tesla AND no michelin tire AND no 205 tire.
-			[]strfmt.UUID{idTeslaGoodyear100, idTeslaNoTires},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idTeslaMixedTires, idTeslaGoodyear100}
-			//   (idTeslaNoTires drops — vacuous; idTeslaMixedTires flips
-			//   to match — tesla car has at least one non-michelin tire
-			//   AND at least one non-205 tire.)
+			// multi — same-tire correlation (De Morgan: NOT(michelin
+			// OR 205) per tire). Only idTeslaGoodyear100's single tire
+			// is neither michelin nor 205. idTeslaMixedTires drops:
+			// tire0 fails ≠michelin, tire1 fails ≠205, no single tire
+			// satisfies both.
+			[]strfmt.UUID{idTeslaGoodyear100},
 
-			// compound-NOT today: tesla AND no (michelin AND 205) tire.
+			// compound — per-tire ∃ NOT(michelin AND 205). All tesla
+			// docs with at least one non-(michelin&205) tire match.
+			// idTeslaSingleMichelin205 (only tire is michelin&205) and
+			// idTeslaNoTires (vacuous) drop.
 			[]strfmt.UUID{
 				idTeslaSingleMichelin, idTeslaSingle205, idTeslaMixedTires,
-				idTeslaGoodyear100, idTeslaNoTires, idTeslaPlusBmw,
+				idTeslaGoodyear100, idTeslaPlusBmw,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idTeslaSingleMichelin, idTeslaSingle205,
-			//               idTeslaMixedTires, idTeslaGoodyear100,
-			//               idTeslaPlusBmw}
-			//   (idTeslaNoTires drops — vacuous, no tire-positions in the
-			//   inverted bitmap.)
 		)
 	})
 
@@ -14936,25 +14924,20 @@ func TestNestedFilteringNotShapeAMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.tires.brand", "garages.cars.tires.width",
 			docs,
-			// multi-NOT today
-			[]strfmt.UUID{idTeslaGoodyear100, idTeslaNoTires},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idTeslaMixedTires, idTeslaGoodyear100}
-			//   (idTeslaNoTires drops — vacuous; idTeslaMixedTires flips
-			//   to match. Other docs without a single car satisfying both
-			//   non-michelin AND non-205 stay excluded.)
+			// multi — same-tire correlation. Only idTeslaGoodyear100
+			// has a single tire that is neither michelin nor 205.
+			// Splits across garages don't help — no single tesla car
+			// has a tire satisfying both NOTs simultaneously.
+			[]strfmt.UUID{idTeslaGoodyear100},
 
-			// compound-NOT today
+			// compound — per-tire ∃ NOT(michelin AND 205). All tesla
+			// docs with at least one non-(michelin&205) tire match,
+			// including the split-across-garages discriminator.
 			[]strfmt.UUID{
 				idTeslaSingleMichelin, idTeslaSingle205, idTeslaMixedTires,
-				idTeslaGoodyear100, idTeslaNoTires, idTeslaPlusBmwSameGarage,
+				idTeslaGoodyear100, idTeslaPlusBmwSameGarage,
 				idSplitAcrossGarages,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idTeslaSingleMichelin, idTeslaSingle205,
-			//               idTeslaMixedTires, idTeslaGoodyear100,
-			//               idTeslaPlusBmwSameGarage, idSplitAcrossGarages}
-			//   (idTeslaNoTires drops — vacuous.)
 		)
 	})
 
@@ -15010,26 +14993,20 @@ func TestNestedFilteringNotShapeAMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.tires.brand", "countries.garages.cars.tires.width",
 			docs,
-			// multi-NOT today
-			[]strfmt.UUID{idTeslaGoodyear100, idTeslaNoTires},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idTeslaMixedTires, idTeslaGoodyear100}
-			//   (idTeslaNoTires drops; idTeslaMixedTires flips. Splits
-			//   across garages or countries don't help multi because no
-			//   single car has both non-michelin AND non-205 tires.)
+			// multi — same-tire correlation. Only idTeslaGoodyear100
+			// has a single tire that is neither michelin nor 205.
+			// Splits across garages or countries don't help.
+			[]strfmt.UUID{idTeslaGoodyear100},
 
-			// compound-NOT today
+			// compound — per-tire ∃ NOT(michelin AND 205). All tesla
+			// docs with at least one non-(michelin&205) tire match,
+			// including split-across-garages and split-across-countries
+			// discriminators.
 			[]strfmt.UUID{
 				idTeslaSingleMichelin, idTeslaSingle205, idTeslaMixedTires,
-				idTeslaGoodyear100, idTeslaNoTires, idTeslaPlusBmwSameGarage,
+				idTeslaGoodyear100, idTeslaPlusBmwSameGarage,
 				idSplitAcrossGarages, idSplitAcrossCountries,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idTeslaSingleMichelin, idTeslaSingle205,
-			//               idTeslaMixedTires, idTeslaGoodyear100,
-			//               idTeslaPlusBmwSameGarage,
-			//               idSplitAcrossGarages, idSplitAcrossCountries}
-			//   (idTeslaNoTires drops — vacuous.)
 		)
 	})
 }
@@ -15157,10 +15134,10 @@ func TestNestedFilteringNotShapeBMultiVsCompound(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: multi-NOT form. Today's docID-level
-		// NOT inverts each clause independently. Under scope-aware NOT,
-		// each NOT inverts at cars (operand LCA = surrounding scope LCA),
-		// giving same-car AND of (tesla AND year≠2020 AND color≠red).
+		// regression_multi_NOT_shapeB — all operands at cars LCA; each
+		// NOT inverts at cars (existential per-car). By De Morgan
+		// (multi ≡ NOT(year=2020 OR color=red)) the predicate is
+		// "∃ tesla car with year≠2020 AND color≠red on the same car".
 		t.Run("regression_multi_NOT_shapeB", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -15169,10 +15146,11 @@ func TestNestedFilteringNotShapeBMultiVsCompound(t *testing.T) {
 			), multiWant)
 		})
 
-		// TODO aliszka:nested_filtering: compound-NOT form. Inner AND is
-		// same-car correlated AND. NOT inverts at docID today. Under
-		// scope-aware NOT, NOT inverts at cars (inner AND's LCA): tesla
-		// cars where NOT (year=2020 AND color=red).
+		// regression_compound_NOT_shapeB — inner AND same-car correlated
+		// at cars; NOT inverts at cars per-car. Predicate: "∃ tesla car
+		// NOT (year=2020 AND color=red)" — strictly more permissive
+		// than multi-NOT (a 2020-but-not-red car or a red-but-not-2020
+		// car satisfies compound but fails multi).
 		t.Run("regression_compound_NOT_shapeB", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -15223,23 +15201,18 @@ func TestNestedFilteringNotShapeBMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make", "cars.year", "cars.color",
 			docs,
-			// multi-NOT today: tesla AND no 2020 AND no red anywhere.
-			[]strfmt.UUID{idTesla2018Blue},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idTesla2018Blue, idGoodTeslaPlusBadBmw}
-			//   (idGoodTeslaPlusBadBmw flips to match — cars[0] is tesla
-			//   AND year≠2020 AND color≠red.)
+			// multi — same-car AND of (tesla AND year≠2020 AND color≠red).
+			// idGoodTeslaPlusBadBmw flips in (cars[0] tesla 2018 blue
+			// satisfies all three on the same car).
+			[]strfmt.UUID{idTesla2018Blue, idGoodTeslaPlusBadBmw},
 
-			// compound-NOT today: tesla AND no car has (2020 AND red).
+			// compound — ∃ tesla car NOT (year=2020 AND color=red).
+			// idGoodTeslaPlusBadBmw flips in (cars[0] not in inner-AND
+			// positive set).
 			[]strfmt.UUID{
-				idTesla2020Blue, idTesla2018Red, idTesla2018Blue, idSplitTeslas,
+				idTesla2020Blue, idTesla2018Red, idTesla2018Blue,
+				idGoodTeslaPlusBadBmw, idSplitTeslas,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idTesla2020Blue, idTesla2018Red,
-			//               idTesla2018Blue, idGoodTeslaPlusBadBmw,
-			//               idSplitTeslas}
-			//   (idGoodTeslaPlusBadBmw flips to match — cars[0] not in
-			//   inner-AND positive, in inverted set.)
 		)
 	})
 
@@ -15289,24 +15262,20 @@ func TestNestedFilteringNotShapeBMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.year", "garages.cars.color",
 			docs,
-			// multi-NOT today
-			[]strfmt.UUID{idTesla2018Blue},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idTesla2018Blue, idGoodTeslaPlusBadBmw,
-			//               idGoodTeslaSplitGarages}
-			//   (idGoodTeslaPlusBadBmw and idGoodTeslaSplitGarages flip —
-			//   each has a tesla car satisfying year≠2020 AND color≠red.)
-
-			// compound-NOT today
+			// multi — same-car AND of (tesla AND year≠2020 AND color≠red).
+			// idGoodTeslaPlusBadBmw and idGoodTeslaSplitGarages flip in
+			// — each has a tesla car satisfying all three.
 			[]strfmt.UUID{
-				idTesla2020Blue, idTesla2018Red, idTesla2018Blue, idSplitTeslas,
+				idTesla2018Blue, idGoodTeslaPlusBadBmw, idGoodTeslaSplitGarages,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idTesla2020Blue, idTesla2018Red,
-			//               idTesla2018Blue, idGoodTeslaPlusBadBmw,
-			//               idSplitTeslas, idGoodTeslaSplitGarages}
-			//   (idGoodTeslaPlusBadBmw and idGoodTeslaSplitGarages flip —
-			//   tesla car not in inner-AND positive, in inverted set.)
+
+			// compound — ∃ tesla car NOT (year=2020 AND color=red).
+			// idGoodTeslaPlusBadBmw and idGoodTeslaSplitGarages flip in
+			// — each has a tesla car outside the inner-AND positive set.
+			[]strfmt.UUID{
+				idTesla2020Blue, idTesla2018Red, idTesla2018Blue,
+				idGoodTeslaPlusBadBmw, idSplitTeslas, idGoodTeslaSplitGarages,
+			},
 		)
 	})
 
@@ -15363,26 +15332,22 @@ func TestNestedFilteringNotShapeBMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.year", "countries.garages.cars.color",
 			docs,
-			// multi-NOT today
-			[]strfmt.UUID{idTesla2018Blue},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idTesla2018Blue, idGoodTeslaPlusBadBmw,
-			//               idGoodTeslaSplitGarages, idGoodTeslaSplitCountries}
-			//   (the three split-good-tesla docs all flip — each has at
-			//   least one tesla car satisfying all three conditions
-			//   simultaneously.)
-
-			// compound-NOT today
+			// multi — same-car AND of (tesla AND year≠2020 AND color≠red).
+			// All three split-good-tesla docs flip in — each has at
+			// least one tesla car satisfying all three on the same car.
 			[]strfmt.UUID{
-				idTesla2020Blue, idTesla2018Red, idTesla2018Blue, idSplitTeslas,
+				idTesla2018Blue, idGoodTeslaPlusBadBmw,
+				idGoodTeslaSplitGarages, idGoodTeslaSplitCountries,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idTesla2020Blue, idTesla2018Red,
-			//               idTesla2018Blue, idGoodTeslaPlusBadBmw,
-			//               idSplitTeslas, idGoodTeslaSplitGarages,
-			//               idGoodTeslaSplitCountries}
-			//   (split docs flip — at least one tesla car not in
-			//   inner-AND positive.)
+
+			// compound — ∃ tesla car NOT (year=2020 AND color=red).
+			// Split docs flip in — each has at least one tesla car
+			// outside the inner-AND positive set.
+			[]strfmt.UUID{
+				idTesla2020Blue, idTesla2018Red, idTesla2018Blue,
+				idGoodTeslaPlusBadBmw, idSplitTeslas,
+				idGoodTeslaSplitGarages, idGoodTeslaSplitCountries,
+			},
 		)
 	})
 }
@@ -15516,11 +15481,11 @@ func TestNestedFilteringNotShapeCMultiVsCompound(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: multi-NOT form. Today's docID-level
-		// NOT inverts each clause independently. Under scope-aware NOT,
-		// NOT B (cars.color) inverts at cars; NOT C (cars.tires.width)
-		// inverts at cars.tires (and projects up). AND at cars: tesla
-		// cars where color≠red AND has at least one non-205 tire.
+		// regression_multi_NOT_shapeC — mixed LCAs. NOT B (cars.color)
+		// inverts at cars per-car; NOT C (cars.tires.width) inverts at
+		// cars.tires per-tire and projects to cars (∃ tire≠205). Outer
+		// AND same-car at cars: "∃ tesla car with color≠red AND ∃ non-205
+		// tire on the same car". Tesla-no-tires drops (vacuous ∃ tire).
 		t.Run("regression_multi_NOT_shapeC", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -15529,10 +15494,11 @@ func TestNestedFilteringNotShapeCMultiVsCompound(t *testing.T) {
 			), multiWant)
 		})
 
-		// TODO aliszka:nested_filtering: compound-NOT form. Inner AND is
-		// same-car correlated AND (deepest common LCA = cars). NOT
-		// inverts at docID today. Under scope-aware NOT, NOT inverts at
-		// cars: tesla cars where NOT (color=red AND has 205 tire).
+		// regression_compound_NOT_shapeC — inner AND has LCA cars
+		// (same-car correlation: cars where color=red AND ∃ tire=205);
+		// NOT inverts at cars per-car. Predicate: "∃ tesla car NOT
+		// (color=red AND ∃ tire=205)" — strictly more permissive than
+		// multi. Tesla-no-tires stays (vacuous inner AND ⇒ NOT true).
 		t.Run("regression_compound_NOT_shapeC", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -15587,26 +15553,20 @@ func TestNestedFilteringNotShapeCMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make", "cars.color", "cars.tires.width",
 			docs,
-			// multi-NOT today: tesla AND no red car AND no 205 tire.
-			[]strfmt.UUID{idTeslaBlue225, idTeslaBlueNoTires},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idTeslaBlue225, idTeslaBlueMixed,
-			//               idGoodPlusBadCars}
-			//   (idTeslaBlueNoTires drops — vacuous, no tire-positions
-			//   for NOT C projection; idTeslaBlueMixed and
-			//   idGoodPlusBadCars flip to match.)
+			// multi — same-car AND of (tesla AND color≠red AND ∃ tire≠205).
+			// idTeslaBlueNoTires drops (vacuous ∃ tire); idTeslaBlueMixed
+			// and idGoodPlusBadCars flip in (tesla car has color≠red AND
+			// a non-205 tire).
+			[]strfmt.UUID{idTeslaBlue225, idTeslaBlueMixed, idGoodPlusBadCars},
 
-			// compound-NOT today: tesla AND no car has (color=red AND has 205).
+			// compound — ∃ tesla car NOT (color=red AND ∃ tire=205).
+			// idGoodPlusBadCars flips in (tesla car blue,225 is outside
+			// inner-AND positive). idTeslaBlueNoTires stays (vacuous
+			// inner AND).
 			[]strfmt.UUID{
 				idTeslaRed225, idTeslaBlue205, idTeslaBlue225, idTeslaBlueMixed,
-				idTeslaBlueNoTires, idTwoTeslasNeither,
+				idTeslaBlueNoTires, idGoodPlusBadCars, idTwoTeslasNeither,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idTeslaRed225, idTeslaBlue205,
-			//               idTeslaBlue225, idTeslaBlueMixed,
-			//               idTeslaBlueNoTires, idGoodPlusBadCars,
-			//               idTwoTeslasNeither}
-			//   (idGoodPlusBadCars flips to match.)
 		)
 	})
 
@@ -15660,26 +15620,21 @@ func TestNestedFilteringNotShapeCMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.color", "garages.cars.tires.width",
 			docs,
-			// multi-NOT today
-			[]strfmt.UUID{idTeslaBlue225, idTeslaBlueNoTires},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idTeslaBlue225, idTeslaBlueMixed,
-			//               idGoodPlusBadSameGarage,
-			//               idGoodPlusBadSplitGarages}
-			//   (idTeslaBlueNoTires drops; mixed-tires and split-cars
-			//   docs flip — tesla car has color≠red AND non-205 tire.)
+			// multi — same-car AND of (tesla AND color≠red AND ∃ tire≠205).
+			// idTeslaBlueNoTires drops; mixed-tires, same-garage, and
+			// split-garage discriminators all flip in.
+			[]strfmt.UUID{
+				idTeslaBlue225, idTeslaBlueMixed,
+				idGoodPlusBadSameGarage, idGoodPlusBadSplitGarages,
+			},
 
-			// compound-NOT today
+			// compound — ∃ tesla car NOT (color=red AND ∃ tire=205).
+			// idGoodPlusBad* flip in. idTeslaBlueNoTires stays.
 			[]strfmt.UUID{
 				idTeslaRed225, idTeslaBlue205, idTeslaBlue225, idTeslaBlueMixed,
-				idTeslaBlueNoTires, idTwoTeslasNeither,
+				idTeslaBlueNoTires, idGoodPlusBadSameGarage,
+				idTwoTeslasNeither, idGoodPlusBadSplitGarages,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idTeslaRed225, idTeslaBlue205,
-			//               idTeslaBlue225, idTeslaBlueMixed,
-			//               idTeslaBlueNoTires, idGoodPlusBadSameGarage,
-			//               idTwoTeslasNeither, idGoodPlusBadSplitGarages}
-			//   (idGoodPlusBad* flip — tesla car not in inner-AND positive.)
 		)
 	})
 
@@ -15740,29 +15695,23 @@ func TestNestedFilteringNotShapeCMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.color", "countries.garages.cars.tires.width",
 			docs,
-			// multi-NOT today
-			[]strfmt.UUID{idTeslaBlue225, idTeslaBlueNoTires},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idTeslaBlue225, idTeslaBlueMixed,
-			//               idGoodPlusBadSameGarage,
-			//               idGoodPlusBadSplitGarages,
-			//               idGoodPlusBadSplitCountries}
-			//   (idTeslaBlueNoTires drops; mixed-tires and split-cars/
-			//   garages/countries docs flip.)
+			// multi — same-car AND of (tesla AND color≠red AND ∃ tire≠205).
+			// idTeslaBlueNoTires drops; mixed-tires, same-garage, split-
+			// garage, and split-country discriminators all flip in.
+			[]strfmt.UUID{
+				idTeslaBlue225, idTeslaBlueMixed,
+				idGoodPlusBadSameGarage,
+				idGoodPlusBadSplitGarages, idGoodPlusBadSplitCountries,
+			},
 
-			// compound-NOT today
+			// compound — ∃ tesla car NOT (color=red AND ∃ tire=205).
+			// idGoodPlusBad* flip in. idTeslaBlueNoTires stays.
 			[]strfmt.UUID{
 				idTeslaRed225, idTeslaBlue205, idTeslaBlue225, idTeslaBlueMixed,
-				idTeslaBlueNoTires, idTwoTeslasNeither,
+				idTeslaBlueNoTires, idGoodPlusBadSameGarage,
+				idTwoTeslasNeither,
+				idGoodPlusBadSplitGarages, idGoodPlusBadSplitCountries,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idTeslaRed225, idTeslaBlue205,
-			//               idTeslaBlue225, idTeslaBlueMixed,
-			//               idTeslaBlueNoTires, idGoodPlusBadSameGarage,
-			//               idTwoTeslasNeither,
-			//               idGoodPlusBadSplitGarages,
-			//               idGoodPlusBadSplitCountries}
-			//   (split docs flip — tesla car not in inner-AND positive.)
 		)
 	})
 }
@@ -15890,11 +15839,12 @@ func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: multi-NOT form with no positive
-		// sibling. Today's docID-level NOT inverts each clause. Under
-		// scope-aware NOT, NOT B inverts at cars; NOT C inverts at
-		// cars.tires (and projects up). AND at cars: cars where color≠red
-		// AND has at least one non-205 tire. Then project to docID.
+		// regression_multi_NOT_shapeD — no positive sibling. NOT B
+		// inverts at cars per-car (color≠red); NOT C inverts at
+		// cars.tires per-tire and projects to cars existentially
+		// (∃ tire≠205). Outer AND same-car at cars: "∃ car with
+		// color≠red AND ∃ non-205 tire on the same car". Cars with no
+		// tires and empty docs drop (vacuous ∃ tire).
 		t.Run("regression_multi_NOT_shapeD", func(t *testing.T) {
 			runScenario(t, andF(
 				notF(textF(colorPath, "red")),
@@ -15902,10 +15852,11 @@ func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
 			), multiWant)
 		})
 
-		// TODO aliszka:nested_filtering: compound-NOT form. Inner AND has
-		// deepest common LCA = cars. NOT inverts at docID today. Under
-		// scope-aware NOT, NOT inverts at cars: cars where NOT (color=red
-		// AND has 205 tire). Project to docID.
+		// TODO aliszka:nested_filtering: compound-NOT form locks in
+		// CURRENT docID-level NOT of a top-level compound AND (no outer
+		// AND anchor). Under scope-aware top-level NOT-of-compound (not
+		// yet landed), inner AND inverts at cars per-car (cars where
+		// NOT (color=red AND ∃ tire=205)); empty docs drop.
 		t.Run("regression_compound_NOT_shapeD", func(t *testing.T) {
 			runScenario(t, notF(andF(
 				textF(colorPath, "red"),
@@ -15955,25 +15906,24 @@ func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.color", "cars.tires.width",
 			docs,
-			// multi-NOT today: no red car AND no 205 tire (anywhere).
-			[]strfmt.UUID{idBlue225, idBlueNoTires, idEmpty},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idBlue225, idBlueMixed, idGoodPlusBad}
-			//   (idBlueNoTires drops — no tire-positions for NOT C
-			//   projection; idEmpty drops — no cars universe;
-			//   idBlueMixed and idGoodPlusBad flip to match — at least
-			//   one car has color≠red AND has non-205 tire.)
+			// multi — same-car AND of (color≠red AND ∃ tire≠205).
+			// idBlueNoTires and idEmpty drop (vacuous ∃ tire);
+			// idBlueMixed and idGoodPlusBad flip in.
+			[]strfmt.UUID{idBlue225, idBlueMixed, idGoodPlusBad},
 
-			// compound-NOT today: no car has (color=red AND has 205).
+			// compound — still locks in CURRENT docID-level NOT of a
+			// top-level compound AND (no outer AND anchor). TODO
+			// aliszka:nested_filtering: under scope-aware top-level
+			// NOT-of-compound (not yet landed), expectation flips to
+			// []strfmt.UUID{idRed225, idBlue205, idBlue225,
+			//               idBlueMixed, idBlueNoTires,
+			//               idGoodPlusBad, idAttrSplit}
+			//   (idEmpty drops — no cars universe; idGoodPlusBad
+			//   flips in — cars[0] not in inner-AND positive set.)
 			[]strfmt.UUID{
 				idRed225, idBlue205, idBlue225, idBlueMixed, idBlueNoTires,
 				idAttrSplit, idEmpty,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idRed225, idBlue205, idBlue225, idBlueMixed,
-			//               idBlueNoTires, idGoodPlusBad, idAttrSplit}
-			//   (idEmpty drops — no cars universe; idGoodPlusBad flips
-			//   to match — cars[0] not in inner-AND positive.)
 		)
 	})
 
@@ -16025,26 +15975,28 @@ func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.color", "garages.cars.tires.width",
 			docs,
-			// multi-NOT today
-			[]strfmt.UUID{idBlue225, idBlueNoTires, idEmpty},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idBlue225, idBlueMixed,
-			//               idGoodPlusBadSameGarage,
-			//               idGoodPlusBadSplitGarages}
-			//   (idBlueNoTires and idEmpty drop — vacuous; mixed and
-			//   split docs flip — at least one car has color≠red AND
-			//   non-205 tire.)
+			// multi — same-car AND of (color≠red AND ∃ tire≠205).
+			// idBlueNoTires and idEmpty drop (vacuous ∃ tire);
+			// mixed-tires, good+bad same garage, and good+bad split
+			// garages all flip in.
+			[]strfmt.UUID{
+				idBlue225, idBlueMixed,
+				idGoodPlusBadSameGarage, idGoodPlusBadSplitGarages,
+			},
 
-			// compound-NOT today
+			// compound — still locks in CURRENT docID-level NOT of a
+			// top-level compound AND. TODO aliszka:nested_filtering:
+			// under scope-aware top-level NOT-of-compound, expectation
+			// flips to
+			// []strfmt.UUID{idRed225, idBlue205, idBlue225,
+			//               idBlueMixed, idBlueNoTires,
+			//               idGoodPlusBadSameGarage, idAttrSplit,
+			//               idGoodPlusBadSplitGarages}
+			//   (idEmpty drops; good+bad docs flip in.)
 			[]strfmt.UUID{
 				idRed225, idBlue205, idBlue225, idBlueMixed, idBlueNoTires,
 				idAttrSplit, idEmpty,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idRed225, idBlue205, idBlue225, idBlueMixed,
-			//               idBlueNoTires, idGoodPlusBadSameGarage,
-			//               idAttrSplit, idGoodPlusBadSplitGarages}
-			//   (idEmpty drops; good+bad docs flip.)
 		)
 	})
 
@@ -16103,27 +16055,30 @@ func TestNestedFilteringNotShapeDMultiVsCompound(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.color", "countries.garages.cars.tires.width",
 			docs,
-			// multi-NOT today
-			[]strfmt.UUID{idBlue225, idBlueNoTires, idEmpty},
-			// expected after scope-aware NOT (multi):
-			// []strfmt.UUID{idBlue225, idBlueMixed,
-			//               idGoodPlusBadSameGarage,
+			// multi — same-car AND of (color≠red AND ∃ tire≠205).
+			// idBlueNoTires and idEmpty drop (vacuous ∃ tire);
+			// mixed-tires, good+bad same garage, good+bad split garages,
+			// and good+bad split countries all flip in.
+			[]strfmt.UUID{
+				idBlue225, idBlueMixed,
+				idGoodPlusBadSameGarage,
+				idGoodPlusBadSplitGarages, idGoodPlusBadSplitCountries,
+			},
+
+			// compound — still locks in CURRENT docID-level NOT of a
+			// top-level compound AND. TODO aliszka:nested_filtering:
+			// under scope-aware top-level NOT-of-compound, expectation
+			// flips to
+			// []strfmt.UUID{idRed225, idBlue205, idBlue225,
+			//               idBlueMixed, idBlueNoTires,
+			//               idGoodPlusBadSameGarage, idAttrSplit,
 			//               idGoodPlusBadSplitGarages,
 			//               idGoodPlusBadSplitCountries}
-			//   (idBlueNoTires and idEmpty drop; mixed and split docs
-			//   flip — at least one car has color≠red AND non-205 tire.)
-
-			// compound-NOT today
+			//   (idEmpty drops; good+bad docs flip in.)
 			[]strfmt.UUID{
 				idRed225, idBlue205, idBlue225, idBlueMixed, idBlueNoTires,
 				idAttrSplit, idEmpty,
 			},
-			// expected after scope-aware NOT (compound):
-			// []strfmt.UUID{idRed225, idBlue205, idBlue225, idBlueMixed,
-			//               idBlueNoTires, idGoodPlusBadSameGarage,
-			//               idAttrSplit, idGoodPlusBadSplitGarages,
-			//               idGoodPlusBadSplitCountries}
-			//   (idEmpty drops; good+bad docs flip.)
 		)
 	})
 }
@@ -16276,11 +16231,10 @@ func TestNestedFilteringNotInsideOrInsideAnd3Levels(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: Shape 1 — NOT operand and OR
-		// siblings all at cars LCA. Today's docID-level OR satisfies
-		// "no 2022 car" via vacuous absence elsewhere; under scope-aware
-		// NOT, OR is per-car: cars where (color=red OR year≠2022),
-		// AND'd with cars.make=tesla at cars.
+		// regression_shape1_NOT_in_OR_same_LCA — NOT operand and OR
+		// siblings all at cars LCA. NOT inverts at cars (year≠2022 per
+		// car); OR per-car: cars where (color=red OR year≠2022). Outer
+		// AND with make=tesla at cars: ∃ tesla car satisfying the OR.
 		t.Run("regression_shape1_NOT_in_OR_same_LCA", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -16291,10 +16245,12 @@ func TestNestedFilteringNotInsideOrInsideAnd3Levels(t *testing.T) {
 			), shape1Want)
 		})
 
-		// TODO aliszka:nested_filtering: Shape 2 — NOT operand at deeper
-		// LCA (cars.tires) than OR's other branch (cars). Under
-		// scope-aware NOT, NOT inverts at cars.tires, projects to cars.
-		// OR per-car: cars where (color=red OR has non-205 tire).
+		// regression_shape2_NOT_in_OR_deeper_LCA — NOT operand at deeper
+		// LCA (cars.tires) than OR's other branch (cars). NOT inverts at
+		// cars.tires per-tire and projects to cars existentially (∃ tire
+		// ≠205). OR per-car: cars where (color=red OR ∃ non-205 tire).
+		// Outer AND with make=tesla at cars: ∃ tesla car satisfying the
+		// OR. Cars with no tires drop the NOT branch (vacuous).
 		t.Run("regression_shape2_NOT_in_OR_deeper_LCA", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -16349,33 +16305,23 @@ func TestNestedFilteringNotInsideOrInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.make", "cars.color", "cars.year", "cars.tires.width",
 			docs,
-			// Shape 1 today: tesla AND (has red car OR no 2022 car).
+			// Shape 1 — per-car OR: ∃ tesla car (color=red OR year≠2022).
+			// idTeslaBadPlusBmwRed drops (red is on bmw, not tesla);
+			// idTeslaBadPlusGood flips in (cars[1] tesla, year=2018≠2022).
 			[]strfmt.UUID{
 				idTeslaRed2022_205, idTeslaRed2018_225, idTeslaBlue2018_225,
-				idTeslaBadPlusBmwRed, idTeslaMixed, idTeslaBlueNoAttrs,
+				idTeslaBadPlusGood, idTeslaMixed, idTeslaBlueNoAttrs,
 			},
-			// expected after scope-aware NOT (Shape 1):
-			// []strfmt.UUID{idTeslaRed2022_205, idTeslaRed2018_225,
-			//               idTeslaBlue2018_225, idTeslaBadPlusGood,
-			//               idTeslaMixed, idTeslaBlueNoAttrs}
-			//   (idTeslaBadPlusBmwRed flips to excl — no single tesla
-			//   car satisfies (red OR year≠2022); idTeslaBadPlusGood
-			//   flips to match — cars[1] is tesla AND year≠2022.)
 
-			// Shape 2 today: tesla AND (has red car OR no 205 tire).
+			// Shape 2 — per-car OR: ∃ tesla car (color=red OR ∃ non-205
+			// tire). idTeslaBadPlusBmwRed drops; idTeslaBadPlusGood flips
+			// in (cars[1] tesla, tire 225≠205); idTeslaMixed flips in
+			// (tire 225≠205 on the tesla car); idTeslaBlueNoAttrs drops
+			// (no tires for ∃ projection, no red color).
 			[]strfmt.UUID{
 				idTeslaRed2022_205, idTeslaRed2018_225, idTeslaBlue2018_225,
-				idTeslaBadPlusBmwRed, idTeslaBlueNoAttrs,
+				idTeslaBadPlusGood, idTeslaMixed,
 			},
-			// expected after scope-aware NOT (Shape 2):
-			// []strfmt.UUID{idTeslaRed2022_205, idTeslaRed2018_225,
-			//               idTeslaBlue2018_225, idTeslaBadPlusGood,
-			//               idTeslaMixed}
-			//   (idTeslaBadPlusBmwRed flips to excl; idTeslaBadPlusGood
-			//   flips to match — cars[1] is tesla AND has 225 (non-205)
-			//   tire; idTeslaMixed flips to match — cars[0] has both
-			//   tires; idTeslaBlueNoAttrs flips to excl — no tires for
-			//   the NOT-tires projection to qualify.)
 		)
 	})
 
@@ -16429,34 +16375,22 @@ func TestNestedFilteringNotInsideOrInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.color", "garages.cars.year", "garages.cars.tires.width",
 			docs,
-			// Shape 1 today
+			// Shape 1 — per-car OR: ∃ tesla car (color=red OR year≠2022).
+			// idTeslaBadPlusBmwRed and idSplitAcrossGarages drop (red on
+			// bmw, no good tesla); idTeslaBadPlusGood flips in (cars[1]
+			// tesla, year≠2022).
 			[]strfmt.UUID{
 				idTeslaRed2022_205, idTeslaRed2018_225, idTeslaBlue2018_225,
-				idTeslaBadPlusBmwRed, idTeslaMixed, idTeslaBlueNoAttrs,
-				idSplitAcrossGarages,
+				idTeslaBadPlusGood, idTeslaMixed, idTeslaBlueNoAttrs,
 			},
-			// expected after scope-aware NOT (Shape 1):
-			// []strfmt.UUID{idTeslaRed2022_205, idTeslaRed2018_225,
-			//               idTeslaBlue2018_225, idTeslaBadPlusGood,
-			//               idTeslaMixed, idTeslaBlueNoAttrs}
-			//   (idTeslaBadPlusBmwRed and idSplitAcrossGarages flip to
-			//   excl — no single tesla car satisfies (red OR year≠2022);
-			//   idTeslaBadPlusGood flips to match — cars[1] is tesla AND
-			//   year≠2022.)
 
-			// Shape 2 today
+			// Shape 2 — per-car OR. idTeslaBadPlusBmwRed and
+			// idSplitAcrossGarages drop; idTeslaBadPlusGood and
+			// idTeslaMixed flip in; idTeslaBlueNoAttrs drops (no tires).
 			[]strfmt.UUID{
 				idTeslaRed2022_205, idTeslaRed2018_225, idTeslaBlue2018_225,
-				idTeslaBadPlusBmwRed, idTeslaBlueNoAttrs,
-				idSplitAcrossGarages,
+				idTeslaBadPlusGood, idTeslaMixed,
 			},
-			// expected after scope-aware NOT (Shape 2):
-			// []strfmt.UUID{idTeslaRed2022_205, idTeslaRed2018_225,
-			//               idTeslaBlue2018_225, idTeslaBadPlusGood,
-			//               idTeslaMixed}
-			//   (idTeslaBadPlusBmwRed and idSplitAcrossGarages flip to
-			//   excl; idTeslaBadPlusGood and idTeslaMixed flip to match;
-			//   idTeslaBlueNoAttrs flips to excl — no tires.)
 		)
 	})
 
@@ -16517,32 +16451,21 @@ func TestNestedFilteringNotInsideOrInsideAnd3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.color", "countries.garages.cars.year", "countries.garages.cars.tires.width",
 			docs,
-			// Shape 1 today
+			// Shape 1 — per-car OR. Split-garages and split-countries
+			// drop (no single tesla car satisfies the OR);
+			// idTeslaBadPlusGood flips in.
 			[]strfmt.UUID{
 				idTeslaRed2022_205, idTeslaRed2018_225, idTeslaBlue2018_225,
-				idTeslaBadPlusBmwRed, idTeslaMixed, idTeslaBlueNoAttrs,
-				idSplitAcrossGarages, idSplitAcrossCountries,
+				idTeslaBadPlusGood, idTeslaMixed, idTeslaBlueNoAttrs,
 			},
-			// expected after scope-aware NOT (Shape 1):
-			// []strfmt.UUID{idTeslaRed2022_205, idTeslaRed2018_225,
-			//               idTeslaBlue2018_225, idTeslaBadPlusGood,
-			//               idTeslaMixed, idTeslaBlueNoAttrs}
-			//   (split docs flip to excl — no single tesla car satisfies
-			//   the OR; idTeslaBadPlusGood flips to match.)
 
-			// Shape 2 today
+			// Shape 2 — per-car OR. Split docs drop;
+			// idTeslaBadPlusGood and idTeslaMixed flip in;
+			// idTeslaBlueNoAttrs drops (no tires).
 			[]strfmt.UUID{
 				idTeslaRed2022_205, idTeslaRed2018_225, idTeslaBlue2018_225,
-				idTeslaBadPlusBmwRed, idTeslaBlueNoAttrs,
-				idSplitAcrossGarages, idSplitAcrossCountries,
+				idTeslaBadPlusGood, idTeslaMixed,
 			},
-			// expected after scope-aware NOT (Shape 2):
-			// []strfmt.UUID{idTeslaRed2022_205, idTeslaRed2018_225,
-			//               idTeslaBlue2018_225, idTeslaBadPlusGood,
-			//               idTeslaMixed}
-			//   (split docs flip to excl; idTeslaBadPlusGood and
-			//   idTeslaMixed flip to match; idTeslaBlueNoAttrs flips to
-			//   excl — no tires.)
 		)
 	})
 }
@@ -16556,18 +16479,14 @@ func TestNestedFilteringNotInsideOrInsideAnd3Levels(t *testing.T) {
 //	(<chain>.cars.color=red OR
 //	 (<chain>.cars.year=2022 AND NOT <chain>.cars.tires.width=205))
 //
-// Today's dispatch: docID-level for the OR boundary and the NOT.
-// Inner AND `(year=2022 AND NOT tires.width=205)` resolves at docID:
-// doc has 2022 car AND doc has no 205 tire (anywhere). Outer OR with
-// `color=red` at docID: doc has (red car) OR (2022 car AND no 205 tire).
-// Outer AND with tesla: doc has tesla AND that disjunction.
-//
-// Future scope-aware NOT + position-level OR within single root: NOT D
-// inverts at cars.tires (operand LCA), projects to cars (cars with
-// non-205 tire). Inner AND at cars: cars where year=2022 AND has
-// non-205 tire. Outer OR at cars: cars where color=red OR (year=2022
-// AND non-205 tire). Outer AND with tesla at cars: tesla cars
-// satisfying that disjunction. Per-car evaluation throughout.
+// The entire expression evaluates per-car at cars[] LCA: NOT inverts
+// at cars.tires (operand LCA) and projects to cars (cars with at
+// least one non-205 tire); inner AND at cars (cars where year=2022
+// AND has a non-205 tire); outer OR at cars (cars where color=red OR
+// inner-AND); outer AND with tesla at cars (tesla cars satisfying
+// that disjunction). Cross-cars docs that today satisfy via different
+// cars (e.g. red on a non-tesla car) flip OUT; mixed-tires and
+// good-tesla-sibling docs that today fail the doc-level NOT flip IN.
 //
 // Three nesting levels with object[] roots: L0_root_cars,
 // L1_garages_cars, L2_countries_garages_cars.
@@ -16695,13 +16614,12 @@ func TestNestedFilteringDeeplyNestedAndOrNotSameRoot3Levels(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT docID-level
-		// dispatch for the 3-level AND/OR/AND/NOT structure. Inner AND
-		// resolves at docID; OR combines at docID; outer AND combines
-		// at docID. Under scope-aware NOT + position-level OR within a
-		// single root, the entire expression evaluates per-cars-element
-		// at cars LCA, giving stricter (or sometimes more permissive)
-		// results depending on doc shape.
+		// regression_AND_OR_AND_NOT_3level — same-cars-element AND
+		// through the OR, with scope-aware NOT at cars.tires. The
+		// entire 3-level AND/OR/AND/NOT evaluates per tesla car.
+		// Bad-tesla-plus-red-on-non-tesla docs flip OUT; mixed-tires
+		// (has both 205 and non-205 on one car) and bad-plus-good-
+		// tesla docs flip IN.
 		t.Run("regression_AND_OR_AND_NOT_3level", func(t *testing.T) {
 			runScenario(t, andF(
 				textF(makePath, "tesla"),
@@ -16756,23 +16674,18 @@ func TestNestedFilteringDeeplyNestedAndOrNotSameRoot3Levels(t *testing.T) {
 			{id: idEmpty, props: emptyDoc(), note: "no cars"},
 		}
 
+		// idTeslaBadPlusBmwRed (red on non-tesla car) flips to excl;
+		// idTeslaBlue2022Mixed (mixed tires on a single car) and
+		// idTeslaBadPlusGoodTesla (good-tesla sibling) flip to
+		// match — per-car evaluation throughout.
 		runLevel(t, className, class,
 			"cars.make", "cars.color", "cars.year", "cars.tires.width",
 			docs,
-			// today: tesla AND (red car OR (2022 car AND no 205 tire)).
 			[]strfmt.UUID{
-				idTeslaRed2022_205, idTeslaBlue2022_225, idTeslaRed2018_225,
-				idTeslaBadPlusBmwRed,
+				idTeslaRed2022_205, idTeslaBlue2022_225,
+				idTeslaBlue2022Mixed, idTeslaRed2018_225,
+				idTeslaBadPlusGoodTesla,
 			},
-			// expected after scope-aware NOT + position-level OR:
-			// []strfmt.UUID{idTeslaRed2022_205, idTeslaBlue2022_225,
-			//               idTeslaBlue2022Mixed, idTeslaRed2018_225,
-			//               idTeslaBadPlusGoodTesla}
-			//   (idTeslaBadPlusBmwRed flips to excl — no single tesla
-			//   car satisfies (red OR (2022 AND non-205 tire));
-			//   idTeslaBlue2022Mixed and idTeslaBadPlusGoodTesla flip
-			//   to match — at least one tesla car has 2022 AND has a
-			//   non-205 tire same-car.)
 		)
 	})
 
@@ -16825,21 +16738,18 @@ func TestNestedFilteringDeeplyNestedAndOrNotSameRoot3Levels(t *testing.T) {
 			{id: idSplitGaragesBadPlusGoodTesla, props: wrapG(garage(car("tesla", "blue", 2022, tire(205))), garage(car("tesla", "blue", 2022, tire(225)))), note: "g[0]=tesla bad; g[1]=tesla good — L1 KEY"},
 		}
 
+		// bad+bmw-red docs flip to excl regardless of whether the
+		// bmw is in the same garage or a different garage; mixed-
+		// tires and bad+good-tesla docs flip to match likewise.
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.color", "garages.cars.year", "garages.cars.tires.width",
 			docs,
-			// today
 			[]strfmt.UUID{
-				idTeslaRed2022_205, idTeslaBlue2022_225, idTeslaRed2018_225,
-				idTeslaBadPlusBmwRedSameGarage, idSplitGaragesBadPlusBmwRed,
+				idTeslaRed2022_205, idTeslaBlue2022_225,
+				idTeslaBlue2022Mixed, idTeslaRed2018_225,
+				idTeslaBadPlusGoodTeslaSameGarage,
+				idSplitGaragesBadPlusGoodTesla,
 			},
-			// expected after scope-aware NOT + position-level OR:
-			// []strfmt.UUID{idTeslaRed2022_205, idTeslaBlue2022_225,
-			//               idTeslaBlue2022Mixed, idTeslaRed2018_225,
-			//               idTeslaBadPlusGoodTeslaSameGarage,
-			//               idSplitGaragesBadPlusGoodTesla}
-			//   (bad+bmw-red docs flip to excl; mixed-tires and
-			//   bad+good-tesla docs flip to match.)
 		)
 	})
 
@@ -16901,23 +16811,20 @@ func TestNestedFilteringDeeplyNestedAndOrNotSameRoot3Levels(t *testing.T) {
 			{id: idSplitCountriesBadPlusGoodTesla, props: wrapC(country(garage(car("tesla", "blue", 2022, tire(205)))), country(garage(car("tesla", "blue", 2022, tire(225))))), note: "split countries bad+good tesla — L2 KEY"},
 		}
 
+		// bad+bmw-red docs flip to excl across every split layout
+		// (same garage, different garages, different countries);
+		// mixed-tires and bad+good-tesla docs flip to match
+		// likewise.
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.color", "countries.garages.cars.year", "countries.garages.cars.tires.width",
 			docs,
-			// today
 			[]strfmt.UUID{
-				idTeslaRed2022_205, idTeslaBlue2022_225, idTeslaRed2018_225,
-				idTeslaBadPlusBmwRedSameGarage, idSplitGaragesBadPlusBmwRed,
-				idSplitCountriesBadPlusBmwRed,
+				idTeslaRed2022_205, idTeslaBlue2022_225,
+				idTeslaBlue2022Mixed, idTeslaRed2018_225,
+				idTeslaBadPlusGoodTeslaSameGarage,
+				idSplitGaragesBadPlusGoodTesla,
+				idSplitCountriesBadPlusGoodTesla,
 			},
-			// expected after scope-aware NOT + position-level OR:
-			// []strfmt.UUID{idTeslaRed2022_205, idTeslaBlue2022_225,
-			//               idTeslaBlue2022Mixed, idTeslaRed2018_225,
-			//               idTeslaBadPlusGoodTeslaSameGarage,
-			//               idSplitGaragesBadPlusGoodTesla,
-			//               idSplitCountriesBadPlusGoodTesla}
-			//   (bad+bmw-red docs at all splits flip to excl; mixed and
-			//   bad+good-tesla docs at all splits flip to match.)
 		)
 	})
 }
@@ -16932,19 +16839,13 @@ func TestNestedFilteringDeeplyNestedAndOrNotSameRoot3Levels(t *testing.T) {
 //	<chain>.cars.make=tesla
 //
 // The OR branches target two sibling sub-arrays (accessories, tires)
-// under cars. They have NO common ancestor below cars — diverging at
-// the cars level.
-//
-// Today (docID-level OR): each branch resolves to a docID set;
-// OR unions; AND with tesla intersects at docID. Doc matches when
-// it has a tesla car AND (sunroof somewhere OR 205 tire somewhere) —
-// the OR can be satisfied by ANY car, not necessarily a tesla.
-//
-// Future (position-level OR within single root): both branches
-// project up to cars LCA; OR at cars (cars where some accessory is
-// sunroof OR some tire is 205); AND with tesla at cars (tesla cars
-// satisfying the OR). Per-tesla-car evaluation — strictly tighter
-// than today when the OR is satisfied via a non-tesla car.
+// under cars; their deepest common LCA is cars. The planner plants
+// the OR inside the cars subgroup so the outer AND with
+// cars.make=tesla correlates same-element at cars[]: a single tesla
+// car must satisfy the OR. Cross-car docs (where the OR is satisfied
+// via a non-tesla car) drop out, regardless of whether the non-tesla
+// car is in the same garage, a different garage, or a different
+// country.
 //
 // Three nesting levels with object[] roots: L0_root_cars,
 // L1_garages_cars, L2_countries_garages_cars.
@@ -17068,17 +16969,10 @@ func TestNestedFilteringDisjointSubArraysOrInAnd3Levels(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT docID-level OR
-		// for disjoint sibling sub-arrays. Branches at cars.accessories
-		// and cars.tires resolve independently to docID sets and union
-		// at docID. AND with cars.make=tesla intersects at docID. Doc
-		// matches when tesla car exists AND OR satisfied by any car.
-		//
-		// Under position-level OR within a single root, both branches
-		// project up to cars LCA, OR per-cars-element, AND with tesla
-		// at cars. Doc matches only when a tesla car itself satisfies
-		// the OR. Discriminator docs where the OR is satisfied via a
-		// non-tesla car flip to excl.
+		// regression_OR_disjoint_sub_arrays_in_AND — same-element AND at
+		// cars[]: a single tesla car must satisfy the OR. Discriminator
+		// docs (cross-car splits) drop out — the non-tesla car
+		// satisfying the OR doesn't count.
 		t.Run("regression_OR_disjoint_sub_arrays_in_AND", func(t *testing.T) {
 			runScenario(t, andF(
 				orF(
@@ -17126,20 +17020,16 @@ func TestNestedFilteringDisjointSubArraysOrInAnd3Levels(t *testing.T) {
 			{id: idEmpty, props: emptyDoc(), note: "no cars"},
 		}
 
+		// Same-element AND at cars[]: only tesla cars that themselves
+		// satisfy the OR match. idTeslaNothingPlusBmwSunroof /
+		// idTeslaNothingPlusBmw205 drop out — their tesla cars are
+		// empty; the bmw car satisfies the OR but isn't tesla.
 		runLevel(t, className, class,
 			"cars.make", "cars.accessories.type", "cars.tires.width",
 			docs,
-			// today: tesla AND (sunroof somewhere OR 205 somewhere).
 			[]strfmt.UUID{
 				idTeslaSunroof205, idTeslaSunroofOnly, idTesla205Only,
-				idTeslaNothingPlusBmwSunroof, idTeslaNothingPlusBmw205,
 			},
-			// expected after position-level OR within single root:
-			// []strfmt.UUID{idTeslaSunroof205, idTeslaSunroofOnly,
-			//               idTesla205Only}
-			//   (idTeslaNothingPlusBmwSunroof and idTeslaNothingPlusBmw205
-			//   flip to excl — no tesla car satisfies the OR; the
-			//   non-tesla car satisfies OR but isn't tesla.)
 		)
 	})
 
@@ -17186,21 +17076,15 @@ func TestNestedFilteringDisjointSubArraysOrInAnd3Levels(t *testing.T) {
 			{id: idSplitGaragesTeslaPlusBmwSunroof, props: wrapG(garage(car("tesla", nil, nil)), garage(car("bmw", []map[string]any{accessory("sunroof")}, nil))), note: "g[0]=tesla nothing; g[1]=bmw sunroof — L1 KEY"},
 		}
 
+		// Same-element AND at cars[]: cross-car docs drop out regardless
+		// of whether the non-tesla car is in the same garage as the
+		// tesla or a different one (idSplitGaragesTeslaPlusBmwSunroof).
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.accessories.type", "garages.cars.tires.width",
 			docs,
-			// today
 			[]strfmt.UUID{
 				idTeslaSunroof205, idTeslaSunroofOnly, idTesla205Only,
-				idTeslaNothingPlusBmwSunroofSameGarage,
-				idTeslaNothingPlusBmw205SameGarage,
-				idSplitGaragesTeslaPlusBmwSunroof,
 			},
-			// expected after position-level OR within single root:
-			// []strfmt.UUID{idTeslaSunroof205, idTeslaSunroofOnly,
-			//               idTesla205Only}
-			//   (cross-car docs flip to excl regardless of whether the
-			//   non-tesla car is in the same garage or a different one.)
 		)
 	})
 
@@ -17254,23 +17138,17 @@ func TestNestedFilteringDisjointSubArraysOrInAnd3Levels(t *testing.T) {
 			{id: idSplitCountriesTeslaPlusBmwSunroof, props: wrapC(country(garage(car("tesla", nil, nil))), country(garage(car("bmw", []map[string]any{accessory("sunroof")}, nil)))), note: "split across countries — L2 KEY"},
 		}
 
+		// Same-element AND at cars[]: cross-car docs drop out regardless
+		// of whether the non-tesla car is in the same garage, a
+		// different garage, or a different country
+		// (idSplitGaragesTeslaPlusBmwSunroof /
+		// idSplitCountriesTeslaPlusBmwSunroof).
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.accessories.type", "countries.garages.cars.tires.width",
 			docs,
-			// today
 			[]strfmt.UUID{
 				idTeslaSunroof205, idTeslaSunroofOnly, idTesla205Only,
-				idTeslaNothingPlusBmwSunroofSameGarage,
-				idTeslaNothingPlusBmw205SameGarage,
-				idSplitGaragesTeslaPlusBmwSunroof,
-				idSplitCountriesTeslaPlusBmwSunroof,
 			},
-			// expected after position-level OR within single root:
-			// []strfmt.UUID{idTeslaSunroof205, idTeslaSunroofOnly,
-			//               idTesla205Only}
-			//   (cross-car docs flip to excl regardless of whether the
-			//   non-tesla car is same garage, different garage, or
-			//   different country.)
 		)
 	})
 }
@@ -18648,34 +18526,24 @@ func TestNestedFilteringAndParenthesization3Levels(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT flat 3-AND
-		// behavior — same-element correlation across all three
-		// operands at one cars[] LCA. Only docs with a single car
-		// satisfying make=tesla AND year=2020 AND color=red match.
-		// Under associative AND flattening this is the canonical
-		// result that all three forms collapse to.
+		// flat 3-AND: same-element correlation across all three operands
+		// at one cars[] LCA. Only docs with a single car satisfying
+		// make=tesla AND year=2020 AND color=red match.
 		t.Run("regression_flat_3_and", func(t *testing.T) {
 			runScenario(t, andF(makeF(), yearF(), colorF()), wantFlat)
 		})
 
-		// TODO aliszka:nested_filtering: locks in CURRENT
-		// left-grouped behavior — inner (make AND year) correlates
-		// at cars[], producing a docID set; outer AND with color=red
-		// intersects at docID. Cars satisfying inner and cars with
-		// color=red can be different elements. Under associative
-		// AND flattening this collapses to the flat plan.
+		// left-grouped: (make AND year) AND color. The planner's
+		// associative AND flattening collapses this to the flat plan,
+		// so the result matches regression_flat_3_and (same-element
+		// correlation across all three operands at cars[] LCA).
 		t.Run("regression_left_grouped_and", func(t *testing.T) {
 			runScenario(t, andF(andF(makeF(), yearF()), colorF()), wantLeft)
 		})
 
-		// TODO aliszka:nested_filtering: locks in CURRENT
-		// right-grouped behavior — inner (year AND color) correlates
-		// at cars[]; outer AND with make=tesla intersects at docID.
-		// Different from left-grouped on docs where the inner pair
-		// can only be satisfied by one shape (e.g., year+color in a
-		// non-tesla car) but the outer leaf is satisfied by another
-		// car. Under associative AND flattening this collapses to
-		// the flat plan.
+		// right-grouped: make AND (year AND color). Same AND associative
+		// flattening as left-grouped — collapses to the flat plan and
+		// produces the same most-restrictive result.
 		t.Run("regression_right_grouped_and", func(t *testing.T) {
 			runScenario(t, andF(makeF(), andF(yearF(), colorF())), wantRight)
 		})
@@ -18726,20 +18594,17 @@ func TestNestedFilteringAndParenthesization3Levels(t *testing.T) {
 			{id: idEmpty, props: map[string]any{}, note: "no cars"},
 		}
 
+		// Per associative AND flattening at the planner, all three forms
+		// (flat, left-grouped, right-grouped) collapse to the same
+		// single-car-satisfies-all result. The discriminator docs (
+		// idSplitTeslaYearVsRed / idLeftOnly / idRightOnly) are kept
+		// to prove no form leaks them.
 		runLevel(t, className, class,
 			"cars.make", "cars.year", "cars.color",
 			docs,
-			// today flat: only single-car-all-3.
-			[]strfmt.UUID{idAllInOne},
-			// today left-grouped: inner (tesla AND 2020) correlated;
-			// outer AND color=red docID-intersect. Mixed docs where
-			// some car has tesla+2020 AND some car has red satisfy.
-			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRed, idLeftOnly},
-			// today right-grouped: inner (2020 AND red) correlated;
-			// outer AND make=tesla docID-intersect.
-			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRed, idRightOnly},
-			// expected after AND associative flattening: all three
-			// forms collapse to the flat plan -> []strfmt.UUID{idAllInOne}.
+			[]strfmt.UUID{idAllInOne}, // flat
+			[]strfmt.UUID{idAllInOne}, // left — flattens to flat
+			[]strfmt.UUID{idAllInOne}, // right — flattens to flat
 		)
 	})
 
@@ -18783,19 +18648,15 @@ func TestNestedFilteringAndParenthesization3Levels(t *testing.T) {
 			{id: idSplitTeslaYearVsRedSplitGarages, props: wrapG(garage(car("tesla", 2020, "blue")), garage(car("bmw", 2020, "red"))), note: "g[0]=[tesla,2020]; g[1]=[bmw,red]"},
 		}
 
+		// All three forms collapse to the flat plan; discriminator docs
+		// (split-same-garage / left-only / right-only / split-garages)
+		// stay in the doc set to prove no form leaks them.
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.year", "garages.cars.color",
 			docs,
-			// today flat: single-car all 3 (anywhere in any garage).
-			[]strfmt.UUID{idAllInOne},
-			// today left-grouped: inner (make AND year) correlates
-			// at the cars LCA; outer AND color=red docID. Mixed
-			// satisfies regardless of garage split.
-			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRedSameGarage, idLeftOnlySameGarage, idSplitTeslaYearVsRedSplitGarages},
-			// today right-grouped.
-			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRedSameGarage, idRightOnlySameGarage, idSplitTeslaYearVsRedSplitGarages},
-			// expected after AND associative flattening:
-			// []strfmt.UUID{idAllInOne}.
+			[]strfmt.UUID{idAllInOne}, // flat
+			[]strfmt.UUID{idAllInOne}, // left — flattens to flat
+			[]strfmt.UUID{idAllInOne}, // right — flattens to flat
 		)
 	})
 
@@ -18846,20 +18707,16 @@ func TestNestedFilteringAndParenthesization3Levels(t *testing.T) {
 			{id: idSplitTeslaYearVsRedSplitCountries, props: wrapC(country(garage(car("tesla", 2020, "blue"))), country(garage(car("bmw", 2020, "red")))), note: "split across countries — L2 KEY"},
 		}
 
+		// All three forms collapse to the flat plan; discriminator docs
+		// (split-same-garage / left-only / right-only / split-garages /
+		// split-countries) stay in the doc set to prove no form leaks
+		// them.
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.year", "countries.garages.cars.color",
 			docs,
-			// today flat
-			[]strfmt.UUID{idAllInOne},
-			// today left-grouped: docID intersection ignores the
-			// cross-country split.
-			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRedSameGarage, idLeftOnlySameGarage, idSplitTeslaYearVsRedSplitGarages, idSplitTeslaYearVsRedSplitCountries},
-			// today right-grouped
-			[]strfmt.UUID{idAllInOne, idSplitTeslaYearVsRedSameGarage, idRightOnlySameGarage, idSplitTeslaYearVsRedSplitGarages, idSplitTeslaYearVsRedSplitCountries},
-			// expected after AND associative flattening:
-			// []strfmt.UUID{idAllInOne} — at all 3 levels the three
-			// forms agree on the most restrictive (single-car-
-			// all-3) result.
+			[]strfmt.UUID{idAllInOne}, // flat
+			[]strfmt.UUID{idAllInOne}, // left — flattens to flat
+			[]strfmt.UUID{idAllInOne}, // right — flattens to flat
 		)
 	})
 }
@@ -19036,11 +18893,10 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			runScenario(t, notF(colorRedF()), want.standalone)
 		})
 
-		// TODO aliszka:nested_filtering: Context 2 — sibling at SAME
-		// root. Enclosing AND's LCA = cars[]. Today's contribution
-		// of NOT is doc-level. per-element inversion and universal-within-scope inversion both invert at
-		// cars[] (operand's natural LCA = enclosing LCA), so they
-		// agree here.
+		// ctx2_AND_same_root_sibling — sibling at SAME root.
+		// Enclosing AND's LCA = cars[]. NOT inverts at cars[]
+		// (operand's natural LCA = enclosing LCA). per-element inversion and
+		// universal-within-scope inversion agree here.
 		t.Run("ctx2_AND_same_root_sibling", func(t *testing.T) {
 			runScenario(t, andF(makeF(), notF(colorRedF())), want.andSameRoot)
 		})
@@ -19132,38 +18988,33 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			"cars.make", "cars.year", "cars.color", "owner",
 			docs,
 			wantSet{
-				// ctx1 standalone: NOT_today = no red anywhere.
-				// {d2, d4, d5, d7}.
+				// ctx1 standalone — TODO aliszka:nested_filtering:
+				// locks in CURRENT root-universe NOT.
+				//   per-element inversion: {d2,d4,d5,d6} — d6 in, d7 out.
+				//   universal-within-scope inversion: {d2,d4,d5,d7} — same as today (no
+				//             enclosing combinator).
 				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
-				// ctx2 AND same-root: T ∩ NOT_today = {d2, d5}.
-				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue},
-				// ctx3 AND outer-scope: O ∩ NOT_today = {d2,d4,d5}.
+				// ctx2 AND same-root — option A and option B agree:
+				// per-cars-element NOT. idMixed (d6) flips in.
+				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue, idMixed},
+				// ctx3 AND outer-scope — TODO aliszka:nested_filtering:
+				// locks in CURRENT docID-level NOT. THIS is the A vs B
+				// discriminator.
+				//   per-element inversion: {d2,d4,d5,d6} — d6 in.
+				//   universal-within-scope inversion: {d2,d4,d5} — same as today (enclosing
+				//             LCA = doc).
 				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
-				// ctx4 OR same-root: T ∪ NOT_today =
-				// {d1,d2,d4,d5,d6,d7,d8}.
+				// ctx4 OR same-root — TODO aliszka:nested_filtering:
+				// locks in CURRENT root-universe NOT (top-level OR
+				// doesn't trigger scope-aware NOT yet).
+				//   per-element inversion: {d1,d2,d4,d5,d6,d8} — d6 in, d7 out.
+				//   universal-within-scope inversion: same as per-element inversion (enclosing OR's LCA =
+				//             cars = operand LCA).
 				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixed, idEmpty, idTesla2020RedOwnerBob},
-				// ctx5 mix: T ∩ (Y ∪ NOT_today) =
-				// {d1,d2,d5,d6,d8}.
+				// ctx5 mix — passes under today, option A, and option B.
+				// The OR positive branch (Y) absorbs the discriminators.
 				andOrMix: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixed, idTesla2020RedOwnerBob},
 			},
-			// expected after option A (per-element NOT, context-free):
-			//   ctx1: {d2,d4,d5,d6}        — d6 in, d7 out
-			//   ctx2: {d2,d5,d6}           — d6 in
-			//   ctx3: {d2,d4,d5,d6}        — d6 in
-			//   ctx4: {d1,d2,d4,d5,d6,d8}  — d6 in, d7 out
-			//   ctx5: {d1,d2,d5,d6,d8}     — same as today (the
-			//                                 union absorbs the
-			//                                 difference at d2,d4,
-			//                                 d5,d6 since these
-			//                                 appear in Y too)
-			//
-			// expected after option B (NOT at enclosing-scope LCA):
-			//   ctx1: same as today (no enclosing combinator)
-			//   ctx2: same as option A (enclosing LCA = cars[])
-			//   ctx3: same as today (enclosing LCA = doc)
-			//          — THIS is the A vs B discriminator
-			//   ctx4: same as option A
-			//   ctx5: same as option A
 		)
 	})
 
@@ -19226,29 +19077,28 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			"garages.cars.make", "garages.cars.year", "garages.cars.color", "owner",
 			docs,
 			wantSet{
-				// ctx1 standalone NOT_today
+				// ctx1 standalone — TODO aliszka:nested_filtering:
+				// locks in CURRENT root-universe NOT.
+				//   per-element inversion: {d2,d4,d5,d6,d9}.
+				//   universal-within-scope inversion: {d2,d4,d5,d7} — same as today.
 				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
-				// ctx2 T ∩ NOT_today
-				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue},
-				// ctx3 O ∩ NOT_today
+				// ctx2 AND same-root — option A and option B agree.
+				// idMixedSameGarage and idMixedSplitGarages flip in.
+				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idMixedSplitGarages},
+				// ctx3 AND outer-scope — TODO aliszka:nested_filtering:
+				// locks in CURRENT docID-level NOT. THIS is the A vs B
+				// discriminator.
+				//   per-element inversion: {d2,d4,d5,d6,d9}.
+				//   universal-within-scope inversion: {d2,d4,d5} — same as today.
 				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
-				// ctx4 T ∪ NOT_today
+				// ctx4 OR same-root — TODO aliszka:nested_filtering:
+				// locks in CURRENT root-universe NOT.
+				//   per-element inversion: {d1,d2,d4,d5,d6,d8,d9}.
+				//   universal-within-scope inversion: same as per-element inversion.
 				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idEmpty, idTesla2020RedOwnerBob, idMixedSplitGarages},
-				// ctx5 T ∩ (Y ∪ NOT_today)
+				// ctx5 mix — passes under today, option A, and option B.
 				andOrMix: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idTesla2020RedOwnerBob, idMixedSplitGarages},
 			},
-			// expected after option A:
-			//   NOT_optA = exists garages.cars with color!=red =
-			//   {d2,d4,d5,d6,d9} (mixed docs flip IN, idEmpty
-			//   flips OUT).
-			//   ctx1: {d2,d4,d5,d6,d9}
-			//   ctx2: {d2,d5,d6,d9}
-			//   ctx3: {d2,d4,d5,d6,d9}
-			//   ctx4: {d1,d2,d4,d5,d6,d8,d9}
-			//   ctx5: {d1,d2,d5,d6,d8,d9} (same as today)
-			//
-			// option B: ctx1 and ctx3 collapse to today; ctx2/4/5
-			// match option A.
 		)
 	})
 
@@ -19313,46 +19163,42 @@ func TestNestedFilteringNotContextSensitivity3Levels(t *testing.T) {
 			"countries.garages.cars.make", "countries.garages.cars.year", "countries.garages.cars.color", "owner",
 			docs,
 			wantSet{
-				// today T = {d1,d2,d5,d6,d8,d9,d10}
-				// Y = {d1,d2,d3,d4,d6,d8,d9,d10}
-				// O = {d1,d2,d3,d4,d5,d6,d9,d10}
-				// NOT_today = {d2,d4,d5,d7}
-				standalone:    []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
-				andSameRoot:   []strfmt.UUID{idTesla2020Blue, idTesla1990Blue},
+				// ctx1 standalone — TODO aliszka:nested_filtering:
+				// locks in CURRENT root-universe NOT.
+				//   per-element inversion: {d2,d4,d5,d6,d9,d10}.
+				//   universal-within-scope inversion: {d2,d4,d5,d7} — same as today.
+				standalone: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idEmpty},
+				// ctx2 AND same-root — option A and option B agree.
+				// All mixed-layout docs (same garage, split garages,
+				// split countries) flip in.
+				andSameRoot: []strfmt.UUID{idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idMixedSplitGarages, idMixedSplitCountries},
+				// ctx3 AND outer-scope — TODO aliszka:nested_filtering:
+				// locks in CURRENT docID-level NOT. THIS is the A vs B
+				// discriminator.
+				//   per-element inversion: {d2,d4,d5,d6,d9,d10}.
+				//   universal-within-scope inversion: {d2,d4,d5} — same as today.
 				andOuterScope: []strfmt.UUID{idTesla2020Blue, idBmw2020Blue, idTesla1990Blue},
-				orSameRoot:    []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idEmpty, idTesla2020RedOwnerBob, idMixedSplitGarages, idMixedSplitCountries},
-				andOrMix:      []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idTesla2020RedOwnerBob, idMixedSplitGarages, idMixedSplitCountries},
+				// ctx4 OR same-root — TODO aliszka:nested_filtering:
+				// locks in CURRENT root-universe NOT.
+				//   per-element inversion: {d1,d2,d4,d5,d6,d8,d9,d10}.
+				//   universal-within-scope inversion: same as per-element inversion.
+				orSameRoot: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idBmw2020Blue, idTesla1990Blue, idMixedSameGarage, idEmpty, idTesla2020RedOwnerBob, idMixedSplitGarages, idMixedSplitCountries},
+				// ctx5 mix — passes under today, option A, and option B.
+				// Cross-country split docs flip alongside cross-garage
+				// ones — uniformly per-element regardless of where in
+				// the nested chain the mixed elements live.
+				andOrMix: []strfmt.UUID{idTesla2020Red, idTesla2020Blue, idTesla1990Blue, idMixedSameGarage, idTesla2020RedOwnerBob, idMixedSplitGarages, idMixedSplitCountries},
 			},
-			// expected after option A:
-			//   NOT_optA = {d2,d4,d5,d6,d9,d10} (every mixed-layout
-			//   doc flips IN; idEmpty flips OUT).
-			//   ctx1: {d2,d4,d5,d6,d9,d10}
-			//   ctx2: {d2,d5,d6,d9,d10}
-			//   ctx3: {d2,d4,d5,d6,d9,d10}
-			//   ctx4: {d1,d2,d4,d5,d6,d8,d9,d10}
-			//   ctx5: {d1,d2,d5,d6,d8,d9,d10} (same as today)
-			//
-			// option B: ctx1 and ctx3 fall back to today; ctx2/4/5
-			// match option A. The cross-country split docs flip
-			// alongside the cross-garage ones — option A is
-			// uniformly per-element regardless of where in the
-			// nested chain the mixed elements live.
 		)
 	})
 }
 
 // TestNestedFilteringContainsAllOrCrossElement3Levels covers gap #7:
-// `cars.tags ContainsAll ["a","b"] OR cars.color=red` — locks in
-// today's docID-level ContainsAll (synthesized AND of same-path
-// Equals resolves at docID, so the two values can come from
-// different cars) combined with docID-level OR.
-//
-// Under the planned "correlated ContainsAll" rewrite, ContainsAll's
-// synthesized AND inherits the parent's same-element grouping
-// rule — both values must live on a single cars element. Docs that
-// satisfy ContainsAll only via cross-element splits flip OUT of the
-// ContainsAll branch; the OR with color=red still admits docs that
-// have red anywhere.
+// `cars.tags ContainsAll ["a","b"] OR cars.color=red`. The ContainsAll
+// branch correlates same-element at cars[] — both values must live on
+// a single car. Docs that satisfy ContainsAll only via cross-element
+// splits no longer match through the ContainsAll branch; the OR with
+// color=red still admits docs that have red anywhere.
 func TestNestedFilteringContainsAllOrCrossElement3Levels(t *testing.T) {
 	vTrue := true
 	tok := models.NestedPropertyTokenizationField
@@ -19432,16 +19278,11 @@ func TestNestedFilteringContainsAllOrCrossElement3Levels(t *testing.T) {
 			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT
-		// ContainsAll-as-docID-level-AND combined with OR. The
-		// ContainsAll branch matches docs that have both tag values
-		// somewhere across the cars hierarchy (potentially in
-		// different cars or different garages/countries). The OR
-		// adds docs whose cars contain color=red. Under correlated
-		// ContainsAll, only docs with a single car having BOTH tags
-		// satisfy the ContainsAll branch — cross-element split docs
-		// flip OUT of that branch and only stay in the result if
-		// the OR's color=red branch admits them.
+		// regression_ContainsAll_OR_cross_element — ContainsAll
+		// requires both tags on a single car (same-element AND at
+		// cars[]). Cross-element split docs no longer satisfy the
+		// ContainsAll branch; they remain only if the OR's
+		// color=red branch admits them.
 		t.Run("regression_ContainsAll_OR_cross_element", func(t *testing.T) {
 			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 			ctx := context.Background()
@@ -19500,22 +19341,19 @@ func TestNestedFilteringContainsAllOrCrossElement3Levels(t *testing.T) {
 			{id: idSplitTagsButRed, props: wrap(car("blue", "a"), car("red", "b")), note: "tags split, red in cars[1]"},
 		}
 
+		// ContainsAll(cars.tags, [a,b]) same-element at cars[]:
+		// only single-car-with-both matches via the ContainsAll
+		// branch. The OR's color=red branch independently admits
+		// docs that have red anywhere. idSplitTagsAcrossCars
+		// (split tags, no red) flips OUT; idSplitTagsButRed
+		// stays IN via the OR branch.
 		runLevel(t, className, class,
 			"cars.tags", "cars.color",
 			docs,
-			// today: ContainsAll docID-level (a anywhere AND b
-			// anywhere) ∪ red anywhere.
 			[]strfmt.UUID{
-				idSingleCarBothTags, idSplitTagsAcrossCars,
-				idOnlyAWithRed, idSingleCarBothTagsRed, idSplitTagsButRed,
+				idSingleCarBothTags, idOnlyAWithRed,
+				idSingleCarBothTagsRed, idSplitTagsButRed,
 			},
-			// expected after correlated ContainsAll:
-			// []strfmt.UUID{idSingleCarBothTags, idOnlyAWithRed,
-			//               idSingleCarBothTagsRed,
-			//               idSplitTagsButRed}
-			//   (idSplitTagsAcrossCars flips OUT — no single car
-			//   has both tags AND no red. idSplitTagsButRed stays
-			//   IN via the OR's red branch.)
 		)
 	})
 
@@ -19559,24 +19397,19 @@ func TestNestedFilteringContainsAllOrCrossElement3Levels(t *testing.T) {
 			{id: idSplitTagsAcrossGarages, props: wrapG(garage(car("blue", "a")), garage(car("blue", "b"))), note: "g0={a}; g1={b} — L1 KEY"},
 		}
 
+		// ContainsAll(garages.cars.tags, [a,b]) same-element at
+		// cars[]. idSplitTagsSameGarage (split-cars within one
+		// garage) and idSplitTagsAcrossGarages (split across
+		// garages) both flip OUT — no single car has both tags.
+		// idSplitTagsSameGarageButRed stays IN via the OR's
+		// color=red branch.
 		runLevel(t, className, class,
 			"garages.cars.tags", "garages.cars.color",
 			docs,
-			// today: ContainsAll docID across all cars regardless
-			// of garage layout.
 			[]strfmt.UUID{
-				idSingleCarBothTags, idSplitTagsSameGarage,
-				idOnlyAWithRed, idSingleCarBothTagsRed,
-				idSplitTagsSameGarageButRed, idSplitTagsAcrossGarages,
+				idSingleCarBothTags, idOnlyAWithRed,
+				idSingleCarBothTagsRed, idSplitTagsSameGarageButRed,
 			},
-			// expected after correlated ContainsAll:
-			// []strfmt.UUID{idSingleCarBothTags, idOnlyAWithRed,
-			//               idSingleCarBothTagsRed,
-			//               idSplitTagsSameGarageButRed}
-			//   (idSplitTagsSameGarage and idSplitTagsAcrossGarages
-			//   flip OUT — neither has a single car with both
-			//   tags. idSplitTagsSameGarageButRed stays IN via
-			//   red.)
 		)
 	})
 
@@ -19627,26 +19460,18 @@ func TestNestedFilteringContainsAllOrCrossElement3Levels(t *testing.T) {
 			{id: idSplitTagsAcrossCountries, props: wrapC(country(garage(car("blue", "a"))), country(garage(car("blue", "b")))), note: "split across countries — L2 KEY"},
 		}
 
+		// ContainsAll(countries.garages.cars.tags, [a,b]) same-element
+		// at cars[]. Every cross-car split — same garage, different
+		// garages, different countries — flips OUT. Only the
+		// single-car-with-both-tags docs and the docs admitted by
+		// the OR's color=red branch survive.
 		runLevel(t, className, class,
 			"countries.garages.cars.tags", "countries.garages.cars.color",
 			docs,
-			// today: ContainsAll docID-level across the entire
-			// countries.garages.cars hierarchy regardless of
-			// layout.
 			[]strfmt.UUID{
-				idSingleCarBothTags, idSplitTagsSameGarage,
-				idOnlyAWithRed, idSingleCarBothTagsRed,
-				idSplitTagsSameGarageButRed, idSplitTagsAcrossGarages,
-				idSplitTagsAcrossCountries,
+				idSingleCarBothTags, idOnlyAWithRed,
+				idSingleCarBothTagsRed, idSplitTagsSameGarageButRed,
 			},
-			// expected after correlated ContainsAll:
-			// []strfmt.UUID{idSingleCarBothTags, idOnlyAWithRed,
-			//               idSingleCarBothTagsRed,
-			//               idSplitTagsSameGarageButRed}
-			//   (every cross-car split — same garage, different
-			//   garages, or different countries — flips OUT.
-			//   Only docs whose single car has both tags or has
-			//   color=red survive.)
 		)
 	})
 }
@@ -19658,17 +19483,11 @@ func TestNestedFilteringContainsAllOrCrossElement3Levels(t *testing.T) {
 //
 //	cars.make=tesla AND (cars.color=red OR cars.accessories.type=sunroof)
 //
-// Today's OR resolves at docID — the two branches each compute a
-// docID set independently and union — so same-cars-element
-// correlation does not propagate across the OR. A doc whose tesla
-// car has neither red nor sunroof but a non-tesla sibling supplies
-// red or sunroof still matches.
-//
-// Under position-level OR within a single nested root, the two OR
-// branches project up to their deepest common ancestor (cars[]) and
-// OR per cars element. The outer AND with cars.make=tesla then
-// requires the same cars element to satisfy both make=tesla and
-// (color=red OR has-sunroof-accessory). Cross-cars docs flip OUT.
+// The planner plants the OR at cars[] (deepest common LCA of color
+// and accessories). The outer AND with cars.make=tesla then
+// correlates same-element at cars[]: a single tesla car must satisfy
+// both make=tesla and (color=red OR has-sunroof-accessory). Cross-
+// cars docs (where the OR is satisfied via a non-tesla car) drop out.
 //
 // This is a parent-child-depth variant of gap #4 (sibling sub-array
 // depths). The flip pattern is the same; the test exists to prove
@@ -19759,17 +19578,14 @@ func TestNestedFilteringOrInAndDifferentSubArrayDepths3Levels(t *testing.T) {
 			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT
-		// docID-level OR with operands at different sub-array
-		// depths (cars[] vs cars.accessories[]). The OR's branches
-		// independently produce docID sets that union, so the
-		// surrounding AND with cars.make=tesla intersects at docID
-		// without enforcing same-cars-element correlation across
-		// the OR. Under position-level OR within a single nested
-		// root, both branches project to cars[] LCA and OR
-		// per-element; the outer AND then requires the same car to
-		// satisfy both make=tesla and (color=red OR has-sunroof
-		// accessory). Cross-cars docs flip OUT.
+		// regression_OR_in_AND_different_sub_array_depths — same-element
+		// AND at cars[]: a single tesla car must satisfy both legs of
+		// the OR (color=red OR has-sunroof-accessory). The depth
+		// difference between the OR's branches (cars[] vs
+		// cars.accessories[]) is resolved by the planner planting the
+		// OR at cars[] — their deepest common LCA — so cross-cars docs
+		// drop out regardless of which OR branch the non-tesla car
+		// satisfies.
 		t.Run("regression_OR_in_AND_different_sub_array_depths", func(t *testing.T) {
 			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 			ctx := context.Background()
@@ -19831,21 +19647,15 @@ func TestNestedFilteringOrInAndDifferentSubArrayDepths3Levels(t *testing.T) {
 			{id: idEmpty, props: map[string]any{}, note: "no cars"},
 		}
 
+		// Same-element AND at cars[]: only tesla cars that themselves
+		// satisfy the OR match. idTeslaBlueBmwRed (color branch
+		// satisfied via bmw) and idTeslaBlueBmwSunroof (accessory
+		// branch satisfied via bmw) both drop — the different-depth
+		// branches collapse to the same per-car contract.
 		runLevel(t, className, class,
 			"cars.make", "cars.color", "cars.accessories.type",
 			docs,
-			// today: tesla anywhere AND (red anywhere OR sunroof
-			// in any accessory anywhere).
-			[]strfmt.UUID{idTeslaRed, idTeslaSunroof, idTeslaBlueBmwRed, idTeslaBlueBmwSunroof},
-			// expected after position-level OR within single root:
-			// []strfmt.UUID{idTeslaRed, idTeslaSunroof}
-			//   (idTeslaBlueBmwRed flips OUT — tesla car has no
-			//   red and no sunroof; bmw has red but isn't tesla.
-			//   idTeslaBlueBmwSunroof flips OUT — tesla car has
-			//   no sunroof in its accessories; bmw has sunroof
-			//   but isn't tesla. Different-depth branch
-			//   (accessories) collapses the same way as the
-			//   sibling-depth branch (color).)
+			[]strfmt.UUID{idTeslaRed, idTeslaSunroof},
 		)
 	})
 
@@ -19891,20 +19701,13 @@ func TestNestedFilteringOrInAndDifferentSubArrayDepths3Levels(t *testing.T) {
 			{id: idTeslaBlueBmwSunroofSplitGarages, props: wrapG(garage(car("tesla", "blue")), garage(car("bmw", "blue", accessory("sunroof")))), note: "g0=tesla; g1=bmw with sunroof — split accessory"},
 		}
 
+		// Every cross-car split — same garage or different garages,
+		// color-branch or accessory-branch — drops out. Only docs
+		// whose tesla car itself satisfies the OR survive.
 		runLevel(t, className, class,
 			"garages.cars.make", "garages.cars.color", "garages.cars.accessories.type",
 			docs,
-			// today
-			[]strfmt.UUID{
-				idTeslaRed, idTeslaSunroof,
-				idTeslaBlueBmwRedSameGarage, idTeslaBlueBmwSunroofSameGarage,
-				idTeslaBlueBmwRedSplitGarages, idTeslaBlueBmwSunroofSplitGarages,
-			},
-			// expected after position-level OR:
-			// []strfmt.UUID{idTeslaRed, idTeslaSunroof}
-			//   (every cross-car split — same garage or different
-			//   garages, color-branch or accessory-branch — flips
-			//   OUT. Only single-car satisfaction survives.)
+			[]strfmt.UUID{idTeslaRed, idTeslaSunroof},
 		)
 	})
 
@@ -19959,26 +19762,15 @@ func TestNestedFilteringOrInAndDifferentSubArrayDepths3Levels(t *testing.T) {
 			{id: idTeslaBlueBmwSunroofSplitCountries, props: wrapC(country(garage(car("tesla", "blue"))), country(garage(car("bmw", "blue", accessory("sunroof"))))), note: "split across countries — accessory"},
 		}
 
+		// Position-level OR within cars[] LCA combined with same-cars-
+		// element AND semantics is uniform regardless of where in the
+		// nested hierarchy the mixed elements live: same garage,
+		// different garages, or different countries — every cross-car
+		// split drops out via either branch.
 		runLevel(t, className, class,
 			"countries.garages.cars.make", "countries.garages.cars.color", "countries.garages.cars.accessories.type",
 			docs,
-			// today: docID-level OR + AND across the entire
-			// countries.garages.cars hierarchy regardless of
-			// layout.
-			[]strfmt.UUID{
-				idTeslaRed, idTeslaSunroof,
-				idTeslaBlueBmwRedSameGarage, idTeslaBlueBmwSunroofSameGarage,
-				idTeslaBlueBmwRedSplitGarages, idTeslaBlueBmwSunroofSplitGarages,
-				idTeslaBlueBmwRedSplitCountries, idTeslaBlueBmwSunroofSplitCountries,
-			},
-			// expected after position-level OR:
-			// []strfmt.UUID{idTeslaRed, idTeslaSunroof}
-			//   (all cross-car splits — same garage, different
-			//   garages, different countries; color or accessory
-			//   branch — flip OUT. Position-level OR within
-			//   cars[] LCA combined with same-cars-element AND
-			//   semantics is uniform regardless of where in the
-			//   nested hierarchy the mixed elements live.)
+			[]strfmt.UUID{idTeslaRed, idTeslaSunroof},
 		)
 	})
 }
@@ -20102,15 +19894,12 @@ func TestNestedFilteringAndDeepWithOrThreeDepths3Levels(t *testing.T) {
 			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT docID-level
-		// OR + AND with operands at three different sub-array depths
-		// inside cars[]. Today the OR's two branches independently
-		// produce docID sets and the outer AND with the depth-2
-		// accessories sibling intersects at docID — no same-cars-
-		// element correlation across the OR boundary or across the
-		// depth-1/depth-2 sibling boundary. Under position-level
-		// evaluation, all three operands project to cars[] LCA and
-		// combine per cars element; cross-cars docs flip OUT.
+		// regression_AND_deep_with_OR_three_depths — same-element AND
+		// at cars[]. Operands at three different sub-array depths
+		// (cars.accessories[], cars.tires[], cars.colors as text[])
+		// all project to cars[] LCA. A single car must satisfy the
+		// outer AND's spoiler accessory together with either 205-tire
+		// or red-color leg of the OR. Cross-cars docs drop out.
 		t.Run("regression_AND_deep_with_OR_three_depths", func(t *testing.T) {
 			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 			ctx := context.Background()
@@ -20178,17 +19967,12 @@ func TestNestedFilteringAndDeepWithOrThreeDepths3Levels(t *testing.T) {
 			{id: idEmpty, props: map[string]any{}, note: "no cars"},
 		}
 
+		// Cross-cars docs drop out — no single car has spoiler AND
+		// (205 or red).
 		runLevel(t, className, class,
 			"cars.accessories.type", "cars.tires.width", "cars.colors",
 			docs,
-			// today: spoiler anywhere AND (205 anywhere OR red
-			// anywhere).
-			[]strfmt.UUID{idSpoilerWith205, idSpoilerWithRed, idSplitSpoilerVs205, idSplitSpoilerVsRed},
-			// expected after position-level evaluation:
-			// []strfmt.UUID{idSpoilerWith205, idSpoilerWithRed}
-			//   (idSplitSpoilerVs205 and idSplitSpoilerVsRed flip
-			//   OUT — neither has a single car with spoiler AND
-			//   either 205 or red.)
+			[]strfmt.UUID{idSpoilerWith205, idSpoilerWithRed},
 		)
 	})
 
@@ -20241,19 +20025,12 @@ func TestNestedFilteringAndDeepWithOrThreeDepths3Levels(t *testing.T) {
 			), note: "g0=spoiler,200; g1=205 — split garages KEY"},
 		}
 
+		// All cross-car splits — same garage or different garages —
+		// drop out.
 		runLevel(t, className, class,
 			"garages.cars.accessories.type", "garages.cars.tires.width", "garages.cars.colors",
 			docs,
-			// today
-			[]strfmt.UUID{
-				idSpoilerWith205, idSpoilerWithRed,
-				idSplitSpoilerVs205SameGarage, idSplitSpoilerVsRedSameGarage,
-				idSplitSpoilerVs205SplitGarages,
-			},
-			// expected after position-level evaluation:
-			// []strfmt.UUID{idSpoilerWith205, idSpoilerWithRed}
-			//   (every cross-car split — same garage or different
-			//   garages — flips OUT.)
+			[]strfmt.UUID{idSpoilerWith205, idSpoilerWithRed},
 		)
 	})
 
@@ -20316,19 +20093,12 @@ func TestNestedFilteringAndDeepWithOrThreeDepths3Levels(t *testing.T) {
 			), note: "split across countries — L2 KEY"},
 		}
 
+		// All cross-car splits — same garage, different garages,
+		// different countries — drop out.
 		runLevel(t, className, class,
 			"countries.garages.cars.accessories.type", "countries.garages.cars.tires.width", "countries.garages.cars.colors",
 			docs,
-			// today
-			[]strfmt.UUID{
-				idSpoilerWith205, idSpoilerWithRed,
-				idSplitSpoilerVs205SameGarage, idSplitSpoilerVsRedSameGarage,
-				idSplitSpoilerVs205SplitGarages, idSplitSpoilerVs205SplitCountries,
-			},
-			// expected after position-level evaluation:
-			// []strfmt.UUID{idSpoilerWith205, idSpoilerWithRed}
-			//   (all cross-car splits — same garage, different
-			//   garages, different countries — flip OUT.)
+			[]strfmt.UUID{idSpoilerWith205, idSpoilerWithRed},
 		)
 	})
 }
@@ -20447,14 +20217,12 @@ func TestNestedFilteringAndDeepNotDeepSiblings3Levels(t *testing.T) {
 			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorAnd, Operands: ops}}
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT root-
-		// universe NOT combined with same-cars AND across sibling
-		// deep sub-arrays. Today: doc has spoiler accessory anywhere
-		// AND has no tire of width 205 anywhere. Under scope-aware
-		// NOT (operand-LCA), NOT inverts at cars.tires[]: exists
-		// tire with width!=205. Combined with same-cars correlation
-		// under outer AND, doc satisfies iff some single car has
-		// spoiler accessory AND some tire with width!=205.
+		// regression_AND_deep_NOT_deep_sibling_subarrays — A and B at
+		// sibling deep sub-arrays (cars.accessories vs cars.tires).
+		// NOT inverts at cars.tires per-tire (∃ tire≠205), projects to
+		// cars existentially. Positive accessories.type=spoiler projects
+		// to cars existentially. Outer AND same-car at cars: "∃ car
+		// with spoiler accessory AND ∃ non-205 tire on the same car".
 		t.Run("regression_AND_deep_NOT_deep_sibling_subarrays", func(t *testing.T) {
 			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 			ctx := context.Background()
@@ -20519,20 +20287,12 @@ func TestNestedFilteringAndDeepNotDeepSiblings3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"cars.accessories.type", "cars.tires.width",
 			docs,
-			// today: spoiler anywhere AND (no tire of 205
-			// anywhere). Empty/no-tires docs vacuously satisfy
-			// NOT.
-			[]strfmt.UUID{idSpoilerOnly200, idSpoilerNoTires, idSplitSpoilerVs200},
-			// expected after scope-aware NOT + same-cars AND:
-			// []strfmt.UUID{idSpoilerOnly200, idSpoilerMixed}
-			//   - idSpoilerMixed flips IN — single car has
-			//     spoiler AND has tire 200 (≠205) → satisfies
-			//     same-car NOT.
-			//   - idSpoilerNoTires flips OUT — single car has
-			//     spoiler but no tire to satisfy "exists tire
-			//     ≠205".
-			//   - idSplitSpoilerVs200 flips OUT — no single car
-			//     has both spoiler AND a non-205 tire.
+			// scope-aware NOT + same-cars AND.
+			// idSpoilerMixed flips in (single car has spoiler AND
+			// non-205 tire); idSpoilerNoTires flips out (vacuous ∃
+			// tire); idSplitSpoilerVs200 flips out (no single car
+			// has both spoiler AND a non-205 tire).
+			[]strfmt.UUID{idSpoilerOnly200, idSpoilerMixed},
 		)
 	})
 
@@ -20585,12 +20345,10 @@ func TestNestedFilteringAndDeepNotDeepSiblings3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"garages.cars.accessories.type", "garages.cars.tires.width",
 			docs,
-			// today
-			[]strfmt.UUID{idSpoilerOnly200, idSpoilerNoTires, idSplitSpoilerVs200SameGarage, idSplitSpoilerVs200SplitGarages},
-			// expected after scope-aware NOT + same-cars AND:
-			// []strfmt.UUID{idSpoilerOnly200, idSpoilerMixed}
-			//   (same flips as L0; cross-garage and same-garage
-			//   splits both flip OUT; idSpoilerNoTires flips OUT.)
+			// scope-aware NOT + same-cars AND. idSpoilerMixed flips in.
+			// idSpoilerNoTires, same-garage split, and split-garages all
+			// flip out — no single car has both spoiler AND non-205 tire.
+			[]strfmt.UUID{idSpoilerOnly200, idSpoilerMixed},
 		)
 	})
 
@@ -20653,19 +20411,11 @@ func TestNestedFilteringAndDeepNotDeepSiblings3Levels(t *testing.T) {
 		runLevel(t, className, class,
 			"countries.garages.cars.accessories.type", "countries.garages.cars.tires.width",
 			docs,
-			// today
-			[]strfmt.UUID{
-				idSpoilerOnly200, idSpoilerNoTires,
-				idSplitSpoilerVs200SameGarage,
-				idSplitSpoilerVs200SplitGarages,
-				idSplitSpoilerVs200SplitCountries,
-			},
-			// expected after scope-aware NOT + same-cars AND:
-			// []strfmt.UUID{idSpoilerOnly200, idSpoilerMixed}
-			//   (every cross-cars split — same garage, different
-			//   garages, different countries — flips OUT;
-			//   idSpoilerNoTires flips OUT; idSpoilerMixed flips
-			//   IN.)
+			// scope-aware NOT + same-cars AND. idSpoilerMixed flips in.
+			// Every cross-cars split — same garage, different garages,
+			// different countries — flips out; idSpoilerNoTires flips
+			// out.
+			[]strfmt.UUID{idSpoilerOnly200, idSpoilerMixed},
 		)
 	})
 }
@@ -20789,15 +20539,13 @@ func TestNestedFilteringIntraSubArrayOrCrossSubArrayAnd3Levels(t *testing.T) {
 			return &filters.LocalFilter{Root: &filters.Clause{Operator: filters.OperatorOr, Operands: ops}}
 		}
 
-		// TODO aliszka:nested_filtering: locks in CURRENT docID-level
-		// OR with both branches at the same deep sub-array
-		// (cars.tires) combined with cross-sub-array AND
-		// (cars.accessories). Today the OR returns a docID set; the
-		// outer AND intersects at docID without enforcing same-
-		// cars-element correlation across the OR boundary. Under
-		// position-level evaluation, the cars.tires OR is per-tire,
-		// projects up to cars[], and the outer AND requires the
-		// same car to have a matching tire AND a spoiler accessory.
+		// regression_intra_subarray_OR_cross_subarray_AND —
+		// same-element AND at cars[]. The OR's branches (both at
+		// cars.tires[]) project up to cars[], and the outer AND with
+		// cars.accessories.type=spoiler requires the same car to
+		// have both a matching tire and a spoiler accessory. Cross-
+		// cars docs (spoiler in one car, qualifying tire in another)
+		// drop out.
 		t.Run("regression_intra_subarray_OR_cross_subarray_AND", func(t *testing.T) {
 			db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
 			ctx := context.Background()
@@ -20865,16 +20613,12 @@ func TestNestedFilteringIntraSubArrayOrCrossSubArrayAnd3Levels(t *testing.T) {
 			{id: idEmpty, props: map[string]any{}, note: "no cars"},
 		}
 
+		// Cross-cars splits drop out — no single car has spoiler
+		// AND a 205-or-pirelli tire.
 		runLevel(t, className, class,
 			"cars.accessories.type", "cars.tires.width", "cars.tires.brand",
 			docs,
-			// today: (205 anywhere OR pirelli anywhere) AND
-			// spoiler anywhere.
-			[]strfmt.UUID{idSpoiler205, idSpoilerPirelli, idSplitSpoilerVs205, idSplitSpoilerVsPirelli},
-			// expected after position-level evaluation:
-			// []strfmt.UUID{idSpoiler205, idSpoilerPirelli}
-			//   (both cross-cars splits flip OUT — no single car
-			//   has spoiler AND a 205-or-pirelli tire.)
+			[]strfmt.UUID{idSpoiler205, idSpoilerPirelli},
 		)
 	})
 
@@ -20927,19 +20671,12 @@ func TestNestedFilteringIntraSubArrayOrCrossSubArrayAnd3Levels(t *testing.T) {
 			), note: "split garages — KEY"},
 		}
 
+		// All cross-cars splits — same garage or different garages —
+		// drop out.
 		runLevel(t, className, class,
 			"garages.cars.accessories.type", "garages.cars.tires.width", "garages.cars.tires.brand",
 			docs,
-			// today
-			[]strfmt.UUID{
-				idSpoiler205, idSpoilerPirelli,
-				idSplitSpoilerVs205SameGarage, idSplitSpoilerVsPirelliSameGarage,
-				idSplitSpoilerVs205SplitGarages,
-			},
-			// expected after position-level evaluation:
-			// []strfmt.UUID{idSpoiler205, idSpoilerPirelli}
-			//   (all cross-cars splits — same garage or different
-			//   garages — flip OUT.)
+			[]strfmt.UUID{idSpoiler205, idSpoilerPirelli},
 		)
 	})
 
@@ -21002,19 +20739,12 @@ func TestNestedFilteringIntraSubArrayOrCrossSubArrayAnd3Levels(t *testing.T) {
 			), note: "split across countries — L2 KEY"},
 		}
 
+		// All cross-cars splits — same garage, different garages,
+		// different countries — drop out.
 		runLevel(t, className, class,
 			"countries.garages.cars.accessories.type", "countries.garages.cars.tires.width", "countries.garages.cars.tires.brand",
 			docs,
-			// today
-			[]strfmt.UUID{
-				idSpoiler205, idSpoilerPirelli,
-				idSplitSpoilerVs205SameGarage, idSplitSpoilerVsPirelliSameGarage,
-				idSplitSpoilerVs205SplitGarages, idSplitSpoilerVs205SplitCountries,
-			},
-			// expected after position-level evaluation:
-			// []strfmt.UUID{idSpoiler205, idSpoilerPirelli}
-			//   (all cross-cars splits — same garage, different
-			//   garages, different countries — flip OUT.)
+			[]strfmt.UUID{idSpoiler205, idSpoilerPirelli},
 		)
 	})
 }

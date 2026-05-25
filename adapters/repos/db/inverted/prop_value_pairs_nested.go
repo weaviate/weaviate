@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	invnested "github.com/weaviate/weaviate/adapters/repos/db/inverted/nested"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 )
@@ -28,7 +27,7 @@ import (
 // nestedInfo groups fields that are only relevant for nested (object/object[])
 // property filters. The zero value represents a non-nested node.
 //
-// isNested and isCorrelated are mutually exclusive — a node is either a leaf
+// isNested and isWithinRootSubtree are mutually exclusive — a node is either a leaf
 // or a group, never both:
 //
 // When isNested is set (leaf node):
@@ -38,7 +37,7 @@ import (
 //     (e.g. "city" or "owner.firstname")
 //   - the result bitmap contains positions that are stripped to docIDs
 //
-// When isCorrelated is set (AND group node):
+// When isWithinRootSubtree is set (AND group node):
 //   - prop on the parent propValuePair is the root property name
 //   - all children require position-aware same-element resolution
 //   - childrenFromTokenization marks a compound AND from multi-token text;
@@ -46,7 +45,7 @@ import (
 type nestedInfo struct {
 	isNested                 bool
 	relPath                  string
-	isCorrelated             bool
+	isWithinRootSubtree      bool
 	childrenFromTokenization bool
 	arrayIndices             arrayIndices
 }
@@ -103,7 +102,7 @@ func (pv *propValuePair) fetchNestedIsNull(s *Searcher) (*docBitmap, error) {
 // fetchNestedPositions fetches the raw position bitmap for a nested value
 // filter and applies any arr[N] index constraints. Positions are not stripped
 // to docIDs — callers that need docIDs use fetchNestedDocIDs instead; the
-// correlated resolution path (resolveNestedCorrelated) uses this directly.
+// correlated resolution path (resolveNestedSubtree) uses this directly.
 func (pv *propValuePair) fetchNestedPositions(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
 	raw, err := pv.readFromBucket(ctx, s, limit)
 	if err != nil {
@@ -179,10 +178,10 @@ func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap,
 	return restricted.docIDs, restricted.release, nil
 }
 
-// resolveNestedCorrelated resolves a correlated AND filter using position-aware
+// resolveNestedSubtree resolves a correlated AND filter using position-aware
 // same-element semantics. Children are grouped by arr[N] compatibility, then:
 //
-//   - Single group: resolved directly via resolveNestedCorrelatedGroup.
+//   - Single group: resolved directly via resolveNestedSubtreeGroup.
 //   - All groups root-constrained (all first arr[N] have RelPath=""): the user
 //     is explicitly querying different root elements → docID-level AND.
 //   - Otherwise: resolve each group to root+docID positions and AND them so all
@@ -192,13 +191,13 @@ func (pv *propValuePair) fetchNestedExistsPositions(s *Searcher) (*sroar.Bitmap,
 // intermediate arr[N] constraints with unconstrained conditions at the same
 // level in filter validation. Until that lands, unconstrained items in that
 // shape are silently dropped during plan construction.
-func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searcher) (*docBitmap, error) {
+func (pv *propValuePair) resolveNestedSubtree(ctx context.Context, s *Searcher) (*docBitmap, error) {
 	groups, allRootConstrained := groupChildrenByArrayIndicesKey(pv.children)
 	switch len(groups) {
 	case 0:
-		return nil, fmt.Errorf("nested correlated AND: no condition groups for %q", pv.prop)
+		return nil, fmt.Errorf("nested subtree: no condition groups for %q", pv.prop)
 	case 1:
-		return pv.resolveNestedCorrelatedGroup(ctx, s, groups[0])
+		return pv.resolveNestedSubtreeGroup(ctx, s, groups[0])
 	}
 
 	if allRootConstrained {
@@ -216,7 +215,7 @@ func (pv *propValuePair) resolveNestedCorrelated(ctx context.Context, s *Searche
 // plain docID results. Correct when all groups explicitly target different root
 // elements (allGroupsRootConstrained).
 func (pv *propValuePair) resolveMultiGroupDocIDLevelAnd(ctx context.Context, s *Searcher, groups [][]*propValuePair) (*docBitmap, error) {
-	dbm, err := pv.resolveNestedCorrelatedGroup(ctx, s, groups[0])
+	dbm, err := pv.resolveNestedSubtreeGroup(ctx, s, groups[0])
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +226,7 @@ func (pv *propValuePair) resolveMultiGroupDocIDLevelAnd(ctx context.Context, s *
 		}
 	}()
 	for _, group := range groups[1:] {
-		groupDbm, err := pv.resolveNestedCorrelatedGroup(ctx, s, group)
+		groupDbm, err := pv.resolveNestedSubtreeGroup(ctx, s, group)
 		if err != nil {
 			return nil, err
 		}
@@ -237,11 +236,16 @@ func (pv *propValuePair) resolveMultiGroupDocIDLevelAnd(ctx context.Context, s *
 	return dbm, nil
 }
 
-// resolveMultiGroupRootDocIDAnd resolves each group to root+docID positions and
-// AND's them so all conditions must land in the same root element. Applied when
-// groups have conflicting intermediate constraints or no common intermediate LCA.
+// resolveMultiGroupRootDocIDAnd resolves each group to a raw position bitmap
+// and combines them via CrossLeafCopresenceAll so all conditions must land in
+// the same root element. Applied when groups have conflicting intermediate
+// constraints or no common intermediate LCA — different groups' leaves are
+// disjoint by construction, so plain raw AndAll would give ∅. The leaf-zeroed
+// (root, doc) co-presence check across groups keeps positions whose root
+// element contains a passing element in every group.
 func (pv *propValuePair) resolveMultiGroupRootDocIDAnd(ctx context.Context, s *Searcher, groups [][]*propValuePair) (*docBitmap, error) {
-	var releases []func()
+	rawBitmaps := make([]*sroar.Bitmap, 0, len(groups))
+	releases := make([]func(), 0, len(groups))
 	succeeded := false
 	defer func() {
 		if !succeeded {
@@ -251,22 +255,18 @@ func (pv *propValuePair) resolveMultiGroupRootDocIDAnd(ctx context.Context, s *S
 		}
 	}()
 
-	masked, rel, err := pv.resolveGroupMasked(ctx, s, groups[0])
-	if err != nil {
-		return nil, err
-	}
-	releases = append(releases, rel)
-
-	for _, group := range groups[1:] {
-		groupMasked, groupRel, err := pv.resolveGroupMasked(ctx, s, group)
+	for _, group := range groups {
+		raw, rel, err := pv.resolveGroupRaw(ctx, s, group)
 		if err != nil {
 			return nil, err
 		}
-		releases = append(releases, groupRel)
-		masked.AndConc(groupMasked, concurrency.SROAR_MERGE)
+		rawBitmaps = append(rawBitmaps, raw)
+		releases = append(releases, rel)
 	}
 
-	docIDs, docRelease := s.nestedBitmapOps.MaskRootLeaf(masked)
+	combined, combinedRel := s.nestedBitmapOps.CrossLeafCopresenceAll(rawBitmaps)
+	docIDs, docRelease := s.nestedBitmapOps.MaskRootLeaf(combined)
+	combinedRel()
 	succeeded = true
 	for _, rel := range releases {
 		rel()
@@ -274,32 +274,25 @@ func (pv *propValuePair) resolveMultiGroupRootDocIDAnd(ctx context.Context, s *S
 	return &docBitmap{docIDs: docIDs, release: docRelease}, nil
 }
 
-// resolveNestedCorrelatedGroup resolves a single set of children using
+// resolveNestedSubtreeGroup resolves a single set of children using
 // position-aware same-element correlation through the recursive plan + executor.
-func (pv *propValuePair) resolveNestedCorrelatedGroup(ctx context.Context, s *Searcher, children []*propValuePair) (*docBitmap, error) {
-	plan, executor, releases, err := pv.buildRecGroupExecutor(ctx, s, children)
+// The raw position bitmap returned by the executor is stripped to docIDs via
+// MaskRootLeaf.
+func (pv *propValuePair) resolveNestedSubtreeGroup(ctx context.Context, s *Searcher, children []*propValuePair) (*docBitmap, error) {
+	raw, rawRelease, err := pv.resolveGroupRaw(ctx, s, children)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		for _, rel := range releases {
-			rel()
-		}
-	}()
-
-	// TODO aliszka:nested_filtering concurrency.SROAR_MERGE is a fixed budget;
-	// consider deriving it from the request context or shard-level config.
-	docIDs, release, err := executor.execute(ctx, plan)
-	if err != nil {
-		return nil, fmt.Errorf("nested correlated AND: execute for %q: %w", pv.prop, err)
-	}
+	defer rawRelease()
+	docIDs, release := s.nestedBitmapOps.MaskRootLeaf(raw)
 	return &docBitmap{docIDs: docIDs, release: release}, nil
 }
 
-// resolveGroupMasked resolves children to root+docID positions (leaf bits zeroed)
-// instead of plain docIDs by toggling returnMasked on the recursive executor.
-// Used by resolveMultiGroupRootDocIDAnd to AND groups at root+docID level.
-func (pv *propValuePair) resolveGroupMasked(ctx context.Context, s *Searcher, children []*propValuePair) (*sroar.Bitmap, func(), error) {
+// resolveGroupRaw resolves children to a raw position bitmap through the
+// recursive plan + executor. Used directly by resolveMultiGroupRootDocIDAnd
+// to combine groups via CrossLeafCopresenceAll before stripping to docIDs,
+// and indirectly by resolveNestedSubtreeGroup which strips immediately.
+func (pv *propValuePair) resolveGroupRaw(ctx context.Context, s *Searcher, children []*propValuePair) (*sroar.Bitmap, func(), error) {
 	plan, executor, releases, err := pv.buildRecGroupExecutor(ctx, s, children)
 	if err != nil {
 		return nil, nil, err
@@ -310,12 +303,13 @@ func (pv *propValuePair) resolveGroupMasked(ctx context.Context, s *Searcher, ch
 		}
 	}()
 
-	executor.withReturnMasked(true)
-	masked, maskedRelease, err := executor.execute(ctx, plan)
+	// TODO aliszka:nested_filtering concurrency.SROAR_MERGE is a fixed budget;
+	// consider deriving it from the request context or shard-level config.
+	raw, rawRelease, err := executor.execute(ctx, plan)
 	if err != nil {
-		return nil, nil, fmt.Errorf("nested correlated AND: execute masked for %q: %w", pv.prop, err)
+		return nil, nil, fmt.Errorf("nested subtree: execute for %q: %w", pv.prop, err)
 	}
-	return masked, maskedRelease, nil
+	return raw, rawRelease, nil
 }
 
 // fetchRootAnchor returns the bitmap of element positions used as the starting
@@ -372,10 +366,15 @@ func (pv *propValuePair) fetchRootAnchor(s *Searcher, metaBucket *lsmkv.Bucket, 
 // ---------------------------------------------------------------------------
 
 // childRelPath returns the relative path of a child, handling both direct leaf
-// conditions and tokenization compound AND children.
+// conditions and tokenization compound AND children. OR/NOT operator items
+// have no single representative path — their structure is planned recursively;
+// returning "" defers placement to the OR/NOT-aware dispatch in buildGroup.
 func childRelPath(child *propValuePair) string {
 	if child.nested.isNested {
 		return child.nested.relPath
+	}
+	if child.operator == filters.OperatorOr || child.operator == filters.OperatorNot {
+		return ""
 	}
 	if len(child.children) > 0 {
 		return child.children[0].nested.relPath
@@ -383,10 +382,17 @@ func childRelPath(child *propValuePair) string {
 	return ""
 }
 
-// childArrayIndices returns the arr[N] constraints of a child.
+// childArrayIndices returns the arr[N] constraints of a child. OR/NOT
+// operator items are not subject to outer arr[N] dispatch — their pins are
+// internal (lifted into recNotNode for universe restriction, or carried by
+// each OR child's own plan). Returning nil keeps the outer planner from
+// wrapping an OR/NOT in a SPLIT based on inner-leaf pins.
 func childArrayIndices(child *propValuePair) arrayIndices {
 	if child.nested.isNested {
 		return child.nested.arrayIndices
+	}
+	if child.operator == filters.OperatorOr || child.operator == filters.OperatorNot {
+		return nil
 	}
 	if len(child.children) > 0 {
 		return child.children[0].nested.arrayIndices

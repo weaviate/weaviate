@@ -521,3 +521,530 @@ func TestBitmapOps_IntersectsMaskedLeaf(t *testing.T) {
 		assert.Equal(t, origRaw, raw.ToArray())
 	})
 }
+
+func TestBitmapOps_OrAll(t *testing.T) {
+	ops := newTrackingOps(t)
+
+	t.Run("empty input returns empty bitmap", func(t *testing.T) {
+		result, release := ops.OrAll(nil, 1)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("single bitmap returns its values", func(t *testing.T) {
+		bm := sroar.NewBitmap()
+		bm.SetMany([]uint64{1, 2, 3})
+		result, release := ops.OrAll([]*sroar.Bitmap{bm}, 1)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{1, 2, 3}, result.ToArray())
+		// result is not the input — mutating must not affect the original
+		result.Set(99)
+		assert.Equal(t, []uint64{1, 2, 3}, bm.ToArray())
+	})
+
+	t.Run("union of two overlapping bitmaps", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.SetMany([]uint64{1, 2, 3})
+		b := sroar.NewBitmap()
+		b.SetMany([]uint64{2, 3, 4})
+		result, release := ops.OrAll([]*sroar.Bitmap{a, b}, 1)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{1, 2, 3, 4}, result.ToArray())
+		// inputs unmodified
+		assert.Equal(t, []uint64{1, 2, 3}, a.ToArray())
+		assert.Equal(t, []uint64{2, 3, 4}, b.ToArray())
+	})
+
+	t.Run("union of disjoint bitmaps", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.SetMany([]uint64{1, 2})
+		b := sroar.NewBitmap()
+		b.SetMany([]uint64{10, 20})
+		result, release := ops.OrAll([]*sroar.Bitmap{a, b}, 1)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{1, 2, 10, 20}, result.ToArray())
+	})
+
+	t.Run("union of three bitmaps", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.SetMany([]uint64{1, 2})
+		b := sroar.NewBitmap()
+		b.SetMany([]uint64{3})
+		c := sroar.NewBitmap()
+		c.SetMany([]uint64{2, 4, 5})
+		result, release := ops.OrAll([]*sroar.Bitmap{a, b, c}, 1)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{1, 2, 3, 4, 5}, result.ToArray())
+	})
+
+	t.Run("union with an empty input among many", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.SetMany([]uint64{1, 2})
+		empty := sroar.NewBitmap()
+		c := sroar.NewBitmap()
+		c.SetMany([]uint64{3, 4})
+		result, release := ops.OrAll([]*sroar.Bitmap{a, empty, c}, 1)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{1, 2, 3, 4}, result.ToArray())
+	})
+
+	t.Run("union of position-encoded bitmaps preserves leaves", func(t *testing.T) {
+		// B = cars.tires.width=205 → leaf 2 in doc 100
+		// C = cars.colors=red      → leaf 3 in doc 100
+		b := sroar.NewBitmap()
+		b.Set(Encode(1, 2, 100))
+		c := sroar.NewBitmap()
+		c.Set(Encode(1, 3, 100))
+		result, release := ops.OrAll([]*sroar.Bitmap{b, c}, 1)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{Encode(1, 2, 100), Encode(1, 3, 100)}, result.ToArray())
+	})
+}
+
+func TestBitmapOps_CrossLeafCopresenceAll(t *testing.T) {
+	ops := newTrackingOps(t)
+
+	// Co-presence groups by (root, doc) via the package-level zeroLeafBits
+	// mask, which satisfies sroar's mask shape requirement (low 16 bits
+	// inside the docID region are all set).
+
+	t.Run("empty input returns empty bitmap", func(t *testing.T) {
+		result, release := ops.CrossLeafCopresenceAll(nil)
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("single input is clone", func(t *testing.T) {
+		bm := sroar.NewBitmap()
+		bm.Set(Encode(1, 1, 100))
+		bm.Set(Encode(1, 2, 100))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{bm})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{Encode(1, 1, 100), Encode(1, 2, 100)}, result.ToArray())
+	})
+
+	t.Run("one input empty returns empty", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 100))
+		empty := sroar.NewBitmap()
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, empty})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("single car satisfies all — union of contributing leaves", func(t *testing.T) {
+		// A_in_car = spoiler accessory leaf;
+		// OR_in_car = 205 tire leaf + red color leaf.
+		// All in same (root=1, doc=1). Co-presence = {(1, 0, 1)}.
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 1))
+		or := sroar.NewBitmap()
+		or.Set(Encode(1, 2, 1))
+		or.Set(Encode(1, 3, 1))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{
+			Encode(1, 1, 1), Encode(1, 2, 1), Encode(1, 3, 1),
+		}, result.ToArray())
+	})
+
+	t.Run("cross-country split — different root_idx, no co-presence", func(t *testing.T) {
+		// A in country 0 (root=1); OR in country 1 (root=2). Same doc.
+		// Co-presence on (root, doc): {(1,0,8)} ∩ {(2,0,8)} = ∅.
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 8))
+		or := sroar.NewBitmap()
+		or.Set(Encode(2, 1, 8))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("cross-doc — same root different docs, no co-presence", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 1))
+		or := sroar.NewBitmap()
+		or.Set(Encode(1, 2, 2))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("multi-doc — only co-present (root, doc) pairs survive", func(t *testing.T) {
+		// A in docs 1, 2, 3. OR only in doc 2. Only doc 2 co-presents.
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 1))
+		a.Set(Encode(1, 1, 2))
+		a.Set(Encode(1, 1, 3))
+		or := sroar.NewBitmap()
+		or.Set(Encode(1, 2, 2))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{Encode(1, 1, 2), Encode(1, 2, 2)}, result.ToArray())
+	})
+
+	t.Run("two countries both co-present — both contribute", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 1))
+		a.Set(Encode(2, 1, 1))
+		or := sroar.NewBitmap()
+		or.Set(Encode(1, 2, 1))
+		or.Set(Encode(2, 2, 1))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{
+			Encode(1, 1, 1), Encode(1, 2, 1),
+			Encode(2, 1, 1), Encode(2, 2, 1),
+		}, result.ToArray())
+	})
+
+	t.Run("two countries, only one co-present — filter drops the other", func(t *testing.T) {
+		// A in countries 1, 2. OR only in country 2.
+		// Co-presence = {(2, 0, 9)}. (1, 1, 9) drops.
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 9))
+		a.Set(Encode(2, 1, 9))
+		or := sroar.NewBitmap()
+		or.Set(Encode(2, 2, 9))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{Encode(2, 1, 9), Encode(2, 2, 9)}, result.ToArray())
+	})
+
+	t.Run("27-car doc K=0 L=1 — co-presence only via root=3", func(t *testing.T) {
+		// Mirrors the iteration trace from the 27-car doc 100 walkthrough.
+		// A_in_car = country 2's spoiler at (3, 3, 100).
+		// OR_in_car = country 0's 205 tire at (1, 5, 100) + country 2's red
+		// color at (3, 4, 100). Only (3, 0, 100) is co-present.
+		// (1, 5, 100) drops out.
+		a := sroar.NewBitmap()
+		a.Set(Encode(3, 3, 100))
+		or := sroar.NewBitmap()
+		or.Set(Encode(1, 5, 100))
+		or.Set(Encode(3, 4, 100))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{Encode(3, 3, 100), Encode(3, 4, 100)}, result.ToArray())
+	})
+
+	t.Run("three-way — all inputs at same (root, doc)", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 5))
+		b := sroar.NewBitmap()
+		b.Set(Encode(1, 2, 5))
+		c := sroar.NewBitmap()
+		c.Set(Encode(1, 3, 5))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, b, c})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{
+			Encode(1, 1, 5), Encode(1, 2, 5), Encode(1, 3, 5),
+		}, result.ToArray())
+	})
+
+	t.Run("three-way — one input at wrong root, no co-presence", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 5))
+		b := sroar.NewBitmap()
+		b.Set(Encode(1, 2, 5))
+		c := sroar.NewBitmap()
+		c.Set(Encode(2, 3, 5))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, b, c})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.True(t, result.IsEmpty())
+	})
+
+	t.Run("three-way — partial co-presence, only complete group survives", func(t *testing.T) {
+		// Country 1 has all three operands. Country 2 missing the third.
+		// Only (1, 0, 5) is co-present in all three; (2, 0, 5) drops.
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 5))
+		a.Set(Encode(2, 1, 5))
+		b := sroar.NewBitmap()
+		b.Set(Encode(1, 2, 5))
+		b.Set(Encode(2, 2, 5))
+		c := sroar.NewBitmap()
+		c.Set(Encode(1, 3, 5))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, b, c})
+		defer release()
+		requireBitmapValid(t, result)
+		assert.Equal(t, []uint64{
+			Encode(1, 1, 5), Encode(1, 2, 5), Encode(1, 3, 5),
+		}, result.ToArray())
+	})
+
+	t.Run("batch of 5 docs, only docs 2 and 4 co-present", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		for _, doc := range []uint64{1, 2, 3, 4, 5} {
+			a.Set(Encode(1, 1, doc))
+		}
+		or := sroar.NewBitmap()
+		or.Set(Encode(1, 2, 2))
+		or.Set(Encode(1, 2, 4))
+		result, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
+		defer release()
+		requireBitmapValid(t, result)
+		// ToArray returns values in ascending uint64 order. With leaf bits at
+		// positions 49-36 and docID at 35-0, all leaf=1 positions precede all
+		// leaf=2 positions.
+		assert.Equal(t, []uint64{
+			Encode(1, 1, 2), Encode(1, 1, 4),
+			Encode(1, 2, 2), Encode(1, 2, 4),
+		}, result.ToArray())
+	})
+
+	t.Run("inputs unmodified", func(t *testing.T) {
+		a := sroar.NewBitmap()
+		a.Set(Encode(1, 1, 1))
+		aBefore := a.ToArray()
+		or := sroar.NewBitmap()
+		or.Set(Encode(1, 2, 1))
+		orBefore := or.ToArray()
+		_, release := ops.CrossLeafCopresenceAll([]*sroar.Bitmap{a, or})
+		defer release()
+		assert.Equal(t, aBefore, a.ToArray())
+		assert.Equal(t, orBefore, or.ToArray())
+	})
+}
+
+// TestBitmapOps_CrossLeafCopresenceAll_IdxLoopSimulation simulates the
+// position-level evaluation cars-level AND combining step end-to-end. For
+// each (garage K, car L) iteration, it narrows the per-condition raw
+// bitmaps by car_scope = _idx.garages.cars[L] ∩ _idx.garages[K] and
+// applies CrossLeafCopresenceAll. Per-iteration results are OR'd into the
+// accumulator. Scenarios mirror the doc walkthroughs from the
+// position-level evaluation discussion.
+func TestBitmapOps_CrossLeafCopresenceAll_IdxLoopSimulation(t *testing.T) {
+	ops := newTrackingOps(t)
+	// Co-presence groups by (root, doc) via the package-level zeroLeafBits.
+
+	docID := uint64(100)
+	// pos packs a (root, leaf, doc=100) position for human-readable test data.
+	pos := func(root, leaf uint16) uint64 { return Encode(root, leaf, docID) }
+
+	// narrow simulates car_scope = idxKey ∩ garageScope. Returns a fresh
+	// bitmap; inputs are unmodified.
+	narrow := func(idxKey, garageScope *sroar.Bitmap) *sroar.Bitmap {
+		clone := idxKey.Clone()
+		clone.And(garageScope)
+		return clone
+	}
+
+	// simulate runs the cars idx-loop. For each car_scope iteration, it
+	// narrows each condition by car_scope (raw AND) and feeds the narrowed
+	// bitmaps to CrossLeafCopresenceAll. Per-iteration results are OR'd into
+	// the accumulator. Returns the accumulator's values.
+	simulate := func(t *testing.T, conds []*sroar.Bitmap, carScopes []*sroar.Bitmap) []uint64 {
+		t.Helper()
+		accumulator := sroar.NewBitmap()
+		for _, carScope := range carScopes {
+			narrowed := make([]*sroar.Bitmap, len(conds))
+			for i, cond := range conds {
+				clone := cond.Clone()
+				clone.And(carScope)
+				narrowed[i] = clone
+			}
+			result, release := ops.CrossLeafCopresenceAll(narrowed)
+			accumulator.Or(result)
+			release()
+		}
+		out := accumulator.ToArray()
+		if out == nil {
+			return []uint64{}
+		}
+		return out
+	}
+
+	t.Run("2x2x2 doc, rotation pattern — every car has A-only or OR-only, no match", func(t *testing.T) {
+		// Country 1 (root=1) leaves:
+		//   c1.g0.cars[0]: A → leaf 1
+		//   c1.g0.cars[1]: OR → leaf 2
+		//   c1.g1.cars[0]: OR → leaf 3
+		//   c1.g1.cars[1]: A → leaf 4
+		// Country 2 (root=2) leaves reset:
+		//   c2.g0.cars[0]: OR → leaf 1
+		//   c2.g0.cars[1]: A → leaf 2
+		//   c2.g1.cars[0]: A → leaf 3
+		//   c2.g1.cars[1]: OR → leaf 4
+		aRaw := roaringset.NewBitmap(pos(1, 1), pos(1, 4), pos(2, 2), pos(2, 3))
+		orRaw := roaringset.NewBitmap(pos(1, 2), pos(1, 3), pos(2, 1), pos(2, 4))
+
+		garage0 := roaringset.NewBitmap(pos(1, 1), pos(1, 2), pos(2, 1), pos(2, 2))
+		garage1 := roaringset.NewBitmap(pos(1, 3), pos(1, 4), pos(2, 3), pos(2, 4))
+		car0 := roaringset.NewBitmap(pos(1, 1), pos(1, 3), pos(2, 1), pos(2, 3))
+		car1 := roaringset.NewBitmap(pos(1, 2), pos(1, 4), pos(2, 2), pos(2, 4))
+
+		carScopes := []*sroar.Bitmap{
+			narrow(car0, garage0), // K=0, L=0
+			narrow(car1, garage0), // K=0, L=1
+			narrow(car0, garage1), // K=1, L=0
+			narrow(car1, garage1), // K=1, L=1
+		}
+
+		result := simulate(t, []*sroar.Bitmap{aRaw, orRaw}, carScopes)
+		assert.Empty(t, result, "no single car has both A and OR; result must be empty")
+	})
+
+	t.Run("same 2x2x2 doc with c2.g1.cars[1] changed to A AND OR — single car flips it to match", func(t *testing.T) {
+		// c2.g1.cars[1] now contains both spoiler (A) and 205 tire (B in OR).
+		// Updated country 2 leaves:
+		//   c2.g0.cars[0]: OR → leaf 1
+		//   c2.g0.cars[1]: A → leaf 2
+		//   c2.g1.cars[0]: A → leaf 3
+		//   c2.g1.cars[1]: A AND OR → A at leaf 4, OR at leaf 5
+		aRaw := roaringset.NewBitmap(pos(1, 1), pos(1, 4), pos(2, 2), pos(2, 3), pos(2, 4))
+		orRaw := roaringset.NewBitmap(pos(1, 2), pos(1, 3), pos(2, 1), pos(2, 5))
+
+		garage0 := roaringset.NewBitmap(pos(1, 1), pos(1, 2), pos(2, 1), pos(2, 2))
+		// c2.garages[1] descendants now span leaves 3, 4, 5
+		garage1 := roaringset.NewBitmap(pos(1, 3), pos(1, 4), pos(2, 3), pos(2, 4), pos(2, 5))
+		car0 := roaringset.NewBitmap(pos(1, 1), pos(1, 3), pos(2, 1), pos(2, 3))
+		// c2.cars[1] in garages[1] occupies leaves 4 and 5
+		car1 := roaringset.NewBitmap(pos(1, 2), pos(1, 4), pos(2, 2), pos(2, 4), pos(2, 5))
+
+		carScopes := []*sroar.Bitmap{
+			narrow(car0, garage0),
+			narrow(car1, garage0),
+			narrow(car0, garage1),
+			narrow(car1, garage1), // matching iteration
+		}
+
+		result := simulate(t, []*sroar.Bitmap{aRaw, orRaw}, carScopes)
+		// Co-presence at (2, 0, 100) in the K=1 L=1 iteration yields both
+		// leaves of c2.g1.cars[1].
+		assert.Equal(t, []uint64{pos(2, 4), pos(2, 5)}, result)
+	})
+
+	t.Run("cross-country split at same (K, L) — co-presence on (root, doc) rejects", func(t *testing.T) {
+		// A only in c1.g0.cars[0] (root=1); OR only in c2.g0.cars[0] (root=2).
+		// Both at L=0 in their respective country's garage[0]. Within the
+		// single (K=0, L=0) iteration, both A_in_car and OR_in_car are
+		// non-empty — but they project to different (root, doc) keys, so
+		// co-presence is empty.
+		aRaw := roaringset.NewBitmap(pos(1, 1))
+		orRaw := roaringset.NewBitmap(pos(2, 1))
+		garage0 := roaringset.NewBitmap(pos(1, 1), pos(2, 1))
+		car0 := roaringset.NewBitmap(pos(1, 1), pos(2, 1))
+
+		carScopes := []*sroar.Bitmap{narrow(car0, garage0)}
+
+		result := simulate(t, []*sroar.Bitmap{aRaw, orRaw}, carScopes)
+		assert.Empty(t, result, "different root_idx in same iteration must not co-present")
+	})
+
+	t.Run("cross-garage split (same country, same L) — parent garage scope rejects", func(t *testing.T) {
+		// A only in c1.g0.cars[0]; OR only in c1.g1.cars[0]. Both at L=0
+		// but different garages. The parent garage idx-loop narrows each
+		// K's iteration to one physical garage, so each cars-level
+		// iteration sees only one side.
+		aRaw := roaringset.NewBitmap(pos(1, 1))  // c1.g0.cars[0]
+		orRaw := roaringset.NewBitmap(pos(1, 3)) // c1.g1.cars[0]
+		garage0 := roaringset.NewBitmap(pos(1, 1))
+		garage1 := roaringset.NewBitmap(pos(1, 3))
+		car0 := roaringset.NewBitmap(pos(1, 1), pos(1, 3)) // _idx.cars[0] mixes both garages' cars[0]
+
+		carScopes := []*sroar.Bitmap{
+			narrow(car0, garage0), // K=0, L=0 — only A holds
+			narrow(car0, garage1), // K=1, L=0 — only OR holds
+		}
+
+		result := simulate(t, []*sroar.Bitmap{aRaw, orRaw}, carScopes)
+		assert.Empty(t, result, "different garages must not produce a co-presence match — parent scope narrows")
+	})
+
+	t.Run("cross-car within same garage — different L iterations reject", func(t *testing.T) {
+		// A only in c1.g0.cars[0]; OR only in c1.g0.cars[1]. Same country,
+		// same garage, different cars. The cars idx-loop visits each L
+		// separately so neither iteration has both.
+		aRaw := roaringset.NewBitmap(pos(1, 1))
+		orRaw := roaringset.NewBitmap(pos(1, 2))
+		garage0 := roaringset.NewBitmap(pos(1, 1), pos(1, 2))
+		car0 := roaringset.NewBitmap(pos(1, 1))
+		car1 := roaringset.NewBitmap(pos(1, 2))
+
+		carScopes := []*sroar.Bitmap{
+			narrow(car0, garage0),
+			narrow(car1, garage0),
+		}
+
+		result := simulate(t, []*sroar.Bitmap{aRaw, orRaw}, carScopes)
+		assert.Empty(t, result)
+	})
+
+	t.Run("two matching cars in same doc — each contributes its leaves", func(t *testing.T) {
+		// Two cars satisfy A AND OR in the same doc:
+		//   c1.g0.cars[0]: spoiler (leaf 1) + 205 tire (leaf 2)
+		//   c2.g1.cars[1]: spoiler (leaf 4) + 205 tire (leaf 5)
+		// Other cars have nothing — get their own leaves via Phase 2.
+		// Country 1 layout: c1.g0.cars[0]=A+OR(1,2); c1.g0.cars[1]=∅(3);
+		//                   c1.g1.cars[0]=∅(4); c1.g1.cars[1]=∅(5)
+		// Country 2 layout: c2.g0.cars[0]=∅(1); c2.g0.cars[1]=∅(2);
+		//                   c2.g1.cars[0]=∅(3); c2.g1.cars[1]=A+OR(4,5)
+		aRaw := roaringset.NewBitmap(pos(1, 1), pos(2, 4))
+		orRaw := roaringset.NewBitmap(pos(1, 2), pos(2, 5))
+		garage0 := roaringset.NewBitmap(pos(1, 1), pos(1, 2), pos(1, 3), pos(2, 1), pos(2, 2))
+		garage1 := roaringset.NewBitmap(pos(1, 4), pos(1, 5), pos(2, 3), pos(2, 4), pos(2, 5))
+		car0 := roaringset.NewBitmap(pos(1, 1), pos(1, 2), pos(1, 4), pos(2, 1), pos(2, 3))
+		car1 := roaringset.NewBitmap(pos(1, 3), pos(1, 5), pos(2, 2), pos(2, 4), pos(2, 5))
+
+		carScopes := []*sroar.Bitmap{
+			narrow(car0, garage0), // c1.g0.cars[0] matches; c2.g0.cars[0] empty
+			narrow(car1, garage0), // c1.g0.cars[1] and c2.g0.cars[1] both empty
+			narrow(car0, garage1), // c1.g1.cars[0] and c2.g1.cars[0] both empty
+			narrow(car1, garage1), // c1.g1.cars[1] empty; c2.g1.cars[1] matches
+		}
+
+		result := simulate(t, []*sroar.Bitmap{aRaw, orRaw}, carScopes)
+		assert.Equal(t, []uint64{
+			pos(1, 1), pos(1, 2), // c1.g0.cars[0]'s contributing leaves
+			pos(2, 4), pos(2, 5), // c2.g1.cars[1]'s contributing leaves
+		}, result)
+	})
+
+	t.Run("three-way AND simulating sibling sub-arrays — same car wins, cross-car loses", func(t *testing.T) {
+		// Three operands (e.g., accessories, tires, colors). One car has
+		// all three; another country's car has two of three.
+		// Country 1: c1.g0.cars[0] has all three (leaves 1, 2, 3)
+		// Country 2: c2.g0.cars[0] has only A and B (leaves 1, 2); missing C
+		// Country 2: c2.g0.cars[1] has only C (leaf 3) — different car
+		//
+		// Only c1.g0.cars[0] should match at K=0, L=0.
+		aRaw := roaringset.NewBitmap(pos(1, 1), pos(2, 1))
+		bRaw := roaringset.NewBitmap(pos(1, 2), pos(2, 2))
+		cRaw := roaringset.NewBitmap(pos(1, 3), pos(2, 3))
+
+		garage0 := roaringset.NewBitmap(pos(1, 1), pos(1, 2), pos(1, 3), pos(2, 1), pos(2, 2), pos(2, 3))
+		car0 := roaringset.NewBitmap(pos(1, 1), pos(1, 2), pos(1, 3), pos(2, 1), pos(2, 2))
+		car1 := roaringset.NewBitmap(pos(2, 3))
+
+		carScopes := []*sroar.Bitmap{
+			narrow(car0, garage0), // K=0, L=0
+			narrow(car1, garage0), // K=0, L=1
+		}
+
+		result := simulate(t, []*sroar.Bitmap{aRaw, bRaw, cRaw}, carScopes)
+		// c1.g0.cars[0] has all three at root=1; that's the only co-presence.
+		// At L=0, c2.g0.cars[0] has A and B but not C — co-presence on
+		// (2, 0, 100) fails because cRaw has no value at root=2 with leaf
+		// inside car_scope.
+		assert.Equal(t, []uint64{pos(1, 1), pos(1, 2), pos(1, 3)}, result)
+	})
+}
