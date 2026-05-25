@@ -788,8 +788,9 @@ func testParallel_EnableFilterableCancelSame(t *testing.T, restURI string) {
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
 		// Brief stagger so submit has a chance to register before cancel
-		// arrives — without this, cancel arrives first and always 404s,
-		// making the scenario trivially green.
+		// arrives — without this, cancel arrives first, sees nothing in
+		// flight, and returns 202 NO_OP, making the scenario trivially
+		// green.
 		time.Sleep(10 * time.Millisecond)
 		executePR(restURI, class, "score", rCancel)
 	}, logger)

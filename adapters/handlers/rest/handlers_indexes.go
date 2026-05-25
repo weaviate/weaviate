@@ -168,10 +168,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 // reindexUpdateResponse maps the service's sentinel errors to the
 // generated swagger response shapes. Centralised here so handlers
 // don't sprinkle status-code policy through their bodies. Every
-// failure path carries the error message body — operators rely on
-// the structured payload to find out which (collection, property,
-// indexType) tuple was missing (pinned by
-// TestBackupVsReindexSuite/CancelOnNoInFlightReturnsStructured404).
+// failure path carries the error message body so operators can read
+// which sentinel was hit from the response payload alone.
 func reindexUpdateResponse(principal *models.Principal, err error) middleware.Responder {
 	payload := errorResponse(principal, err.Error())
 	switch {

@@ -58,7 +58,8 @@ func TestMultiNode_CancelClearsAcrossReplicas(t *testing.T) {
 		propName  = "body"
 		// 200k keeps the change-tokenization iteration alive long enough
 		// that the cancel HTTP call lands mid-flight. Smaller values let
-		// the migration finish first, and the cancel hits 404.
+		// the migration finish first, and the cancel returns 202 NO_OP
+		// without exercising the actual cancel/cleanup path.
 		dataset       = 200_000
 		cancelTimeout = 30 * time.Second
 	)

@@ -62,11 +62,17 @@ type SubmitRequest struct {
 
 // SubmitResult is the service-level outcome surfaced back to the
 // handler. TaskID is the DTM task identifier; Status is "STARTED" on
-// successful submit, "CANCELLED" on a cancel verb.
+// successful submit, "CANCELLED" on a cancel verb, [StatusNoOp] for
+// the idempotent "nothing to cancel" answer (empty TaskID).
 type SubmitResult struct {
 	TaskID string
 	Status string
 }
+
+// StatusNoOp is the cancel-when-nothing-in-flight wire status. M6
+// contract: cancel is idempotent and reports NO_OP + 202 rather than
+// 404; clients assert this exact string.
+const StatusNoOp = "NO_OP"
 
 // Submit validates the request, checks for conflicts, builds the
 // payload, runs pre-submit cleanup, and submits the distributed task.
@@ -279,7 +285,7 @@ func (s *Service) dispatchMigration(
 
 	case body.Searchable != nil && body.Searchable.Rebuild:
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return "", nil, "", "", fmt.Errorf("%w: property %q does not have a searchable index", ErrBadRequest, propertyName)
+			return "", nil, "", "", fmt.Errorf("%w: property %q has no searchable index", ErrBadRequest, propertyName)
 		}
 		if class.InvertedIndexConfig == nil || !class.InvertedIndexConfig.UsingBlockMaxWAND {
 			return "", nil, "", "", fmt.Errorf("%w: cannot rebuild a WAND searchable index — WAND is deprecated; use {\"searchable\":{\"algorithm\":\"blockmax\"}} to migrate first", ErrBadRequest)
@@ -288,7 +294,7 @@ func (s *Service) dispatchMigration(
 
 	case body.Searchable != nil && body.Searchable.Algorithm != "":
 		if targetProp.IndexSearchable != nil && !*targetProp.IndexSearchable {
-			return "", nil, "", "", fmt.Errorf("%w: property %q does not have a searchable index", ErrBadRequest, propertyName)
+			return "", nil, "", "", fmt.Errorf("%w: property %q has no searchable index", ErrBadRequest, propertyName)
 		}
 		if normalised := NormalizeSearchableAlgorithm(body.Searchable.Algorithm); normalised == "" {
 			return "", nil, "", "", fmt.Errorf("%w: unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
@@ -377,13 +383,12 @@ func (s *Service) Cancel(ctx context.Context, collection, propertyName, indexTyp
 	}
 
 	if target == nil {
-		// Pin: TestBackupVsReindexSuite/CancelOnNoInFlightReturnsStructured404
-		// requires the structured 404 body to name the tuple AND point
-		// operators at GET /v1/schema/{collection}/indexes — bare 404
-		// is indistinguishable from "endpoint not found" for an operator
-		// chasing a stuck-state cancel.
-		return SubmitResult{}, fmt.Errorf("%w: no in-flight reindex task to cancel for (collection=%q, property=%q, indexType=%q); the task may have already finished, been canceled, or never been started; use GET /v1/schema/%s/indexes to inspect the current state",
-			ErrNotFound, collection, propertyName, indexType, collection)
+		// M6 contract: cancel is idempotent. Nothing in flight → 202 with
+		// Status: NO_OP and no TaskID, NOT a 404. 404 stays reserved for
+		// "collection or property does not exist" (caught above this branch).
+		// Pinned by TestBackupVsReindexSuite/CancelOnNoInFlightReturns202NoOp
+		// and TestSingleNode_ReindexSuite/CancelReindex/CancelWhenNoTaskInFlight.
+		return SubmitResult{Status: StatusNoOp}, nil
 	}
 
 	if err := s.deps.Cluster.CancelDistributedTask(
