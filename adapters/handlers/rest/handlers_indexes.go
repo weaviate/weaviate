@@ -357,9 +357,15 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				fmt.Sprintf("property %q does not have a searchable index", propertyName)))
 		}
-		// Case-insensitive match — swagger generated EnumCase validator
-		// is permissive here, so accept "Blockmax" / "BLOCKMAX" too.
-		if !strings.EqualFold(body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax) {
+		// Canonicalise the algorithm name through normalizeSearchableAlgorithm
+		// (handles "Blockmax", "block-max", "BlockMaxWAND", ... → "blockmax";
+		// "WAND" → "wand") and compare against the canonical constant.
+		// Swagger's EnumCase validator is permissive; routing through the
+		// helper here means the canonical form is the single source of
+		// truth in the handler and a caller writing "Block-Max" still
+		// reaches the right migration type without a 400 round-trip.
+		normalized := normalizeSearchableAlgorithm(body.Searchable.Algorithm)
+		if normalized != models.IndexStatusAlgorithmBlockmax {
 			return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errorResponse(principal,
 				fmt.Sprintf("unsupported algorithm %q; only %q is accepted (WAND is deprecated)",
 					body.Searchable.Algorithm, models.IndexStatusAlgorithmBlockmax)))
@@ -1240,6 +1246,43 @@ func errorResponse(principal *models.Principal, msg string) *models.ErrorRespons
 			{Message: namespacing.StripErrorMessage(principal, msg)},
 		},
 	}
+}
+
+// normalizeSearchableAlgorithm canonicalises the BM25-algorithm string the
+// caller sent on a PUT /v1/schema/{class}/indexes/{prop} body. Returns the
+// lowercase model constant ("wand" / "blockmax") when the input is a
+// recognised alias, or "" when it isn't.
+//
+// Swagger's EnumCase validator is case-insensitive but otherwise rigid: it
+// would already reject "block_max" or "blockmaxwand" at the binding layer.
+// We re-canonicalise here for two reasons:
+//
+//  1. Defence in depth — if the swagger spec is ever loosened (e.g. to add
+//     a new algorithm) the dispatcher still applies a strict allowlist
+//     against the canonical value rather than an EqualFold against a single
+//     hard-coded enum constant.
+//  2. Operationally desired aliases — we accept "block-max" / "block_max"
+//     / "BlockMaxWAND" because callers in the wild have written them; the
+//     intent is unambiguous and rejecting on a punctuation difference is
+//     hostile UX. The accepted alias set is intentionally small and
+//     closed; new aliases require an explicit code change here.
+func normalizeSearchableAlgorithm(s string) string {
+	// Strip surrounding whitespace before any other transform — a body
+	// like {"algorithm":" blockmax "} should not be rejected on a stray
+	// space.
+	trimmed := strings.TrimSpace(s)
+	lower := strings.ToLower(trimmed)
+	// Strip ASCII separators that callers sometimes inject (e.g.
+	// "block-max", "block_max"). Done after lowercasing so the set is
+	// minimal.
+	stripped := strings.ReplaceAll(strings.ReplaceAll(lower, "-", ""), "_", "")
+	switch stripped {
+	case "blockmax", "blockmaxwand", "bmw":
+		return models.IndexStatusAlgorithmBlockmax
+	case "wand":
+		return models.IndexStatusAlgorithmWand
+	}
+	return ""
 }
 
 // maxConcurrentReindexPerCollection caps how many STARTED reindex tasks
