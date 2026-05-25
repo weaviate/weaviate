@@ -64,7 +64,7 @@ func TestOnTaskCompletedClassification(t *testing.T) {
 			Status:         distributedtask.TaskStatusSwapping,
 			Payload:        []byte("{ this is not valid json"),
 		}
-		err := p.OnTaskCompleted(task)
+		err := p.OnTaskCompleted(context.Background(), task)
 		require.Error(t, err)
 		require.ErrorIs(t, err, distributedtask.ErrTaskCompletionPermanent)
 	})

@@ -12,6 +12,7 @@
 package distributedtask
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -41,17 +42,17 @@ func newFlipFailingProvider(t *testing.T, flipShouldFail bool) *flipFailingProvi
 	}
 }
 
-func (p *flipFailingProvider) OnGroupCompleted(_ *Task, _ string, _ []string) error {
+func (p *flipFailingProvider) OnGroupCompleted(_ context.Context, _ *Task, _ string, _ []string) error {
 	return nil
 }
 
-func (p *flipFailingProvider) OnSwapRequested(_ *Task, _ string, _ []string) error {
+func (p *flipFailingProvider) OnSwapRequested(_ context.Context, _ *Task, _ string, _ []string) error {
 	return nil
 }
 
 // OnTaskCompleted simulates the schema flip failing transiently; the
 // scheduler must withhold FINISHED and retry (weaviate/0-weaviate-issues#297).
-func (p *flipFailingProvider) OnTaskCompleted(task *Task) error {
+func (p *flipFailingProvider) OnTaskCompleted(_ context.Context, task *Task) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.completedCalls++

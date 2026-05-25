@@ -664,7 +664,7 @@ func (s *Scheduler) tick() {
 			return s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
 		})
 		for _, task := range cleanableTasks {
-			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
+			err = s.taskCleaner.CleanUpDistributedTask(s.loopCtx, namespace, task.ID, task.Version)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 					s.loggerWithTask(namespace, task.TaskDescriptor).
@@ -835,7 +835,7 @@ func (s *Scheduler) runPreparationPhase(
 	// Process without the lock. Provider does real I/O.
 	groupErrors := make([]error, len(worklist))
 	for i, w := range worklist {
-		groupErrors[i] = suProvider.OnGroupCompleted(task, w.groupID, w.localIDs)
+		groupErrors[i] = suProvider.OnGroupCompleted(s.loopCtx, task, w.groupID, w.localIDs)
 	}
 
 	// Commit group errors + ack eligibility snapshot under deferred-Unlock.
@@ -883,7 +883,7 @@ func (s *Scheduler) runPreparationPhase(
 
 	// Ack RAFT-write without the lock.
 	ackErr := s.ackRecorder.RecordDistributedTaskPreparationCompleteAck(
-		context.Background(), namespace, task.ID, task.Version,
+		s.loopCtx, namespace, task.ID, task.Version,
 		s.localNode, success, joined,
 	)
 
@@ -985,9 +985,9 @@ func (s *Scheduler) runSwapPhase(
 	groupErrors := make([]error, len(worklist))
 	for i, w := range worklist {
 		if w.isSwap {
-			groupErrors[i] = suProvider.OnSwapRequested(task, w.groupID, w.localIDs)
+			groupErrors[i] = suProvider.OnSwapRequested(s.loopCtx, task, w.groupID, w.localIDs)
 		} else {
-			groupErrors[i] = suProvider.OnGroupCompleted(task, w.groupID, w.localIDs)
+			groupErrors[i] = suProvider.OnGroupCompleted(s.loopCtx, task, w.groupID, w.localIDs)
 		}
 	}
 
@@ -1041,7 +1041,7 @@ func (s *Scheduler) runSwapPhase(
 
 	// Ack RAFT-write without the lock.
 	ackErr := s.ackRecorder.RecordDistributedTaskPostCompletionAck(
-		context.Background(), namespace, task.ID, task.Version,
+		s.loopCtx, namespace, task.ID, task.Version,
 		s.localNode, success, joined,
 	)
 
@@ -1126,7 +1126,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 
 	// Fire OnTaskCompleted without the lock. See the "Idempotency contract"
 	// note at the matching rollback site in runFinalizePhase.
-	cbErr := suProvider.OnTaskCompleted(task)
+	cbErr := suProvider.OnTaskCompleted(s.loopCtx, task)
 	if cbErr == nil {
 		return
 	}
@@ -1171,7 +1171,7 @@ func (s *Scheduler) runCompletedCallbackPhase(
 		return
 	}
 	if err := s.taskFinalizer.MarkDistributedTaskFailed(
-		context.Background(), namespace, task.ID, task.Version, failMsg,
+		s.loopCtx, namespace, task.ID, task.Version, failMsg,
 	); err != nil {
 		s.loggerWithTask(namespace, desc).
 			Warnf("failed to mark distributed task failed after OnTaskCompleted error; will retry on next tick: %v", err)
@@ -1228,7 +1228,7 @@ func (s *Scheduler) runFinalizePhase(
 	finErrors := make([]error, len(worklist))
 	for i, w := range worklist {
 		finErrors[i] = s.taskFinalizer.MarkDistributedTaskFinalized(
-			context.Background(), namespace, w.task.ID, w.task.Version,
+			s.loopCtx, namespace, w.task.ID, w.task.Version,
 		)
 	}
 
