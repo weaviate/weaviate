@@ -713,6 +713,10 @@ func injectOrphanTrackerOnDisk(t *testing.T, ctx context.Context, container test
 ) {
 	t.Helper()
 	trackerDir := filepath.Join(lsmPath, ".migrations", orphanDir)
+	// Compute the pre-aged timestamp host-side in POSIX touch -t form
+	// (YYYYMMDDhhmm.ss) so the inject works on the alpine/busybox base
+	// of the testcontainer (busybox touch lacks GNU `-d` relative dates).
+	agedTs := time.Now().Add(-time.Hour).UTC().Format("200601021504.05")
 	for _, cmd := range [][]string{
 		{"mkdir", "-p", trackerDir},
 		{"touch", filepath.Join(trackerDir, "started.mig")},
@@ -722,7 +726,7 @@ func injectOrphanTrackerOnDisk(t *testing.T, ctx context.Context, container test
 		// `writePreAgedQuarantineSentinel` helper. Without this,
 		// PostRestartOrphanAuditClearsTracker would race the 5-minute
 		// quarantine window and time out (the test only waits 60s).
-		{"touch", "-d", "1 hour ago", filepath.Join(trackerDir, "audit_quarantined.mig")},
+		{"touch", "-t", agedTs, filepath.Join(trackerDir, "audit_quarantined.mig")},
 		{"mkdir", "-p", filepath.Join(lsmPath, sidecarBucket)},
 		{"touch", filepath.Join(lsmPath, sidecarBucket, "marker.flag")},
 	} {
