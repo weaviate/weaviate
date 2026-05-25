@@ -82,26 +82,29 @@ func TestAnyLiveReindexForShard_DifferentShard(t *testing.T) {
 		"gate must scope by shard, not just by collection")
 }
 
-// TestAnyLiveReindexForShard_BuilderUnwired pins the conservative
-// stance: until the lookup builder is installed (boot window before
-// MakeAppState's scheduler-Start goroutine runs), the gate must refuse
-// so a backup landing pre-wire does not race a real reindex.
+// TestAnyLiveReindexForShard_BuilderUnwired pins that an unwired
+// lookup defaults to "no live reindex" — production gates HTTP serving
+// on bootstrap completion so the unwired window is unreachable by
+// external traffic, and the prior refuse-by-default broke every
+// module-test fixture that spins up Weaviate without going through
+// the post-bootstrap install path. A one-time WARN fires to surface
+// the unwired path if it ever shows up in production logs.
 func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
 	db := &DB{}
-	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"gate must refuse during pre-wire startup window")
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"unwired gate must allow (with WARN); production gates HTTP on bootstrap")
 }
 
-// TestAnyLiveReindexForShard_BuilderReturnsNil pins the same
-// conservative stance when the installed builder returns a nil
-// closure (defensive against a misconfigured wiring).
+// TestAnyLiveReindexForShard_BuilderReturnsNil pins the same fail-open
+// when the installed builder returns a nil closure (defensive against
+// a misconfigured wiring).
 func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 	db := &DB{}
 	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
 		return nil
 	})
-	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
-		"gate must refuse when builder returns a nil lookup")
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"nil lookup must allow (same path as unwired)")
 }
 
 // TestRefuseIfReindexInFlight_ErrorShape pins that the error wraps the

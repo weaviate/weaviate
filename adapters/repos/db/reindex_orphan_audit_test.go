@@ -371,7 +371,7 @@ func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
 	// Install deps; SetReindexAuditDeps must drain the deferred
 	// counter and replay the audit synchronously.
 	knownNothing := func(string, uint64) bool { return false }
-	builder := func() reindex.KnownReindexTaskLookup { return knownNothing }
+	builder := func() (reindex.KnownReindexTaskLookup, error) { return knownNothing, nil }
 	db.SetReindexAuditDeps(builder, logrus.New())
 
 	// Replay must have cleaned the orphan AND reset the counter.
@@ -411,7 +411,7 @@ func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
 	}
 	_ = ctx
 	knownNothing := func(string, uint64) bool { return false }
-	builder := func() reindex.KnownReindexTaskLookup { return knownNothing }
+	builder := func() (reindex.KnownReindexTaskLookup, error) { return knownNothing, nil }
 	// Counter is 0 here — no prior AuditOrphanReindexTrackersIfReady call.
 	db.SetReindexAuditDeps(builder, logrus.New())
 	_, err := os.Stat(dir)

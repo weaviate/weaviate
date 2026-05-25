@@ -1004,14 +1004,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			id      string
 			version uint64
 		}
-		buildKnownTask := func() reindex.KnownReindexTaskLookup {
+		// buildKnownTask returns an error on ListDistributedTasks
+		// failure. Callers MUST propagate the error rather than
+		// substitute a soft default — prior versions returned a
+		// "treat every tracker as known" closure, which silently
+		// misclassified orphans during a DTM partition. Explicit
+		// error makes the failure path operator-observable.
+		buildKnownTask := func() (reindex.KnownReindexTaskLookup, error) {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
 			if err != nil {
-				// On list failure, treat every tracker as known to
-				// avoid wiping a legitimate in-flight migration.
-				appState.Logger.WithField("action", "reindex_orphan_audit").
-					Warnf("reindex orphan audit: cannot list DTM tasks; treating all trackers as known (audit deferred): %v", err)
-				return func(string, uint64) bool { return true }
+				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
 			live := make(map[taskKey]bool, len(tasksByNamespace[reindex.ReindexNamespace]))
 			for _, task := range tasksByNamespace[reindex.ReindexNamespace] {
@@ -1019,9 +1021,41 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			return func(taskID string, taskVersion uint64) bool {
 				return live[taskKey{taskID, taskVersion}]
-			}
+			}, nil
 		}
-		if _, err := repo.AuditOrphanReindexTrackers(auditCtx, buildKnownTask(), appState.Logger); err != nil {
+		// Wait until ListDistributedTasks succeeds at least once before
+		// running the startup audit. Without this, a transient DTM-list
+		// failure during the bootstrap window means buildKnownTask
+		// returns nil and the audit skips → orphan tracker dirs left
+		// behind by a backup-restore are never classified. Exponential
+		// backoff capped at 5s; bound the total wait so an offline
+		// cluster doesn't block startup indefinitely.
+		auditReadyBackoff := 100 * time.Millisecond
+		auditReadyDeadline := time.Now().Add(60 * time.Second)
+		for {
+			_, listErr := appState.ClusterService.ListDistributedTasks(auditCtx)
+			if listErr == nil {
+				break
+			}
+			if time.Now().After(auditReadyDeadline) {
+				appState.Logger.WithField("action", "reindex_orphan_audit").
+					Errorf("reindex orphan audit: DTM list unavailable after 60s; skipping startup audit. Orphans from a prior restore (if any) will be picked up by the next process restart: %v", listErr)
+				break
+			}
+			appState.Logger.WithField("action", "reindex_orphan_audit").
+				Debugf("reindex orphan audit: DTM list not yet ready; retrying in %s: %v", auditReadyBackoff, listErr)
+			select {
+			case <-time.After(auditReadyBackoff):
+			case <-auditCtx.Done():
+				return
+			}
+			auditReadyBackoff = min(auditReadyBackoff*2, 5*time.Second)
+		}
+		startupLookup, startupBuildErr := buildKnownTask()
+		if startupBuildErr != nil {
+			appState.Logger.WithField("action", "startup").
+				Errorf("reindex orphan audit: builder failed; skipping startup audit. The next process restart will retry: %v", startupBuildErr)
+		} else if _, err := repo.AuditOrphanReindexTrackers(auditCtx, startupLookup, appState.Logger); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Warnf("reindex orphan audit did not run cleanly; restored clusters may retain orphan sidecar buckets: %v", err)
 		}

@@ -19,7 +19,10 @@ package reindex
 // a RAFT read per tracker (Copilot review).
 type KnownReindexTaskLookup func(taskID string, taskVersion uint64) bool
 
-// KnownReindexTaskLookupBuilder returns a fresh KnownReindexTaskLookup
-// for one audit invocation. The audit calls it once at entry and
-// reuses the returned lookup for the entire walk.
-type KnownReindexTaskLookupBuilder func() KnownReindexTaskLookup
+// KnownReindexTaskLookupBuilder returns a fresh [KnownReindexTaskLookup]
+// for one audit invocation. Returns an error when the underlying DTM
+// snapshot cannot be obtained (e.g. ListDistributedTasks is timing out
+// during a network partition). Callers MUST propagate the error rather
+// than substitute a soft default — an unobservable "all known" fallback
+// would silently misclassify orphans as in-flight migrations.
+type KnownReindexTaskLookupBuilder func() (KnownReindexTaskLookup, error)

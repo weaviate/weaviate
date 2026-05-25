@@ -118,7 +118,13 @@ func (db *DB) SetReindexAuditDeps(builder reindex.KnownReindexTaskLookupBuilder,
 	replayLogger.WithField("action", "reindex_orphan_audit").
 		WithField("deferred_requests", deferred).
 		Info("reindex orphan audit: replaying audits requested before deps were installed (B2 race window)")
-	if _, err := db.AuditOrphanReindexTrackers(context.Background(), builder(), logger); err != nil {
+	lookup, buildErr := builder()
+	if buildErr != nil {
+		replayLogger.WithField("action", "reindex_orphan_audit").
+			Errorf("reindex orphan audit: deferred-replay builder failed; the next process restart will retry: %v", buildErr)
+		return
+	}
+	if _, err := db.AuditOrphanReindexTrackers(context.Background(), lookup, logger); err != nil {
 		replayLogger.WithField("action", "reindex_orphan_audit").
 			Warnf("reindex orphan audit: deferred-replay sweep returned an error; the next process restart will retry: %v", err)
 	}
@@ -154,7 +160,20 @@ func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) (AuditOutco
 		}, nil
 	}
 	db.reindexAuditMu.Unlock()
-	return db.AuditOrphanReindexTrackers(ctx, builder(), logger)
+	lookup, buildErr := builder()
+	if buildErr != nil {
+		warnLogger := logger
+		if warnLogger == nil {
+			warnLogger = logrus.New()
+		}
+		warnLogger.WithField("action", "reindex_orphan_audit").
+			Errorf("reindex orphan audit: lookup builder failed; skipping this invocation: %v", buildErr)
+		return AuditOutcome{
+			Status:     AuditStatusSkipped,
+			SkipReason: "builder_error",
+		}, fmt.Errorf("reindex orphan audit: lookup builder failed: %w", buildErr)
+	}
+	return db.AuditOrphanReindexTrackers(ctx, lookup, logger)
 }
 
 // orphanReindexTracker carries the fields the cleanup loop logs and
@@ -819,4 +838,3 @@ func loadAuditRecord(trackerPath string) (reindex.ReindexRecoveryRecord, bool) {
 	}
 	return rec, true
 }
-

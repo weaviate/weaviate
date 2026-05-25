@@ -22,9 +22,15 @@ type ShardReindexActivityLookupBuilder func() ShardReindexActivityLookup
 
 // SetShardReindexActivityLookup installs the builder used by the backup
 // gate ([DB.AnyLiveReindexForShard]). The builder is invoked per backup
-// precheck to obtain a fresh DTM snapshot; calls before installation
-// are conservatively refused so a backup landing pre-wire does not race
-// a real reindex.
+// precheck to obtain a fresh DTM snapshot.
+//
+// Calls before installation default to "no live reindex" with a one-time
+// WARN: production HTTP gates on bootstrap completion (the lookup is
+// wired by configure_api.go's post-bootstrap goroutine), so an external
+// backup request cannot land before this builder is installed. The WARN
+// is the operator-facing signal if startup ordering ever breaks the
+// wiring; the prior conservative-refuse default broke every module-test
+// fixture that bypassed the bootstrap path. See [DB.AnyLiveReindexForShard].
 func (db *DB) SetShardReindexActivityLookup(builder ShardReindexActivityLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()

@@ -355,7 +355,7 @@ func NewSchemaObjectsIndexesUpdateNotFound() *SchemaObjectsIndexesUpdateNotFound
 /*
 SchemaObjectsIndexesUpdateNotFound describes a response with status code 404, with default header values.
 
-Collection or property not found, or (for cancel:true requests) no in-flight reindex task to cancel.
+Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.
 */
 type SchemaObjectsIndexesUpdateNotFound struct {
 	Payload *models.ErrorResponse

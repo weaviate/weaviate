@@ -102,8 +102,8 @@ func TestBackupVsReindexSuite(t *testing.T) {
 	// The subtests below re-resolve URI each call because
 	// PostRestartOrphanAuditClearsTracker above does a Stop+Start that
 	// rebinds the container to a new dynamic port.
-	t.Run("CancelOnNoInFlightReturnsStructured404", func(t *testing.T) {
-		testCancelOnNoInFlightReturns404(t, compose.GetWeaviate().URI())
+	t.Run("CancelOnNoInFlightReturns202NoOp", func(t *testing.T) {
+		testCancelOnNoInFlightReturns202NoOp(t, compose.GetWeaviate().URI())
 	})
 
 	t.Run("AlgorithmVerbRefusesOnAlreadyBlockmaxRejectsWAND", func(t *testing.T) {
@@ -383,11 +383,12 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 		"canonical data must survive the audit")
 }
 
-// testCancelOnNoInFlightReturns404 asserts that PUT
-// {"searchable":{"cancel":true}} with no task targeting the tuple
-// returns 404 with a structured body naming (collection, property,
-// indexType) and pointing at the GET endpoint for state inspection.
-func testCancelOnNoInFlightReturns404(t *testing.T, restURI string) {
+// testCancelOnNoInFlightReturns202NoOp asserts the M6 contract:
+// PUT {"searchable":{"cancel":true}} with no task targeting the tuple
+// returns 202 Accepted with Status: NO_OP and no TaskID — cancel is
+// idempotent on the "nothing to cancel" path. Matches the singlenode
+// copy of the test in test/acceptance/reindex_singlenode/cancel_test.go.
+func testCancelOnNoInFlightReturns202NoOp(t *testing.T, restURI string) {
 	const (
 		className = "ReindexBackup_CancelNoTask"
 		propName  = "body"
@@ -416,19 +417,16 @@ func testCancelOnNoInFlightReturns404(t *testing.T, restURI string) {
 	respBody, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	require.Equalf(t, http.StatusNotFound, resp.StatusCode,
-		"expected 404 for cancel-with-no-task; got %d: %s", resp.StatusCode, string(respBody))
+	require.Equalf(t, http.StatusAccepted, resp.StatusCode,
+		"cancel-with-no-task should 202 NO_OP; got %d: %s", resp.StatusCode, string(respBody))
 
-	require.NotEmpty(t, respBody, "expected a structured body, got empty payload")
-
-	bodyStr := string(respBody)
-	assert.Contains(t, bodyStr, className, "404 body must name the collection")
-	assert.Contains(t, bodyStr, propName, "404 body must name the property")
-	assert.Contains(t, bodyStr, "searchable", "404 body must name the indexType")
-	assert.Contains(t, bodyStr, "no in-flight reindex task to cancel",
-		"404 body must explain why nothing was canceled")
-	assert.Contains(t, bodyStr, "GET /v1/schema/",
-		"404 body must point operators at the state-inspection endpoint")
+	var result models.IndexUpdateResponse
+	require.NoError(t, json.Unmarshal(respBody, &result),
+		"cancel-no-task response body should decode as IndexUpdateResponse: %s", string(respBody))
+	assert.Equal(t, "NO_OP", result.Status,
+		"cancel-no-task should report Status: NO_OP, got body: %s", string(respBody))
+	assert.Empty(t, result.TaskID,
+		"cancel-no-task should not name a TaskID, got body: %s", string(respBody))
 }
 
 // testAlgorithmVerb asserts that on an already-blockmax class:
@@ -704,16 +702,31 @@ func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCoun
 //   - .migrations/<orphanDir>/started.mig
 //   - .migrations/<orphanDir>/reindexed.mig
 //   - .migrations/<orphanDir>/payload.mig (with the supplied JSON body)
+//   - .migrations/<orphanDir>/audit_quarantined.mig (mtime pre-aged
+//     well past `reindexAuditQuarantineWindow` so the audit's S2
+//     two-pass safeguard collapses to a single destructive sweep —
+//     otherwise the test would need to wait the full quarantine
+//     window for a second audit pass that doesn't fire post-bootstrap)
 //   - <sidecarBucket>/marker.flag
 func injectOrphanTrackerOnDisk(t *testing.T, ctx context.Context, container testcontainers.Container,
 	lsmPath, orphanDir, sidecarBucket, payloadJSON string,
 ) {
 	t.Helper()
+	trackerDir := filepath.Join(lsmPath, ".migrations", orphanDir)
+	// Compute the pre-aged timestamp host-side in POSIX touch -t form
+	// (YYYYMMDDhhmm.ss) so the inject works on the alpine/busybox base
+	// of the testcontainer (busybox touch lacks GNU `-d` relative dates).
+	agedTs := time.Now().Add(-time.Hour).UTC().Format("200601021504.05")
 	for _, cmd := range [][]string{
-		{"mkdir", "-p", filepath.Join(lsmPath, ".migrations", orphanDir)},
-		{"touch", filepath.Join(lsmPath, ".migrations", orphanDir, "started.mig")},
-		{"touch", filepath.Join(lsmPath, ".migrations", orphanDir, "reindexed.mig")},
-		{"sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", filepath.Join(lsmPath, ".migrations", orphanDir, "payload.mig"), payloadJSON)},
+		{"mkdir", "-p", trackerDir},
+		{"touch", filepath.Join(trackerDir, "started.mig")},
+		{"touch", filepath.Join(trackerDir, "reindexed.mig")},
+		{"sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", filepath.Join(trackerDir, "payload.mig"), payloadJSON)},
+		// Pre-aged quarantine sentinel: mirror the unit-test
+		// `writePreAgedQuarantineSentinel` helper. Without this,
+		// PostRestartOrphanAuditClearsTracker would race the 5-minute
+		// quarantine window and time out (the test only waits 60s).
+		{"touch", "-t", agedTs, filepath.Join(trackerDir, "audit_quarantined.mig")},
 		{"mkdir", "-p", filepath.Join(lsmPath, sidecarBucket)},
 		{"touch", filepath.Join(lsmPath, sidecarBucket, "marker.flag")},
 	} {

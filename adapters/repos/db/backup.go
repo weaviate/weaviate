@@ -79,7 +79,11 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
 		if idx == nil || idx.Config.ClassName != className {
-			errs = append(errs, fmt.Errorf("%s/%s: class %v doesn't exist", nodeName, c, c))
+			// No node/class prefix here: the message already names the
+			// class, and the integration test casing-permutation case
+			// pins the bare wording so the coordinator's class-missing
+			// detection works the same as it did pre-Wave-2.
+			errs = append(errs, fmt.Errorf("class %v doesn't exist", c))
 			continue
 		}
 		shards, _, err := idx.readSchema()
