@@ -152,10 +152,15 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			targetQualified.Class = qualifiedTarget
 			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, &targetQualified, ref.Tenant, fetchedClasses)
 			if err != nil {
+				// Per-row Err only — do NOT skip the rest of the loop body.
+				// Authorization tracks the user's INTENT (what shards they
+				// asked to touch), not what survived validation: a caller
+				// without READ on (qualifiedTarget, tenant) must still get a
+				// 403, otherwise an MT-mismatch ref would silently bypass
+				// the inner READ-authz check. AddBatchReferences below sees
+				// the per-row Err and skips persisting the row.
 				refs[i].Err = err
-				continue
-			}
-			if classVersion > schemaVersion {
+			} else if classVersion > schemaVersion {
 				schemaVersion = classVersion
 			}
 		}

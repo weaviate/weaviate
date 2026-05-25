@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -514,12 +515,14 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
-	t.Run("MT-validation failure on one ref must not leak into authz or fail the batch", func(t *testing.T) {
-		// Per-row error isolation: a ref that fails validateReferenceMultiTenancy
-		// must be skipped from the READ-authz set entirely. Otherwise its
-		// (qualified target, tenant) lands in the shard-paths slice and a
-		// denial on it would 403 the WHOLE batch, even though
-		// AddBatchReferences would have ignored the row (Err != nil).
+	t.Run("MT-validation failure on one ref: per-row Err, batch still completes, authz tracks user intent", func(t *testing.T) {
+		// Authorization tracks the user's INTENT (every target they asked to
+		// touch), not what survived validation. A ref that fails
+		// validateReferenceMultiTenancy must still pin its (qualifiedTarget,
+		// tenant) in the READ-authz set so a caller lacking permission on
+		// that shard gets a 403 — see TestAuthZBatchRefAuthZTenantFiltering's
+		// "missing read_data" subtest, which depends on this. The failing
+		// ref also carries an Err so AddBatchReferences skips persisting it.
 		classes := []*models.Class{
 			{
 				Class:             "SourcePlain",
@@ -574,15 +577,19 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
 		require.NoError(t, err)
 
-		// The failed ref's target class must NOT appear in any authz request.
-		// Before the fix it would, because the (qualifiedTarget, tenant) entry
-		// was added to uniqueClassShard regardless of refs[i].Err.
+		// User-intent authz: TargetMT must appear in the READ-authz set even
+		// though its ref failed MT validation, so a non-admin without
+		// permission on that shard would correctly be denied.
+		sawTargetMT := false
 		for _, c := range authz.Calls() {
 			for _, r := range c.Resources {
-				assert.NotContains(t, r, "TargetMT",
-					"authz must not see the errored ref's target class")
+				if strings.Contains(r, "TargetMT") {
+					sawTargetMT = true
+				}
 			}
 		}
+		assert.True(t, sawTargetMT,
+			"authz must include the failed ref's target — authorization tracks user intent, not validation outcome")
 		repo.AssertExpectations(t)
 	})
 
@@ -774,4 +781,87 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		require.NoError(t, err)
 		repo.AssertExpectations(t)
 	})
+
+	t.Run("missing READ on target shard: 403 even when MT validation also fails per-ref", func(t *testing.T) {
+		// Acceptance-test mirror for TestAuthZBatchRefAuthZTenantFiltering's
+		// "missing read_data" subtest. The user lacks READ on the target
+		// shard AND every ref additionally fails MT validation (the e2e
+		// fixture creates objects without a tenant on MT classes, so the
+		// Exists check returns false). The inner READ-authz must still
+		// trigger on the user-intended target, otherwise authorization is
+		// silently bypassed when validation happens to fail.
+		classes := []*models.Class{
+			{
+				Class:              "SourceMT",
+				VectorIndexConfig:  hnsw.UserConfig{},
+				Vectorizer:         config.VectorizerModuleNone,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				Properties: []*models.Property{
+					{Name: "refTo", DataType: []string{"TargetMT"}},
+				},
+			},
+			{
+				Class:              "TargetMT",
+				VectorIndexConfig:  hnsw.UserConfig{},
+				Vectorizer:         config.VectorizerModuleNone,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			},
+		}
+		_, b, repo, _, _ := newNSManagers(t, classes, false)
+		repo.On("Exists", "SourceMT", id).Return(false, nil)
+		// AddBatchReferences must NEVER run — the inner authz READ must
+		// fail-fast with a Forbidden before we reach persistence.
+		// (No repo.On("AddBatchReferences") expectation: would assert if called.)
+
+		// Replace the manager's authorizer with one that denies any
+		// resource path containing "TargetMT". The outer UPDATE on SourceMT
+		// still passes; only the inner READ on TargetMT is denied.
+		b.authorizer = &denyContainingAuthorizer{deny: "TargetMT"}
+
+		refs := []*models.BatchReference{
+			{
+				From:   strfmt.URI("weaviate://localhost/SourceMT/" + string(id) + "/refTo"),
+				To:     strfmt.URI("weaviate://localhost/TargetMT/" + string(refID)),
+				Tenant: "tenant1",
+			},
+		}
+		_, err := b.AddReferences(context.Background(), &models.Principal{Username: "u"}, refs, nil)
+		require.Error(t, err)
+		var forbidden autherrs.Forbidden
+		require.ErrorAs(t, err, &forbidden,
+			"missing READ on the target shard must surface as Forbidden, "+
+				"not be hidden by an earlier per-ref MT validation failure")
+		repo.AssertExpectations(t)
+	})
+}
+
+// denyContainingAuthorizer is a test-only authorizer that denies any Authorize
+// call whose resources include a path containing the configured substring,
+// and allows everything else. Used to model "user has UPDATE on source but
+// not READ on target" without pulling in the full RBAC stack.
+type denyContainingAuthorizer struct {
+	deny string
+}
+
+func (a *denyContainingAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	for _, r := range resources {
+		if strings.Contains(r, a.deny) {
+			return autherrs.NewForbidden(principal, verb, r)
+		}
+	}
+	return nil
+}
+
+func (a *denyContainingAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(ctx, principal, verb, resources...)
+}
+
+func (a *denyContainingAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
+	allowed := make([]string, 0, len(resources))
+	for _, r := range resources {
+		if !strings.Contains(r, a.deny) {
+			allowed = append(allowed, r)
+		}
+	}
+	return allowed, nil
 }
