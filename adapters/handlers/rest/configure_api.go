@@ -1015,6 +1015,45 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// Install the audit deps so the post-restore-class-dir hook
 		// (wired into RestoreClassDir above) can run the audit.
 		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
+
+		// Install the backup-gate activity lookup so refuseIfReindexInFlight
+		// consults DTM rather than per-shard filesystem markers. Built per
+		// backup precheck so the snapshot is fresh; on list failure we
+		// fall back to refusing every backup until DTM is reachable, to
+		// avoid races against in-flight reindexes that the local node
+		// cannot see.
+		type shardKey struct {
+			collection string
+			shardName  string
+		}
+		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
+			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
+			if err != nil {
+				appState.Logger.WithField("action", "backup_reindex_gate").
+					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
+				return func(string, string) bool { return true }
+			}
+			live := make(map[shardKey]bool)
+			for _, task := range tasksByNamespace[db.ReindexNamespace] {
+				if !db.IsLiveReindexTaskStatus(task.Status) {
+					continue
+				}
+				var payload db.ReindexTaskPayload
+				if err := json.Unmarshal(task.Payload, &payload); err != nil {
+					appState.Logger.WithField("action", "backup_reindex_gate").
+						WithField("task_id", task.ID).
+						Warnf("backup-reindex gate: cannot decode task payload; skipping task: %v", err)
+					continue
+				}
+				for _, shardName := range payload.UnitToShard {
+					live[shardKey{payload.Collection, shardName}] = true
+				}
+			}
+			return func(collection, shardName string) bool {
+				return live[shardKey{collection, shardName}]
+			}
+		}
+		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
 	}, appState.Logger)
 
 	return appState
