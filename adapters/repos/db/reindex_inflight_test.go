@@ -13,280 +13,190 @@ package db
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func TestInFlightReindexTrackers(t *testing.T) {
-	tests := []struct {
-		name        string
-		setup       func(t *testing.T, migsDir string)
-		expectDirs  []string
-		expectError bool
-	}{
-		{
-			name:       "no migrations dir",
-			setup:      func(t *testing.T, migsDir string) {},
-			expectDirs: nil,
-		},
-		{
-			name: "empty migrations dir",
-			setup: func(t *testing.T, migsDir string) {
-				require.NoError(t, os.MkdirAll(migsDir, 0o755))
-			},
-			expectDirs: nil,
-		},
-		{
-			name: "P1 — started only, no reindexed",
-			setup: func(t *testing.T, migsDir string) {
-				makeTracker(t, migsDir, "searchable_retokenize_body_1", "started.mig")
-			},
-			expectDirs: []string{"searchable_retokenize_body_1"},
-		},
-		{
-			name: "P2 — started + reindexed, no swapped/tidied",
-			setup: func(t *testing.T, migsDir string) {
-				makeTracker(t, migsDir, "filterable_retokenize_body_1", "started.mig", "reindexed.mig")
-			},
-			expectDirs: []string{"filterable_retokenize_body_1"},
-		},
-		{
-			name: "P3 — started + reindexed + swapped, no tidied (still in-flight)",
-			setup: func(t *testing.T, migsDir string) {
-				makeTracker(t, migsDir, "searchable_retokenize_body_2",
-					"started.mig", "reindexed.mig", "swapped.mig")
-			},
-			expectDirs: []string{"searchable_retokenize_body_2"},
-		},
-		{
-			name: "P4/P5 — tidied present, not in-flight",
-			setup: func(t *testing.T, migsDir string) {
-				makeTracker(t, migsDir, "searchable_retokenize_body_1",
-					"started.mig", "reindexed.mig", "swapped.mig", "tidied.mig")
-			},
-			expectDirs: nil,
-		},
-		{
-			name: "recovery — merged.mig present without tidied: not in-flight (finalize will promote)",
-			setup: func(t *testing.T, migsDir string) {
-				makeTracker(t, migsDir, "searchable_retokenize_body_1",
-					"started.mig", "reindexed.mig", "merged.mig")
-			},
-			expectDirs: nil,
-		},
-		{
-			name: "no started — pre-iteration scratch, not in-flight",
-			setup: func(t *testing.T, migsDir string) {
-				makeTracker(t, migsDir, "searchable_retokenize_body_1", "payload.mig")
-			},
-			expectDirs: nil,
-		},
-		{
-			name: "missing gen suffix — pre-generation legacy state, skipped defensively",
-			setup: func(t *testing.T, migsDir string) {
-				makeTracker(t, migsDir, "searchable_retokenize_body", "started.mig")
-			},
-			expectDirs: nil,
-		},
-		{
-			name: "regular file inside .migrations — skipped",
-			setup: func(t *testing.T, migsDir string) {
-				require.NoError(t, os.MkdirAll(migsDir, 0o755))
-				require.NoError(t, os.WriteFile(filepath.Join(migsDir, "stray.txt"), []byte("x"), 0o600))
-			},
-			expectDirs: nil,
-		},
-		{
-			name: "multiple trackers — sorted result, mix of in-flight and finished",
-			setup: func(t *testing.T, migsDir string) {
-				makeTracker(t, migsDir, "searchable_retokenize_body_1", "started.mig")
-				makeTracker(t, migsDir, "filterable_retokenize_body_1",
-					"started.mig", "reindexed.mig")
-				makeTracker(t, migsDir, "searchable_retokenize_body_2",
-					"started.mig", "reindexed.mig", "swapped.mig")
-				makeTracker(t, migsDir, "filterable_retokenize_body_2",
-					"started.mig", "reindexed.mig", "tidied.mig")
-				makeTracker(t, migsDir, "enable_searchable_other_1",
-					"started.mig", "merged.mig")
-			},
-			expectDirs: []string{
-				"filterable_retokenize_body_1",
-				"searchable_retokenize_body_1",
-				"searchable_retokenize_body_2",
-			},
-		},
-		{
-			name: "every recognized strategy prefix, one in-flight each",
-			setup: func(t *testing.T, migsDir string) {
-				for _, name := range []string{
-					"searchable_map_to_blockmax_1",
-					"filterable_roaringset_refresh_1",
-					"filterable_to_rangeable_p1_1",
-					"searchable_retokenize_p1_1",
-					"filterable_retokenize_p1_1",
-					"enable_filterable_p1_1",
-					"enable_searchable_p1_1",
-				} {
-					makeTracker(t, migsDir, name, "started.mig")
-				}
-			},
-			expectDirs: []string{
-				"enable_filterable_p1_1",
-				"enable_searchable_p1_1",
-				"filterable_retokenize_p1_1",
-				"filterable_roaringset_refresh_1",
-				"filterable_to_rangeable_p1_1",
-				"searchable_map_to_blockmax_1",
-				"searchable_retokenize_p1_1",
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
-			lsm := filepath.Join(root, "lsm")
-			migs := filepath.Join(lsm, ".migrations")
-			tc.setup(t, migs)
-
-			got, err := inFlightReindexTrackers(lsm)
-			if tc.expectError {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			var names []string
-			for _, tr := range got {
-				names = append(names, tr.DirName)
-			}
-			assert.Equal(t, tc.expectDirs, names)
-		})
+// makeActivityBuilder builds a ShardReindexActivityLookupBuilder that
+// reports a fixed set of (collection, shard) pairs as live.
+func makeActivityBuilder(live map[[2]string]bool) ShardReindexActivityLookupBuilder {
+	return func() ShardReindexActivityLookup {
+		return func(collection, shardName string) bool {
+			return live[[2]string{collection, shardName}]
+		}
 	}
 }
 
-func TestInFlightReindexTrackers_EmptyPath(t *testing.T) {
-	got, err := inFlightReindexTrackers("")
-	require.NoError(t, err)
-	assert.Nil(t, got)
+// TestAnyLiveReindexForShard_LiveTask pins that a DTM lookup reporting
+// a live task for the (collection, shard) tuple causes the gate to
+// refuse.
+func TestAnyLiveReindexForShard_LiveTask(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{"MyClass", "shard1"}: true,
+	}))
+	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"gate must refuse when DTM reports a live task on the tuple")
 }
 
-func TestInFlightReindexTrackers_TrackerEntryFields(t *testing.T) {
-	root := t.TempDir()
-	migs := filepath.Join(root, "lsm", ".migrations")
-	makeTracker(t, migs, "searchable_retokenize_body_42",
-		"started.mig", "reindexed.mig")
-
-	got, err := inFlightReindexTrackers(filepath.Join(root, "lsm"))
-	require.NoError(t, err)
-	require.Len(t, got, 1)
-	tr := got[0]
-	assert.Equal(t, "searchable_retokenize_body_42", tr.DirName)
-	assert.Equal(t, "searchable_retokenize_body", tr.Prefix)
-	assert.Equal(t, 42, tr.Generation)
-	assert.True(t, tr.Started)
-	assert.True(t, tr.Reindexed)
-	assert.False(t, tr.Tidied)
+// TestAnyLiveReindexForShard_TerminalTask pins that a lookup whose
+// snapshot contains only terminal-status tasks (none reported as live)
+// lets the gate allow the backup.
+func TestAnyLiveReindexForShard_TerminalTask(t *testing.T) {
+	db := &DB{}
+	// Builder reports no live tasks at all — equivalent to a snapshot
+	// containing only Finished/Cancelled/Failed tasks after the
+	// configure_api filter.
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"gate must allow when no live task targets the tuple")
 }
 
-func TestInFlightReindexTracker_String(t *testing.T) {
-	tr := InFlightReindexTracker{
-		DirName:    "searchable_retokenize_body_1",
-		Prefix:     "searchable_retokenize_body",
-		Generation: 1,
-		Started:    true,
-		Reindexed:  false,
-		Tidied:     false,
-	}
-	assert.Equal(t,
-		"searchable_retokenize_body_1 [started=true reindexed=false tidied=false]",
-		tr.String())
+// TestAnyLiveReindexForShard_DifferentCollection pins that a live task
+// in another collection does not block a backup of the queried
+// collection.
+func TestAnyLiveReindexForShard_DifferentCollection(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{"OtherClass", "shard1"}: true,
+	}))
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"gate must scope by collection")
 }
 
-func TestReindexInFlightError_NoTrackers_NoError(t *testing.T) {
-	require.NoError(t, reindexInFlightError("shard0", nil))
-	require.NoError(t, reindexInFlightError("shard0", []InFlightReindexTracker{}))
+// TestAnyLiveReindexForShard_DifferentShard pins that a live task on
+// the right collection but a different shard does not block a backup
+// of the queried shard.
+func TestAnyLiveReindexForShard_DifferentShard(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{"MyClass", "shard2"}: true,
+	}))
+	assert.False(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"gate must scope by shard, not just by collection")
 }
 
-func TestReindexInFlightError_Wraps_Sentinel(t *testing.T) {
-	err := reindexInFlightError("shard0", []InFlightReindexTracker{
-		{DirName: "searchable_retokenize_body_1", Started: true},
+// TestAnyLiveReindexForShard_BuilderUnwired pins the conservative
+// stance: until the lookup builder is installed (boot window before
+// MakeAppState's scheduler-Start goroutine runs), the gate must refuse
+// so a backup landing pre-wire does not race a real reindex.
+func TestAnyLiveReindexForShard_BuilderUnwired(t *testing.T) {
+	db := &DB{}
+	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"gate must refuse during pre-wire startup window")
+}
+
+// TestAnyLiveReindexForShard_BuilderReturnsNil pins the same
+// conservative stance when the installed builder returns a nil
+// closure (defensive against a misconfigured wiring).
+func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return nil
 	})
+	assert.True(t, db.AnyLiveReindexForShard("MyClass", "shard1"),
+		"gate must refuse when builder returns a nil lookup")
+}
+
+// TestRefuseIfReindexInFlight_ErrorShape pins that the error wraps the
+// sentinel, names the collection and shard, and surfaces the operator
+// remediation hint.
+func TestRefuseIfReindexInFlight_ErrorShape(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{"JourneyClass", "ABC123"}: true,
+	}))
+	idx := &Index{
+		db:     db,
+		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
+	}
+
+	err := idx.refuseIfReindexInFlight("ABC123")
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex),
+	assert.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
 		"error must wrap the sentinel so REST handlers can map via errors.Is")
-	assert.Contains(t, err.Error(), "shard0")
-	assert.Contains(t, err.Error(), "searchable_retokenize_body_1")
+	assert.Contains(t, err.Error(), "ABC123", "error must name the shard")
+	assert.Contains(t, err.Error(), "JourneyClass", "error must name the collection")
+	assert.Contains(t, err.Error(), "indexes/", "error must include the remediation URL hint")
 }
 
-func TestReindexInFlightError_ListsEveryTracker(t *testing.T) {
-	trackers := []InFlightReindexTracker{
-		{DirName: "filterable_retokenize_body_1", Started: true},
-		{DirName: "searchable_retokenize_body_1", Started: true, Reindexed: true},
+// TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask pins the happy
+// path: no live task means no rejection.
+func TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask(t *testing.T) {
+	db := &DB{}
+	db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+	idx := &Index{
+		db:     db,
+		Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")},
 	}
-	err := reindexInFlightError("shard1", trackers)
+	require.NoError(t, idx.refuseIfReindexInFlight("ABC123"))
+}
+
+// TestRefuseIfReindexInFlight_DbNilIsConservative pins that an Index
+// without its DB back-reference refuses rather than letting a backup
+// proceed unchecked.
+func TestRefuseIfReindexInFlight_DbNilIsConservative(t *testing.T) {
+	idx := &Index{Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")}}
+	err := idx.refuseIfReindexInFlight("ABC123")
 	require.Error(t, err)
-	for _, tr := range trackers {
-		assert.Contains(t, err.Error(), tr.DirName,
-			"error message must mention every active tracker")
-	}
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
+	require.True(t, strings.Contains(err.Error(), "startup window"))
 }
 
-func TestRefuseIfReindexInFlight_OnRealIndex(t *testing.T) {
-	root := t.TempDir()
-	className := schema.ClassName("JourneyClass")
-	shardName := "ABC123"
-	lsmPath := filepath.Join(root, indexID(className), shardName, "lsm")
-	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, ".migrations"), 0o755))
-
-	idx := &Index{Config: IndexConfig{RootPath: root, ClassName: className}}
-
-	require.NoError(t, idx.refuseIfReindexInFlight(shardName))
-
-	makeTracker(t, filepath.Join(lsmPath, ".migrations"),
-		"searchable_retokenize_body_1", "started.mig")
-	err := idx.refuseIfReindexInFlight(shardName)
+// TestReindexInFlightError_PreWire pins the wording variant used
+// during the pre-wire startup window.
+func TestReindexInFlightError_PreWire(t *testing.T) {
+	err := reindexInFlightError("MyClass", "shard1", true)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex))
-	require.True(t, strings.Contains(err.Error(), shardName))
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
+	require.Contains(t, err.Error(), "shard1")
+	require.Contains(t, err.Error(), "MyClass")
+	require.Contains(t, err.Error(), "startup window")
 }
 
-// makeTracker creates a `.migrations/<dirName>/` directory containing the
-// listed sentinel files.
-func makeTracker(t *testing.T, migsDir, dirName string, sentinels ...string) {
-	t.Helper()
-	dir := filepath.Join(migsDir, dirName)
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	for _, s := range sentinels {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, s), nil, 0o600))
-	}
+// TestReindexInFlightError_DTMHit pins the wording variant used when
+// DTM reports a live task.
+func TestReindexInFlightError_DTMHit(t *testing.T) {
+	err := reindexInFlightError("MyClass", "shard1", false)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
+	require.Contains(t, err.Error(), "shard1")
+	require.Contains(t, err.Error(), "MyClass")
+	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
+	require.Contains(t, err.Error(), "retry after the migration finishes")
 }
 
+// TestShard_HaltForTransfer_RefusesWhenReindexInFlight asserts that
+// the shard-level halt-for-backup path delegates the gate decision to
+// the same DTM-backed lookup as the inactive-shard path.
 func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 	ctx := testCtx()
 	className := "ShardHaltRefuseClass"
-	shd, _ := testShard(t, ctx, className)
+	shd, idx := testShard(t, ctx, className)
 
-	migsDir := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	dirName := "searchable_retokenize_body_1"
+	// Install the activity lookup so the gate sees a live task.
+	require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
+	idx.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{className, shd.Name()}: true,
+	}))
 
-	makeTracker(t, migsDir, dirName, "started.mig", "reindexed.mig")
 	err := shd.HaltForTransfer(ctx, false, 100*time.Millisecond)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrBackupBlockedByInFlightReindex))
-	require.Contains(t, err.Error(), dirName)
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
+	require.Contains(t, err.Error(), shd.Name())
 
-	require.NoError(t, os.WriteFile(
-		filepath.Join(migsDir, dirName, "tidied.mig"), nil, 0o600))
+	// Flip the lookup so the next call allows the halt; this also
+	// proves the gate consults a fresh snapshot rather than a cached
+	// boolean.
+	idx.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
 
 	require.NoError(t, shd.HaltForTransfer(ctx, false, 100*time.Millisecond))
-	// Pair the halt with a resume so test teardown can proceed cleanly.
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
 
@@ -296,10 +206,12 @@ func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 	ctx := testCtx()
 	className := "ShardHaltOffloadClass"
-	shd, _ := testShard(t, ctx, className)
+	shd, idx := testShard(t, ctx, className)
 
-	migsDir := filepath.Join(shd.(*Shard).pathLSM(), ".migrations")
-	makeTracker(t, migsDir, "searchable_retokenize_body_1", "started.mig", "reindexed.mig")
+	require.NotNil(t, idx.db, "test shard fixture must wire idx.db")
+	idx.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{className, shd.Name()}: true,
+	}))
 
 	require.NoError(t, shd.HaltForTransfer(ctx, true, 100*time.Millisecond))
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))

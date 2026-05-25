@@ -22,7 +22,7 @@ import (
 //
 // Three concerns need to agree on these names:
 //  1. Each strategy's MigrationDirName() return value (the writer side).
-//  2. The startup finalizer (migrationSuffixes in inverted_reindex_finalize.go),
+//  2. The startup finalizer (MigrationSuffixes in inverted_reindex_finalize.go),
 //     which scans .migrations/ before buckets are loaded and decides which
 //     directory rename / cleanup recipe to apply.
 //  3. Debug endpoints (handlers_debug_bmw_aux.go) that touch the migration

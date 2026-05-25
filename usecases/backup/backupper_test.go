@@ -231,7 +231,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
@@ -266,7 +266,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
 		err := m.OnAbort(ctx, &AbortRequest{OpCreate, req.ID, backendName, "", "", ""})
@@ -302,7 +302,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Hour
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{OpCreate, req.ID, _TimeoutShardCommit, ""}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: _TimeoutShardCommit}
 		assert.Equal(t, got, want)
 
 		err := m.OnCommit(ctx, &StatusRequest{OpCreate, req.ID, backendName, "", "", ""})
@@ -338,7 +338,7 @@ func TestManagerCoordinatedBackup(t *testing.T) {
 		req := req
 		req.Duration = time.Millisecond * 10
 		got := m.OnCanCommit(ctx, &req)
-		want := &CanCommitResponse{OpCreate, req.ID, req.Duration, ""}
+		want := &CanCommitResponse{Method: OpCreate, ID: req.ID, Timeout: req.Duration}
 		assert.Equal(t, got, want)
 
 		m.backupper.waitForCompletion(20, 50)

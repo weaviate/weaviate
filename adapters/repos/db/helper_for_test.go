@@ -213,6 +213,28 @@ func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
+// installNoLiveReindexLookup installs a ShardReindexActivityLookup
+// that reports zero live reindex tasks. Used by test fixtures so
+// Shard.HaltForTransfer / Index.refuseIfReindexInFlight do not trip
+// the conservative pre-wire refusal during tests that do not
+// exercise the gate. Tests that exercise the gate overwrite this
+// with their own lookup.
+func installNoLiveReindexLookup(db *DB) {
+	db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return false }
+	})
+}
+
+// stubDBWithNoLiveReindex returns a minimally initialized *DB that
+// installs the no-live-reindex lookup. Useful for backup tests that
+// build a bare &Index{} literal without going through New() or the
+// shard fixtures.
+func stubDBWithNoLiveReindex() *DB {
+	db := &DB{}
+	installNoLiveReindexLookup(db)
+	return db
+}
+
 func testShard(t *testing.T, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
 		false, false, false, indexOpts...)
@@ -265,6 +287,12 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
 		shardState: shardState,
 	})
+
+	// Default empty backup-gate activity lookup so the pre-wire
+	// conservative refusal does not fire for fixtures that never
+	// exercise the gate. See setupTestShardWithSettings for the
+	// per-test counterpart.
+	installNoLiveReindexLookup(db)
 
 	require.Nil(t, db.WaitForStartup(t.Context()))
 	t.Cleanup(func() {

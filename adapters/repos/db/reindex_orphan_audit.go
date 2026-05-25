@@ -17,40 +17,143 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
-// reindex.KnownReindexTaskLookup reports whether (taskID, taskVersion) is live
-// in the DTM scheduler snapshot. One instance is built per audit
+// [reindex.KnownReindexTaskLookup] reports whether (taskID, taskVersion)
+// is live in the DTM scheduler snapshot. One instance is built per audit
 // invocation so all per-tracker classifications share a consistent
-// snapshot.
-// reindex.KnownReindexTaskLookupBuilder returns a fresh [reindex.KnownReindexTaskLookup]
-// for one audit invocation.
+// snapshot. [reindex.KnownReindexTaskLookupBuilder] returns a fresh
+// [reindex.KnownReindexTaskLookup] for one audit invocation.
+
+// AuditOutcomeStatus distinguishes the three operationally distinct
+// reasons an [DB.AuditOrphanReindexTrackers] invocation can return
+// without an error. Closes S4 (collapsed three outcomes into one
+// silent nil): callers and operators now have a typed signal for
+// "audit sweep ran" vs. "audit deferred" vs. "audit ran but some
+// per-tracker cleanups failed".
+type AuditOutcomeStatus int
+
+const (
+	// AuditStatusSkipped: deps not installed, root path empty, or
+	// root path unreadable. No tracker dirs were inspected. The
+	// audit's startup retry path is expected to retry later.
+	AuditStatusSkipped AuditOutcomeStatus = iota
+	// AuditStatusRan: the sweep traversed every shard under
+	// RootPath and inspected every .migrations tracker. No orphans
+	// found AND no per-tracker errors. The expected steady-state
+	// outcome.
+	AuditStatusRan
+	// AuditStatusOrphansFound: the sweep ran end-to-end and at
+	// least one orphan tracker was identified and successfully
+	// cleaned.
+	AuditStatusOrphansFound
+	// AuditStatusPartialFail: the sweep ran end-to-end but at
+	// least one per-tracker cleanup failed (e.g. PauseCompaction
+	// timed out, os.RemoveAll returned EACCES). Other trackers may
+	// have been cleaned successfully. Operators must investigate;
+	// the next process restart will retry the failed dirs.
+	AuditStatusPartialFail
+)
+
+// String returns the stable, lower-snake-case label used in logs and
+// (in the future) metrics labels.
+func (s AuditOutcomeStatus) String() string {
+	switch s {
+	case AuditStatusSkipped:
+		return "skipped"
+	case AuditStatusRan:
+		return "ran"
+	case AuditStatusOrphansFound:
+		return "orphans_found"
+	case AuditStatusPartialFail:
+		return "partial_fail"
+	}
+	return "unknown"
+}
+
+// AuditOutcome is the typed result returned by
+// [DB.AuditOrphanReindexTrackers] and the no-arg wrapper
+// [DB.AuditOrphanReindexTrackersIfReady]. Every successful invocation
+// emits one Info-level log line with these counters so absence of the
+// line is detectable in operator logs (S4 fix).
+type AuditOutcome struct {
+	Status       AuditOutcomeStatus
+	ScannedCount int
+	OrphansFound int
+	OrphansClean int
+	FailedDirs   []string
+	SkipReason   string
+}
+
 // SetReindexAuditDeps installs the builder and logger used by
-// [DB.AuditOrphanReindexTrackersIfReady].
+// [DB.AuditOrphanReindexTrackersIfReady]. If
+// [DB.AuditOrphanReindexTrackersIfReady] was invoked one or more times
+// before this call (race between RAFT replay firing per-class-dir
+// restores and the Scheduler.Start goroutine that installs deps), the
+// counter is non-zero and a single replay sweep runs synchronously so
+// the deferred audit work is not silently lost. Closes B2.
+//
+// Callers must therefore invoke SetReindexAuditDeps with the audit
+// context they want any replay sweep to inherit; a closed context will
+// cause the replay sweep to early-return on PauseCompaction.
 func (db *DB) SetReindexAuditDeps(builder reindex.KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
 	db.reindexAuditMu.Lock()
-	defer db.reindexAuditMu.Unlock()
 	db.reindexAuditLookupBuilder = builder
 	db.reindexAuditLogger = logger
+	deferred := db.reindexAuditDeferredRequests
+	db.reindexAuditDeferredRequests = 0
+	db.reindexAuditMu.Unlock()
+
+	if deferred == 0 || builder == nil {
+		return
+	}
+	replayLogger := logger
+	if replayLogger == nil {
+		replayLogger = logrus.New()
+	}
+	replayLogger.WithField("action", "reindex_orphan_audit").
+		WithField("deferred_requests", deferred).
+		Info("reindex orphan audit: replaying audits requested before deps were installed (B2 race window)")
+	if _, err := db.AuditOrphanReindexTrackers(context.Background(), builder(), logger); err != nil {
+		replayLogger.WithField("action", "reindex_orphan_audit").
+			Warnf("reindex orphan audit: deferred-replay sweep returned an error; the next process restart will retry: %v", err)
+	}
 }
 
 // AuditOrphanReindexTrackersIfReady is the no-arg wrapper for callers
-// without the lookup builder in scope (e.g. the post-restore
-// RestoreClassDir hook). Returns nil when deps are not yet installed;
-// the startup audit will sweep later.
-func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) error {
-	db.reindexAuditMu.RLock()
+// without the lookup builder in scope. The post-restore hook lives in
+// `adapters/handlers/rest/configure_api.go`'s `restoreClassDirWithAudit`
+// closure (around line 711) which wraps `backup.RestoreClassDir`.
+// Returns an outcome with Status==Skipped when deps are not yet
+// installed; the deferred-request counter is incremented so
+// [DB.SetReindexAuditDeps] replays the audit when deps land. A WARN
+// log is emitted on the skip path so the no-op is detectable. Closes B2.
+func (db *DB) AuditOrphanReindexTrackersIfReady(ctx context.Context) (AuditOutcome, error) {
+	db.reindexAuditMu.Lock()
 	builder := db.reindexAuditLookupBuilder
 	logger := db.reindexAuditLogger
-	db.reindexAuditMu.RUnlock()
 	if builder == nil {
-		return nil
+		db.reindexAuditDeferredRequests++
+		deferredNow := db.reindexAuditDeferredRequests
+		db.reindexAuditMu.Unlock()
+		warnLogger := logger
+		if warnLogger == nil {
+			warnLogger = logrus.New()
+		}
+		warnLogger.WithField("action", "reindex_orphan_audit").
+			WithField("deferred_requests", deferredNow).
+			Warn("reindex orphan audit: deps not yet installed; deferring audit until SetReindexAuditDeps lands. " +
+				"If this WARN persists past process startup, the install path is broken.")
+		return AuditOutcome{
+			Status:     AuditStatusSkipped,
+			SkipReason: "deps_not_installed",
+		}, nil
 	}
+	db.reindexAuditMu.Unlock()
 	return db.AuditOrphanReindexTrackers(ctx, builder(), logger)
 }
 
@@ -84,7 +187,13 @@ func (o *orphanReindexTracker) String() string {
 // Calls [Shard.CleanStalePartialReindexState] per (property, indexType)
 // for loaded shards; cold lazy MT shards are skipped and re-evaluated
 // at next activation. Best-effort: per-orphan errors are logged.
-func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask reindex.KnownReindexTaskLookup, logger logrus.FieldLogger) error {
+//
+// Returns a typed [AuditOutcome] so callers can distinguish "audit
+// skipped because deps missing" from "audit ran and found N orphans"
+// from "audit ran but K cleanups failed". The outcome is also logged
+// at Info level on every successful invocation (S4 fix: absence of
+// that log line in operator dashboards is now detectable).
+func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask reindex.KnownReindexTaskLookup, logger logrus.FieldLogger) (AuditOutcome, error) {
 	if logger == nil {
 		logger = logrus.New()
 	}
@@ -92,36 +201,43 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask reindex.
 		// A nil lookup would misclassify every in-flight migration as an
 		// orphan. Refuse rather than auto-quarantine on a normal restart.
 		logger.Error("reindex orphan audit: reindex.KnownReindexTaskLookup is nil; skipping audit")
-		return fmt.Errorf("reindex orphan audit: reindex.KnownReindexTaskLookup is nil")
+		return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "nil_lookup"},
+			fmt.Errorf("reindex orphan audit: reindex.KnownReindexTaskLookup is nil")
 	}
 
 	auditLogger := logger.WithField("action", "reindex_orphan_audit")
 
 	rootPath := db.config.RootPath
 	if rootPath == "" {
-		return nil
+		auditLogger.Warn("reindex orphan audit: RootPath empty; skipping audit. This should not happen in steady-state; check DB.config wiring.")
+		return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "empty_root_path"}, nil
 	}
 
 	indexEntries, err := os.ReadDir(rootPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			auditLogger.WithField("path", rootPath).
+				Info("reindex orphan audit: root path does not exist; skipping audit (no shards on disk)")
+			return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "root_path_missing"}, nil
 		}
 		auditLogger.WithField("path", rootPath).
 			Warnf("reindex orphan audit: cannot read root path; skipping audit: %v", err)
-		return nil
+		return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "root_path_unreadable"}, nil
 	}
 
 	// Snapshot loaded indexes so per-shard cleanup can route through
 	// in-memory state when the shard is loaded.
-	db.indexLock.RLock()
-	loadedByID := make(map[string]*Index, len(db.indices))
-	for id, idx := range db.indices {
-		loadedByID[id] = idx
-	}
-	db.indexLock.RUnlock()
+	loadedByID := func() map[string]*Index {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+		snapshot := make(map[string]*Index, len(db.indices))
+		for id, idx := range db.indices {
+			snapshot[id] = idx
+		}
+		return snapshot
+	}()
 
-	var orphanCount int
+	outcome := AuditOutcome{Status: AuditStatusRan}
 	for _, indexEntry := range indexEntries {
 		if !indexEntry.IsDir() {
 			continue
@@ -153,8 +269,30 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask reindex.
 				}
 				shardName := shardEntry.Name()
 				lsmPath := filepath.Join(indexPath, shardName, "lsm")
+				outcome.ScannedCount++
 				orphans := collectOrphanTrackers(lsmPath, collection, shardName, knownTask, auditLogger)
 				if len(orphans) == 0 {
+					// No orphans this sweep: clear any stale quarantine
+					// sentinels — a tracker that flipped back to "known
+					// live" between sweeps must not retain its quarantine
+					// or a subsequent legitimately-orphan sweep would
+					// immediately destroy it.
+					clearStaleQuarantineSentinels(lsmPath, knownTask, auditLogger)
+					continue
+				}
+				outcome.OrphansFound += len(orphans)
+
+				// S2: gate destructive cleanup on a quarantine window.
+				// On first detection, partitionOrphansByQuarantine writes
+				// audit_quarantined.mig into each tracker dir and returns
+				// only the orphans whose sentinel is older than
+				// reindexAuditQuarantineWindow. A stale single-node DTM
+				// snapshot (typical on a freshly-rejoined follower)
+				// loses by default: the audit emits a WARN, sleeps the
+				// quarantine window, and re-evaluates with fresh DTM
+				// state on the next sweep.
+				confirmed := partitionOrphansByQuarantine(lsmPath, orphans, auditLogger)
+				if len(confirmed) == 0 {
 					continue
 				}
 				var shard *Shard
@@ -165,30 +303,99 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask reindex.
 						}
 					}
 				}
+				var cleaned int
+				var failed []string
 				if shard != nil {
-					orphanCount += db.cleanLoadedShardOrphans(ctx, shard, orphans, auditLogger)
+					cleaned, failed = db.cleanLoadedShardOrphans(ctx, shard, confirmed, auditLogger)
 				} else {
-					orphanCount += cleanUnloadedShardOrphans(lsmPath, orphans, auditLogger)
+					cleaned, failed = cleanUnloadedShardOrphans(lsmPath, confirmed, auditLogger)
 				}
+				outcome.OrphansClean += cleaned
+				outcome.FailedDirs = append(outcome.FailedDirs, failed...)
 			}
 		}
 		processIndex()
 	}
 
-	if orphanCount > 0 {
-		auditLogger.WithField("orphan_count", orphanCount).
-			Warn("reindex orphan audit: cleanup complete")
-	} else {
-		auditLogger.Debug("reindex orphan audit: no orphan trackers found")
+	if len(outcome.FailedDirs) > 0 {
+		outcome.Status = AuditStatusPartialFail
+	} else if outcome.OrphansFound > 0 {
+		outcome.Status = AuditStatusOrphansFound
 	}
-	return nil
+
+	// Single canonical Info log emitted on every successful audit
+	// sweep. Absence of this line in operator logs is the detection
+	// signal for "audit silently skipped".
+	auditLogger.
+		WithField("status", outcome.Status.String()).
+		WithField("scanned_count", outcome.ScannedCount).
+		WithField("orphans_found", outcome.OrphansFound).
+		WithField("orphans_cleaned", outcome.OrphansClean).
+		WithField("failed_dirs", len(outcome.FailedDirs)).
+		Infof("reindex orphan audit: complete (status=%s scanned=%d orphans=%d cleaned=%d failed=%d)",
+			outcome.Status, outcome.ScannedCount, outcome.OrphansFound,
+			outcome.OrphansClean, len(outcome.FailedDirs))
+	return outcome, nil
 }
+
+// processStartTime captures the moment of process startup so the
+// audit can distinguish tracker dirs whose payload.mig was simply not
+// flushed yet (post-process-start, in-flight) from pre-PR cluster
+// state (pre-process-start, no payload.mig will ever land because the
+// writer side did not exist on the source cluster). Initialised once
+// at package init: the audit may run multiple times, but the
+// distinction is "was this tracker on disk before this process
+// existed?", which only the first-boot timestamp can answer.
+//
+// Subtle: a tracker dir created shortly before process start but read
+// shortly after will be classified as legacy. That is correct: the
+// only writer to .migrations/ on this process is ReindexProvider,
+// which writes payload.mig BEFORE creating started.mig. Any tracker
+// dir on disk at process start without payload.mig is therefore not
+// one this process wrote and must come from either a pre-PR cluster
+// version, a backup-restored class dir from such a cluster, or a
+// crash that interleaved between the not-yet-existent payload.mig
+// write and an earlier-version started.mig write (impossible on this
+// branch).
+var processStartTime = time.Now()
+
+// reindexAuditQuarantineFile is the sentinel file the audit writes
+// into a tracker dir on first orphan detection (S2 quarantine).
+// Subsequent audits read its mtime to gate the destructive cleanup
+// behind the quarantine window. Concrete file name lives here so the
+// inverted_reindex_finalize.go startup finalizer (which also iterates
+// .migrations/) cannot accidentally consume it as a sentinel.
+const reindexAuditQuarantineFile = "audit_quarantined.mig"
+
+// reindexAuditQuarantineWindow is the minimum age (mtime) of
+// audit_quarantined.mig before the next audit sweep is allowed to
+// commit to destructive cleanup. 5 minutes is the balance point: long
+// enough for a freshly-rejoined follower to catch up RAFT and observe
+// the leader's full DTM state via the next audit's
+// ListDistributedTasks; short enough that operators expecting
+// post-restore audit cleanup do not see indefinite delay.
+//
+// On a follower that mis-classified a live migration as orphan due to
+// stale RAFT (S2), the second audit will see the same tracker but with
+// fresh DTM state from the leader → classification flips to "known
+// live" → quarantine sentinel is removed without destruction.
+const reindexAuditQuarantineWindow = 5 * time.Minute
 
 // collectOrphanTrackers walks <lsmPath>/.migrations/ and returns every
 // tracker dir classified as an orphan (started.mig present,
 // tidied.mig/merged.mig absent, payload.mig parseable, and the
 // referenced task not known to DTM). Read-only; cleanup is the
 // caller's job.
+//
+// M8: a tracker dir with started.mig but NO payload.mig is the
+// pre-PR-cluster shape. We treat it as a class-level orphan iff the
+// tracker dir's mtime is at or before processStartTime — meaning the
+// dir predates this process and is not in-flight. The orphan has no
+// properties/indexTypes (the missing payload.mig is exactly the loss
+// of that information) so the cleanup path falls back to direct
+// tracker-dir removal. Newer trackers without payload.mig (mtime
+// after process start) are skipped with a WARN and left for the next
+// audit invocation — they may still be mid-flush.
 func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask reindex.KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
@@ -214,9 +421,43 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask rein
 		}
 		rec, recOK := loadAuditRecord(trackerPath)
 		if !recOK {
+			// M8: distinguish pre-PR legacy state (no payload.mig will
+			// ever land — the writer did not exist on the source
+			// cluster) from a tracker we're racing the writer on.
+			legacy, mtime, classifyErr := isLegacyTrackerWithoutPayload(trackerPath)
+			if classifyErr != nil {
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).
+					Warnf("reindex orphan audit: tracker missing payload.mig and mtime unreadable; manual cleanup may be needed: %v", classifyErr)
+				continue
+			}
+			if !legacy {
+				// Tracker dir created post-process-start: a write
+				// could still be in flight. Leave for next audit.
+				logger.WithField("collection", collection).WithField("shard", shardName).
+					WithField("tracker", dirName).WithField("tracker_mtime", mtime).
+					Warn("reindex orphan audit: tracker missing payload.mig but mtime is post-process-start; " +
+						"leaving for next audit invocation (writer race or upstream bug)")
+				continue
+			}
+			// Pre-PR cluster orphan: enqueue as class-level cleanup.
+			// We cannot recover taskID / properties / indexTypes
+			// (they were never persisted), so the loaded-shard
+			// fallback in cleanupOrphanTrackerCompactionPaused
+			// removes the tracker dir directly to reclaim disk.
 			logger.WithField("collection", collection).WithField("shard", shardName).
-				WithField("tracker", dirName).
-				Warn("reindex orphan audit: tracker missing payload.mig; manual cleanup may be needed")
+				WithField("tracker", dirName).WithField("tracker_mtime", mtime).
+				Warn("reindex orphan audit: pre-PR-cluster tracker dir without payload.mig (mtime <= process start); quarantining as class-level orphan")
+			orphans = append(orphans, orphanReindexTracker{
+				collection: collection,
+				shardName:  shardName,
+				dirName:    dirName,
+				prefix:     prefix,
+				generation: generation,
+				// Empty taskID / properties / indexTypes drives the
+				// class-level cleanup branch in
+				// cleanupOrphanTrackerCompactionPaused.
+			})
 			continue
 		}
 		if knownTask(rec.TaskID, rec.TaskVersion) {
@@ -238,21 +479,178 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask rein
 	return orphans
 }
 
+// isLegacyTrackerWithoutPayload returns true if the tracker dir was
+// last modified at or before this process started, signalling
+// pre-PR-cluster state with no payload.mig. Returns the mtime so
+// callers can include it in logs for forensics.
+func isLegacyTrackerWithoutPayload(trackerPath string) (bool, time.Time, error) {
+	info, err := os.Stat(trackerPath)
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	mtime := info.ModTime()
+	return !mtime.After(processStartTime), mtime, nil
+}
+
+// partitionOrphansByQuarantine implements the S2 two-pass safeguard:
+//   - For each orphan, if audit_quarantined.mig is absent → write it
+//     and skip cleanup this sweep. Operator-visible WARN emitted.
+//   - If audit_quarantined.mig is present but its mtime is younger than
+//     reindexAuditQuarantineWindow → still inside the quarantine
+//     window; skip cleanup this sweep. WARN emitted.
+//   - If audit_quarantined.mig is present and its mtime is at or older
+//     than reindexAuditQuarantineWindow → quarantine confirmed; orphan
+//     passes through to destructive cleanup.
+//
+// Effect: a stale single-node DTM snapshot (e.g. a follower that has
+// not caught up RAFT) causes the audit to QUARANTINE on the first
+// sweep but NOT delete; a future audit running with fresh DTM state
+// will either confirm (truly an orphan) or clear the sentinel
+// (lookup flipped to "known live", handled by
+// clearStaleQuarantineSentinels).
+//
+// Per-orphan disk writes are best-effort; a sentinel-write failure
+// passes the orphan through to cleanup (the legacy behavior) on the
+// theory that a permanently-broken disk path is worse than a missed
+// quarantine. Audit logs include the failure so operators can spot a
+// pattern of disk failures.
+func partitionOrphansByQuarantine(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) []orphanReindexTracker {
+	confirmed := make([]orphanReindexTracker, 0, len(orphans))
+	for i := range orphans {
+		o := &orphans[i]
+		trackerPath := filepath.Join(lsmPath, ".migrations", o.dirName)
+		sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
+		info, err := os.Stat(sentinelPath)
+		switch {
+		case err == nil:
+			age := time.Since(info.ModTime())
+			if age >= reindexAuditQuarantineWindow {
+				logger.WithField("orphan", o.String()).
+					WithField("quarantine_age", age.String()).
+					Warn("reindex orphan audit: quarantine window elapsed; confirming destructive cleanup")
+				confirmed = append(confirmed, *o)
+			} else {
+				logger.WithField("orphan", o.String()).
+					WithField("quarantine_age", age.String()).
+					WithField("quarantine_window", reindexAuditQuarantineWindow.String()).
+					Warn("reindex orphan audit: orphan still inside quarantine window; deferring cleanup to next audit sweep")
+			}
+		case os.IsNotExist(err):
+			if writeErr := writeQuarantineSentinel(trackerPath); writeErr != nil {
+				// Disk write failed. Pass through to cleanup with a
+				// distinct WARN so the destructive path is traceable
+				// to the missed quarantine.
+				logger.WithField("orphan", o.String()).
+					Warnf("reindex orphan audit: could not write quarantine sentinel; falling back to immediate destructive cleanup: %v", writeErr)
+				confirmed = append(confirmed, *o)
+				continue
+			}
+			logger.WithField("orphan", o.String()).
+				WithField("quarantine_window", reindexAuditQuarantineWindow.String()).
+				Warn("reindex orphan audit: orphan tracker detected; quarantining for second-sweep confirmation before destructive cleanup")
+		default:
+			// Sentinel stat failed with a non-ENOENT error (EACCES,
+			// EIO, etc.). Pass through to cleanup with a WARN — same
+			// rationale as the writeErr branch.
+			logger.WithField("orphan", o.String()).
+				Warnf("reindex orphan audit: could not stat quarantine sentinel; falling back to immediate destructive cleanup: %v", err)
+			confirmed = append(confirmed, *o)
+		}
+	}
+	return confirmed
+}
+
+// writeQuarantineSentinel creates audit_quarantined.mig in trackerPath
+// with the current time as mtime. The file's mtime is the
+// authoritative timestamp the next audit compares against
+// reindexAuditQuarantineWindow.
+func writeQuarantineSentinel(trackerPath string) error {
+	sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
+	f, err := os.OpenFile(sentinelPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		// EEXIST is benign — a concurrent audit may have written it.
+		if os.IsExist(err) {
+			return nil
+		}
+		return fmt.Errorf("create quarantine sentinel %q: %w", sentinelPath, err)
+	}
+	return f.Close()
+}
+
+// clearStaleQuarantineSentinels removes audit_quarantined.mig from
+// tracker dirs whose recovery record (now / freshly-evaluated) maps
+// to a known-live DTM task. Called per-shard when the orphan list is
+// empty: it covers the case where a previous audit sweep mis-
+// classified a live migration as orphan (e.g. follower with stale
+// RAFT) and wrote a quarantine sentinel — the subsequent sweep on a
+// caught-up follower sees the same tracker as "known live" and must
+// clear the sentinel so a future legitimate orphan classification
+// does not inherit the prior quarantine age.
+//
+// Errors are logged at Warn and never propagated: the worst case is
+// a stale sentinel that converts a future-detected orphan into an
+// immediate destructive cleanup — at which point the orphan was
+// real and the operator visibility is preserved.
+func clearStaleQuarantineSentinels(lsmPath string, knownTask reindex.KnownReindexTaskLookup, logger logrus.FieldLogger) {
+	migsDir := filepath.Join(lsmPath, ".migrations")
+	entries, err := os.ReadDir(migsDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dirName := entry.Name()
+		trackerPath := filepath.Join(migsDir, dirName)
+		sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
+		if !reindex.FileExists(sentinelPath) {
+			continue
+		}
+		rec, recOK := loadAuditRecord(trackerPath)
+		if !recOK {
+			continue
+		}
+		if !knownTask(rec.TaskID, rec.TaskVersion) {
+			// Tracker is still classified as orphan from the
+			// recovery-record perspective; the empty-orphans branch
+			// got here only because collectOrphanTrackers already
+			// filtered upstream (e.g. tracker has tidied.mig now).
+			// Either way the sentinel is now load-bearing for a
+			// future orphan sweep, so leave it alone.
+			continue
+		}
+		if rmErr := os.Remove(sentinelPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.WithField("tracker", dirName).
+				Warnf("reindex orphan audit: failed to clear stale quarantine sentinel after task flipped back to known-live: %v", rmErr)
+		}
+	}
+}
+
 // cleanLoadedShardOrphans cleans every orphan on the shard under a
 // single PauseCompaction window. A per-orphan pause/resume cycle would
 // race the cycle manager: the resume between orphans lets a fresh
 // compaction start on the next sidecar bucket, and the next pause
 // times out trying to drain it.
-func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans []orphanReindexTracker, logger logrus.FieldLogger) int {
+//
+// Returns (cleanedCount, failedDirs) so the audit driver can roll up
+// per-shard results into the typed [AuditOutcome] (S4).
+func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans []orphanReindexTracker, logger logrus.FieldLogger) (int, []string) {
 	if len(orphans) == 0 {
-		return 0
+		return 0, nil
 	}
 	pauseCtx, cancelPause := context.WithTimeout(ctx, orphanCleanupPauseTimeout)
 	defer cancelPause()
 	if err := shard.Store().PauseCompaction(pauseCtx); err != nil {
 		logger.WithField("collection", orphans[0].collection).WithField("shard", orphans[0].shardName).
 			Warnf("reindex orphan audit: failed to pause compaction; skipping shard cleanup: %v", err)
-		return 0
+		// Every orphan on this shard counts as a failed cleanup so the
+		// outcome captures the shard's missed work.
+		failed := make([]string, 0, len(orphans))
+		for i := range orphans {
+			failed = append(failed, orphans[i].dirName)
+		}
+		return 0, failed
 	}
 	// Resume must fire even if the audit ctx was canceled.
 	defer func() {
@@ -263,6 +661,7 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 	}()
 
 	cleaned := 0
+	var failed []string
 	for i := range orphans {
 		o := &orphans[i]
 		logger.WithField("orphan", o.String()).
@@ -270,19 +669,24 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 		if err := db.cleanupOrphanTrackerCompactionPaused(ctx, shard, o, logger); err != nil {
 			logger.WithField("orphan", o.String()).
 				Warnf("reindex orphan audit: cleanup failed for tracker: %v", err)
+			failed = append(failed, o.dirName)
 			continue
 		}
 		cleaned++
 	}
-	return cleaned
+	return cleaned, failed
 }
 
 // cleanUnloadedShardOrphans removes orphan tracker dirs and their
 // matching sidecar bucket dirs directly from disk. Used when the shard
 // has not been loaded into the live DB; no in-memory bucket pointers
 // or GlobalBucketRegistry entries exist for the orphan.
-func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) int {
+//
+// Returns (cleanedCount, failedDirs) so the audit driver can roll up
+// per-shard results into the typed [AuditOutcome] (S4).
+func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, logger logrus.FieldLogger) (int, []string) {
 	cleaned := 0
+	var failed []string
 	for i := range orphans {
 		o := &orphans[i]
 		logger.WithField("orphan", o.String()).
@@ -291,56 +695,82 @@ func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, l
 		if err := os.RemoveAll(trackerPath); err != nil {
 			logger.WithField("orphan", o.String()).
 				Warnf("reindex orphan audit: failed to remove orphan tracker dir: %v", err)
+			failed = append(failed, o.dirName)
 			continue
 		}
 		removeUnloadedSidecarsForOrphan(lsmPath, o, logger)
 		cleaned++
 	}
-	return cleaned
+	return cleaned, failed
 }
 
 // removeUnloadedSidecarsForOrphan removes per-property sidecar bucket
-// directories that match the orphan's per-property prefix and
-// generation. The strategy-specific suffix is unknown without the
-// strategy instance, so it scans the lsm dir and matches by canonical
-// property prefix and the _<N> generation suffix.
+// directories owned by the orphan tracker. Routes through the strategy
+// registry (reindex.MigrationSuffixes) keyed by the orphan's tracker dirName
+// — the strategy's MigrationDirName() and IngestSuffix/BackupSuffix/
+// ReindexSuffix methods are the single source of truth for the on-disk
+// dir layout (S3 fix). Falls back to no-op if the tracker dirName does
+// not match any registered strategy: defensive, but it also means a
+// future strategy added to reindex.MigrationSuffixes will be picked up here
+// automatically.
+//
+// Sidecar dir names that this consults:
+//   - <main>__<ingestSuffix>_<gen>      (ingest sidecar)
+//   - <main>__<backupSuffix>_<gen>      (backup sidecar)
+//   - <main>__<reindexSuffix>_<gen>     (reindex sidecar)
+//
+// where `<main>` is the strategy's sourceBucketName(propName) for the
+// canonical bucket the migration writes back to. The strategy decides
+// what those names are — the audit MUST NOT re-derive them by string
+// prefix.
 func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, logger logrus.FieldLogger) {
-	entries, err := os.ReadDir(lsmPath)
-	if err != nil {
-		return
+	for _, sidecar := range sidecarDirsForOrphan(o) {
+		path := filepath.Join(lsmPath, sidecar)
+		if !reindex.FileExists(path) {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			logger.WithField("path", path).
+				Warnf("reindex orphan audit: failed to remove orphan sidecar dir: %v", err)
+		}
 	}
-	genSuffixStr := reindex.GenSuffixForDebug(o.generation)
+}
+
+// sidecarDirsForOrphan returns the lsm-relative sidecar bucket dir
+// names the strategy registry says are owned by this orphan's tracker
+// dir + property set + generation. Computed by consulting
+// [reindex.MigrationSuffixes] keyed off the orphan's tracker dirName:
+// the strategy itself owns the IngestSuffix / BackupSuffix /
+// ReindexSuffix tail base, and the audit appends the matching
+// `_<gen>` to each. Returns an empty slice when the tracker dirName
+// does not match any registered strategy or when the orphan carries
+// no properties (class-level cleanup is handled by the caller via
+// direct tracker-dir removal).
+//
+// Closes S3 by routing through the strategy registry instead of
+// re-deriving sidecar names by hard-coded string prefix.
+func sidecarDirsForOrphan(o *orphanReindexTracker) []string {
+	if len(o.properties) == 0 {
+		return nil
+	}
+	suffixes := reindex.MigrationSuffixes(o.dirName)
+	if suffixes == nil {
+		return nil
+	}
+	reindexSuffix := reindex.ReindexSuffixForFinalize(o.prefix)
+	genTail := reindex.GenSuffix(o.generation)
+	out := make([]string, 0, 3*len(o.properties))
 	for _, propName := range o.properties {
-		prefixes := []string{
-			"property_" + propName + "__",
-			"property_" + propName + "_searchable__",
-			"property_" + propName + "_rangeable__",
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			matched := false
-			for _, p := range prefixes {
-				if strings.HasPrefix(name, p) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				continue
-			}
-			if !strings.HasSuffix(name, genSuffixStr) {
-				continue
-			}
-			path := filepath.Join(lsmPath, name)
-			if err := os.RemoveAll(path); err != nil {
-				logger.WithField("path", path).
-					Warnf("reindex orphan audit: failed to remove orphan sidecar dir: %v", err)
-			}
+		main := suffixes.SourceBucketName(propName)
+		out = append(out,
+			main+suffixes.IngestSuffix+genTail,
+			main+suffixes.BackupSuffix+genTail,
+		)
+		if reindexSuffix != "" {
+			out = append(out, main+reindexSuffix+genTail)
 		}
 	}
+	return out
 }
 
 // orphanCleanupPauseTimeout bounds how long the audit waits for an

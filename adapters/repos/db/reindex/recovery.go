@@ -176,13 +176,13 @@ func DiscoverInFlightReindexTasks(
 // shard init from on-disk state.
 func loadReindexRecoveryRecord(migDir string, logger logrus.FieldLogger) (ReindexRecoveryRecord, bool) {
 	var rec ReindexRecoveryRecord
-	if !fileExists(filepath.Join(migDir, "started.mig")) {
+	if !FileExists(filepath.Join(migDir, "started.mig")) {
 		return rec, false
 	}
-	if !fileExists(filepath.Join(migDir, "reindexed.mig")) {
+	if !FileExists(filepath.Join(migDir, "reindexed.mig")) {
 		return rec, false
 	}
-	if fileExists(filepath.Join(migDir, "tidied.mig")) {
+	if FileExists(filepath.Join(migDir, "tidied.mig")) {
 		return rec, false
 	}
 	payloadPath := filepath.Join(migDir, ReindexRecoveryPayloadFile)

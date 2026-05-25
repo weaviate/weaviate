@@ -246,8 +246,8 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 			// this branch never produces such entries; defensive.
 			continue
 		}
-		tidied := fileExists(filepath.Join(migrationsDir, name, "tidied.mig"))
-		merged := fileExists(filepath.Join(migrationsDir, name, "merged.mig"))
+		tidied := FileExists(filepath.Join(migrationsDir, name, "tidied.mig"))
+		merged := FileExists(filepath.Join(migrationsDir, name, "merged.mig"))
 		groups[namespace] = append(groups[namespace], genInfo{
 			dirName: name,
 			gen:     gen,
@@ -367,7 +367,7 @@ func FinalizeCompletedMigrations(lsmPath string, logger logrus.FieldLogger) {
 func writeRecoveryTidiedSentinels(migDir string) error {
 	for _, name := range []string{"swapped.mig", "tidied.mig"} {
 		p := filepath.Join(migDir, name)
-		if fileExists(p) {
+		if FileExists(p) {
 			continue
 		}
 		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
@@ -384,7 +384,7 @@ func writeRecoveryTidiedSentinels(migDir string) error {
 // removeStaleSidecarsForGen removes the `__<...>_<gen>` sidecar dirs
 // (reindex/ingest/backup) belonging to an older, superseded generation
 // of a finalized migration. Looks up the per-strategy suffix bases via
-// `migrationSuffixes` (which now returns the suffix bases without the
+// `MigrationSuffixes` (which now returns the suffix bases without the
 // `_<N>` part) and removes any matching dir for the specific `_<gen>`.
 //
 // Props are read from the older gen's `properties.mig` (or recovered
@@ -392,7 +392,7 @@ func writeRecoveryTidiedSentinels(migDir string) error {
 // latter is defensive against partial pre-migration state).
 func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus.FieldLogger) {
 	migDir := filepath.Join(lsmPath, ".migrations", dirName)
-	suffixes := migrationSuffixes(dirName)
+	suffixes := MigrationSuffixes(dirName)
 	if suffixes == nil {
 		return
 	}
@@ -412,10 +412,10 @@ func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus
 	}
 	genTail := "_" + strconv.Itoa(gen)
 	for _, propName := range props {
-		main := suffixes.sourceBucketName(propName)
-		for _, suff := range []string{suffixes.ingestSuffix, suffixes.backupSuffix, reindexSuffixForFinalize(namespace)} {
+		main := suffixes.SourceBucketName(propName)
+		for _, suff := range []string{suffixes.IngestSuffix, suffixes.BackupSuffix, ReindexSuffixForFinalize(namespace)} {
 			path := filepath.Join(lsmPath, main+suff+genTail)
-			if fileExists(path) {
+			if FileExists(path) {
 				if err := os.RemoveAll(path); err != nil {
 					logger.WithField("path", path).
 						Warnf("reindex finalize: failed to remove stale older-gen sidecar dir: %v", err)
@@ -425,12 +425,12 @@ func removeStaleSidecarsForGen(lsmPath, namespace, dirName string, logger logrus
 	}
 }
 
-// reindexSuffixForFinalize returns the per-strategy reindex bucket
+// ReindexSuffixForFinalize returns the per-strategy reindex bucket
 // suffix base (e.g. `__retokenize_reindex`) used to identify older-gen
 // reindex sidecar dirs in the finalize cleanup. Kept in lockstep with
 // each strategy's ReindexSuffix() base — when a new strategy is added,
 // extend both this switch and the strategy's ReindexSuffix() method.
-func reindexSuffixForFinalize(namespace string) string {
+func ReindexSuffixForFinalize(namespace string) string {
 	switch {
 	case strings.HasPrefix(namespace, MigrationDirSearchableMapToBlockmax):
 		return "__blockmax_reindex"
@@ -454,10 +454,10 @@ func reindexSuffixForFinalize(namespace string) string {
 
 func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLogger) {
 	// Only finalize if both swapped and tidied sentinels exist.
-	if !fileExists(filepath.Join(migDir, "swapped.mig")) {
+	if !FileExists(filepath.Join(migDir, "swapped.mig")) {
 		return
 	}
-	if !fileExists(filepath.Join(migDir, "tidied.mig")) {
+	if !FileExists(filepath.Join(migDir, "tidied.mig")) {
 		return
 	}
 
@@ -472,7 +472,7 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	// the strategy's IngestSuffix / BackupSuffix methods on the writer
 	// side appended the same gen to the suffix base. Reproduce that here
 	// to find the matching on-disk sidecar dirs.
-	suffixes := migrationSuffixes(migName)
+	suffixes := MigrationSuffixes(migName)
 	if suffixes == nil {
 		return
 	}
@@ -486,13 +486,13 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 	logger = logger.WithField("migration", migName)
 
 	for _, propName := range props {
-		mainName := suffixes.sourceBucketName(propName)
-		ingestDir := filepath.Join(lsmPath, mainName+suffixes.ingestSuffix+genTail)
-		backupDir := filepath.Join(lsmPath, mainName+suffixes.backupSuffix+genTail)
+		mainName := suffixes.SourceBucketName(propName)
+		ingestDir := filepath.Join(lsmPath, mainName+suffixes.IngestSuffix+genTail)
+		backupDir := filepath.Join(lsmPath, mainName+suffixes.BackupSuffix+genTail)
 		mainDir := filepath.Join(lsmPath, mainName)
 
 		// Remove backup dir.
-		if fileExists(backupDir) {
+		if FileExists(backupDir) {
 			if err := os.RemoveAll(backupDir); err != nil {
 				logger.WithField("dir", backupDir).
 					Errorf("finalize: failed to remove backup dir: %v", err)
@@ -502,9 +502,9 @@ func finalizeMigrationDir(lsmPath, migDir, migName string, logger logrus.FieldLo
 		}
 
 		// Rename ingest dir to canonical main dir.
-		if fileExists(ingestDir) {
+		if FileExists(ingestDir) {
 			// Remove stale main dir if it exists (shouldn't normally, but be safe).
-			if fileExists(mainDir) {
+			if FileExists(mainDir) {
 				os.RemoveAll(mainDir)
 			}
 			if err := os.Rename(ingestDir, mainDir); err != nil {
@@ -530,19 +530,27 @@ func readMigrationProps(migDir string) ([]string, error) {
 	return strings.Split(content, ","), nil
 }
 
-func fileExists(path string) bool {
+// FileExists reports whether path resolves on disk. Exported so the orphan
+// audit (which lives in the db package) can reuse this without duplicating
+// the os.Stat check.
+func FileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
 
-// migrationBucketSuffixes maps a migration dir name to its bucket naming scheme.
-type migrationBucketSuffixes struct {
-	sourceBucketName func(propName string) string
-	ingestSuffix     string
-	backupSuffix     string
+// MigrationBucketSuffixes maps a migration dir name to its bucket naming
+// scheme. Exported (along with all fields) so the orphan audit in the db
+// package can drive cleanup without re-deriving suffix conventions.
+type MigrationBucketSuffixes struct {
+	SourceBucketName func(propName string) string
+	IngestSuffix     string
+	BackupSuffix     string
 }
 
-func migrationSuffixes(migName string) *migrationBucketSuffixes {
+// MigrationSuffixes returns the bucket-naming recipe for a migration dir
+// name. Exported so callers outside this package (the orphan audit) can
+// translate migration dir names back into the on-disk sidecar layout.
+func MigrationSuffixes(migName string) *MigrationBucketSuffixes {
 	// Dir-name constants live in inverted_reindex_strategy_dir_names.go and
 	// are referenced by each strategy's MigrationDirName() — keep finalize
 	// in sync with the writer side by reusing the same constants here.
@@ -554,61 +562,61 @@ func migrationSuffixes(migName string) *migrationBucketSuffixes {
 	// ingest/backup suffix base.
 	switch {
 	case strings.HasPrefix(migName, MigrationDirSearchableMapToBlockmax):
-		return &migrationBucketSuffixes{
-			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
-			ingestSuffix:     "__blockmax_ingest",
-			backupSuffix:     "__blockmax_map",
+		return &MigrationBucketSuffixes{
+			SourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
+			IngestSuffix:     "__blockmax_ingest",
+			BackupSuffix:     "__blockmax_map",
 		}
 	case strings.HasPrefix(migName, MigrationDirFilterableRoaringsetRefresh):
-		return &migrationBucketSuffixes{
-			sourceBucketName: func(p string) string { return "property_" + p },
-			ingestSuffix:     "__roaringset_ingest",
-			backupSuffix:     "__roaringset_backup",
+		return &MigrationBucketSuffixes{
+			SourceBucketName: func(p string) string { return "property_" + p },
+			IngestSuffix:     "__roaringset_ingest",
+			BackupSuffix:     "__roaringset_backup",
 		}
 	case strings.HasPrefix(migName, MigrationDirPrefixFilterableToRangeable):
-		return &migrationBucketSuffixes{
-			sourceBucketName: func(p string) string { return "property_" + p + "_rangeable" },
-			ingestSuffix:     "__rangeable_ingest",
-			backupSuffix:     "__rangeable_backup",
+		return &MigrationBucketSuffixes{
+			SourceBucketName: func(p string) string { return "property_" + p + "_rangeable" },
+			IngestSuffix:     "__rangeable_ingest",
+			BackupSuffix:     "__rangeable_backup",
 		}
 	// Per-property dir names: "searchable_retokenize_<propName>"
 	case strings.HasPrefix(migName, MigrationDirPrefixSearchableRetokenize):
-		return &migrationBucketSuffixes{
-			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
-			ingestSuffix:     "__retokenize_ingest",
-			backupSuffix:     "__retokenize_backup",
+		return &MigrationBucketSuffixes{
+			SourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
+			IngestSuffix:     "__retokenize_ingest",
+			BackupSuffix:     "__retokenize_backup",
 		}
 	// Per-property dir names: "filterable_retokenize_<propName>"
 	case strings.HasPrefix(migName, MigrationDirPrefixFilterableRetokenize):
-		return &migrationBucketSuffixes{
-			sourceBucketName: func(p string) string { return "property_" + p },
-			ingestSuffix:     "__filt_retokenize_ingest",
-			backupSuffix:     "__filt_retokenize_backup",
+		return &MigrationBucketSuffixes{
+			SourceBucketName: func(p string) string { return "property_" + p },
+			IngestSuffix:     "__filt_retokenize_ingest",
+			BackupSuffix:     "__filt_retokenize_backup",
 		}
 	// Per-property dir names: "enable_filterable_<prop1>_<prop2>..." (see
 	// EnableFilterableStrategy.MigrationDirName). The list of properties is
 	// authoritative in properties.mig; the dir name is informational.
 	case strings.HasPrefix(migName, MigrationDirPrefixEnableFilterable):
-		return &migrationBucketSuffixes{
-			sourceBucketName: func(p string) string { return "property_" + p },
-			ingestSuffix:     "__enable_filterable_ingest",
-			backupSuffix:     "__enable_filterable_backup",
+		return &MigrationBucketSuffixes{
+			SourceBucketName: func(p string) string { return "property_" + p },
+			IngestSuffix:     "__enable_filterable_ingest",
+			BackupSuffix:     "__enable_filterable_backup",
 		}
 	// Per-property dir names: "enable_searchable_<prop1>_<prop2>..." (see
 	// EnableSearchableStrategy.MigrationDirName).
 	case strings.HasPrefix(migName, MigrationDirPrefixEnableSearchable):
-		return &migrationBucketSuffixes{
-			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
-			ingestSuffix:     "__enable_searchable_ingest",
-			backupSuffix:     "__enable_searchable_backup",
+		return &MigrationBucketSuffixes{
+			SourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
+			IngestSuffix:     "__enable_searchable_ingest",
+			BackupSuffix:     "__enable_searchable_backup",
 		}
 	// Per-property dir names: "rebuild_searchable_<prop1>_<prop2>..." (see
 	// RebuildSearchableStrategy.MigrationDirName).
 	case strings.HasPrefix(migName, MigrationDirPrefixRebuildSearchable):
-		return &migrationBucketSuffixes{
-			sourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
-			ingestSuffix:     "__rebuild_searchable_ingest",
-			backupSuffix:     "__rebuild_searchable_backup",
+		return &MigrationBucketSuffixes{
+			SourceBucketName: func(p string) string { return "property_" + p + "_searchable" },
+			IngestSuffix:     "__rebuild_searchable_ingest",
+			BackupSuffix:     "__rebuild_searchable_backup",
 		}
 	default:
 		return nil

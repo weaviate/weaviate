@@ -92,7 +92,7 @@ func TestMigrationDirName(t *testing.T) {
 }
 
 // TestFinalizeMigrationSuffixesRecognisesAllStrategies asserts that
-// migrationSuffixes returns a non-nil recipe for the dir name produced by
+// MigrationSuffixes returns a non-nil recipe for the dir name produced by
 // each strategy's MigrationDirName(). If a new strategy is added and its
 // constant is registered in inverted_reindex_strategy_dir_names.go but the
 // finalize switch isn't updated, this test fails.
@@ -114,8 +114,8 @@ func TestFinalizeMigrationSuffixesRecognisesAllStrategies(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := migrationSuffixes(tc.dir); got == nil {
-				t.Fatalf("migrationSuffixes(%q) = nil, want a recipe", tc.dir)
+			if got := MigrationSuffixes(tc.dir); got == nil {
+				t.Fatalf("MigrationSuffixes(%q) = nil, want a recipe", tc.dir)
 			}
 		})
 	}
@@ -124,7 +124,7 @@ func TestFinalizeMigrationSuffixesRecognisesAllStrategies(t *testing.T) {
 // TestFinalizeMigrationSuffixesUnknown asserts that an unknown dir name
 // returns nil, preserving the existing default-branch behaviour.
 func TestFinalizeMigrationSuffixesUnknown(t *testing.T) {
-	if got := migrationSuffixes("unknown_migration"); got != nil {
-		t.Fatalf("migrationSuffixes(unknown) = %+v, want nil", got)
+	if got := MigrationSuffixes("unknown_migration"); got != nil {
+		t.Fatalf("MigrationSuffixes(unknown) = %+v, want nil", got)
 	}
 }

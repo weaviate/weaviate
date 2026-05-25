@@ -122,6 +122,14 @@ func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts)
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
+	// Install a default "no live reindex" activity lookup so
+	// Shard.HaltForTransfer / Index.refuseIfReindexInFlight do not
+	// trip the conservative pre-wire refusal in fixtures that do not
+	// install their own lookup. Tests that exercise the gate overwrite
+	// this with their own fixture-specific builder.
+	repo.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
+		return func(string, string) bool { return false }
+	})
 	sch := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{opts.Class},
@@ -207,6 +215,7 @@ func BuildIndexFixture(t *testing.T, ctx context.Context, opts IndexFixtureOpts)
 		HFreshEnabled:          true,
 		replicator:             replicator,
 		router:                 mockRouter,
+		db:                     repo,
 	}
 	{
 		var presetDetectors map[string]*stopwords.Detector
