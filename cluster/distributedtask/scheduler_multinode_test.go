@@ -151,9 +151,11 @@ type fanoutNotifier struct {
 }
 
 func (f *fanoutNotifier) Wake() {
-	f.mu.Lock()
-	targets := append([]*Scheduler(nil), f.targets...)
-	f.mu.Unlock()
+	targets := func() []*Scheduler {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return append([]*Scheduler(nil), f.targets...)
+	}()
 	for _, s := range targets {
 		s.Wake()
 	}

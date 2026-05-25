@@ -194,9 +194,11 @@ func (s *Shard) mayInitInactivityMonitoring() {
 		case <-ctx.Done():
 			return
 		case <-s.haltForTransferInactivityTimer.C:
-			s.haltForTransferMux.Lock()
-			s.mayForceResumeMaintenanceCycles(context.Background(), true)
-			s.haltForTransferMux.Unlock()
+			func() {
+				s.haltForTransferMux.Lock()
+				defer s.haltForTransferMux.Unlock()
+				s.mayForceResumeMaintenanceCycles(context.Background(), true)
+			}()
 			return
 		}
 	}, s.index.logger)

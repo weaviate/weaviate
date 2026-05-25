@@ -296,9 +296,11 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 				return err
 			}
 			if sd != nil {
-				mu.Lock()
-				shards[name] = sd
-				mu.Unlock()
+				func() {
+					mu.Lock()
+					defer mu.Unlock()
+					shards[name] = sd
+				}()
 			}
 			return nil
 		})
