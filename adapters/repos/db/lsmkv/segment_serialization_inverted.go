@@ -695,6 +695,11 @@ func createAndEncodeBlocksCompaction(nodes []MapPair, propLengths map[uint64]uin
 // KeyIndexAndWriteTo. It returns a KeyRedux (no ValueStart/SecondaryKeys),
 // reuses the supplied encode buffers, and uses an externally-provided buf
 // (must be at least 4 bytes) to avoid per-call allocations.
+//
+// NOTE: this path does not emit secondary keys. It is only safe to call when
+// the segment has SecondaryIndexCount == 0. compactorInverted.writeIndices
+// enforces this; do not wire this method into a code path with secondary
+// indexes without adding secondary-key handling here.
 func (s segmentInvertedNode) KeyIndexAndWriteToCompaction(w io.Writer, buf []byte, bufs *compactorInvertedBuffers, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) (segmentindex.KeyRedux, error) {
 	written := 0
 
