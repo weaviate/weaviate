@@ -73,15 +73,65 @@ func HashBlobHashPrimitiveProperties(class *models.Class, props map[string]inter
 	}
 
 	for _, prop := range class.Properties {
-		if !IsBlobHashDataType(prop.DataType) {
-			continue
-		}
 		val, exists := props[prop.Name]
-		if !exists {
+		if !exists || val == nil {
 			continue
 		}
-		if base64Str, ok := val.(string); ok {
-			props[prop.Name] = HashBlob(base64Str)
+
+		if IsBlobHashDataType(prop.DataType) {
+			if base64Str, ok := val.(string); ok {
+				props[prop.Name] = HashBlob(base64Str)
+			}
+		} else if len(prop.DataType) == 1 {
+			dataType := prop.DataType[0]
+			if dataType == string(DataTypeObject) {
+				if objMap, ok := val.(map[string]interface{}); ok {
+					hashBlobHashNestedProperties(prop.NestedProperties, objMap)
+				}
+			} else if dataType == string(DataTypeObjectArray) {
+				if objList, ok := val.([]interface{}); ok {
+					for _, item := range objList {
+						if objMap, ok := item.(map[string]interface{}); ok {
+							hashBlobHashNestedProperties(prop.NestedProperties, objMap)
+						}
+					}
+				}
+			}
 		}
 	}
 }
+
+func hashBlobHashNestedProperties(nestedProps []*models.NestedProperty, props map[string]interface{}) {
+	if len(nestedProps) == 0 || props == nil {
+		return
+	}
+
+	for _, nestedProp := range nestedProps {
+		val, exists := props[nestedProp.Name]
+		if !exists || val == nil {
+			continue
+		}
+
+		if IsBlobHashDataType(nestedProp.DataType) {
+			if base64Str, ok := val.(string); ok {
+				props[nestedProp.Name] = HashBlob(base64Str)
+			}
+		} else if len(nestedProp.DataType) == 1 {
+			dataType := nestedProp.DataType[0]
+			if dataType == string(DataTypeObject) {
+				if objMap, ok := val.(map[string]interface{}); ok {
+					hashBlobHashNestedProperties(nestedProp.NestedProperties, objMap)
+				}
+			} else if dataType == string(DataTypeObjectArray) {
+				if objList, ok := val.([]interface{}); ok {
+					for _, item := range objList {
+						if objMap, ok := item.(map[string]interface{}); ok {
+							hashBlobHashNestedProperties(nestedProp.NestedProperties, objMap)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
