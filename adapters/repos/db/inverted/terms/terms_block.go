@@ -35,11 +35,16 @@ func (b BlockEntry) Size() int {
 
 func (b *BlockEntry) Encode() []byte {
 	out := make([]byte, 20)
-	binary.LittleEndian.PutUint64(out, b.MaxId)
-	binary.LittleEndian.PutUint32(out[8:], b.Offset)
-	binary.LittleEndian.PutUint32(out[12:], b.MaxImpactTf)
-	binary.LittleEndian.PutUint32(out[16:], b.MaxImpactPropLength)
+	b.EncodeInto(out)
 	return out
+}
+
+// EncodeInto writes the BlockEntry into buf (must be >= 20 bytes). No allocation.
+func (b *BlockEntry) EncodeInto(buf []byte) {
+	binary.LittleEndian.PutUint64(buf, b.MaxId)
+	binary.LittleEndian.PutUint32(buf[8:], b.Offset)
+	binary.LittleEndian.PutUint32(buf[12:], b.MaxImpactTf)
+	binary.LittleEndian.PutUint32(buf[16:], b.MaxImpactPropLength)
 }
 
 func DecodeBlockEntry(data []byte) *BlockEntry {
@@ -66,17 +71,18 @@ func (b *BlockData) Size() int {
 }
 
 func (b *BlockData) Encode() []byte {
-	out := make([]byte, len(b.DocIds)+len(b.Tfs)+4)
-	offset := 0
-	// write the lengths of the slices
-	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.DocIds)))
-	offset += 2
-	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.Tfs)))
-	offset += 2
-
-	offset += copy(out[offset:], b.DocIds)
-	copy(out[offset:], b.Tfs)
+	out := make([]byte, b.Size())
+	b.EncodeInto(out)
 	return out
+}
+
+// EncodeInto writes the BlockData into buf (must be >= b.Size() bytes). No allocation.
+func (b *BlockData) EncodeInto(buf []byte) {
+	binary.LittleEndian.PutUint16(buf, uint16(len(b.DocIds)))
+	binary.LittleEndian.PutUint16(buf[2:], uint16(len(b.Tfs)))
+	offset := 4
+	offset += copy(buf[offset:], b.DocIds)
+	copy(buf[offset:], b.Tfs)
 }
 
 func DecodeBlockData(data []byte) *BlockData {
