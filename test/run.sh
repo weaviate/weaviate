@@ -55,6 +55,7 @@ function main() {
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
+  run_flake_hunt_multinode_happy_path=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -108,6 +109,7 @@ function main() {
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
+          --flake-hunt-multinode-happy-path|-fhhp) run_all_tests=false; run_flake_hunt_multinode_happy_path=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -152,6 +154,7 @@ function main() {
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
+              "--flake-hunt-multinode-happy-path | -fhhp"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -343,6 +346,11 @@ function main() {
   if $run_acceptance_reindex_backup; then
     echo "running backup × runtime-reindex acceptance tests"
     run_acceptance_reindex_backup
+  fi
+
+  if $run_flake_hunt_multinode_happy_path; then
+    echo "running flake-hunt: TestMultiNode_HappyPath (10×)"
+    run_flake_hunt_multinode_happy_path
   fi
   echo "Done!"
 }
@@ -875,6 +883,36 @@ function run_acceptance_reindex_backup() {
   echo_green "acceptance — reindex-backup"
   run_aof_group "reindex-backup" \
     test/acceptance/reindex_backup
+}
+
+# QA flake-hunt: drive TestMultiNode_HappyPath in isolation 10× per shard.
+# Used to test the hypothesis that HappyPath's internal sequence is heavy
+# enough on its own to expose the schema-version-replication lag bug found
+# in the bundled hunt on #11455 (8/9 bundle failures were on HappyPath
+# subtests, mostly /MapToBlockmax). If isolated HappyPath flakes at a
+# similar ~6% rate, the bug is intrinsic to HappyPath's sequence; if it
+# stays clean, the bug needs the bundle's prior-test load profile to
+# manifest.
+function run_flake_hunt_multinode_happy_path() {
+  build_weaviate_test_image
+  echo_green "flake-hunt: TestMultiNode_HappyPath (10 iterations, isolated)"
+  local pass=0 fail=0
+  for i in $(seq 1 10); do
+    echo
+    echo "=== iter $i/10 — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    if go test -v -count=1 -timeout=15m \
+        -run '^TestMultiNode_HappyPath$' \
+        ./test/acceptance/reindex_multinode/...; then
+      echo "iter $i: PASS"
+      pass=$((pass+1))
+    else
+      echo "iter $i: FAIL"
+      fail=$((fail+1))
+    fi
+  done
+  echo
+  echo "=== flake-hunt summary: pass=$pass fail=$fail / 10 (shard $(hostname -s 2>/dev/null || echo unknown)) ==="
+  [[ $pass -gt 0 ]]
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
