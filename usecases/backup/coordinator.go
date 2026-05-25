@@ -661,11 +661,20 @@ func (c *coordinator) commit(ctx context.Context,
 		retryAfter = c.timeoutNextRound
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
+		// Include per-node status strings so a future post-mortem can tell
+		// "stuck before u.setStatus(Transferring)" from "stuck after". The
+		// Participants map carries the last queryAll-observed Status for
+		// every node, so this is just a render.
+		nodeStatuses := make(map[string]string, len(c.Participants))
+		for node, p := range c.Participants {
+			nodeStatuses[node] = string(p.Status)
+		}
 		phaseLog.WithField("backup_phase", "commit_poll").
 			WithField("poll_iter", pollIter).
 			WithField("nodes_still_in_flight", len(node2Host)).
 			WithField("failures_so_far", nFailures).
 			WithField("continue", canContinue).
+			WithField("participant_statuses", nodeStatuses).
 			Info("commit: polled in-flight nodes")
 	}
 	if !toleratePartialFailure && nFailures > 0 {
