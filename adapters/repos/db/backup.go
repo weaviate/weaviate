@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"os"
@@ -59,22 +60,41 @@ const (
 // Refuses if any shard has an in-flight runtime-reindex; this runs in
 // the coordinator's canCommit phase so no staging dir is created on
 // rejection.
+//
+// All per-class / per-shard failures are accumulated and joined into a
+// single error rather than short-circuiting on the first one. Joining
+// ensures that when several classes are blocked at once, the operator sees
+// the full list in a single canCommit round instead of fixing one,
+// retrying, fixing the next, retrying, and so on. The joined error still
+// satisfies errors.Is for any wrapped sentinel (e.g.
+// ErrBackupBlockedByInFlightReindex) because errors.Join preserves the
+// underlying error graph.
+//
+// Class-missing errors stop aggregation for that class but do not short
+// circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
+	nodeName := db.localNodeName
+	var errs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
 		if idx == nil || idx.Config.ClassName != className {
-			return fmt.Errorf("class %v doesn't exist", c)
+			errs = append(errs, fmt.Errorf("%s/%s: class %v doesn't exist", nodeName, c, c))
+			continue
 		}
 		shards, _, err := idx.readSchema()
 		if err != nil {
-			return fmt.Errorf("enumerating local shards of class %q for backup-precheck: %w", c, err)
+			errs = append(errs, fmt.Errorf("%s/%s: enumerating local shards for backup-precheck: %w", nodeName, c, err))
+			continue
 		}
 		for _, shardName := range shards {
 			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
-				return err
+				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
 			}
 		}
+	}
+	if len(errs) > 0 {
+		return stderrors.Join(errs...)
 	}
 	return nil
 }
