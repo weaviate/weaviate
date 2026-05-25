@@ -24,27 +24,21 @@ import (
 )
 
 // recGroupInput is the normalized form fed to the recursive plan + executor.
-// Tokenization wrappers have been collapsed into single virtual leaves, IsNull
-// has been split into positives (existence) and excludes (absence), and the
-// rootAnchor seed is set when the group has only excludes.
+// Tokenization wrappers have been collapsed into single virtual leaves; IsNull
+// leaves are materialized as strict-existential positives at their operand
+// LCA (correlated-AND IsNull alignment).
 type recGroupInput struct {
 	// positives are the *propValuePair entries the recursive planner consumes
 	// as logical leaves. Each entry has a corresponding rawsByCond bitmap.
 	positives []*propValuePair
 	// rawsByCond maps each positive to its raw position bitmap. For a
 	// tokenization wrapper the bitmap is the AndAll of all token bitmaps.
+	// For an IsNull=true leaf the bitmap is _exists.{operandLCA} AndNot
+	// _exists.{relPath} (strict-existential at the operand LCA).
 	rawsByCond map[*propValuePair]*sroar.Bitmap
-	// excludePositions holds raw _exists.{path} bitmaps for IsNull=true leaves.
-	// excludeLeaves[i] is the leaf the i-th bitmap was fetched for; its relPath
-	// drives the deepest-object[]-LCA computation in buildRecGroupExecutor.
-	excludePositions []*sroar.Bitmap
-	excludeLeaves    []*propValuePair
-	// rootAnchor is the seed bitmap for the no-positive case. Set when
-	// positives is empty and excludePositions is non-empty.
-	rootAnchor *sroar.Bitmap
 	// releases holds cleanup callbacks for every bitmap acquired by the
-	// normalizer (raw positions, AndAll temporaries, anchor reads). The caller
-	// must invoke them after the executor has finished.
+	// normalizer (raw positions, AndAll temporaries). The caller must invoke
+	// them after the executor has finished.
 	releases []func()
 }
 
@@ -57,19 +51,21 @@ type recBitmapFetcher interface {
 	// already restricted by any arr[N] indices on the leaf.
 	fetchValue(ctx context.Context, leaf *propValuePair) (*sroar.Bitmap, func(), error)
 	// fetchExists returns the raw _exists.{relPath} bitmap, restricted by any
-	// arr[N] indices on the leaf. Used for both IsNull=false (positive leaf)
-	// and IsNull=true (exclude bitmap).
+	// arr[N] indices on the leaf. Used for IsNull=false (positive existence
+	// leaf) and as the operand half of strict-existential IsNull=true.
 	fetchExists(leaf *propValuePair) (*sroar.Bitmap, func(), error)
-	// fetchRootAnchor returns the _exists."" bitmap restricted by any arr[N]
-	// indices visible across the whole group (the first arr[N] found on any
-	// leaf or grandchild). Used as the seed when the group has no positives.
-	fetchRootAnchor(children []*propValuePair) (*sroar.Bitmap, func(), error)
+	// fetchExistsAtPath returns the raw _exists.{path} bitmap, restricted by
+	// the leaf's arr[N] indices. Used to materialize strict-existential IsNull
+	// inside correlated AND: caller AndNots _exists.{relPath} from
+	// _exists.{operandLCA} to obtain "∃ LCA-element without the operand."
+	fetchExistsAtPath(leaf *propValuePair, path string) (*sroar.Bitmap, func(), error)
 }
 
 // normalizeRecGroup walks the group's children and builds the recursive input.
 // It is decoupled from the Searcher via recBitmapFetcher so unit tests can
 // inject synthetic bitmaps. Token wrappers are AndAll-collapsed; IsNull=false
-// becomes a positive existence leaf; IsNull=true is appended to excludes.
+// becomes a positive existence leaf; IsNull=true is materialized as a
+// strict-existential positive at the operand's LCA (correlated-AND IsNull alignment).
 //
 // The two tokenization patterns are both handled:
 //
@@ -121,11 +117,18 @@ func normalizeRecGroup(
 		return input, nil
 	}
 
-	// Pattern 2 (and the mainstream non-tokenized case): each child is either a
-	// direct leaf (isNested) or a tokenization wrapper containing token leaves.
+	// Pattern 2 (and the mainstream non-tokenized case): each child is one of
+	//   - direct nested leaf (isNested): routeDirectLeaf.
+	//   - tokenization wrapper (childrenFromTokenization=true): AndAll the
+	//     token grandchildren into one virtual leaf bitmap.
+	//   - operator subtree (AND/OR/NOT containing nested leaves) introduced
+	//     by recursive same-root grouping: recursively pre-fetch a value
+	//     bitmap for every nested leaf inside the subtree. The operator pvp
+	//     itself is added to positives so the planner sees it and builds
+	//     recOrNode / recNotNode / nested recGroupNode as needed.
 	for _, child := range children {
 		if child.nested.isNested {
-			if err := routeDirectLeaf(ctx, child, fetcher, input); err != nil {
+			if err := routeDirectLeaf(ctx, child, fetcher, bitmapOps, input); err != nil {
 				return nil, err
 			}
 			continue
@@ -133,32 +136,122 @@ func normalizeRecGroup(
 		if len(child.children) == 0 {
 			return nil, fmt.Errorf("normalizeRecGroup: non-nested child %p has no grandchildren", child)
 		}
-		combined, releases, err := fetchAndAndAllTokens(ctx, child.children, fetcher, bitmapOps, maxConcurrency)
-		if err != nil {
-			return nil, err
+		if child.nested.childrenFromTokenization {
+			combined, releases, err := fetchAndAndAllTokens(ctx, child.children, fetcher, bitmapOps, maxConcurrency)
+			if err != nil {
+				return nil, err
+			}
+			input.releases = append(input.releases, releases...)
+			input.positives = append(input.positives, child)
+			input.rawsByCond[child] = combined
+			continue
 		}
-		input.releases = append(input.releases, releases...)
-		input.positives = append(input.positives, child)
-		input.rawsByCond[child] = combined
-	}
-
-	if len(input.positives) == 0 && len(input.excludePositions) > 0 {
-		anchor, anchorRel, err := fetcher.fetchRootAnchor(children)
-		if err != nil {
-			return nil, fmt.Errorf("normalizeRecGroup: fetch root anchor: %w", err)
+		switch child.operator {
+		case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
+			filters.ContainsAll, filters.ContainsAny:
+			// ContainsAll / ContainsAny are AND / OR aliases on nested
+			// paths (first-class-operator approach); same fetch path as OperatorAnd/Or — the
+			// planner reads them as operator subtrees and either flattens
+			// (ContainsAll → AND) or plans an OR scope (ContainsAny).
+			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
+				return nil, err
+			}
+			input.positives = append(input.positives, child)
+		case filters.ContainsNone:
+			// First-class ContainsNone inside a correlated AND. Materialize
+			// the strict-existential result (universe at operand path AndNot
+			// OR-of-value-bitmaps) as a raw position bitmap, stored in
+			// rawsByCond keyed by the ContainsNone pvp. The planner places
+			// the pvp at its natural LCA (via childRelPath → operand path)
+			// and the executor correlates it with sibling leaves at root
+			// scope via the existing same-element AndAll path.
+			if err := materializeNestedContainsNone(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
+				return nil, err
+			}
+			input.positives = append(input.positives, child)
+		default:
+			return nil, fmt.Errorf("normalizeRecGroup: unsupported non-nested child operator %q", child.operator.Name())
 		}
-		input.releases = append(input.releases, anchorRel)
-		input.rootAnchor = anchor
 	}
 
 	succeeded = true
 	return input, nil
 }
 
+// materializeNestedContainsNone computes a ContainsNone leaf's strict-
+// existential bitmap for use inside a correlated AND or operator subtree.
+// Mirrors fetchNestedContainsNone's algorithm but builds the result inline
+// against the recBitmapFetcher abstraction so it composes with the rest of
+// normalizeRecGroup. Children may be value leaves or tokenization wrappers
+// (multi-token text values).
+func materializeNestedContainsNone(
+	ctx context.Context,
+	pv *propValuePair,
+	fetcher recBitmapFetcher,
+	bitmapOps *invnested.BitmapOps,
+	maxConcurrency int,
+	input *recGroupInput,
+) error {
+	if len(pv.children) == 0 {
+		return fmt.Errorf("materializeNestedContainsNone: no values for %q", pv.prop)
+	}
+
+	// Operand: OR over each forbidden value's position bitmap. Multi-token
+	// text values AndAll their tokens at the leaf level (same as standalone
+	// fetchNestedContainsNone) before contributing to the OR.
+	perValue := make([]*sroar.Bitmap, 0, len(pv.children))
+	for _, child := range pv.children {
+		if child.nested.childrenFromTokenization {
+			combined, releases, err := fetchAndAndAllTokens(ctx, child.children, fetcher, bitmapOps, maxConcurrency)
+			if err != nil {
+				return fmt.Errorf("materializeNestedContainsNone: tokens for %q: %w", pv.prop, err)
+			}
+			input.releases = append(input.releases, releases...)
+			perValue = append(perValue, combined)
+			continue
+		}
+		bm, rel, err := fetcher.fetchValue(ctx, child)
+		if err != nil {
+			return fmt.Errorf("materializeNestedContainsNone: fetch value for %q: %w", pv.prop, err)
+		}
+		input.releases = append(input.releases, rel)
+		perValue = append(perValue, bm)
+	}
+
+	var operand *sroar.Bitmap
+	if len(perValue) == 1 {
+		operand = perValue[0]
+	} else {
+		var operandRel func()
+		operand, operandRel = bitmapOps.OrAll(perValue, maxConcurrency)
+		input.releases = append(input.releases, operandRel)
+	}
+
+	// Universe at the operand's scalar-array scope, restricted by any
+	// arr[N] pins carried on the ContainsNone pvp itself.
+	universe, universeRel, err := fetcher.fetchExistsAtPath(pv, pv.nested.relPath)
+	if err != nil {
+		return fmt.Errorf("materializeNestedContainsNone: fetch exists at %q: %w", pv.nested.relPath, err)
+	}
+	input.releases = append(input.releases, universeRel)
+
+	result, resultRel := bitmapOps.AndNot(universe, operand, maxConcurrency)
+	input.releases = append(input.releases, resultRel)
+	input.rawsByCond[pv] = result
+	return nil
+}
+
 // routeDirectLeaf classifies a single isNested child and appends to the right
-// slice on input. IsNull=true → excludes; IsNull=false → positive existence
-// leaf; everything else → positive value leaf.
-func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmapFetcher, input *recGroupInput) error {
+// slice on input. IsNull=true → strict-existential positive (∃ LCA-element
+// without operand, materialized as _exists.{operandLCA} AndNot
+// _exists.{relPath}); IsNull=false → positive existence leaf; everything else
+// → positive value leaf.
+//
+// The strict-existential materialization aligns correlated-AND IsNull with
+// the standalone fetchNestedIsNull path: docs whose operand LCA is empty for
+// the pinned scope no longer match vacuously — they must have at least one
+// element at LCA where the operand is missing.
+func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmapFetcher, bitmapOps *invnested.BitmapOps, input *recGroupInput) error {
 	if leaf.operator == filters.OperatorIsNull {
 		bm, rel, err := fetcher.fetchExists(leaf)
 		if err != nil {
@@ -167,8 +260,19 @@ func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmap
 		input.releases = append(input.releases, rel)
 		isAbsent := len(leaf.value) > 0 && leaf.value[0] == 0x01
 		if isAbsent {
-			input.excludePositions = append(input.excludePositions, bm)
-			input.excludeLeaves = append(input.excludeLeaves, leaf)
+			lca, err := leaf.isNullOperandLCA()
+			if err != nil {
+				return fmt.Errorf("normalizeRecGroup: compute LCA for IsNull %q: %w", leaf.nested.relPath, err)
+			}
+			lcaBm, lcaRel, err := fetcher.fetchExistsAtPath(leaf, lca)
+			if err != nil {
+				return fmt.Errorf("normalizeRecGroup: fetch exists at LCA %q for IsNull on %q: %w", lca, leaf.nested.relPath, err)
+			}
+			input.releases = append(input.releases, lcaRel)
+			existential, existRel := bitmapOps.AndNot(lcaBm, bm, concurrency.SROAR_MERGE)
+			input.releases = append(input.releases, existRel)
+			input.positives = append(input.positives, leaf)
+			input.rawsByCond[leaf] = existential
 			return nil
 		}
 		input.positives = append(input.positives, leaf)
@@ -184,6 +288,72 @@ func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmap
 	input.positives = append(input.positives, leaf)
 	input.rawsByCond[leaf] = bm
 	return nil
+}
+
+// fetchOperatorSubtreeBitmaps walks an AND/OR/NOT subtree rooted at node and
+// pre-fetches a raw position bitmap for every nested leaf it reaches. Bitmaps
+// land in input.rawsByCond keyed by the leaf pvp; the operator nodes
+// themselves don't go to rawsByCond — the planner walks them via
+// buildOr/buildNot/buildGroup and reads bitmaps for the leaves at evaluation.
+//
+// Tokenization wrappers (childrenFromTokenization=true) inside the subtree are
+// treated as virtual leaves: their tokens are ANDed once into a combined
+// bitmap and stored in rawsByCond keyed by the wrapper. This mirrors
+// normalizeRecGroup Pattern 2 for direct AND-wrapped tokenization wrappers,
+// so the planner sees the same shape regardless of how deeply the wrapper is
+// nested under operator subtrees.
+//
+// IsNull leaves inside operator subtrees are not yet supported; if encountered
+// the function returns an error so callers can detect the gap rather than
+// produce silent wrong results. Mixing IsNull with same-element OR/NOT
+// semantics will be addressed alongside the IsNull validation step.
+func fetchOperatorSubtreeBitmaps(
+	ctx context.Context,
+	node *propValuePair,
+	fetcher recBitmapFetcher,
+	bitmapOps *invnested.BitmapOps,
+	maxConcurrency int,
+	input *recGroupInput,
+) error {
+	if node.nested.isNested {
+		if node.operator == filters.OperatorIsNull {
+			return fmt.Errorf("normalizeRecGroup: IsNull leaf inside operator subtree not yet supported (%q)", node.nested.relPath)
+		}
+		bm, rel, err := fetcher.fetchValue(ctx, node)
+		if err != nil {
+			return fmt.Errorf("normalizeRecGroup: fetch value for %q: %w", node.nested.relPath, err)
+		}
+		input.releases = append(input.releases, rel)
+		input.rawsByCond[node] = bm
+		return nil
+	}
+	if node.nested.childrenFromTokenization {
+		combined, releases, err := fetchAndAndAllTokens(ctx, node.children, fetcher, bitmapOps, maxConcurrency)
+		if err != nil {
+			return fmt.Errorf("normalizeRecGroup: combine tokenization wrapper inside operator subtree: %w", err)
+		}
+		input.releases = append(input.releases, releases...)
+		input.rawsByCond[node] = combined
+		return nil
+	}
+	switch node.operator {
+	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot,
+		filters.ContainsAll, filters.ContainsAny:
+		// ContainsAll / ContainsAny treated as AND / OR aliases (first-class-operator approach).
+		for _, child := range node.children {
+			if err := fetchOperatorSubtreeBitmaps(ctx, child, fetcher, bitmapOps, maxConcurrency, input); err != nil {
+				return err
+			}
+		}
+		return nil
+	case filters.ContainsNone:
+		// First-class ContainsNone inside an operator subtree (OR/NOT/AND).
+		// Materialize the strict-existential bitmap inline, same as the
+		// correlated-AND child case in normalizeRecGroup.
+		return materializeNestedContainsNone(ctx, node, fetcher, bitmapOps, maxConcurrency, input)
+	default:
+		return fmt.Errorf("normalizeRecGroup: unsupported node in operator subtree (operator=%q, isNested=%v)", node.operator.Name(), node.nested.isNested)
+	}
 }
 
 // fetchAndAndAllTokens fetches every token's raw position bitmap and ANDs them
@@ -234,7 +404,7 @@ type searcherBitmapFetcher struct {
 }
 
 func (f *searcherBitmapFetcher) fetchValue(ctx context.Context, leaf *propValuePair) (*sroar.Bitmap, func(), error) {
-	dbm, err := leaf.fetchNestedPositions(ctx, f.s, 0)
+	dbm, err := leaf.fetchNestedPositions(ctx, f.s)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -245,19 +415,30 @@ func (f *searcherBitmapFetcher) fetchExists(leaf *propValuePair) (*sroar.Bitmap,
 	return leaf.fetchNestedExistsPositions(f.s)
 }
 
-func (f *searcherBitmapFetcher) fetchRootAnchor(children []*propValuePair) (*sroar.Bitmap, func(), error) {
-	metaBucket := f.s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(f.pv.prop))
+func (f *searcherBitmapFetcher) fetchExistsAtPath(leaf *propValuePair, path string) (*sroar.Bitmap, func(), error) {
+	metaBucket := f.s.store.Bucket(helpers.BucketNestedMetaFromPropNameLSM(leaf.prop))
 	if metaBucket == nil {
-		return nil, nil, fmt.Errorf("fetchRootAnchor: meta bucket for %q not found", f.pv.prop)
+		return nil, nil, fmt.Errorf("fetchExistsAtPath: meta bucket for %q not found", leaf.prop)
 	}
-	return f.pv.fetchRootAnchor(f.s, metaBucket, children)
+	positions, release, err := metaBucket.RoaringSetGet(invnested.ExistsKey(path))
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetchExistsAtPath: read exists key %q for %q: %w", path, leaf.prop, err)
+	}
+	if len(leaf.nested.arrayIndices) == 0 {
+		return positions, release, nil
+	}
+	dbm := &docBitmap{docIDs: positions, release: release}
+	restricted, err := leaf.restrictByNestedIdx(f.s, dbm)
+	if err != nil {
+		return nil, nil, err
+	}
+	return restricted.docIDs, restricted.release, nil
 }
 
 // buildRecGroupExecutor fetches raw positions for the group's children,
 // normalizes tokenization / IsNull, builds the recursive plan from the
 // resulting positives, and returns a ready-to-use recExecutor. The returned
-// releases must be invoked after the executor is done. plan is nil when the
-// group has no positives — execute() then takes the rootAnchor path.
+// releases must be invoked after the executor is done.
 func (pv *propValuePair) buildRecGroupExecutor(
 	ctx context.Context,
 	s *Searcher,
@@ -280,24 +461,28 @@ func (pv *propValuePair) buildRecGroupExecutor(
 
 	builder := newRecPlanBuilder(rootProp.NestedProperties)
 
+	if len(input.positives) == 0 {
+		return nil, nil, nil, fmt.Errorf("buildRecGroupExecutor: no positives for prop %q (post-Phase-6.5 IsNull is materialized as a positive)", pv.prop)
+	}
+
+	// Dispatch on outer operator. Wrapping for all shapes is decided
+	// at extraction time by groupNestedSubtrees; here we just plant
+	// the right plan node.
+	//   AND / ContainsAll → recGroupNode (same-element correlation).
+	//   OR / ContainsAny  → recOrNode (union at deepest common LCA).
+	//   NOT               → recNotNode (invert at operand LCA).
 	var plan recPlanNode
-	if len(input.positives) > 0 {
+	switch pv.operator {
+	case filters.OperatorOr, filters.ContainsAny:
+		plan = builder.buildOrAtScope(pv, "")
+	case filters.OperatorNot:
+		plan = builder.buildNotAtScope(pv, "")
+	default:
 		plan = builder.build(input.positives)
 	}
 
-	excludes := make([]recExclude, 0, len(input.excludePositions))
-	for i, bm := range input.excludePositions {
-		var lcaPath string
-		if i < len(input.excludeLeaves) {
-			lcaPath = builder.lastIntermediateObjectArray(childRelPath(input.excludeLeaves[i]))
-		}
-		excludes = append(excludes, recExclude{bitmap: bm, lcaPath: lcaPath})
-	}
-
 	exec := newRecExecutor(input.rawsByCond, metaBucket, s.nestedBitmapOps, concurrency.SROAR_MERGE).
-		withExcludes(excludes).
-		withPlanLCAs(collectPlanLCAs(plan)).
-		withRootAnchor(input.rootAnchor)
+		withProps(rootProp.NestedProperties)
 
 	return plan, exec, input.releases, nil
 }

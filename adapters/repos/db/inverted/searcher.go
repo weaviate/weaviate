@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/entities/additional"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 	filnested "github.com/weaviate/weaviate/entities/filters/nested"
 	"github.com/weaviate/weaviate/entities/inverted"
@@ -333,6 +334,12 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 	return helpers.NewAllowListCloseableFromBitmap(dbm.docIDs, dbm.release), nil
 }
 
+// extractPropValuePair is the entry point. It delegates type-dispatched
+// construction of the propValuePair tree to buildPropValuePair, then
+// runs a single post-order pass over the tree to group same-root
+// subtrees at every AND node. Recursive calls from
+// extractPropValuePairs go directly to buildPropValuePair to avoid
+// re-grouping during construction.
 func (s *Searcher) extractPropValuePair(
 	ctx context.Context, filter *filters.Clause, className schema.ClassName,
 ) (*propValuePair, error) {
@@ -340,6 +347,106 @@ func (s *Searcher) extractPropValuePair(
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
+	out, err := s.buildPropValuePair(ctx, filter, className, class)
+	if err != nil {
+		return nil, err
+	}
+	return groupNestedSubtrees(out, class), nil
+}
+
+// groupNestedSubtrees walks pv's tree post-order and applies the
+// same-root grouping rule of groupNestedByProp at every AND / OR node
+// it finds, and additionally marks NOT-of-nested-operand as
+// isWithinRootSubtree so the scope-aware planner inverts the NOT at
+// the operand's natural LCA (top-level NOT wrapping). Leaf nodes pass through;
+// their children are still walked so AND / OR / NOT nodes deeper in
+// the tree get processed. Pre-marked wrappers (isWithinRootSubtree=
+// true, e.g. tokenization wrappers from buildNestedTextFilterPair)
+// are skipped — their children are already the leaves of one same-
+// root subtree and need no further grouping.
+//
+// When grouping collapses every child of an AND / OR into a single
+// same-root wrapper, the outer operator is promoted in place: its own
+// isWithinRootSubtree flag and prop are set, and the redundant single-
+// child wrapping level is elided. Mixed-root nodes keep the per-group
+// wrappers as separate children.
+//
+// NOT-of-IsNull never reaches here — buildPropValuePair rewrites it to
+// its DeMorgan dual (singleton-NOT/OR wrapping) so the NOT cancels at
+// extraction time. Any NOT seen here has a non-IsNull operand.
+func groupNestedSubtrees(pv *propValuePair, class *models.Class) *propValuePair {
+	if pv == nil || len(pv.children) == 0 {
+		return pv
+	}
+	for i := range pv.children {
+		pv.children[i] = groupNestedSubtrees(pv.children[i], class)
+	}
+	if pv.nested.isWithinRootSubtree {
+		return pv
+	}
+	switch pv.operator {
+	case filters.OperatorAnd, filters.OperatorOr, filters.ContainsAll, filters.ContainsAny:
+		// ContainsAll / ContainsAny are AND / OR aliases on a nested path
+		// (first-class-operator approach — operator identity preserved by extractContains).
+		grouped := groupNestedByProp(pv.children, class, pv.operator)
+		if len(grouped) == 1 && grouped[0].nested.isWithinRootSubtree {
+			// Collapse: every child landed in one same-root wrapper.
+			// Promote pv to be that wrapper instead of holding it as a
+			// useless single-child outer node. pv keeps its operator
+			// (AND/OR or ContainsAll/Any), so the planner sees the right shape.
+			w := grouped[0]
+			pv.nested.isWithinRootSubtree = true
+			pv.prop = w.prop
+			pv.children = w.children
+			return pv
+		}
+		pv.children = grouped
+		return pv
+	case filters.OperatorNot:
+		if len(pv.children) != 1 {
+			return pv
+		}
+		operand := pv.children[0]
+		operandRoot := nestedRootProp(operand)
+		if operandRoot == "" {
+			return pv
+		}
+		pv.nested.isWithinRootSubtree = true
+		pv.prop = operandRoot
+		return pv
+	default:
+		return pv
+	}
+}
+
+// flipNestedIsNull returns a copy of pv with its IsNull boolean byte
+// inverted (0x01 ↔ 0x00). Used by buildPropValuePair to apply the
+// DeMorgan rewrite NOT(IsNull=v) → IsNull=!v on nested IsNull leaves.
+// pv must satisfy operator==OperatorIsNull and nested.isNested==true.
+//
+// The value slice is copied to avoid mutating any shared underlying
+// array; pv itself is shallow-cloned for the same reason (the original
+// pv may still be referenced by other parts of the filter tree under
+// pathological reuse, although today's extraction does not share).
+func flipNestedIsNull(pv *propValuePair) *propValuePair {
+	flipped := *pv
+	flipped.value = make([]byte, max(1, len(pv.value)))
+	copy(flipped.value, pv.value)
+	if flipped.value[0] == 0x01 {
+		flipped.value[0] = 0x00
+	} else {
+		flipped.value[0] = 0x01
+	}
+	return &flipped
+}
+
+// buildPropValuePair constructs the propValuePair from filter without
+// applying the same-root grouping pass. Used recursively by
+// extractPropValuePairs; the top-level extractPropValuePair wrapper
+// invokes groupNestedSubtrees once on the final tree.
+func (s *Searcher) buildPropValuePair(
+	ctx context.Context, filter *filters.Clause, className schema.ClassName, class *models.Class,
+) (*propValuePair, error) {
 	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
@@ -350,8 +457,15 @@ func (s *Searcher) extractPropValuePair(
 		if err != nil {
 			return nil, err
 		}
-		if filter.Operator == filters.OperatorAnd {
-			children = groupNestedByProp(children, class)
+		// DeMorgan rewrite: NOT(IsNull=v) on a nested
+		// path is equivalent to IsNull=!v under Phase 6's scope-aware IsNull
+		// semantics (both invert at the operand's natural LCA, so NOT cancels
+		// algebraically). Rewriting here eliminates the NOT before grouping
+		// and avoids routing IsNull leaves through operator subtrees, which
+		// fetchOperatorSubtreeBitmaps does not support.
+		if filter.Operator == filters.OperatorNot && len(children) == 1 &&
+			children[0].operator == filters.OperatorIsNull && children[0].nested.isNested {
+			return flipNestedIsNull(children[0]), nil
 		}
 		out.children = children
 		out.operator = filter.Operator
@@ -396,6 +510,12 @@ func (s *Searcher) extractPropValuePair(
 	}
 
 	if _, ok := schema.AsNested(property.DataType); ok {
+		// Defensive preview gate. The validator catches this first under the
+		// normal request flow; this duplicate guards any code path that
+		// reaches the searcher without going through validation.
+		if !entcfg.NestedFilteringEnabled() {
+			return nil, entcfg.NestedFilteringDisabledError()
+		}
 		return s.extractNestedProp(filter, props[0], property, class)
 	}
 
@@ -428,9 +548,19 @@ func (s *Searcher) extractPropValuePair(
 	return s.extractPrimitiveProp(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 }
 
+// extractPropValuePairs extracts each operand recursively via
+// buildPropValuePair (not the public extractPropValuePair wrapper) so
+// the same-root grouping pass runs only once at the outermost call.
+// The top-level groupNestedSubtrees pass walks the full tree post-order
+// and groups every AND node — including those nested inside OR/NOT —
+// so this recursion model doesn't miss any AND nodes.
 func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	operands []filters.Clause, operator filters.Operator, className schema.ClassName,
 ) ([]*propValuePair, error) {
+	class := s.getClass(className.String())
+	if class == nil {
+		return nil, fmt.Errorf("class %q not found", className)
+	}
 	children := make([]*propValuePair, len(operands))
 	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	outerConcurrencyLimit := concurrency.BudgetFromCtx(ctx, concurrency.GOMAXPROCS)
@@ -442,7 +572,7 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 		i, clause := i, clause
 		eg.Go(func() error {
 			ctx := concurrency.ContextWithFractionalBudget(ctx, concurrencyReductionFactor, concurrency.GOMAXPROCS)
-			child, err := s.extractPropValuePair(ctx, &clause, className)
+			child, err := s.buildPropValuePair(ctx, &clause, className, class)
 			// check for stopword errors on ContainsAny operator only at the end
 			if err != nil && errors.Is(err, ErrOnlyStopwords) && operator == filters.ContainsAny {
 				return nil
@@ -884,6 +1014,14 @@ func (s *Searcher) extractContains(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	// first-class-operator approach: on a nested path each Contains* operator keeps its operator
+	// identity instead of desugaring to AND / OR / NOT(OR). Downstream
+	// switches treat ContainsAll as an AND alias and ContainsAny as an OR
+	// alias; ContainsNone has dedicated dispatch (a first-class resolver
+	// that reads `_exists.{relPath}` as the inversion universe so sibling-
+	// branch leaves and phantom leaves cannot leak through the AndNot).
+	// Non-nested (flat) paths keep the old desugared shapes which the flat
+	// resolver handles.
 	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
@@ -892,12 +1030,57 @@ func (s *Searcher) extractContains(ctx context.Context,
 	out.children = children
 	out.Class = class
 
+	// Nested detection covers both direct leaves (isNested=true) and tokenization
+	// wrappers produced by buildNestedTextFilterPair for multi-token text values
+	// (isWithinRootSubtree=true, childrenFromTokenization=true, isNested=false).
+	// Without the isWithinRootSubtree branch, a nested ContainsAll/Any/None on a
+	// multi-token text value would misclassify as non-nested and lose operator
+	// identity / reintroduce the ContainsNone universe-leak.
+	nested := len(children) > 0 && (children[0].nested.isNested || children[0].nested.isWithinRootSubtree)
+
 	switch operator {
 	case filters.ContainsAll:
+		if nested {
+			// Single-value Contains is semantically the bare Equal leaf;
+			// return it directly so we don't end up with an unwrapped
+			// ContainsAll compound (which groupNestedSubtrees can't promote
+			// to isWithinRootSubtree and resolveDocIDs would route through
+			// fetchDocIDs on an empty prop).
+			if len(children) == 1 {
+				return children[0], nil
+			}
+			out.operator = filters.ContainsAll
+			return out, nil
+		}
 		out.operator = filters.OperatorAnd
 	case filters.ContainsAny:
+		if nested {
+			if len(children) == 1 {
+				return children[0], nil
+			}
+			out.operator = filters.ContainsAny
+			return out, nil
+		}
 		out.operator = filters.OperatorOr
 	case filters.ContainsNone:
+		if nested {
+			// Nested path: keep ContainsNone as a first-class operator. The
+			// pvp carries the operand relPath (from the children, which all
+			// share it by construction) and the children list as values.
+			out.operator = filters.ContainsNone
+			out.prop = children[0].prop
+			out.nested.relPath = children[0].nested.relPath
+			// arr[N] pins are propagated from any child — all children of a
+			// single ContainsNone clause share the same pins by construction
+			// (extracted from the same Path). The resolver uses them to
+			// restrict the `_exists.{relPath}` universe lookup.
+			out.nested.arrayIndices = children[0].nested.arrayIndices
+			// Note: out.nested.isNested stays false — this is a compound
+			// operator node, not a leaf; the value-leaves live as children.
+			return out, nil
+		}
+		// Non-nested path: keep the desugared NOT(OR(...)) shape. The
+		// existing flat resolver handles it.
 		out.operator = filters.OperatorOr
 
 		parent, err := newPropValuePair(class)

@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -70,6 +71,13 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 		propCopy := *prop // prevent loop variable capture
 
 		if _, ok := schema.AsNested(prop.DataType); ok {
+			// Preview gate — strict skip when off (no goroutine spawned,
+			// no buckets created). Pairs with the analyzer skip in
+			// adapters/repos/db/inverted/objects.go; even if one leaks past
+			// the other, absence of buckets keeps writes inert.
+			if !entcfg.NestedFilteringEnabled() {
+				continue
+			}
 			// TODO aliszka:nested_filtering respect top-level HasAnyInvertedIndex for
 			// nested properties before creating buckets — currently bypassed because
 			// the interaction between top-level and per-nested-property index settings

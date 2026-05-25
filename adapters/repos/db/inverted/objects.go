@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -73,6 +74,14 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 		}
 
 		if _, ok := schema.AsNested(prop.DataType); ok {
+			// Preview gate — when off we silently skip nested analysis so no
+			// entries are appended to nested filterable or meta buckets. Pairs
+			// with the bucket-creation skip in shard_init_properties.go; even
+			// if one leaks past the other, the absence of buckets makes the
+			// writes inert.
+			if !entcfg.NestedFilteringEnabled() {
+				continue
+			}
 			// TODO aliszka:nested_filtering respect top-level indexFilterable/
 			// indexSearchable/indexRangeable settings for nested properties. Currently
 			// these are ignored — the nested write path bypasses HasAnyInvertedIndex
