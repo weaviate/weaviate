@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -88,7 +89,7 @@ type dispatchMatrixStrategyCase struct {
 	// migration. Each cell builds a new shard + task; the task is the
 	// same instance used for both driveToState and RunSwapOnShard
 	// (mirroring the production "cached task" preservation rule).
-	buildTask func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric
+	buildTask func(t *testing.T, idx *db.Index, f *db.IndexFixture, className, propName string) *reindex.ShardReindexTaskGeneric
 	// fingerprintBucketName returns the canonical bucket name whose
 	// post-migration content we compare against the baseline. For
 	// EnableSearchable / RebuildSearchable / SearchableRetokenize this
@@ -96,7 +97,7 @@ type dispatchMatrixStrategyCase struct {
 	fingerprintBucketName func(propName string) string
 	// fingerprint reads the named bucket and returns a deterministic
 	// (term → sortedDocIDs) snapshot.
-	fingerprint func(t *testing.T, shard *Shard, bucketName string) map[string][]uint64
+	fingerprint func(t *testing.T, shard *db.Shard, bucketName string) map[string][]uint64
 }
 
 // dispatchMatrixPath distinguishes the trio (semantic) drive primitives
@@ -122,14 +123,14 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, _, _ string) *reindex.ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, _ *db.Index, f *db.IndexFixture, _, _ string) *reindex.ShardReindexTaskGeneric {
 				strategy := &testMigrationStrategy{
 					MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1},
 				}
-				return newTestTask(idx.logger, strategy)
+				return newTestTask(f.Logger(), strategy)
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
-			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
+			fingerprint: func(t *testing.T, shard *db.Shard, name string) map[string][]uint64 {
 				return fingerprintInvertedBucket(t, shard.Store().Bucket(name))
 			},
 		},
@@ -139,12 +140,12 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newRebuildSearchableTestClass(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
-				task, _ := newRebuildSearchableTask(t, idx, className, propName)
+			buildTask: func(t *testing.T, _ *db.Index, f *db.IndexFixture, className, propName string) *reindex.ShardReindexTaskGeneric {
+				task, _ := newRebuildSearchableTask(t, f, className, propName)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
-			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
+			fingerprint: func(t *testing.T, shard *db.Shard, name string) map[string][]uint64 {
 				return fingerprintInvertedBucket(t, shard.Store().Bucket(name))
 			},
 		},
@@ -154,12 +155,12 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, _, _ string) *reindex.ShardReindexTaskGeneric {
-				task, _ := newRoaringSetRefreshTask(t, idx)
+			buildTask: func(t *testing.T, _ *db.Index, f *db.IndexFixture, _, _ string) *reindex.ShardReindexTaskGeneric {
+				task, _ := newRoaringSetRefreshTask(t, f.Logger())
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
-			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
+			fingerprint: func(t *testing.T, shard *db.Shard, name string) map[string][]uint64 {
 				return fingerprintRoaringSetBucket(t, shard.Store().Bucket(name))
 			},
 		},
@@ -169,8 +170,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newFilterableToRangeableTestClass(className), filterableToRangeablePropName
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
-				task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+			buildTask: func(t *testing.T, _ *db.Index, f *db.IndexFixture, className, propName string) *reindex.ShardReindexTaskGeneric {
+				task, _ := newFilterableToRangeableTask(t, f.Logger(), className, propName)
 				return task
 			},
 			// FilterableToRangeable's target bucket is the rangeable
@@ -180,7 +181,7 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			// assertion path is uniform with the other strategies. The
 			// fingerprintBucketName/fingerprint pair below wires that.
 			fingerprintBucketName: helpers.BucketRangeableFromPropNameLSM,
-			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
+			fingerprint: func(t *testing.T, shard *db.Shard, name string) map[string][]uint64 {
 				return dispatchMatrixRangeableFingerprintAsString(t,
 					shard.Store().Bucket(name))
 			},
@@ -191,12 +192,12 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableFilterableTestClass(className, "title"), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, className, propName)
+			buildTask: func(t *testing.T, _ *db.Index, f *db.IndexFixture, className, propName string) *reindex.ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, f, className, propName)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
-			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
+			fingerprint: func(t *testing.T, shard *db.Shard, name string) map[string][]uint64 {
 				return fingerprintRoaringSetBucket(t, shard.Store().Bucket(name))
 			},
 		},
@@ -206,13 +207,13 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableSearchableTestClass(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
-				task, _ := newEnableSearchableTask(t, idx, className, propName,
+			buildTask: func(t *testing.T, _ *db.Index, f *db.IndexFixture, className, propName string) *reindex.ShardReindexTaskGeneric {
+				task, _ := newEnableSearchableTask(t, f, className, propName,
 					models.PropertyTokenizationWord)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
-			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
+			fingerprint: func(t *testing.T, shard *db.Shard, name string) map[string][]uint64 {
 				return fingerprintInvertedBucket(t, shard.Store().Bucket(name))
 			},
 		},
@@ -222,13 +223,13 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
-				task, _ := newFilterableRetokenizeTask(t, idx, className, propName,
+			buildTask: func(t *testing.T, _ *db.Index, f *db.IndexFixture, className, propName string) *reindex.ShardReindexTaskGeneric {
+				task, _ := newFilterableRetokenizeTask(t, f.Logger(), className, propName,
 					models.PropertyTokenizationField)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
-			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
+			fingerprint: func(t *testing.T, shard *db.Shard, name string) map[string][]uint64 {
 				return fingerprintRoaringSetBucket(t, shard.Store().Bucket(name))
 			},
 		},
@@ -238,19 +239,19 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *reindex.ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, _ *db.Index, f *db.IndexFixture, className, propName string) *reindex.ShardReindexTaskGeneric {
 				// SearchableRetokenize needs to know the source bucket
 				// strategy (MapCollection here, given UsingBlockMaxWAND=false
 				// in newTestClassWithProps). Resolve it from the live shard
 				// before constructing the task.
-				task, _ := newSearchableRetokenizeTask(t, idx, className, propName,
+				task, _ := newSearchableRetokenizeTask(t, f.Logger(), className, propName,
 					models.PropertyTokenizationField,
-					dispatchMatrixSearchableSourceStrategy(t, idx, className, propName),
+					dispatchMatrixSearchableSourceStrategy(t, className, propName),
 				)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
-			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
+			fingerprint: func(t *testing.T, shard *db.Shard, name string) map[string][]uint64 {
 				return fingerprintInvertedBucket(t, shard.Store().Bucket(name))
 			},
 		},
@@ -261,16 +262,16 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 // strategy on a freshly-built class. SearchableRetokenize requires this
 // at construction time so it can stamp the right BackupStrategy on the
 // tracker. Captured in a helper to keep the table init readable.
-func dispatchMatrixSearchableSourceStrategy(t *testing.T, idx *Index, className, propName string) string {
+func dispatchMatrixSearchableSourceStrategy(t *testing.T, className, propName string) string {
 	t.Helper()
 	// Build a transient shard with the same class to look up the source
 	// strategy. We use a dedicated short-lived shard so this helper
 	// doesn't perturb the cell's shard state.
 	ctx := testCtx()
 	class := newTestClassWithProps(className+"__probe", []string{propName})
-	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 	return shard.Store().Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy()
 }
@@ -308,7 +309,7 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 //     for IsMerged; +RunSwapOnShard for IsTidied; synthetic file removal
 //     for IsPrepended/IsSwapped.
 func dispatchMatrixDriveCell(
-	t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric,
+	t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric,
 	path dispatchMatrixPath, sentinel dispatchMatrixSentinel,
 ) {
 	t.Helper()
@@ -340,7 +341,7 @@ func dispatchMatrixDriveCell(
 }
 
 func dispatchMatrixDriveToReindexed(
-	t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric,
+	t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric,
 	path dispatchMatrixPath,
 ) {
 	t.Helper()
@@ -367,7 +368,7 @@ func dispatchMatrixDriveToReindexed(
 }
 
 func dispatchMatrixDriveToMerged(
-	t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric,
+	t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric,
 	path dispatchMatrixPath,
 ) {
 	t.Helper()
@@ -400,7 +401,7 @@ func dispatchMatrixDriveToMerged(
 }
 
 func dispatchMatrixDriveToTidied(
-	t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric,
+	t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric,
 	path dispatchMatrixPath,
 ) {
 	t.Helper()
@@ -426,7 +427,7 @@ func dispatchMatrixDriveToTidied(
 // markTidied together (no kernel-level guarantee about file order under a
 // crash); the synthetic removal mimics a crash between the two fsyncs.
 func dispatchMatrixRemoveTidiedSentinel(
-	t *testing.T, shard *Shard, task *reindex.ShardReindexTaskGeneric,
+	t *testing.T, shard *db.Shard, task *reindex.ShardReindexTaskGeneric,
 ) {
 	t.Helper()
 	rt, err := task.NewReindexTracker(shard.PathLSM())
@@ -492,14 +493,14 @@ func dispatchMatrixComputeBaseline(
 	className := "DispatchMatrixBaseline_" + sc.strategyName + "_" + uuid.NewString()[:6]
 	class, propName := sc.buildClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, idx, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
-	task := sc.buildTask(t, idx, className, propName)
+	task := sc.buildTask(t, idx, f, className, propName)
 	dispatchMatrixDriveToTidied(t, ctx, shard, task, sc.path)
 
 	return sc.fingerprint(t, shard, sc.fingerprintBucketName(propName))
@@ -510,7 +511,7 @@ func dispatchMatrixComputeBaseline(
 // text-based 3-token-window generator. Centralized so the cell setup is
 // a single line.
 func dispatchMatrixSeedObjects(
-	t *testing.T, ctx context.Context, shard *Shard,
+	t *testing.T, ctx context.Context, shard *db.Shard,
 	sc dispatchMatrixStrategyCase, className string, numObjects int,
 ) {
 	t.Helper()
@@ -565,14 +566,14 @@ func dispatchMatrixRunCell(
 	className := "DispatchMatrixCell_" + sc.strategyName + "_" + string(sentinel) + "_" + uuid.NewString()[:6]
 	class, propName := sc.buildClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, idx, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
-	task := sc.buildTask(t, idx, className, propName)
+	task := sc.buildTask(t, idx, f, className, propName)
 
 	// driveToState may call t.Skip for unreachable cells; if so, the
 	// subtest is recorded as skipped (not failed). The defer-Shutdown

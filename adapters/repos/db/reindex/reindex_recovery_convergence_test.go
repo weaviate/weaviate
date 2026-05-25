@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -20,9 +20,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -73,7 +75,7 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 // reindex.SearchableRetokenizeStrategy in test scaffolding. Semantic
 // migration: swap is driven via RunReindexOnly/RunPrepare/RunSwap on
 // each shard, not the inline runtimeSwap used by MapToBlockmax.
-func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy string) (*reindex.ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
+func newSearchableRetokenizeTask(t *testing.T, logger logrus.FieldLogger, className, propName, targetTokenization, bucketStrategy string) (*reindex.ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
 	t.Helper()
 	wrapped := &testSearchableRetokenizeStrategyWrapper{
 		SearchableRetokenizeStrategy: reindex.SearchableRetokenizeStrategy{
@@ -85,7 +87,7 @@ func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 		},
 	}
 	task := reindex.NewShardReindexTaskGeneric(
-		"SearchableRetokenize", idx.logger, wrapped,
+		"SearchableRetokenize", logger, wrapped,
 		reindex.ReindexTaskConfig{
 			SwapBuckets:                   true,
 			TidyBuckets:                   true,
@@ -145,9 +147,9 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	className := "ConvergenceBaseline_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{propName})
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	objects := makeConvergenceTestObjects(t, numObjects, className)
@@ -161,7 +163,7 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	require.Equal(t, lsmkv.StrategyMapCollection, preBucket.Strategy())
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -209,9 +211,9 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	className := "ConvergenceBaselineRef_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{propName})
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
@@ -219,7 +221,7 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -239,7 +241,7 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 // matches the baseline.
 type recoveryConvergenceCase struct {
 	name                       string
-	driveToState               func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric)
+	driveToState               func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric)
 	expectedPostStateSentinels map[string]bool // sanity-check the drive-to actually halted there
 }
 
@@ -255,7 +257,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 	cases := []recoveryConvergenceCase{
 		{
 			name: "MidIteration_after_first_batch_resume_completes",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				// Break the iteration loop after the first batch by
 				// setting processingDuration to a value the
 				// per-batch check immediately considers elapsed.
@@ -285,7 +287,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		},
 		{
 			name: "IsReindexed_via_skipSwapOnFinish",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -306,7 +308,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		},
 		{
 			name: "IsPrepended_synthetic_merged_sentinel_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				// runtimePrepare writes markPrepended + markMerged in one
 				// atomic method, so we synthesize the IsPrepended-only
 				// state by removing merged.mig post-hoc.
@@ -338,7 +340,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		},
 		{
 			name: "IsMerged_via_runtimePrepare_no_runtimeSwap",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -364,7 +366,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		},
 		{
 			name: "IsSwapped_synthetic_tidied_sentinel_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				// Synthesize IsSwapped-but-not-IsTidied by removing
 				// tidied.mig after the full migration.
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
@@ -390,7 +392,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 		},
 		{
 			name: "IsTidied_full_migration",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -416,9 +418,9 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 			className := "ConvergenceCase_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{propName})
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+			shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
-			shard := shd.(*Shard)
+			shard := shd.(*db.Shard)
 			defer shard.Shutdown(ctx)
 
 			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
@@ -426,7 +428,7 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 			}
 
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-			task := newTestTask(idx.logger, strategy)
+			task := newTestTask(f.Logger(), strategy)
 			tc.driveToState(t, ctx, shard, task)
 
 			rt := reindex.NewFileMapToBlockmaxReindexTracker(shard.PathLSM(), &reindex.UuidKeyParser{})
@@ -445,22 +447,22 @@ func TestRecoveryConvergence_FromEachState(t *testing.T) {
 
 			// Phase 2: simulate restart — full shutdown + shard re-init
 			// + fresh task. This is the real-world restart sequence:
-			// shard_init runs reindex.FinalizeCompletedMigrations, then
+			// shard_init runs FinalizeCompletedMigrations, then
 			// OnBeforeLsmInit, then LSM init, then OnAfterLsmInit, then
 			// OnAfterLsmInitAsync loop on the background scheduler.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-			task2 := newTestTask(idx.logger, strategy2)
+			task2 := newTestTask(f.Logger(), strategy2)
 			task2.SkipSwapOnFinish.Store(false)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			f.SetShardReindexer(&testShardReindexer{task: task2})
 
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			shd2, err := f.InitShard(ctx, shardName, class, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
-			shard2 := shd2.(*Shard)
+			shard2 := shd2.(*db.Shard)
 			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
+			f.StoreShard(shardName, shd2)
 
 			for {
 				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
@@ -508,7 +510,7 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 	cases := []recoveryConvergenceCase{
 		{
 			name: "Retokenize_IsReindexed_via_RunReindexOnlyOnShard",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			},
 			expectedPostStateSentinels: map[string]bool{
@@ -517,7 +519,7 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 		},
 		{
 			name: "Retokenize_IsPrepended_synthetic_merged_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 				rt, err := task.NewReindexTracker(shard.PathLSM())
@@ -531,7 +533,7 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 		},
 		{
 			name: "Retokenize_IsSwapped_synthetic_tidied_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 				require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -546,7 +548,7 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 		},
 		{
 			name: "Retokenize_IsMerged_via_RunPrepareOnShard",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 			},
@@ -556,7 +558,7 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 		},
 		{
 			name: "Retokenize_IsTidied_via_full_trio",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 				require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -573,9 +575,9 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 			className := "RetokenizeCase_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{propName})
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+			shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
-			shard := shd.(*Shard)
+			shard := shd.(*db.Shard)
 			defer shard.Shutdown(ctx)
 
 			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
@@ -585,7 +587,7 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 			searchBucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 			preStrategy := shard.Store().Bucket(searchBucketName).Strategy()
 
-			task, _ := newSearchableRetokenizeTask(t, idx, className, propName,
+			task, _ := newSearchableRetokenizeTask(t, f.Logger(), className, propName,
 				models.PropertyTokenizationField, preStrategy)
 
 			tc.driveToState(t, ctx, shard, task)
@@ -612,15 +614,15 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			task2, _ := newSearchableRetokenizeTask(t, idx, className, propName,
+			task2, _ := newSearchableRetokenizeTask(t, f.Logger(), className, propName,
 				models.PropertyTokenizationField, preStrategy)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			f.SetShardReindexer(&testShardReindexer{task: task2})
 
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			shd2, err := f.InitShard(ctx, shardName, class, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
-			shard2 := shd2.(*Shard)
+			shard2 := shd2.(*db.Shard)
 			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
+			f.StoreShard(shardName, shd2)
 
 			for {
 				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
@@ -631,7 +633,7 @@ func TestRecoveryConvergence_SearchableRetokenize_FromEachState(t *testing.T) {
 			}
 			// Semantic migrations need explicit RunSwapOnShard to finish;
 			// in-process OnAfterLsmInitAsync skips swap when IsReindexed.
-			rt2, err := task2.NewReindexTracker(shard2.pathLSM())
+			rt2, err := task2.NewReindexTracker(shard2.PathLSM())
 			require.NoErrorf(t, err, "post-recovery tracker init (case %q)", tc.name)
 			if !rt2.IsTidied() {
 				if err := task2.RunSwapOnShard(ctx, shard2); err != nil {
@@ -665,9 +667,9 @@ func computeSearchableRetokenizeBaseline(t *testing.T, propName string, numObjec
 	className := "RetokenizeBaselineRef_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{propName})
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
@@ -677,7 +679,7 @@ func computeSearchableRetokenizeBaseline(t *testing.T, propName string, numObjec
 	searchBucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 	preStrategy := shard.Store().Bucket(searchBucketName).Strategy()
 
-	task, _ := newSearchableRetokenizeTask(t, idx, className, propName,
+	task, _ := newSearchableRetokenizeTask(t, f.Logger(), className, propName,
 		models.PropertyTokenizationField, preStrategy)
 
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))

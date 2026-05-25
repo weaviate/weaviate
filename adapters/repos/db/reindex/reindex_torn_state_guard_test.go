@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -41,20 +42,20 @@ const (
 // guard's preconditions hold. The returned shard's pathLSM is the
 // callable target for the synthetic dir-removal step that the
 // positive cases perform.
-func runTornStateMigrationToReindexed(t *testing.T, ctx context.Context, className string) (*Shard, *Index) {
+func runTornStateMigrationToReindexed(t *testing.T, ctx context.Context, className string) (*db.Shard, *db.IndexFixture) {
 	t.Helper()
 	class := newTestClassWithProps(className, []string{tornGuardPropName})
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 
 	for _, obj := range makeConvergenceTestObjects(t, tornGuardNumObjects, className) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 	task.SkipSwapOnFinish.Store(true) // halt at IsReindexed, BEFORE runtimeSwap
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
@@ -75,7 +76,7 @@ func runTornStateMigrationToReindexed(t *testing.T, ctx context.Context, classNa
 	require.False(t, rt.IsSwapped(), "precondition: IsSwapped must be false")
 	require.False(t, rt.IsTidied(), "precondition: IsTidied must be false")
 
-	return shard, idx
+	return shard, f
 }
 
 // TestTornState_OnAfterLsmInit_GuardFires_ResetsReindexed pins the
@@ -94,14 +95,14 @@ func runTornStateMigrationToReindexed(t *testing.T, ctx context.Context, classNa
 func TestTornState_OnAfterLsmInit_GuardFires_ResetsReindexed(t *testing.T) {
 	ctx := testCtx()
 	className := "TornGuardA_" + uuid.NewString()[:8]
-	shard, idx := runTornStateMigrationToReindexed(t, ctx, className)
+	shard, f := runTornStateMigrationToReindexed(t, ctx, className)
 	defer shard.Shutdown(ctx)
 
 	// Synthetically remove the reindex bucket dir, leaving reindexed.mig
 	// on disk. Per the guard godoc this is the exact "forged sentinel /
 	// died before any iteration data reached disk" shape.
 	strategy0 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task0 := newTestTask(idx.logger, strategy0)
+	task0 := newTestTask(f.Logger(), strategy0)
 	reindexBucketDir := shard.PathLSM() + "/" + task0.ReindexBucketName(tornGuardPropName)
 	require.DirExists(t, reindexBucketDir, "fixture: reindex bucket dir must exist before we remove it")
 	require.NoError(t, os.RemoveAll(reindexBucketDir),
@@ -111,7 +112,7 @@ func TestTornState_OnAfterLsmInit_GuardFires_ResetsReindexed(t *testing.T) {
 	// inverted_reindex_task_generic.go:1091 must detect the torn state
 	// and unmark reindexed.
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(f.Logger(), strategy2)
 	task2.SkipSwapOnFinish.Store(false)
 	require.NoError(t, task2.OnAfterLsmInit(ctx, shard),
 		"OnAfterLsmInit must not error on torn-state recovery")
@@ -136,7 +137,7 @@ func TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline(t *testing.T) {
 	ctx := testCtx()
 	className := "TornGuardB_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{tornGuardPropName})
-	shard, idx := runTornStateMigrationToReindexed(t, ctx, className)
+	shard, f := runTornStateMigrationToReindexed(t, ctx, className)
 
 	// Synthetically remove the reindex bucket dir while reindexed.mig
 	// survives. Then simulate a restart (the production code path
@@ -149,7 +150,7 @@ func TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline(t *testing.T) {
 	// does (OnBeforeLsmInit runs first, then LSM init, then
 	// OnAfterLsmInit).
 	strategy0 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task0 := newTestTask(idx.logger, strategy0)
+	task0 := newTestTask(f.Logger(), strategy0)
 	reindexBucketDir := shard.PathLSM() + "/" + task0.ReindexBucketName(tornGuardPropName)
 	require.NoError(t, os.RemoveAll(reindexBucketDir))
 
@@ -157,15 +158,15 @@ func TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline(t *testing.T) {
 	require.NoError(t, shard.Shutdown(ctx))
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(f.Logger(), strategy2)
 	task2.SkipSwapOnFinish.Store(false)
-	idx.shardReindexer = &testShardReindexer{task: task2}
+	f.SetShardReindexer(&testShardReindexer{task: task2})
 
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	shd2, err := f.InitShard(ctx, shardName, class, true, true)
 	require.NoError(t, err, "shard re-init must succeed after torn-state recovery")
-	shard2 := shd2.(*Shard)
+	shard2 := shd2.(*db.Shard)
 	defer shard2.Shutdown(ctx)
-	idx.shards.Store(shardName, shd2)
+	f.StoreShard(shardName, shd2)
 
 	for {
 		rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
@@ -199,12 +200,12 @@ func TestTornState_OnAfterLsmInit_RecoveryConvergesToBaseline(t *testing.T) {
 func TestTornState_OnAfterLsmInit_DirsPresent_GuardNoOp(t *testing.T) {
 	ctx := testCtx()
 	className := "TornGuardC_" + uuid.NewString()[:8]
-	shard, idx := runTornStateMigrationToReindexed(t, ctx, className)
+	shard, f := runTornStateMigrationToReindexed(t, ctx, className)
 	defer shard.Shutdown(ctx)
 
 	// DO NOT remove the dirs — they are legitimately present.
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(f.Logger(), strategy2)
 	task2.SkipSwapOnFinish.Store(true) // stay at IsReindexed; we only want to test the guard's no-op
 	require.NoError(t, task2.OnAfterLsmInit(ctx, shard))
 
@@ -228,18 +229,18 @@ func TestTornState_OnAfterLsmInit_DirsPresent_GuardNoOp(t *testing.T) {
 func TestTornState_OnAfterLsmInit_PostPrependedDirsGone_GuardNoOp(t *testing.T) {
 	ctx := testCtx()
 	className := "TornGuardD_" + uuid.NewString()[:8]
-	shard, idx := runTornStateMigrationToReindexed(t, ctx, className)
+	shard, f := runTornStateMigrationToReindexed(t, ctx, className)
 	defer shard.Shutdown(ctx)
 
 	// Drive past IsReindexed → IsMerged via runtimePrepare (production
 	// code path; same atomic-method as the convergence test uses).
 	strategy0 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task0 := newTestTask(idx.logger, strategy0)
+	task0 := newTestTask(f.Logger(), strategy0)
 	rt0, err := task0.NewReindexTracker(shard.PathLSM())
 	require.NoError(t, err)
 	props, err := task0.ReadPropsToReindex(rt0)
 	require.NoError(t, err)
-	require.NoError(t, task0.RuntimePrepare(ctx, idx.logger, shard, rt0, props),
+	require.NoError(t, task0.RuntimePrepare(ctx, f.Logger(), shard, rt0, props),
 		"runtimePrepare must succeed (it writes markPrepended + cleanup + markMerged)")
 
 	// Precondition: IsPrepended AND IsMerged set; reindex bucket dir
@@ -255,7 +256,7 @@ func TestTornState_OnAfterLsmInit_PostPrependedDirsGone_GuardNoOp(t *testing.T) 
 	// fire because we're not in the pre-prepend window — the missing
 	// dir is correct.
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(f.Logger(), strategy2)
 	require.NoError(t, task2.OnAfterLsmInit(ctx, shard))
 
 	rt, err := task2.NewReindexTracker(shard.PathLSM())
@@ -277,9 +278,9 @@ func TestTornState_OnAfterLsmInit_NoReindexedSentinel_GuardNoOp(t *testing.T) {
 	className := "TornGuardE_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{tornGuardPropName})
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeConvergenceTestObjects(t, tornGuardNumObjects, className) {
@@ -288,7 +289,7 @@ func TestTornState_OnAfterLsmInit_NoReindexedSentinel_GuardNoOp(t *testing.T) {
 
 	// Fresh task, no prior sentinels on disk.
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 	task.SkipSwapOnFinish.Store(true) // stop early so we don't progress past IsReindexed
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
@@ -314,16 +315,16 @@ func TestTornState_OnAfterLsmInit_NoReindexedSentinel_GuardNoOp(t *testing.T) {
 func TestTornState_OnBeforeLsmInit_GuardFires_ResetsReindexed(t *testing.T) {
 	ctx := testCtx()
 	className := "TornGuardF_" + uuid.NewString()[:8]
-	shard, idx := runTornStateMigrationToReindexed(t, ctx, className)
+	shard, f := runTornStateMigrationToReindexed(t, ctx, className)
 	defer shard.Shutdown(ctx)
 
 	strategy0 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task0 := newTestTask(idx.logger, strategy0)
+	task0 := newTestTask(f.Logger(), strategy0)
 	reindexBucketDir := shard.PathLSM() + "/" + task0.ReindexBucketName(tornGuardPropName)
 	require.NoError(t, os.RemoveAll(reindexBucketDir))
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(f.Logger(), strategy2)
 	require.NoError(t, task2.OnBeforeLsmInit(ctx, shard),
 		"OnBeforeLsmInit must not error on torn-state recovery")
 

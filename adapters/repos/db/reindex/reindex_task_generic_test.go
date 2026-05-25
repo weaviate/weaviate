@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -138,9 +139,9 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 	className := "TestMigrationRuntime"
 	class := newTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(reindex.ShardLike)
+	shard := shd.(*db.Shard)
 
 	searchBucketName := helpers.BucketSearchableFromPropNameLSM("title")
 	require.Equal(t, lsmkv.StrategyMapCollection,
@@ -155,7 +156,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 
 	// Start migration (reloadShards=false → runtime swap)
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
@@ -245,9 +246,9 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	className := "TestMigrationRuntimeRestart"
 	class := newTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(reindex.ShardLike)
+	shard := shd.(*db.Shard)
 
 	// Insert objects and run full runtime swap
 	objects := make([]*storobj.Object, 10)
@@ -257,7 +258,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 	for {
@@ -274,15 +275,15 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 	require.NoError(t, shard.Shutdown(ctx))
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
-	idx.shardReindexer = &testShardReindexer{task: task2}
+	task2 := newTestTask(f.Logger(), strategy2)
+	f.SetShardReindexer(&testShardReindexer{task: task2})
 
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	shd2, err := f.InitShard(ctx, shardName, class, true, true)
 	require.NoError(t, err)
-	shard2 := shd2.(reindex.ShardLike)
-	idx.shards.Store(shardName, shd2)
+	shard2 := shd2.(*db.Shard)
+	f.StoreShard(shardName, shd2)
 
-	// After per-migration-generation refactor, reindex.FinalizeCompletedMigrations
+	// After per-migration-generation refactor, FinalizeCompletedMigrations
 	// runs at shard init, finalizes the tidied gen (renames ingest dir →
 	// canonical, removes backup, removes the tracker dir). With the
 	// tracker dir gone, the new task's OnAfterLsmInit sees IsStarted=
@@ -371,13 +372,13 @@ func TestRunSwapOnShard_SentinelAwareDispatch(t *testing.T) {
 			className := "TestSentinelDispatch_" + tc.name
 			class := newTestClass(className)
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+			shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
-			shard := shd.(reindex.ShardLike)
+			shard := shd.(*db.Shard)
 			defer shard.Shutdown(ctx)
 
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-			task := newTestTask(idx.logger, strategy)
+			task := newTestTask(f.Logger(), strategy)
 
 			// Set up the on-disk tracker at the target sentinel state.
 			rt, err := task.NewReindexTracker(shard.PathLSM())
@@ -440,9 +441,9 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	propNames := []string{"title", "description", "summary", "keywords"}
 	class := newTestClassWithProps(className, propNames)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(reindex.ShardLike)
+	shard := shd.(*db.Shard)
 
 	// Sanity: every prop's searchable bucket should start at
 	// StrategyMapCollection so the MapToBlockmax migration picks them
@@ -473,7 +474,7 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 
 	// Wire the Phase 2a observation hook. Production leaves this nil;
 	// the test reads back the per-prop timestamps to assert the

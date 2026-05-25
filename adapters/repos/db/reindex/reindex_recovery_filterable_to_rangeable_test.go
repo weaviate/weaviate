@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -22,9 +22,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -166,7 +168,7 @@ func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64]
 }
 
 // newFilterableToRangeableTask wraps a reindex.FilterableToRangeableStrategy in
-// the test infrastructure. Mirrors reindex.NewRuntimeFilterableToRangeableTask
+// the test infrastructure. Mirrors NewRuntimeFilterableToRangeableTask
 // (the production constructor in inverted_reindexer_filterable_to_rangeable.go)
 // but with two test-side adaptations:
 //
@@ -176,7 +178,7 @@ func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64]
 //  2. The OnMigrationComplete observer is a flag setter, so the baseline
 //     test can assert the hook fired without needing a real RAFT/schema
 //     wire-up.
-func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName string) (*reindex.ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
+func newFilterableToRangeableTask(t *testing.T, logger logrus.FieldLogger, className, propName string) (*reindex.ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableToRangeableStrategyWrapper{
 		FilterableToRangeableStrategy: reindex.FilterableToRangeableStrategy{
@@ -207,7 +209,7 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 	}
 
 	task := reindex.NewShardReindexTaskGeneric(
-		"FilterableToRangeable", idx.logger, wrapped, cfg,
+		"FilterableToRangeable", logger, wrapped, cfg,
 		&reindex.UuidKeyParser{}, reindex.UuidObjectsIteratorAsync,
 	)
 	return task, wrapped
@@ -252,20 +254,20 @@ func computeFilterableToRangeableBaseline(t *testing.T, propName string, numObje
 	className := "FilterToRangeBaselineRef_" + uuid.NewString()[:8]
 	class := newFilterableToRangeableTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, f.Logger(), className, propName)
 
 	// Inline migration: drive it through OnAfterLsmInit +
 	// OnAfterLsmInitAsync loop. This is the production code path for
-	// non-semantic strategies (see reindex.IsSemanticMigration check).
+	// non-semantic strategies (see IsSemanticMigration check).
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -292,9 +294,9 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	className := "FilterToRangeBaseline_" + uuid.NewString()[:8]
 	class := newFilterableToRangeableTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
@@ -311,7 +313,7 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	require.Nil(t, shard.Store().Bucket(rangeBucketName),
 		"pre-migration rangeable bucket must NOT exist (IndexRangeFilters defaults to false)")
 
-	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+	task, wrapped := newFilterableToRangeableTask(t, f.Logger(), className, propName)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -369,7 +371,7 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 	cases := []recoveryConvergenceCase{
 		{
 			name: "FilterableToRangeable_IsReindexed_via_skipSwapOnFinish",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -386,7 +388,7 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 		},
 		{
 			name: "FilterableToRangeable_IsPrepended_synthetic_merged_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				// runtimePrepare writes markPrepended + cleanup +
 				// markMerged in one atomic method, so we can't reach
 				// IsPrepended-without-IsMerged via production code alone.
@@ -418,7 +420,7 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 		},
 		{
 			name: "FilterableToRangeable_IsSwapped_synthetic_tidied_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				// runtimeSwap writes markSwapped + tidy + markTidied
 				// atomically. Drive the migration to completion, then
 				// remove tidied.mig to synthesize a crash between
@@ -444,7 +446,7 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 		},
 		{
 			name: "FilterableToRangeable_IsMerged_via_runtimePrepare_no_runtimeSwap",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				// Step 1: drive iteration to markReindexed via the
 				// production barrier path.
 				task.SkipSwapOnFinish.Store(true)
@@ -470,7 +472,7 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 		},
 		{
 			name: "FilterableToRangeable_IsTidied_full_migration",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -492,16 +494,16 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 			className := "FilterToRangeCase_" + uuid.NewString()[:8]
 			class := newFilterableToRangeableTestClass(className)
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+			shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
-			shard := shd.(*Shard)
+			shard := shd.(*db.Shard)
 			defer shard.Shutdown(ctx)
 
 			for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 
-			task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+			task, _ := newFilterableToRangeableTask(t, f.Logger(), className, propName)
 
 			tc.driveToState(t, ctx, shard, task)
 
@@ -529,20 +531,20 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 			}
 
 			// Simulated restart: graceful shutdown, fresh task, then
-			// idx.initShard re-runs reindex.FinalizeCompletedMigrations →
+			// idx.initShard re-runs FinalizeCompletedMigrations →
 			// OnBeforeLsmInit → LSM init → OnAfterLsmInit. Same restart
 			// primitive PR #11415 uses for MapToBlockmax.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			task2, _ := newFilterableToRangeableTask(t, idx, className, propName)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			task2, _ := newFilterableToRangeableTask(t, f.Logger(), className, propName)
+			f.SetShardReindexer(&testShardReindexer{task: task2})
 
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			shd2, err := f.InitShard(ctx, shardName, class, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
-			shard2 := shd2.(*Shard)
+			shard2 := shd2.(*db.Shard)
 			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
+			f.StoreShard(shardName, shd2)
 
 			// Drive the async loop to completion. For non-semantic
 			// strategies (FilterableToRangeable is non-semantic) the
@@ -592,7 +594,7 @@ func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
 // loaded. Without it, OnAfterLsmInitAsync's IsTidied safety check
 // refuses OnMigrationComplete and the replica is stuck.
 //
-// reindex.FinalizeCompletedMigrations normally clears the tidied tracker at
+// FinalizeCompletedMigrations normally clears the tidied tracker at
 // shard init, which masks the bug at the integration tier — this
 // test calls OnBeforeLsmInit directly with explicit sentinel state to
 // pin the branch independently. weaviate/0-weaviate-issues#246 narrow
@@ -604,12 +606,12 @@ func TestRecoveryConvergence_FilterableToRangeable_IsTidied_OnBeforeLsmInitFires
 	className := "FilterToRangeIsTidiedHook_" + uuid.NewString()[:8]
 	class := newFilterableToRangeableTestClass(className)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
-	task, wrapper := newFilterableToRangeableTask(t, idx, className, propName)
+	task, wrapper := newFilterableToRangeableTask(t, f.Logger(), className, propName)
 
 	// Synthesize the on-disk state of a crash between markTidied and
 	// the recovery-branch PreReindexHook fire: every sentinel present.

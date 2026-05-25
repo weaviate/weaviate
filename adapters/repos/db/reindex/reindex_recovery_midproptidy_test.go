@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -120,7 +121,7 @@ func midPropTidyInstallTidyFault(task *reindex.ShardReindexTaskGeneric, haltAfte
 // — a panic from testHookPostPropSwap propagates straight up the stack
 // and the deferred recover() catches it.
 func midPropTidyRunSwapWithRecover(ctx context.Context, task *reindex.ShardReindexTaskGeneric,
-	shard *Shard, rt reindex.ReindexTracker, props []string,
+	shard *db.Shard, rt reindex.ReindexTracker, props []string,
 ) (panicked bool, panicValue interface{}, swapReturned bool, swapErr error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -139,7 +140,7 @@ func midPropTidyRunSwapWithRecover(ctx context.Context, task *reindex.ShardReind
 // and the error returned from eg.Wait() carries the substring "panic
 // occurred" (see [entities/errors/error_group_wrapper.go] line ~92).
 func midPropTidyRunTidyExpectingPanicError(ctx context.Context, task *reindex.ShardReindexTaskGeneric,
-	shard *Shard, rt reindex.ReindexTracker, props []string,
+	shard *db.Shard, rt reindex.ReindexTracker, props []string,
 ) error {
 	return task.TidyBackupBuckets(ctx, task.Logger, shard, rt, props)
 }
@@ -185,9 +186,9 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			className := fmt.Sprintf("MidPropTidy_%s_%d_%s", tc.phase, tc.haltAfter, uuid.NewString()[:8])
 			class := newTestClassWithProps(className, propNames)
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+			shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
-			shard := shd.(*Shard)
+			shard := shd.(*db.Shard)
 			defer shard.Shutdown(ctx)
 
 			for _, obj := range makeMultiPropConvergenceObjects(t, numObjects, className, propNames) {
@@ -195,7 +196,7 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			}
 
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-			task := newTestTask(idx.logger, strategy)
+			task := newTestTask(f.Logger(), strategy)
 			// Force sequential tidy so the per-prop hook fires in
 			// deterministic propIdx order. Has no effect on swap (Phase
 			// 2a is already strictly sequential).
@@ -338,16 +339,16 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-			task2 := newTestTask(idx.logger, strategy2)
+			task2 := newTestTask(f.Logger(), strategy2)
 			task2.SkipSwapOnFinish.Store(false)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			f.SetShardReindexer(&testShardReindexer{task: task2})
 
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			shd2, err := f.InitShard(ctx, shardName, class, true, true)
 			require.NoErrorf(t, err, "mid-prop-tidy shard re-init (phase=%s, haltAfter=%d)",
 				tc.phase, tc.haltAfter)
-			shard2 := shd2.(*Shard)
+			shard2 := shd2.(*db.Shard)
 			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
+			f.StoreShard(shardName, shd2)
 
 			for {
 				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)

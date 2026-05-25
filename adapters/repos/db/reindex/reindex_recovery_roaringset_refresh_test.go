@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -19,9 +19,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -35,7 +37,7 @@ import (
 // the only difference.
 
 // newRoaringSetRefreshTask wraps reindex.RoaringSetRefreshStrategy.
-func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*reindex.ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
+func newRoaringSetRefreshTask(t *testing.T, logger logrus.FieldLogger) (*reindex.ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
 	t.Helper()
 	wrapped := &roaringSetRefreshStrategyWrapper{
 		RoaringSetRefreshStrategy: reindex.RoaringSetRefreshStrategy{
@@ -43,7 +45,7 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*reindex.ShardReindexTa
 		},
 	}
 	task := reindex.NewShardReindexTaskGeneric(
-		"RoaringSetRefresh", idx.logger, wrapped,
+		"RoaringSetRefresh", logger, wrapped,
 		reindex.ReindexTaskConfig{
 			SwapBuckets:                   true,
 			TidyBuckets:                   true,
@@ -84,16 +86,16 @@ func computeRoaringSetRefreshBaseline(t *testing.T, propName string, numObjects 
 	className := "RoaringSetRefreshBaselineRef_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{propName})
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task, _ := newRoaringSetRefreshTask(t, idx)
+	task, _ := newRoaringSetRefreshTask(t, f.Logger())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -120,9 +122,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 	className := "RoaringSetRefreshBaseline_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{propName})
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
@@ -138,7 +140,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 	require.NotEmpty(t, preFP,
 		"pre-migration filterable fingerprint must be non-empty")
 
-	task, wrapped := newRoaringSetRefreshTask(t, idx)
+	task, wrapped := newRoaringSetRefreshTask(t, f.Logger())
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -201,7 +203,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 	cases := []recoveryConvergenceCase{
 		{
 			name: "RoaringSetRefresh_IsReindexed_via_skipSwapOnFinish",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -222,7 +224,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 		},
 		{
 			name: "RoaringSetRefresh_IsPrepended_synthetic_merged_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				// runtimePrepare writes markPrepended + cleanup +
 				// markMerged in one atomic method, so we can't reach
 				// IsPrepended-without-IsMerged via production code
@@ -258,7 +260,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 		},
 		{
 			name: "RoaringSetRefresh_IsSwapped_synthetic_tidied_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				// runtimeSwap writes markSwapped + tidy + markTidied
 				// atomically. Drive the migration to completion, then
 				// remove tidied.mig by hand to simulate a crash between
@@ -288,7 +290,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 		},
 		{
 			name: "RoaringSetRefresh_IsMerged_via_runtimePrepare_no_runtimeSwap",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				// Step 1: drive iteration to markReindexed via the
 				// production barrier path.
 				task.SkipSwapOnFinish.Store(true)
@@ -320,7 +322,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 		},
 		{
 			name: "RoaringSetRefresh_IsTidied_full_migration",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -346,9 +348,9 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 			className := "RoaringSetRefreshCase_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{propName})
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+			shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
-			shard := shd.(*Shard)
+			shard := shd.(*db.Shard)
 			defer shard.Shutdown(ctx)
 
 			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
@@ -357,7 +359,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 
 			// Phase 1: drive the migration to the case-specific state
 			// using the production code path.
-			task, _ := newRoaringSetRefreshTask(t, idx)
+			task, _ := newRoaringSetRefreshTask(t, f.Logger())
 			tc.driveToState(t, ctx, shard, task)
 
 			// Verify driveToState actually landed at the intended
@@ -381,21 +383,21 @@ func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 
 			// Phase 2: simulate restart — full shutdown + shard re-init
 			// + fresh task. This is the real-world restart sequence:
-			// shard_init runs reindex.FinalizeCompletedMigrations, then
+			// shard_init runs FinalizeCompletedMigrations, then
 			// OnBeforeLsmInit, then LSM init, then OnAfterLsmInit, then
 			// OnAfterLsmInitAsync loop on the background scheduler.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			task2, _ := newRoaringSetRefreshTask(t, idx)
+			task2, _ := newRoaringSetRefreshTask(t, f.Logger())
 			task2.SkipSwapOnFinish.Store(false)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			f.SetShardReindexer(&testShardReindexer{task: task2})
 
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			shd2, err := f.InitShard(ctx, shardName, class, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
-			shard2 := shd2.(*Shard)
+			shard2 := shd2.(*db.Shard)
 			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
+			f.StoreShard(shardName, shd2)
 
 			// Drive the async loop to completion in case recovery is
 			// only partially handled by OnBeforeLsmInit + OnAfterLsmInit.

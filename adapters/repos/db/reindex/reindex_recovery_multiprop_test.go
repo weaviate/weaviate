@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -70,7 +71,7 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 	cases := []recoveryConvergenceCase{
 		{
 			name: "MultiProp_IsReindexed_via_skipSwapOnFinish",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -87,7 +88,7 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 		},
 		{
 			name: "MultiProp_IsMerged_via_runtimePrepare",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				task.SkipSwapOnFinish.Store(true)
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
@@ -109,7 +110,7 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 		},
 		{
 			name: "MultiProp_IsTidied_full_migration",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 				for {
 					rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -131,9 +132,9 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 			className := "MultiPropCase_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, propNames)
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+			shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
-			shard := shd.(*Shard)
+			shard := shd.(*db.Shard)
 			defer shard.Shutdown(ctx)
 
 			for _, obj := range makeMultiPropConvergenceObjects(t, numObjects, className, propNames) {
@@ -141,7 +142,7 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 			}
 
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-			task := newTestTask(idx.logger, strategy)
+			task := newTestTask(f.Logger(), strategy)
 			tc.driveToState(t, ctx, shard, task)
 
 			rt, err := task.NewReindexTracker(shard.PathLSM())
@@ -167,15 +168,15 @@ func TestRecoveryConvergence_MultiProp_FromEachState(t *testing.T) {
 			require.NoError(t, shard.Shutdown(ctx))
 
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-			task2 := newTestTask(idx.logger, strategy2)
+			task2 := newTestTask(f.Logger(), strategy2)
 			task2.SkipSwapOnFinish.Store(false)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			f.SetShardReindexer(&testShardReindexer{task: task2})
 
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			shd2, err := f.InitShard(ctx, shardName, class, true, true)
 			require.NoError(t, err, "multi-prop shard re-init (case %q)", tc.name)
-			shard2 := shd2.(*Shard)
+			shard2 := shd2.(*db.Shard)
 			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
+			f.StoreShard(shardName, shd2)
 
 			for {
 				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
@@ -223,9 +224,9 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 	className := "MultiPropBaselineRef_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, propNames)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeMultiPropConvergenceObjects(t, numObjects, className, propNames) {
@@ -233,7 +234,7 @@ func computeMultiPropBaseline(t *testing.T, propNames []string, numObjects int) 
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -267,9 +268,9 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	className := "MidPropSwap_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, propNames)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeMultiPropConvergenceObjects(t, numObjects, className, propNames) {
@@ -277,7 +278,7 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 
 	// Drive iteration + runtimePrepare so runtimeSwap's Phase 2a is next.
 	task.SkipSwapOnFinish.Store(true)
@@ -356,15 +357,15 @@ func TestRecoveryConvergence_MidPropSwap_Loop(t *testing.T) {
 	simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(f.Logger(), strategy2)
 	task2.SkipSwapOnFinish.Store(false)
-	idx.shardReindexer = &testShardReindexer{task: task2}
+	f.SetShardReindexer(&testShardReindexer{task: task2})
 
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	shd2, err := f.InitShard(ctx, shardName, class, true, true)
 	require.NoError(t, err, "shard re-init")
-	shard2 := shd2.(*Shard)
+	shard2 := shd2.(*db.Shard)
 	defer shard2.Shutdown(ctx)
-	idx.shards.Store(shardName, shd2)
+	f.StoreShard(shardName, shd2)
 
 	for {
 		rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
@@ -493,9 +494,9 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 	ctx := testCtx()
 	class := newTestClassWithProps(className, propNames)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer func() {
 		if shard != nil {
 			shard.Shutdown(ctx)
@@ -523,7 +524,7 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 
 	switch crash {
 	case crashAtReindexed:
@@ -565,15 +566,15 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 	simulateProcessRestartBucketCleanup(t, shardLSMPath)
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task2 := newTestTask(idx.logger, strategy2)
+	task2 := newTestTask(f.Logger(), strategy2)
 	task2.SkipSwapOnFinish.Store(false)
-	idx.shardReindexer = &testShardReindexer{task: task2}
+	f.SetShardReindexer(&testShardReindexer{task: task2})
 
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+	shd2, err := f.InitShard(ctx, shardName, class, true, true)
 	require.NoError(t, err, "layout+crash: shard re-init must succeed")
-	shard2 := shd2.(*Shard)
+	shard2 := shd2.(*db.Shard)
 	defer shard2.Shutdown(ctx)
-	idx.shards.Store(shardName, shd2)
+	f.StoreShard(shardName, shd2)
 
 	for {
 		rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
@@ -595,7 +596,7 @@ func runCrossReplicaMigrationWithCrash(t *testing.T, propNames []string, classNa
 		require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(),
 			"layout+crash: bucket %q must be StrategyInverted post-recovery", propName)
 		docIDFingerprint := fingerprintInvertedBucket(t, bucket)
-		out[propName] = resolveDocIDFingerprintToUUIDs(t, idx.logger, objectsBucket, docIDFingerprint)
+		out[propName] = resolveDocIDFingerprintToUUIDs(t, f.Logger(), objectsBucket, docIDFingerprint)
 	}
 	return out
 }
@@ -613,11 +614,10 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 	ctx := testCtx()
 	class := newTestClassWithProps(className, propNames)
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
-	_ = idx
 
 	// Insert objects, optionally reverse, flushing every flushEvery objects
 	// to create multiple segments. Touch every prop's searchable bucket so
@@ -646,7 +646,7 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 
 	// Run the full migration pipeline.
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: reindex.MapToBlockmaxStrategy{Generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(f.Logger(), strategy)
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	for {
 		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
@@ -669,7 +669,7 @@ func runCrossReplicaMigration(t *testing.T, propNames []string, className string
 		require.Equalf(t, lsmkv.StrategyInverted, bucket.Strategy(),
 			"cross-replica: bucket %q must be StrategyInverted post-migration (reverse=%v)", propName, reverse)
 		docIDFingerprint := fingerprintInvertedBucket(t, bucket)
-		out[propName] = resolveDocIDFingerprintToUUIDs(t, idx.logger, objectsBucket, docIDFingerprint)
+		out[propName] = resolveDocIDFingerprintToUUIDs(t, f.Logger(), objectsBucket, docIDFingerprint)
 	}
 	return out
 }

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package db
+package reindex_test
 
 import (
 	"context"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
@@ -80,7 +81,7 @@ func newEnableSearchableTestClass(className string, propNames []string) *models.
 // would let the test pass while production fails the same convergence
 // invariant.
 func newEnableSearchableTask(
-	t *testing.T, idx *Index, className, propName, tokenization string,
+	t *testing.T, f *db.IndexFixture, className, propName, tokenization string,
 ) (*reindex.ShardReindexTaskGeneric, *testEnableSearchableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testEnableSearchableStrategyWrapper{
@@ -92,7 +93,7 @@ func newEnableSearchableTask(
 	}
 	selected := map[string]struct{}{propName: {}}
 	task := reindex.NewShardReindexTaskGeneric(
-		"EnableSearchable", idx.logger, wrapped,
+		"EnableSearchable", f.Logger(), wrapped,
 		reindex.ReindexTaskConfig{
 			SwapBuckets:                   true,
 			TidyBuckets:                   true,
@@ -144,16 +145,16 @@ func computeEnableSearchableBaseline(t *testing.T, propName string, numObjects i
 	className := "EnableSearchableBaselineRef_" + uuid.NewString()[:8]
 	class := newEnableSearchableTestClass(className, []string{propName})
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task, _ := newEnableSearchableTask(t, idx, className, propName,
+	task, _ := newEnableSearchableTask(t, f, className, propName,
 		models.PropertyTokenizationWord)
 
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
@@ -178,9 +179,9 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 	className := "EnableSearchableBaseline_" + uuid.NewString()[:8]
 	class := newEnableSearchableTestClass(className, []string{propName})
 
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+	shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 		false, false, false)
-	shard := shd.(*Shard)
+	shard := shd.(*db.Shard)
 	defer shard.Shutdown(ctx)
 
 	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
@@ -195,7 +196,7 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 	require.Nil(t, shard.Store().Bucket(searchBucketName),
 		"pre-migration searchable bucket must NOT exist (IndexSearchable=false)")
 
-	task, wrapped := newEnableSearchableTask(t, idx, className, propName,
+	task, wrapped := newEnableSearchableTask(t, f, className, propName,
 		models.PropertyTokenizationWord)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
@@ -263,7 +264,7 @@ func TestRecoveryConvergence_EnableSearchable_FromEachState(t *testing.T) {
 	cases := []recoveryConvergenceCase{
 		{
 			name: "EnableSearchable_IsReindexed_via_RunReindexOnlyOnShard",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			},
 			expectedPostStateSentinels: map[string]bool{
@@ -272,7 +273,7 @@ func TestRecoveryConvergence_EnableSearchable_FromEachState(t *testing.T) {
 		},
 		{
 			name: "EnableSearchable_IsPrepended_synthetic_merged_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 				rt, err := task.NewReindexTracker(shard.PathLSM())
@@ -287,7 +288,7 @@ func TestRecoveryConvergence_EnableSearchable_FromEachState(t *testing.T) {
 		},
 		{
 			name: "EnableSearchable_IsSwapped_synthetic_tidied_removed",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 				require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -303,7 +304,7 @@ func TestRecoveryConvergence_EnableSearchable_FromEachState(t *testing.T) {
 		},
 		{
 			name: "EnableSearchable_IsMerged_via_RunPrepareOnShard",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 			},
@@ -313,7 +314,7 @@ func TestRecoveryConvergence_EnableSearchable_FromEachState(t *testing.T) {
 		},
 		{
 			name: "EnableSearchable_IsTidied_via_full_trio",
-			driveToState: func(t *testing.T, ctx context.Context, shard *Shard, task *reindex.ShardReindexTaskGeneric) {
+			driveToState: func(t *testing.T, ctx context.Context, shard *db.Shard, task *reindex.ShardReindexTaskGeneric) {
 				require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 				require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 				require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -330,16 +331,16 @@ func TestRecoveryConvergence_EnableSearchable_FromEachState(t *testing.T) {
 			className := "EnableSearchableCase_" + uuid.NewString()[:8]
 			class := newEnableSearchableTestClass(className, []string{propName})
 
-			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+			shd, _, f := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
-			shard := shd.(*Shard)
+			shard := shd.(*db.Shard)
 			defer shard.Shutdown(ctx)
 
 			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 
-			task, _ := newEnableSearchableTask(t, idx, className, propName,
+			task, _ := newEnableSearchableTask(t, f, className, propName,
 				models.PropertyTokenizationWord)
 
 			tc.driveToState(t, ctx, shard, task)
@@ -367,26 +368,26 @@ func TestRecoveryConvergence_EnableSearchable_FromEachState(t *testing.T) {
 			}
 
 			// Simulated restart: graceful shutdown, fresh task, then
-			// idx.initShard re-runs reindex.FinalizeCompletedMigrations →
+			// idx.initShard re-runs FinalizeCompletedMigrations →
 			// OnBeforeLsmInit → LSM init → OnAfterLsmInit. Same restart
 			// primitive PR #11415 uses for the searchable retokenize and
 			// the FilterableRetokenize follow-up.
 			shardName := shard.Name()
 			require.NoError(t, shard.Shutdown(ctx))
 
-			task2, _ := newEnableSearchableTask(t, idx, className, propName,
+			task2, _ := newEnableSearchableTask(t, f, className, propName,
 				models.PropertyTokenizationWord)
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			f.SetShardReindexer(&testShardReindexer{task: task2})
 
-			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			shd2, err := f.InitShard(ctx, shardName, class, true, true)
 			require.NoError(t, err, "shard re-init must succeed (case %q)", tc.name)
-			shard2 := shd2.(*Shard)
+			shard2 := shd2.(*db.Shard)
 			defer shard2.Shutdown(ctx)
-			idx.shards.Store(shardName, shd2)
+			f.StoreShard(shardName, shd2)
 
 			// Drive the async loop. For semantic strategies (which
 			// EnableSearchable is, see reindex_provider.go:1850
-			// reindex.IsSemanticMigration) the in-process OnAfterLsmInitAsync
+			// IsSemanticMigration) the in-process OnAfterLsmInitAsync
 			// path stops at IsReindexed when skipSwapOnFinish is set;
 			// for non-set cases we still drain it in case any work is
 			// pending.
@@ -402,7 +403,7 @@ func TestRecoveryConvergence_EnableSearchable_FromEachState(t *testing.T) {
 			// move past IsReindexed (in production OnGroupCompleted does
 			// this on re-ack). Mirror what the SearchableRetokenize and
 			// FilterableRetokenize tests do at the equivalent point.
-			rt2, err := task2.NewReindexTracker(shard2.pathLSM())
+			rt2, err := task2.NewReindexTracker(shard2.PathLSM())
 			require.NoErrorf(t, err, "post-recovery tracker init (case %q)", tc.name)
 			if !rt2.IsTidied() {
 				if err := task2.RunSwapOnShard(ctx, shard2); err != nil {
