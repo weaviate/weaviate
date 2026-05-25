@@ -955,12 +955,14 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 
 	if len(reqProps.RefProperties) > 0 {
 		// className is pre-qualified by service.go's namespacing.Resolve (or
-		// by the recursive call below). parentNS lets caller-supplied
-		// TargetCollection (short for namespaced callers) qualify against the
-		// source class's namespace. DataType is pre-qualified; see
-		// namespacing.QualifyPropertyDataTypes.
-		parentNS := namespacing.NamespaceFromQualified(className)
-
+		// by the recursive call below). For single-target refs the linked
+		// class comes from the pre-qualified Property.DataType (see
+		// namespacing.QualifyPropertyDataTypes). For multi-target refs the
+		// caller-supplied TargetCollection is normalised via
+		// namespacing.QualifyRefTarget, which strips an own-namespace prefix
+		// before re-qualifying with the source class's namespace (so admins
+		// who spell out their own prefix don't double-qualify) and rejects
+		// foreign-namespace prefixes (refs can't cross namespaces).
 		for _, prop := range reqProps.RefProperties {
 			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
@@ -970,23 +972,18 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 
 			var linkedClassName string
 			if len(schemaProp.DataType) == 1 {
-				// DataType is pre-qualified; see namespacing.QualifyPropertyDataTypes.
 				linkedClassName = schemaProp.DataType[0]
 			} else {
-				if err := namespacing.ValidateNamespacePrefix(p.principal, p.namespacesEnabled, prop.TargetCollection, "class"); err != nil {
-					return nil, err
-				}
-				linkedClassName = prop.TargetCollection
-				if linkedClassName == "" {
+				if prop.TargetCollection == "" {
 					return nil, fmt.Errorf(
 						"multi target references from collection %v and property %v with need an explicit"+
 							"linked collection. Available linked collections are %v",
 						className, prop.ReferenceProperty, schemaProp.DataType)
 				}
-				// User-supplied TargetCollection is short for namespaced
-				// users (foreign-prefix submissions were rejected above);
-				// qualify with parentNS so the multi-get hits the right shard.
-				linkedClassName = namespacing.QualifiedName(parentNS, linkedClassName)
+				linkedClassName, _, err = namespacing.QualifyRefTarget(p.principal, p.namespacesEnabled, className, prop.TargetCollection)
+				if err != nil {
+					return nil, err
+				}
 			}
 			linkedClass, err := p.authorizedGetClass(linkedClassName)
 			if err != nil {

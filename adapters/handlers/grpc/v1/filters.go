@@ -34,9 +34,15 @@ import (
 //
 // New-style FilterTarget filters are namespace-aware: the recursion in
 // extractPathNew stitches the parent class's namespace onto each nested
-// linked class (whether derived from the schema's Property.DataType or
-// from the caller-supplied MultiTarget.TargetCollection), mirroring the
-// gRPC search parser's read-side stitching for ref-properties.
+// linked class. For SingleTarget the linked class is taken from the
+// schema's Property.DataType (pre-qualified by
+// QualifyPropertyDataTypes). For MultiTarget the caller-supplied
+// TargetCollection is normalised via namespacing.QualifyRefTarget, which
+// strips an own-namespace prefix before re-qualifying with the source
+// class's namespace (so admins who spell out their own prefix don't
+// double-qualify) and rejects foreign-namespace prefixes (refs can't
+// cross namespaces). This mirrors the gRPC search parser's read-side
+// handling for ref-properties.
 func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuthzFunc, className, tenant string, namespacesEnabled bool, principal *models.Principal) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
 
@@ -317,13 +323,6 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 	if err != nil {
 		return nil, "", err
 	}
-	// className is pre-qualified by service.go's namespacing.Resolve (or by
-	// the recursive call below). parentNS lets the caller-supplied
-	// MultiTarget.TargetCollection (always short for namespaced callers)
-	// qualify against the source class's namespace. parentNS is "" on
-	// non-NS clusters, so QualifiedName is a no-op there. DataType is
-	// pre-qualified; see namespacing.QualifyPropertyDataTypes.
-	parentNS := namespacing.NamespaceFromQualified(className)
 	switch target.Target.(type) {
 	case *pb.FilterTarget_Property:
 		dt, err := extractDataType(authorizedGetClass, operator, className, tenant, []string{target.GetProperty()})
@@ -350,10 +349,16 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: child}, property, nil
 	case *pb.FilterTarget_MultiTarget:
 		multiTarget := target.GetMultiTarget()
-		if err := namespacing.ValidateNamespacePrefix(principal, namespacesEnabled, multiTarget.TargetCollection, "class"); err != nil {
+		// className is pre-qualified by service.go's namespacing.Resolve (or
+		// by the recursive call below). QualifyRefTarget normalises the
+		// caller-supplied TargetCollection against the source class's
+		// namespace: strips an own-namespace prefix (so admins who spell
+		// it out don't double-qualify) and rejects foreign-namespace
+		// prefixes. On non-NS clusters it's a pass-through.
+		linkedClassName, _, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, className, multiTarget.TargetCollection)
+		if err != nil {
 			return nil, "", err
 		}
-		linkedClassName := namespacing.QualifiedName(parentNS, multiTarget.TargetCollection)
 		child, property, err := extractPathNew(authorizedGetClass, linkedClassName, tenant, multiTarget.Target, operator, namespacesEnabled, principal)
 		if err != nil {
 			return nil, "", err

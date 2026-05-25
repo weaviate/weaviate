@@ -200,4 +200,97 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
+
+	// nsMultiTargetGetter is the same shape used by the namespaced-caller
+	// rejection test above: a multi-target Zoo.hasAnimals plus the matching
+	// linked classes. Reused by the global-principal regression tests below.
+	nsMultiTargetGetter := func() classGetterWithAuthzFunc {
+		base := nsParserClassGetter()
+		return func(name string) (*models.Class, error) {
+			switch name {
+			case "customer1:Zoo":
+				return &models.Class{
+					Class: "customer1:Zoo",
+					Properties: []*models.Property{
+						{Name: "hasAnimals", DataType: []string{"Animal", "Habitat"}},
+					},
+				}, nil
+			default:
+				return base(name)
+			}
+		}
+	}
+
+	t.Run("multi-target global principal: own-namespace prefix does not double-qualify", func(t *testing.T) {
+		// Regression: admins on NS-enabled clusters may spell out their own
+		// namespace prefix in TargetCollection. The old code re-prepended
+		// parentNS and the resulting "customer1:customer1:Animal" missed the
+		// authorizedGetClass lookup; QualifyRefTarget strips first.
+		parser := NewParser(false,
+			nsMultiTargetGetter(),
+			&models.Principal{Username: "admin"}, true,
+		)
+		req := &pb.SearchRequest{
+			Collection: "customer1:Zoo",
+			Properties: &pb.PropertiesRequest{
+				RefProperties: []*pb.RefPropertiesRequest{{
+					ReferenceProperty: "hasAnimals",
+					TargetCollection:  "customer1:Animal",
+					Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"name"}},
+				}},
+			},
+		}
+		out, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		require.NoError(t, err)
+		require.Len(t, out.Properties, 1)
+		require.Len(t, out.Properties[0].Refs, 1)
+		assert.Equal(t, "customer1:Animal", out.Properties[0].Refs[0].ClassName,
+			"admin's own-namespace prefix must not double-qualify")
+	})
+
+	t.Run("multi-target global principal: short TargetCollection qualifies via parent NS", func(t *testing.T) {
+		parser := NewParser(false,
+			nsMultiTargetGetter(),
+			&models.Principal{Username: "admin"}, true,
+		)
+		req := &pb.SearchRequest{
+			Collection: "customer1:Zoo",
+			Properties: &pb.PropertiesRequest{
+				RefProperties: []*pb.RefPropertiesRequest{{
+					ReferenceProperty: "hasAnimals",
+					TargetCollection:  "Animal",
+					Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"name"}},
+				}},
+			},
+		}
+		out, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		require.NoError(t, err)
+		require.Len(t, out.Properties, 1)
+		require.Len(t, out.Properties[0].Refs, 1)
+		assert.Equal(t, "customer1:Animal", out.Properties[0].Refs[0].ClassName,
+			"short TargetCollection must qualify via source-class namespace")
+	})
+
+	t.Run("multi-target global principal: foreign-namespace prefix is rejected", func(t *testing.T) {
+		// Refs can't cross namespaces. The old code silently accepted a
+		// foreign prefix from a global principal and built
+		// "customer1:customer2:Animal"; QualifyRefTarget now rejects it.
+		parser := NewParser(false,
+			nsMultiTargetGetter(),
+			&models.Principal{Username: "admin"}, true,
+		)
+		req := &pb.SearchRequest{
+			Collection: "customer1:Zoo",
+			Properties: &pb.PropertiesRequest{
+				RefProperties: []*pb.RefPropertiesRequest{{
+					ReferenceProperty: "hasAnimals",
+					TargetCollection:  "customer2:Animal",
+					Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"name"}},
+				}},
+			},
+		}
+		_, err := parser.Search(req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a valid class name")
+	})
 }
