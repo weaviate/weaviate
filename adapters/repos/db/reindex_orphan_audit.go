@@ -230,12 +230,15 @@ func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownRei
 
 	// Snapshot loaded indexes so per-shard cleanup can route through
 	// in-memory state when the shard is loaded.
-	db.indexLock.RLock()
-	loadedByID := make(map[string]*Index, len(db.indices))
-	for id, idx := range db.indices {
-		loadedByID[id] = idx
-	}
-	db.indexLock.RUnlock()
+	loadedByID := func() map[string]*Index {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+		snapshot := make(map[string]*Index, len(db.indices))
+		for id, idx := range db.indices {
+			snapshot[id] = idx
+		}
+		return snapshot
+	}()
 
 	outcome := AuditOutcome{Status: AuditStatusRan}
 	for _, indexEntry := range indexEntries {
