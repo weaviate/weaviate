@@ -488,8 +488,12 @@ func parseDecayParams(d *filters.Decay, nowTime time.Time) parsedDecay {
 	if d.IsNumeric {
 		p.originNum = d.OriginNumeric
 		p.originNumValid = true
-	} else if origin != "" {
-		if t, err := parseOriginAsTime(origin, nowTime); err == nil {
+	} else {
+		// Origin is optional for time-based decay: default to "now".
+		if origin == "" {
+			p.originTime = nowTime
+			p.originTimeValid = true
+		} else if t, err := parseOriginAsTime(origin, nowTime); err == nil {
 			p.originTime = t
 			p.originTimeValid = true
 		}
