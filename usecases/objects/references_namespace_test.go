@@ -513,4 +513,76 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		require.NoError(t, err)
 		repo.AssertExpectations(t)
 	})
+
+	t.Run("MT-validation failure on one ref must not leak into authz or fail the batch", func(t *testing.T) {
+		// Per-row error isolation: a ref that fails validateReferenceMultiTenancy
+		// must be skipped from the READ-authz set entirely. Otherwise its
+		// (qualified target, tenant) lands in the shard-paths slice and a
+		// denial on it would 403 the WHOLE batch, even though
+		// AddBatchReferences would have ignored the row (Err != nil).
+		classes := []*models.Class{
+			{
+				Class:             "SourcePlain",
+				VectorIndexConfig: hnsw.UserConfig{},
+				Vectorizer:        config.VectorizerModuleNone,
+				Properties: []*models.Property{
+					{
+						Name:         "name",
+						DataType:     schema.DataTypeText.PropString(),
+						Tokenization: models.PropertyTokenizationWhitespace,
+					},
+					{Name: "refTo", DataType: []string{"TargetPlain"}},
+				},
+			},
+			{
+				Class:              "TargetMT",
+				VectorIndexConfig:  hnsw.UserConfig{},
+				Vectorizer:         config.VectorizerModuleNone,
+				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			},
+			{
+				Class:             "TargetPlain",
+				VectorIndexConfig: hnsw.UserConfig{},
+				Vectorizer:        config.VectorizerModuleNone,
+			},
+		}
+		_, b, repo, _, authz := newNSManagers(t, classes, false)
+
+		// Both refs must reach AddBatchReferences — the failing one marked
+		// with Err, the valid one untouched.
+		repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
+			if len(refs) != 2 {
+				return false
+			}
+			return refs[0].Err != nil &&
+				strings.Contains(refs[0].Err.Error(), "multi-tenant") &&
+				refs[1].Err == nil && refs[1].To != nil && refs[1].To.Class == "TargetPlain"
+		})).Return(nil).Once()
+
+		refs := []*models.BatchReference{
+			// Bad: source is non-MT, target is MT — validateReferenceMultiTenancy rejects.
+			{
+				From: strfmt.URI("weaviate://localhost/SourcePlain/" + string(id) + "/refTo"),
+				To:   strfmt.URI("weaviate://localhost/TargetMT/" + string(refID)),
+			},
+			// Good: both sides non-MT.
+			{
+				From: strfmt.URI("weaviate://localhost/SourcePlain/" + string(id) + "/refTo"),
+				To:   strfmt.URI("weaviate://localhost/TargetPlain/" + string(refID)),
+			},
+		}
+		_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+		require.NoError(t, err)
+
+		// The failed ref's target class must NOT appear in any authz request.
+		// Before the fix it would, because the (qualifiedTarget, tenant) entry
+		// was added to uniqueClassShard regardless of refs[i].Err.
+		for _, c := range authz.Calls() {
+			for _, r := range c.Resources {
+				assert.NotContains(t, r, "TargetMT",
+					"authz must not see the errored ref's target class")
+			}
+		}
+		repo.AssertExpectations(t)
+	})
 }

@@ -142,12 +142,19 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 			classVersion, err := validateReferenceMultiTenancy(ctx, principal, b.schemaManager, b.vectorRepo, ref.From, &targetQualified, ref.Tenant, fetchedClasses)
 			if err != nil {
 				refs[i].Err = err
+				continue
 			}
 			if classVersion > schemaVersion {
 				schemaVersion = classVersion
 			}
 		}
 
+		if qualifiedTarget == "" {
+			// Multi-target ref where autodetect couldn't resolve the class —
+			// nothing meaningful to authorize. AddBatchReferences will surface
+			// the unresolved target downstream.
+			continue
+		}
 		uniqueClassShard[qualifiedTarget+"#"+ref.Tenant] = classAndShard{Class: qualifiedTarget, Shard: ref.Tenant}
 	}
 
