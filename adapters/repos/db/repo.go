@@ -113,11 +113,13 @@ type DB struct {
 	replicationFSM types.ReplicationFSMReader
 
 	// reindexAuditMu guards the audit deps installed by
-	// [DB.SetReindexAuditDeps] so they are safely visible from any
-	// post-restore goroutine.
-	reindexAuditMu            sync.RWMutex
-	reindexAuditLookupBuilder KnownReindexTaskLookupBuilder
-	reindexAuditLogger        logrus.FieldLogger
+	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
+	// installed by [DB.SetShardReindexActivityLookup] so they are
+	// safely visible from any post-restore goroutine.
+	reindexAuditMu                    sync.RWMutex
+	reindexAuditLookupBuilder         KnownReindexTaskLookupBuilder
+	reindexAuditLogger                logrus.FieldLogger
+	shardReindexActivityLookupBuilder ShardReindexActivityLookupBuilder
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
