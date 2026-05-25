@@ -1002,19 +1002,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			id      string
 			version uint64
 		}
-		// buildKnownTask returns nil on ListDistributedTasks failure.
-		// The caller MUST treat nil as "audit not safe to run right now"
-		// — the audit's nil-lookup branch refuses with a SkipReason of
-		// "nil_lookup" so the operator-facing signal is explicit.
-		// Prior versions silently treated every tracker as known on
-		// list failure, which hid the DTM-unavailable case and let
-		// orphans survive an unrelated audit window.
-		buildKnownTask := func() db.KnownReindexTaskLookup {
+		// buildKnownTask returns an error on ListDistributedTasks
+		// failure. Callers MUST propagate the error rather than
+		// substitute a soft default — prior versions returned a
+		// "treat every tracker as known" closure, which silently
+		// misclassified orphans during a DTM partition. Explicit
+		// error makes the failure path operator-observable.
+		buildKnownTask := func() (db.KnownReindexTaskLookup, error) {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
 			if err != nil {
-				appState.Logger.WithField("action", "reindex_orphan_audit").
-					Errorf("reindex orphan audit: ListDistributedTasks failed; this invocation will be skipped: %v", err)
-				return nil
+				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
 			live := make(map[taskKey]bool, len(tasksByNamespace[db.ReindexNamespace]))
 			for _, task := range tasksByNamespace[db.ReindexNamespace] {
@@ -1022,7 +1019,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			return func(taskID string, taskVersion uint64) bool {
 				return live[taskKey{taskID, taskVersion}]
-			}
+			}, nil
 		}
 		// Wait until ListDistributedTasks succeeds at least once before
 		// running the startup audit. Without this, a transient DTM-list
@@ -1052,7 +1049,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			}
 			auditReadyBackoff = min(auditReadyBackoff*2, 5*time.Second)
 		}
-		if _, err := repo.AuditOrphanReindexTrackers(auditCtx, buildKnownTask(), appState.Logger); err != nil {
+		startupLookup, startupBuildErr := buildKnownTask()
+		if startupBuildErr != nil {
+			appState.Logger.WithField("action", "startup").
+				Errorf("reindex orphan audit: builder failed; skipping startup audit. The next process restart will retry: %v", startupBuildErr)
+		} else if _, err := repo.AuditOrphanReindexTrackers(auditCtx, startupLookup, appState.Logger); err != nil {
 			appState.Logger.WithField("action", "startup").
 				Warnf("reindex orphan audit did not run cleanly; restored clusters may retain orphan sidecar buckets: %v", err)
 		}
