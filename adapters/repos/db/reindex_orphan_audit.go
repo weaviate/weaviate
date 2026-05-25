@@ -84,12 +84,12 @@ func (s AuditOutcomeStatus) String() string {
 // emits one Info-level log line with these counters so absence of the
 // line is detectable in operator logs (S4 fix).
 type AuditOutcome struct {
-	Status        AuditOutcomeStatus
-	ScannedCount  int
-	OrphansFound  int
-	OrphansClean  int
-	FailedDirs    []string
-	SkipReason    string
+	Status       AuditOutcomeStatus
+	ScannedCount int
+	OrphansFound int
+	OrphansClean int
+	FailedDirs   []string
+	SkipReason   string
 }
 
 // SetReindexAuditDeps installs the builder and logger used by

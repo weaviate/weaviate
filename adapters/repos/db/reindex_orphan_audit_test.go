@@ -742,8 +742,8 @@ func TestAuditOrphanReindexTrackers_TrackerWithoutPayloadButFresh_LeftAlone(t *t
 // fresh.
 func TestIsLegacyTrackerWithoutPayload_Boundary(t *testing.T) {
 	cases := []struct {
-		name      string
-		offset    time.Duration
+		name       string
+		offset     time.Duration
 		wantLegacy bool
 	}{
 		{"hour_before", -time.Hour, true},
