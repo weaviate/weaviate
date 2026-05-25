@@ -131,6 +131,19 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
+	// On NS-enabled clusters a classless supplied beacon that autodetect
+	// couldn't resolve (multi-target property) is ambiguous: removeReference's
+	// structural match strips classes on both sides, so an empty supplied
+	// class would wildcard across every stored class for that TargetID and
+	// silently delete unrelated refs. Same contract the write side enforces
+	// in validateReferenceMultiTenancy. Non-NS clusters keep byte-exact
+	// matching where a classless supplied beacon only matches a classless
+	// stored one, so they don't need this gate.
+	if m.config.Config.Namespaces.Enabled && beacon.Class == "" {
+		err := fmt.Errorf("multi-target references require the class name in the target beacon url")
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+
 	// Apply the same cross-namespace policy as the write paths: admin
 	// must address the source's namespace (or omit the prefix), and
 	// namespaced principals cannot send qualified beacons at all. Without

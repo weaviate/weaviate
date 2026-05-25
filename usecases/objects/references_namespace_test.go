@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -76,6 +77,39 @@ func zooAnimalNSSchema(qualify bool) []*models.Class {
 				},
 			},
 		},
+	}
+}
+
+// multiTargetNSSchema returns a Source class with a multi-target ref property
+// hasOther pointing at [Alpha, Beta]. Used to exercise paths where autodetect
+// cannot resolve the target class — autodetectToClass short-circuits on
+// len(prop.DataType) > 1, so beacon.Class stays empty unless the caller
+// supplied it explicitly.
+func multiTargetNSSchema(qualify bool) []*models.Class {
+	src, alpha, beta := "Source", "Alpha", "Beta"
+	dt := []string{alpha, beta}
+	if qualify {
+		src = "customer1:Source"
+		alpha = "customer1:Alpha"
+		beta = "customer1:Beta"
+		dt = []string{alpha, beta}
+	}
+	return []*models.Class{
+		{
+			Class:             src,
+			VectorIndexConfig: hnsw.UserConfig{},
+			Vectorizer:        config.VectorizerModuleNone,
+			Properties: []*models.Property{
+				{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
+				},
+				{Name: "hasOther", DataType: dt},
+			},
+		},
+		{Class: alpha, VectorIndexConfig: hnsw.UserConfig{}, Vectorizer: config.VectorizerModuleNone},
+		{Class: beta, VectorIndexConfig: hnsw.UserConfig{}, Vectorizer: config.VectorizerModuleNone},
 	}
 }
 
@@ -297,6 +331,100 @@ func Test_References_NamespaceResolution_Delete(t *testing.T) {
 		err := m.DeleteObjectReference(context.Background(), principal, input, nil, "")
 		require.NotNil(t, err)
 		assert.Equal(t, StatusUnprocessableEntity, err.Code)
+	})
+
+	t.Run("NS: classless beacon on multi-target property is rejected with 400", func(t *testing.T) {
+		// removeReference's NS path strips classes on both sides for the
+		// structural compare, so an empty supplied class would wildcard
+		// across every stored class for that TargetID — silently deleting
+		// refs to unrelated classes on a multi-target property. The handler
+		// gates this right after autodetect (which returns replace=false
+		// on multi-target) with the same contract the write side uses in
+		// validateReferenceMultiTenancy. The source-object lookup happens
+		// upstream so its mock returns a minimal valid result.
+		m, _, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+		repo.On("Object", "customer1:Source", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{
+				ClassName: "customer1:Source",
+				Schema:    map[string]interface{}{"name": "src"},
+			}, nil).Once()
+
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		input := &DeleteReferenceInput{
+			Class: "Source", ID: id, Property: "hasOther",
+			Reference: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+			},
+		}
+		err := m.DeleteObjectReference(context.Background(), principal, input, nil, "")
+		require.NotNil(t, err)
+		assert.Equal(t, StatusBadRequest, err.Code)
+		assert.Contains(t, err.Msg, "multi-target references require")
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("NS: classless beacon on single-target property still resolves via autodetect", func(t *testing.T) {
+		// Negative control for the gate above: single-target classless
+		// beacons must NOT trip the multi-target rejection. autodetect
+		// fills beacon.Class from the schema's pre-qualified DataType
+		// (stripped back to short), the gate sees beacon.Class != "" and
+		// passes through. PutObject is expected because the source object
+		// has no matching ref to delete (returns ok=false but the call
+		// still doesn't error — assertion is that no 400 came back).
+		m, _, repo, mp, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
+		repo.On("Object", "customer1:Zoo", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{
+				ClassName: "customer1:Zoo",
+				Schema:    map[string]interface{}{"name": "z"},
+			}, nil).Once()
+		mp.On("UsingRef2Vec", mock.Anything).Return(false)
+
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		input := &DeleteReferenceInput{
+			Class: "Zoo", ID: id, Property: "hasAnimals",
+			Reference: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+			},
+		}
+		err := m.DeleteObjectReference(context.Background(), principal, input, nil, "")
+		// No matching ref → handler returns nil (ok=false, errmsg="") without
+		// hitting the multi-target gate. Asserting nil is the cleanest way
+		// to pin "the gate did not fire".
+		require.Nil(t, err,
+			"single-target classless must pass the multi-target gate via autodetect")
+		// Stored beacon is rewritten to the autodetected short class.
+		assert.Equal(t,
+			strfmt.URI("weaviate://localhost/Animal/"+string(refID)),
+			input.Reference.Beacon,
+			"autodetect should fill the short target class into the beacon")
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("non-NS: classless beacon on multi-target property is NOT rejected by the gate", func(t *testing.T) {
+		// The gate is NS-only. Non-NS clusters use byte-exact compare in
+		// removeReference, where a classless supplied beacon only matches a
+		// classless stored beacon — no wildcard, no need for the gate.
+		// Pin that the existing behavior survives: the call passes the gate
+		// and reaches removeReference (which finds no match, returns nil).
+		m, _, repo, mp, _ := newNSManagers(t, multiTargetNSSchema(false), false)
+		repo.On("Object", "Source", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{
+				ClassName: "Source",
+				Schema:    map[string]interface{}{"name": "src"},
+			}, nil).Once()
+		mp.On("UsingRef2Vec", mock.Anything).Return(false)
+
+		input := &DeleteReferenceInput{
+			Class: "Source", ID: id, Property: "hasOther",
+			Reference: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+			},
+		}
+		err := m.DeleteObjectReference(context.Background(),
+			&models.Principal{Username: "admin"}, input, nil, "")
+		require.Nil(t, err,
+			"non-NS classless on multi-target must pass the gate (it's NS-only)")
+		repo.AssertExpectations(t)
 	})
 }
 
