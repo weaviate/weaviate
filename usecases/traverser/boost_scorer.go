@@ -214,13 +214,25 @@ func distToScore(results []search.Result) {
 // after the modifier so that the highest value in the result set scores 1.0.
 // Returns a slice indexed by [conditionIdx][resultIdx].
 func precomputePropertyValueScores(results []search.Result, conditions []filters.BoostCondition) [][]float32 {
+	scores := make([][]float32, len(conditions))
+
+	hasPropertyValue := false
+	for i := range conditions {
+		if conditions[i].PropertyValue != nil {
+			hasPropertyValue = true
+			break
+		}
+	}
+	if !hasPropertyValue {
+		return scores
+	}
+
 	// Extract props once per result to avoid re-extracting for each condition.
 	propsByIdx := make([]map[string]any, len(results))
 	for j := range results {
 		propsByIdx[j] = extractProps(&results[j])
 	}
 
-	scores := make([][]float32, len(conditions))
 	for i, cond := range conditions {
 		if cond.PropertyValue == nil {
 			continue
