@@ -466,7 +466,7 @@ func (p *PostingMapStore) Get(ctx context.Context, postingID uint64) (PackedPost
 	key := p.key(postingID)
 	v, err := p.bucket.Get(key[:])
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get posting size for %d", postingID)
+		return nil, errors.Wrapf(err, "failed to get posting metadata for %d", postingID)
 	}
 	if len(v) == 0 {
 		return nil, ErrPostingNotFound

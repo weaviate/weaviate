@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"bytes"
+	"encoding/binary"
 	"sync/atomic"
 	"testing"
 
@@ -63,6 +64,38 @@ func decodePacked(encoded PackedPostingMetadata) []uint64 {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+func legacyPackedPostingMetadata(ids ...uint64) PackedPostingMetadata {
+	scheme := determineScheme(ids)
+	bytesPerID := scheme.BytesPerValue()
+	data := make(PackedPostingMetadata, 5+len(ids)*(bytesPerID+1))
+	data[0] = byte(scheme)
+	binary.LittleEndian.PutUint32(data[1:5], uint32(len(ids)))
+
+	offset := 5
+	for _, id := range ids {
+		for i := range bytesPerID {
+			data[offset+i] = byte(id >> (i * 8))
+		}
+		offset += bytesPerID
+		data[offset] = byte(v1)
+		offset++
+	}
+
+	return data
+}
+
+func countKeysWithPrefix(bucket *lsmkv.Bucket, prefix []byte) int {
+	c := bucket.Cursor()
+	defer c.Close()
+
+	var count int
+	for k, _ := c.Seek(prefix); len(k) > 0 && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+		count++
+	}
+
+	return count
 }
 
 func TestPostingMapEncoding(t *testing.T) {
@@ -529,13 +562,7 @@ func TestPostingMetadataStore(t *testing.T) {
 		bucket := makePostingMetadataBucket(t)
 		store := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
 
-		legacy := PackedPostingMetadata{
-			byte(schemeID2Byte),
-			3, 0, 0, 0,
-			10, 0, 1,
-			20, 0, 2,
-			30, 0, 3,
-		}
+		legacy := legacyPackedPostingMetadata(10, 20, 30)
 		legacyKey := postingMapKey(postingMapBucketPrefixV1, 42)
 		err := bucket.Put(legacyKey, legacy)
 		require.NoError(t, err)
@@ -566,5 +593,50 @@ func TestPostingMetadataStore(t *testing.T) {
 
 		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
 		require.NoError(t, err)
+	})
+
+	t.Run("migrates multiple batches and partial rerun", func(t *testing.T) {
+		bucket := makePostingMetadataBucket(t)
+		store := NewPostingMapStore(bucket, postingMapBucketPrefixV2)
+		sizes := NewPostingSizesStore(bucket, postingSizesBucketPrefix)
+
+		total := postingMapMigrationBatchSize + 3
+		for postingID := range total {
+			legacy := legacyPackedPostingMetadata(uint64(postingID), uint64(postingID+1))
+			err := bucket.Put(postingMapKey(postingMapBucketPrefixV1, uint64(postingID)), legacy)
+			require.NoError(t, err)
+		}
+
+		// Simulate a crash after v2 metadata and size were written for one posting,
+		// but before the legacy v1 row was deleted.
+		partialID := uint64(7)
+		partial := NewPackedPostingMetadata([]uint64{partialID, partialID + 1})
+		err := store.Set(ctx, partialID, partial)
+		require.NoError(t, err)
+		err = sizes.Set(ctx, partialID, partial.Count())
+		require.NoError(t, err)
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+
+		require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
+		require.Equal(t, total, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
+		require.Equal(t, total, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
+
+		for _, postingID := range []uint64{0, partialID, uint64(total - 1)} {
+			metadata, err := store.Get(ctx, postingID)
+			require.NoError(t, err)
+			require.Equal(t, []uint64{postingID, postingID + 1}, decodePacked(metadata))
+
+			size, err := sizes.Get(ctx, postingID)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, size)
+		}
+
+		err = migratePostingMapV1ToV2(ctx, bucket, logrus.New())
+		require.NoError(t, err)
+		require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
+		require.Equal(t, total, countKeysWithPrefix(bucket, postingMapBucketPrefixV2))
+		require.Equal(t, total, countKeysWithPrefix(bucket, postingSizesBucketPrefix))
 	})
 }
