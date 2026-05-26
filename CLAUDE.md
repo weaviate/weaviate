@@ -112,6 +112,17 @@ golangci-lint run ./...
 
 The goroutine linter enforces that all goroutines use `entities/errors/go_wrapper.go` instead of bare `go` statements.
 
+### Mutation Testing
+Mutation testing measures how *effective* the existing tests are (not just coverage): it mutates source code one change at a time and checks whether the tests fail. A mutant the tests still pass is a "survivor" — a gap where a behaviour change goes undetected. Uses [ooze](https://github.com/gtramontina/ooze) via a reusable wrapper. Run it against a single package directory:
+```bash
+tools/ooze_mutation.sh usecases/byteops
+tools/ooze_mutation.sh usecases/byteops -parallel 4        # extra args pass through to `go test`
+OOZE_THRESHOLD=0.9 tools/ooze_mutation.sh entities/schema  # fail under 90% score (default 0.0)
+```
+Other env overrides: `OOZE_TEST_CMD`, `OOZE_IGNORE_EXTRA` (regex of files to skip), `OOZE_PARALLEL`, `OOZE_RUN_TIMEOUT`. The script auto-scopes mutation to the target folder and adds `-mod=mod` (ooze is an unvendored dev tool). The harness itself is build-tagged (`//go:build mutation`) so it is invisible to normal builds, `go test ./...`, and golangci-lint.
+
+Caveats: ooze v0.2.0's formatter panics on generic type-union signatures (e.g. `func F[T float32 | uint64]`) — exclude such files with `OOZE_IGNORE_EXTRA`. Files inactive on the host architecture (build-tag-gated, e.g. big-endian fallbacks) are never compiled, so their mutants always "survive"; exclude them or run on the matching arch.
+
 ## Architecture
 
 The codebase follows a **hexagonal (ports-and-adapters) architecture**:
