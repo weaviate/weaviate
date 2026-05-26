@@ -21,10 +21,16 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const asyncDeleteSuffix = ".deleteme"
+
+// asyncDeleteSem caps parallel RemoveAll goroutines. A multi-tenant drop can
+// queue thousands of pending deletes; without this cap they'd all hammer the
+// disk at once. 2×GOMAXPROCS matches the codebase convention for IO-bound work.
+var asyncDeleteSem = make(chan struct{}, concurrency.GOMAXPROCSx2)
 
 func renameForAsyncDelete(path string, logger logrus.FieldLogger) (string, error) {
 	parent := filepath.Dir(path)
@@ -59,6 +65,9 @@ func renameForAsyncDelete(path string, logger logrus.FieldLogger) (string, error
 
 func spawnAsyncDelete(path string, logger logrus.FieldLogger) {
 	enterrors.GoWrapper(func() {
+		asyncDeleteSem <- struct{}{}
+		defer func() { <-asyncDeleteSem }()
+
 		start := time.Now()
 		if err := os.RemoveAll(path); err != nil {
 			logger.WithFields(logrus.Fields{

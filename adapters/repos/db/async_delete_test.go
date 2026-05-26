@@ -70,6 +70,40 @@ func TestRenameForAsyncDelete_RenameInvariants(t *testing.T) {
 	require.True(t, strings.HasSuffix(deleted, asyncDeleteSuffix))
 }
 
+func TestSpawnAsyncDelete_BoundedConcurrency(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	root := t.TempDir()
+	doomed := filepath.Join(root, "blocked.deleteme")
+	require.NoError(t, os.Mkdir(doomed, 0o755))
+
+	// Fill the semaphore so the next spawn must wait for a free slot.
+	slots := cap(asyncDeleteSem)
+	for i := 0; i < slots; i++ {
+		asyncDeleteSem <- struct{}{}
+	}
+
+	spawnAsyncDelete(doomed, logger)
+
+	require.Never(t, func() bool {
+		_, err := os.Stat(doomed)
+		return os.IsNotExist(err)
+	}, 200*time.Millisecond, 20*time.Millisecond,
+		"a spawn launched while the sem is full must not delete the path")
+
+	// Release one slot; the blocked spawn should now complete.
+	<-asyncDeleteSem
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(doomed)
+		return os.IsNotExist(err)
+	}, 2*time.Second, 10*time.Millisecond,
+		"deletion should proceed once a slot is freed")
+
+	// Drain the remaining slots so other tests start clean.
+	for i := 0; i < slots-1; i++ {
+		<-asyncDeleteSem
+	}
+}
+
 func TestSpawnAsyncDelete_RemovesPath(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	root := t.TempDir()
