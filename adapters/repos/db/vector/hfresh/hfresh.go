@@ -60,6 +60,7 @@ type HFresh struct {
 	searchProbe      uint32
 	rescoreLimit     uint32
 	store            *lsmkv.Store
+	version          uint8 // Index version: V1=centroid/RQ8, V2=medoid/RQ1
 
 	// some components require knowing the vector size beforehand
 	// and can only be initialized once the first vector has been
@@ -76,6 +77,7 @@ type HFresh struct {
 	IDs           *common.Sequence    // Shared monotonic counter for generating unique IDs for new postings.
 	VersionMap    *VersionMap         // Stores vector versions in-memory.
 	PostingMap    *PostingMap         // Maps postings to vector IDs.
+	MedoidStore   *MedoidStore        // Stores the medoid ID for each posting.
 	IndexMetadata *IndexMetadataStore // Stores metadata about the index.
 
 	// ctx and cancel are used to manage the lifecycle of the background operations.
@@ -114,6 +116,27 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		return nil, err
 	}
 
+	indexMetadata := NewIndexMetadataStore(bucket)
+
+	// Determine index version before creating HNSW (affects RQ configuration).
+	// For new indexes (no dimensions), we'll use CurrentHFreshIndexVersion.
+	// For existing indexes, we load the stored version (defaults to V1 if not stored).
+	dims, err := indexMetadata.GetDimensions()
+	if err != nil {
+		return nil, errors.Wrap(err, "get dimensions for version check")
+	}
+	var indexVersion uint8
+	if dims == 0 {
+		// New index - will use current version (persisted in initDimensions)
+		indexVersion = CurrentHFreshIndexVersion
+	} else {
+		// Existing index - load stored version
+		indexVersion, err = indexMetadata.GetVersion()
+		if err != nil {
+			return nil, errors.Wrap(err, "get index version")
+		}
+	}
+
 	h := HFresh{
 		id:            cfg.ID,
 		logger:        cfg.Logger.WithField("component", "HFresh"),
@@ -125,7 +148,8 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		vectorForId:   cfg.VectorForIDThunk,
 		VersionMap:    NewVersionMap(bucket),
 		PostingMap:    NewPostingMap(bucket, metrics),
-		IndexMetadata: NewIndexMetadataStore(bucket),
+		MedoidStore:   NewMedoidStore(bucket),
+		IndexMetadata: indexMetadata,
 		postingLocks:  common.NewDefaultShardedRWLocks(),
 		// TODO: choose a better starting size since we can predict the max number of
 		// visited vectors based on cfg.InternalPostingCandidates.
@@ -136,9 +160,10 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 		searchProbe:      uc.SearchProbe,
 		rescoreLimit:     uint32(uc.RQ.RescoreLimit),
 		rootPath:         cfg.RootPath,
+		version:          indexVersion,
 	}
 
-	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, 1024*1024, 1024)
+	h.Centroids, err = NewHNSWIndex(metrics, store, cfg, indexVersion, uc.PostingRescoreLimit, 1024*1024, 1024)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +182,12 @@ func New(cfg *Config, uc ent.UserConfig, store *lsmkv.Store) (*HFresh, error) {
 
 	if err = h.restoreMetadata(); err != nil {
 		return nil, errors.Wrapf(err, "unable to restore metadata from previous run")
+	}
+
+	// Configure the medoid vector provider for HNSW rescore operations.
+	// Only V2+ indexes use medoid-based rescoring; V1 indexes use centroid approximations.
+	if indexVersion >= HFreshIndexVersion2 {
+		h.Centroids.SetVectorProvider(h.MedoidStore, h.vectorForId)
 	}
 
 	return &h, nil
@@ -181,6 +212,11 @@ func (h *HFresh) Delete(ids ...uint64) error {
 
 func (h *HFresh) Type() common.IndexType {
 	return common.IndexTypeHFresh
+}
+
+// Version returns the index version (HFreshIndexVersion1 or HFreshIndexVersion2).
+func (h *HFresh) Version() uint8 {
+	return h.version
 }
 
 func (h *HFresh) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {

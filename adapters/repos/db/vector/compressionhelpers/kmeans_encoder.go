@@ -75,6 +75,36 @@ func (m *KMeansEncoder) FitBalanced(data [][]float32) ([]uint32, error) {
 	return centroidAssignments, err
 }
 
+// FitBalancedWithMedoid performs balanced k-means clustering and returns both
+// the cluster assignments and the medoid indices for each cluster. The medoid
+// is the data point in each cluster that is closest to the cluster's centroid.
+// This is useful when you need a real data point to represent each cluster
+// instead of a computed centroid.
+func (m *KMeansEncoder) FitBalancedWithMedoid(data [][]float32) (assignments []uint32, medoidIndices []int, err error) {
+	assignments, err = m.FitBalanced(data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Find the medoid for each cluster: the point closest to the centroid
+	medoidIndices = make([]int, m.k)
+	minDists := make([]float32, m.k)
+	for i := range minDists {
+		minDists[i] = math.MaxFloat32
+	}
+
+	for i, point := range data {
+		clusterIdx := assignments[i]
+		dist, _ := m.distance.SingleDist(point, m.centers[clusterIdx])
+		if dist < minDists[clusterIdx] {
+			minDists[clusterIdx] = dist
+			medoidIndices[clusterIdx] = i
+		}
+	}
+
+	return assignments, medoidIndices, nil
+}
+
 func (m *KMeansEncoder) Encode(point []float32) byte {
 	var minDist float32 = math.MaxFloat32
 	idx := 0

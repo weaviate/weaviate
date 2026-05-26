@@ -35,10 +35,11 @@ func Test_UserConfig(t *testing.T) {
 			name:  "nothing specified, all defaults",
 			input: nil,
 			expected: UserConfig{
-				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
-				Replicas:         DefaultReplicas,
-				SearchProbe:      DefaultSearchProbe,
-				Distance:         common.DefaultDistanceMetric,
+				MaxPostingSizeKB:    DefaultMaxPostingSizeKB,
+				Replicas:            DefaultReplicas,
+				SearchProbe:         DefaultSearchProbe,
+				Distance:            common.DefaultDistanceMetric,
+				PostingRescoreLimit: DefaultPostingRescoreLimit,
 				RQ: hnsw.RQConfig{
 					Enabled:      true,
 					Bits:         1,
@@ -52,10 +53,11 @@ func Test_UserConfig(t *testing.T) {
 				"maxPostingSizeKB": json.Number("100"),
 			},
 			expected: UserConfig{
-				MaxPostingSizeKB: 100,
-				Replicas:         DefaultReplicas,
-				SearchProbe:      DefaultSearchProbe,
-				Distance:         common.DefaultDistanceMetric,
+				MaxPostingSizeKB:    100,
+				Replicas:            DefaultReplicas,
+				SearchProbe:         DefaultSearchProbe,
+				Distance:            common.DefaultDistanceMetric,
+				PostingRescoreLimit: DefaultPostingRescoreLimit,
 				RQ: hnsw.RQConfig{
 					Enabled:      true,
 					Bits:         1,
@@ -69,10 +71,11 @@ func Test_UserConfig(t *testing.T) {
 				"replicas": json.Number("8"),
 			},
 			expected: UserConfig{
-				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
-				Replicas:         8,
-				SearchProbe:      DefaultSearchProbe,
-				Distance:         common.DefaultDistanceMetric,
+				MaxPostingSizeKB:    DefaultMaxPostingSizeKB,
+				Replicas:            8,
+				SearchProbe:         DefaultSearchProbe,
+				Distance:            common.DefaultDistanceMetric,
+				PostingRescoreLimit: DefaultPostingRescoreLimit,
 				RQ: hnsw.RQConfig{
 					Enabled:      true,
 					Bits:         1,
@@ -86,10 +89,11 @@ func Test_UserConfig(t *testing.T) {
 				"searchProbe": json.Number("128"),
 			},
 			expected: UserConfig{
-				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
-				Replicas:         DefaultReplicas,
-				SearchProbe:      128,
-				Distance:         common.DefaultDistanceMetric,
+				MaxPostingSizeKB:    DefaultMaxPostingSizeKB,
+				Replicas:            DefaultReplicas,
+				SearchProbe:         128,
+				Distance:            common.DefaultDistanceMetric,
+				PostingRescoreLimit: DefaultPostingRescoreLimit,
 				RQ: hnsw.RQConfig{
 					Enabled:      true,
 					Bits:         1,
@@ -105,10 +109,11 @@ func Test_UserConfig(t *testing.T) {
 				},
 			},
 			expected: UserConfig{
-				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
-				Replicas:         DefaultReplicas,
-				SearchProbe:      DefaultSearchProbe,
-				Distance:         common.DefaultDistanceMetric,
+				MaxPostingSizeKB:    DefaultMaxPostingSizeKB,
+				Replicas:            DefaultReplicas,
+				SearchProbe:         DefaultSearchProbe,
+				Distance:            common.DefaultDistanceMetric,
+				PostingRescoreLimit: DefaultPostingRescoreLimit,
 				RQ: hnsw.RQConfig{
 					Enabled:      true,
 					Bits:         1,
@@ -122,10 +127,11 @@ func Test_UserConfig(t *testing.T) {
 				"distance": "cosine",
 			},
 			expected: UserConfig{
-				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
-				Replicas:         DefaultReplicas,
-				SearchProbe:      DefaultSearchProbe,
-				Distance:         "cosine",
+				MaxPostingSizeKB:    DefaultMaxPostingSizeKB,
+				Replicas:            DefaultReplicas,
+				SearchProbe:         DefaultSearchProbe,
+				Distance:            "cosine",
+				PostingRescoreLimit: DefaultPostingRescoreLimit,
 				RQ: hnsw.RQConfig{
 					Enabled:      true,
 					Bits:         1,
@@ -139,10 +145,11 @@ func Test_UserConfig(t *testing.T) {
 				"distance": "l2-squared",
 			},
 			expected: UserConfig{
-				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
-				Replicas:         DefaultReplicas,
-				SearchProbe:      DefaultSearchProbe,
-				Distance:         "l2-squared",
+				MaxPostingSizeKB:    DefaultMaxPostingSizeKB,
+				Replicas:            DefaultReplicas,
+				SearchProbe:         DefaultSearchProbe,
+				Distance:            "l2-squared",
+				PostingRescoreLimit: DefaultPostingRescoreLimit,
 				RQ: hnsw.RQConfig{
 					Enabled:      true,
 					Bits:         1,
@@ -162,10 +169,11 @@ func Test_UserConfig(t *testing.T) {
 				"distance": "l2-squared",
 			},
 			expected: UserConfig{
-				MaxPostingSizeKB: 9,
-				Replicas:         8,
-				SearchProbe:      128,
-				Distance:         "l2-squared",
+				MaxPostingSizeKB:    9,
+				Replicas:            8,
+				SearchProbe:         128,
+				Distance:            "l2-squared",
+				PostingRescoreLimit: DefaultPostingRescoreLimit,
 				RQ: hnsw.RQConfig{
 					Enabled:      true,
 					Bits:         1,
@@ -184,10 +192,11 @@ func Test_UserConfig(t *testing.T) {
 				},
 			},
 			expected: UserConfig{
-				MaxPostingSizeKB: 100,
-				Replicas:         8,
-				SearchProbe:      128,
-				Distance:         common.DefaultDistanceMetric,
+				MaxPostingSizeKB:    100,
+				Replicas:            8,
+				SearchProbe:         128,
+				Distance:            common.DefaultDistanceMetric,
+				PostingRescoreLimit: DefaultPostingRescoreLimit,
 				RQ: hnsw.RQConfig{
 					Enabled:      true,
 					Bits:         1,
@@ -202,17 +211,18 @@ func Test_UserConfig(t *testing.T) {
 					"rescoreLimit": json.Number("0"),
 				},
 			},
-			expected: UserConfig{
-				MaxPostingSizeKB: DefaultMaxPostingSizeKB,
-				Replicas:         DefaultReplicas,
-				SearchProbe:      DefaultSearchProbe,
-				Distance:         common.DefaultDistanceMetric,
-				RQ: hnsw.RQConfig{
-					Enabled:      true,
-					Bits:         1,
-					RescoreLimit: 0,
+			expectErr:    true,
+			expectErrMsg: "rescoreLimit must be a positive integer, got 0",
+		},
+		{
+			name: "with rescoreLimit negative",
+			input: map[string]interface{}{
+				"rq": map[string]interface{}{
+					"rescoreLimit": json.Number("-10"),
 				},
 			},
+			expectErr:    true,
+			expectErrMsg: "rescoreLimit must be a positive integer, got -10",
 		},
 		{
 			name: "with invalid distance manhattan",

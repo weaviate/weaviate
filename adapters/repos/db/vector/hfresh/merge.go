@@ -193,10 +193,14 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				smallPosting = candidate
 			}
 
-			// mark the small posting as deleted in the SPTAG
+			// mark the small posting as deleted in the SPTAG and remove its medoid mapping
 			err = h.Centroids.MarkAsDeleted(smallID)
 			if err != nil {
 				return errors.Wrapf(err, "failed to delete centroid for posting %d", smallID)
+			}
+			err = h.MedoidStore.Delete(ctx, smallID)
+			if err != nil {
+				return errors.Wrapf(err, "failed to delete medoid for posting %d", smallID)
 			}
 
 			// persist the merged posting first

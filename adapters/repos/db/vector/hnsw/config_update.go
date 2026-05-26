@@ -198,3 +198,11 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		"targetVector": h.getTargetVector(),
 	}).Info("vector compression complete")
 }
+
+// SetRQRescoreLimit overrides the RQ rescore limit. This is useful for testing
+// when you want to force a specific rescore limit regardless of the stored config.
+func (h *hnsw) SetRQRescoreLimit(limit int) {
+	h.compressActionLock.Lock()
+	defer h.compressActionLock.Unlock()
+	h.rqConfig.RescoreLimit = limit
+}

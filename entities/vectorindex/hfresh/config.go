@@ -25,19 +25,30 @@ const (
 	MaxPostingSizeKBFloor       = 8
 	DefaultReplicas             = 4
 	DefaultSearchProbe          = 64
-	DefaultHFreshRescoreLimit   = 350
 	MaximumAllowedReplicas      = 10
 	MaximumAllowedPostingSizeKB = 1024
+
+	// DefaultHFreshRescoreLimit is the default final vector rescore limit.
+	// This controls how many actual vectors are rescored with full precision
+	// at the final stage after posting search. This is configurable via rq.rescoreLimit.
+	DefaultHFreshRescoreLimit = 350
+
+	// DefaultPostingRescoreLimit is the default posting-level rescore limit.
+	// This controls how many HNSW posting representatives (medoids) are rescored
+	// with full-precision vectors during the centroid search phase.
+	// Configurable via postingRescoreLimit.
+	DefaultPostingRescoreLimit = 15
 )
 
 // UserConfig defines the configuration options for the HFresh index.
 // Will be populated once we decide what should be exposed.
 type UserConfig struct {
-	MaxPostingSizeKB uint32        `json:"maxPostingSizeKB"`
-	Replicas         uint32        `json:"replicas"`
-	SearchProbe      uint32        `json:"searchProbe"`
-	Distance         string        `json:"distance"`
-	RQ               hnsw.RQConfig `json:"rq"`
+	MaxPostingSizeKB    uint32        `json:"maxPostingSizeKB"`
+	Replicas            uint32        `json:"replicas"`
+	SearchProbe         uint32        `json:"searchProbe"`
+	Distance            string        `json:"distance"`
+	RQ                  hnsw.RQConfig `json:"rq"`
+	PostingRescoreLimit int           `json:"postingRescoreLimit"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -63,6 +74,7 @@ func (u *UserConfig) SetDefaults() {
 	u.RQ.Enabled = true
 	u.RQ.Bits = 1
 	u.RQ.RescoreLimit = DefaultHFreshRescoreLimit
+	u.PostingRescoreLimit = DefaultPostingRescoreLimit
 }
 
 func NewDefaultUserConfig() UserConfig {
@@ -105,6 +117,13 @@ func (u *UserConfig) validate() error {
 		))
 	}
 
+	if u.PostingRescoreLimit <= 0 {
+		errs = append(errs, fmt.Errorf(
+			"postingRescoreLimit must be a positive integer, got %d",
+			u.PostingRescoreLimit,
+		))
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid hfresh config: %w", errors.Join(errs...))
 	}
@@ -143,12 +162,16 @@ func parseAndValidateRQ(ucMap map[string]interface{}, uc *UserConfig) error {
 		return fmt.Errorf("rq only supports 1 bit, got %d", bits)
 	}
 
+	var rescoreLimitSet bool
 	if err := vectorIndexCommon.OptionalIntFromMap(rqConfigMap, "rescoreLimit", func(v int) {
-		if v >= 0 {
-			uc.RQ.RescoreLimit = v
-		}
+		rescoreLimitSet = true
+		uc.RQ.RescoreLimit = v
 	}); err != nil {
 		return err
+	}
+	// Validate rescoreLimit if explicitly set
+	if rescoreLimitSet && uc.RQ.RescoreLimit <= 0 {
+		return fmt.Errorf("rescoreLimit must be a positive integer, got %d", uc.RQ.RescoreLimit)
 	}
 
 	return nil
@@ -200,6 +223,12 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig
 
 	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "searchProbe", func(v int) {
 		uc.SearchProbe = uint32(v)
+	}); err != nil {
+		return uc, err
+	}
+
+	if err := vectorIndexCommon.OptionalIntFromMap(asMap, "postingRescoreLimit", func(v int) {
+		uc.PostingRescoreLimit = v
 	}); err != nil {
 		return uc, err
 	}
