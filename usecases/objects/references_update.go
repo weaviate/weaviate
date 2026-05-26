@@ -117,6 +117,15 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				parsedTargetRefs[i].Class = string(toClass)
 			}
 		}
+		// Symmetric with the delete + add + batch + inline-properties write
+		// paths. autodetectToClass returns replace=false on a multi-target
+		// prop, so a classless beacon would otherwise reach validateExistence
+		// → DB.anyExists, scanning every namespace's indices, and persist a
+		// classless beacon that's wildcard-deletable on NS clusters.
+		if m.config.Config.Namespaces.Enabled && parsedTargetRefs[i].Class == "" {
+			err := fmt.Errorf("multi-target references require the class name in the target beacon url")
+			return &Error{err.Error(), StatusBadRequest, err}
+		}
 		if parsedTargetRefs[i].Class != "" {
 			// Qualified for downstream authz / existence; short for the
 			// beacon that gets serialized when input.Refs is written to

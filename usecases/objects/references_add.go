@@ -108,6 +108,19 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
+	// Symmetric with the delete-path gate (references_delete.go) and the
+	// batch + inline-properties write paths. autodetectToClass returns
+	// replace=false on a multi-target prop, so a classless beacon would
+	// otherwise reach Exists with Class=="" → DB.anyExists, scanning every
+	// index across every namespace. Non-root callers are already accidentally
+	// blocked by the ShardsData("",tenant) wildcard authz below, but
+	// admins/root would slip through, and the stored beacon would still
+	// be wildcard-deletable. Reject explicitly on NS-enabled clusters.
+	if m.config.Config.Namespaces.Enabled && targetRef.Class == "" {
+		err := fmt.Errorf("multi-target references require the class name in the target beacon url")
+		return &Error{err.Error(), StatusBadRequest, err}
+	}
+
 	if targetRef.Class != "" {
 		// Two views: qualified for in-memory ops (authz + existence right
 		// below), short for the stored beacon (reparsed from input.Ref

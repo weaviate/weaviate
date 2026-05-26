@@ -252,6 +252,54 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 		assert.NotContains(t, authz.Calls()[0].Resources[0], ":Zoo")
 		repo.AssertExpectations(t)
 	})
+
+	t.Run("NS: classless beacon on multi-target ref property is rejected before existence check", func(t *testing.T) {
+		// Single-ref add mirror of references_delete.go's NS gate and the
+		// batch + inline-properties write-path gates. autodetectToClass
+		// returns replace=false on a multi-target prop, leaving targetRef
+		// classless. Without the gate, validateExistence would hit
+		// DB.Exists with Class=="" → anyExists, scanning every index across
+		// every namespace (cross-namespace oracle), and persist a beacon
+		// that's wildcard-deletable by removeReference's short-class match.
+		m, _, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+		// No repo.On("Exists") expectations — the existence check must
+		// never run for a classless multi-target ref.
+
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		input := &AddReferenceInput{
+			Class: "Source", ID: id, Property: "hasOther",
+			Ref: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+			},
+		}
+		err := m.AddObjectReference(context.Background(), principal, input, nil, "")
+		require.NotNil(t, err)
+		assert.Equal(t, StatusBadRequest, err.Code)
+		assert.Contains(t, err.Msg, "multi-target references require")
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("non-NS: classless beacon on multi-target ref property is not gated", func(t *testing.T) {
+		// Non-NS clusters keep byte-exact compare on delete: a classless
+		// stored beacon only matches a classless delete, so the gate is
+		// NS-only. Preserve the legacy behaviour. Exists is called with
+		// Class=="" (the existing pre-fix behaviour) and we let it through.
+		m, _, repo, mp, _ := newNSManagers(t, multiTargetNSSchema(false), false)
+		repo.On("Exists", "", refID).Return(true, nil).Once()
+		repo.On("Exists", "Source", id).Return(true, nil).Once()
+		repo.On("AddReference", mock.Anything, mock.Anything).Return(nil).Once()
+		mp.On("UsingRef2Vec", mock.Anything).Return(false)
+
+		input := &AddReferenceInput{
+			Class: "Source", ID: id, Property: "hasOther",
+			Ref: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+			},
+		}
+		err := m.AddObjectReference(context.Background(), &models.Principal{Username: "admin"}, input, nil, "")
+		require.Nil(t, err, "non-NS classless on multi-target must pass the gate (it's NS-only)")
+		repo.AssertExpectations(t)
+	})
 }
 
 // Test_References_NamespaceResolution_Update covers UpdateObjectReferences for
@@ -284,6 +332,36 @@ func Test_References_NamespaceResolution_Update(t *testing.T) {
 		require.NotNil(t, err)
 		require.NotEmpty(t, authz.Calls())
 		assert.Contains(t, authz.Calls()[0].Resources[0], "customer1:Zoo")
+	})
+
+	t.Run("NS: classless beacon on multi-target ref property is rejected before existence check", func(t *testing.T) {
+		// PUT-side mirror of the gate in references_add.go / batch /
+		// inline-properties / delete. Without it, a classless ref reaches
+		// validateExistence → DB.anyExists (cross-namespace oracle) and
+		// then gets persisted as wildcard-deletable.
+		m, _, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+		// Source-object lookup is needed before the loop; mock it as
+		// not-found so we exercise the gate during the per-ref loop.
+		repo.On("Object", "customer1:Source", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{
+				ClassName: "customer1:Source",
+				Schema:    map[string]interface{}{"name": "src"},
+			}, nil).Once()
+		// No repo.On("Exists") expectations — the existence check must
+		// never run for the classless multi-target ref.
+
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		refs := models.MultipleRef{&models.SingleRef{
+			Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+		}}
+		input := &PutReferenceInput{
+			Class: "Source", ID: id, Property: "hasOther", Refs: refs,
+		}
+		err := m.UpdateObjectReferences(context.Background(), principal, input, nil, "")
+		require.NotNil(t, err)
+		assert.Equal(t, StatusBadRequest, err.Code)
+		assert.Contains(t, err.Msg, "multi-target references require")
+		repo.AssertExpectations(t)
 	})
 }
 

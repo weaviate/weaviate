@@ -115,6 +115,24 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 						return err
 					}
 					if len(prop.DataType) > 1 {
+						// Classless beacon on a multi-target ref property:
+						// autodetect can't pick a class, so the existence
+						// check below would key on Class=="" and fall through
+						// to DB.anyExists, which scans every index across
+						// every namespace — a cross-namespace existence
+						// oracle. The stored beacon would also be classless,
+						// making it wildcard-deletable by removeReference's
+						// short-class match (the same foot-gun the delete
+						// path explicitly rejects in references_delete.go
+						// and the batch path in batch_references_add.go).
+						// Gate here on NS-enabled clusters; non-NS clusters
+						// keep byte-exact compare on delete, so the legacy
+						// pass-through is preserved.
+						if v.namespacesEnabled {
+							return fmt.Errorf(
+								"'cref' %s:%s: multi-target references require the class name in the target beacon url",
+								className, propertyKey)
+						}
 						continue
 					}
 					// Strip back to short for the reconstructed beacon; see the
