@@ -64,9 +64,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
-	// Parse and prefix-validate the target beacon. Runs AFTER authz so a
-	// caller without permission gets a 403 instead of a body-shape 422
-	// (see TestAuthzViewerEndpoints which posts a malformed delete body).
+	// Parse + prefix-validate AFTER authz so unauthorized callers get 403
+	// rather than a body-shape 422 (TestAuthzViewerEndpoints pins this).
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())
 	if err != nil {
 		return &Error{"cannot parse beacon", StatusBadRequest, err}
@@ -131,24 +130,18 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		}
 	}
 
-	// On NS-enabled clusters a classless supplied beacon that autodetect
-	// couldn't resolve (multi-target property) is ambiguous: removeReference's
-	// structural match strips classes on both sides, so an empty supplied
-	// class would wildcard across every stored class for that TargetID and
-	// silently delete unrelated refs. Same contract the write side enforces
-	// in validateReferenceMultiTenancy. Non-NS clusters keep byte-exact
-	// matching where a classless supplied beacon only matches a classless
-	// stored one, so they don't need this gate.
+	// NS: classless supplied beacon on a multi-target prop is ambiguous.
+	// Reject with 400 so the caller sees the error instead of
+	// removeReferenceStructural's silent no-op. Non-NS keeps byte-exact
+	// compare, which already handles classless on both sides safely.
 	if m.config.Config.Namespaces.Enabled && beacon.Class == "" {
 		err := fmt.Errorf("multi-target references require the class name in the target beacon url")
 		return &Error{err.Error(), StatusBadRequest, err}
 	}
 
-	// Apply the same cross-namespace policy as the write paths: admin
-	// must address the source's namespace (or omit the prefix), and
-	// namespaced principals cannot send qualified beacons at all. Without
-	// this, removeReference's short-class match would silently match a
-	// same-UUID ref under the wrong namespace prefix on the supplied beacon.
+	// Same cross-NS policy as the write paths. Fail with 422 here so the
+	// caller sees the rejection rather than removeReferenceStructural's
+	// silent no-op.
 	if beacon.Class != "" {
 		qualifiedTarget, _, err := namespacing.QualifyRefTarget(
 			principal, m.config.Config.Namespaces.Enabled, input.Class, beacon.Class)
@@ -170,7 +163,13 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 	obj := res.Object()
 	obj.Tenant = tenant
-	ok, errmsg := removeReference(obj, input.Property, beacon, input.Reference.Beacon, m.config.Config.Namespaces.Enabled, m.logger)
+	var ok bool
+	var errmsg string
+	if m.config.Config.Namespaces.Enabled {
+		ok, errmsg = removeReferenceStructural(obj, input.Property, input.Class, beacon, m.logger)
+	} else {
+		ok, errmsg = removeReferenceByteExact(obj, input.Property, input.Reference.Beacon)
+	}
 	if errmsg != "" {
 		return &Error{errmsg, StatusInternalServerError, nil}
 	}
@@ -208,70 +207,78 @@ func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
 	return validateReferenceSchema(class, req.Property)
 }
 
-// removeReference removes from obj.prop every ref whose target matches
-// `remove`.
+// removeReferenceStructural matches refs by (short_class, TargetID).
+// Used on NS clusters. Caller must pass qualified sourceClass and
+// remove.Class; the handler enforces that via resolveNS + QualifyRefTarget.
 //
-// On NS-enabled clusters the match is structural on (Class, TargetID),
-// with class names compared in their short form on both sides so an
-// admin-submitted qualified beacon
-// ("weaviate://localhost/customer1:Animal/<id>") matches a stored short
-// one ("weaviate://localhost/Animal/<id>"). A stored or supplied beacon
-// with no class part matches any class for that TargetID — preserves
-// the legacy short-only-beacon contract.
+// Classless or foreign-NS supplied beacons no-op (safety net against a
+// direct caller that skipped the handler's 400/422). Classless stored
+// beacons also no-op — the wildcard semantics the PR briefly carried
+// silently dropped same-UUID refs to unrelated classes; PUT-replace is
+// the documented cleanup path for legacy classless stored data.
 //
-// On non-NS clusters the match is byte-exact on the beacon URI
-// (preserving the pre-namespacing contract). Structural matching would
-// soften behavior here in ways non-NS callers never asked for: legacy
-// classless beacons becoming class-promiscuous, malformed stored
-// beacons being silently skipped, and URI-shape variants normalising.
-//
-// Returns ok=true iff at least one ref was removed, and errmsg when the
-// property is present but not a MultipleRef.
-func removeReference(obj *models.Object, prop string, remove *crossref.Ref, removeBeacon strfmt.URI, namespacesEnabled bool, logger logrus.FieldLogger) (ok bool, errmsg string) {
+// Malformed stored beacons are skipped (Debug log) so they don't freeze
+// the rest of the multi-ref.
+func removeReferenceStructural(obj *models.Object, prop, sourceClass string,
+	remove *crossref.Ref, logger logrus.FieldLogger,
+) (ok bool, errmsg string) {
 	properties := obj.Properties.(map[string]interface{})
 	if properties == nil || properties[prop] == nil {
 		return false, ""
 	}
-
 	refs, ok := properties[prop].(models.MultipleRef)
 	if !ok {
-		// Format against the original value, not the failed-assertion result —
-		// refs is the zero models.MultipleRef on a failed assertion, so it
-		// would always report the expected type instead of the actual one.
+		// %T on properties[prop] — refs is the zero MultipleRef on a
+		// failed assertion and would misreport the stored type.
 		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, properties[prop])
 	}
 
-	var after models.MultipleRef
-	if namespacesEnabled {
-		removeShortClass := namespacing.StripQualification(remove.Class)
-		after = slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
-			stored, err := crossref.Parse(ref.Beacon.String())
-			if err != nil {
-				// Skip malformed stored beacons rather than panicking — the
-				// rest of the multi-ref still needs to be evaluated. Log so
-				// the bad beacon is diagnosable without making it appear
-				// undeletable to operators looking at the response.
-				if logger != nil {
-					logger.WithField("object_id", obj.ID).
-						WithField("property", prop).
-						WithField("beacon", ref.Beacon).
-						Debugf("removeReference: skipping malformed stored beacon: %v", err)
-				}
-				return false
-			}
-			if stored.TargetID != remove.TargetID {
-				return false
-			}
-			storedShortClass := namespacing.StripQualification(stored.Class)
-			// Either side empty → legacy short-only match on TargetID alone.
-			return storedShortClass == "" || removeShortClass == "" ||
-				storedShortClass == removeShortClass
-		})
-	} else {
-		after = slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
-			return ref.Beacon == removeBeacon
-		})
+	removeShortClass := namespacing.StripQualification(remove.Class)
+	if removeShortClass == "" {
+		return false, ""
 	}
+	if namespacing.NamespaceFromQualified(remove.Class) != namespacing.NamespaceFromQualified(sourceClass) {
+		return false, ""
+	}
+
+	after := slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
+		stored, err := crossref.Parse(ref.Beacon.String())
+		if err != nil {
+			logger.WithField("object_id", obj.ID).
+				WithField("property", prop).
+				WithField("beacon", ref.Beacon).
+				Debugf("removeReferenceStructural: skipping malformed stored beacon: %v", err)
+			return false
+		}
+		if stored.TargetID != remove.TargetID {
+			return false
+		}
+		storedShortClass := namespacing.StripQualification(stored.Class)
+		if storedShortClass == "" {
+			return false
+		}
+		return storedShortClass == removeShortClass
+	})
+	properties[prop] = after
+	return len(after) < len(refs), ""
+}
+
+// removeReferenceByteExact is the non-NS path: byte-exact compare on the
+// stored beacon URI. Preserves the pre-namespacing contract.
+func removeReferenceByteExact(obj *models.Object, prop string, removeBeacon strfmt.URI) (ok bool, errmsg string) {
+	properties := obj.Properties.(map[string]interface{})
+	if properties == nil || properties[prop] == nil {
+		return false, ""
+	}
+	refs, ok := properties[prop].(models.MultipleRef)
+	if !ok {
+		// %T on properties[prop] — refs is the zero MultipleRef on a
+		// failed assertion and would misreport the stored type.
+		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, properties[prop])
+	}
+	after := slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
+		return ref.Beacon == removeBeacon
+	})
 	properties[prop] = after
 	return len(after) < len(refs), ""
 }
