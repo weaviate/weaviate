@@ -375,7 +375,7 @@ func runTombstoneInvertedCompactionTest(t *testing.T, size int) {
 						case <-done:
 							return nil
 						default:
-							ok, err := bucket.disk.compactOnce(nil)
+							ok, err := bucket.disk.compactOnce(context.Background())
 							require.Nil(t, err)
 							if ok {
 								k++

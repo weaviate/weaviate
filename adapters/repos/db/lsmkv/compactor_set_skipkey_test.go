@@ -108,7 +108,7 @@ func TestCompactionSetSkipKeys(t *testing.T) {
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
 				var err error
-				for compacted, err = bucket.disk.compactOnce(nil); err == nil && compacted; compacted, err = bucket.disk.compactOnce(nil) {
+				for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 				}
 				require.Nil(t, err)
 			})

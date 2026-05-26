@@ -109,10 +109,13 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 			require.GreaterOrEqual(t, len(bucket.disk.segments), 2,
 				"need at least two segments on disk to exercise compactOnce")
 
-			shouldAbort := func() bool { return true }
+			// Pre-cancel the ctx so compactOnce's first ctx.Err() sample
+			// inside the compactor returns the abort immediately.
+			abortCtx, cancel := context.WithCancel(ctx)
+			cancel()
 
 			start := time.Now()
-			compacted, err := bucket.disk.compactOnce(shouldAbort)
+			compacted, err := bucket.disk.compactOnce(abortCtx)
 			elapsed := time.Since(start)
 
 			require.NoError(t, err)

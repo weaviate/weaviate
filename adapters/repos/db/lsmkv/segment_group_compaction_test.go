@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -1312,7 +1313,7 @@ func TestSegmenGroup_CompactionLargerThanMaxSize(t *testing.T) {
 		maxSegmentSize: maxSegmentSize,
 	}
 
-	ok, err := sg.compactOnce(nil)
+	ok, err := sg.compactOnce(context.Background())
 	assert.False(t, ok, "segments are too large to run")
 	assert.Nil(t, err)
 }

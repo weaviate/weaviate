@@ -28,9 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -271,12 +269,14 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
-// compactOnce performs one compaction iteration. shouldAbort is checked
-// periodically inside the per-strategy compactor's inner merge loop; an
-// observed abort cancels the merge, cleans up the partial .tmp file, and
-// returns (false, nil) — the cycle treats it the same as a no-op tick.
-// A nil shouldAbort is allowed and behaves as "never abort".
-func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback) (compacted bool, err error) {
+// compactOnce performs one compaction iteration. The caller's ctx is
+// sampled inside each per-strategy compactor's inner merge loop every
+// compactor.AbortCheckEveryN keys; a cancelled ctx halts the merge,
+// causes compactOnce to close the partial .tmp file (left on disk —
+// segment_group.init removes orphan .tmp files at the next startup),
+// and returns (false, nil) — the cycle treats it the same as a no-op
+// tick. context.Background() means "never abort".
+func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
 	// be an append because of a new flush cycle, so we do not need to guarantee
@@ -359,39 +359,6 @@ func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback
 	secondaryIndices := left.getSecondaryIndexCount()
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
-
-	// Bridge the cyclemanager's shouldAbort callback to a ctx the
-	// compactors check on their per-strategy merge loops. Two paths:
-	//   - shouldAbort=true at entry: pre-cancel so the very first
-	//     ctx.Err() check inside the compactor returns the abort.
-	//   - shouldAbort flips mid-merge: a short-lived poll goroutine
-	//     watches it and cancels the ctx; the compactor's next
-	//     AbortCheckEveryN sample observes it. The goroutine
-	//     self-terminates on the deferred cancel.
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if shouldAbort != nil {
-		if shouldAbort() {
-			cancel()
-		} else {
-			watcher := func() {
-				t := time.NewTicker(50 * time.Millisecond)
-				defer t.Stop()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-t.C:
-						if shouldAbort() {
-							cancel()
-							return
-						}
-					}
-				}
-			}
-			enterrors.GoWrapper(watcher, sg.logger)
-		}
-	}
 
 	// runCompactor maps the per-strategy do/Do error into:
 	//   - (true,  nil): caller should clean up .tmp and return (false, nil)

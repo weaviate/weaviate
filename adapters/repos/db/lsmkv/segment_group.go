@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -923,9 +924,43 @@ func segmentExistsWithID(segmentID string, files map[string]int64) (bool, string
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
+	// Bridge the cyclemanager shouldAbort callback to a ctx that
+	// compactOnce (and the per-strategy compactors below it) checks
+	// inside their inner merge loops. Two paths:
+	//   - shouldAbort=true at entry: pre-cancel so the very first
+	//     ctx.Err() check inside the compactor returns the abort.
+	//   - shouldAbort flips mid-merge: a short-lived poll goroutine
+	//     watches it and cancels the ctx; the compactor's next sample
+	//     observes it. The goroutine self-terminates on the deferred
+	//     cancel.
+	compactCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if shouldAbort != nil {
+		if shouldAbort() {
+			cancel()
+		} else {
+			watcher := func() {
+				t := time.NewTicker(50 * time.Millisecond)
+				defer t.Stop()
+				for {
+					select {
+					case <-compactCtx.Done():
+						return
+					case <-t.C:
+						if shouldAbort() {
+							cancel()
+							return
+						}
+					}
+				}
+			}
+			enterrors.GoWrapper(watcher, sg.logger)
+		}
+	}
+
 	compact := func() bool {
 		sg.lastCompactionCall = time.Now()
-		compacted, err := sg.compactOnce(shouldAbort)
+		compacted, err := sg.compactOnce(compactCtx)
 		if err != nil {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).

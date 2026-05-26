@@ -278,7 +278,7 @@ func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
 		require.NoError(t, b.FlushMemtable())
 
-		compacted, err := b.disk.compactOnce(nil)
+		compacted, err := b.disk.compactOnce(context.Background())
 		require.NoError(t, err)
 		require.True(t, compacted)
 	})
