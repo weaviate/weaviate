@@ -137,12 +137,12 @@ func TestFlushAbort_ReopenAndRetryFlush(t *testing.T) {
 	assertSeededRows(t, b2, StrategyReplace, n)
 }
 
-func seedBucket(t *testing.T, b *Bucket, strategyegy string, n int) {
+func seedBucket(t *testing.T, b *Bucket, strategy string, n int) {
 	t.Helper()
 	for i := 0; i < n; i++ {
 		key := []byte(fmt.Sprintf("key-%08d", i))
 		val := []byte(fmt.Sprintf("val-%08d", i))
-		switch strategyegy {
+		switch strategy {
 		case StrategyReplace:
 			require.NoError(t, b.Put(key, val))
 		case StrategySetCollection:
@@ -156,19 +156,19 @@ func seedBucket(t *testing.T, b *Bucket, strategyegy string, n int) {
 		case StrategyInverted:
 			require.NoError(t, b.MapSet(key, MapPair{Key: val, Value: val}))
 		default:
-			t.Fatalf("unhandled strategyegy %q", strategyegy)
+			t.Fatalf("unhandled strategy %q", strategy)
 		}
 	}
 }
 
-func assertSeededRows(t *testing.T, b *Bucket, strategyegy string, n int) {
+func assertSeededRows(t *testing.T, b *Bucket, strategy string, n int) {
 	t.Helper()
-	// Sample a few keys; a full sweep is overkill and most strategyegies don't
+	// Sample a few keys; a full sweep is overkill and most strategies don't
 	// share a uniform Get interface.
 	for _, i := range []int{0, n / 2, n - 1} {
 		key := []byte(fmt.Sprintf("key-%08d", i))
 		val := []byte(fmt.Sprintf("val-%08d", i))
-		switch strategyegy {
+		switch strategy {
 		case StrategyReplace:
 			got, err := b.Get(key)
 			require.NoError(t, err)
@@ -191,7 +191,7 @@ func assertSeededRows(t *testing.T, b *Bucket, strategyegy string, n int) {
 		case StrategyRoaringSetRange:
 			// roaringsetrange doesn't expose a direct Get by key; skip the
 			// row-level assertion. The WAL-replay assertion via no panic on
-			// reopen is sufficient coverage for this strategyegy.
+			// reopen is sufficient coverage for this strategy.
 		}
 	}
 }
