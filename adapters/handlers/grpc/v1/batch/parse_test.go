@@ -466,8 +466,8 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}},
 		},
 	}
-	getClass := func(class, shard string) (*models.Class, error) {
-		return scheme.GetClass(class), nil
+	getClass := func(class, shard string) (string, *models.Class, error) {
+		return class, scheme.GetClass(class), nil
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -506,8 +506,8 @@ func TestGRPCBatchRequest_MultiTargetNamespace(t *testing.T) {
 		},
 		a: {Class: a},
 	}
-	getClass := func(class, shard string) (*models.Class, error) {
-		return classes[class], nil
+	getClass := func(class, shard string) (string, *models.Class, error) {
+		return class, classes[class], nil
 	}
 	makeReq := func(target string) *pb.BatchObjectsRequest {
 		return &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{{
@@ -553,4 +553,21 @@ func TestGRPCBatchRequest_MultiTargetNamespace(t *testing.T) {
 		require.Len(t, errs, 1)
 		require.Contains(t, errs[0].Error(), "not a valid class name")
 	})
+}
+
+// TestGRPCBatchRequest_AutoSchemaQualifiesNamespace pins the auto-schema branch
+// (class not yet in schema): the parsed object must carry the resolver's
+// qualified name, not the bare request collection.
+func TestGRPCBatchRequest_AutoSchemaQualifiesNamespace(t *testing.T) {
+	getClass := func(class, shard string) (string, *models.Class, error) {
+		// resolver qualifies the short name; class is nil (auto-schema creates it).
+		return "ns1:Movies", nil, nil
+	}
+	req := []*pb.BatchObject{{Collection: "Movies", Uuid: UUID4}}
+
+	out, _, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: req}, getClass, nil, false)
+
+	require.Len(t, batchErrors, 0)
+	require.Len(t, out, 1)
+	require.Equal(t, "ns1:Movies", out[0].Class)
 }

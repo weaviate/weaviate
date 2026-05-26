@@ -857,3 +857,45 @@ func TestNamespaces_GRPC_RemoteShardAggregate(t *testing.T) {
 	require.NotNil(t, aggResp.GetSingleResult())
 	assert.Equal(t, int64(objCount), aggResp.GetSingleResult().GetObjectsCount())
 }
+
+// TestNamespaces_GRPC_BatchAutoSchema guards the gRPC batch + auto-schema path
+// for a namespaced principal: the class does not exist yet, so the handler must
+// qualify the object's collection so the auto-created collection and the write
+// agree on the qualified name.
+func TestNamespaces_GRPC_BatchAutoSchema(t *testing.T) {
+	user1Key, _ := twoNamespaces(t)
+
+	grpcClient, conn := newGrpcClient(t)
+	defer conn.Close()
+
+	const class = "GrpcAutoSchema"
+	t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+
+	id := strfmt.UUID("99999999-aaaa-bbbb-cccc-999999999999")
+	resp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
+		Objects: []*pb.BatchObject{{
+			Uuid:       id.String(),
+			Collection: class,
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"title": structpb.NewStringValue("Inception"),
+					},
+				},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Empty(t, resp.Errors)
+
+	// Read-back by short name proves the object landed under the qualified collection.
+	got, err := helper.GetObjectAuth(t, class, id, user1Key)
+	require.NoError(t, err)
+	assert.Equal(t, class, got.Class)
+	assert.Equal(t, "Inception", got.Properties.(map[string]any)["title"])
+
+	// Admin's raw view confirms auto-schema created a single-qualified class.
+	gotClass := helper.GetClassAuth(t, "customer1:"+class, adminKey)
+	assert.Equal(t, "customer1:"+class, gotClass.Class)
+}
