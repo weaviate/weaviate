@@ -16,8 +16,6 @@ package lsmkv
 import (
 	"context"
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -30,7 +28,12 @@ import (
 // weaviate/0-weaviate-issues#250: a compactor in flight observes the
 // cyclemanager's shouldAbort signal within compactor.AbortCheckEveryN keys
 // and bails — returning (false, nil) so the cycle treats it as a no-op
-// iteration. No partial .tmp file is left behind.
+// iteration.
+//
+// The partial .tmp file is intentionally left behind. segment_group.init
+// removes orphan .tmp segments at the next startup, and for the
+// delete-path the parent dir is unlinked synchronously by the caller, so
+// no synchronous remove is needed here.
 //
 // All strategies that go through SegmentGroup.compactOnce share the same
 // bridge (shouldAbort → ctx + pre-cancel + watcher goroutine), so the
@@ -118,13 +121,6 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 			assert.Less(t, elapsed, 3*time.Second,
 				"abort should land within a few seconds (strategy=%s); observed %s",
 				tc.strategy, elapsed)
-
-			entries, err := os.ReadDir(dirName)
-			require.NoError(t, err)
-			for _, e := range entries {
-				assert.False(t, strings.HasSuffix(e.Name(), ".db.tmp"),
-					"aborted compactor left tmp file %q (strategy=%s)", e.Name(), tc.strategy)
-			}
 		})
 	}
 }

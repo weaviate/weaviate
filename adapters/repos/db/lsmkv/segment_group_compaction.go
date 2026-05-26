@@ -407,21 +407,17 @@ func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback
 		return false, nil
 	}
 
-	abortAndCleanup := func() error {
-		// best-effort cleanup of the partial output. We close before
-		// removing so the file descriptor doesn't leak; the first non-nil
-		// error is surfaced and the second (if any) is dropped. Either
-		// way the caller treats the abort as a no-op iteration.
-		var firstErr error
-		if cerr := f.Close(); cerr != nil {
-			firstErr = fmt.Errorf("close aborted compactor output: %w", cerr)
+	abortAndClose := func() error {
+		// Close the .tmp fd so we don't leak the descriptor. The file
+		// itself stays on disk; segment_group.init removes any orphan
+		// .tmp segments on the next process startup (see segment_group.go
+		// around the `filepath.Ext(entry) != ".tmp"` scan). For drops
+		// the parent dir is unlinked synchronously by the caller, so the
+		// .tmp file disappears with it.
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close aborted compactor output: %w", err)
 		}
-		if rerr := os.Remove(path); rerr != nil && !os.IsNotExist(rerr) {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("remove aborted compactor output: %w", rerr)
-			}
-		}
-		return firstErr
+		return nil
 	}
 
 	switch strategy {
@@ -438,7 +434,7 @@ func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback
 			return false, err
 		}
 		if aborted {
-			return false, abortAndCleanup()
+			return false, abortAndClose()
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -450,7 +446,7 @@ func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback
 			return false, err
 		}
 		if aborted {
-			return false, abortAndCleanup()
+			return false, abortAndClose()
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
@@ -462,7 +458,7 @@ func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback
 			return false, err
 		}
 		if aborted {
-			return false, abortAndCleanup()
+			return false, abortAndClose()
 		}
 	case segmentindex.StrategyRoaringSet:
 		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
@@ -474,7 +470,7 @@ func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback
 			return false, err
 		}
 		if aborted {
-			return false, abortAndCleanup()
+			return false, abortAndClose()
 		}
 
 	case segmentindex.StrategyRoaringSetRange:
@@ -486,7 +482,7 @@ func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback
 			return false, err
 		}
 		if aborted {
-			return false, abortAndCleanup()
+			return false, abortAndClose()
 		}
 	case segmentindex.StrategyInverted:
 		avgPropLen, _ := sg.GetAveragePropertyLength()
@@ -506,7 +502,7 @@ func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback
 			return false, err
 		}
 		if aborted {
-			return false, abortAndCleanup()
+			return false, abortAndClose()
 		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
