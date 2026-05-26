@@ -954,15 +954,9 @@ func (p *Parser) extractPropertiesRequest(reqProps *pb.PropertiesRequest, classN
 	}
 
 	if len(reqProps.RefProperties) > 0 {
-		// className is pre-qualified by service.go's namespacing.Resolve (or
-		// by the recursive call below). For single-target refs the linked
-		// class comes from the pre-qualified Property.DataType (see
-		// namespacing.QualifyPropertyDataTypes). For multi-target refs the
-		// caller-supplied TargetCollection is normalised via
-		// namespacing.QualifyRefTarget, which strips an own-namespace prefix
-		// before re-qualifying with the source class's namespace (so admins
-		// who spell out their own prefix don't double-qualify) and rejects
-		// foreign-namespace prefixes (refs can't cross namespaces).
+		// className is pre-qualified upstream. Single-target uses pre-qualified
+		// Property.DataType; multi-target routes caller TargetCollection
+		// through QualifyRefTarget.
 		for _, prop := range reqProps.RefProperties {
 			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
 			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)

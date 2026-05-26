@@ -26,24 +26,12 @@ import (
 
 // ExtractFilters converts a proto Filters tree into an internal filter Clause.
 //
-// When namespacesEnabled is true, old-style reference-path filters
-// (filterIn.Target == nil with more than one element in filterIn.On) are
-// rejected. Inner class segments in such paths are taken from caller input
-// and are not auto-qualified by the resolver, so allowing them through
-// would silently fail downstream when the schema lookup misses the
-// unqualified inner class.
-//
-// New-style FilterTarget filters are namespace-aware: the recursion in
-// extractPathNew stitches the parent class's namespace onto each nested
-// linked class. For SingleTarget the linked class is taken from the
-// schema's Property.DataType (pre-qualified by
-// QualifyPropertyDataTypes). For MultiTarget the caller-supplied
-// TargetCollection is normalised via namespacing.QualifyRefTarget, which
-// strips an own-namespace prefix before re-qualifying with the source
-// class's namespace (so admins who spell out their own prefix don't
-// double-qualify) and rejects foreign-namespace prefixes (refs can't
-// cross namespaces). This mirrors the gRPC search parser's read-side
-// handling for ref-properties.
+// NS-enabled: old-style reference-path filters (Target nil, len(On) > 1)
+// are rejected — inner class segments aren't auto-qualified and would miss
+// the schema lookup. New-style FilterTarget filters are NS-aware:
+// extractPathNew stitches parent NS onto each nested linked class.
+// SingleTarget uses pre-qualified Property.DataType; MultiTarget routes
+// caller-supplied TargetCollection through QualifyRefTarget.
 func ExtractFilters(filterIn *pb.Filters, authorizedGetClass classGetterWithAuthzFunc, className, tenant string, namespacesEnabled bool, principal *models.Principal) (filters.Clause, error) {
 	returnFilter := filters.Clause{}
 
@@ -365,12 +353,8 @@ func extractPathNew(authorizedGetClass classGetterWithAuthzFunc, className, tena
 		return &filters.Path{Class: schema.ClassName(className), Property: schema.PropertyName(normalizedRefPropName), Child: child}, property, nil
 	case *pb.FilterTarget_MultiTarget:
 		multiTarget := target.GetMultiTarget()
-		// className is pre-qualified by service.go's namespacing.Resolve (or
-		// by the recursive call below). QualifyRefTarget normalises the
-		// caller-supplied TargetCollection against the source class's
-		// namespace: strips an own-namespace prefix (so admins who spell
-		// it out don't double-qualify) and rejects foreign-namespace
-		// prefixes. On non-NS clusters it's a pass-through.
+		// className is pre-qualified upstream; QualifyRefTarget normalises
+		// caller-supplied TargetCollection against the source NS.
 		linkedClassName, _, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, className, multiTarget.TargetCollection)
 		if err != nil {
 			return nil, "", err

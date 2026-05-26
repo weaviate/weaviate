@@ -223,13 +223,9 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair,
 	}
 
 	out := make([]*propValuePair, len(ids)*2)
-	// Stored beacons carry the short class name (the references write path
-	// normalizes via crossref.NewLocalhost(shortTarget, ...) for namespace
-	// portability), so the by-ref lookup must build its filter value with
-	// the short class too — otherwise on NS clusters the qualified
-	// elem.ClassName from the nested search produces a beacon that never
-	// matches the inverted-index value and the filter returns no rows.
-	// StripQualification is a no-op when there is no "<ns>:" prefix.
+	// Stored beacons carry the short class — build the lookup value with
+	// the short class too, otherwise the qualified class from the nested
+	// search produces a beacon that never matches the inverted-index value.
 	shortExample := namespacing.StripQualification(ids[0].class)
 	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, shortExample, 1.25)
 	for i, id := range ids {

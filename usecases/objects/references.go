@@ -36,13 +36,8 @@ func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, be
 		return "", "", false, nil // can't autodetect for multi target
 	}
 
-	// datatype is the name of the class that is referenced. Since
-	// namespacing.QualifyPropertyDataTypes (usecases/schema/class.go) the
-	// stored DataType is qualified on NS-enabled clusters; strip back to
-	// the short form so the autodetect output matches what a user
-	// would have submitted directly (and so downstream resolveNS won't
-	// reject a qualified-from-namespaced-caller). No-op on non-NS
-	// clusters where DataType is already short.
+	// Stored DataType is qualified on NS clusters; strip to short so the
+	// output matches user-submitted shape (storage-shape rule).
 	toClass := namespacing.StripQualification(prop.DataType[0])
 	toBeacon := crossref.NewLocalhost(toClass, beaconRef.TargetID).String()
 
@@ -66,11 +61,9 @@ func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.
 	return fetchedClass[className].Class, fetchedClass[className].Version, fetchedClass, nil
 }
 
-// validateNames validates class and property names. The class portion accepts
-// either a plain class name or a namespace-qualified "<namespace>:<Class>"
-// — callers run namespacing.Resolve before this point, so on
-// namespace-enabled clusters the class is already in its qualified internal
-// form.
+// validateReferenceName validates class and property names. The class
+// portion accepts the qualified "<namespace>:<Class>" form produced by
+// namespacing.Resolve upstream.
 func validateReferenceName(class, property string) error {
 	if _, err := schema.ValidateQualifiedClassName(class); err != nil {
 		return err

@@ -146,8 +146,7 @@ func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_Si
 		if len(prop.DataType) > 1 {
 			return fmt.Errorf("target is a multi-target reference, need single target %v", prop.DataType)
 		}
-		// Strip back to short for the beacon; see the storage-shape rule in
-		// namespacing.QualifyPropertyDataTypes.
+		// Storage-shape rule: short class in the beacon.
 		toClass := namespacing.StripQualification(prop.DataType[0])
 		beacons := make([]interface{}, len(refSingle.Uuids))
 		for j, uuid := range refSingle.Uuids {
@@ -168,13 +167,8 @@ func extractMultiRefTarget(class *models.Class, properties []*pb.BatchObject_Mul
 		if len(prop.DataType) < 2 {
 			return fmt.Errorf("target is a single-target reference, need multi-target %v", prop.DataType)
 		}
-		// Unlike extractSingleRefTarget (where the target comes from
-		// the pre-qualified Property.DataType), the multi-target name
-		// is user-supplied via TargetCollection. Route it through
-		// QualifyRefTarget so the cross-namespace policy (foreign-NS
-		// reject; namespaced caller can't type any prefix) and the
-		// storage-shape rule (beacon carries the SHORT class name)
-		// apply here too. Pass-through on NS-disabled clusters.
+		// TargetCollection is user-supplied; route through QualifyRefTarget
+		// for cross-NS policy + storage-shape rule.
 		targetCollection := schema.UppercaseClassName(refMulti.TargetCollection)
 		_, shortTarget, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, class.Class, targetCollection)
 		if err != nil {

@@ -67,34 +67,21 @@ func qualify(principal *models.Principal, name string) string {
 	return QualifiedName(principal.Namespace, name)
 }
 
-// QualifyRefTarget normalises a cross-reference target for storage. The
-// target always lives in the source class's namespace — refs can't
-// cross namespaces — so the principal's own namespace is never the
-// authority here, only sourceClass is.
+// QualifyRefTarget normalises a cross-reference target. Refs can't cross
+// namespaces, so the source class's namespace is the authority — never the
+// principal's.
 //
 // Returns:
+//   - qualified: for authz, schema lookup, MT validation, shard routing
+//   - short: for the stored beacon (portable on export/import)
 //
-//   - qualified: for authz, existence checks, MT validation, shard routing
-//   - short:     for the stored beacon (namespace-portable on export/import)
+// Rejects with `<name> is not a valid class name`:
+//   - any prefix from a namespaced principal (resolver adds it for them)
+//   - a prefix naming a different namespace from sourceClass
 //
-// On NS-disabled clusters both returns are target unchanged.
-//
-// Inputs accepted:
-//   - bare short class ("Animal") — qualified with sourceClass's namespace
-//   - own-namespace qualified class ("customer1:Animal" when sourceClass is
-//     in customer1) — accepted from a global principal only; stripped and
-//     re-qualified so the qualified output is canonical
-//
-// Inputs rejected with `<name> is not a valid class name`:
-//   - any prefix from a namespaced principal — namespaced callers never
-//     type a prefix; the resolver adds it
-//   - a prefix that names a different namespace from sourceClass — no
-//     cross-namespace refs
-//
-// Replaces the four near-duplicate qualify-target blocks in
-// references_add.go, references_update.go, batch_references_add.go and
-// properties_validation.go. Centralising the cross-namespace policy here
-// keeps the four write paths from drifting.
+// NS-disabled: pass-through. Centralises the policy shared by
+// references_add, references_update, batch_references_add and
+// properties_validation.
 func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourceClass, target string) (qualified, short string, err error) {
 	if !namespacesEnabled {
 		return target, target, nil
@@ -176,28 +163,19 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 // pass short DataType names; an already-qualified value will be rejected.
 //
 // Scope: top-level properties only. NestedProperty.DataType cross-refs are
-// rejected at usecases/schema/validation.go and never reach this path.
+// rejected upstream.
 //
-// # Downstream invariant for ref-property readers
+// # Storage-shape rule for ref-property readers
 //
 // After AddClass on an NS-enabled cluster, every cross-ref Property.DataType
-// entry persisted in the schema is qualified ("customer1:Animal"). Downstream
-// readers (RAFT existence check, gRPC search/aggregate/batch parsers, the
-// autodetect-to-class sites in references/batch_references/properties
-// validation, AddClass / AddClassProperty's classGetterWithAuth) MUST honour
-// the split below:
+// entry is stored qualified ("customer1:Animal"). Downstream readers must:
+//   - in-memory ops (authz, schema lookup, MT validation, shard routing):
+//     use the stored DataType as-is; re-qualifying produces
+//     "customer1:customer1:Foo".
+//   - storage-shape outputs (beacons, filter values compared against stored
+//     beacons): StripQualification first so the on-disk URI stays portable.
 //
-//   - In-memory ops (authz, schema lookup, MT validation, shard routing): use
-//     the stored DataType as-is. Re-qualifying would produce
-//     "customer1:customer1:Foo" — authz authorizes the wrong resource and
-//     the schema lookup misses.
-//   - Storage-shape outputs (beacons written to the property bytes, filter
-//     values compared against stored beacons): call StripQualification first
-//     so the on-disk URI stays namespace-portable. Beacons always carry the
-//     SHORT class name.
-//
-// Call sites that bridge the two reference this comment instead of restating
-// the why.
+// Call sites referencing the split point at this comment.
 func QualifyPropertyDataTypes(
 	principal *models.Principal,
 	namespacesEnabled bool,

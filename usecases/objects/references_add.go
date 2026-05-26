@@ -108,26 +108,17 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
-	// Symmetric with the delete-path gate (references_delete.go) and the
-	// batch + inline-properties write paths. autodetectToClass returns
-	// replace=false on a multi-target prop, so a classless beacon would
-	// otherwise reach Exists with Class=="" → DB.anyExists, scanning every
-	// index across every namespace. Non-root callers are already accidentally
-	// blocked by the ShardsData("",tenant) wildcard authz below, but
-	// admins/root would slip through, and the stored beacon would still
-	// be wildcard-deletable. Reject explicitly on NS-enabled clusters.
+	// NS-enabled: classless beacon on a multi-target prop would reach
+	// Exists with Class=="" → DB.anyExists scans every namespace's
+	// indices, and the stored beacon would be wildcard-deletable.
 	if m.config.Config.Namespaces.Enabled && targetRef.Class == "" {
 		err := fmt.Errorf("multi-target references require the class name in the target beacon url")
 		return &Error{err.Error(), StatusBadRequest, err}
 	}
 
 	if targetRef.Class != "" {
-		// Two views: qualified for in-memory ops (authz + existence right
-		// below), short for the stored beacon (reparsed from input.Ref
-		// into the target passed to AddReference further down). The
-		// cross-namespace policy and prefix validation live in
-		// namespacing.QualifyRefTarget — the same helper backs all four
-		// write paths so they can't drift.
+		// Qualified for in-memory ops (authz + existence), short for the
+		// stored beacon. QualifyRefTarget backs all four write paths.
 		qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
 			principal, m.config.Config.Namespaces.Enabled, input.Class, targetRef.Class)
 		if err != nil {
@@ -169,9 +160,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if shouldValidateMultiTenantRef(tenant, source, target) {
-		// targetRef carries the qualified target class (the in-memory ops
-		// view); the reparsed `target` above carries the short class for
-		// storage. MT validation needs the qualified form for schema lookup.
+		// MT validation uses targetRef (qualified); storage `target` is short.
 		_, err = validateReferenceMultiTenancy(ctx, principal,
 			m.schemaManager, m.vectorRepo, source, targetRef, tenant, fetchedClass)
 		if err != nil {

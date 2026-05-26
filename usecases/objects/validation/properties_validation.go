@@ -115,19 +115,9 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 						return err
 					}
 					if len(prop.DataType) > 1 {
-						// Classless beacon on a multi-target ref property:
-						// autodetect can't pick a class, so the existence
-						// check below would key on Class=="" and fall through
-						// to DB.anyExists, which scans every index across
-						// every namespace — a cross-namespace existence
-						// oracle. The stored beacon would also be classless,
-						// making it wildcard-deletable by removeReference's
-						// short-class match (the same foot-gun the delete
-						// path explicitly rejects in references_delete.go
-						// and the batch path in batch_references_add.go).
-						// Gate here on NS-enabled clusters; non-NS clusters
-						// keep byte-exact compare on delete, so the legacy
-						// pass-through is preserved.
+						// Classless beacon on a multi-target prop: existence
+						// check would hit DB.anyExists (cross-namespace oracle)
+						// and the stored beacon would be wildcard-deletable.
 						if v.namespacesEnabled {
 							return fmt.Errorf(
 								"'cref' %s:%s: multi-target references require the class name in the target beacon url",
@@ -135,8 +125,7 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 						}
 						continue
 					}
-					// Strip back to short for the reconstructed beacon; see the
-					// storage-shape rule in namespacing.QualifyPropertyDataTypes.
+					// Storage-shape rule: short class in the beacon.
 					toClass := namespacing.StripQualification(prop.DataType[0])
 					toBeacon := crossref.NewLocalhost(toClass, beaconParsed.TargetID).String()
 					propertyValueMap["beacon"] = toBeacon
@@ -623,33 +612,24 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, err
 	}
 
-	// Namespace handling for refs submitted via the Properties payload.
-	// className arrives qualified on NS-enabled clusters (caller's
-	// resolveNS runs upstream). Shared with references_add /
-	// references_update / batch_references_add via
-	// namespacing.QualifyRefTarget — single source of truth for the
-	// cross-namespace policy + prefix validation + qualified/short shape.
+	// NS handling for inline-payload refs. className is already qualified
+	// (caller's resolveNS); QualifyRefTarget is the shared policy.
 	if ref.Class != "" {
 		qualifiedTarget, shortTarget, qerr := namespacing.QualifyRefTarget(
 			v.principal, v.namespacesEnabled, className, ref.Class)
 		if qerr != nil {
 			return nil, qerr
 		}
-
-		// Existence check keys on the qualified target so the lookup hits
-		// the right shard on NS-enabled clusters.
+		// Existence check uses qualified; stored beacon stays short.
 		refQualified := *ref
 		refQualified.Class = qualifiedTarget
 		if err = v.ValidateExistence(ctx, &refQualified, errVal, tenant); err != nil {
 			return nil, err
 		}
-
-		// Stored beacon stays short for namespace portability.
 		ref.Class = shortTarget
 	} else if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
 		return nil, err
 	}
-	// Validate whether reference exists based on given Type
 	return ref.SingleRef(), nil
 }
 

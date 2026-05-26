@@ -71,15 +71,10 @@ type Validator struct {
 	namespacesEnabled bool
 }
 
-// New constructs a Validator. principal + namespacesEnabled drive the
-// cross-namespace deny + storage-shape normalisation for ref properties
-// submitted via the Properties payload (POST/PUT/PATCH /v1/objects).
-//
-// Production callers MUST pass the caller's principal and the cluster's
-// configured namespacesEnabled value — both are obtained from the request
-// pipeline (principal from the auth handler, namespacesEnabled from
-// m.config.Config.Namespaces.Enabled). Only test helpers may pass nil/false
-// to skip namespace handling.
+// New constructs a Validator. principal + namespacesEnabled drive
+// cross-NS deny and storage-shape normalisation for inline-payload refs.
+// Production callers pass the request's principal and
+// m.config.Config.Namespaces.Enabled; tests may pass nil/false.
 func New(exists exists, config *config.WeaviateConfig,
 	repl *additional.ReplicationProperties,
 	principal *models.Principal, namespacesEnabled bool,
