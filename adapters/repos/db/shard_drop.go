@@ -127,11 +127,16 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
 	}
 
-	// remove shard dir
+	// remove shard dir — sync rename + async RemoveAll (see
+	// adapters/repos/db/async_delete.go). The rename commits the delete
+	// to disk regardless of ctx state; the actual file removal happens
+	// in a background goroutine. Crash recovery via the startup scanner.
 	if !keepFiles {
-		if err := os.RemoveAll(s.path()); err != nil {
-			return fmt.Errorf("delete shard dir: %w", err)
+		deleted, err := renameForAsyncDelete(s.path(), s.index.logger)
+		if err != nil {
+			return fmt.Errorf("rename shard for async delete: %w", err)
 		}
+		spawnAsyncDelete(deleted, s.index.logger)
 	}
 
 	s.metrics.baseMetrics.FinishUnloadingShard()

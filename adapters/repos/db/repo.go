@@ -216,6 +216,12 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}
 	}
 
+	// Pick up any index- or shard-level directories renamed for async
+	// delete that didn't finish before we shut down. spawnAsyncDelete
+	// runs the removal in a background goroutine so startup is not
+	// blocked even if the leftover trees are large.
+	scanAndAsyncDeletePending(config.RootPath, logger)
+
 	asyncReplicationWorkersLimiter := dynsemaphore.NewDynamicWeighted(func() int64 {
 		return int64(config.Replication.AsyncReplicationClusterMaxWorkers.Get())
 	})
