@@ -32,19 +32,16 @@ ObjectsClassReferencesPutOK References replaced successfully.
 
 swagger:response objectsClassReferencesPutOK
 */
-type ObjectsClassReferencesPutOK struct {
-}
+type ObjectsClassReferencesPutOK struct{}
 
 // NewObjectsClassReferencesPutOK creates ObjectsClassReferencesPutOK with default headers values
 func NewObjectsClassReferencesPutOK() *ObjectsClassReferencesPutOK {
-
 	return &ObjectsClassReferencesPutOK{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassReferencesPutOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -58,7 +55,6 @@ ObjectsClassReferencesPutBadRequest Malformed request.
 swagger:response objectsClassReferencesPutBadRequest
 */
 type ObjectsClassReferencesPutBadRequest struct {
-
 	/*
 	  In: Body
 	*/
@@ -67,7 +63,6 @@ type ObjectsClassReferencesPutBadRequest struct {
 
 // NewObjectsClassReferencesPutBadRequest creates ObjectsClassReferencesPutBadRequest with default headers values
 func NewObjectsClassReferencesPutBadRequest() *ObjectsClassReferencesPutBadRequest {
-
 	return &ObjectsClassReferencesPutBadRequest{}
 }
 
@@ -84,7 +79,6 @@ func (o *ObjectsClassReferencesPutBadRequest) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *ObjectsClassReferencesPutBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -102,19 +96,16 @@ ObjectsClassReferencesPutUnauthorized Unauthorized or invalid credentials.
 
 swagger:response objectsClassReferencesPutUnauthorized
 */
-type ObjectsClassReferencesPutUnauthorized struct {
-}
+type ObjectsClassReferencesPutUnauthorized struct{}
 
 // NewObjectsClassReferencesPutUnauthorized creates ObjectsClassReferencesPutUnauthorized with default headers values
 func NewObjectsClassReferencesPutUnauthorized() *ObjectsClassReferencesPutUnauthorized {
-
 	return &ObjectsClassReferencesPutUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassReferencesPutUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -128,7 +119,6 @@ ObjectsClassReferencesPutForbidden Forbidden
 swagger:response objectsClassReferencesPutForbidden
 */
 type ObjectsClassReferencesPutForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -137,7 +127,6 @@ type ObjectsClassReferencesPutForbidden struct {
 
 // NewObjectsClassReferencesPutForbidden creates ObjectsClassReferencesPutForbidden with default headers values
 func NewObjectsClassReferencesPutForbidden() *ObjectsClassReferencesPutForbidden {
-
 	return &ObjectsClassReferencesPutForbidden{}
 }
 
@@ -154,7 +143,6 @@ func (o *ObjectsClassReferencesPutForbidden) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *ObjectsClassReferencesPutForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -172,21 +160,60 @@ ObjectsClassReferencesPutNotFound Source object not found.
 
 swagger:response objectsClassReferencesPutNotFound
 */
-type ObjectsClassReferencesPutNotFound struct {
-}
+type ObjectsClassReferencesPutNotFound struct{}
 
 // NewObjectsClassReferencesPutNotFound creates ObjectsClassReferencesPutNotFound with default headers values
 func NewObjectsClassReferencesPutNotFound() *ObjectsClassReferencesPutNotFound {
-
 	return &ObjectsClassReferencesPutNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ObjectsClassReferencesPutNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
+}
+
+// ObjectsClassReferencesPutGoneCode is the HTTP code returned for type ObjectsClassReferencesPutGone
+const ObjectsClassReferencesPutGoneCode int = 410
+
+/*
+ObjectsClassReferencesPutGone Endpoint not available in the current cluster configuration.
+
+swagger:response objectsClassReferencesPutGone
+*/
+type ObjectsClassReferencesPutGone struct {
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewObjectsClassReferencesPutGone creates ObjectsClassReferencesPutGone with default headers values
+func NewObjectsClassReferencesPutGone() *ObjectsClassReferencesPutGone {
+	return &ObjectsClassReferencesPutGone{}
+}
+
+// WithPayload adds the payload to the objects class references put gone response
+func (o *ObjectsClassReferencesPutGone) WithPayload(payload *models.ErrorResponse) *ObjectsClassReferencesPutGone {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class references put gone response
+func (o *ObjectsClassReferencesPutGone) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsClassReferencesPutGone) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+	rw.WriteHeader(410)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // ObjectsClassReferencesPutUnprocessableEntityCode is the HTTP code returned for type ObjectsClassReferencesPutUnprocessableEntity
@@ -198,7 +225,6 @@ ObjectsClassReferencesPutUnprocessableEntity The request syntax is correct, but 
 swagger:response objectsClassReferencesPutUnprocessableEntity
 */
 type ObjectsClassReferencesPutUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -207,7 +233,6 @@ type ObjectsClassReferencesPutUnprocessableEntity struct {
 
 // NewObjectsClassReferencesPutUnprocessableEntity creates ObjectsClassReferencesPutUnprocessableEntity with default headers values
 func NewObjectsClassReferencesPutUnprocessableEntity() *ObjectsClassReferencesPutUnprocessableEntity {
-
 	return &ObjectsClassReferencesPutUnprocessableEntity{}
 }
 
@@ -224,7 +249,6 @@ func (o *ObjectsClassReferencesPutUnprocessableEntity) SetPayload(payload *model
 
 // WriteResponse to the client
 func (o *ObjectsClassReferencesPutUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -243,7 +267,6 @@ ObjectsClassReferencesPutInternalServerError An error occurred while trying to f
 swagger:response objectsClassReferencesPutInternalServerError
 */
 type ObjectsClassReferencesPutInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -252,7 +275,6 @@ type ObjectsClassReferencesPutInternalServerError struct {
 
 // NewObjectsClassReferencesPutInternalServerError creates ObjectsClassReferencesPutInternalServerError with default headers values
 func NewObjectsClassReferencesPutInternalServerError() *ObjectsClassReferencesPutInternalServerError {
-
 	return &ObjectsClassReferencesPutInternalServerError{}
 }
 
@@ -269,7 +291,6 @@ func (o *ObjectsClassReferencesPutInternalServerError) SetPayload(payload *model
 
 // WriteResponse to the client
 func (o *ObjectsClassReferencesPutInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload
