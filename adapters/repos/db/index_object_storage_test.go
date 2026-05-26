@@ -410,7 +410,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	// Force flush to ensure .cna files are created
 	objectsBucket := activeShard.Store().Bucket(helpers.ObjectsBucketLSM)
 	require.NotNil(t, objectsBucket)
-	require.NoError(t, objectsBucket.FlushMemtable())
+	require.NoError(t, objectsBucket.FlushMemtable(context.Background()))
 
 	loadedShard, ok := activeShard.(*Shard)
 	require.True(t, ok)

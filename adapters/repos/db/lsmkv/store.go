@@ -726,7 +726,7 @@ func (s *Store) FinalizeBucketSwap(ctx context.Context, bucketName, canonicalDir
 	// Flush any in-memory data (e.g. from WAL replay at startup) to a segment
 	// before renaming directories. FlushAndSwitch is a no-op for empty
 	// memtables.
-	if err := bucket.FlushAndSwitch(); err != nil {
+	if err := bucket.FlushAndSwitch(ctx); err != nil {
 		return fmt.Errorf("flush memtable before dir rename: %w", err)
 	}
 

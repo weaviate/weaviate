@@ -382,7 +382,7 @@ func (t *ShardReindexTaskGeneric) runShardLifecycle(ctx context.Context, shard S
 //     an idempotent no-op).
 //
 // Performs, per property:
-//   - reindexBucket.FlushAndSwitch()  // memtable → immutable segments
+//   - reindexBucket.FlushAndSwitch(ctx)  // memtable → immutable segments
 //   - store.ShutdownBucket(reindexName)  // waits for compaction to
 //     drain — this is the load-bearing slow step that #216 (the
 //     "atomic phase actually atomic" design contract) requires
@@ -1400,7 +1400,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	// at iteration start.
 	objectsBucket := store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket != nil {
-		if err = objectsBucket.FlushAndSwitch(); err != nil {
+		if err = objectsBucket.FlushAndSwitch(ctx); err != nil {
 			err = fmt.Errorf("flushing objects bucket before reindex: %w", err)
 			return zerotime, false, err
 		}
@@ -1509,7 +1509,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			if bucket == nil {
 				continue
 			}
-			if err = bucket.FlushAndSwitch(); err != nil {
+			if err = bucket.FlushAndSwitch(ctx); err != nil {
 				err = fmt.Errorf("flushing reindex bucket for prop %q before markReindexed: %w", propName, err)
 				return zerotime, false, err
 			}
@@ -1618,7 +1618,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 // that used to be inlined into runtimeSwap.
 //
 // Performs, per property:
-//   - reindexBucket.FlushAndSwitch()            // memtable → segments
+//   - reindexBucket.FlushAndSwitch(ctx)            // memtable → segments
 //   - store.ShutdownBucket(reindexName)         // drains compaction
 //   - ingestBucket.PrependSegmentsFromBucket(...) // segment copy
 //
@@ -1664,7 +1664,7 @@ func (t *ShardReindexTaskGeneric) runtimePrepare(ctx context.Context,
 
 			// FlushAndSwitch makes the reindex memtable immutable so its
 			// segments are safe to copy.
-			if err := reindexBucket.FlushAndSwitch(); err != nil {
+			if err := reindexBucket.FlushAndSwitch(ctx); err != nil {
 				return fmt.Errorf("flushing reindex bucket %q: %w", reindexName, err)
 			}
 			reindexDir := reindexBucket.GetDir()

@@ -156,7 +156,7 @@ func (b *Bucket) CreateSnapshot(ctx context.Context, snapshotsRoot, name string)
 	}
 	defer b.flushCallbackCtrl.Activate()
 
-	if err := b.FlushMemtable(); err != nil {
+	if err := b.FlushMemtable(ctx); err != nil {
 		return "", fmt.Errorf("flush memtable: %w", err)
 	}
 
