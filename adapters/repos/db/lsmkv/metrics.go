@@ -627,7 +627,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		"path":       "n/a",
 	})
 
-	return &Metrics{
+	m := &Metrics{
 		register:            register,
 		groupClasses:        promMetrics.Group,
 		criticalBucketsOnly: promMetrics.LSMCriticalBucketsOnly,
@@ -711,10 +711,6 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
-		objectCount: promMetrics.ObjectCount.With(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		}),
 		memtableDurations: promMetrics.LSMMemtableDurations.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
@@ -733,7 +729,14 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		LazySegmentClose:  lazySegmentClose,
 		LazySegmentInit:   lazySegmentInit,
 		LazySegmentUnLoad: lazySegmentUnload,
-	}, nil
+	}
+	if !promMetrics.Group {
+		m.objectCount = promMetrics.ObjectCount.With(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		})
+	}
+	return m, nil
 }
 
 // bucket metrics
@@ -1104,7 +1107,7 @@ func (m *Metrics) TrackStartupBucket(start time.Time) {
 }
 
 func (m *Metrics) ObjectCount(count int) {
-	if m == nil {
+	if m == nil || m.objectCount == nil {
 		return
 	}
 

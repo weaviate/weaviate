@@ -67,7 +67,10 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 		}
 	}
 
-	tombstones := prom.VectorIndexTombstones.With(baseLabels)
+	var tombstones prometheus.Gauge
+	if !prom.Group {
+		tombstones = prom.VectorIndexTombstones.With(baseLabels)
+	}
 	threads := prom.VectorIndexTombstoneCleanupThreads.With(baseLabels)
 	cleaned := prom.VectorIndexTombstoneCleanedCount.With(baseLabels)
 
@@ -85,7 +88,9 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 		insertTime = prom.VectorIndexDurations.MustCurryWith(opLabels("create"))
 		del = prom.VectorIndexOperations.With(opLabels("delete"))
 		deleteTime = prom.VectorIndexDurations.MustCurryWith(opLabels("delete"))
-		size = prom.VectorIndexSize.With(baseLabels)
+		if !prom.Group {
+			size = prom.VectorIndexSize.With(baseLabels)
+		}
 	}
 
 	grow := prom.VectorIndexMaintenanceDurations.With(opLabels("grow"))
@@ -100,7 +105,10 @@ func newMetrics(prom *monitoring.PrometheusMetrics,
 	tombstoneProgress := prom.VectorIndexTombstoneCycleProgress.With(baseLabels)
 	tombstoneFindGlobalEntrypoint := prom.TombstoneFindGlobalEntrypoint.With(baseLabels)
 	tombstoneFindLocalEntrypoint := prom.TombstoneFindLocalEntrypoint.With(baseLabels)
-	tombstoneDeleteListSize := prom.TombstoneDeleteListSize.With(baseLabels)
+	var tombstoneDeleteListSize prometheus.Gauge
+	if !prom.Group {
+		tombstoneDeleteListSize = prom.TombstoneDeleteListSize.With(baseLabels)
+	}
 
 	memoryAllocationRejected := prom.VectorIndexMemoryAllocationRejected
 
@@ -155,7 +163,7 @@ func (m *Metrics) TombstoneFindLocalEntrypoint() {
 }
 
 func (m *Metrics) SetTombstoneDeleteListSize(size int) {
-	if !m.enabled {
+	if !m.enabled || m.tombstoneDeleteListSize == nil {
 		return
 	}
 
@@ -163,7 +171,7 @@ func (m *Metrics) SetTombstoneDeleteListSize(size int) {
 }
 
 func (m *Metrics) AddTombstone() {
-	if !m.enabled {
+	if !m.enabled || m.tombstones == nil {
 		return
 	}
 
@@ -171,7 +179,7 @@ func (m *Metrics) AddTombstone() {
 }
 
 func (m *Metrics) SetTombstone(count int) {
-	if !m.enabled {
+	if !m.enabled || m.tombstones == nil {
 		return
 	}
 
@@ -213,7 +221,7 @@ func (m *Metrics) TombstoneCycleProgress(progress float64) {
 }
 
 func (m *Metrics) RemoveTombstone() {
-	if !m.enabled {
+	if !m.enabled || m.tombstones == nil {
 		return
 	}
 
