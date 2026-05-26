@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"io"
 	"math"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
@@ -245,8 +246,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOff
 	}
 	defer r.Release()
 
-	_, err = r.Read(buffer)
-	if err != nil {
+	if _, err := io.ReadFull(r, buffer); err != nil {
 		return err
 	}
 	docCount := binary.LittleEndian.Uint64(buffer[:8])
@@ -269,8 +269,11 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOff
 		s.readBuf = s.readBuf[:needed]
 	}
 
-	_, err = r.Read(s.readBuf)
-	if err != nil {
+	// io.ReadFull is required: s.readBuf is reused across iterations, so a
+	// short read would leave trailing bytes from a prior node in place and
+	// the block decoder / keyLen parser below would silently operate on
+	// stale data.
+	if _, err := io.ReadFull(r, s.readBuf); err != nil {
 		return err
 	}
 
@@ -290,8 +293,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOff
 			return err
 		}
 		defer r.Release()
-		_, err = r.Read(key)
-		if err != nil {
+		if _, err := io.ReadFull(r, key); err != nil {
 			return err
 		}
 	}
