@@ -124,5 +124,3 @@ func hashObjectList(nestedProps []*models.NestedProperty, objList []interface{})
 		}
 	}
 }
-
-
