@@ -924,15 +924,7 @@ func segmentExistsWithID(segmentID string, files map[string]int64) (bool, string
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
-	// Bridge the cyclemanager shouldAbort callback to a ctx that
-	// compactOnce (and the per-strategy compactors below it) checks
-	// inside their inner merge loops. Two paths:
-	//   - shouldAbort=true at entry: pre-cancel so the very first
-	//     ctx.Err() check inside the compactor returns the abort.
-	//   - shouldAbort flips mid-merge: a short-lived poll goroutine
-	//     watches it and cancels the ctx; the compactor's next sample
-	//     observes it. The goroutine self-terminates on the deferred
-	//     cancel.
+	// bridge shouldAbort → ctx for the compactor inner loops
 	compactCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if shouldAbort != nil {

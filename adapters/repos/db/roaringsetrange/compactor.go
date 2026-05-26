@@ -107,9 +107,8 @@ func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
 	}
 }
 
-// Do starts a compaction. See [Compactor] for an explanation of this process.
-// ctx is checked every compactor.AbortCheckEveryN keys inside the merge loop;
-// cancelling it returns the wrapped ctx error so the caller can clean up.
+// Do starts a compaction. See [Compactor]. Cancelling ctx aborts the
+// in-flight merge.
 func (c *Compactor) Do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return fmt.Errorf("init: %w", err)

@@ -27,10 +27,7 @@ import (
 // behind it..
 const SegmentWriterBufferSize = 256 * 1024
 
-// AbortCheckEveryN bounds how often a compactor probes ctx.Err() inside its
-// merge loop. Sized so per-key overhead stays negligible while ensuring an
-// abort is observed within a few hundred milliseconds even on sequential-IO
-// compactions that emit millions of keys/sec.
+// AbortCheckEveryN bounds how often a compactor probes ctx.Err().
 const AbortCheckEveryN = 1024
 
 type Writer interface {

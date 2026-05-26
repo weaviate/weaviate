@@ -24,23 +24,9 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestCompactor_AbortOnShouldAbort verifies the core contract introduced by
-// weaviate/0-weaviate-issues#250: a compactor in flight observes the
-// cyclemanager's shouldAbort signal within compactor.AbortCheckEveryN keys
-// and bails — returning (false, nil) so the cycle treats it as a no-op
-// iteration.
-//
-// The partial .tmp file is intentionally left behind. segment_group.init
-// removes orphan .tmp segments at the next startup, and for the
-// delete-path the parent dir is unlinked synchronously by the caller, so
-// no synchronous remove is needed here.
-//
-// All strategies that go through SegmentGroup.compactOnce share the same
-// bridge (shouldAbort → ctx + pre-cancel + watcher goroutine), so the
-// test parametrises across the strategies that use the bucket Put/SetAdd
-// /MapSet APIs to exercise each strategy's inner-loop ctx.Err() probe.
-// Roaring and Inverted strategies share the same plumbing but require
-// different setup; covered separately on a follow-up.
+// TestCompactor_AbortOnShouldAbort exercises the abort contract for every
+// strategy that SegmentGroup.compactOnce dispatches to. See
+// weaviate/0-weaviate-issues#250.
 func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -86,6 +72,39 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:     "inverted",
+			strategy: StrategyInverted,
+			seed: func(t *testing.T, bucket *Bucket, seg, n int) {
+				for i := 0; i < n; i++ {
+					key := []byte(fmt.Sprintf("seg-%d-row-%08d", seg, i))
+					pair := NewMapPairFromDocIdAndTf(uint64(seg*n+i), float32(i+1), float32(i+2), false)
+					require.NoError(t, bucket.MapSet(key, pair))
+				}
+			},
+		},
+		{
+			name:     "roaringset",
+			strategy: StrategyRoaringSet,
+			seed: func(t *testing.T, bucket *Bucket, seg, n int) {
+				for i := 0; i < n; i++ {
+					key := []byte(fmt.Sprintf("seg-%d-key-%08d", seg, i))
+					require.NoError(t, bucket.RoaringSetAddOne(key, uint64(seg*n+i)))
+				}
+			},
+		},
+		{
+			name:     "roaringsetrange",
+			strategy: StrategyRoaringSetRange,
+			seed: func(t *testing.T, bucket *Bucket, seg, n int) {
+				// roaringsetrange uses a single bitmap keyed by a value;
+				// stamping `n` distinct ids per seg keeps both segments
+				// non-empty so the merge has work to do.
+				for i := 0; i < n; i++ {
+					require.NoError(t, bucket.RoaringSetRangeAdd(uint64(seg*n+i), uint64(i)))
+				}
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -101,7 +120,6 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 			defer bucket.Shutdown(ctx)
 			bucket.SetMemtableThreshold(1e9)
 
-			// Two segments → compactOnce has a real pair to merge.
 			for seg := 0; seg < 2; seg++ {
 				tc.seed(t, bucket, seg, 5000)
 				require.NoError(t, bucket.FlushAndSwitch())
@@ -109,8 +127,6 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 			require.GreaterOrEqual(t, len(bucket.disk.segments), 2,
 				"need at least two segments on disk to exercise compactOnce")
 
-			// Pre-cancel the ctx so compactOnce's first ctx.Err() sample
-			// inside the compactor returns the abort immediately.
 			abortCtx, cancel := context.WithCancel(ctx)
 			cancel()
 

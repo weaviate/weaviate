@@ -99,9 +99,6 @@ func newCompactorReplace(w io.WriteSeeker,
 	}
 }
 
-// do runs the merge. ctx is checked every compactor.AbortCheckEveryN keys
-// inside writeKeys; cancelling it returns the wrapped ctx error so the
-// caller (compactOnce) can clean up the partial output.
 func (c *compactorReplace) do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return fmt.Errorf("init: %w", err)

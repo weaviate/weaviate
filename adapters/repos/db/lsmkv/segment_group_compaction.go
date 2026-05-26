@@ -269,13 +269,8 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
-// compactOnce performs one compaction iteration. The caller's ctx is
-// sampled inside each per-strategy compactor's inner merge loop every
-// compactor.AbortCheckEveryN keys; a cancelled ctx halts the merge,
-// causes compactOnce to close the partial .tmp file (left on disk —
-// segment_group.init removes orphan .tmp files at the next startup),
-// and returns (false, nil) — the cycle treats it the same as a no-op
-// tick. context.Background() means "never abort".
+// compactOnce performs one compaction iteration. Cancelling ctx aborts
+// the in-flight merge (sampled every compactor.AbortCheckEveryN keys).
 func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
@@ -360,10 +355,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
-	// runCompactor maps the per-strategy do/Do error into:
-	//   - (true,  nil): caller should clean up .tmp and return (false, nil)
-	//   - (false, nil): compaction completed successfully
-	//   - (false, err): real error, propagate
+	// aborted=true tells the caller to close the partial .tmp and bail
 	runCompactor := func(do func(context.Context) error) (aborted bool, err error) {
 		if err := do(ctx); err != nil {
 			if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
@@ -375,12 +367,7 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 	}
 
 	abortAndClose := func() error {
-		// Close the .tmp fd so we don't leak the descriptor. The file
-		// itself stays on disk; segment_group.init removes any orphan
-		// .tmp segments on the next process startup (see segment_group.go
-		// around the `filepath.Ext(entry) != ".tmp"` scan). For drops
-		// the parent dir is unlinked synchronously by the caller, so the
-		// .tmp file disappears with it.
+		// orphan .tmp is cleaned by segment_group.init on next start
 		if err := f.Close(); err != nil {
 			return fmt.Errorf("close aborted compactor output: %w", err)
 		}

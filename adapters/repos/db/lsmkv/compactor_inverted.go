@@ -110,8 +110,6 @@ func newCompactorInverted(w io.WriteSeeker,
 	}
 }
 
-// do runs the merge. ctx is checked every compactor.AbortCheckEveryN keys
-// inside writeKeys; cancelling it returns the wrapped ctx error.
 func (c *compactorInverted) do(ctx context.Context) error {
 	var err error
 

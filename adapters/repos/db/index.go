@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path"
@@ -2762,18 +2763,13 @@ func (i *Index) drop() error {
 		return err
 	}
 
-	// Dropping the shards only unregisters the shards callbacks, but we still
-	// need to stop the cycle managers that those shards used to register with.
-	// In-flight compaction callbacks now respect ctx and bail within
-	// compactor.AbortCheckEveryN keys (a few hundred ms), so a 5s budget is
-	// plenty even on busy disks — the previous 60s was sized for callbacks
-	// that ignored cancellation. The shorter ctx keeps db.indexLock from
-	// being held on the DELETE_CLASS apply path while the cycle drains.
-	// See weaviate/0-weaviate-issues#250.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
+	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
-	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
+	if err := i.stopCycleManagers(ctx, "drop"); err != nil &&
+		!stderrors.Is(err, context.Canceled) && !stderrors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
 

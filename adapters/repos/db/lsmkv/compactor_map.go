@@ -88,8 +88,6 @@ func newCompactorMapCollection(w io.WriteSeeker,
 	}
 }
 
-// do runs the merge. ctx is checked every compactor.AbortCheckEveryN keys
-// inside writeKeys; cancelling it returns the wrapped ctx error.
 func (c *compactorMap) do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return errors.Wrap(err, "init")
