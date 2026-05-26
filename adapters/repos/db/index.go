@@ -2776,16 +2776,11 @@ func (i *Index) drop() error {
 	}
 
 	if keepFiles {
-		// Backup-in-progress path is unchanged: backup framework
-		// expects the well-known DeleteMarkerAdd-prefixed rename.
+		// backup framework expects the DeleteMarkerAdd-prefixed rename
 		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
 	}
 
-	// Sync-commit the on-disk delete via rename + parent fsync. This
-	// step MUST complete even if `ctx` is already expired — the index
-	// is logically gone the moment the rename is durable. The actual
-	// os.RemoveAll runs in a background goroutine; a crash mid-removal
-	// is recovered by the startup scanner (scanAndAsyncDeletePending).
+	// rename sync (must complete even if ctx is expired); RemoveAll async
 	deleted, err := renameForAsyncDelete(i.path(), i.logger)
 	if err != nil {
 		return fmt.Errorf("rename index for async delete: %w", err)

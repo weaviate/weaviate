@@ -23,39 +23,30 @@ import (
 )
 
 func TestRenameForAsyncDelete_RepeatedDropRecreate(t *testing.T) {
-	// delete → recreate → delete (×2) on the same class must produce two
-	// distinct .deleteme directories. The timestamp + random suffix in
-	// the renamed name is what makes this safe.
 	logger, _ := test.NewNullLogger()
 	root := t.TempDir()
 	classDir := filepath.Join(root, "index_articles")
 
-	// first drop
 	require.NoError(t, os.Mkdir(classDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(classDir, "marker-a"), []byte("a"), 0o644))
 	deleted1, err := renameForAsyncDelete(classDir, logger)
 	require.NoError(t, err)
-	require.True(t, strings.HasSuffix(deleted1, asyncDeleteSuffix),
-		"first rename target should carry the async-delete suffix; got %q", deleted1)
+	require.True(t, strings.HasSuffix(deleted1, asyncDeleteSuffix))
 	_, err = os.Stat(deleted1)
-	require.NoError(t, err, "first .deleteme dir should exist on disk")
+	require.NoError(t, err)
 
-	// recreate and second drop
 	require.NoError(t, os.Mkdir(classDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(classDir, "marker-b"), []byte("b"), 0o644))
 	deleted2, err := renameForAsyncDelete(classDir, logger)
 	require.NoError(t, err)
 	require.True(t, strings.HasSuffix(deleted2, asyncDeleteSuffix))
 	_, err = os.Stat(deleted2)
-	require.NoError(t, err, "second .deleteme dir should exist on disk")
+	require.NoError(t, err)
 
-	// names must differ — that's the invariant Etienne asked us to pin.
+	// the invariant Etienne asked us to pin
 	assert.NotEqual(t, deleted1, deleted2,
 		"two consecutive async-delete renames must produce distinct names")
 
-	// each .deleteme dir contains the marker file that was written before
-	// its respective drop — proving no contents got overwritten by the
-	// second rename.
 	_, err = os.Stat(filepath.Join(deleted1, "marker-a"))
 	require.NoError(t, err, "first .deleteme should still contain marker-a")
 	_, err = os.Stat(filepath.Join(deleted2, "marker-b"))
@@ -63,9 +54,6 @@ func TestRenameForAsyncDelete_RepeatedDropRecreate(t *testing.T) {
 }
 
 func TestRenameForAsyncDelete_ParentFsyncIsBestEffort(t *testing.T) {
-	// Rename succeeds even if the parent fsync fails (e.g. read-only
-	// filesystem in tests). The renamed path is what counts; the fsync
-	// only gates crash-resistance.
 	logger, _ := test.NewNullLogger()
 	root := t.TempDir()
 	classDir := filepath.Join(root, "index_x")
@@ -74,10 +62,8 @@ func TestRenameForAsyncDelete_ParentFsyncIsBestEffort(t *testing.T) {
 	deleted, err := renameForAsyncDelete(classDir, logger)
 	require.NoError(t, err)
 
-	// origin no longer exists
 	_, err = os.Stat(classDir)
 	require.True(t, os.IsNotExist(err))
-	// target exists with the expected suffix
 	_, err = os.Stat(deleted)
 	require.NoError(t, err)
 	require.True(t, strings.HasSuffix(deleted, asyncDeleteSuffix))
@@ -92,25 +78,19 @@ func TestSpawnAsyncDelete_RemovesPath(t *testing.T) {
 
 	spawnAsyncDelete(doomed, logger)
 
-	// async — wait for removal (bounded). The goroutine doing RemoveAll
-	// finishes within ms for a tiny tree.
 	require.Eventually(t, func() bool {
 		_, err := os.Stat(doomed)
 		return os.IsNotExist(err)
-	}, 5*1e9 /* 5s in ns */, 1e7 /* 10ms */, "spawned delete should remove the path")
+	}, 5*1e9, 1e7, "spawned delete should remove the path")
 }
 
 func TestScanAndAsyncDeletePending_RecoversIndexAndShardLevel(t *testing.T) {
-	// Startup recovery: a .deleteme dir at the root (index-level) and one
-	// nested inside a live class (shard-level) both get cleaned up.
 	logger, _ := test.NewNullLogger()
 	root := t.TempDir()
 
-	// index-level pending delete
 	indexPending := filepath.Join(root, "index_old.1234.deadbeef.deleteme")
 	require.NoError(t, os.MkdirAll(indexPending, 0o755))
 
-	// live class with a shard-level pending delete inside
 	liveClass := filepath.Join(root, "index_live")
 	require.NoError(t, os.MkdirAll(filepath.Join(liveClass, "shard1"), 0o755))
 	shardPending := filepath.Join(liveClass, "shard2.5678.cafef00d.deleteme")
@@ -124,7 +104,6 @@ func TestScanAndAsyncDeletePending_RecoversIndexAndShardLevel(t *testing.T) {
 		return os.IsNotExist(indexErr) && os.IsNotExist(shardErr)
 	}, 5*1e9, 1e7, "both index-level and shard-level pending dirs should be removed")
 
-	// live class dir must remain
 	_, err := os.Stat(filepath.Join(liveClass, "shard1"))
 	require.NoError(t, err, "live shard must not be removed by recovery scan")
 }
