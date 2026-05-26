@@ -226,8 +226,8 @@ func (r *refFilterExtractor) idsToPropValuePairs(ids []classUUIDPair,
 	// Stored beacons carry the short class — build the lookup value with
 	// the short class too, otherwise the qualified class from the nested
 	// search produces a beacon that never matches the inverted-index value.
-	shortExample := namespacing.StripQualification(ids[0].class)
-	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, shortExample, 1.25)
+	exampleShortClass := namespacing.StripQualification(ids[0].class)
+	bb := crossref.NewBulkBuilderWithEstimates(len(ids)*2, exampleShortClass, 1.25)
 	for i, id := range ids {
 		shortClass := namespacing.StripQualification(id.class)
 		// future-proof way
