@@ -1104,14 +1104,15 @@ func TestQualifyRefTarget(t *testing.T) {
 	admin := &models.Principal{Username: "admin"}
 
 	cases := []struct {
-		name          string
-		principal     *models.Principal
-		nsEnabled     bool
-		sourceClass   string
-		target        string
-		wantQualified string
-		wantShort     string
-		wantErr       bool
+		name           string
+		principal      *models.Principal
+		nsEnabled      bool
+		sourceClass    string
+		target         string
+		wantQualified  string
+		wantShort      string
+		wantErr        bool
+		wantErrContent string
 	}{
 		// Non-NS cluster: pass-through, short==qualified==target.
 		{
@@ -1181,12 +1182,28 @@ func TestQualifyRefTarget(t *testing.T) {
 			target:        "Animal",
 			wantQualified: "Animal", wantShort: "Animal",
 		},
+
+		// Admin typo — syntactically invalid namespace prefix. Caught by the
+		// ValidateNamespacePrefix safeguard at the top of QualifyRefTarget,
+		// which surfaces the specific "invalid namespace prefix" error
+		// rather than the generic cross-NS rejection.
+		{
+			name:      "admin syntactically invalid NS prefix is rejected with specific error",
+			principal: admin, nsEnabled: true,
+			sourceClass:    "customer1:Zoo",
+			target:         "BadCase:Animal",
+			wantErr:        true,
+			wantErrContent: "invalid namespace prefix",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			qualified, short, err := QualifyRefTarget(tc.principal, tc.nsEnabled, tc.sourceClass, tc.target)
 			if tc.wantErr {
 				require.Error(t, err)
+				if tc.wantErrContent != "" {
+					assert.Contains(t, err.Error(), tc.wantErrContent)
+				}
 				return
 			}
 			require.NoError(t, err)

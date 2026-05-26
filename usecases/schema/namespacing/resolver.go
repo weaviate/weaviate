@@ -86,14 +86,15 @@ func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourc
 	if !namespacesEnabled {
 		return target, target, nil
 	}
+	// Reject namespaced principals typing any prefix, and validate prefix
+	// syntax for global principals (so admin typos surface a specific
+	// "invalid namespace prefix" error instead of the generic mismatch one).
+	if err := ValidateNamespacePrefix(principal, namespacesEnabled, target, "class"); err != nil {
+		return "", "", err
+	}
 	sourceNS := NamespaceFromQualified(sourceClass)
-	if ns := NamespaceFromQualified(target); ns != "" {
-		if principal != nil && principal.Namespace != "" {
-			return "", "", fmt.Errorf("'%s' is not a valid class name", target)
-		}
-		if ns != sourceNS {
-			return "", "", fmt.Errorf("'%s' is not a valid class name", target)
-		}
+	if ns := NamespaceFromQualified(target); ns != "" && ns != sourceNS {
+		return "", "", fmt.Errorf("'%s' is not a valid class name", target)
 	}
 	short = StripQualification(target)
 	qualified = QualifiedName(sourceNS, short)
