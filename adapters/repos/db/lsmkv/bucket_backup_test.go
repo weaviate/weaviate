@@ -53,7 +53,7 @@ func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []Bucket
 		require.Nil(t, err)
 		b.UpdateStatus(storagestate.StatusReadOnly)
 
-		err = b.FlushMemtable()
+		err = b.FlushMemtable(context.Background())
 		require.NotNil(t, err)
 		expectedErr := errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
 		assert.EqualError(t, expectedErr, err.Error())
@@ -76,7 +76,7 @@ func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOpti
 	}
 
 	// flush memtable to generate .db files
-	err = b.FlushMemtable()
+	err = b.FlushMemtable(context.Background())
 	require.NoError(t, err)
 
 	// create an arbitrary directory and file that is a leftover of some old process

@@ -85,11 +85,11 @@ func TestInvertedSorter(t *testing.T) {
 			for _, flush := range forceFlush {
 				t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
 					if flush {
-						err := store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch()
+						err := store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch(context.Background())
 						require.Nil(t, err)
 
 						for _, propName := range propNames {
-							err := store.Bucket(helpers.BucketFromPropNameLSM(propName)).FlushAndSwitch()
+							err := store.Bucket(helpers.BucketFromPropNameLSM(propName)).FlushAndSwitch(context.Background())
 							require.Nil(t, err)
 						}
 					}
@@ -164,11 +164,11 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 			for _, flush := range forceFlush {
 				t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
 					if flush {
-						err := store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch()
+						err := store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch(context.Background())
 						require.Nil(t, err)
 
 						for _, propName := range []string{"int", "number", "date"} {
-							err := store.Bucket(helpers.BucketFromPropNameLSM(propName)).FlushAndSwitch()
+							err := store.Bucket(helpers.BucketFromPropNameLSM(propName)).FlushAndSwitch(context.Background())
 							require.Nil(t, err)
 						}
 					}

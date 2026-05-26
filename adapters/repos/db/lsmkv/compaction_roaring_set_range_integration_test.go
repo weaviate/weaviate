@@ -57,7 +57,7 @@ func compactionRoaringSetRangeStrategy_Random(ctx context.Context, t *testing.T,
 		}
 
 		if r.Float64() < flushChance {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		}
 	}
 
@@ -339,14 +339,14 @@ func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts [
 			require.NoError(t, err)
 		}
 
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 
 		for _, kv := range previous2 {
 			err := bucket.RoaringSetRangeAdd(kv.key, kv.additions...)
 			require.NoError(t, err)
 		}
 
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 1", func(t *testing.T) {
@@ -363,7 +363,7 @@ func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts [
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 2", func(t *testing.T) {
@@ -380,7 +380,7 @@ func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts [
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
@@ -480,7 +480,7 @@ func compactionRoaringSetRangeStrategy_RemoveUnnecessary(ctx context.Context, t 
 			err := bucket.RoaringSetRangeAdd(key, v)
 			require.NoError(t, err)
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		}
 	})
 
@@ -562,7 +562,7 @@ func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.C
 						require.Nil(t, err)
 					}
 
-					require.Nil(t, bucket.FlushAndSwitch())
+					require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 				}
 			})
 
@@ -690,7 +690,7 @@ func compactionRoaringSetRangeStrategy_BugfixOverwrittenBuffer(ctx context.Conte
 		for v := range deletions[i] {
 			b.RoaringSetRangeRemove(0, v)
 		}
-		require.Nil(t, b.FlushAndSwitch())
+		require.Nil(t, b.FlushAndSwitch(context.Background()))
 	}
 
 	control := make([]*sroar.Bitmap, maxKey)

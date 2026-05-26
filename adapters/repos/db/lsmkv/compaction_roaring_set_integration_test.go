@@ -59,7 +59,7 @@ func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts
 		}
 
 		if r.Float64() < flushChance {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 
 			var compacted bool
 			var err error
@@ -353,14 +353,14 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 			require.NoError(t, err)
 		}
 
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 
 		for _, kv := range previous2 {
 			err := bucket.RoaringSetAddList(kv.key, kv.additions)
 			require.NoError(t, err)
 		}
 
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 1", func(t *testing.T) {
@@ -377,7 +377,7 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 2", func(t *testing.T) {
@@ -394,7 +394,7 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
@@ -486,7 +486,7 @@ func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *test
 			err := bucket.RoaringSetAddOne(key, uint64(i))
 			require.NoError(t, err)
 
-			require.NoError(t, bucket.FlushAndSwitch())
+			require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 		}
 	})
 
@@ -592,7 +592,7 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 						require.Nil(t, err)
 					}
 
-					require.Nil(t, bucket.FlushAndSwitch())
+					require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 				}
 			})
 

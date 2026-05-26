@@ -84,7 +84,7 @@ func Test_Filters_String(t *testing.T) {
 			}
 		}
 
-		require.Nil(t, bWithFrequency.FlushAndSwitch())
+		require.Nil(t, bWithFrequency.FlushAndSwitch(context.Background()))
 	})
 
 	maxDocID := uint64(25)
@@ -407,7 +407,7 @@ func Test_Filters_Int(t *testing.T) {
 				require.NoError(t, bucket.SetAdd(valueBytes, idValues))
 			}
 
-			require.Nil(t, bucket.FlushAndSwitch())
+			require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		tests := []test{
@@ -643,7 +643,7 @@ func Test_Filters_Int(t *testing.T) {
 				require.NoError(t, bucket.RoaringSetAddList(valueBytes, idx.ids))
 			}
 
-			require.Nil(t, bucket.FlushAndSwitch())
+			require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 		})
 
 		tests := []test{
@@ -872,7 +872,7 @@ func Test_Filters_Int(t *testing.T) {
 					require.NoError(t, bucket.RoaringSetRangeAdd(binary.BigEndian.Uint64(valueBytes), idx.ids...))
 				}
 
-				require.Nil(t, bucket.FlushAndSwitch())
+				require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 			})
 
 			tests := []test{
@@ -1146,7 +1146,7 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 				require.Nil(t, bWithFrequency.MapSet([]byte(value), pair))
 			}
 		}
-		require.Nil(t, bWithFrequency.FlushAndSwitch())
+		require.Nil(t, bWithFrequency.FlushAndSwitch(context.Background()))
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(roaringset.NewBitmapBufPoolNoop(), newFakeMaxIDGetter(200))

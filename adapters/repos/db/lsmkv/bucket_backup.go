@@ -31,12 +31,12 @@ import (
 //
 // Method should be run only if flushCycle is not running
 // (was not started, is stopped, or noop impl is provided)
-func (b *Bucket) FlushMemtable() error {
+func (b *Bucket) FlushMemtable(ctx context.Context) error {
 	if b.isReadOnly() {
 		return errors.Wrap(storagestate.ErrStatusReadOnly, "flush memtable")
 	}
 
-	return b.FlushAndSwitch()
+	return b.FlushAndSwitch(ctx)
 }
 
 // ListFiles lists all files that currently exist in the Bucket. The files are only

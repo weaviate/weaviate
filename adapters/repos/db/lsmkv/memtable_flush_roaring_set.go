@@ -12,13 +12,14 @@
 package lsmkv
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataRoaringSet(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	flat := m.roaringSet.FlattenInOrder()
 
 	totalDataLength := totalPayloadSizeRoaringSet(flat)
@@ -39,6 +40,11 @@ func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentin
 
 	totalWritten := headerSize
 	for i, node := range flat {
+		if i%abortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("flush roaringset memtable: %w", err)
+			}
+		}
 		sn, err := roaringset.NewSegmentNode(node.Key, node.Value.Additions,
 			node.Value.Deletions)
 		if err != nil {
