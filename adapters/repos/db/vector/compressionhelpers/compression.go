@@ -14,6 +14,7 @@ package compressionhelpers
 import (
 	"context"
 	"encoding/binary"
+	stderrors "errors"
 	"fmt"
 	"runtime"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -255,6 +257,11 @@ func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx co
 
 // recoverCompressedVector fetches the raw vector, encodes it, and persists
 // it to the compressed bucket so future reads don't need recovery.
+// Write-back is a cache-fill optimization: if the bucket is read-only (e.g.
+// shard temporarily READONLY during UpdateVectorIndexConfigs, resource
+// pressure, or backup), the persist is skipped and the encoded vector is
+// returned. A future read will re-encode if the bucket is still empty for
+// this id, which is acceptable for this rare path.
 func (compressor *quantizedVectorsCompressor[T]) recoverCompressedVector(
 	ctx context.Context, id uint64, idBytes []byte, bucket *lsmkv.Bucket,
 ) ([]T, error) {
@@ -267,6 +274,14 @@ func (compressor *quantizedVectorsCompressor[T]) recoverCompressedVector(
 	}
 	compressed := compressor.quantizer.Encode(rawVec)
 	if err := bucket.Put(idBytes, compressor.quantizer.CompressedBytes(compressed)); err != nil {
+		if stderrors.Is(err, storagestate.ErrStatusReadOnly) {
+			compressor.logger.WithFields(logrus.Fields{
+				"action":        "recover_compressed_vector",
+				"target_vector": compressor.targetVector,
+				"id":            id,
+			}).Debugf("skip write-back to compressed bucket: store is read-only: %v", err)
+			return compressed, nil
+		}
 		return nil, errors.Wrap(err, "recoverCompressedVector: persisting recovered vector")
 	}
 	return compressed, nil
