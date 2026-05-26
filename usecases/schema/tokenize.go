@@ -124,8 +124,10 @@ func GenericTokenize(
 		return nil, newInvalidErr("unsupported tokenization strategy: %s", tokenization)
 	}
 	// Cap input length to prevent abuse — tokenizer can handle more, but it
-	// may degrade performance on this synchronous endpoint.
-	if len(text) > 10000 {
+	// may degrade performance on this synchronous endpoint. Count runes rather
+	// than bytes so the cap matches the "characters" framing in the error
+	// message and so non-ASCII payloads aren't rejected at ~3.3k characters.
+	if utf8.RuneCountInString(text) > 10000 {
 		return nil, newInvalidErr("text exceeds maximum allowed length of 10,000 characters")
 	}
 	if err := validateAnalyzerConfig(analyzerCfg); err != nil {
@@ -183,7 +185,7 @@ func GenericTokenize(
 		detector = d
 	case fallback != nil:
 		detector = fallback
-	case tokenization == "word":
+	case tokenization == models.PropertyTokenizationWord:
 		// Default to "en" for word tokenization so the endpoint matches the
 		// property-level endpoint's behavior under the default inverted index
 		// config. Route through the Provider so a user override for "en" in
