@@ -54,7 +54,15 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	deprecatedEndpoint := input.Class == ""
-	if deprecatedEndpoint { // for backward compatibility only
+	if deprecatedEndpoint {
+		// NS-enabled: refuse the legacy scan-all-collections fallback. The
+		// REST layer rejects the deprecated route with 410 before this point;
+		// this is defensive for direct callers.
+		if m.config.Config.Namespaces.Enabled {
+			err := fmt.Errorf("adding a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")
+			return &Error{err.Error(), StatusGone, err}
+		}
+		// Non-NS clusters: legacy backward-compatibility scan.
 		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}

@@ -80,6 +80,13 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	// we need to know which collection an object belongs to, so for the deprecated case we first need to fetch the
 	// object from any collection, to then know its collection to check for the correct permissions after wards
 	if deprecatedEndpoint {
+		// NS-enabled: refuse the legacy scan-all-collections fallback. The
+		// REST layer rejects the deprecated route with 410 before this point;
+		// this is defensive for direct callers.
+		if m.config.Config.Namespaces.Enabled {
+			err := fmt.Errorf("deleting a reference without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")
+			return &Error{err.Error(), StatusGone, err}
+		}
 		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
