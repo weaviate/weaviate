@@ -409,9 +409,9 @@ func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback
 
 	abortAndCleanup := func() error {
 		// best-effort cleanup of the partial output. We close before
-		// removing so the file descriptor doesn't leak; both errors are
-		// surfaced if either fails so the caller still treats the abort
-		// as a no-op iteration.
+		// removing so the file descriptor doesn't leak; the first non-nil
+		// error is surfaced and the second (if any) is dropped. Either
+		// way the caller treats the abort as a no-op iteration.
 		var firstErr error
 		if cerr := f.Close(); cerr != nil {
 			firstErr = fmt.Errorf("close aborted compactor output: %w", cerr)
