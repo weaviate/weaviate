@@ -14,6 +14,7 @@ package rest
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -469,10 +470,11 @@ func TestHandleGenericTokenize(t *testing.T) {
 		},
 	}
 
+	logger, _ := test.NewNullLogger()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params)
+			resp := genericTokenize(params, logger)
 
 			if tt.wantOK {
 				okResp, ok := resp.(*tokenizeops.TokenizeOK)
@@ -666,10 +668,11 @@ func TestHandleGenericTokenizeGSE(t *testing.T) {
 		},
 	}
 
+	logger, _ := test.NewNullLogger()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params)
+			resp := genericTokenize(params, logger)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")
@@ -722,10 +725,11 @@ func TestHandleGenericTokenizeKagome(t *testing.T) {
 		},
 	}
 
+	logger, _ := test.NewNullLogger()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params)
+			resp := genericTokenize(params, logger)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")

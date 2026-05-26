@@ -31,7 +31,7 @@ import (
 func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.Manager, logger logrus.FieldLogger) {
 	api.TokenizeTokenizeHandler = tokenizeops.TokenizeHandlerFunc(
 		func(params tokenizeops.TokenizeParams, principal *models.Principal) middleware.Responder {
-			return genericTokenize(params)
+			return genericTokenize(params, logger)
 		})
 
 	api.SchemaSchemaObjectsPropertiesTokenizeHandler = schemaops.SchemaObjectsPropertiesTokenizeHandlerFunc(
@@ -40,7 +40,7 @@ func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.
 		})
 }
 
-func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
+func genericTokenize(params tokenizeops.TokenizeParams, logger logrus.FieldLogger) middleware.Responder {
 	result, err := schemaUC.GenericTokenize(
 		*params.Body.Text,
 		*params.Body.Tokenization,
@@ -49,7 +49,28 @@ func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
 		params.Body.StopwordPresets,
 	)
 	if err != nil {
-		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+		// Mirror the propertyTokenize Kind switch so a future TokenizeErrInternal
+		// path inside schemaUC.GenericTokenize cannot be silently misclassified
+		// as 422. Today every error path is TokenizeErrInvalid; the default arm
+		// is defensive for that future case (and for the structurally-impossible
+		// TokenizeErrNotFound — no class lookup happens here, hence no
+		// NewTokenizeNotFound responder is generated for this operation).
+		var te *schemaUC.TokenizeError
+		if errors.As(err, &te) {
+			switch te.Kind {
+			case schemaUC.TokenizeErrInvalid:
+				return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+					Error: []*models.ErrorResponseErrorItems0{{Message: te.Msg}},
+				})
+			default:
+				logger.WithField("action", "generic_tokenize").Errorf("tokenize: %v", err)
+				return tokenizeops.NewTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
+					Error: []*models.ErrorResponseErrorItems0{{Message: te.Msg}},
+				})
+			}
+		}
+		logger.WithField("action", "generic_tokenize").Errorf("tokenize: %v", err)
+		return tokenizeops.NewTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
 			Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}},
 		})
 	}
