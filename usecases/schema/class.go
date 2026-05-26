@@ -329,7 +329,7 @@ func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConf
 	return vectorIndexConfig, nil
 }
 
-func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool) error {
+func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string, overwriteAlias bool, stripNamespaces bool) error {
 	// get schema and sharding state
 	class := &models.Class{}
 	if err := json.Unmarshal(d.Schema, &class); err != nil {
@@ -347,6 +347,15 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	if d.AliasesIncluded {
 		if err := json.Unmarshal(d.Aliases, &aliases); err != nil {
 			return fmt.Errorf("unmarshal aliases: %w", err)
+		}
+	}
+
+	// Strip before RAFT so the propagated class name matches the participant's
+	// post-strip staging dir (see usecases/backup/restorer.restoreOne).
+	if stripNamespaces {
+		class.Class = namespacing.StripNamespacePrefix(class.Class)
+		for _, alias := range aliases {
+			alias.Alias = namespacing.StripNamespacePrefix(alias.Alias)
 		}
 	}
 

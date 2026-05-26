@@ -1365,10 +1365,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 }
 
 func startBackupScheduler(appState *state.State) *backup.Scheduler {
+	// userLister lets the scheduler resolve includeUsers selectors. It stays
+	// nil when dynamic DB users are disabled, in which case includeUsers
+	// requests are rejected with a clear error rather than panicking.
+	var userLister backup.UserLister
+	if appState.APIKey != nil && appState.APIKey.Dynamic != nil {
+		userLister = appState.APIKey.Dynamic
+	}
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, appState.Modules,
+		appState.DB, userLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		appState.Logger)

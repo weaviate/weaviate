@@ -119,6 +119,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		Path:         overridePath,
 		Include:      params.Body.Include,
 		Exclude:      params.Body.Exclude,
+		IncludeUsers: params.Body.IncludeUsers,
 		Compression:  compressionFromBCfg(params.Body.Config),
 		BaseBackupID: baseBackupID,
 	})
@@ -204,16 +205,17 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		}
 	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:                params.ID,
-		Backend:           params.Backend,
-		Include:           params.Body.Include,
-		Exclude:           params.Body.Exclude,
-		NodeMapping:       params.Body.NodeMapping,
-		Compression:       compressionFromRCfg(params.Body.Config),
-		Bucket:            bucket,
-		Path:              path,
-		RbacRestoreOption: roleOption,
-		UserRestoreOption: userOption,
+		ID:                    params.ID,
+		Backend:               params.Backend,
+		Include:               params.Body.Include,
+		Exclude:               params.Body.Exclude,
+		NodeMapping:           params.Body.NodeMapping,
+		Compression:           compressionFromRCfg(params.Body.Config),
+		Bucket:                bucket,
+		Path:                  path,
+		RbacRestoreOption:     roleOption,
+		UserRestoreOption:     userOption,
+		ShouldStripNamespaces: params.Body.ShouldStripNamespaces,
 	}, params.Body.OverwriteAlias)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

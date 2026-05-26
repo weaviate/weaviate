@@ -219,7 +219,7 @@ func TestSnapShotAndRestore(t *testing.T) {
 
 	dynUsers2, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
-	require.NoError(t, dynUsers2.Restore(snapShot))
+	require.NoError(t, dynUsers2.Restore(snapShot, false))
 
 	// content should be identical:
 	// - all users and their status present
@@ -451,7 +451,7 @@ func TestSnapshotRestoreEmpty(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, user[userId].Id, userId)
 
-	err = dynUsers.Restore([]byte{})
+	err = dynUsers.Restore([]byte{}, false)
 	require.NoError(t, err)
 
 	// nothing overwritten
@@ -464,7 +464,7 @@ func TestRestoreInvalidData(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
 
-	require.Error(t, dynUsers.Restore([]byte("invalid json")))
+	require.Error(t, dynUsers.Restore([]byte("invalid json"), false))
 }
 
 func TestCreateUserStoresNamespace(t *testing.T) {
@@ -518,7 +518,7 @@ func TestSnapshotRestoreMultipleNamespaces(t *testing.T) {
 
 	restored, err := NewDBUser(t.TempDir(), false, log)
 	require.NoError(t, err)
-	require.NoError(t, restored.Restore(snap))
+	require.NoError(t, restored.Restore(snap, false))
 
 	users, err := restored.GetUsers()
 	require.NoError(t, err)
@@ -667,7 +667,7 @@ func TestRestoreIncompleteData(t *testing.T) {
 
 	dynUsers2, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
-	err = dynUsers2.Restore(snapShot)
+	err = dynUsers2.Restore(snapShot, false)
 	require.NoError(t, err)
 
 	importedApiKey := "importedApiKey"

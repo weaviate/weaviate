@@ -1058,6 +1058,7 @@ func TestSchedulerList(t *testing.T) {
 
 type fakeScheduler struct {
 	selector     fakeSelector
+	userLister   fakeUserLister
 	client       fakeClient
 	schema       fakeSchemaManger
 	backend      *fakeBackend
@@ -1066,6 +1067,13 @@ type fakeScheduler struct {
 	nodeResolver NodeResolver
 	log          logrus.FieldLogger
 }
+
+// fakeUserLister is a static UserLister for scheduler tests.
+type fakeUserLister struct {
+	users []string
+}
+
+func (f *fakeUserLister) ListAllUsers() []string { return f.users }
 
 func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 	fc := fakeScheduler{}
@@ -1084,7 +1092,7 @@ func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 
 func (f *fakeScheduler) scheduler() *Scheduler {
 	provider := &fakeBackupBackendProvider{f.backend, f.backendErr}
-	c := NewScheduler(f.auth, &f.client, &f.selector, provider,
+	c := NewScheduler(f.auth, &f.client, &f.selector, &f.userLister, provider,
 		f.nodeResolver, &f.schema, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200

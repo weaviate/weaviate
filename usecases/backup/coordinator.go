@@ -76,6 +76,14 @@ type Selector interface {
 	Backupable(_ context.Context, classes []string) error
 }
 
+// UserLister is the user-side counterpart of Selector.ListClasses, used to
+// resolve includeUsers selectors. Returns qualified "namespace:userId" ids
+// (see apikey.MakeUserKey) — the form selectors match against. Nil means
+// dynamic DB users are not enabled.
+type UserLister interface {
+	ListAllUsers() []string
+}
+
 // coordinator coordinates a distributed backup and restore operation (DBRO):
 //
 // - It determines what request to send to which shard.
@@ -430,7 +438,7 @@ func (c *coordinator) restoreClasses(
 		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
-		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias); err != nil {
+		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping, req.RestoreOverwriteAlias, req.ShouldStripNamespaces); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
 			restoreErrors = append(restoreErrors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
@@ -504,20 +512,21 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			}
 
 			reqChan <- &Request{
-				NodeName:          nodeName,
-				NodeHost:          host,
-				Method:            req.Method,
-				ID:                c.descriptor.ID,
-				Backend:           req.Backend,
-				Classes:           gr.Classes,
-				Duration:          _BookingPeriod,
-				NodeMapping:       c.descriptor.NodeMapping,
-				Compression:       req.Compression,
-				Bucket:            req.Bucket,
-				Path:              req.Path,
-				UserRestoreOption: req.UserRestoreOption,
-				RbacRestoreOption: req.RbacRestoreOption,
-				BaseBackupID:      c.descriptor.BaseBackupID,
+				NodeName:              nodeName,
+				NodeHost:              host,
+				Method:                req.Method,
+				ID:                    c.descriptor.ID,
+				Backend:               req.Backend,
+				Classes:               gr.Classes,
+				Duration:              _BookingPeriod,
+				NodeMapping:           c.descriptor.NodeMapping,
+				Compression:           req.Compression,
+				Bucket:                req.Bucket,
+				Path:                  req.Path,
+				UserRestoreOption:     req.UserRestoreOption,
+				RbacRestoreOption:     req.RbacRestoreOption,
+				ShouldStripNamespaces: req.ShouldStripNamespaces,
+				BaseBackupID:          c.descriptor.BaseBackupID,
 			}
 		}
 		return nil

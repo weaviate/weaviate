@@ -306,7 +306,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 
 		err := restorer.restoreAll(cancelledCtx, desc, 50, nodeStore{
 			objectStore: objectStore{backend: backend, backupId: backupID},
-		}, "", "", models.RestoreConfigRolesOptionsNoRestore, models.RestoreConfigUsersOptionsNoRestore)
+		}, "", "", models.RestoreConfigRolesOptionsNoRestore, models.RestoreConfigUsersOptionsNoRestore, false)
 
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "restore cancelled")

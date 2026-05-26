@@ -7170,6 +7170,13 @@ func init() {
             "type": "string"
           }
         },
+        "includeUsers": {
+          "description": "List of namespace-scoped dynamic user selectors to include in the backup, e.g. ` + "`" + `[\"namespace:*\"]` + "`" + ` to back up every dynamic DB user whose namespace equals ` + "`" + `namespace` + "`" + `. When set, the backup captures a namespace-filtered dynamic-user snapshot instead of the whole-cluster snapshot. Used for namespace graduation.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "incremental_base_backup_id": {
           "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
           "type": "string",
@@ -7221,6 +7228,13 @@ func init() {
             "CANCELLING",
             "CANCELED"
           ]
+        },
+        "users": {
+          "description": "The list of dynamic DB users included in the backup, resolved from the request's ` + "`" + `includeUsers` + "`" + ` selectors. Empty unless ` + "`" + `includeUsers` + "`" + ` was supplied.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -7341,6 +7355,13 @@ func init() {
         },
         "include": {
           "description": "List of collections (classes) to include in the backup restoration process.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeUsers": {
+          "description": "List of namespace-scoped dynamic user selectors to restore from the backup, e.g. ` + "`" + `[\"namespace:*\"]` + "`" + `. When set, restore materializes only the matching dynamic users from the artefact. Mutually exclusive with ` + "`" + `config.usersOptions` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -9157,6 +9178,11 @@ func init() {
           "properties": {
             "collection": {
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+              "type": "string",
+              "default": "*"
+            },
+            "user": {
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
               "type": "string",
               "default": "*"
             }
@@ -18148,6 +18174,13 @@ func init() {
             "type": "string"
           }
         },
+        "includeUsers": {
+          "description": "List of namespace-scoped dynamic user selectors to include in the backup, e.g. ` + "`" + `[\"namespace:*\"]` + "`" + ` to back up every dynamic DB user whose namespace equals ` + "`" + `namespace` + "`" + `. When set, the backup captures a namespace-filtered dynamic-user snapshot instead of the whole-cluster snapshot. Used for namespace graduation.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "incremental_base_backup_id": {
           "description": "The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.",
           "type": "string",
@@ -18199,6 +18232,13 @@ func init() {
             "CANCELLING",
             "CANCELED"
           ]
+        },
+        "users": {
+          "description": "The list of dynamic DB users included in the backup, resolved from the request's ` + "`" + `includeUsers` + "`" + ` selectors. Empty unless ` + "`" + `includeUsers` + "`" + ` was supplied.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -18322,6 +18362,13 @@ func init() {
         },
         "include": {
           "description": "List of collections (classes) to include in the backup restoration process.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "includeUsers": {
+          "description": "List of namespace-scoped dynamic user selectors to restore from the backup, e.g. ` + "`" + `[\"namespace:*\"]` + "`" + `. When set, restore materializes only the matching dynamic users from the artefact. Mutually exclusive with ` + "`" + `config.usersOptions` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20339,6 +20386,11 @@ func init() {
               "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
+            },
+            "user": {
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -20506,6 +20558,11 @@ func init() {
       "properties": {
         "collection": {
           "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+          "type": "string",
+          "default": "*"
+        },
+        "user": {
+          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
           "type": "string",
           "default": "*"
         }

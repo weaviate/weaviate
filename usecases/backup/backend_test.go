@@ -764,3 +764,47 @@ func TestReadAndUnzipChunk_TrailingBytes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, fileContent, got)
 }
+
+// TestFileWriter_Write_MaterializedNameAlignment pins the load-bearing
+// asymmetry: staging dir uses the post-strip name (so RAFT's RestoreClassDir
+// finds it), chunk-key uses the source name (immutable object-storage path).
+// Crossing them makes RestoreClassDir silently no-op — schema applies, no data.
+func TestFileWriter_Write_MaterializedNameAlignment(t *testing.T) {
+	tempDir := t.TempDir()
+
+	var capturedKey string
+	mockBackend := modulecapabilities.NewMockBackupBackend(t)
+	mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+	mockBackend.EXPECT().
+		Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _, key, _, _ string, w io.WriteCloser) (int64, error) {
+			capturedKey = key
+			_ = w.Close() // signal EOF to the tar reader
+			return 0, nil
+		})
+
+	fw := newFileWriter(nil, nodeStore{
+		objectStore: objectStore{backend: mockBackend},
+	}, true, logrus.New())
+
+	desc := &backup.ClassDescriptor{
+		Name:   "ns1:Foo",
+		Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}},
+		Chunks: map[int32][]string{0: nil},
+	}
+
+	// Write may error on the empty stream; the side effects we assert below
+	// both happen before that point.
+	_ = fw.Write(context.Background(), desc, "Foo", "", "", backup.CompressionNone)
+
+	info, err := os.Stat(filepath.Join(tempDir, TempDirectory, "Foo"))
+	require.NoError(t, err, "staging dir must be created at the materialized name")
+	require.True(t, info.IsDir())
+
+	_, err = os.Stat(filepath.Join(tempDir, TempDirectory, "ns1:Foo"))
+	require.True(t, os.IsNotExist(err),
+		"staging dir must not be created at the source name (would break RestoreClassDir)")
+
+	require.Equal(t, "ns1:Foo/chunk-0", capturedKey,
+		"chunk key must use desc.Name, not the materialized name")
+}
