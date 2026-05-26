@@ -54,7 +54,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 		t.Helper()
 
 		require.NoError(t, bucket.Put(key(id), val(id), WithSecondaryKey(0, seckey(id))))
-		require.NoError(t, bucket.FlushAndSwitch())
+		require.NoError(t, bucket.FlushAndSwitch(context.Background()))
 	}
 	extractFiles := func(t *testing.T, dirName, ext string) []string {
 		t.Helper()

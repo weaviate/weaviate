@@ -153,7 +153,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("replace some, keep one", func(t *testing.T) {
@@ -217,7 +217,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("replace some, keep one", func(t *testing.T) {
@@ -233,7 +233,7 @@ func collectionInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			require.Nil(t, err)
 
 			// Flush again!
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 
 			res, err := b.SetList(key1)
 			require.Nil(t, err)
@@ -474,7 +474,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("delete individual keys", func(t *testing.T) {
@@ -576,7 +576,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("delete individual keys", func(t *testing.T) {
@@ -590,7 +590,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("flush to disk - again!", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("validate", func(t *testing.T) {
@@ -620,7 +620,7 @@ func collectionInsertAndSetAddInsertAndDelete(ctx context.Context, t *testing.T,
 		})
 
 		t.Run("flush to disk - yet again!", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("validate the results again", func(t *testing.T) {
@@ -896,7 +896,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("second third (%3==1)", func(t *testing.T) {
@@ -930,7 +930,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("third (%3==2) memtable-only", func(t *testing.T) {
@@ -1063,7 +1063,7 @@ func collectionCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		})
 
 		t.Run("flush to disk", func(t *testing.T) {
-			require.Nil(t, b.FlushAndSwitch())
+			require.Nil(t, b.FlushAndSwitch(context.Background()))
 		})
 
 		t.Run("verify again after flush", func(t *testing.T) {

@@ -147,7 +147,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 				}
 				b.active = mt
 			} else {
-				segmentPath, err := mt.flush()
+				// WAL recovery runs at startup before flush-cycle wiring; the
+				// caller (initRecoverFromWal) doesn't carry a ctx, so the flush
+				// here is non-cancellable. Acceptable: startup must complete.
+				segmentPath, err := mt.flush(context.Background())
 				if err != nil {
 					return errors.Wrap(err, "flush memtable after WAL recovery")
 				}

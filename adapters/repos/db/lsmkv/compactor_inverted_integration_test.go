@@ -582,7 +582,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import previous2 segments", func(t *testing.T) {
@@ -622,7 +622,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("import segment 1", func(t *testing.T) {
@@ -663,7 +663,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("verify segment1 after flush", func(t *testing.T) {
@@ -733,7 +733,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	})
 
 	t.Run("flush to disk", func(t *testing.T) {
-		require.Nil(t, bucket.FlushAndSwitch())
+		require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 	})
 
 	t.Run("verify segment2 after flush", func(t *testing.T) {
@@ -923,7 +923,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			pair := NewMapPairFromDocIdAndTf(uint64(i), float32(i), float32(i), false)
 			err := bucket.MapSet(key, pair)
 			require.Nil(t, err)
-			require.Nil(t, bucket.FlushAndSwitch())
+			require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 		}
 	})
 
@@ -1113,7 +1113,7 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 						}
 					})
 
-					require.Nil(t, bucket.FlushAndSwitch())
+					require.Nil(t, bucket.FlushAndSwitch(context.Background()))
 				}
 			})
 

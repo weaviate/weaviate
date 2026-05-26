@@ -207,7 +207,7 @@ func TestWalFilePresent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, b.Put([]byte("hello0"), []byte("world0")))
 	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 
 	// create wal file with more entries
 	require.NoError(t, b.Put([]byte("hello0"), []byte("world0")))
@@ -263,13 +263,13 @@ func TestComputeNetCountAfterCompaction(t *testing.T) {
 
 	// create separate segments for each entry
 	require.NoError(t, b.Put([]byte("hello1"), []byte("world1")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 	require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 	require.NoError(t, b.Put([]byte("hello3"), []byte("world3")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 	require.NoError(t, b.Put([]byte("hello4"), []byte("world4")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 
 	count, err := b.Count(ctx)
 	require.NoError(t, err)
@@ -287,7 +287,7 @@ func TestComputeNetCountAfterCompaction(t *testing.T) {
 	require.NoError(t, b.Delete([]byte("hello2")))
 	require.NoError(t, b.Delete([]byte("hello3")))
 	require.NoError(t, b.Delete([]byte("hello4")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 
 	// rename new segment file so it looks like a compaction output after a crash - we only need to cover the case where
 	// none of the source files are present and the combined segment is kept
@@ -318,7 +318,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 	for i := 0; i < 10; i++ {
 		require.NoError(t, b.Put([]byte(fmt.Sprintf("hello%d", i)), []byte(fmt.Sprintf("world%d", i))))
 	}
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 	dbFiles, walFiles := countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 1)
 	require.Equal(t, walFiles, 0)
@@ -333,7 +333,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 		require.NoError(t, b.Put([]byte(fmt.Sprintf("hello%d", i)), []byte(fmt.Sprintf("world%d", i))))
 	}
 	require.NoError(t, b.Put([]byte("hello1"), []byte("newworld")))
-	require.NoError(t, b.FlushMemtable())
+	require.NoError(t, b.FlushMemtable(context.Background()))
 	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
 	require.Equal(t, dbFiles, 2)
 	require.Equal(t, walFiles, 0)
