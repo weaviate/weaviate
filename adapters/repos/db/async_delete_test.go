@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -53,7 +54,7 @@ func TestRenameForAsyncDelete_RepeatedDropRecreate(t *testing.T) {
 	require.NoError(t, err, "second .deleteme should still contain marker-b")
 }
 
-func TestRenameForAsyncDelete_ParentFsyncIsBestEffort(t *testing.T) {
+func TestRenameForAsyncDelete_RenameInvariants(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	root := t.TempDir()
 	classDir := filepath.Join(root, "index_x")
@@ -81,7 +82,7 @@ func TestSpawnAsyncDelete_RemovesPath(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, err := os.Stat(doomed)
 		return os.IsNotExist(err)
-	}, 5*1e9, 1e7, "spawned delete should remove the path")
+	}, 5*time.Second, 10*time.Millisecond, "spawned delete should remove the path")
 }
 
 func TestScanAndAsyncDeletePending_RecoversIndexAndShardLevel(t *testing.T) {
@@ -102,7 +103,7 @@ func TestScanAndAsyncDeletePending_RecoversIndexAndShardLevel(t *testing.T) {
 		_, indexErr := os.Stat(indexPending)
 		_, shardErr := os.Stat(shardPending)
 		return os.IsNotExist(indexErr) && os.IsNotExist(shardErr)
-	}, 5*1e9, 1e7, "both index-level and shard-level pending dirs should be removed")
+	}, 5*time.Second, 10*time.Millisecond, "both index-level and shard-level pending dirs should be removed")
 
 	_, err := os.Stat(filepath.Join(liveClass, "shard1"))
 	require.NoError(t, err, "live shard must not be removed by recovery scan")
