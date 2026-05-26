@@ -279,7 +279,7 @@ func (compressor *quantizedVectorsCompressor[T]) recoverCompressedVector(
 				"action":        "recover_compressed_vector",
 				"target_vector": compressor.targetVector,
 				"id":            id,
-			}).Warnf("skip write-back to compressed bucket: store is read-only: %v", err)
+			}).Debugf("skip write-back to compressed bucket: store is read-only: %v", err)
 			return compressed, nil
 		}
 		return nil, errors.Wrap(err, "recoverCompressedVector: persisting recovered vector")
