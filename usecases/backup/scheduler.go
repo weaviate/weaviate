@@ -420,7 +420,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 	return nil
 }
 
-func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string) (*models.BackupListResponse, error) {
+func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string, includeBaseBackupID bool) (*models.BackupListResponse, error) {
 	var err error
 	defer func(begin time.Time) {
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
@@ -440,7 +440,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	response := make(models.BackupListResponse, len(backups))
 	for i, b := range backups {
-		response[i] = &models.BackupListResponseItems0{
+		item := &models.BackupListResponseItems0{
 			ID:          b.ID,
 			Classes:     b.Classes(),
 			Status:      string(b.Status),
@@ -448,6 +448,12 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 			CompletedAt: strfmt.DateTime(b.CompletedAt.UTC()),
 			Size:        float64(b.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
 		}
+		// Base backup ID is sensitive and only populated for callers the
+		// handler has confirmed as root.
+		if includeBaseBackupID {
+			item.IncrementalBaseBackupID = b.BaseBackupID
+		}
+		response[i] = item
 	}
 
 	return &response, nil
