@@ -604,6 +604,8 @@ func filterMigrationLogLines(s string) []string {
 		"recovered untidied", "swap INCOMPLETE", "swap complete",
 		"runtime swap", "trim:",
 		"distributed task", "distributedtask",
+		// QA Claude diagnostic for weaviate/0-weaviate-issues#249 Q1:
+		"drop_step_timing", "raft_apply_trace",
 	}
 	var out []string
 	for _, line := range strings.Split(s, "\n") {

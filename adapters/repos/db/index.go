@@ -2994,6 +2994,17 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
+	dropStart := time.Now()
+	defer func() {
+		i.logger.WithFields(logrus.Fields{
+			"action":     "drop_step_timing",
+			"layer":      "index",
+			"step":       "drop_total",
+			"class":      i.Config.ClassName.String(),
+			"elapsed_ms": time.Since(dropStart).Milliseconds(),
+		}).Info("drop step completed")
+	}()
+
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
 
@@ -3010,6 +3021,7 @@ func (i *Index) drop() error {
 	lastBackup := i.lastBackup.Load()
 	keepFiles := lastBackup != nil
 
+	shardsStart := time.Now()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
@@ -3038,6 +3050,13 @@ func (i *Index) drop() error {
 	if err := eg.Wait(); err != nil {
 		return err
 	}
+	i.logger.WithFields(logrus.Fields{
+		"action":     "drop_step_timing",
+		"layer":      "index",
+		"step":       "drop_shards_parallel_wait",
+		"class":      i.Config.ClassName.String(),
+		"elapsed_ms": time.Since(shardsStart).Milliseconds(),
+	}).Info("drop step completed")
 
 	// Dropping the shards only unregisters the shards callbacks, but we still
 	// need to stop the cycle managers that those shards used to register with.
@@ -3048,15 +3067,34 @@ func (i *Index) drop() error {
 		"duration": 60 * time.Second,
 	}).Debug("context.WithTimeout")
 
+	stopCMStart := time.Now()
 	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
 		return err
 	}
+	i.logger.WithFields(logrus.Fields{
+		"action":     "drop_step_timing",
+		"layer":      "index",
+		"step":       "stop_cycle_managers",
+		"class":      i.Config.ClassName.String(),
+		"elapsed_ms": time.Since(stopCMStart).Milliseconds(),
+	}).Info("drop step completed")
 
+	fsStart := time.Now()
+	var fsErr error
 	if !keepFiles {
-		return os.RemoveAll(i.path())
+		fsErr = os.RemoveAll(i.path())
 	} else {
-		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
+		fsErr = os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
 	}
+	i.logger.WithFields(logrus.Fields{
+		"action":     "drop_step_timing",
+		"layer":      "index",
+		"step":       "fs_remove_or_rename",
+		"class":      i.Config.ClassName.String(),
+		"keep_files": keepFiles,
+		"elapsed_ms": time.Since(fsStart).Milliseconds(),
+	}).Info("drop step completed")
+	return fsErr
 }
 
 func (i *Index) dropShards(names []string) error {

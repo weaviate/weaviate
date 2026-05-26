@@ -50,6 +50,7 @@ function main() {
   run_acceptance_reindex_multinode_restart_b=false
   run_acceptance_reindex_multinode_scale=false
   run_acceptance_reindex_multinode_changetok=false
+  run_flake_hunt_drop_timing=false
   run_acceptance_reindex_singlenode_a=false
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
@@ -102,6 +103,7 @@ function main() {
           --acceptance-reindex-multinode-restart-a|-armra) run_all_tests=false; run_acceptance_reindex_multinode_restart_a=true;;
           --acceptance-reindex-multinode-restart-b|-armrb) run_all_tests=false; run_acceptance_reindex_multinode_restart_b=true;;
           --acceptance-reindex-multinode-scale|-arms) run_all_tests=false; run_acceptance_reindex_multinode_scale=true;;
+          --flake-hunt-drop-timing) run_all_tests=false; run_flake_hunt_drop_timing=true;;
           --acceptance-reindex-multinode-changetok|-armct) run_all_tests=false; run_acceptance_reindex_multinode_changetok=true;;
           --acceptance-reindex-singlenode-a|-arsa) run_all_tests=false; run_acceptance_reindex_singlenode_a=true;;
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
@@ -313,6 +315,11 @@ function main() {
   if $run_acceptance_reindex_multinode_scale; then
     echo "running reindex multinode scale/orchestration acceptance tests"
     run_acceptance_reindex_multinode_scale
+  fi
+
+  if $run_flake_hunt_drop_timing; then
+    echo "running QA flake hunt — drop-path step timing × 3 iters"
+    run_flake_hunt_drop_timing
   fi
 
   if $run_acceptance_reindex_multinode_changetok; then
@@ -773,6 +780,33 @@ function run_acceptance_reindex_multinode_scale() {
   # smaller orchestration tests.
   AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
     run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode
+}
+
+# run_flake_hunt_drop_timing: QA Claude diagnostic for
+# weaviate/0-weaviate-issues#249 Q1. 3 iters of the multinode-scale bundle
+# against a 30-shard matrix (per pull_requests.yaml). Each shard passes if
+# at least one of 3 iters succeeds — the failure cases carry the drop_step
+# _timing + raft_apply_trace logs that pinpoint which step in the DELETE_
+# CLASS apply path is the long pole.
+function run_flake_hunt_drop_timing() {
+  build_weaviate_test_image
+  echo_green "flake-hunt: drop-path step timing × 3 iters"
+  local pass=0 fail=0
+  for i in $(seq 1 3); do
+    echo "=== iter $i/3 — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    if AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
+        run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode; then
+      pass=$((pass+1))
+      echo "iter $i: PASS"
+    else
+      fail=$((fail+1))
+      echo "iter $i: FAIL"
+    fi
+  done
+  echo "flake-hunt-drop-timing summary: ${pass}/$((pass+fail)) passed"
+  # Shard exits non-zero only if ALL iters failed; partial-fail still
+  # surfaces in the per-iter PASS/FAIL log and on the matrix run page.
+  [[ $pass -gt 0 ]]
 }
 
 function run_acceptance_reindex_multinode_changetok() {

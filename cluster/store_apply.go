@@ -98,6 +98,15 @@ func (st *Store) Apply(l *raft.Log) any {
 		panic("error proto un-marshalling log data")
 	}
 
+	st.log.WithFields(logrus.Fields{
+		"action":        "raft_apply_trace",
+		"phase":         "start",
+		"log_index":     l.Index,
+		"cmd_type":      cmd.Type,
+		"cmd_type_name": cmd.Type.String(),
+		"cmd_class":     cmd.Class,
+	}).Info("raft apply: log entry handler entered")
+
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
@@ -126,6 +135,16 @@ func (st *Store) Apply(l *raft.Log) any {
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
 		// however we do not update the metrics so the metric will be the source of truth
 		// about AppliedIndex
+		st.log.WithFields(logrus.Fields{
+			"action":          "raft_apply_trace",
+			"phase":           "end",
+			"log_index":       l.Index,
+			"cmd_type":        cmd.Type,
+			"cmd_type_name":   cmd.Type.String(),
+			"cmd_class":       cmd.Class,
+			"apply_error_nil": ret.Error == nil,
+			"elapsed_ms":      time.Since(start).Milliseconds(),
+		}).Info("raft apply: log entry applied; advancing lastAppliedIndex")
 		st.lastAppliedIndex.Store(l.Index)
 
 		if ret.Error != nil {

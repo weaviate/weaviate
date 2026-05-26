@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 
@@ -215,6 +216,18 @@ func (s *Store) setBucket(name string, b *Bucket) {
 }
 
 func (s *Store) Shutdown(ctx context.Context) error {
+	shutdownStart := time.Now()
+	defer func() {
+		s.logger.WithFields(logrus.Fields{
+			"action":     "drop_step_timing",
+			"layer":      "store",
+			"step":       "store_shutdown_total",
+			"dir":        s.dir,
+			"n_buckets":  len(s.bucketsByName),
+			"elapsed_ms": time.Since(shutdownStart).Milliseconds(),
+		}).Info("drop step completed")
+	}()
+
 	s.closeLock.Lock()
 	defer s.closeLock.Unlock()
 
@@ -236,7 +249,18 @@ func (s *Store) Shutdown(ctx context.Context) error {
 		bucket := bucket
 
 		eg.Go(func() error {
-			if err := bucket.Shutdown(ctx); err != nil {
+			bucketStart := time.Now()
+			err := bucket.Shutdown(ctx)
+			s.logger.WithFields(logrus.Fields{
+				"action":     "drop_step_timing",
+				"layer":      "store",
+				"step":       "bucket_shutdown",
+				"bucket":     name,
+				"dir":        s.dir,
+				"elapsed_ms": time.Since(bucketStart).Milliseconds(),
+				"err":        errOrNil(err),
+			}).Info("drop step completed")
+			if err != nil {
 				return errors.Wrapf(err, "shutdown bucket %q of store %q", name, s.dir)
 			}
 			return nil
@@ -254,6 +278,15 @@ func (s *Store) Shutdown(ctx context.Context) error {
 // present (e.g. the reindex task that just created it) propagate the
 // error normally.
 var ErrBucketNotFound = errors.New("bucket not found")
+
+// errOrNil returns the error's string or empty string — for structured log
+// fields where we want the field present-and-empty on success.
+func errOrNil(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
 
 func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	s.closeLock.RLock()

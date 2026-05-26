@@ -864,12 +864,38 @@ func (sg *SegmentGroup) countWithSegmentList(segments []Segment) int {
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {
+	sgStart := time.Now()
+	logStep := func(step string, started time.Time, extra logrus.Fields) {
+		f := logrus.Fields{
+			"action":     "drop_step_timing",
+			"layer":      "segment_group",
+			"step":       step,
+			"dir":        sg.dir,
+			"strategy":   sg.strategy,
+			"elapsed_ms": time.Since(started).Milliseconds(),
+		}
+		for k, v := range extra {
+			f[k] = v
+		}
+		sg.logger.WithFields(f).Info("drop step completed")
+	}
+	defer func() {
+		logStep("segment_group_shutdown_total", sgStart, nil)
+	}()
+
+	compUnregStart := time.Now()
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
+		logStep("compaction_callback_ctrl_unregister", compUnregStart, logrus.Fields{"err": err.Error()})
 		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}
+	logStep("compaction_callback_ctrl_unregister", compUnregStart, nil)
+
+	cleanerStart := time.Now()
 	if err := sg.segmentCleaner.close(); err != nil {
+		logStep("segment_cleaner_close", cleanerStart, logrus.Fields{"err": err.Error()})
 		return err
 	}
+	logStep("segment_cleaner_close", cleanerStart, nil)
 
 	// TODO aliszka:copy-on-read forbid consistent view to be created from that point
 	sg.maintenanceLock.RLock()
@@ -882,8 +908,13 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 	sg.maintenanceLock.RUnlock()
 
+	refWaitStart := time.Now()
 	sg.waitForReferenceCountToReachZero(segmentsWithRefs...)
+	logStep("wait_for_reference_count_to_reach_zero", refWaitStart, logrus.Fields{"n_segments": len(segmentsWithRefs)})
+
+	dropAwaitStart := time.Now()
 	sg.dropSegmentsAwaiting()
+	logStep("drop_segments_awaiting", dropAwaitStart, nil)
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.

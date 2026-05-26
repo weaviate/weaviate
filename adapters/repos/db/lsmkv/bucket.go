@@ -1552,6 +1552,23 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	defer GlobalBucketRegistry.Remove(b.GetDir())
 
 	start := time.Now()
+	logStep := func(step string, started time.Time, extra logrus.Fields) {
+		f := logrus.Fields{
+			"action":     "drop_step_timing",
+			"layer":      "bucket",
+			"step":       step,
+			"bucket_dir": b.GetDir(),
+			"strategy":   b.strategy,
+			"elapsed_ms": time.Since(started).Milliseconds(),
+		}
+		for k, v := range extra {
+			f[k] = v
+		}
+		b.logger.WithFields(f).Info("drop step completed")
+	}
+	defer func() {
+		logStep("bucket_shutdown_total", start, logrus.Fields{"err": errOrNil(err)})
+	}()
 
 	b.metrics.IncBucketShutdownCountByStrategy(b.strategy)
 	b.metrics.IncBucketShutdownInProgressByStrategy(b.strategy)
@@ -1567,13 +1584,19 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
 	}()
 
+	diskStart := time.Now()
 	if err := b.disk.shutdown(ctx); err != nil {
+		logStep("disk_shutdown", diskStart, logrus.Fields{"err": err.Error()})
 		return err
 	}
+	logStep("disk_shutdown", diskStart, nil)
 
+	flushUnregStart := time.Now()
 	if err := b.flushCallbackCtrl.Unregister(ctx); err != nil {
+		logStep("flush_callback_ctrl_unregister", flushUnregStart, logrus.Fields{"err": err.Error()})
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
+	logStep("flush_callback_ctrl_unregister", flushUnregStart, nil)
 
 	b.flushLock.Lock()
 	if b.active.getStrategy() == StrategyInverted {
