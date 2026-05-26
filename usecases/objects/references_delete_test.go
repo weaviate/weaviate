@@ -8,8 +8,6 @@
 //
 //  CONTACT: hello@weaviate.io
 //
-//nolint:dupl // legacy + structural paths intentionally exercise the same
-// edge cases (missing/non-ref property) against each function.
 
 package objects
 
