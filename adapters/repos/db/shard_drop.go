@@ -81,15 +81,29 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return err
 	}
 
-	// unregister all callbacks at once, in parallel
-	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
+	// Unregister cycle callbacks for THIS shard with an already-cancelled
+	// ctx — the shard is being deleted, there is no reason to wait for
+	// in-flight compaction/flush callbacks on it. The mutation (marking
+	// shouldAbort=true and removing the callback from the cyclemanager's
+	// dispatch list) still applies; only the wait is skipped. See
+	// weaviate/0-weaviate-issues#250.
+	//
+	// Iterate the ctrls one by one so we can distinguish the expected
+	// context.Canceled (from the just-cancelled ctx) from real errors.
+	// NewCombinedCallbackCtrl coalesces via errorcompounder, which flattens
+	// wrapping and would defeat errors.Is.
+	cycleCancelCtx, cycleCancel := context.WithCancel(context.Background())
+	cycleCancel()
+	for _, ctrl := range []cyclemanager.CycleCallbackCtrl{
 		s.cycleCallbacks.compactionCallbacksCtrl,
 		s.cycleCallbacks.compactionAuxCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
 		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
-	).Unregister(ctx); err != nil {
-		return err
+	} {
+		if err := ctrl.Unregister(cycleCancelCtx); err != nil && !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("unregister shard cycle callback: %w", err)
+		}
 	}
 
 	if err = s.store.Shutdown(ctx); err != nil {

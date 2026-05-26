@@ -52,7 +52,10 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		assert.False(t, ctrl2.IsActive())
 	})
 
-	t.Run("does not unregister on expired context", func(t *testing.T) {
+	t.Run("unregisters with expired context when no callback is running", func(t *testing.T) {
+		// Expired ctx no longer blocks the mutation — it only bounds how
+		// long we wait for in-flight work. When nothing is running, the
+		// unregister applies cleanly with no wait.
 		expiredCtx, cancel := context.WithDeadline(ctx, time.Now())
 		defer cancel()
 
@@ -75,13 +78,11 @@ func TestCycleCombineCallbackCtrl_Unregister(t *testing.T) {
 		defer cycle.StopAndWait(ctx)
 
 		err := combinedCtrl.Unregister(expiredCtx)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "unregistering callback 'c1' of 'id' failed: context deadline exceeded")
-		assert.Contains(t, err.Error(), "unregistering callback 'c2' of 'id' failed: context deadline exceeded")
+		require.Nil(t, err)
 
-		assert.True(t, combinedCtrl.IsActive())
-		assert.True(t, ctrl1.IsActive())
-		assert.True(t, ctrl2.IsActive())
+		assert.False(t, combinedCtrl.IsActive())
+		assert.False(t, ctrl1.IsActive())
+		assert.False(t, ctrl2.IsActive())
 	})
 
 	t.Run("fails unregistering one", func(t *testing.T) {
@@ -150,7 +151,10 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		assert.False(t, ctrl2.IsActive())
 	})
 
-	t.Run("does not deactivate on expired context", func(t *testing.T) {
+	t.Run("deactivates with expired context when no callback is running", func(t *testing.T) {
+		// Expired ctx no longer blocks the mutation — it only bounds how
+		// long we wait for in-flight work. When nothing is running, the
+		// deactivate applies cleanly with no wait.
 		expiredCtx, cancel := context.WithDeadline(ctx, time.Now())
 		defer cancel()
 
@@ -173,13 +177,11 @@ func TestCycleCombineCallbackCtrl_Deactivate(t *testing.T) {
 		defer cycle.StopAndWait(ctx)
 
 		err := combinedCtrl.Deactivate(expiredCtx)
-		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "deactivating callback 'c1' of 'id' failed: context deadline exceeded")
-		assert.Contains(t, err.Error(), "deactivating callback 'c1' of 'id' failed: context deadline exceeded")
+		require.Nil(t, err)
 
-		assert.True(t, combinedCtrl.IsActive())
-		assert.True(t, ctrl1.IsActive())
-		assert.True(t, ctrl2.IsActive())
+		assert.False(t, combinedCtrl.IsActive())
+		assert.False(t, ctrl1.IsActive())
+		assert.False(t, ctrl2.IsActive())
 	})
 
 	t.Run("fails deactivating one, activates other again", func(t *testing.T) {

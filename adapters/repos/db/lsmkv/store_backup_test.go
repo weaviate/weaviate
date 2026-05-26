@@ -51,7 +51,12 @@ func TestStoreBackup(t *testing.T) {
 func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
 
-	t.Run("assert that context timeout works for long compactions", func(t *testing.T) {
+	t.Run("expired context does not block the deactivate step when no compaction is in flight", func(t *testing.T) {
+		// Mirrors the FlushMemtables case: with no compaction in flight,
+		// Deactivate applies the mutation and returns nil even on expired
+		// ctx. The previous assertion was pinning the buggy "always error
+		// on expired ctx" behaviour that weaviate/0-weaviate-issues#250
+		// fixes for the delete path.
 		for _, buckets := range [][]string{
 			{"test_bucket"},
 			{"test_bucket1", "test_bucket2"},
@@ -77,10 +82,7 @@ func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				defer cancel()
 
 				err = store.PauseCompaction(expiredCtx)
-				require.NotNil(t, err)
-				assert.Equal(t, "long-running compaction in progress:"+
-					" deactivating callback 'store/compaction-non-objects/.' of 'classCompactionNonObjects' failed:"+
-					" context deadline exceeded", err.Error())
+				require.Nil(t, err)
 
 				err = store.Shutdown(ctx)
 				require.Nil(t, err)
@@ -186,7 +188,13 @@ func resumeCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
 
-	t.Run("assert that context timeout works for long flushes", func(t *testing.T) {
+	t.Run("expired context does not block the deactivate step when no flush is in flight", func(t *testing.T) {
+		// Under the new cyclemanager semantics, ctx.Err() != nil no longer
+		// fails the Deactivate mutation when no callback is currently
+		// running — the mutation applies and the call returns nil. The
+		// previous assertion (always error on expired ctx, even with
+		// nothing in flight) was pinning the buggy behaviour that the
+		// delete-path fix on weaviate/0-weaviate-issues#250 removes.
 		for _, buckets := range [][]string{
 			{"test_bucket"},
 			{"test_bucket1", "test_bucket2"},
@@ -212,10 +220,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				defer cancel()
 
 				err = store.FlushMemtables(expiredCtx)
-				require.NotNil(t, err)
-				assert.Equal(t, "long-running memtable flush in progress:"+
-					" deactivating callback 'store/flush/.' of 'classFlush' failed:"+
-					" context deadline exceeded", err.Error())
+				require.Nil(t, err)
 
 				err = store.Shutdown(ctx)
 				require.Nil(t, err)

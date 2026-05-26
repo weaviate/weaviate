@@ -286,9 +286,11 @@ func (c *cycleCallbackGroup) mutateCallback(ctx context.Context, callbackId uint
 	onMetaNotFound func(callbackId uint32) error,
 	onMetaFound func(callbackId uint32, meta *cycleCallbackMeta, running bool) error,
 ) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
+	// The mutation itself (e.g. marking shouldAbort=true for unregister) is
+	// applied unconditionally — ctx only bounds how long we wait for the
+	// currently-running callback to honor that mutation. Callers passing an
+	// already-cancelled ctx (delete path) get the mark + an immediate
+	// ctx.Err() return.
 
 	for {
 		// mutate callback in collection only if not running (not yet started of finished)

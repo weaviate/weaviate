@@ -100,10 +100,13 @@ func (c *cycleManager) Start() {
 // Stops running instance, does not block
 // Returns channel with final stop result - true / false
 //
-// If given context is cancelled before it is handled by stop logic, instance is not stopped
-// If called multiple times, all contexts have to be cancelled to cancel stop
-// (any valid will result in stopping instance)
-// stopResult is the same (consistent) for multiple calls
+// Once Stop has been called, the cycle will stop unconditionally — the ctx
+// only bounds how aggressively in-flight cycle callbacks should abort. A
+// callback receives shouldAbort()=true once any stop ctx has expired, giving
+// the caller a way to force immediate cancellation (delete path: pass an
+// already-cancelled ctx) or a graceful drain (shutdown path: pass a ctx
+// with a generous deadline).
+// stopResult is the same (consistent) for multiple calls.
 func (c *cycleManager) Stop(ctx context.Context) (stopResult chan bool) {
 	c.Lock()
 	defer c.Unlock()
@@ -162,20 +165,28 @@ func (c *cycleManager) Running() bool {
 	return c.running
 }
 
+// shouldStop reports whether Stop has been requested at all. Once any caller
+// has called Stop, the cycle commits to stopping; this state is independent
+// of the caller's wait deadline.
 func (c *cycleManager) shouldStop() bool {
-	for _, ctx := range c.stopContexts {
-		if ctx.Err() == nil {
-			return true
-		}
-	}
-	return false
+	return len(c.stopContexts) > 0
 }
 
+// shouldAbortCycleCallback reports whether a running cycle callback should
+// abort its in-flight work. True iff at least one stop request's ctx has
+// expired — the caller has signalled "don't bother finishing, I'm done
+// waiting." This is the hook delete-path callers exercise by passing an
+// already-cancelled ctx.
 func (c *cycleManager) shouldAbortCycleCallback() bool {
 	c.RLock()
 	defer c.RUnlock()
 
-	return c.shouldStop()
+	for _, ctx := range c.stopContexts {
+		if ctx.Err() != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *cycleManager) isStopRequested() bool {
@@ -219,13 +230,8 @@ func (c *cycleManagerNoop) Start() {
 }
 
 func (c *cycleManagerNoop) Stop(ctx context.Context) chan bool {
-	if !c.running {
-		return c.closedChan(true)
-	}
-	if ctx.Err() != nil {
-		return c.closedChan(false)
-	}
-
+	// Stop is unconditional; ctx state does not gate the transition (matches
+	// the real cycleManager semantics — see Stop docstring there).
 	c.running = false
 	return c.closedChan(true)
 }

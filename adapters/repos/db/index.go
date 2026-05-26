@@ -2762,16 +2762,22 @@ func (i *Index) drop() error {
 		return err
 	}
 
-	// Dropping the shards only unregisters the shards callbacks, but we still
-	// need to stop the cycle managers that those shards used to register with.
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	i.logger.WithFields(logrus.Fields{
-		"action":   "drop_index",
-		"duration": 60 * time.Second,
-	}).Debug("context.WithTimeout")
+	// The index and its data are about to be removed — there is no reason
+	// to wait for cycle callbacks (compaction, flush, vector commit logger,
+	// etc.) to finish their current iteration. Pass an already-cancelled
+	// ctx so cycleManager.StopAndWait signals immediate abort to in-flight
+	// callbacks AND returns without blocking the caller (which on the
+	// DELETE_CLASS apply path holds db.indexLock and blocks the raft apply
+	// loop). See weaviate/0-weaviate-issues#250.
+	//
+	// stopCycleManagers returns context.Canceled by design — the cycle
+	// goroutines remain marked as stopping and exit on their own when
+	// their in-flight callback honours shouldAbort. Any error that is NOT
+	// context.Canceled is unexpected and propagated.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
-	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
+	if err := i.stopCycleManagers(ctx, "drop"); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 
