@@ -50,6 +50,7 @@ function main() {
   run_acceptance_reindex_multinode_restart_b=false
   run_acceptance_reindex_multinode_scale=false
   run_acceptance_reindex_multinode_changetok=false
+  run_flake_hunt_post_fix=false
   run_acceptance_reindex_singlenode_a=false
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
@@ -102,6 +103,7 @@ function main() {
           --acceptance-reindex-multinode-restart-a|-armra) run_all_tests=false; run_acceptance_reindex_multinode_restart_a=true;;
           --acceptance-reindex-multinode-restart-b|-armrb) run_all_tests=false; run_acceptance_reindex_multinode_restart_b=true;;
           --acceptance-reindex-multinode-scale|-arms) run_all_tests=false; run_acceptance_reindex_multinode_scale=true;;
+          --flake-hunt-post-fix) run_all_tests=false; run_flake_hunt_post_fix=true;;
           --acceptance-reindex-multinode-changetok|-armct) run_all_tests=false; run_acceptance_reindex_multinode_changetok=true;;
           --acceptance-reindex-singlenode-a|-arsa) run_all_tests=false; run_acceptance_reindex_singlenode_a=true;;
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
@@ -313,6 +315,11 @@ function main() {
   if $run_acceptance_reindex_multinode_scale; then
     echo "running reindex multinode scale/orchestration acceptance tests"
     run_acceptance_reindex_multinode_scale
+  fi
+
+  if $run_flake_hunt_post_fix; then
+    echo "running QA post-fix flake hunt — multinode-scale bundle × 10 iters"
+    run_flake_hunt_post_fix
   fi
 
   if $run_acceptance_reindex_multinode_changetok; then
@@ -761,6 +768,33 @@ function run_acceptance_reindex_multinode_restart_b() {
   # not optional.
   AOF_GROUP_RUN='TestMultiNode_(RollingRestartDuringFinalizing|UngracefulStopDuringFinalizing|PostRestartMigration)' \
     run_aof_group "reindex-multinode-restart-b" test/acceptance/reindex_multinode
+}
+
+# run_flake_hunt_post_fix: QA Claude post-fix validation for
+# weaviate/0-weaviate-issues#249. 10 iters of the multinode-scale bundle
+# against a 30-shard matrix (per pull_requests.yaml). Each shard exits 0
+# only if ANY of 10 iters succeeds — failures still surface in the per-iter
+# PASS/FAIL log so we can measure the residual rate. Pairs with the
+# cherry-picked weaviate/weaviate#11461 + #11462 + #11467 fixes on this
+# branch — looking for the bug to be gone (vs the prior 6% per-iter
+# baseline observed on bundled main without fixes).
+function run_flake_hunt_post_fix() {
+  build_weaviate_test_image
+  echo_green "flake-hunt: post-fix multinode-scale bundle × 10 iters"
+  local pass=0 fail=0
+  for i in $(seq 1 10); do
+    echo "=== iter $i/10 — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    if AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
+        run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode; then
+      pass=$((pass+1))
+      echo "iter $i: PASS"
+    else
+      fail=$((fail+1))
+      echo "iter $i: FAIL"
+    fi
+  done
+  echo "flake-hunt-post-fix summary: ${pass}/$((pass+fail)) passed"
+  [[ $pass -gt 0 ]]
 }
 
 function run_acceptance_reindex_multinode_scale() {
