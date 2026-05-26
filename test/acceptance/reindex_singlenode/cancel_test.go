@@ -29,8 +29,10 @@ import (
 // testCancelReindex exercises the cancel verb on PUT
 // /v1/schema/{class}/indexes/{prop}. Two cases:
 //
-//  1. Cancelling when no task is in flight → 404 (validates the helper
-//     correctly distinguishes "nothing to cancel" from a real failure).
+//  1. Cancelling when no task is in flight → 202 with Status: NO_OP
+//     (idempotent cancel: caller's (collection, property) was already
+//     verified to exist, so "nothing to cancel" is surfaced as a no-op
+//     rather than a 404 caller-error).
 //  2. Cancelling an in-flight task → 202 with CANCELLED status, and the
 //     task transitions to CANCELLED in /v1/tasks. Uses 3000 objects on
 //     a from-scratch enable-filterable to give cancel a wide enough
@@ -66,7 +68,9 @@ func testCancelReindex(t *testing.T, restURI string) {
 	}
 
 	t.Run("CancelWhenNoTaskInFlight", func(t *testing.T) {
-		// score has no in-flight reindex task; cancel must 404.
+		// score has no in-flight reindex task; cancel is idempotent and
+		// returns 202 with Status: NO_OP rather than 404. The body has
+		// no TaskID because there is no task that was cancelled.
 		url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, "score")
 		req, err := http.NewRequest(http.MethodPut, url,
 			bytes.NewReader([]byte(`{"filterable":{"cancel":true}}`)))
@@ -76,8 +80,15 @@ func testCancelReindex(t *testing.T, restURI string) {
 		require.NoError(t, err)
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		require.Equal(t, http.StatusNotFound, resp.StatusCode,
-			"cancel with no in-flight task should 404, got: %s", string(body))
+		require.Equal(t, http.StatusAccepted, resp.StatusCode,
+			"cancel with no in-flight task should 202 NO_OP, got: %s", string(body))
+		var result models.IndexUpdateResponse
+		require.NoError(t, json.Unmarshal(body, &result),
+			"cancel-no-task response body should decode as IndexUpdateResponse: %s", string(body))
+		require.Equal(t, "NO_OP", result.Status,
+			"cancel-no-task should report Status: NO_OP, got body: %s", string(body))
+		require.Empty(t, result.TaskID,
+			"cancel-no-task should not name a TaskID, got body: %s", string(body))
 	})
 
 	t.Run("CancelInFlightTask", func(t *testing.T) {
@@ -112,16 +123,22 @@ func testCancelReindex(t *testing.T, restURI string) {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
-		// Two acceptable outcomes:
-		// - 202 CANCELLED: cancel won the race
-		// - 404: task already finished before our cancel landed
+		// Two acceptable outcomes, both at 202 (the cancel verb is
+		// idempotent: a finished task is the same observable end-state
+		// as a cancelled one):
+		// - Status: CANCELLED + TaskID: cancel won the race.
+		// - Status: NO_OP: task already terminal (FINISHED, FAILED, or
+		//   CANCELLED) before our cancel landed; no STARTED task matched.
 		// Both prove the contract; we only fail on unexpected codes.
-		switch resp.StatusCode {
-		case http.StatusAccepted:
-			var result map[string]string
-			require.NoError(t, json.Unmarshal(body, &result))
-			require.Equal(t, "CANCELLED", result["status"])
-			require.Equal(t, taskID, result["taskId"])
+		require.Equal(t, http.StatusAccepted, resp.StatusCode,
+			"cancel must return 202; got %d body: %s", resp.StatusCode, string(body))
+		var result models.IndexUpdateResponse
+		require.NoError(t, json.Unmarshal(body, &result),
+			"cancel response body should decode as IndexUpdateResponse: %s", string(body))
+		switch result.Status {
+		case "CANCELLED":
+			require.Equal(t, taskID, result.TaskID,
+				"cancel CANCELLED should name the cancelled task ID; body: %s", string(body))
 			t.Logf("cancel returned 202 with status CANCELLED")
 
 			// The task must reach CANCELLED status in /v1/tasks.
@@ -144,10 +161,10 @@ func testCancelReindex(t *testing.T, restURI string) {
 				return false
 			}, 30*time.Second, 200*time.Millisecond,
 				"task should reach CANCELLED status")
-		case http.StatusNotFound:
-			t.Logf("cancel raced with task completion; task finished first (acceptable)")
+		case "NO_OP":
+			t.Logf("cancel raced with task completion; no STARTED task to cancel (acceptable)")
 		default:
-			t.Fatalf("unexpected status %d cancelling task: %s", resp.StatusCode, string(body))
+			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s", result.Status, string(body))
 		}
 	})
 }

@@ -434,10 +434,19 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	batchImport(t, compose.GetWeaviateNode(1).URI(), className, texts, batchSize)
 
 	// Baseline: WORD tokenization, "alpha" should return all docs.
-	baselineCount := mustQueryBM25Count(t,
-		compose.GetWeaviateNode(1).URI(), className, alphaQuery, queryLimit)
-	require.Equal(t, objectCount, baselineCount,
-		"baseline BM25 'alpha' under WORD tokenization should match all %d docs", objectCount)
+	// Eventually-poll rather than asserting immediately so a narrow
+	// post-batch indexing-visibility race in a replicated cluster
+	// (one doc still propagating when the query lands) doesn't flag
+	// a phantom regression — the assertion still fails fast if the
+	// count never reaches objectCount.
+	var baselineCount int
+	require.Eventuallyf(t, func() bool {
+		baselineCount = mustQueryBM25Count(t,
+			compose.GetWeaviateNode(1).URI(), className, alphaQuery, queryLimit)
+		return baselineCount == objectCount
+	}, 10*time.Second, 200*time.Millisecond,
+		"baseline BM25 'alpha' under WORD tokenization should match all %d docs (last seen=%d)",
+		objectCount, baselineCount)
 	t.Logf("baseline 'alpha' result count: %d", baselineCount)
 
 	probe := func(uri, cn string) (int, error) {

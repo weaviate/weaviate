@@ -68,7 +68,7 @@ Submit a migration. Body shape selects which one:
 | `{"searchable":{"rebuild":true}}` | `repair-searchable` | Rebuild the searchable bucket. Also serves as the Map → Blockmax upgrade — `OnMigrationComplete` flips the class-level `UsingBlockMaxWAND` flag once every searchable property has been rebuilt. |
 | `{"filterable":{"rebuild":true}}` | `repair-filterable` | RoaringSet refresh. |
 | `{"rangeable":{"rebuild":true}}` | `repair-rangeable` | RoaringSetRange rebuild. |
-| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. 404 if no STARTED task matches. |
+| `{"<type>":{"cancel":true}}` | (cancel verb) | Cancels the in-flight task on `(class, property, indexType)`. Idempotent: 202 + `Status: CANCELLED` when a STARTED task is cancelled, 202 + `Status: NO_OP` when nothing matches (already finished, never submitted, or already cancelled). |
 
 Query parameters:
 
@@ -80,13 +80,15 @@ Query parameters:
 
 Response shapes:
 
-- `202 Accepted` with the new task ID. Poll `GET /indexes` (or DTM API)
-  to observe progress.
+- `202 Accepted` — for submit, body contains the new task ID. For the
+  cancel verb, body is an `IndexUpdateResponse` with `Status: CANCELLED`
+  + `taskId` when a STARTED task was cancelled, or `Status: NO_OP` (no
+  `taskId`) when nothing matched. The cancel verb is idempotent and
+  never returns 404 for "no task to cancel".
 - `400 Bad Request` — validation failure with a structured next-step
   hint (e.g. "property X has no searchable index; use
   `{filterable:{tokenization:...}}` to retokenize the filterable bucket").
-- `404 Not Found` — class or property doesn't exist; cancel target
-  doesn't exist.
+- `404 Not Found` — class or property doesn't exist.
 - `409 Conflict` — an in-flight task already touches this property.
   The error names the offending task ID and migration type.
 - `429 / 503` — per-collection in-flight cap reached (default 32) or
@@ -1146,13 +1148,19 @@ phases of different concerns and don't share state.
 **Cancel** (`{"<type>":{"cancel":true}}`):
 
 1. Find the STARTED task targeting `(collection, prop, indexType)`.
+   If none matches (already finished, never submitted, or already
+   cancelled), return 202 with `Status: NO_OP` and no `taskId`. The
+   verb is idempotent: caller's `(collection, property)` was already
+   verified to exist by the outer handler, so "nothing to cancel" is
+   surfaced as a no-op rather than overloading 404 with two distinct
+   meanings.
 2. RAFT `CancelDistributedTask`.
 3. Wait for the local reindex goroutine to drain
    (`WaitForLocalTaskDrain`, 10s timeout). Bounded so a stuck
    goroutine doesn't turn the HTTP request into a hang.
 4. `CleanStalePartialReindexState` — wipe sidecars + migration dir
    so the next submit starts from a clean slate.
-5. 202 with the cancelled task ID.
+5. 202 with `Status: CANCELLED` + the cancelled task ID.
 
 If the drain times out, return 202 anyway — the next submit's
 defense-in-depth cleanup will pick up the work. If the node crashes

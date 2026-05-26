@@ -9,27 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Package reindexhelpers provides the HTTP-level helpers shared across
-// the runtime-reindex acceptance test packages (reindex_singlenode,
-// reindex_multinode, reindex_concurrent, reindex_mt). Each helper
-// previously existed in 2-3 near-identical copies inside individual
-// test packages; consolidating them here ensures the four suites
-// exercise the API the same way.
-//
-// All helpers take *testing.T as the first argument and call
-// t.Helper() so failures report at the test callsite. None of them
-// open long-lived resources — every HTTP response is closed before
-// return.
-//
-// Variants captured via functional options:
-//
-//   - [WithTenants] adds `?tenants=t1,t2` to the URL on
-//     [SubmitIndexUpdate] / [SubmitIndexUpdateExpect4xx] for the
-//     multi-tenant suite.
-//   - [WithTimeout] overrides the default [require.Eventually]
-//     timeout (120s) for [AwaitReindexFinished] /
-//     [AwaitReindexViaIndexes]. The multinode suite uses 180s to
-//     absorb the slower 3-node startup.
+// Package reindexhelpers provides HTTP-level helpers shared across
+// the runtime-reindex acceptance test packages.
 package reindexhelpers
 
 import (
@@ -47,11 +28,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// -- Functional options --------------------------------------------------------
-
-// Option configures the optional behaviour of a helper call. Use
-// [WithTenants] and [WithTimeout]; the zero-options call gives the
-// historical single-node / non-tenanted defaults.
+// Option configures optional behavior of a helper call.
 type Option func(*options)
 
 type options struct {
@@ -67,30 +44,18 @@ func applyOptions(opts []Option) options {
 	return o
 }
 
-// WithTenants appends `?tenants=t1,t2,…` to the URL on
-// [SubmitIndexUpdate] and [SubmitIndexUpdateExpect4xx]. Empty / nil
-// slice is a no-op.
+// WithTenants appends `?tenants=t1,t2,…` to the URL. Empty/nil is a no-op.
 func WithTenants(tenants []string) Option {
 	return func(o *options) { o.tenants = tenants }
 }
 
-// WithTimeout overrides the default 120s [require.Eventually] timeout
-// on [AwaitReindexFinished] and [AwaitReindexViaIndexes]. The
-// multinode suite passes 180s for the slower 3-node startup.
+// WithTimeout overrides the default 120s require.Eventually timeout.
 func WithTimeout(d time.Duration) Option {
 	return func(o *options) { o.timeout = d }
 }
 
-// -- Submit ----------------------------------------------------------------
-
-// SubmitIndexUpdate fires `PUT /v1/schema/{collection}/indexes/{property}`
-// with the supplied JSON body and asserts the response is 202 Accepted.
-// Returns the `taskId` field from the response body so the caller can
-// poll the resulting reindex task.
-//
-// Use [WithTenants] to add a `?tenants=` query parameter for the
-// multi-tenant suite. Without that option the URL is the same as
-// every single-node caller's.
+// SubmitIndexUpdate fires PUT /v1/schema/{collection}/indexes/{property}
+// with the supplied JSON body, asserts 202, and returns the taskId.
 func SubmitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) string {
 	t.Helper()
 	o := applyOptions(opts)
@@ -115,19 +80,16 @@ func SubmitIndexUpdate(t *testing.T, restURI, collection, property, jsonBody str
 	return result["taskId"]
 }
 
-// IndexUpdateErrorResponse captures the status + body of an
-// expected-to-fail PUT /indexes/{prop} request so the caller can
-// assert both the status code AND that the error message names the
-// right next step.
+// IndexUpdateErrorResponse captures the status and body of a failing
+// PUT /indexes/{prop} request.
 type IndexUpdateErrorResponse struct {
 	StatusCode int
 	Body       string
 }
 
-// SubmitIndexUpdateExpect4xx submits a PUT /indexes request that the
-// test expects to fail at validation and returns the response status
-// + body for assertion. Does NOT itself require 4xx (so the caller
-// can pin the exact code).
+// SubmitIndexUpdateExpect4xx submits a PUT /indexes request expected to
+// fail at validation and returns the response status and body. The caller
+// asserts the exact status code.
 func SubmitIndexUpdateExpect4xx(t *testing.T, restURI, collection, property, jsonBody string, opts ...Option) IndexUpdateErrorResponse {
 	t.Helper()
 	o := applyOptions(opts)
@@ -155,11 +117,8 @@ func indexUpdateURL(restURI, collection, property string, tenants []string) stri
 	return u
 }
 
-// -- Indexes view ----------------------------------------------------------
-
-// IndexesResponse mirrors the `/v1/schema/{class}/indexes` GET response
-// shape. The Algorithm + TargetAlgorithm fields are populated for
-// BM25 (Map↔Blockmax) and otherwise empty.
+// IndexesResponse mirrors the GET /v1/schema/{class}/indexes response.
+// Algorithm and TargetAlgorithm are populated only for BM25 (Map↔Blockmax).
 type IndexesResponse struct {
 	Collection string `json:"collection"`
 	Properties []struct {
@@ -176,10 +135,8 @@ type IndexesResponse struct {
 	} `json:"properties"`
 }
 
-// GetIndexes fires `GET /v1/schema/{collection}/indexes` and asserts
-// 200 OK. Returns the parsed response. Used by callers that need to
-// inspect the per-index status / progress directly (instead of polling
-// via /v1/tasks).
+// GetIndexes fires GET /v1/schema/{collection}/indexes and returns the
+// parsed response. Asserts 200.
 func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 	t.Helper()
 	resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
@@ -193,14 +150,8 @@ func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 	return &result
 }
 
-// -- Awaiters --------------------------------------------------------------
-
-// AwaitReindexFinished polls `/v1/tasks` until the named reindex task
-// reaches `FINISHED`. Fails the test if the task transitions to
-// `FAILED` or doesn't reach `FINISHED` within the timeout.
-//
-// Default timeout is 120s; use [WithTimeout] to override (the
-// multinode suite passes 180s to absorb the slower 3-node startup).
+// AwaitReindexFinished polls /v1/tasks until the named reindex task
+// reaches FINISHED. Fails on FAILED or on timeout (default 120s).
 func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
@@ -232,13 +183,10 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
 }
 
-// AwaitReindexViaIndexes polls `GET /v1/schema/{collection}/indexes`
-// until the named (property, indexType) reports `ready` status.
-// Distinguished from [AwaitReindexFinished]: the latter polls the
-// task-orchestration surface, this one polls the index-status surface
-// — useful for verifying the index is queryable end-to-end.
-//
-// Default timeout is 120s; use [WithTimeout] to override.
+// AwaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until
+// the named (property, indexType) reports `ready`. Unlike
+// AwaitReindexFinished, this polls the index-status surface — useful for
+// verifying the index is queryable end-to-end. Default timeout 120s.
 func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexType string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
@@ -276,16 +224,42 @@ func AwaitReindexViaIndexes(t *testing.T, restURI, collection, property, indexTy
 	}
 }
 
-// -- Misc ------------------------------------------------------------------
+// GetFirstShardName resolves the first shard name for `collection` via
+// GET /v1/nodes?output=verbose. Returns "" if the collection has no
+// shards on any node.
+func GetFirstShardName(t *testing.T, restURI, collection string) string {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/nodes?output=verbose", restURI))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
-// BoolPtr returns a pointer to its bool argument. Convenience for
-// populating optional pointer-valued fields on schema requests.
+	var nodesResp struct {
+		Nodes []struct {
+			Shards []struct {
+				Class string `json:"class"`
+				Name  string `json:"name"`
+			} `json:"shards"`
+		} `json:"nodes"`
+	}
+	require.NoError(t, json.Unmarshal(body, &nodesResp))
+
+	for _, node := range nodesResp.Nodes {
+		for _, shard := range node.Shards {
+			if shard.Class == collection {
+				return shard.Name
+			}
+		}
+	}
+	return ""
+}
+
+// BoolPtr returns a pointer to its bool argument.
 func BoolPtr(b bool) *bool { return &b }
 
 // IdsMatchUnordered reports whether two ID slices contain the same
-// elements regardless of order. Used by tests that compare result-set
-// IDs against an expected list when the storage/query path doesn't
-// guarantee ordering.
+// elements regardless of order.
 func IdsMatchUnordered(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -303,22 +277,9 @@ func IdsMatchUnordered(a, b []string) bool {
 	return true
 }
 
-// -- Test environment fixture -------------------------------------------------
-
 // SetupClass creates a single-tenant class with the named properties and
-// `Vectorizer: "none"` (the runtime-reindex tests all use BM25/filter
-// paths, never a vectorizer), then registers a t.Cleanup that deletes
-// the class at test end. Returns nothing — the class name passed in is
-// the handle.
-//
-// Used by [WithEnv] but also useful standalone for tests that want to
-// drive their own object creation (e.g. batch import, special data
-// shapes) but still want the class lifecycle managed.
-//
-// Requires the test process to have already called
-// [helper.SetupClient(restURI)] at the suite level — class creation
-// goes through the package-level helper client, not a per-call HTTP
-// hit.
+// Vectorizer "none", and registers a t.Cleanup that deletes the class.
+// Requires helper.SetupClient to have been called at the suite level.
 func SetupClass(t *testing.T, class string, props []*models.Property) {
 	t.Helper()
 	helper.CreateClass(t, &models.Class{
@@ -329,11 +290,8 @@ func SetupClass(t *testing.T, class string, props []*models.Property) {
 	t.Cleanup(func() { helper.DeleteClass(t, class) })
 }
 
-// SetupClassWithConfig is the [SetupClass] variant that lets the caller
-// pass arbitrary class-level config (InvertedIndexConfig,
-// MultiTenancyConfig, ReplicationConfig, etc.). The caller-supplied
-// `class` value MUST match `c.Class`; this is enforced via require so
-// a typo fails loudly.
+// SetupClassWithConfig is the SetupClass variant that accepts arbitrary
+// class-level config.
 func SetupClassWithConfig(t *testing.T, c *models.Class) {
 	t.Helper()
 	require.NotEmpty(t, c.Class, "Class name must be set on the models.Class")
@@ -345,19 +303,8 @@ func SetupClassWithConfig(t *testing.T, c *models.Class) {
 }
 
 // ImportObjects creates one object per entry in `objects` against the
-// given class via [helper.CreateObject]. Each entry is the Properties
-// map for that object — IDs and vectors are not set (the suites that
-// need explicit IDs/vectors use the lower-level helper.CreateObject
-// directly).
-//
-// Failures fail the test at the create-object call site (via
-// require.NoError); the object index is included in the failure
-// message so the offending row is identifiable.
-//
-// For large object counts use [helper.CreateObjectsBatch] directly;
-// this loop is intentionally simple and not batched. The suites that
-// need batch import (e.g. multinode round-trip) call the batch helper
-// themselves.
+// given class. Each entry is the Properties map. For large object counts
+// callers should use helper.CreateObjectsBatch directly.
 func ImportObjects(t *testing.T, class string, objects []map[string]interface{}) {
 	t.Helper()
 	for i, props := range objects {
@@ -368,39 +315,8 @@ func ImportObjects(t *testing.T, class string, objects []map[string]interface{})
 	}
 }
 
-// WithEnv is the closure-style fixture for the common "create class,
-// import N objects, run test, delete class" pattern. Replaces ~12-15
-// lines of boilerplate per test with one call.
-//
-// The fixture:
-//
-//  1. Calls [SetupClass] (creates the class + registers cleanup).
-//  2. Calls [ImportObjects] (one-by-one create, no batching).
-//  3. Invokes `body` — the per-test logic, which typically submits
-//     a reindex via [SubmitIndexUpdate] then awaits via
-//     [AwaitReindexFinished].
-//
-// Tests that need MT / custom InvertedIndexConfig / batch import / explicit
-// IDs should use [SetupClass] / [SetupClassWithConfig] / [ImportObjects]
-// directly — WithEnv targets the 80% case where the boilerplate is
-// uniform.
-//
-// Example:
-//
-//	reindexhelpers.WithEnv(t, "MyClass",
-//	    []*models.Property{
-//	        {Name: "text", DataType: []string{"text"}, Tokenization: "word"},
-//	    },
-//	    []map[string]interface{}{
-//	        {"text": "hello world"},
-//	        {"text": "foo bar"},
-//	    },
-//	    func() {
-//	        taskID := reindexhelpers.SubmitIndexUpdate(t, restURI,
-//	            "MyClass", "text", `{"searchable":{"tokenization":"field"}}`)
-//	        reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
-//	        // assertions...
-//	    })
+// WithEnv is the closure-style fixture for the "create class, import N
+// objects, run body, delete class" pattern.
 func WithEnv(
 	t *testing.T,
 	class string,

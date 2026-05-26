@@ -876,6 +876,15 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "wrong backup file")
+
+		assert.Contains(t, err.Error(), req.ID,
+			"error must surface the request ID")
+		assert.Contains(t, err.Error(), "123",
+			"error must surface the metadata's stored ID")
+		assert.Contains(t, err.Error(), GlobalBackupFile,
+			"error must name the descriptor file path")
+		assert.Contains(t, err.Error(), path,
+			"error must include the destination path")
 	})
 
 	t.Run("UnknownClass", func(t *testing.T) {
