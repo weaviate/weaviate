@@ -2101,6 +2101,10 @@
           "description": "Size of the backup in Gibs",
           "type": "number",
           "format": "float64"
+        },
+        "incremental_base_backup_id": {
+          "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
+          "type": "string"
         }
       }
     },
@@ -2357,6 +2361,10 @@
             "description": "Size of the backup in Gibs",
             "type": "number",
             "format": "float64"
+          },
+          "incremental_base_backup_id": {
+            "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
+            "type": "string"
           }
         }
       }
