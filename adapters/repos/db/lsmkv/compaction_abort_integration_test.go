@@ -127,19 +127,28 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 			require.GreaterOrEqual(t, len(bucket.disk.segments), 2,
 				"need at least two segments on disk to exercise compactOnce")
 
-			abortCtx, cancel := context.WithCancel(ctx)
-			cancel()
+			// direct path: pre-cancelled ctx into the inner compactor
+			t.Run("direct", func(t *testing.T) {
+				abortCtx, cancel := context.WithCancel(ctx)
+				cancel()
+				start := time.Now()
+				compacted, err := bucket.disk.compactOnce(abortCtx)
+				elapsed := time.Since(start)
+				require.NoError(t, err)
+				assert.False(t, compacted)
+				assert.Less(t, elapsed, 3*time.Second, "observed %s", elapsed)
+			})
 
-			start := time.Now()
-			compacted, err := bucket.disk.compactOnce(abortCtx)
-			elapsed := time.Since(start)
-
-			require.NoError(t, err)
-			assert.False(t, compacted,
-				"compactor must return compacted=false on abort (strategy=%s)", tc.strategy)
-			assert.Less(t, elapsed, 3*time.Second,
-				"abort should land within a few seconds (strategy=%s); observed %s",
-				tc.strategy, elapsed)
+			// bridge path: shouldAbort=true exercised through compactOrCleanup;
+			// the bridge inside compactOrCleanup pre-cancels the ctx so the
+			// compactor sees the abort on its first sample.
+			t.Run("bridge", func(t *testing.T) {
+				start := time.Now()
+				didWork := bucket.disk.compactOrCleanup(func() bool { return true })
+				elapsed := time.Since(start)
+				assert.False(t, didWork)
+				assert.Less(t, elapsed, 3*time.Second, "observed %s", elapsed)
+			})
 		})
 	}
 }

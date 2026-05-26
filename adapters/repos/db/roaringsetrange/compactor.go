@@ -203,10 +203,14 @@ func (nc *nodeCompactor) loopThroughKeys(ctx context.Context) error {
 
 	// left segment empty, take right
 	if !okLeft {
+		i := 0
 		for ; okRight; keyRight, layerRight, okRight = nc.right.Next() {
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("merge keys: %w", err)
+			if i%compactor.AbortCheckEveryN == 0 {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("merge keys: %w", err)
+				}
 			}
+			i++
 			if err := nc.writeLayer(keyRight, layerRight); err != nil {
 				return fmt.Errorf("right segment: %w", err)
 			}
@@ -216,10 +220,14 @@ func (nc *nodeCompactor) loopThroughKeys(ctx context.Context) error {
 
 	// right segment empty, take left
 	if !okRight {
+		i := 0
 		for ; okLeft; keyLeft, layerLeft, okLeft = nc.left.Next() {
-			if err := ctx.Err(); err != nil {
-				return fmt.Errorf("merge keys: %w", err)
+			if i%compactor.AbortCheckEveryN == 0 {
+				if err := ctx.Err(); err != nil {
+					return fmt.Errorf("merge keys: %w", err)
+				}
 			}
+			i++
 			if err := nc.writeLayer(keyLeft, layerLeft); err != nil {
 				return fmt.Errorf("left segment: %w", err)
 			}
@@ -241,9 +249,11 @@ func (nc *nodeCompactor) loopThroughKeys(ctx context.Context) error {
 		nc.deletionsRight = layerRight.Deletions.Clone()
 	}
 
-	for okLeft || okRight {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("merge keys: %w", err)
+	for i := 0; okLeft || okRight; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("merge keys: %w", err)
+			}
 		}
 		if okLeft && (!okRight || keyLeft < keyRight) {
 			// merge left
