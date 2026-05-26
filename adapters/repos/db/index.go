@@ -3050,11 +3050,18 @@ func (i *Index) drop() error {
 		return err
 	}
 
-	if !keepFiles {
-		return os.RemoveAll(i.path())
-	} else {
+	if keepFiles {
+		// backup framework expects the DeleteMarkerAdd-prefixed rename
 		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
 	}
+
+	// rename sync (must complete even if ctx is expired); RemoveAll async
+	deleted, err := renameForAsyncDelete(i.path(), i.logger)
+	if err != nil {
+		return fmt.Errorf("rename index for async delete: %w", err)
+	}
+	spawnAsyncDelete(deleted, i.logger)
+	return nil
 }
 
 func (i *Index) dropShards(names []string) error {

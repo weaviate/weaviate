@@ -136,11 +136,13 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
 	}
 
-	// remove shard dir
+	// rename sync (must complete even if ctx is expired); RemoveAll async
 	if !keepFiles {
-		if err := os.RemoveAll(s.path()); err != nil {
-			return fmt.Errorf("delete shard dir: %w", err)
+		deleted, err := renameForAsyncDelete(s.path(), s.index.logger)
+		if err != nil {
+			return fmt.Errorf("rename shard for async delete: %w", err)
 		}
+		spawnAsyncDelete(deleted, s.index.logger)
 	}
 
 	// Only update metrics if the shard was properly registered
