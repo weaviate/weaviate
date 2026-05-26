@@ -300,6 +300,96 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 		require.Nil(t, err, "non-NS classless on multi-target must pass the gate (it's NS-only)")
 		repo.AssertExpectations(t)
 	})
+
+	t.Run("NS: classless multi-target gate fires for global admin too", func(t *testing.T) {
+		// Item 2 lock-in: before the explicit gate, root callers were only
+		// "accidentally" stopped by the ShardsData("",tenant) wildcard authz
+		// — and root has * permissions, so they would have slipped through
+		// to DB.anyExists. The gate must reject root identically to a
+		// namespaced caller. Admin addresses Source by its qualified name
+		// (WS4 contract for admins on NS clusters).
+		m, _, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+		// No Exists expectations: the gate must fire before validateExistence.
+		input := &AddReferenceInput{
+			Class: "customer1:Source", ID: id, Property: "hasOther",
+			Ref: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+			},
+		}
+		err := m.AddObjectReference(context.Background(),
+			&models.Principal{Username: "admin"}, input, nil, "")
+		require.NotNil(t, err)
+		assert.Equal(t, StatusBadRequest, err.Code)
+		assert.Contains(t, err.Msg, "multi-target references require")
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("NS: admin foreign-namespace qualified target is rejected by QualifyRefTarget", func(t *testing.T) {
+		// Item 3 lock-in: cross-namespace ref policy on the write paths.
+		// Source is in customer1, target prefix is customer2 — QRT must
+		// reject ANY caller (even root) because the ref would span
+		// namespaces. Wiring check that AddObjectReference routes the
+		// target through QualifyRefTarget exactly like the delete path
+		// (which has its own coverage at line 322).
+		m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
+		// No Exists expectations: the rejection happens before existence.
+		input := &AddReferenceInput{
+			Class: "customer1:Zoo", ID: id, Property: "hasAnimals",
+			Ref: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/customer2:Animal/" + string(refID)),
+			},
+		}
+		err := m.AddObjectReference(context.Background(),
+			&models.Principal{Username: "admin"}, input, nil, "")
+		require.NotNil(t, err)
+		assert.Equal(t, StatusUnprocessableEntity, err.Code)
+		assert.Contains(t, err.Msg, "is not a valid class name")
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("NS: admin short target qualifies into source namespace (Matrix A row 4)", func(t *testing.T) {
+		// Item 4 lock-in: the happy-path branch most other tests skip.
+		// Admin submits an unqualified target ("Animal") against a
+		// customer1:Zoo source on an NS cluster. QualifyRefTarget must
+		// qualify the in-memory class to customer1:Animal (driving authz +
+		// existence to the right shard) while the *stored* beacon stays
+		// SHORT for namespace portability.
+		m, _, repo, mp, authz := newNSManagers(t, zooAnimalNSSchema(true), true)
+		repo.On("Exists", "customer1:Animal", refID).Return(true, nil).Once()
+		repo.On("Exists", "customer1:Zoo", id).Return(true, nil).Once()
+		repo.On("AddReference",
+			mock.MatchedBy(func(s *crossref.RefSource) bool { return string(s.Class) == "customer1:Zoo" }),
+			mock.MatchedBy(func(target *crossref.Ref) bool {
+				// Short on disk for portability.
+				return target.Class == "Animal" && target.TargetID == refID
+			}),
+		).Return(nil).Once()
+		mp.On("UsingRef2Vec", mock.Anything).Return(false)
+
+		input := &AddReferenceInput{
+			Class: "customer1:Zoo", ID: id, Property: "hasAnimals",
+			Ref: models.SingleRef{
+				Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(refID)),
+			},
+		}
+		err := m.AddObjectReference(context.Background(),
+			&models.Principal{Username: "admin"}, input, nil, "")
+		require.Nil(t, err)
+		// Stored beacon is rewritten to the short class.
+		assert.Equal(t, strfmt.URI("weaviate://localhost/Animal/"+string(refID)), input.Ref.Beacon)
+		// Authz saw the qualified target class so it routes to the right shard.
+		sawQualifiedTarget := false
+		for _, c := range authz.Calls() {
+			for _, r := range c.Resources {
+				if strings.Contains(r, "customer1:Animal") {
+					sawQualifiedTarget = true
+				}
+			}
+		}
+		assert.True(t, sawQualifiedTarget,
+			"authz must see the qualified target — short input must be qualified into source's NS")
+		repo.AssertExpectations(t)
+	})
 }
 
 // Test_References_NamespaceResolution_Update covers UpdateObjectReferences for
@@ -361,6 +451,96 @@ func Test_References_NamespaceResolution_Update(t *testing.T) {
 		require.NotNil(t, err)
 		assert.Equal(t, StatusBadRequest, err.Code)
 		assert.Contains(t, err.Msg, "multi-target references require")
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("NS: classless multi-target gate fires for global admin too", func(t *testing.T) {
+		// Item 2 lock-in (PUT side): same gate must fire for root callers,
+		// not just namespaced. Without the explicit gate root would have
+		// slipped past the wildcard authz backstop.
+		m, _, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+		repo.On("Object", "customer1:Source", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{
+				ClassName: "customer1:Source",
+				Schema:    map[string]interface{}{"name": "src"},
+			}, nil).Once()
+		// No Exists expectations.
+		refs := models.MultipleRef{&models.SingleRef{
+			Beacon: strfmt.URI("weaviate://localhost/" + string(refID)),
+		}}
+		input := &PutReferenceInput{
+			Class: "customer1:Source", ID: id, Property: "hasOther", Refs: refs,
+		}
+		err := m.UpdateObjectReferences(context.Background(),
+			&models.Principal{Username: "admin"}, input, nil, "")
+		require.NotNil(t, err)
+		assert.Equal(t, StatusBadRequest, err.Code)
+		assert.Contains(t, err.Msg, "multi-target references require")
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("NS: admin foreign-namespace qualified target is rejected by QualifyRefTarget", func(t *testing.T) {
+		// Item 3 lock-in (PUT side): wiring check that the per-ref loop
+		// routes the target through QRT. Foreign-NS prefix must be rejected
+		// even for root.
+		m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
+		repo.On("Object", "customer1:Zoo", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{
+				ClassName: "customer1:Zoo",
+				Schema:    map[string]interface{}{"name": "z"},
+			}, nil).Once()
+		// No Exists expectations: rejection happens before existence.
+		refs := models.MultipleRef{&models.SingleRef{
+			Beacon: strfmt.URI("weaviate://localhost/customer2:Animal/" + string(refID)),
+			Class:  "customer2:Animal",
+		}}
+		input := &PutReferenceInput{
+			Class: "customer1:Zoo", ID: id, Property: "hasAnimals", Refs: refs,
+		}
+		err := m.UpdateObjectReferences(context.Background(),
+			&models.Principal{Username: "admin"}, input, nil, "")
+		require.NotNil(t, err)
+		assert.Equal(t, StatusUnprocessableEntity, err.Code)
+		assert.Contains(t, err.Msg, "is not a valid class name")
+		repo.AssertExpectations(t)
+	})
+
+	t.Run("NS: admin short target qualifies into source namespace (Matrix A row 4)", func(t *testing.T) {
+		// Item 4 lock-in (PUT side): admin happy path with short target.
+		// QRT must qualify in-memory; stored beacon stays short.
+		m, _, repo, mp, authz := newNSManagers(t, zooAnimalNSSchema(true), true)
+		repo.On("Object", "customer1:Zoo", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{
+				ClassName: "customer1:Zoo",
+				Schema:    map[string]interface{}{"name": "z"},
+			}, nil).Once()
+		repo.On("Exists", "customer1:Animal", refID).Return(true, nil).Once()
+		repo.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+		mp.On("UsingRef2Vec", mock.Anything).Return(false)
+
+		refs := models.MultipleRef{&models.SingleRef{
+			Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(refID)),
+			Class:  "Animal",
+		}}
+		input := &PutReferenceInput{
+			Class: "customer1:Zoo", ID: id, Property: "hasAnimals", Refs: refs,
+		}
+		err := m.UpdateObjectReferences(context.Background(),
+			&models.Principal{Username: "admin"}, input, nil, "")
+		require.Nil(t, err)
+		// Stored beacon ends up SHORT.
+		assert.Equal(t, strfmt.URI("weaviate://localhost/Animal/"+string(refID)), input.Refs[0].Beacon)
+		// Authz routed to the qualified target shard.
+		sawQualifiedTarget := false
+		for _, c := range authz.Calls() {
+			for _, r := range c.Resources {
+				if strings.Contains(r, "customer1:Animal") {
+					sawQualifiedTarget = true
+				}
+			}
+		}
+		assert.True(t, sawQualifiedTarget,
+			"authz must see the qualified target — short input must be qualified into source's NS")
 		repo.AssertExpectations(t)
 	})
 }
@@ -910,6 +1090,35 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 			"missing READ on the target shard must surface as Forbidden, "+
 				"not be hidden by an earlier per-ref MT validation failure")
 		repo.AssertExpectations(t)
+	})
+
+	t.Run("NS: admin cannot address namespaced source class in batch URI (architectural note)", func(t *testing.T) {
+		// Reachability documentation, not behaviour-under-test: on the
+		// batch path the source class is encoded in the URI path, and
+		// crossref.ParseSource rejects URIs whose class segment starts
+		// with a lowercase character — which "customer1:Zoo" does. Admin
+		// also doesn't get implicit qualification from resolveNS
+		// (principal.Namespace is ""), so a short "Zoo" wouldn't match
+		// the "customer1:Zoo" schema entry either. There is therefore no
+		// reachable admin → NS-qualified-source batch flow today; items
+		// 2/3/4 from the audit are covered by the Add and Update tests
+		// above (which take input.Class as a Go field that bypasses the
+		// URI constraint), plus the existing namespaced-principal batch
+		// tests in this function. Pin the parse rejection so a future
+		// loosening of ParseSource trips this test and forces a fresh
+		// look at the admin-on-batch coverage gap.
+		_, b, _, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+		refs := []*models.BatchReference{{
+			From: strfmt.URI("weaviate://localhost/customer1:Source/" + string(id) + "/hasOther"),
+			To:   strfmt.URI("weaviate://localhost/Alpha/" + string(refID)),
+		}}
+		out, err := b.AddReferences(context.Background(),
+			&models.Principal{Username: "admin"}, refs, nil)
+		require.NoError(t, err)
+		require.Len(t, out, 1)
+		require.Error(t, out[0].Err,
+			"ParseSource must reject qualified source class in batch URI today")
+		assert.Contains(t, out[0].Err.Error(), "uppercase")
 	})
 }
 
