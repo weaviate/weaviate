@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -109,7 +110,9 @@ func newCompactorInverted(w io.WriteSeeker,
 	}
 }
 
-func (c *compactorInverted) do() error {
+// do runs the merge. ctx is checked every compactor.AbortCheckEveryN keys
+// inside writeKeys; cancelling it returns the wrapped ctx error.
+func (c *compactorInverted) do(ctx context.Context) error {
 	var err error
 
 	if err := c.init(); err != nil {
@@ -151,7 +154,7 @@ func (c *compactorInverted) do() error {
 
 	keysOffset := segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + len(c.c1.segment.invertedHeader.DataFields)
 
-	kis, err := c.writeKeys()
+	kis, err := c.writeKeys(ctx)
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
@@ -302,7 +305,7 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 	return len(encoded) + 8 + 8 + 8, nil
 }
 
-func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
+func (c *compactorInverted) writeKeys(ctx context.Context) ([]segmentindex.Key, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
@@ -311,7 +314,13 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 	var kis []segmentindex.Key
 	sim := newSortedMapMerger()
 
-	for {
+	for i := 0; ; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("merge keys: %w", err)
+			}
+		}
+
 		if key1 == nil && key2 == nil {
 			break
 		}

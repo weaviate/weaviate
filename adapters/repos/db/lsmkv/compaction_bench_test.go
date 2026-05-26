@@ -66,7 +66,7 @@ func BenchmarkCompaction(b *testing.B) {
 					require.Equal(b, 2, fileTypes[".db"])
 					b.StartTimer()
 
-					once, err := bu.disk.compactOnce()
+					once, err := bu.disk.compactOnce(nil)
 					require.NoError(b, err)
 					require.True(b, once)
 

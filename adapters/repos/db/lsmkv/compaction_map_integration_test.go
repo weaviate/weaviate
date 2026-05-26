@@ -382,7 +382,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 		i := 0
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(nil); err == nil && compacted; compacted, err = bucket.disk.compactOnce(nil) {
 			if i == 1 {
 				// segment1 and segment2 merged
 				// none of them is root segment, so tombstones
@@ -456,7 +456,7 @@ func compactionMapStrategy_HugeEntries(ctx context.Context, t *testing.T, opts [
 	require.NoError(t, b.FlushMemtable())
 
 	// compact and check that value is the same
-	once, err := b.disk.compactOnce()
+	once, err := b.disk.compactOnce(nil)
 	require.NoError(t, err)
 	require.True(t, once)
 
@@ -566,7 +566,7 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(nil); err == nil && compacted; compacted, err = bucket.disk.compactOnce(nil) {
 		}
 		require.Nil(t, err)
 	})
@@ -663,7 +663,7 @@ func compactionMapStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
 				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+				for compacted, err = bucket.disk.compactOnce(nil); err == nil && compacted; compacted, err = bucket.disk.compactOnce(nil) {
 				}
 				require.Nil(t, err)
 			})

@@ -1312,7 +1312,7 @@ func TestSegmenGroup_CompactionLargerThanMaxSize(t *testing.T) {
 		maxSegmentSize: maxSegmentSize,
 	}
 
-	ok, err := sg.compactOnce()
+	ok, err := sg.compactOnce(nil)
 	assert.False(t, ok, "segments are too large to run")
 	assert.Nil(t, err)
 }

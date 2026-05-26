@@ -12,6 +12,8 @@
 package lsmkv
 
 import (
+	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path"
@@ -26,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -267,7 +271,12 @@ func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
 	return fmt.Sprintf(".l%d.s%d", level, strategy)
 }
 
-func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
+// compactOnce performs one compaction iteration. shouldAbort is checked
+// periodically inside the per-strategy compactor's inner merge loop; an
+// observed abort cancels the merge, cleans up the partial .tmp file, and
+// returns (false, nil) — the cycle treats it the same as a no-op tick.
+// A nil shouldAbort is allowed and behaves as "never abort".
+func (sg *SegmentGroup) compactOnce(shouldAbort cyclemanager.ShouldAbortCallback) (compacted bool, err error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
 	// be an append because of a new flush cycle, so we do not need to guarantee
@@ -351,6 +360,70 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 	maxNewFileSize := left.Size() + right.Size()
 
+	// Bridge the cyclemanager's shouldAbort callback to a ctx the
+	// compactors check on their per-strategy merge loops. Two paths:
+	//   - shouldAbort=true at entry: pre-cancel so the very first
+	//     ctx.Err() check inside the compactor returns the abort.
+	//   - shouldAbort flips mid-merge: a short-lived poll goroutine
+	//     watches it and cancels the ctx; the compactor's next
+	//     AbortCheckEveryN sample observes it. The goroutine
+	//     self-terminates on the deferred cancel.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if shouldAbort != nil {
+		if shouldAbort() {
+			cancel()
+		} else {
+			watcher := func() {
+				t := time.NewTicker(50 * time.Millisecond)
+				defer t.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-t.C:
+						if shouldAbort() {
+							cancel()
+							return
+						}
+					}
+				}
+			}
+			enterrors.GoWrapper(watcher, sg.logger)
+		}
+	}
+
+	// runCompactor maps the per-strategy do/Do error into:
+	//   - (true,  nil): caller should clean up .tmp and return (false, nil)
+	//   - (false, nil): compaction completed successfully
+	//   - (false, err): real error, propagate
+	runCompactor := func(do func(context.Context) error) (aborted bool, err error) {
+		if err := do(ctx); err != nil {
+			if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
+				return true, nil
+			}
+			return false, err
+		}
+		return false, nil
+	}
+
+	abortAndCleanup := func() error {
+		// best-effort cleanup of the partial output. We close before
+		// removing so the file descriptor doesn't leak; both errors are
+		// surfaced if either fails so the caller still treats the abort
+		// as a no-op iteration.
+		var firstErr error
+		if cerr := f.Close(); cerr != nil {
+			firstErr = fmt.Errorf("close aborted compactor output: %w", cerr)
+		}
+		if rerr := os.Remove(path); rerr != nil && !os.IsNotExist(rerr) {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("remove aborted compactor output: %w", rerr)
+			}
+		}
+		return firstErr
+	}
+
 	switch strategy {
 
 	// TODO: call metrics just once with variable strategy label
@@ -360,40 +433,60 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 			level, secondaryIndices, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
-		if err := c.do(); err != nil {
+		aborted, err := runCompactor(c.do)
+		if err != nil {
 			return false, err
+		}
+		if aborted {
+			return false, abortAndCleanup()
 		}
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker, sg.shouldSkipKey)
 
-		if err := c.do(); err != nil {
+		aborted, err := runCompactor(c.do)
+		if err != nil {
 			return false, err
+		}
+		if aborted {
+			return false, abortAndCleanup()
 		}
 	case segmentindex.StrategyMapCollection:
 		c := newCompactorMapCollection(f, left.newCollectionCursorReusable(), right.newCollectionCursorReusable(),
 			level, secondaryIndices, sg.mapRequiresSorting, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
-		if err := c.do(); err != nil {
+		aborted, err := runCompactor(c.do)
+		if err != nil {
 			return false, err
+		}
+		if aborted {
+			return false, abortAndCleanup()
 		}
 	case segmentindex.StrategyRoaringSet:
 		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
 			level, cleanupTombstones,
 			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
 
-		if err := c.Do(); err != nil {
+		aborted, err := runCompactor(c.Do)
+		if err != nil {
 			return false, err
+		}
+		if aborted {
+			return false, abortAndCleanup()
 		}
 
 	case segmentindex.StrategyRoaringSetRange:
 		c := roaringsetrange.NewCompactor(f, left.newRoaringSetRangeCursor(), right.newRoaringSetRangeCursor(),
 			level, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
 
-		if err := c.Do(); err != nil {
+		aborted, err := runCompactor(c.Do)
+		if err != nil {
 			return false, err
+		}
+		if aborted {
+			return false, abortAndCleanup()
 		}
 	case segmentindex.StrategyInverted:
 		avgPropLen, _ := sg.GetAveragePropertyLength()
@@ -408,8 +501,12 @@ func (sg *SegmentGroup) compactOnce() (compacted bool, err error) {
 			level, secondaryIndices, cleanupTombstones,
 			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation)
 
-		if err := c.do(); err != nil {
+		aborted, err := runCompactor(c.do)
+		if err != nil {
 			return false, err
+		}
+		if aborted {
+			return false, abortAndCleanup()
 		}
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)

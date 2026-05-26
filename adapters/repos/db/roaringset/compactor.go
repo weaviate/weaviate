@@ -13,6 +13,7 @@ package roaringset
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 
@@ -147,7 +148,9 @@ func NewCompactor(w io.WriteSeeker,
 }
 
 // Do starts a compaction. See [Compactor] for an explanation of this process.
-func (c *Compactor) Do() error {
+// ctx is checked every compactor.AbortCheckEveryN keys inside the merge loop;
+// cancelling it returns the wrapped ctx error so the caller can clean up.
+func (c *Compactor) Do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return fmt.Errorf("init: %w", err)
 	}
@@ -157,7 +160,7 @@ func (c *Compactor) Do() error {
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
-	kis, err := c.writeNodes(segmentFile)
+	kis, err := c.writeNodes(ctx, segmentFile)
 	if err != nil {
 		return fmt.Errorf("write keys: %w", err)
 	}
@@ -217,7 +220,7 @@ type nodeCompactor struct {
 	emptyBitmap      *sroar.Bitmap
 }
 
-func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (c *Compactor) writeNodes(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	nc := &nodeCompactor{
 		left:             c.left,
 		right:            c.right,
@@ -228,7 +231,7 @@ func (c *Compactor) writeNodes(f *segmentindex.SegmentFile) ([]segmentindex.Key,
 
 	nc.init()
 
-	if err := nc.loopThroughKeys(); err != nil {
+	if err := nc.loopThroughKeys(ctx); err != nil {
 		return nil, err
 	}
 
@@ -243,8 +246,13 @@ func (c *nodeCompactor) init() {
 	c.offset = segmentindex.HeaderSize
 }
 
-func (c *nodeCompactor) loopThroughKeys() error {
-	for {
+func (c *nodeCompactor) loopThroughKeys(ctx context.Context) error {
+	for i := 0; ; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("merge keys: %w", err)
+			}
+		}
 		if c.keyLeft == nil && c.keyRight == nil {
 			return nil
 		}

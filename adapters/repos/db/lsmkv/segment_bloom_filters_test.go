@@ -505,7 +505,7 @@ func dontPrecomputeBloom(ctx context.Context, t *testing.T, opts []BucketOption)
 			WithSecondaryKey(0, []byte("bonjour2"))))
 		require.NoError(t, b.FlushMemtable())
 
-		compacted, err := b.disk.compactOnce()
+		compacted, err := b.disk.compactOnce(nil)
 		require.NoError(t, err)
 		require.True(t, compacted)
 	})

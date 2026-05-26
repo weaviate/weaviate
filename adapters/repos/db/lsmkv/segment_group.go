@@ -925,7 +925,7 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 
 	compact := func() bool {
 		sg.lastCompactionCall = time.Now()
-		compacted, err := sg.compactOnce()
+		compacted, err := sg.compactOnce(shouldAbort)
 		if err != nil {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).

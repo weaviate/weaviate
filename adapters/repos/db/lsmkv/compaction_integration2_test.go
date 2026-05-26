@@ -221,7 +221,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(nil); err == nil && compacted; compacted, err = bucket.disk.compactOnce(nil) {
 		}
 		require.Nil(t, err)
 	})

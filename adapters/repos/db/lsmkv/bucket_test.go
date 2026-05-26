@@ -618,7 +618,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.compaction), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
-			compact, err := b.disk.compactOnce()
+			compact, err := b.disk.compactOnce(nil)
 			require.NoError(t, err)
 			require.True(t, compact)
 			dbFiles, _ = countDbAndWalFiles(t, dirName)

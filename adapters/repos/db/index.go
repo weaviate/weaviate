@@ -2764,12 +2764,14 @@ func (i *Index) drop() error {
 
 	// Dropping the shards only unregisters the shards callbacks, but we still
 	// need to stop the cycle managers that those shards used to register with.
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// In-flight compaction callbacks now respect ctx and bail within
+	// compactor.AbortCheckEveryN keys (a few hundred ms), so a 5s budget is
+	// plenty even on busy disks — the previous 60s was sized for callbacks
+	// that ignored cancellation. The shorter ctx keeps db.indexLock from
+	// being held on the DELETE_CLASS apply path while the cycle drains.
+	// See weaviate/0-weaviate-issues#250.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	i.logger.WithFields(logrus.Fields{
-		"action":   "drop_index",
-		"duration": 60 * time.Second,
-	}).Debug("context.WithTimeout")
 
 	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
 		return err

@@ -93,7 +93,9 @@ func newCompactorSetCollection(w io.WriteSeeker,
 	}
 }
 
-func (c *compactorSet) do() error {
+// do runs the merge. ctx is checked every compactor.AbortCheckEveryN keys
+// inside writeKeys; cancelling it returns the wrapped ctx error.
+func (c *compactorSet) do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return errors.Wrap(err, "init")
 	}
@@ -103,7 +105,7 @@ func (c *compactorSet) do() error {
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
-	kis, err := c.writeKeys(segmentFile)
+	kis, err := c.writeKeys(ctx, segmentFile)
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
@@ -149,7 +151,7 @@ func (c *compactorSet) init() error {
 	return nil
 }
 
-func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.KeyRedux, error) {
+func (c *compactorSet) writeKeys(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.KeyRedux, error) {
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
 
@@ -157,7 +159,13 @@ func (c *compactorSet) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Ke
 	offset := segmentindex.HeaderSize
 	kis := make([]segmentindex.KeyRedux, 0, c.c1.cache.segment.index.KeyCount()+c.c2.cache.segment.index.KeyCount())
 
-	for {
+	for i := 0; ; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("merge keys: %w", err)
+			}
+		}
+
 		if key1 == nil && key2 == nil {
 			break
 		}
