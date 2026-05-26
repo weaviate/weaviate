@@ -11,6 +11,8 @@
 
 package rbacconf
 
+import "slices"
+
 // Config makes every subject on the list an admin, whereas everyone else
 // has no rights whatsoever
 type Config struct {
@@ -27,4 +29,15 @@ type Config struct {
 // config package
 func (c Config) Validate() error {
 	return nil
+}
+
+// IsRootUser reports whether the given username, or any of the given groups,
+// is configured as root.
+func (c Config) IsRootUser(username string, groups []string) bool {
+	for _, group := range groups {
+		if slices.Contains(c.RootGroups, group) {
+			return true
+		}
+	}
+	return slices.Contains(c.RootUsers, username)
 }
