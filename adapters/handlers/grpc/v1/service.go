@@ -92,13 +92,14 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	return result, errInner
 }
 
-func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
+func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (reply *pb.AggregateReply, retErr error) {
 	before := time.Now()
 
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
@@ -108,6 +109,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	parser := NewAggregateParser(
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 		s.config.Namespaces.Enabled,
+		principal,
 	)
 
 	params, err := parser.Aggregate(req)
@@ -124,7 +126,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 		params,
 	)
-	reply, err := replier.Aggregate(res, params.GroupBy != nil)
+	reply, err = replier.Aggregate(res, params.GroupBy != nil)
 	if err != nil {
 		return nil, fmt.Errorf("prepare reply: %w", err)
 	}
@@ -133,13 +135,14 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	return reply, nil
 }
 
-func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
+func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (reply *pb.TenantsGetReply, retErr error) {
 	before := time.Now()
 
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	retTenants, err := s.tenantsGet(ctx, principal, req)
@@ -167,12 +170,13 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 	return result, errInner
 }
 
-func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
+func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (reply *pb.BatchDeleteReply, retErr error) {
 	before := time.Now()
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
@@ -190,7 +194,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.config.Namespaces.Enabled)
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.config.Namespaces.Enabled, principal)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -276,13 +280,14 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	return result, errInner
 }
 
-func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.SearchReply, retErr error) {
 	before := time.Now()
 
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
 	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
@@ -292,6 +297,8 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	parser := NewParser(
 		req.Uses_127Api,
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
+		principal,
+		s.config.Namespaces.Enabled,
 	)
 	replier := NewReplier(
 		req.Uses_127Api,

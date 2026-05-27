@@ -877,6 +877,15 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		assert.NotNil(t, err)
 		assert.IsType(t, backup.ErrUnprocessable{}, err)
 		assert.Contains(t, err.Error(), "wrong backup file")
+
+		assert.Contains(t, err.Error(), req.ID,
+			"error must surface the request ID")
+		assert.Contains(t, err.Error(), "123",
+			"error must surface the metadata's stored ID")
+		assert.Contains(t, err.Error(), GlobalBackupFile,
+			"error must name the descriptor file path")
+		assert.Contains(t, err.Error(), path,
+			"error must include the destination path")
 	})
 
 	t.Run("UnknownClass", func(t *testing.T) {
@@ -917,14 +926,14 @@ func TestSchedulerList(t *testing.T) {
 	t.Run("BackendNotFound", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backendErr = ErrAny
-		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.NotNil(t, err)
 	})
 
 	t.Run("AllBackupsFails", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("AllBackups", mock.Anything).Return(nil, ErrAny)
-		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.NotNil(t, err)
 		assert.Equal(t, ErrAny, err)
 	})
@@ -939,6 +948,7 @@ func TestSchedulerList(t *testing.T) {
 					"node1": {Classes: []string{cls1}},
 				},
 				PreCompressionSizeBytes: 16106127360, // 15 GB
+				BaseBackupID:            "base-1",
 			},
 			{
 				ID:     backupID2,
@@ -947,11 +957,12 @@ func TestSchedulerList(t *testing.T) {
 					"node2": {Classes: []string{cls2}},
 				},
 				PreCompressionSizeBytes: 2147483648, // 2 GB
+				BaseBackupID:            "base-2",
 			},
 		}
 		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
 
-		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, true)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 2)
@@ -961,19 +972,38 @@ func TestSchedulerList(t *testing.T) {
 		assert.Equal(t, string(backup.Success), (*resp)[0].Status)
 		assert.Equal(t, []string{cls1}, (*resp)[0].Classes)
 		assert.Equal(t, float64(15), (*resp)[0].Size)
+		assert.Equal(t, "base-1", (*resp)[0].IncrementalBaseBackupID)
 
 		// Check second backup
 		assert.Equal(t, backupID2, (*resp)[1].ID)
 		assert.Equal(t, string(backup.Failed), (*resp)[1].Status)
 		assert.Equal(t, []string{cls2}, (*resp)[1].Classes)
 		assert.Equal(t, float64(2), (*resp)[1].Size)
+		assert.Equal(t, "base-2", (*resp)[1].IncrementalBaseBackupID)
+	})
+
+	t.Run("BaseBackupIDHiddenWhenNotIncluded", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		backups := []*backup.DistributedBackupDescriptor{
+			{
+				ID:           backupID1,
+				Status:       backup.Success,
+				BaseBackupID: "base-1",
+			},
+		}
+		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		require.Len(t, *resp, 1)
+		assert.Empty(t, (*resp)[0].IncrementalBaseBackupID)
 	})
 
 	t.Run("EmptyList", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{}, nil)
 
-		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 0)
@@ -1018,7 +1048,7 @@ func TestSchedulerList(t *testing.T) {
 		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
 
 		t.Run("return results sorted by default (desc)", func(t *testing.T) {
-			resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering)
+			resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 			assert.Nil(t, err)
 			assert.NotNil(t, resp)
 			assert.Len(t, *resp, 5)
@@ -1037,7 +1067,7 @@ func TestSchedulerList(t *testing.T) {
 		})
 
 		t.Run("return results sorted (asc)", func(t *testing.T) {
-			resp, err := fs.scheduler().List(ctx, nil, backendName, func(s string) *string { return &s }("asc"))
+			resp, err := fs.scheduler().List(ctx, nil, backendName, func(s string) *string { return &s }("asc"), false)
 			assert.Nil(t, err)
 			assert.NotNil(t, resp)
 			assert.Len(t, *resp, 5)

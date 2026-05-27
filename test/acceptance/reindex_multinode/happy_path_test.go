@@ -71,7 +71,11 @@ var testBM25Queries = []string{
 // This avoids spinning up a new cluster per test (~20s overhead each).
 func TestMultiNode_HappyPath(t *testing.T) {
 	ctx := context.Background()
-	compose, cleanup := start3NodeReindexCluster(ctx, t)
+	// Boot on WAND so the MapToBlockmax + QueryConsistencyDuringReindex
+	// sub-tests can trigger algorithm:"blockmax". ChangeTokenization
+	// shares the cluster and runs on Map-based searchable as a
+	// side-effect of that choice.
+	compose, cleanup := start3NodeReindexCluster(ctx, t, "USE_INVERTED_SEARCHABLE", "false")
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
@@ -87,9 +91,19 @@ func TestMultiNode_HappyPath(t *testing.T) {
 	t.Run("ChangeTokenization", func(t *testing.T) {
 		testChangeTokenization(t, compose)
 	})
-	t.Run("QueryConsistencyDuringReindex", func(t *testing.T) {
-		testQueryConsistencyDuringReindex(t, compose)
-	})
+}
+
+// TestMultiNode_QueryConsistencyDuringReindex pulls the query-consistency
+// scenario into its own cluster so it isn't running on cluster state
+// previously mutated by the four HappyPath sub-tests. The earlier shared-
+// cluster shape hit "store is read-only" reindex failures triggered by
+// cross-sub-test bucket-finalize residue under concurrent query load.
+func TestMultiNode_QueryConsistencyDuringReindex(t *testing.T) {
+	ctx := context.Background()
+	compose, cleanup := start3NodeReindexCluster(ctx, t, "USE_INVERTED_SEARCHABLE", "false")
+	defer cleanup()
+	defer dumpContainerLogs(ctx, t, compose)
+	testQueryConsistencyDuringReindex(t, compose)
 }
 
 func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
@@ -145,7 +159,7 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	}
 
 	// Submit reindex.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Poll until reindex is done via /indexes endpoint.
@@ -399,7 +413,7 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 	}
 
 	// Submit reindex (repair-searchable — the most common type).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
 	t.Logf("submitted reindex task: %s", taskID)
 
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))

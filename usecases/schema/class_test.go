@@ -204,6 +204,33 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
 	})
 
+	t.Run("with property name ending in reserved index suffix", func(t *testing.T) {
+		suffixes := []string{
+			"foo_searchable",
+			"foo_rangeable",
+			"foo_temp",
+			"foo__meta_count",
+			"foo_propertyLength",
+			"foo_nullState",
+		}
+		for _, propName := range suffixes {
+			t.Run(propName, func(t *testing.T) {
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				class := &models.Class{
+					Class: "NewClass",
+					Properties: []*models.Property{
+						{DataType: []string{"text"}, Name: propName},
+					},
+					Vectorizer:        "none",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				}
+				_, _, err := handler.AddClass(ctx, nil, class)
+				require.ErrorContains(t, err, "reserved for internal indices")
+				fakeSchemaManager.AssertNotCalled(t, "AddClass", mock.Anything, mock.Anything)
+			})
+		}
+	})
+
 	t.Run("with default params", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 		class := models.Class{
@@ -2974,6 +3001,63 @@ func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
 			err := handler.setClassDefaults(class, globalCfg)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedIndexType, class.VectorIndexType)
+		})
+	}
+}
+
+func Test_SetClassDefaults_DefaultVectorIndexType_NamedVectors(t *testing.T) {
+	t.Parallel()
+	globalCfg := replication.GlobalConfig{MinimumFactor: 1}
+
+	tests := []struct {
+		name              string
+		defaultIndexType  string
+		vectorIndexType   string
+		expectedIndexType string
+	}{
+		{
+			name:              "no env, no vector type => hnsw default",
+			defaultIndexType:  "",
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+		{
+			name:              "env set to hfresh, no vector type => hfresh",
+			defaultIndexType:  vectorindex.VectorIndexTypeHFresh,
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeHFresh,
+		},
+		{
+			name:              "env set to flat, no vector type => flat",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			vectorIndexType:   "",
+			expectedIndexType: vectorindex.VectorIndexTypeFLAT,
+		},
+		{
+			name:              "env set to flat, vector explicitly hnsw => hnsw preserved",
+			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
+			vectorIndexType:   vectorindex.VectorIndexTypeHNSW,
+			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := newTestHandler(t, &fakeDB{})
+			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
+
+			class := &models.Class{
+				VectorConfig: map[string]models.VectorConfig{
+					"my_vector": {
+						VectorIndexType: tt.vectorIndexType,
+						Vectorizer:      map[string]interface{}{"none": map[string]interface{}{}},
+					},
+				},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+			}
+			err := handler.setClassDefaults(class, globalCfg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedIndexType, class.VectorConfig["my_vector"].VectorIndexType)
 		})
 	}
 }

@@ -172,7 +172,7 @@ func ReindexPropsOverlap(a, b []string) bool {
 // conflicting writes to the same bucket through.
 func TouchesSearchable(t ReindexMigrationType) bool {
 	switch t {
-	case ReindexTypeRepairSearchable,
+	case ReindexTypeChangeAlgorithm,
 		ReindexTypeChangeTokenization,
 		ReindexTypeEnableSearchable:
 		return true
@@ -197,7 +197,7 @@ func TouchesFilterable(t ReindexMigrationType) bool {
 		ReindexTypeChangeTokenizationFilterable,
 		ReindexTypeEnableFilterable:
 		return true
-	case ReindexTypeRepairSearchable,
+	case ReindexTypeChangeAlgorithm,
 		ReindexTypeEnableSearchable,
 		ReindexTypeEnableRangeable,
 		ReindexTypeRepairRangeable:

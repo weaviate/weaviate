@@ -530,6 +530,78 @@ func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, s
 	return int(resp.Count), nil
 }
 
+func (c *grpcReplicationClient) CreateAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
+) error {
+	client, err := c.getClient(host)
+	if err != nil {
+		return err
+	}
+	_, err = client.CreateAsyncCheckpoint(ctx, &protocol.CreateAsyncCheckpointRequest{
+		Index:              index,
+		Shards:             shardNames,
+		CutoffMs:           cutoffMs,
+		CreatedAtUnixMilli: createdAt.UnixMilli(),
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC CreateAsyncCheckpoint: %w", err)
+	}
+	return nil
+}
+
+func (c *grpcReplicationClient) DeleteAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string,
+) error {
+	client, err := c.getClient(host)
+	if err != nil {
+		return err
+	}
+	_, err = client.DeleteAsyncCheckpoint(ctx, &protocol.DeleteAsyncCheckpointRequest{
+		Index:  index,
+		Shards: shardNames,
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC DeleteAsyncCheckpoint: %w", err)
+	}
+	return nil
+}
+
+func (c *grpcReplicationClient) GetAsyncCheckpointStatus(ctx context.Context,
+	host, index string, shardNames []string,
+) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	client, err := c.getClient(host)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.GetAsyncCheckpointStatus(ctx, &protocol.GetAsyncCheckpointStatusRequest{
+		Index:  index,
+		Shards: shardNames,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("gRPC GetAsyncCheckpointStatus: %w", err)
+	}
+	out := make(map[string]replica.AsyncCheckpointShardStatus, len(resp.GetStatuses()))
+	for shard, s := range resp.GetStatuses() {
+		var root hashtree.Digest
+		if len(s.GetRoot()) > 0 {
+			if err := root.UnmarshalBinary(s.GetRoot()); err != nil {
+				return nil, fmt.Errorf("decode async-checkpoint root for shard %q: %w", shard, err)
+			}
+		}
+		// Decode 0 back to time.Time{}, not 1970-01-01, so IsZero() is the consumer-side "inactive" check.
+		var createdAt time.Time
+		if ms := s.GetCreatedAtUnixMilli(); ms != 0 {
+			createdAt = time.UnixMilli(ms)
+		}
+		out[shard] = replica.AsyncCheckpointShardStatus{
+			Root:      root,
+			CutoffMs:  s.GetCutoffMs(),
+			CreatedAt: createdAt,
+		}
+	}
+	return out, nil
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 func protoToSimpleResponse(r *protocol.SimpleReplicaResponse) replica.SimpleResponse {

@@ -73,6 +73,12 @@ const (
 	// prefix on its own (no specific properties) or this prefix +
 	// "_<prop1>_<prop2>...".
 	MigrationDirPrefixEnableSearchable = "enable_searchable"
+
+	// MigrationDirPrefixRebuildSearchable is the directory-name prefix for
+	// the per-property rebuild-searchable migration (rebuild a BlockMax
+	// searchable bucket from the objects store). Actual dir:
+	// "<prefix>_<prop1>_<prop2>...".
+	MigrationDirPrefixRebuildSearchable = "rebuild_searchable"
 )
 
 // migrationDirWithProps assembles a migration directory name from a
@@ -161,6 +167,7 @@ func migrationDirsForPropertyIndex(propName, indexType string) []string {
 	case "searchable":
 		return []string{
 			migrationDirWithProps(MigrationDirPrefixEnableSearchable, []string{propName}),
+			migrationDirWithProps(MigrationDirPrefixRebuildSearchable, []string{propName}),
 			MigrationDirPrefixSearchableRetokenize + "_" + propName,
 		}
 	case "rangeable":

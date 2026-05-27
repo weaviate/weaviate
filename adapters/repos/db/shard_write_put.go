@@ -293,6 +293,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		}
 		s.metrics.PutObjectUpsertObject(before)
 
+		// Tee before hashtree: the bucket is the SSOT for movement catchup.
+		s.AppendChangeLogPut(idBytes, obj.LastUpdateTimeUnix(), objBinary)
+
 		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
 			return errors.Wrap(err, "object creation in hashtree")
 		}
@@ -510,8 +513,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
 	}
-	_ = prevNestedProps // TODO(Step 8): delete previous nested props on update
-
 	// if object updated (with or without docID changed)
 	if status.docIDChanged || status.docIDPreserved {
 		if err := s.subtractPropLengths(prevProps); err != nil {
@@ -557,6 +558,9 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		// TODO: metrics
 		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
+		}
+		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
+			return fmt.Errorf("delete nested inverted indices: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
 			err = prevObject.IterateThroughVectorDimensions(func(targetVector string, dims int) error {

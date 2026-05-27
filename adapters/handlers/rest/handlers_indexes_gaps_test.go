@@ -28,8 +28,11 @@ package rest
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -87,7 +90,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 	// exception for enable-rangeable.
 	cases := []row{
 		// Same type, same property — conflict.
-		{"repair-searchable vs repair-searchable", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairSearchable, []string{"p"}, true, "overlapping properties"},
+		{"repair-searchable vs repair-searchable", db.ReindexTypeChangeAlgorithm, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"repair-filterable vs repair-filterable", db.ReindexTypeRepairFilterable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-searchable vs enable-searchable", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
 		{"enable-filterable vs enable-filterable", db.ReindexTypeEnableFilterable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
@@ -95,7 +98,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		{"enable-rangeable vs enable-rangeable (same prop)", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableRangeable, []string{"p"}, true, "overlapping properties"},
 
 		// Cross-type same-property — all conflict under the new rule.
-		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairSearchable, []string{"p"}, true, "overlapping properties"},
+		{"change-tok vs repair-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs enable-searchable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs repair-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"change-tok vs enable-filterable (same prop)", db.ReindexTypeChangeTokenization, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
@@ -104,7 +107,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		// shared on-disk migration state (filterable_to_rangeable_<prop>) is
 		// destroyed by the OnMigrationComplete updatePropertyBuckets path
 		// otherwise. Same prop = conflict.
-		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairSearchable, []string{"p"}, true, "overlapping properties"},
+		{"enable-rangeable vs repair-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeChangeAlgorithm, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs repair-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs enable-filterable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-rangeable vs enable-searchable", db.ReindexTypeEnableRangeable, db.ReindexTypeEnableSearchable, []string{"p"}, true, "overlapping properties"},
@@ -113,7 +116,7 @@ func TestTypesConflict_FullMatrix(t *testing.T) {
 		// Searchable-only vs filterable-only on the same property also conflicts:
 		// MergeProps fans out across all flags on OnMigrationComplete so the same
 		// cross-pollination concern applies.
-		{"repair-searchable vs repair-filterable (same prop)", db.ReindexTypeRepairSearchable, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
+		{"repair-searchable vs repair-filterable (same prop)", db.ReindexTypeChangeAlgorithm, db.ReindexTypeRepairFilterable, []string{"p"}, true, "overlapping properties"},
 		{"enable-searchable vs enable-filterable (same prop)", db.ReindexTypeEnableSearchable, db.ReindexTypeEnableFilterable, []string{"p"}, true, "overlapping properties"},
 	}
 
@@ -134,7 +137,7 @@ func TestTypesConflict_DifferentPropertiesNeverConflict(t *testing.T) {
 	// Two same-type tasks on different properties of the same collection
 	// must NOT conflict. This is the parallelism contract.
 	for _, mt := range []db.ReindexMigrationType{
-		db.ReindexTypeRepairSearchable,
+		db.ReindexTypeChangeAlgorithm,
 		db.ReindexTypeRepairFilterable,
 		db.ReindexTypeEnableSearchable,
 		db.ReindexTypeEnableFilterable,
@@ -523,7 +526,7 @@ func TestMigrationTypeTargetsIndex(t *testing.T) {
 	}{
 		{db.ReindexTypeEnableSearchable, "searchable", true, true},
 		{db.ReindexTypeEnableSearchable, "filterable", false, true},
-		{db.ReindexTypeRepairSearchable, "searchable", true, true},
+		{db.ReindexTypeChangeAlgorithm, "searchable", true, true},
 		{db.ReindexTypeEnableFilterable, "filterable", true, true},
 		{db.ReindexTypeEnableFilterable, "searchable", false, true},
 		{db.ReindexTypeRepairFilterable, "filterable", true, true},
@@ -563,7 +566,7 @@ func TestIndexTypesFromMigrationType(t *testing.T) {
 		wantKnown bool
 	}{
 		{db.ReindexTypeEnableSearchable, []string{"searchable"}, true},
-		{db.ReindexTypeRepairSearchable, []string{"searchable"}, true},
+		{db.ReindexTypeChangeAlgorithm, []string{"searchable"}, true},
 		{db.ReindexTypeEnableFilterable, []string{"filterable"}, true},
 		{db.ReindexTypeRepairFilterable, []string{"filterable"}, true},
 		{db.ReindexTypeEnableRangeable, []string{"rangeable"}, true},
@@ -825,7 +828,7 @@ func TestTouchesSearchable(t *testing.T) {
 		t    db.ReindexMigrationType
 		want bool
 	}{
-		{db.ReindexTypeRepairSearchable, true},
+		{db.ReindexTypeChangeAlgorithm, true},
 		{db.ReindexTypeChangeTokenization, true},
 		{db.ReindexTypeEnableSearchable, true},
 		{db.ReindexTypeRepairFilterable, false},
@@ -847,7 +850,7 @@ func TestTouchesFilterable(t *testing.T) {
 		{db.ReindexTypeRepairFilterable, true},
 		{db.ReindexTypeChangeTokenization, true},
 		{db.ReindexTypeEnableFilterable, true},
-		{db.ReindexTypeRepairSearchable, false},
+		{db.ReindexTypeChangeAlgorithm, false},
 		{db.ReindexTypeEnableSearchable, false},
 		{db.ReindexTypeEnableRangeable, false},
 	}
@@ -1020,6 +1023,35 @@ func TestValidateBodyExclusivity(t *testing.T) {
 			},
 			wantErr: "conflicting fields in filterable",
 		},
+
+		// --- algorithm verb ----------------------------------------------------
+		{
+			name: "valid: searchable.algorithm alone",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax"},
+			},
+		},
+		{
+			name: "reject: searchable.algorithm + searchable.rebuild",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Rebuild: true},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
+		{
+			name: "reject: searchable.algorithm + searchable.tokenization",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Tokenization: "word"},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
+		{
+			name: "reject: searchable.algorithm + searchable.enabled",
+			body: &models.IndexUpdateRequest{
+				Searchable: &models.IndexUpdateSearchable{Algorithm: "blockmax", Enabled: true},
+			},
+			wantErr: "conflicting fields in searchable",
+		},
 	}
 
 	for _, tc := range cases {
@@ -1185,4 +1217,83 @@ func TestConcurrentReindexCap_RejectionBoundary(t *testing.T) {
 
 func fmtTaskID(i int) string {
 	return "t-" + string(rune('a'+i%26)) + string(rune('a'+(i/26)%26))
+}
+
+// -----------------------------------------------------------------------------
+// reindexCapExceededResponder — per-collection concurrent reindex cap returns
+// 429 Too Many Requests (not 503 Service Unavailable). Pins both the status
+// code and the body shape so a regression on either (e.g. swap back to the
+// generated 503 responder, drop the structured ErrorResponse body) is caught
+// at unit-test time rather than at acceptance/CI.
+// -----------------------------------------------------------------------------
+
+func TestReindexCapExceededResponder_StatusAndBody(t *testing.T) {
+	resp := reindexCapExceededResponder(nil, "MyCollection", 32, 32)
+
+	rec := httptest.NewRecorder()
+	resp.WriteResponse(rec, runtime.JSONProducer())
+
+	require.Equal(t, http.StatusTooManyRequests, rec.Code,
+		"cap rejection must surface as 429, not 503 — 503 misled monitoring into thinking the cluster was unhealthy")
+
+	var body models.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body),
+		"cap rejection body must be the standard ErrorResponse shape")
+	require.Len(t, body.Error, 1, "body must contain exactly one error item")
+	assert.Contains(t, body.Error[0].Message, `"MyCollection"`,
+		"error message must name the offending collection")
+	assert.Contains(t, body.Error[0].Message, "32",
+		"error message must surface the cap and inflight count for operator triage")
+}
+
+// -----------------------------------------------------------------------------
+// normalizeSearchableAlgorithm — canonical aliases for the BM25 algorithm
+// name on PUT /v1/schema/{class}/indexes/{prop}. The dispatcher routes the
+// caller-supplied string through this helper, then applies a strict
+// allowlist on the canonical value (see N4 in the QA review). Adding an
+// alias here without updating both the dispatcher AND the swagger enum
+// would be silently ineffective; the matrix below pins the accepted shape
+// so a future refactor cannot drift either direction.
+// -----------------------------------------------------------------------------
+
+func TestNormalizeSearchableAlgorithm(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		// blockmax — canonical spelling and case variants
+		{"canonical blockmax", "blockmax", models.IndexStatusAlgorithmBlockmax},
+		{"titlecase Blockmax", "Blockmax", models.IndexStatusAlgorithmBlockmax},
+		{"uppercase BLOCKMAX", "BLOCKMAX", models.IndexStatusAlgorithmBlockmax},
+		{"hyphenated block-max", "block-max", models.IndexStatusAlgorithmBlockmax},
+		{"underscored block_max", "block_max", models.IndexStatusAlgorithmBlockmax},
+		{"verbose blockmaxwand", "blockmaxwand", models.IndexStatusAlgorithmBlockmax},
+		{"verbose BlockMaxWAND", "BlockMaxWAND", models.IndexStatusAlgorithmBlockmax},
+		{"acronym bmw", "bmw", models.IndexStatusAlgorithmBlockmax},
+		{"with surrounding whitespace", " blockmax ", models.IndexStatusAlgorithmBlockmax},
+
+		// wand — canonical and case variants
+		{"canonical wand", "wand", models.IndexStatusAlgorithmWand},
+		{"uppercase WAND", "WAND", models.IndexStatusAlgorithmWand},
+		{"mixed case Wand", "Wand", models.IndexStatusAlgorithmWand},
+
+		// unknown — every other input must canonicalise to "" so the
+		// dispatcher's switch lands on default → 400.
+		{"empty string", "", ""},
+		{"unknown algo", "fancy-new-algo", ""},
+		{"prefix-only", "block", ""},
+		{"suffix-only", "max", ""},
+		// "blockwand" is NOT a recognised alias — only blockmax variants
+		// and bare wand canonicalise. Surfaces the "alias set is closed"
+		// contract.
+		{"blockwand not an alias", "blockwand", ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeSearchableAlgorithm(tc.input)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

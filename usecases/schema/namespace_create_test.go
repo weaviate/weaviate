@@ -711,6 +711,117 @@ func TestAddAlias(t *testing.T) {
 	}
 }
 
+// TestUpdateClass_QualifiesPropertyDataTypes pins the GET→PUT round-trip:
+// a namespaced caller's stripped cross-ref DataType is qualified before
+// reaching the SchemaManager; foreign-prefix entries are rejected.
+func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name          string
+		enabled       bool
+		principal     *models.Principal
+		storedClass   string
+		bodyClass     string
+		bodyDataType  []string
+		wantStoredDT  []string
+		wantErrSubstr string
+	}{
+		{
+			name:         "namespaced: stripped cross-ref DataType qualified before SchemaManager",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			storedClass:  "customer1:Movies",
+			bodyClass:    "Movies",
+			bodyDataType: []string{"Other"},
+			wantStoredDT: []string{"customer1:Other"},
+		},
+		{
+			name:         "namespaced: multi-target stripped refs all qualified",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			storedClass:  "customer1:Movies",
+			bodyClass:    "Movies",
+			bodyDataType: []string{"Other", "Another"},
+			wantStoredDT: []string{"customer1:Other", "customer1:Another"},
+		},
+		{
+			name:          "namespaced: foreign-namespace ref DataType rejected",
+			enabled:       true,
+			principal:     namespacedPrincipal("customer1"),
+			storedClass:   "customer1:Movies",
+			bodyClass:     "Movies",
+			bodyDataType:  []string{"customer2:Other"},
+			wantErrSubstr: "is not a valid class name",
+		},
+		{
+			name:         "namespaced: primitive DataType passes through untouched",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			storedClass:  "customer1:Movies",
+			bodyClass:    "Movies",
+			bodyDataType: []string{"text"},
+			wantStoredDT: []string{"text"},
+		},
+		{
+			name:         "NS disabled: qualifier is a no-op, body passes through verbatim",
+			enabled:      false,
+			principal:    nil,
+			storedClass:  "Movies",
+			bodyClass:    "Movies",
+			bodyDataType: []string{"Other"},
+			wantStoredDT: []string{"Other"},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+
+			stored := &models.Class{
+				Class:             tt.storedClass,
+				Vectorizer:        "model1",
+				VectorIndexConfig: map[string]interface{}{},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				Properties: []*models.Property{
+					{Name: "watched", DataType: tt.wantStoredDT},
+				},
+			}
+			sm.On("ReadOnlyClass", tt.storedClass).Return(stored).Maybe()
+
+			var captured *models.Class
+			sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
+				captured = c
+				return true
+			}), mock.Anything).Return(nil).Maybe()
+
+			body := &models.Class{
+				Class:             tt.bodyClass,
+				Vectorizer:        "model1",
+				VectorIndexConfig: map[string]interface{}{},
+				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				Properties: []*models.Property{
+					{Name: "watched", DataType: tt.bodyDataType},
+				},
+			}
+
+			err := handler.UpdateClass(context.Background(), tt.principal, tt.bodyClass, body)
+			if tt.wantErrSubstr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrSubstr)
+				require.Nil(t, captured, "SchemaManager.UpdateClass must not be called on rejected body")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, captured, "SchemaManager.UpdateClass should have been called")
+			require.Equal(t, tt.storedClass, captured.Class)
+			require.Len(t, captured.Properties, 1)
+			assert.Equal(t, tt.wantStoredDT, captured.Properties[0].DataType)
+		})
+	}
+}
+
 // TestAddClass_NamespacedCollectionLimit checks that the
 // MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
 // namespaces are enabled, using principal.Namespace as the selector.

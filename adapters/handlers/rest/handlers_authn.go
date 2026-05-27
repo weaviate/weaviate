@@ -63,7 +63,7 @@ func (h *authNHandlers) getOwnInfo(_ users.GetOwnInfoParams, principal *models.P
 		for roleName, policies := range existingRoles {
 			perms, err := authzConv.PoliciesToPermission(policies...)
 			if err != nil {
-				return users.NewGetOwnInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+				return users.NewGetOwnInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 			}
 			roles = append(roles, &models.Role{
 				Name:        &roleName,

@@ -17,12 +17,13 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool, principal *models.Principal) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
 	tenant := ""
@@ -52,7 +53,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant, namespacesEnabled)
+	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant, namespacesEnabled, principal)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}

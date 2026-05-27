@@ -136,7 +136,7 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 	}
 
 	// Submit repair-searchable (no tenants param → all tenants).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"rebuild":true}}`)
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
 	t.Logf("repair all tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -174,7 +174,7 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 	// Repair only t1 and t2.
 	targetTenants := []string{"t1", "t2"}
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"rebuild":true}}`, reindexhelpers.WithTenants(targetTenants))
+		`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants(targetTenants))
 	t.Logf("repair specific tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -404,7 +404,7 @@ func testValidation(t *testing.T, restURI string) {
 
 	t.Run("NonMT_with_tenants", func(t *testing.T) {
 		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, nonMTClass, "text",
-			`{"searchable":{"rebuild":true}}`, reindexhelpers.WithTenants([]string{"t1"}))
+			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"t1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"non-MT class with tenants should reject as 400: %s", got.Body)
 	})
@@ -433,7 +433,7 @@ func testValidation(t *testing.T, restURI string) {
 
 	t.Run("Nonexistent_tenant", func(t *testing.T) {
 		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
-			`{"searchable":{"rebuild":true}}`, reindexhelpers.WithTenants([]string{"does_not_exist"}))
+			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"does_not_exist"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"non-existent tenant should reject as 400: %s", got.Body)
 	})

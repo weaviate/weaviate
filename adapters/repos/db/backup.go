@@ -16,6 +16,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"os"
@@ -56,13 +57,48 @@ const (
 )
 
 // Backupable returns whether all given class can be backed up.
+// Refuses if any shard has an in-flight runtime-reindex; this runs in
+// the coordinator's canCommit phase so no staging dir is created on
+// rejection.
+//
+// All per-class / per-shard failures are accumulated and joined into a
+// single error rather than short-circuiting on the first one. Joining
+// ensures that when several classes are blocked at once, the operator sees
+// the full list in a single canCommit round instead of fixing one,
+// retrying, fixing the next, retrying, and so on. The joined error still
+// satisfies errors.Is for any wrapped sentinel (e.g.
+// ErrBackupBlockedByInFlightReindex) because errors.Join preserves the
+// underlying error graph.
+//
+// Class-missing errors stop aggregation for that class but do not short
+// circuit the whole loop; other classes still get checked.
 func (db *DB) Backupable(ctx context.Context, classes []string) error {
+	nodeName := db.localNodeName
+	var errs []error
 	for _, c := range classes {
 		className := schema.ClassName(c)
 		idx := db.GetIndex(className)
 		if idx == nil || idx.Config.ClassName != className {
-			return fmt.Errorf("class %v doesn't exist", c)
+			// No node/class prefix here: the message already names the
+			// class, and the integration test casing-permutation case
+			// pins the bare wording so the coordinator's class-missing
+			// detection works the same as it did pre-Wave-2.
+			errs = append(errs, fmt.Errorf("class %v doesn't exist", c))
+			continue
 		}
+		shards, _, err := idx.readSchema()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s/%s: enumerating local shards for backup-precheck: %w", nodeName, c, err))
+			continue
+		}
+		for _, shardName := range shards {
+			if err := idx.refuseIfReindexInFlight(shardName); err != nil {
+				errs = append(errs, fmt.Errorf("%s/%s: %w", nodeName, c, err))
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return stderrors.Join(errs...)
 	}
 	return nil
 }
@@ -284,9 +320,11 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 				return err
 			}
 			if sd != nil {
-				mu.Lock()
-				shards[name] = sd
-				mu.Unlock()
+				func() {
+					mu.Lock()
+					defer mu.Unlock()
+					shards[name] = sd
+				}()
 			}
 			return nil
 		})
@@ -397,6 +435,10 @@ func (i *Index) backupInactiveShardWithHardlinks(name string, sd *backup.ShardDe
 			return errShardNoLocalData
 		}
 		return fmt.Errorf("stat shard dir: %w", err)
+	}
+
+	if err := i.refuseIfReindexInFlight(name); err != nil {
+		return err
 	}
 
 	files, err := i.listInactiveShardFiles(name, sd)
@@ -606,6 +648,10 @@ func (i *Index) backupInactiveShardWithoutHardlinks(name string, sd *backup.Shar
 			return errShardNoLocalData
 		}
 		return fmt.Errorf("stat shard dir: %w", err)
+	}
+
+	if err := i.refuseIfReindexInFlight(name); err != nil {
+		return err
 	}
 
 	files, err := i.listInactiveShardFiles(name, sd)

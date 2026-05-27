@@ -199,13 +199,14 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 
 	for _, propertyWithBoost := range params.Properties {
 		property := propertyWithBoost
-		propBoost := 1
+		propBoost := float32(1)
 		if strings.Contains(propertyWithBoost, "^") {
 			property = strings.Split(propertyWithBoost, "^")[0]
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
-			propBoost, _ = strconv.Atoi(boostStr)
+			boost, _ := strconv.ParseFloat(boostStr, 32)
+			propBoost = float32(boost)
 		}
-		propertyBoosts[property] = float32(propBoost)
+		propertyBoosts[property] = propBoost
 
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {

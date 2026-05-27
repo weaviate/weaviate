@@ -31,6 +31,7 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/restrictions"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -70,6 +71,7 @@ type schemaHandlers struct {
 	metricRequestsTotal restApiRequestsTotal
 	reindexTaskLister   reindexInFlightChecker
 	reindexSubmitLocks  reindexSubmitLockProvider
+	namespacesEnabled   bool
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -84,13 +86,17 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 			return schema.NewSchemaObjectsCreateTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
 		}
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsCreateUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewSchemaObjectsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(principal, err))
 		}
 	}
 
@@ -109,14 +115,18 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 		if errors.Is(err, schemaUC.ErrNotFound) {
 			return schema.NewSchemaObjectsUpdateNotFound()
 		}
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewSchemaObjectsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(principal, err))
 		}
 	}
 
@@ -134,13 +144,13 @@ func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsGetForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewSchemaObjectsGetUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewSchemaObjectsGetInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -160,9 +170,9 @@ func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, pr
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaObjectsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaObjectsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -177,13 +187,17 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	_, _, err := s.manager.AddClassProperty(ctx, principal, params.ClassName, false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
+		if v, ok := restrictions.AsViolation(err); ok {
+			return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
+				WithPayload(newRestrictionViolationPayload(v))
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsPropertiesAddForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewSchemaObjectsPropertiesAddUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(restrictionViolationFromErr(principal, err))
 		}
 	}
 
@@ -195,6 +209,15 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+
+	// Conflict check and submit lock key on the qualified class (the reindex-task
+	// key); the manager delete call qualifies internally, so it gets the raw name.
+	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
+	if qErr != nil {
+		s.metricRequestsTotal.logError(params.ClassName, qErr)
+		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, qErr))
+	}
 
 	// Serialize with the reindex-submit REST handler on the same
 	// (collection, property) tuple. Without this lock, a parallel
@@ -213,7 +236,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// nil-safe: reindexSubmitLocks is wired in production but may be
 	// nil in unit tests that construct schemaHandlers directly.
 	if s.reindexSubmitLocks != nil {
-		lock := s.reindexSubmitLocks.SubmitLockFor(params.ClassName, params.PropertyName)
+		lock := s.reindexSubmitLocks.SubmitLockFor(qualifiedClass, params.PropertyName)
 		lock.Lock()
 		defer lock.Unlock()
 	}
@@ -225,10 +248,10 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// UpdateProperty apply ([MutationGuard]) still closes the
 	// multi-node race that this per-node check cannot — they are
 	// complementary, not redundant.
-	if conflict := s.checkReindexConflictForPropertyMutation(ctx, params.ClassName, params.PropertyName); conflict != "" {
+	if conflict := s.checkReindexConflictForPropertyMutation(ctx, qualifiedClass, params.PropertyName); conflict != "" {
 		s.metricRequestsTotal.logError(params.ClassName, fmt.Errorf("reindex conflict: %s", conflict))
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("%s", conflict)))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("%s", conflict)))
 	}
 
 	err := s.manager.DeleteClassPropertyIndex(ctx, principal, params.ClassName, params.PropertyName, params.IndexName)
@@ -237,10 +260,10 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -330,16 +353,16 @@ func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVecto
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsVectorsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, schemaUC.ErrNotFound):
 			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, schemaUC.ErrValidation):
 			return schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewSchemaObjectsVectorsDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -354,9 +377,9 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaDumpForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
-			return schema.NewSchemaDumpForbidden().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaDumpForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -392,10 +415,10 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsShardsGetForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewSchemaObjectsShardsGetNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -416,10 +439,10 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewSchemaObjectsShardsGetForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -444,10 +467,10 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewTenantsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -466,10 +489,10 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewTenantsUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -488,10 +511,10 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewTenantsDeleteUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -509,10 +532,10 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsGetForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewTenantsGetUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -533,21 +556,21 @@ func (s *schemaHandlers) getTenant(
 		}
 		if errors.Is(err, schemaUC.ErrUnexpectedMultiple) {
 			return schema.NewTenantsGetOneInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantsGetOneForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewTenantsGetOneUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 	if tenant == nil {
 		s.metricRequestsTotal.logUserError(params.ClassName)
 		return schema.NewTenantsGetOneUnprocessableEntity().
-			WithPayload(errPayloadFromSingleErr(fmt.Errorf("tenant '%s' not found when it should have been", params.TenantName)))
+			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("tenant '%s' not found when it should have been", params.TenantName)))
 	}
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewTenantsGetOneOK().WithPayload(tenant)
@@ -563,22 +586,24 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewTenantExistsForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return schema.NewTenantExistsUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
+	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
 	h := &schemaHandlers{
 		manager:             manager,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
+		namespacesEnabled:   namespacesEnabled,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.

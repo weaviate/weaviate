@@ -22,12 +22,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallToolRequest, args GetCollectionConfigArgs) (*GetCollectionConfigResp, error) {
+func (r *WeaviateReader) GetCollectionConfig(ctx context.Context, req mcp.CallToolRequest, args GetCollectionConfigArgs) (resp *GetCollectionConfigResp, retErr error) {
 	// Authorize the request
 	principal, err := r.Authorize(ctx, req, authorization.READ)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 
 	// Resolve only the specific-name branch: the list-all branch returns
 	// whatever GetConsistentSchema (RBAC-filtered) yields, so there is no

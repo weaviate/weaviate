@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -720,6 +721,87 @@ func TestNamespaces_GRPC(t *testing.T) {
 	})
 }
 
+// TestNamespaces_GRPC_QueryProfile checks that a namespaced caller never sees
+// its own "<namespace>:" prefix in the per-shard query_profile. The shard ID
+// (shard.ID()) embeds the qualified class name, so the raw profile Name is
+// "customer1:moviesgrpcprofile_<shard>"; the replier strips the prefix via
+// namespacing.StripOwnNamespace, the same helper used for target_collection.
+func TestNamespaces_GRPC_QueryProfile(t *testing.T) {
+	user1Key, user2Key := twoNamespaces(t)
+
+	grpcClient, conn := newGrpcClient(t)
+	defer conn.Close()
+
+	const class = "MoviesGRPCProfile"
+	setupClassInBothNamespaces(t, class, user1Key, user2Key)
+
+	// Seed one row in ns1 so a shard is actually searched and profiled.
+	_, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
+		Objects: []*pb.BatchObject{{
+			Uuid:       strfmt.UUID("11111111-aaaa-aaaa-aaaa-111111111111").String(),
+			Collection: class,
+			Properties: &pb.BatchObject_Properties{NonRefProperties: &structpb.Struct{
+				Fields: map[string]*structpb.Value{"title": structpb.NewStringValue("matrix")},
+			}},
+		}},
+	})
+	require.NoError(t, err)
+
+	// BM25 keyword search exercises a profiled shard-search path; query_profile
+	// asks for the per-shard breakdown in the reply.
+	profReq := func(collection string) *pb.SearchRequest {
+		r := searchReq(collection, 10)
+		r.Bm25Search = &pb.BM25{Query: "matrix", Properties: []string{"title"}}
+		r.Metadata = &pb.MetadataRequest{QueryProfile: true}
+		return r
+	}
+
+	t.Run("namespaced caller must not see its namespace prefix in the profile", func(t *testing.T) {
+		resp, err := grpcClient.Search(authCtx(user1Key), profReq(class))
+		require.NoError(t, err)
+		require.NotNil(t, resp.QueryProfile, "expected query_profile to be populated")
+		require.NotEmpty(t, resp.QueryProfile.Shards)
+		// Scan every string field of the profile, not just shard Name: the
+		// prefix must not surface anywhere a future detail could embed a
+		// qualified name (search-type keys, detail keys, detail values).
+		notLeak := func(field, val string) {
+			assert.NotContainsf(t, val, "customer1:",
+				"query_profile leaks the caller's namespace prefix via %s: %q", field, val)
+		}
+		for _, sh := range resp.QueryProfile.Shards {
+			notLeak("shard name", sh.Name)
+			notLeak("shard node", sh.Node)
+			for searchType, sp := range sh.Searches {
+				notLeak("search type", searchType)
+				for k, v := range sp.Details {
+					notLeak("detail key", k)
+					notLeak("detail value", v)
+				}
+			}
+		}
+	})
+
+	t.Run("global admin keeps the raw profile (raw mode)", func(t *testing.T) {
+		// Admin has no namespace, so it keeps the raw internal names: at least
+		// one shard name must still carry the qualified "customer1:" prefix.
+		// This is the positive control for the stripping above — without it a
+		// regression that strips global names too would go unnoticed.
+		resp, err := grpcClient.Search(authCtx(adminKey), profReq("customer1:"+class))
+		require.NoError(t, err)
+		require.NotNil(t, resp.QueryProfile)
+		require.NotEmpty(t, resp.QueryProfile.Shards)
+		hasPrefix := false
+		for _, sh := range resp.QueryProfile.Shards {
+			if strings.Contains(sh.Name, "customer1:") {
+				hasPrefix = true
+			}
+		}
+		assert.True(t, hasPrefix,
+			"admin should see the raw qualified shard name with the customer1: prefix, got %v",
+			resp.QueryProfile.Shards)
+	})
+}
+
 // TestNamespaces_GRPC_RemoteShardAggregate exercises the count(*) fan-out
 // hop when the namespace's home_node differs from the gRPC entry node.
 // The namespace is pinned to a node that is provably not the gRPC entry
@@ -774,4 +856,46 @@ func TestNamespaces_GRPC_RemoteShardAggregate(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, aggResp.GetSingleResult())
 	assert.Equal(t, int64(objCount), aggResp.GetSingleResult().GetObjectsCount())
+}
+
+// TestNamespaces_GRPC_BatchAutoSchema guards the gRPC batch + auto-schema path
+// for a namespaced principal: the class does not exist yet, so the handler must
+// qualify the object's collection so the auto-created collection and the write
+// agree on the qualified name.
+func TestNamespaces_GRPC_BatchAutoSchema(t *testing.T) {
+	user1Key, _ := twoNamespaces(t)
+
+	grpcClient, conn := newGrpcClient(t)
+	defer conn.Close()
+
+	const class = "GrpcAutoSchema"
+	t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+class, adminKey) })
+
+	id := strfmt.UUID("99999999-aaaa-bbbb-cccc-999999999999")
+	resp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
+		Objects: []*pb.BatchObject{{
+			Uuid:       id.String(),
+			Collection: class,
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"title": structpb.NewStringValue("Inception"),
+					},
+				},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Empty(t, resp.Errors)
+
+	// Read-back by short name proves the object landed under the qualified collection.
+	got, err := helper.GetObjectAuth(t, class, id, user1Key)
+	require.NoError(t, err)
+	assert.Equal(t, class, got.Class)
+	assert.Equal(t, "Inception", got.Properties.(map[string]any)["title"])
+
+	// Admin's raw view confirms auto-schema created a single-qualified class.
+	gotClass := helper.GetClassAuth(t, "customer1:"+class, adminKey)
+	assert.Equal(t, "customer1:"+class, gotClass.Class)
 }

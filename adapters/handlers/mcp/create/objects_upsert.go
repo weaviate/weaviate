@@ -18,11 +18,13 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/sirupsen/logrus"
+	mcpmetrics "github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequest, args UpsertObjectArgs) (*UpsertObjectResp, error) {
+func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequest, args UpsertObjectArgs) (resp *UpsertObjectResp, retErr error) {
 	log := c.logger.WithFields(logrus.Fields{
 		"tool":       "weaviate-objects-upsert",
 		"collection": args.CollectionName,
@@ -34,7 +36,9 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	// MCP_SERVER_WRITE_ACCESS_ENABLED runtime override. When disabled,
 	// reject the call even though the tool is still registered.
 	if !c.IsWriteAccessEnabled() {
-		return nil, fmt.Errorf("MCP write access is disabled; to enable, either set MCP_SERVER_WRITE_ACCESS_ENABLED=true (requires restart) or set mcp_server_write_access_enabled: true in the runtime overrides YAML (no restart needed)")
+		return nil, fmt.Errorf("%w: to enable, either set MCP_SERVER_WRITE_ACCESS_ENABLED=true "+
+			"(requires restart) or set mcp_server_write_access_enabled: true in the runtime "+
+			"overrides YAML (no restart needed)", mcpmetrics.ErrWriteDisabled)
 	}
 
 	// Authorize MCP-level CREATE and UPDATE permissions (upsert requires both).
@@ -47,6 +51,7 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	if _, err := c.Authorize(ctx, req, authorization.UPDATE); err != nil {
 		return nil, err
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 
 	// Validate that we have at least one object
 	if len(args.Objects) == 0 {
@@ -97,7 +102,7 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	for i, result := range batchResults {
 		if result.Err != nil {
 			results[i] = UpsertObjectResult{
-				Error: result.Err.Error(),
+				Error: namespacing.StripErrorMessage(principal, result.Err.Error()),
 			}
 		} else {
 			results[i] = UpsertObjectResult{

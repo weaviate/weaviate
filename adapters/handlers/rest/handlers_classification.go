@@ -37,7 +37,7 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 			if namespacesEnabled {
 				metricRequestsTotal.logUserError("")
 				return classifications.NewClassificationsGetGone().
-					WithPayload(errPayloadFromSingleErr(fmt.Errorf("classifications are not supported in the current cluster configuration")))
+					WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("classifications are not supported in the current cluster configuration")))
 			}
 			res, err := classifier.Get(params.HTTPRequest.Context(), principal, strfmt.UUID(params.ID))
 			if err != nil {
@@ -46,9 +46,9 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 				switch {
 				case errors.As(err, &forbidden):
 					return classifications.NewClassificationsGetForbidden().
-						WithPayload(errPayloadFromSingleErr(err))
+						WithPayload(errPayloadFromSingleErr(principal, err))
 				default:
-					return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(err))
+					return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(principal, err))
 				}
 			}
 
@@ -67,7 +67,7 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 			if namespacesEnabled {
 				metricRequestsTotal.logUserError("")
 				return classifications.NewClassificationsPostGone().
-					WithPayload(errPayloadFromSingleErr(fmt.Errorf("classifications are not supported in the current cluster configuration")))
+					WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("classifications are not supported in the current cluster configuration")))
 			}
 			res, err := classifier.Schedule(params.HTTPRequest.Context(), principal, *params.Params)
 			if err != nil {
@@ -77,9 +77,9 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 				switch {
 				case errors.As(err, &forbidden):
 					return classifications.NewClassificationsPostForbidden().
-						WithPayload(errPayloadFromSingleErr(err))
+						WithPayload(errPayloadFromSingleErr(principal, err))
 				default:
-					return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(err))
+					return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(principal, err))
 				}
 			}
 

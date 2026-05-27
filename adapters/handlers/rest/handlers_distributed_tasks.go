@@ -45,7 +45,7 @@ func (h *distributedTasksHandlers) getTasks(params distributed_tasks.Distributed
 			return distributed_tasks.NewDistributedTasksGetForbidden()
 		}
 		return nodes.NewNodesGetClassInternalServerError().
-			WithPayload(errPayloadFromSingleErr(err))
+			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	return distributed_tasks.NewDistributedTasksGetOK().WithPayload(tasks)

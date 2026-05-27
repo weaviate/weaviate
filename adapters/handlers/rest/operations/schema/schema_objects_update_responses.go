@@ -197,7 +197,7 @@ type SchemaObjectsUpdateUnprocessableEntity struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.ErrorResponse `json:"body,omitempty"`
+	Payload *models.RestrictionViolationResponse `json:"body,omitempty"`
 }
 
 // NewSchemaObjectsUpdateUnprocessableEntity creates SchemaObjectsUpdateUnprocessableEntity with default headers values
@@ -207,13 +207,13 @@ func NewSchemaObjectsUpdateUnprocessableEntity() *SchemaObjectsUpdateUnprocessab
 }
 
 // WithPayload adds the payload to the schema objects update unprocessable entity response
-func (o *SchemaObjectsUpdateUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *SchemaObjectsUpdateUnprocessableEntity {
+func (o *SchemaObjectsUpdateUnprocessableEntity) WithPayload(payload *models.RestrictionViolationResponse) *SchemaObjectsUpdateUnprocessableEntity {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the schema objects update unprocessable entity response
-func (o *SchemaObjectsUpdateUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+func (o *SchemaObjectsUpdateUnprocessableEntity) SetPayload(payload *models.RestrictionViolationResponse) {
 	o.Payload = payload
 }
 

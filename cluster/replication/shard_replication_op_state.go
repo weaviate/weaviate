@@ -91,6 +91,10 @@ type ShardReplicationOpStatus struct {
 	// By communicating it with remote nodes, we can ensure that they will wait for the schema version to be the same or greater before proceeding with the operation.
 	SchemaVersion uint64
 
+	// Highest state each peer has applied for this op. Read by the consumer's
+	// local convergence wait. nil on pre-upgrade snapshots.
+	PerNodeState map[string]api.ShardReplicationState
+
 	// Current is the current state of the shard replication operation
 	Current State
 

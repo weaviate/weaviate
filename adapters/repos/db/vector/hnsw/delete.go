@@ -720,47 +720,50 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 
 	h.metrics.TombstoneFindGlobalEntrypoint()
 
-	for l := targetLevel; l >= 0; l-- {
-		// ideally we can find a new entrypoint at the same level of the
-		// to-be-deleted node. However, there is a chance it was the only node on
-		// that level, in that case we need to look at the next lower level for a
-		// better candidate
+	// First pass: find the node with the highest level that is not in the denyList.
+	// This handles cases where nodes may have higher levels than both targetLevel
+	// and currentMaximumLayer (e.g., due to corrupt commit log replay or
+	// deserialization bugs).
+	h.RLock()
+	maxNodes := len(h.nodes)
+	h.RUnlock()
 
-		h.RLock()
-		maxNodes := len(h.nodes)
-		h.RUnlock()
+	bestCandidate := uint64(0)
+	bestLevel := -1
+	foundCandidate := false
 
-		for i := 0; i < maxNodes; i++ {
-			if h.getEntrypoint() != oldEntrypoint {
-				// entrypoint has already been changed (this could be due to a new import
-				// for example, nothing to do for us
-				return 0, 0, false
-			}
-
-			if denyList.Contains(uint64(i)) {
-				continue
-			}
-
-			h.shardedNodeLocks.RLock(uint64(i))
-			candidate := h.nodes[i]
-			h.shardedNodeLocks.RUnlock(uint64(i))
-
-			if candidate == nil {
-				continue
-			}
-
-			candidate.Lock()
-			candidateLevel := candidate.level
-			candidate.Unlock()
-
-			if candidateLevel != l {
-				// not reaching up to the current level, skip in hope of finding another candidate
-				continue
-			}
-
-			// we have a node that matches
-			return uint64(i), l, true
+	for i := 0; i < maxNodes; i++ {
+		if h.getEntrypoint() != oldEntrypoint {
+			// entrypoint has already been changed (this could be due to a new import
+			// for example, nothing to do for us
+			return 0, 0, false
 		}
+
+		if denyList.Contains(uint64(i)) {
+			continue
+		}
+
+		h.shardedNodeLocks.RLock(uint64(i))
+		candidate := h.nodes[i]
+		h.shardedNodeLocks.RUnlock(uint64(i))
+
+		if candidate == nil {
+			continue
+		}
+
+		candidate.Lock()
+		candidateLevel := candidate.level
+		candidate.Unlock()
+
+		if candidateLevel > bestLevel {
+			bestCandidate = uint64(i)
+			bestLevel = candidateLevel
+			foundCandidate = true
+		}
+	}
+
+	if foundCandidate {
+		return bestCandidate, bestLevel, true
 	}
 
 	if h.isEmpty() {

@@ -30,12 +30,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (*QueryHybridResp, error) {
+func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (resp *QueryHybridResp, retErr error) {
 	// Authorize the request: first check MCP-level permission, then collection-level data permission
 	principal, err := s.Authorize(ctx, req, authorization.READ)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 
 	resolved, _, err := namespacing.Resolve(principal, s.schemaManager, s.namespacesEnabled, args.CollectionName)
 	if err != nil {

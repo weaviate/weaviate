@@ -28,18 +28,29 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-// start3NodeReindexCluster spins up a 3-node cluster with DTM enabled and the
-// reindex provider automatically registered.
-func start3NodeReindexCluster(ctx context.Context, t *testing.T) (*docker.DockerCompose, func()) {
+// start3NodeReindexCluster spins up a 3-node cluster with DTM enabled
+// and the reindex provider automatically registered. Optional
+// `extraEnv` pairs (key, value, key, value, …) are applied on top so a
+// test that needs e.g. USE_INVERTED_SEARCHABLE=false can opt in without
+// changing the package-wide default — tests that exercise BlockMax-
+// based code paths (change-tokenization, etc.) keep the production
+// default.
+func start3NodeReindexCluster(ctx context.Context, t *testing.T, extraEnv ...string) (*docker.DockerCompose, func()) {
 	t.Helper()
+	if len(extraEnv)%2 != 0 {
+		t.Fatalf("start3NodeReindexCluster: extraEnv must be (key,value) pairs, got %d items", len(extraEnv))
+	}
 
-	compose, err := docker.New().
+	b := docker.New().
 		With3NodeCluster().
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS", "1").
 		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "true").
-		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false").
-		Start(ctx)
+		WithWeaviateEnv("MEMBERLIST_FAST_FAILURE_DETECTION", "false")
+	for i := 0; i < len(extraEnv); i += 2 {
+		b = b.WithWeaviateEnv(extraEnv[i], extraEnv[i+1])
+	}
+	compose, err := b.Start(ctx)
 	if err != nil {
 		if compose != nil {
 			dumpStartupLogs(ctx, t, compose)
@@ -129,6 +140,21 @@ func importObjects(t *testing.T, restURI, className string, texts []string) {
 	}
 }
 
+// httpGetJSON GETs url and JSON-decodes into out. Returns false on any
+// step's error so it composes cleanly inside require.Eventually polls.
+func httpGetJSON(url string, out any) bool {
+	resp, err := http.Get(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(body, out) == nil
+}
+
 // awaitReindexReachedFinalizing polls /v1/tasks until the reindex task
 // transitions into FINALIZING — i.e. every unit has completed its
 // reindex iteration on every node and the cluster is about to fire the
@@ -145,17 +171,8 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 	t.Helper()
 	var observed string
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
-		}
 		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
+		if !httpGetJSON(fmt.Sprintf("http://%s/v1/tasks", restURI), &tasks) {
 			return false
 		}
 		for _, task := range tasks["reindex"] {
@@ -181,6 +198,75 @@ func awaitReindexReachedFinalizing(t *testing.T, restURI, taskID string) string 
 	}, 240*time.Second, 200*time.Millisecond,
 		"reindex task %s should reach FINALIZING (or FINISHED) within 240s", taskID)
 	return observed
+}
+
+// Fails the test if the migration ends before reaching STARTED + at
+// least one IN_PROGRESS unit (weaviate/0-weaviate-issues#239
+// anti-vacuous-pass). Status IN_PROGRESS — not a numeric Progress
+// floor — is the signal: the DTM ThrottledRecorder (3 s window) means
+// fast units may only emit one progress=0 update before COMPLETED, so
+// asserting on a non-zero floor flakes on fast CI runners.
+func awaitReindexMidFlight(t *testing.T, restURI, taskID string, timeout time.Duration) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		var tasks models.DistributedTasks
+		if !httpGetJSON(fmt.Sprintf("http://%s/v1/tasks", restURI), &tasks) {
+			return false
+		}
+		for _, task := range tasks["reindex"] {
+			if task.ID != taskID {
+				continue
+			}
+			if task.Status == "FAILED" {
+				t.Fatalf("reindex task %s failed before mid-flight check: %s", taskID, task.Error)
+			}
+			if task.Status == "FINISHED" || task.Status == "PREPARING" || task.Status == "SWAPPING" {
+				t.Fatalf("reindex task %s reached %s before mid-flight check — "+
+					"dataset too small for the iteration window. Bump totalObjects.",
+					taskID, task.Status)
+			}
+			if task.Status != "STARTED" {
+				return false
+			}
+			for _, u := range task.Units {
+				if u.Status == "IN_PROGRESS" {
+					return true
+				}
+			}
+			return false
+		}
+		return false
+	}, timeout, 200*time.Millisecond,
+		"reindex task %s should have at least one IN_PROGRESS unit within %s",
+		taskID, timeout)
+}
+
+func raftLeaderIndex(t *testing.T, compose *docker.DockerCompose) int {
+	t.Helper()
+	var leaderName string
+	require.Eventually(t, func() bool {
+		var stats models.ClusterStatisticsResponse
+		if !httpGetJSON(fmt.Sprintf("http://%s/v1/cluster/statistics", restURIOf(compose, 1)), &stats) {
+			return false
+		}
+		for _, s := range stats.Statistics {
+			if s.LeaderID == nil {
+				continue
+			}
+			if name, ok := s.LeaderID.(string); ok && name != "" {
+				leaderName = name
+				return true
+			}
+		}
+		return false
+	}, 30*time.Second, 200*time.Millisecond, "/v1/cluster/statistics should report a leader")
+	for idx, name := range []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2} {
+		if name == leaderName {
+			return idx
+		}
+	}
+	t.Fatalf("leader name %q does not match any of weaviate-{0,1,2}", leaderName)
+	return -1
 }
 
 // runBM25QueryOnNode executes a BM25 query against a specific node and returns object IDs.
@@ -676,8 +762,8 @@ func runMigrationWithProbes(
 	samples := make([]probeSample, 0, 1024)
 	record := func(s probeSample) {
 		samplesMu.Lock()
+		defer samplesMu.Unlock()
 		samples = append(samples, s)
-		samplesMu.Unlock()
 	}
 
 	stopCh := make(chan struct{})

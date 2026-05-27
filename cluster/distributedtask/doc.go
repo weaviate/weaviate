@@ -164,8 +164,9 @@
 //
 // Unit progress updates go through Raft consensus. To prevent flooding the log,
 // the [Scheduler] wraps the [TaskCompletionRecorder] in a [ThrottledRecorder] that
-// forwards progress for each unit at most once per 30 seconds. Completion and
-// failure calls are never throttled.
+// forwards progress for each unit at most once per [DefaultThrottleInterval]
+// (3 seconds, see the constant's godoc for the rationale). Completion and failure
+// calls are never throttled.
 //
 // # Adding a new task type
 //

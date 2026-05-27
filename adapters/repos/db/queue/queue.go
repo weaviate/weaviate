@@ -523,7 +523,7 @@ func (q *DiskQueue) ForceSwitch(ctx context.Context, basePath string) ([]string,
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	// if the writer is nil, the queue is is not initialized
+	// if the writer is nil, the queue is not initialized
 	if q.w == nil {
 		return nil, nil
 	}

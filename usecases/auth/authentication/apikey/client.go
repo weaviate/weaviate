@@ -56,10 +56,15 @@ func (c *StaticApiKey) validateConfig() error {
 		return fmt.Errorf("need at least one valid allowed key")
 	}
 
+	seenKeys := make(map[string]struct{}, len(c.config.AllowedKeys))
 	for _, key := range c.config.AllowedKeys {
 		if len(key) == 0 {
 			return fmt.Errorf("keys cannot have length 0")
 		}
+		if _, ok := seenKeys[key]; ok {
+			return fmt.Errorf("keys must be unique")
+		}
+		seenKeys[key] = struct{}{}
 	}
 
 	if len(c.config.Users) < 1 {

@@ -95,7 +95,7 @@ func TestGetTenants_PassThrough(t *testing.T) {
 				return tc.principal, nil
 			}
 			authz := &recordingAuthorizer{}
-			authHandler := auth.NewAuth(false, composer, authz)
+			authHandler := auth.NewAuth(false, composer, authz, nil)
 			reader := &recordingTenantsReader{}
 			logger, _ := test.NewNullLogger()
 			r := NewWeaviateReader(

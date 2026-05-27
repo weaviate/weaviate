@@ -166,6 +166,16 @@ func Test_APIKeyClient(t *testing.T) {
 			expectConfigErr:    true,
 			expectConfigErrMsg: "length of users and keys must match, alternatively provide single user for all keys",
 		},
+		{
+			name: "duplicate keys",
+			config: config.StaticAPIKey{
+				Enabled:     true,
+				AllowedKeys: []string{"secret-key", "secret-key"},
+				Users:       []string{"jane", "jessica"},
+			},
+			expectConfigErr:    true,
+			expectConfigErrMsg: "keys must be unique",
+		},
 	}
 
 	for _, test := range tests {

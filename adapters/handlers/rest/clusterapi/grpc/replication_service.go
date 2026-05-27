@@ -269,6 +269,90 @@ func (s *ReplicationService) CountObjects(ctx context.Context, req *pb.CountObje
 	return &pb.CountObjectsResponse{Count: int32(count)}, nil
 }
 
+// ── Async-checkpoint operations ──────────────────────────────────────────────
+
+// asyncCheckpointErrorToGRPC keeps gRPC status codes in sync with asyncCheckpointHTTPStatus.
+func asyncCheckpointErrorToGRPC(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, replica.ErrAsyncCheckpointStale):
+		return status.Errorf(codes.AlreadyExists, "%v", err)
+	case errors.Is(err, replica.ErrAsyncReplicationNotActive):
+		return status.Errorf(codes.FailedPrecondition, "%v", err)
+	}
+	return status.Errorf(codes.Internal, "%v", err)
+}
+
+// CreateAsyncCheckpoint expects created_at_unix_milli from the initiator (convergence tie-breaker).
+func (s *ReplicationService) CreateAsyncCheckpoint(ctx context.Context, req *pb.CreateAsyncCheckpointRequest) (*pb.CreateAsyncCheckpointResponse, error) {
+	if len(req.GetShards()) > replica.AsyncCheckpointMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"too many shards in request (%d > %d)",
+			len(req.GetShards()), replica.AsyncCheckpointMaxShardsPerRequest)
+	}
+	if req.GetCutoffMs() <= 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "cutoff_ms must be > 0")
+	}
+	if req.GetCreatedAtUnixMilli() <= 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "created_at_unix_milli must be > 0")
+	}
+	createdAt := time.UnixMilli(req.GetCreatedAtUnixMilli()).UTC()
+	// Past values are fine (tie-breaker handles them); reject only far-future skew.
+	if skew := time.Until(createdAt); skew > replica.AsyncCheckpointCreatedAtSkewTolerance {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"created_at_unix_milli is too far in the future (%s ahead of this node's clock; tolerance %s)",
+			skew.Truncate(time.Second), replica.AsyncCheckpointCreatedAtSkewTolerance)
+	}
+	if err := s.server.CreateAsyncCheckpoint(ctx, req.GetIndex(), req.GetShards(), req.GetCutoffMs(), createdAt); err != nil {
+		return nil, asyncCheckpointErrorToGRPC(err)
+	}
+	return &pb.CreateAsyncCheckpointResponse{}, nil
+}
+
+func (s *ReplicationService) DeleteAsyncCheckpoint(ctx context.Context, req *pb.DeleteAsyncCheckpointRequest) (*pb.DeleteAsyncCheckpointResponse, error) {
+	if len(req.GetShards()) > replica.AsyncCheckpointMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"too many shards in request (%d > %d)",
+			len(req.GetShards()), replica.AsyncCheckpointMaxShardsPerRequest)
+	}
+	if err := s.server.DeleteAsyncCheckpoint(ctx, req.GetIndex(), req.GetShards()); err != nil {
+		return nil, asyncCheckpointErrorToGRPC(err)
+	}
+	return &pb.DeleteAsyncCheckpointResponse{}, nil
+}
+
+// GetAsyncCheckpointStatus omits shards not hosted on this node so entry
+// presence distinguishes "loaded but inactive" from "not on this node".
+func (s *ReplicationService) GetAsyncCheckpointStatus(ctx context.Context, req *pb.GetAsyncCheckpointStatusRequest) (*pb.GetAsyncCheckpointStatusResponse, error) {
+	if len(req.GetShards()) > replica.AsyncCheckpointMaxShardsPerRequest {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"too many shards in request (%d > %d)",
+			len(req.GetShards()), replica.AsyncCheckpointMaxShardsPerRequest)
+	}
+	statuses, err := s.server.GetAsyncCheckpointStatus(ctx, req.GetIndex(), req.GetShards())
+	if err != nil {
+		return nil, asyncCheckpointErrorToGRPC(err)
+	}
+	out := make(map[string]*pb.AsyncCheckpointShardStatus, len(statuses))
+	for shard, st := range statuses {
+		rootBytes, _ := st.Root.MarshalBinary()
+		// Inactive shards: Root=nil + CreatedAtUnixMilli=0, to avoid the negative time.Time{}.UnixMilli() value.
+		createdAtMs := st.CreatedAt.UnixMilli()
+		if st.CutoffMs == 0 {
+			rootBytes = nil
+			createdAtMs = 0
+		}
+		out[shard] = &pb.AsyncCheckpointShardStatus{
+			Root:               rootBytes,
+			CutoffMs:           st.CutoffMs,
+			CreatedAtUnixMilli: createdAtMs,
+		}
+	}
+	return &pb.GetAsyncCheckpointStatusResponse{Statuses: out}, nil
+}
+
 func simpleResponseToProto(r *replica.SimpleResponse) *pb.SimpleReplicaResponse {
 	if r == nil {
 		return &pb.SimpleReplicaResponse{}

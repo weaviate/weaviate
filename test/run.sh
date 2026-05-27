@@ -13,6 +13,7 @@ function main() {
   run_acceptance_only_authz=false
   run_acceptance_only_mcp=false
   run_acceptance_only_python=false
+  run_acceptance_only_python_namespaces=false
   run_acceptance_go_client=false
   run_acceptance_go_client_only_fast_group_1=false
   run_acceptance_go_client_only_fast_group_2=false
@@ -54,6 +55,7 @@ function main() {
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
+  run_acceptance_reindex_backup=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -70,6 +72,7 @@ function main() {
           --acceptance-only-fast-group-4|-aof-g4) run_all_tests=false; run_acceptance_only_fast_group_4=true;;
           --acceptance-distributed-tasks) run_all_tests=false; run_acceptance_distributed_tasks=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
+          --acceptance-only-python-namespaces|-aopns) run_all_tests=false; run_acceptance_only_python_namespaces=true;;
           --acceptance-go-client|-ag) run_all_tests=false; run_acceptance_go_client=true;;
           --acceptance-go-client-only-fast|-agof) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_1=true; run_acceptance_go_client_only_fast_group_2=true;;
           --acceptance-go-client-only-fast-group-1|-agof-g1) run_all_tests=false; run_acceptance_go_client=false; run_acceptance_go_client_only_fast_group_1=true;;
@@ -106,6 +109,7 @@ function main() {
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
+          --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -120,6 +124,7 @@ function main() {
               "--acceptance-only-fast-group-3 | -aof-g3"\
               "--acceptance-only-fast-group-4 | -aof-g4"\
               "--acceptance-only-python | -aop"\
+              "--acceptance-only-python-namespaces | -aopns"\
               "--acceptance-go-client | -ag"\
               "--acceptance-go-client-only-fast | -agof"\
               "--acceptance-go-client-only-fast-group-1 | -agof-g1"\
@@ -149,6 +154,7 @@ function main() {
               "--acceptance-reindex-singlenode-b | -arsb"\
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
+              "--acceptance-reindex-backup | -arb"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -232,6 +238,60 @@ function main() {
     echo_green "Python tests successful"
   fi
 
+  if $run_acceptance_only_python_namespaces
+  then
+    # Dedicated 3-node namespaces-enabled cluster on ports 8190/8191/8192
+    # (HTTP) + 50190/50191/50192 (gRPC). Kept separate from the standard
+    # docker-compose-test.yml flow because NAMESPACES_ENABLED forces
+    # DISABLE_GRAPHQL=true and REPLICATION_MAXIMUM_FACTOR=1, which the rest
+    # of the python suite isn't built to assume.
+    echo_green "acceptance — python-namespaces: building weaviate/test-server image..."
+    GIT_REVISION=$(git rev-parse --short HEAD)
+    GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    docker compose -f docker-compose-namespaces-test.yml down --remove-orphans >/dev/null 2>&1 || true
+    docker compose -f docker-compose-namespaces-test.yml build \
+      --build-arg GIT_REVISION="$GIT_REVISION" \
+      --build-arg GIT_BRANCH="$GIT_BRANCH" \
+      --build-arg EXTRA_BUILD_ARGS="-race"
+    echo_green "acceptance — python-namespaces: starting 3-node cluster..."
+    docker compose -f docker-compose-namespaces-test.yml up -d
+
+    # Poll each node's /v1/.well-known/ready. RAFT bootstrap waits on all
+    # three nodes (REPLICATION_MAXIMUM_FACTOR=1 still requires the cluster
+    # to be quorate at start), so give each a generous window.
+    for port in 8190 8191 8192; do
+      echo_green "acceptance — python-namespaces: waiting for node on :$port..."
+      ready=false
+      for _ in $(seq 1 90); do
+        if curl -sf "http://localhost:$port/v1/.well-known/ready" >/dev/null; then
+          ready=true
+          break
+        fi
+        sleep 2
+      done
+      if ! $ready; then
+        echo "python-namespaces: node on :$port did not become ready" >&2
+        docker compose -f docker-compose-namespaces-test.yml logs --tail=200 || true
+        docker compose -f docker-compose-namespaces-test.yml down --remove-orphans || true
+        exit 1
+      fi
+    done
+
+    echo_green "Run python namespace acceptance tests..."
+    set +e
+    ./test/acceptance_with_python/run.sh namespaces
+    ns_exit=$?
+    set -e
+
+    docker compose -f docker-compose-namespaces-test.yml down --remove-orphans || true
+
+    if [ $ns_exit -ne 0 ]; then
+      echo "python-namespaces tests failed" >&2
+      exit $ns_exit
+    fi
+    echo_green "Python namespace tests successful"
+  fi
+
   if $only_module; then
     mod=${only_module_value//--only-module-/}
     echo_green "Running module acceptance tests for $mod..."
@@ -270,6 +330,16 @@ function main() {
   if $run_acceptance_compaction_recovery || $run_acceptance_recovery || $run_acceptance_tests || $run_all_tests; then
     echo "running recovery acceptance tests"
     run_acceptance_recovery
+  fi
+
+  # Dispatch the dedicated --acceptance-distributed-tasks shard at the top
+  # level. Nesting inside run_acceptance_tests() silently dropped the
+  # shard because that function is gated by the big-IF a few hundred
+  # lines below, which does not include $run_acceptance_distributed_tasks.
+  if $run_acceptance_distributed_tasks; then
+    echo "running acceptance distributed_tasks"
+    build_weaviate_test_image
+    run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
 
   if $run_acceptance_reindex_multinode; then
@@ -325,6 +395,11 @@ function main() {
   if $run_acceptance_reindex_mt; then
     echo "running reindex multi-tenant acceptance tests"
     run_acceptance_reindex_mt
+  fi
+
+  if $run_acceptance_reindex_backup; then
+    echo "running backup × runtime-reindex acceptance tests"
+    run_acceptance_reindex_backup
   fi
   echo "Done!"
 }
@@ -412,8 +487,13 @@ function run_acceptance_tests() {
       run_acceptance_only_fast_group 4
     fi
   fi
-  if $run_acceptance_distributed_tasks || $run_acceptance_tests || $run_all_tests; then
-    echo "running acceptance distributed_tasks"
+  # Catch-all for --acceptance-only / --all-tests. The dedicated
+  # --acceptance-distributed-tasks shard is dispatched at the top level
+  # (search for "distributed_tasks" above); $run_acceptance_distributed_tasks
+  # is intentionally absent from this predicate.
+  if $run_acceptance_tests || $run_all_tests; then
+    echo "running acceptance distributed_tasks (via catch-all)"
+    build_weaviate_test_image
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then
@@ -690,25 +770,36 @@ function run_acceptance_reindex_multinode() {
   # IMPORTANT: when adding a new sub-shard, also add its top-level test
   # prefixes to the SKIP regex below to prevent the catch-all from
   # double-running the same tests.
-  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
+  AOF_GROUP_SKIP='TestMultiNode_ChangeTokenization_AJ_|TestMultiNode_RestartMatrix|TestMultiNode_(Rolling|Graceful|Crash|MajorityCrash|UngracefulStop|PostRestartMigration)|TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)|TestMultiNode_ChangeTokenization_|TestMultiNode_BackToBackChangeTokenization|TestLiveQueriesDuringChangeTokenization|TestPartialResultsDuringChangeTokenization' \
     run_aof_group "reindex-multinode" test/acceptance/reindex_multinode
 }
 
 function run_acceptance_reindex_multinode_restart_a() {
   build_weaviate_test_image
   echo_green "acceptance — reindex-multinode-restart-a (mid-reindex restarts + post-complete rolling)"
-  # 4 tests:
+  # 7 tests:
   #   TestMultiNode_GracefulRestartDuringReindex
+  #   TestMultiNode_GracefulLeaderRestartDuringReindex
   #   TestMultiNode_CrashDuringReindex
   #   TestMultiNode_MajorityCrashDuringReindex
   #   TestMultiNode_RollingRestartAfterComplete
+  #   TestMultiNode_RollingRestartMidMigration
+  #   TestMultiNode_RollingRestartBetweenMigrations
   #
   # The "restart-during-active-reindex" + "post-complete rolling"
   # bucket. Each test owns its own cluster lifecycle (restart timing
   # IS the journey), so these cannot be folded onto a shared cluster
   # the way the AJ suite can. The split below balances the wall-clock
   # against -restart-b instead.
-  AOF_GROUP_RUN='TestMultiNode_(GracefulRestartDuringReindex|CrashDuringReindex|MajorityCrashDuringReindex|RollingRestartAfterComplete)' \
+  #
+  # Regex caveat: alternation is by exact name. Earlier the filter
+  # had `GracefulRestartDuringReindex` which did NOT match
+  # `GracefulLeaderRestartDuringReindex` — a false-green CI ran for
+  # multiple commits before this gap was caught. Same family caught
+  # `RollingRestartMidMigration` + `RollingRestartBetweenMigrations`
+  # un-claimed by any sub-shard; both are PASSING on main and now
+  # land in this filter.
+  AOF_GROUP_RUN='TestMultiNode_(GracefulRestartDuringReindex|GracefulLeaderRestartDuringReindex|CrashDuringReindex|MajorityCrashDuringReindex|RollingRestartAfterComplete|RollingRestartMidMigration|RollingRestartBetweenMigrations)' \
     run_aof_group "reindex-multinode-restart-a" test/acceptance/reindex_multinode
 }
 
@@ -737,7 +828,7 @@ function run_acceptance_reindex_multinode_scale() {
   # test in the whole package (PostRestartReapplyMigrations_ExactCounts
   # AcrossReplicas, 135s) lives here so it's amortised against the
   # smaller orchestration tests.
-  AOF_GROUP_RUN='TestMultiNode_(HappyPath|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
+  AOF_GROUP_RUN='TestMultiNode_(HappyPath|QueryConsistencyDuringReindex|ConcurrentDifferentMigrations|EnableRangeable_NoPartialCountsInFlight|RepeatedParallelMigrationJourney|PostRestartReapplyMigrations)' \
     run_aof_group "reindex-multinode-scale" test/acceptance/reindex_multinode
 }
 
@@ -834,6 +925,13 @@ function run_acceptance_reindex_mt() {
   # gated on this suite's duration.
   run_aof_group "reindex-mt" \
     test/acceptance/reindex_mt
+}
+
+function run_acceptance_reindex_backup() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup"
+  run_aof_group "reindex-backup" \
+    test/acceptance/reindex_backup
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

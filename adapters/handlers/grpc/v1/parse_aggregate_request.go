@@ -29,12 +29,14 @@ import (
 type AggregateParser struct {
 	authorizedGetClass classGetterWithAuthzFunc
 	namespacesEnabled  bool
+	principal          *models.Principal
 }
 
-func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool) *AggregateParser {
+func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool, principal *models.Principal) *AggregateParser {
 	return &AggregateParser{
 		authorizedGetClass: authorizedGetClass,
 		namespacesEnabled:  namespacesEnabled,
+		principal:          principal,
 	}
 }
 
@@ -78,7 +80,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.namespacesEnabled)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant, p.namespacesEnabled, p.principal)
 		if err != nil {
 			return nil, fmt.Errorf("extract filters: %w", err)
 		}

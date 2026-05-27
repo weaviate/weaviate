@@ -87,7 +87,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:     "List",
-			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc")},
+			additionalArgs: []interface{}{"filesystem", func(s string) *string { return &s }("desc"), false},
 			classes:        []string{"ABC"},
 			ignoreAuthZ:    true,
 		},

@@ -12,6 +12,7 @@
 package namespace
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,18 @@ func addPropertyAuth(t *testing.T, className string, prop *models.Property, key 
 		WithBody(prop)
 	_, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(params, helper.CreateAuth(key))
 	return err
+}
+
+func addPropertyAuthWithReturn(t *testing.T, className string, prop *models.Property, key string) (*models.Property, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsPropertiesAddParams().
+		WithClassName(className).
+		WithBody(prop)
+	resp, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(params, helper.CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
 }
 
 func deletePropertyIndexAuth(t *testing.T, className, propName, indexName, key string) error {
@@ -596,9 +609,11 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 }
 
 // TestNamespaces_NodesGetClass exercises GET /v1/nodes/<class> on a
-// namespaced class. The cluster-API URL routes through `regxNodesClass`
-// for cross-node hops, which only accepts namespace-qualified names once
-// it is built from IndexNameRegexCore.
+// namespaced class. /nodes is an operator-only surface: under the narrowed
+// built-in admin a namespaced user is denied (403), while the env-var root
+// reaches it by qualified name. The qualified-name path also covers the
+// cluster-API URL routing through `regxNodesClass`, which only accepts
+// namespace-qualified names once it is built from IndexNameRegexCore.
 func TestNamespaces_NodesGetClass(t *testing.T) {
 	const ns1 = "customer1"
 
@@ -618,12 +633,12 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 
 	verbose := "verbose"
 
-	t.Run("namespaced user gets node status by short class name", func(t *testing.T) {
+	t.Run("namespaced user denied node status by short class name", func(t *testing.T) {
 		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
-		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
-		require.NoError(t, err)
-		require.NotNil(t, resp.Payload)
-		assert.NotEmpty(t, resp.Payload.Nodes)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
 	})
 
 	t.Run("global admin gets node status by qualified class name", func(t *testing.T) {
@@ -634,7 +649,7 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		assert.NotEmpty(t, resp.Payload.Nodes)
 	})
 
-	t.Run("namespaced user gets node status via alias", func(t *testing.T) {
+	t.Run("namespaced user denied node status via alias", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{
 			Class: "Concerts",
 			Properties: []*models.Property{
@@ -645,17 +660,12 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
 
-		// retryOnAliasLag absorbs the brief window where the alias entry has
-		// been applied on the leader but the follower has not yet replicated
-		// it, which would surface here as a 404 from local alias resolution.
-		var resp *nodes.NodesGetClassOK
-		retryOnAliasLag(t, func() error {
-			params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&verbose)
-			var err error
-			resp, err = helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
-			return err
-		})
-		require.NotNil(t, resp.Payload)
-		assert.NotEmpty(t, resp.Payload.Nodes)
+		// A 403 is immediate (the authz deny precedes alias resolution), so no
+		// retryOnAliasLag wrapper is needed here.
+		params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&verbose)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
 	})
 }

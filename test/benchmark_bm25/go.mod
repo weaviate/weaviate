@@ -84,7 +84,7 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/weaviate/sroar v0.0.14-0.20260407105840-f1351692405c // indirect
+	github.com/weaviate/sroar v0.0.14-0.20260511125437-5d49ac3cb4c0 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
 	go.mongodb.org/mongo-driver v1.17.6 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

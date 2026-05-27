@@ -174,6 +174,29 @@ func TestUpdateUser(t *testing.T) {
 	require.Less(t, tookFast, tookSlow)
 }
 
+func TestCheckUserIdentifierExists(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	userId := "id"
+	_, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+
+	exists, err := dynUsers.CheckUserIdentifierExists(identifier)
+	require.NoError(t, err)
+	require.False(t, exists)
+
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", "", time.Now()))
+
+	exists, err = dynUsers.CheckUserIdentifierExists(identifier)
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	exists, err = dynUsers.CheckUserIdentifierExists(userId)
+	require.NoError(t, err)
+	require.False(t, exists)
+}
+
 func TestSnapShotAndRestore(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)

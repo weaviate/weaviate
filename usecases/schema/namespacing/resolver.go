@@ -12,6 +12,7 @@
 package namespacing
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -46,12 +47,58 @@ func NamespaceFromQualified(name string) string {
 	return ""
 }
 
+// StripQualification returns the entity portion of a qualified name
+// ("<ns>:<entity>") — the substring after the first namespace separator.
+// Names without the separator are returned unchanged. Used at write
+// boundaries that must persist a short, namespace-portable form (e.g.
+// cross-reference beacons) regardless of which form the caller submitted.
+func StripQualification(name string) string {
+	if _, entity, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
+		return entity
+	}
+	return name
+}
+
 // qualify prepends principal.Namespace to name.
 func qualify(principal *models.Principal, name string) string {
 	if principal == nil {
 		return name
 	}
 	return QualifiedName(principal.Namespace, name)
+}
+
+// QualifyRefTarget normalises a cross-reference target. Refs can't cross
+// namespaces, so the source class's namespace is the authority — never the
+// principal's.
+//
+// Returns:
+//   - qualified: for authz, schema lookup, MT validation, shard routing
+//   - short: for the stored beacon (portable on export/import)
+//
+// Rejects with `<name> is not a valid class name`:
+//   - any prefix from a namespaced principal (resolver adds it for them)
+//   - a prefix naming a different namespace from sourceClass
+//
+// NS-disabled: pass-through. Centralises the policy shared by
+// references_add, references_update, batch_references_add and
+// properties_validation.
+func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourceClass, target string) (qualified, short string, err error) {
+	if !namespacesEnabled {
+		return target, target, nil
+	}
+	// Reject namespaced principals typing any prefix, and validate prefix
+	// syntax for global principals (so admin typos surface a specific
+	// "invalid namespace prefix" error instead of the generic mismatch one).
+	if err := ValidateNamespacePrefix(principal, namespacesEnabled, target, "class"); err != nil {
+		return "", "", err
+	}
+	sourceNS := NamespaceFromQualified(sourceClass)
+	if ns := NamespaceFromQualified(target); ns != "" && ns != sourceNS {
+		return "", "", fmt.Errorf("'%s' is not a valid class name", target)
+	}
+	short = StripQualification(target)
+	qualified = QualifiedName(sourceNS, short)
+	return qualified, short, nil
 }
 
 // Resolve is the read-side entry point used everywhere a user-supplied
@@ -103,6 +150,62 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 		qualified = qualify(principal, qualified)
 	}
 	return qualified, nil
+}
+
+// QualifyPropertyDataTypes auto-qualifies cross-reference DataType class names
+// with the principal's namespace on namespaces-enabled clusters. Primitive and
+// nested-object DataTypes pass through unchanged. Already-qualified entries
+// (containing the namespace separator) sent by a namespaced principal are
+// rejected via ValidateNamespacePrefix — symmetric with QualifyClass.
+//
+// Mutates properties[i].DataType slices in place. No-op when namespaces are
+// disabled or the principal has no namespace (global principals / NS-disabled
+// clusters). Callers that construct *models.Property programmatically must
+// pass short DataType names; an already-qualified value will be rejected.
+//
+// Scope: top-level properties only. NestedProperty.DataType cross-refs are
+// rejected upstream.
+//
+// # Storage-shape rule for ref-property readers
+//
+// After AddClass on an NS-enabled cluster, every cross-ref Property.DataType
+// entry is stored qualified ("customer1:Animal"). Downstream readers must:
+//   - in-memory ops (authz, schema lookup, MT validation, shard routing):
+//     use the stored DataType as-is; re-qualifying produces
+//     "customer1:customer1:Foo".
+//   - storage-shape outputs (beacons, filter values compared against stored
+//     beacons): StripQualification first so the on-disk URI stays portable.
+//
+// Call sites referencing the split point at this comment.
+func QualifyPropertyDataTypes(
+	principal *models.Principal,
+	namespacesEnabled bool,
+	properties []*models.Property,
+) error {
+	if !namespacesEnabled || principal == nil || principal.Namespace == "" {
+		return nil
+	}
+	for _, p := range properties {
+		if p == nil || len(p.DataType) == 0 {
+			continue
+		}
+		if _, ok := schema.AsPrimitive(p.DataType); ok {
+			continue
+		}
+		if _, ok := schema.AsNested(p.DataType); ok {
+			continue
+		}
+		for i, dt := range p.DataType {
+			if dt == "" {
+				continue
+			}
+			if err := ValidateNamespacePrefix(principal, namespacesEnabled, dt, "class"); err != nil {
+				return err
+			}
+			p.DataType[i] = QualifiedName(principal.Namespace, dt)
+		}
+	}
+	return nil
 }
 
 // StripOwnNamespace removes the principal's own namespace prefix from name
@@ -220,3 +323,37 @@ func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
 	}
 	obj.Class = StripOwnNamespace(principal, obj.Class)
 }
+
+// StripErrorMessage removes every occurrence of the principal's own
+// "<namespace>:" prefix from msg. Returns msg unchanged when principal is
+// nil or has no namespace.
+func StripErrorMessage(principal *models.Principal, msg string) string {
+	if principal == nil || principal.Namespace == "" {
+		return msg
+	}
+	return strings.ReplaceAll(msg, principal.Namespace+schema.NamespaceSeparator, "")
+}
+
+// StripErrForPrincipal returns an error whose Error() has the principal's
+// own namespace prefix removed. The original error is held via Unwrap so
+// errors.As keeps matching. Returns err unchanged when nothing was stripped.
+func StripErrForPrincipal(principal *models.Principal, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	stripped := StripErrorMessage(principal, msg)
+	if stripped == msg {
+		return err
+	}
+	return &strippedErr{msg: stripped, orig: err}
+}
+
+// strippedErr overrides Error() while keeping the original reachable via Unwrap.
+type strippedErr struct {
+	msg  string
+	orig error
+}
+
+func (e *strippedErr) Error() string { return e.msg }
+func (e *strippedErr) Unwrap() error { return e.orig }

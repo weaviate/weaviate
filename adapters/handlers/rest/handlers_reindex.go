@@ -111,11 +111,12 @@ func validateEnableFilterableProperty(prop *models.Property) error {
 	// keeps the allow-list implicit so newly-added primitive types are
 	// permitted by default; only types we have positively decided cannot
 	// support a filterable index need to be listed.
-	switch dt { //nolint:exhaustive // intentional allow-by-default
+	switch dt {
 	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
 		return fmt.Errorf("property %q type %q does not support a filterable index", prop.Name, dt)
+	default:
+		return nil
 	}
-	return nil
 }
 
 // validateRebuildFilterableDataType guards repair-filterable against
@@ -141,11 +142,12 @@ func validateRebuildFilterableDataType(prop *models.Property) error {
 	if !ok {
 		return fmt.Errorf("property %q type %v does not support a filterable inverted index; nothing to rebuild", prop.Name, prop.DataType)
 	}
-	switch dt { //nolint:exhaustive // intentional allow-by-default
+	switch dt {
 	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
 		return fmt.Errorf("property %q type %q does not support a filterable inverted index; nothing to rebuild", prop.Name, dt)
+	default:
+		return nil
 	}
-	return nil
 }
 
 // validateEnableSearchableProperty validates that the property is a
@@ -324,6 +326,9 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		if body.Searchable.Rebuild {
 			verbs = append(verbs, "searchable.rebuild")
 		}
+		if body.Searchable.Algorithm != "" {
+			verbs = append(verbs, "searchable.algorithm")
+		}
 		// Tokenization is a verb on its own (change-tokenization) ONLY when
 		// Enabled is not set. With Enabled it is part of the enable verb.
 		if body.Searchable.Tokenization != "" && !body.Searchable.Enabled {
@@ -333,7 +338,7 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 			verbs = append(verbs, "searchable.cancel")
 		}
 		if len(verbs) > 1 {
-			return fmt.Errorf("conflicting fields in searchable: %v — set exactly one of enabled, rebuild, tokenization, or cancel (tokenization combined with enabled is allowed)", verbs)
+			return fmt.Errorf("conflicting fields in searchable: %v — set exactly one of enabled, rebuild, algorithm, tokenization, or cancel (tokenization combined with enabled is allowed)", verbs)
 		}
 		if len(verbs) == 1 {
 			groupsSet = append(groupsSet, "searchable")
@@ -389,13 +394,10 @@ func validateBodyExclusivity(body *models.IndexUpdateRequest) error {
 		return fmt.Errorf("multiple index groups set in one request (%v) — issue separate requests, one per group", groupsSet)
 	}
 	if len(groupsSet) == 0 {
-		// Must enumerate EVERY supported verb across all dispatch cases in
-		// handlers_indexes.go::updateIndex — same shape as the matching
-		// default-case 400. A missing verb here lands as a confusing 400
-		// (valid body shape, "invalid" error). See
-		// weaviate/0-weaviate-issues#227 (Gap 7).
+		// Keep this verb list in lockstep with the default-case 400
+		// in handlers_indexes.go::updateIndex.
 		return fmt.Errorf("no actionable change detected; set one of: " +
-			"searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
+			"searchable.algorithm, searchable.cancel, searchable.enabled, searchable.rebuild, searchable.tokenization, " +
 			"filterable.cancel, filterable.enabled, filterable.rebuild, filterable.tokenization, " +
 			"rangeable.cancel, rangeable.enabled, rangeable.rebuild")
 	}
