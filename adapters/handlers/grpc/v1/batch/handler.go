@@ -67,7 +67,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (string, *models.Class, error) {
-		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
+		resolved, qualifiedAlias, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
 		if err != nil {
 			return "", nil, err
 		}
@@ -92,6 +92,15 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		vClass, err := h.schemaManager.GetCachedClassNoAuth(ctx, classname)
 		if err != nil {
 			return "", nil, err
+		}
+		// Reject writes through an alias whose target collection no longer
+		// exists. Without this guard, the nil *models.Class falls through to
+		// the auto-schema path in batch_add and silently re-creates the
+		// deleted collection with an empty schema. Non-alias requests for an
+		// unknown class are still allowed through so legitimate auto-schema
+		// creates continue to work.
+		if qualifiedAlias != "" && vClass[classname].Class == nil {
+			return "", nil, fmt.Errorf("alias %q points to collection %q which does not exist", namespacing.StripQualification(qualifiedAlias), namespacing.StripQualification(classname))
 		}
 		knownClasses[classname] = vClass[classname]
 		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
