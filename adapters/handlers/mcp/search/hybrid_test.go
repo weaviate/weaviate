@@ -76,7 +76,8 @@ func bearerReq() mcp.CallToolRequest {
 //     traverser params
 //   - invalid namespace prefixes from a namespaced principal are rejected
 //   - filterext.Parse picks up the namespacesEnabled flag (reference-path
-//     filters are rejected on NS-enabled clusters, accepted otherwise)
+//     filters have their inner class qualified on NS-enabled clusters,
+//     pass-through otherwise)
 func TestHybrid_NamespaceResolution(t *testing.T) {
 	aliases := map[string]string{
 		"customer1:Films": "customer1:Movies",
@@ -137,11 +138,11 @@ func TestHybrid_NamespaceResolution(t *testing.T) {
 			wantClassName:     "Global",
 		},
 		{
-			name:              "namespacesEnabled rejects reference-path filter",
+			name:              "namespacesEnabled accepts reference-path filter (inner class qualified)",
 			principal:         &models.Principal{Namespace: "customer1"},
 			namespacesEnabled: true,
 			args:              QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: refPathFilter},
-			wantErrSubstr:     "reference-path filters",
+			wantClassName:     "customer1:Movies",
 		},
 		{
 			name:              "namespacesEnabled accepts direct-property filter",

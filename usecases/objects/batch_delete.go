@@ -145,7 +145,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 	class := vclasses[match.Class].Class
 
-	filter, err := filterext.Parse(match.Where, class.Class, b.config.Config.Namespaces.Enabled)
+	filter, err := filterext.Parse(match.Where, class.Class, b.config.Config.Namespaces.Enabled, principal)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to parse where filter: %w", err)
 	}
