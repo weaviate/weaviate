@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // DeleteObjects deletes objects in batch based on the match filter
@@ -156,6 +157,12 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 
 	err = filters.ValidateFilters(b.classGetterFunc(ctx, principal), filter)
 	if err != nil {
+		// The schema lookup inside validation authorizes class reads, so a
+		// Forbidden must stay a Forbidden (→ 403); everything else is a plain
+		// validation failure and is caller input (→ 422, not 500).
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, 0, fmt.Errorf("invalid where filter: %w", err)
+		}
 		return nil, 0, NewErrInvalidUserInput("invalid where filter: %v", err)
 	}
 
