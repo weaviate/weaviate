@@ -68,6 +68,7 @@ Moved to Go (don't need the python-client surface):
 """
 
 import json as _json
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -158,11 +159,30 @@ def _http(
 
 
 def _create_namespace(http_port: int, name: str) -> None:
-    """POST /namespaces/{name}. 409 (already exists) is treated as success
-    so re-running the file against an existing cluster is idempotent."""
+    """POST /namespaces/{name}, then poll until it's visible locally.
+
+    409 (already exists) is success, so re-runs are idempotent. The POST is
+    RAFT-forwarded and may not be applied on this node when it returns.
+    """
     r = _http("POST", f"{_rest_base(http_port)}/namespaces/{name}", headers=_admin_headers())
     if r.status_code not in (201, 409):
         r.raise_for_status()
+    _wait_for_namespace(http_port, name)
+
+
+def _wait_for_namespace(http_port: int, name: str) -> None:
+    """Poll GET /namespaces/{name} until 200 — i.e. applied on this node."""
+    deadline = time.time() + 10.0
+    last = None
+    while time.time() < deadline:
+        r = _http("GET", f"{_rest_base(http_port)}/namespaces/{name}", headers=_admin_headers())
+        if r.status_code == 200:
+            return
+        last = r
+        time.sleep(0.05)
+    raise AssertionError(
+        f"namespace {name!r} not visible within 10s: {last.status_code if last else 'no response'}"
+    )
 
 
 def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str:
@@ -171,7 +191,9 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
     Mirrors createNamespacedUser in test/acceptance/namespace/collection_alias_test.go.
     On 409 (user already exists from a prior run) we delete and recreate so
     the fixture is re-runnable against a long-lived cluster — the api key
-    isn't readable after creation, so reuse isn't an option.
+    isn't readable after creation, so reuse isn't an option. The DELETE is
+    RAFT-forwarded, so we poll until it's applied before re-POSTing — else
+    createUser's local existence check races it and 409s again.
     """
     qualified = f"{namespace}:{user_id}"
     for _ in range(2):
@@ -193,34 +215,52 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
             )
             if d.status_code not in (200, 204, 404):
                 d.raise_for_status()
+            _wait_for_user_gone(http_port, qualified)
             continue
         r.raise_for_status()
     raise AssertionError(f"could not create user {qualified} after delete+retry")
 
 
-def _wait_for_key(http_port: int, key: str) -> None:
-    """Poll a cheap auth-bearing endpoint until the new key is recognized.
-
-    CreateUser is RAFT-forwarded to the leader; the follower the test
-    client talks to may still be replicating when the call returns, so the
-    very next request can transiently 401. Same pattern as
-    helper.CreateNamespace's EventuallyWithT in setup_test.go.
-    """
-    deadline = __import__("time").time() + 10.0
+def _wait_for_user_gone(http_port: int, qualified: str) -> None:
+    """Poll GET /users/db/{qualified} until 404 — i.e. delete applied here."""
+    deadline = time.time() + 10.0
     last = None
-    while __import__("time").time() < deadline:
-        r = _http(
-            "GET",
-            f"{_rest_base(http_port)}/users/own-info",
-            headers={"Authorization": f"Bearer {key}"},
-        )
-        if r.status_code == 200:
+    while time.time() < deadline:
+        r = _http("GET", f"{_rest_base(http_port)}/users/db/{qualified}", headers=_admin_headers())
+        if r.status_code == 404:
             return
         last = r
-        __import__("time").sleep(0.1)
+        time.sleep(0.05)
     raise AssertionError(
-        f"apikey not recognized within 10s: {last.status_code if last else 'no response'}"
+        f"user {qualified!r} still present 10s after delete: "
+        f"{last.status_code if last else 'no response'}"
     )
+
+
+def _wait_for_key(key: str) -> None:
+    """Poll /users/own-info on every node until the key is accepted.
+
+    Each node applies the RAFT-forwarded createUser independently, so a key
+    that works on one node can still 401 on another; tests read on all three.
+    """
+    for http_port, _ in NODES:
+        deadline = time.time() + 10.0
+        last = None
+        while time.time() < deadline:
+            r = _http(
+                "GET",
+                f"{_rest_base(http_port)}/users/own-info",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+            if r.status_code == 200:
+                break
+            last = r
+            time.sleep(0.1)
+        else:
+            raise AssertionError(
+                f"apikey not recognized on node {http_port} within 10s: "
+                f"{last.status_code if last else 'no response'}"
+            )
 
 
 @pytest.fixture(scope="module")
@@ -237,8 +277,8 @@ def namespaces() -> Iterator[Tuple[str, str]]:
     _create_namespace(http_port, NS2)
     k1 = _create_namespaced_user(http_port, "u1", NS1)
     k2 = _create_namespaced_user(http_port, "u2", NS2)
-    _wait_for_key(http_port, k1)
-    _wait_for_key(http_port, k2)
+    _wait_for_key(k1)
+    _wait_for_key(k2)
     yield k1, k2
     # No teardown: collections are cleaned per-test, and the namespace
     # itself is cheap to leave around — DeleteNamespace requires the
@@ -272,6 +312,22 @@ def client_for_key() -> Iterator[Callable[[str, int], WeaviateClient]]:
                 c.close()
             except Exception:
                 pass
+
+
+def _wait_for_collections_on_read_node(client: WeaviateClient, shorts: List[str]) -> None:
+    """Poll until every collection is visible on the node `client` targets.
+
+    collections.create barriers only on the writer's node; a reader on
+    another node can outrun the schema apply and see "class not found".
+    """
+    for short in shorts:
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            if client.collections.exists(short):
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError(f"collection {short!r} not visible on read node within 10s")
 
 
 def _short_name(request: pytest.FixtureRequest, suffix: str = "") -> str:
@@ -362,6 +418,8 @@ def test_single_target_add_replace_delete(
         vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
 
+    _wait_for_collections_on_read_node(read_client, [animal, zoo])
+
     a1, a2 = uuid.uuid4(), uuid.uuid4()
     animal_w.data.insert(properties={"name": "lion"}, uuid=a1)
     animal_w.data.insert(properties={"name": "tiger"}, uuid=a2)
@@ -442,6 +500,8 @@ def test_multi_target_refs(
         ],
         vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
+
+    _wait_for_collections_on_read_node(cr, [alpha, beta, src])
 
     a_id = alpha_w.data.insert(properties={"name": "a"})
     b_id = beta_w.data.insert(properties={"name": "b"})
@@ -534,6 +594,8 @@ def test_filter_by_ref_chained_with_property(
         vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
 
+    _wait_for_collections_on_read_node(cr, [tgt, src])
+
     t_low = tgt_w.data.insert(properties={"grade": 1, "text": "low"})
     t_mid = tgt_w.data.insert(properties={"grade": 5, "text": "mid"})
     t_high = tgt_w.data.insert(properties={"grade": 10, "text": "high"})
@@ -606,6 +668,8 @@ def test_multi_target_replace_and_delete(
         ],
         vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
+
+    _wait_for_collections_on_read_node(cr, [alpha, beta, src])
 
     a1, a2 = alpha_w.data.insert({"name": "a1"}), alpha_w.data.insert({"name": "a2"})
     b1, b2 = beta_w.data.insert({"name": "b1"}), beta_w.data.insert({"name": "b2"})
@@ -731,6 +795,8 @@ def test_batch_reference_insert_multi_target(
         vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
 
+    _wait_for_collections_on_read_node(cr, [a, b, src])
+
     N = 6
     a_uuids = [a_w.data.insert({"label": f"a-{i}"}) for i in range(N)]
     b_uuids = [b_w.data.insert({"label": f"b-{i}"}) for i in range(N)]
@@ -831,6 +897,8 @@ def test_inline_ref_in_object_create(
         references=[wvc.config.ReferenceProperty(name="hasAnimals", target_collection=animal)],
         vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
+
+    _wait_for_collections_on_read_node(cr, [animal, zoo])
 
     a_id = cw.collections.use(animal).data.insert(properties={"name": "leo"})
 
