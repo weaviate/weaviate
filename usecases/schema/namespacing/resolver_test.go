@@ -1213,7 +1213,7 @@ func TestQualifyRefTarget(t *testing.T) {
 	}
 }
 
-// TestStripNamespacePrefix pins cut-on-first-separator — a swap to
+// TestStripNamespacePrefix pins cut-on-first-separator. A swap to
 // SplitN(..., -1) would over-strip a multi-colon suffix into something
 // that looks valid but isn't.
 func TestStripNamespacePrefix(t *testing.T) {
