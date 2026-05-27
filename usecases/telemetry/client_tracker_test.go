@@ -62,6 +62,18 @@ func TestIdentifyClientFromHeader(t *testing.T) {
 			expectedVer:  "1.0.0",
 		},
 		{
+			name:         "php client",
+			headerValue:  "weaviate-client-php/0.5.0",
+			expectedType: ClientTypePHP,
+			expectedVer:  "0.5.0",
+		},
+		{
+			name:         "ruby client",
+			headerValue:  "weaviate-client-ruby/0.9.0",
+			expectedType: ClientTypeRuby,
+			expectedVer:  "0.9.0",
+		},
+		{
 			name:         "no version",
 			headerValue:  "weaviate-client-python",
 			expectedType: ClientTypePython,
