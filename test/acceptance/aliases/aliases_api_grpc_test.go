@@ -453,7 +453,11 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		assert.Contains(t, resp.Errors[0].Error, "does not exist")
 
 		// Schema must not have been silently re-created via auto-schema.
-		got, _ := helper.GetClassWithoutAssert(t, danglingClass, "")
+		// Assert on both the API error and the nil payload so a transient
+		// API failure can't mask the regression: the bug we are guarding
+		// against produces a present class, not a missing one.
+		got, getErr := helper.GetClassWithoutAssert(t, danglingClass, "")
+		require.Error(t, getErr, "deleted collection should return an error from the schema API")
 		require.Nil(t, got, "alias write must not auto-create the deleted collection")
 	})
 }
