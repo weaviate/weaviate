@@ -88,6 +88,14 @@ func (s *Store) Bucket(name string) *Bucket {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
+	return s.bucket(name)
+}
+
+// bucket returns a bucket by name without locking. The caller MUST already
+// hold bucketAccessLock (read or write). Use this from paths that already hold
+// the lock: RWMutex is not reentrant, so taking RLock recursively deadlocks if
+// a writer (e.g. setBucket) is waiting in between.
+func (s *Store) bucket(name string) *Bucket {
 	return s.bucketsByName[name]
 }
 
