@@ -1556,32 +1556,8 @@ func (b *Bucket) shouldReuseWAL() bool {
 
 // flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	// shouldAbort comes from the cyclemanager but the inner write loop wants a
-	// ctx. Bridge once here; same pattern as compactOrCleanup.
-	flushCtx, cancel := context.WithCancel(context.Background())
+	flushCtx, cancel := ctxFromShouldAbort(shouldAbort, b.logger)
 	defer cancel()
-	if shouldAbort != nil {
-		if shouldAbort() {
-			cancel()
-		} else {
-			watcher := func() {
-				t := time.NewTicker(50 * time.Millisecond)
-				defer t.Stop()
-				for {
-					select {
-					case <-flushCtx.Done():
-						return
-					case <-t.C:
-						if shouldAbort() {
-							cancel()
-							return
-						}
-					}
-				}
-			}
-			enterrors.GoWrapper(watcher, b.logger)
-		}
-	}
 
 	b.flushLock.RLock()
 	commitLogSize := b.active.commitlogSize()
@@ -1704,10 +1680,8 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 //
-// Cancelling ctx aborts the disk-write portion of the flush mid-stream. The
-// commit log is preserved when this happens so the next bucket open replays
-// the WAL and reconstructs the memtable; partial .db.tmp files are removed by
-// the deferred cleanup in Memtable.flush.
+// Cancelling ctx aborts the disk-write portion mid-stream; see Memtable.flush
+// for the WAL-preservation contract that keeps the data recoverable.
 func (b *Bucket) FlushAndSwitch(ctx context.Context) error {
 	before := time.Now()
 	var err error
@@ -1748,11 +1722,9 @@ func (b *Bucket) FlushAndSwitch(ctx context.Context) error {
 	}
 	segmentPath, err := b.flushing.flush(ctx)
 	if err != nil {
-		// Clear b.flushing so the bucket is not wedged. The commitlog stays
-		// on disk (flush only deletes it on success), so the next bucket
-		// open replays the WAL and reconstructs the memtable. Holding
-		// b.flushing here would block Shutdown's wait-for-flushing loop and
-		// any subsequent flush cycle from making progress.
+		// Clear b.flushing on a failed flush, else Shutdown's wait-for-flushing
+		// loop and later flush cycles wedge. Data is safe: flush deletes the
+		// commitlog only on success, so it survives via WAL replay.
 		b.flushLock.Lock()
 		b.flushing = nil
 		b.flushLock.Unlock()

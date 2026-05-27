@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -40,7 +41,7 @@ func (m *Memtable) flushDataRoaringSet(ctx context.Context, f *segmentindex.Segm
 
 	totalWritten := headerSize
 	for i, node := range flat {
-		if i%abortCheckEveryN == 0 {
+		if i%compactor.AbortCheckEveryN == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, fmt.Errorf("flush roaringset memtable: %w", err)
 			}

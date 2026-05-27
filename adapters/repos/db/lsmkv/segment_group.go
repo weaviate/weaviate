@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -924,31 +923,8 @@ func segmentExistsWithID(segmentID string, files map[string]int64) (bool, string
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
-	// bridge shouldAbort → ctx for the compactor inner loops
-	compactCtx, cancel := context.WithCancel(context.Background())
+	compactCtx, cancel := ctxFromShouldAbort(shouldAbort, sg.logger)
 	defer cancel()
-	if shouldAbort != nil {
-		if shouldAbort() {
-			cancel()
-		} else {
-			watcher := func() {
-				t := time.NewTicker(50 * time.Millisecond)
-				defer t.Stop()
-				for {
-					select {
-					case <-compactCtx.Done():
-						return
-					case <-t.C:
-						if shouldAbort() {
-							cancel()
-							return
-						}
-					}
-				}
-			}
-			enterrors.GoWrapper(watcher, sg.logger)
-		}
-	}
 
 	compact := func() bool {
 		sg.lastCompactionCall = time.Now()
