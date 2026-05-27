@@ -44,6 +44,7 @@ function main() {
   run_acceptance_compaction_recovery=false
   run_acceptance_compaction=false
   run_acceptance_recovery=false
+  run_acceptance_metadata_only_voters=false
   run_acceptance_reindex_multinode=false
   run_acceptance_reindex_multinode_aj=false
   run_acceptance_reindex_multinode_rm=false
@@ -98,6 +99,7 @@ function main() {
           --acceptance-compaction-recovery|-acr) run_all_tests=false; run_acceptance_compaction_recovery=true;;
           --acceptance-compaction|-ac) run_all_tests=false; run_acceptance_compaction=true;;
           --acceptance-recovery|-ar) run_all_tests=false; run_acceptance_recovery=true;;
+          --acceptance-metadata-only-voters|-amov) run_all_tests=false; run_acceptance_metadata_only_voters=true;;
           --acceptance-reindex-multinode|-arm) run_all_tests=false; run_acceptance_reindex_multinode=true;;
           --acceptance-reindex-multinode-aj|-armaj) run_all_tests=false; run_acceptance_reindex_multinode_aj=true;;
           --acceptance-reindex-multinode-rm|-armrm) run_all_tests=false; run_acceptance_reindex_multinode_rm=true;;
@@ -143,6 +145,7 @@ function main() {
               "--acceptance-compaction-recovery | -acr"\
               "--acceptance-compaction | -ac"\
               "--acceptance-recovery | -ar"\
+              "--acceptance-metadata-only-voters | -amov"\
               "--acceptance-reindex-multinode | -arm"\
               "--acceptance-reindex-multinode-aj | -armaj"\
               "--acceptance-reindex-multinode-rm | -armrm"\
@@ -330,6 +333,11 @@ function main() {
   if $run_acceptance_compaction_recovery || $run_acceptance_recovery || $run_acceptance_tests || $run_all_tests; then
     echo "running recovery acceptance tests"
     run_acceptance_recovery
+  fi
+
+  if $run_acceptance_metadata_only_voters || $run_acceptance_tests || $run_all_tests; then
+    echo "running metadata-only-voters acceptance tests"
+    run_acceptance_metadata_only_voters
   fi
 
   # Dispatch the dedicated --acceptance-distributed-tasks shard at the top
@@ -564,6 +572,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/mcp' \
     | grep -v 'test/acceptance/compaction' \
     | grep -v 'test/acceptance/recovery' \
+    | grep -v 'test/acceptance/metadata_only_voters' \
     | grep -v 'test/acceptance/reindex_multinode' \
     | grep -v 'test/acceptance/reindex_singlenode' \
     | grep -v 'test/acceptance/reindex_concurrent' \
@@ -741,6 +750,11 @@ function run_acceptance_compaction() {
 function run_acceptance_recovery() {
   build_weaviate_test_image
   run_aof_group "recovery" test/acceptance/recovery
+}
+
+function run_acceptance_metadata_only_voters() {
+  build_weaviate_test_image
+  run_aof_group "metadata-only-voters" test/acceptance/metadata_only_voters
 }
 
 function run_acceptance_reindex_multinode() {
