@@ -25,7 +25,8 @@ func (s *Store) PauseObjectBucketCompaction(ctx context.Context) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	b := s.Bucket(helpers.ObjectsBucketLSM)
+	// bucketNoLock: RLock already held; a recursive RLock would deadlock against a setBucket writer (#251).
+	b := s.bucketNoLock(helpers.ObjectsBucketLSM)
 
 	b.disk.compactionCallbackCtrl.Deactivate(ctx)
 	b.doStartPauseTimer()
@@ -37,7 +38,7 @@ func (s *Store) ResumeObjectBucketCompaction(ctx context.Context) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	b := s.Bucket(helpers.ObjectsBucketLSM)
+	b := s.bucketNoLock(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return fmt.Errorf("no bucket named 'objects' found in store %s", s.dir)
 	}

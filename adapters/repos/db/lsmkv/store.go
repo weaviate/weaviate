@@ -88,6 +88,11 @@ func (s *Store) Bucket(name string) *Bucket {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
+	return s.bucketNoLock(name)
+}
+
+// bucketNoLock returns a bucket by name without locking; the caller must hold bucketAccessLock.
+func (s *Store) bucketNoLock(name string) *Bucket {
 	return s.bucketsByName[name]
 }
 
