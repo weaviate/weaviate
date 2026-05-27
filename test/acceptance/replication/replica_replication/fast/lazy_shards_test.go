@@ -12,6 +12,7 @@
 package replication
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -24,13 +25,30 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWithLazyShardLoading() {
-	t := suite.T()
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
+func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
+	mainCtx := context.Background()
+	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
+		WithWeaviateEnv("DISABLE_LAZY_LOAD_SHARDS", "false").
+		Start(ctx)
+	require.Nil(t, err)
+	if cancel != nil {
+		cancel()
+	}
+
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -138,7 +156,10 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWithLazyShardLoading(
 				replication.NewReplicationDetailsParams().WithID(opId),
 				nil,
 			)
-			assert.Nil(t, err, "failed to get replication operation %s: %v", opId, err)
+			assert.NoError(ct, err, "failed to get replication operation %s: %v", opId, err)
+			if err != nil {
+				continue
+			}
 			if res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY {
 				completed[opId] = true
 			} else {
