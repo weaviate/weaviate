@@ -136,11 +136,13 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 		nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
 		go func(uri string, idx int) {
 			defer wg.Done()
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-stopCh:
 					return
-				default:
+				case <-ticker.C:
 				}
 				for _, q := range testBM25Queries {
 					ids, err := runBM25QueryOnNodeWithRetry(t, uri, className, q)
@@ -153,7 +155,6 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 						t.Logf("node %d query %q mismatch", idx+1, q)
 					}
 				}
-				time.Sleep(200 * time.Millisecond)
 			}
 		}(nodeURI, nodeIdx)
 	}
@@ -325,7 +326,7 @@ func testChangeTokenization(t *testing.T, compose *docker.DockerCompose) {
 	// the task reaches FINISHED. Wait for the schema to reflect the update.
 	require.Eventually(t, func() bool {
 		return tryGetPropertyTokenization(restURI, className, "text") == "field"
-	}, 30*time.Second, 1*time.Second, "tokenization should change to field after swap phase")
+	}, 30*time.Second, 50*time.Millisecond, "tokenization should change to field after swap phase")
 
 	// Verify schema on all nodes.
 	for i := 1; i <= 3; i++ {
@@ -344,7 +345,7 @@ func testChangeTokenization(t *testing.T, compose *docker.DockerCompose) {
 		require.Eventually(t, func() bool {
 			ids, err := runBM25QueryOnNode(t, nodeURI, className, "alpha")
 			return err == nil && len(ids) == 0
-		}, 30*time.Second, 1*time.Second,
+		}, 30*time.Second, 50*time.Millisecond,
 			"node %d: 'alpha' with FIELD should match no docs", i)
 	}
 
@@ -389,11 +390,13 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 		nodeURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
 		go func(uri string, idx int) {
 			defer wg.Done()
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-stopCh:
 					return
-				default:
+				case <-ticker.C:
 				}
 				for _, q := range testBM25Queries {
 					ids, err := runBM25QueryOnNodeWithRetry(t, uri, className, q)
@@ -407,7 +410,6 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 							idx+1, q, len(baselines[q][0]), len(ids))
 					}
 				}
-				time.Sleep(100 * time.Millisecond)
 			}
 		}(nodeURI, nodeIdx)
 	}
@@ -443,7 +445,7 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 			consecutiveSuccesses = 0
 		}
 		return consecutiveSuccesses >= requiredConsecutiveSuccesses
-	}, 30*time.Second, 200*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"expected %d consecutive successful query rounds after reindex completion",
 		requiredConsecutiveSuccesses)
 

@@ -69,7 +69,7 @@ func assertReindexCompleteAndConsistent(
 			}
 		}
 		return true
-	}, 30*time.Second, 500*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"tokenization should flip to field on every replica post-restart")
 
 	const expected = reindexRestartDataset / 5
@@ -128,7 +128,7 @@ func TestMultiNode_GracefulLeaderRestartDuringReindex(t *testing.T) {
 			require.Eventually(t, func() bool {
 				_, err := equalCount(restURIOf(compose, 1), "LeaderRestartDuringReindex", "path", "alpha-path")
 				return err == nil
-			}, 60*time.Second, 1*time.Second, "cluster should be ready after leader restart")
+			}, 60*time.Second, 50*time.Millisecond, "cluster should be ready after leader restart")
 		})
 }
 
@@ -201,7 +201,7 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 		require.Eventually(t, func() bool {
 			_, err := runBM25QueryOnNode(t, restartedURI, className, "alpha")
 			return err == nil
-		}, 30*time.Second, 1*time.Second, "node %d should be ready after restart", nodeIdx+1)
+		}, 30*time.Second, 50*time.Millisecond, "node %d should be ready after restart", nodeIdx+1)
 
 		// Wait for Raft quorum to be restored before moving on. Object
 		// imports require Raft consensus, so a successful write proves the
@@ -210,7 +210,7 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 		writeURI := compose.GetWeaviateNode(((nodeIdx + 1) % 3) + 1).URI()
 		require.Eventually(t, func() bool {
 			return tryImportObject(writeURI, className, "raft-health-probe") == nil
-		}, 60*time.Second, 1*time.Second, "cluster should have Raft quorum after restarting node %d", nodeIdx+1)
+		}, 60*time.Second, 50*time.Millisecond, "cluster should have Raft quorum after restarting node %d", nodeIdx+1)
 
 		for _, q := range testBM25Queries {
 			ids, err := runBM25QueryOnNode(t, restartedURI, className, q)

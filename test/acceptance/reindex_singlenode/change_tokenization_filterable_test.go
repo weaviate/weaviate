@@ -105,7 +105,7 @@ func testFilterableTokenizationFilterableOnly(t *testing.T, restURI, dataType st
 			}
 		}
 		return false
-	}, 30*time.Second, 250*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"property tokenization must flip to 'word' after change-tokenization-filterable")
 
 	// Post-migration: Equal() now uses word tokenization so an exact
@@ -209,7 +209,7 @@ func testFilterableTokenizationOnBothIndexes(t *testing.T, restURI string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 250*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"property tokenization must flip to 'word' even though both indexes exist")
 
 	require.Equal(t, 1, equalFilterHits(t, className, "name", "gamma"),

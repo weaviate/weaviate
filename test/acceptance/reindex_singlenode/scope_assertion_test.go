@@ -358,18 +358,15 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 // readable, but fails if the task disappears before we can observe it.
 func assertPayloadProperties(t *testing.T, restURI, taskID, target string) {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
+		if !assert.NoError(c, err) {
+			return
 		}
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
+		if !assert.NoError(c, err) {
+			return
 		}
 		// Use a map[string]interface{} deserialization for the task since
 		// Payload is typed as interface{} and will come back as a generic
@@ -378,27 +375,38 @@ func assertPayloadProperties(t *testing.T, restURI, taskID, target string) {
 			ID      string                 `json:"id"`
 			Payload map[string]interface{} `json:"payload"`
 		}
-		if err := json.Unmarshal(body, &envelope); err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
+		if !assert.NoError(c, json.Unmarshal(body, &envelope)) {
+			return
 		}
+		var found bool
+		var propsList []interface{}
 		for _, task := range envelope["reindex"] {
 			if task.ID != taskID {
 				continue
 			}
+			found = true
 			rawProps, ok := task.Payload["properties"]
-			require.True(t, ok, "task %s payload has no `properties` field (payload=%+v)", taskID, task.Payload)
-			propsList, ok := rawProps.([]interface{})
-			require.True(t, ok, "task %s payload.properties is not a list: %T", taskID, rawProps)
-			require.Len(t, propsList, 1,
-				"task %s payload.properties should contain exactly one entry but has %d: %v",
-				taskID, len(propsList), propsList)
-			require.Equal(t, target, propsList[0],
-				"task %s payload.properties should be [%q] but is %v",
-				taskID, target, propsList)
+			if !assert.True(c, ok, "task %s payload has no `properties` field (payload=%+v)", taskID, task.Payload) {
+				return
+			}
+			propsList, ok = rawProps.([]interface{})
+			if !assert.True(c, ok, "task %s payload.properties is not a list: %T", taskID, rawProps) {
+				return
+			}
+			break
+		}
+		// The task must be present in /v1/tasks; if not, fail the inner
+		// assert and retry on the next tick.
+		if !assert.True(c, found, "task %s not found in /v1/tasks — could not verify payload scope", taskID) {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("task %s not found in /v1/tasks within 30s — could not verify payload scope", taskID)
+		assert.Len(c, propsList, 1,
+			"task %s payload.properties should contain exactly one entry but has %d: %v",
+			taskID, len(propsList), propsList)
+		if len(propsList) == 1 {
+			assert.Equal(c, target, propsList[0],
+				"task %s payload.properties should be [%q] but is %v",
+				taskID, target, propsList)
+		}
+	}, 30*time.Second, 50*time.Millisecond)
 }
