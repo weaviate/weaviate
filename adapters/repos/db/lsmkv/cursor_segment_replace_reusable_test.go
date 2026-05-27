@@ -67,7 +67,7 @@ func TestSegmentCursorReplaceReusable_MatchesOldCursor(t *testing.T) {
 					key := []byte(fmt.Sprintf("key-%03d", i))
 					require.NoError(t, bucket.Delete(key))
 				}
-				require.NoError(t, bucket.FlushAndSwitch(context.Background()))
+				require.NoError(t, bucket.FlushAndSwitch(ctx))
 				return bucket
 			},
 		},
@@ -84,7 +84,7 @@ func TestSegmentCursorReplaceReusable_MatchesOldCursor(t *testing.T) {
 					key := []byte(fmt.Sprintf("key-%03d", i))
 					require.NoError(t, bucket.Delete(key))
 				}
-				require.NoError(t, bucket.FlushAndSwitch(context.Background()))
+				require.NoError(t, bucket.FlushAndSwitch(ctx))
 				return bucket
 			},
 		},
@@ -100,7 +100,7 @@ func TestSegmentCursorReplaceReusable_MatchesOldCursor(t *testing.T) {
 					}
 					require.NoError(t, bucket.Put(key, val))
 				}
-				require.NoError(t, bucket.FlushAndSwitch(context.Background()))
+				require.NoError(t, bucket.FlushAndSwitch(ctx))
 				return bucket
 			},
 		},
@@ -112,7 +112,7 @@ func TestSegmentCursorReplaceReusable_MatchesOldCursor(t *testing.T) {
 				require.NoError(t, bucket.Put([]byte("a"), nil))
 				require.NoError(t, bucket.Put([]byte("b"), []byte{}))
 				require.NoError(t, bucket.Put([]byte("c"), []byte("nonempty")))
-				require.NoError(t, bucket.FlushAndSwitch(context.Background()))
+				require.NoError(t, bucket.FlushAndSwitch(ctx))
 				return bucket
 			},
 		},
@@ -122,7 +122,7 @@ func TestSegmentCursorReplaceReusable_MatchesOldCursor(t *testing.T) {
 				bucket := createReplaceBucketEmpty(t, ctx)
 				require.NoError(t, bucket.Put([]byte("key"), []byte("value")))
 				require.NoError(t, bucket.Delete([]byte("key")))
-				require.NoError(t, bucket.FlushAndSwitch(context.Background()))
+				require.NoError(t, bucket.FlushAndSwitch(ctx))
 				return bucket
 			},
 		},
@@ -144,7 +144,7 @@ func TestSegmentCursorReplaceReusable_MatchesOldCursor(t *testing.T) {
 					val := []byte{0xFF, byte(i), 0x00, byte(i), 0xFE}
 					require.NoError(t, bucket.Put(key, val))
 				}
-				require.NoError(t, bucket.FlushAndSwitch(context.Background()))
+				require.NoError(t, bucket.FlushAndSwitch(ctx))
 				return bucket
 			},
 		},
@@ -232,7 +232,7 @@ func TestSegmentCursorReplaceReusable_EmptySegment(t *testing.T) {
 
 	require.NoError(t, bucket.Put([]byte("only-key"), []byte("only-val")))
 	require.NoError(t, bucket.Delete([]byte("only-key")))
-	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
+	require.NoError(t, bucket.FlushAndSwitch(ctx))
 
 	require.GreaterOrEqual(t, len(bucket.disk.segments), 1)
 
@@ -431,7 +431,7 @@ func TestSegmentCursorReplaceReusable_MixedTombstonesAndValues(t *testing.T) {
 		key := []byte(fmt.Sprintf("key-%03d", i))
 		require.NoError(t, bucket.Delete(key))
 	}
-	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
+	require.NoError(t, bucket.FlushAndSwitch(ctx))
 
 	seg, ok := bucket.disk.segments[0].(*segment)
 	if !ok {
@@ -506,6 +506,6 @@ func createReplaceBucket(t *testing.T, ctx context.Context, kv map[string]string
 	for k, v := range kv {
 		require.NoError(t, bucket.Put([]byte(k), []byte(v)))
 	}
-	require.NoError(t, bucket.FlushAndSwitch(context.Background()))
+	require.NoError(t, bucket.FlushAndSwitch(ctx))
 	return bucket
 }
