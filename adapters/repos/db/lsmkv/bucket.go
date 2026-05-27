@@ -148,7 +148,13 @@ type Bucket struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	pauseTimer *prometheus.Timer // Times the pause
+	// pauseCompactionMu guards the reindex compaction-pause state below. Parallel
+	// reindex tasks on one shard pause the same objects bucket, so it is
+	// reference-counted (deactivate on first pause, reactivate on last resume)
+	// and the timer is mutex-guarded — see weaviate/0-weaviate-issues#251.
+	pauseCompactionMu    sync.Mutex
+	pauseCompactionCount int
+	pauseTimer           *prometheus.Timer // Times the pause; guarded by pauseCompactionMu
 
 	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
 	// should be kept in root segment during compaction process.

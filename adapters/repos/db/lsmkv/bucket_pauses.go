@@ -12,9 +12,51 @@
 package lsmkv
 
 import (
+	"context"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
+
+// pauseCompactionForReindex pauses objects-bucket compaction for a reindex task.
+// Reference-counted and mutex-guarded so parallel reindex tasks on one shard
+// share a single pause and never race the pauseTimer (weaviate/0-weaviate-issues#251).
+func (b *Bucket) pauseCompactionForReindex(ctx context.Context) error {
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	b.pauseCompactionCount++
+	if b.pauseCompactionCount > 1 {
+		return nil
+	}
+	if err := b.pauseCompaction(ctx); err != nil {
+		b.pauseCompactionCount--
+		return err
+	}
+	b.doStartPauseTimer()
+	return nil
+}
+
+// resumeCompactionForReindex is the reference-counted counterpart; it
+// reactivates compaction only once the last reindex pauser resumes.
+func (b *Bucket) resumeCompactionForReindex(ctx context.Context) error {
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	if b.pauseCompactionCount == 0 {
+		return nil
+	}
+	if b.pauseCompactionCount > 1 {
+		b.pauseCompactionCount--
+		return nil
+	}
+	if err := b.resumeCompaction(ctx); err != nil {
+		return err
+	}
+	b.doStopPauseTimer()
+	b.pauseCompactionCount--
+	return nil
+}
 
 func (b *Bucket) doStartPauseTimer() {
 	label := b.GetDir()
