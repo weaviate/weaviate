@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, beaconRef *crossref.Ref) (strfmt.URI, strfmt.URI, bool, *Error) {
@@ -35,7 +36,9 @@ func (m *Manager) autodetectToClass(class *models.Class, fromProperty string, be
 		return "", "", false, nil // can't autodetect for multi target
 	}
 
-	toClass := prop.DataType[0] // datatype is the name of the class that is referenced
+	// Stored DataType is qualified on NS clusters; strip to short so the
+	// output matches user-submitted shape (storage-shape rule).
+	toClass := namespacing.StripQualification(prop.DataType[0])
 	toBeacon := crossref.NewLocalhost(toClass, beaconRef.TargetID).String()
 
 	return strfmt.URI(toClass), strfmt.URI(toBeacon), true, nil
@@ -58,9 +61,11 @@ func (m *Manager) getAuthorizedFromClass(ctx context.Context, principal *models.
 	return fetchedClass[className].Class, fetchedClass[className].Version, fetchedClass, nil
 }
 
-// validateNames validates class and property names
+// validateReferenceName validates class and property names. The class
+// portion accepts the qualified "<namespace>:<Class>" form produced by
+// namespacing.Resolve upstream.
 func validateReferenceName(class, property string) error {
-	if _, err := schema.ValidateClassName(class); err != nil {
+	if _, err := schema.ValidateQualifiedClassName(class); err != nil {
 		return err
 	}
 

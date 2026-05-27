@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
@@ -61,14 +62,27 @@ func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 		assert.NoError(c, err)
 	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
 
+	// Mandatory RBAC: grant the built-in admin role so the namespaced user can
+	// reach the data/schema/tenant/alias/MCP handlers. The role's wildcard
+	// templates are specialized to the caller's namespace by the matcher.
+	// DeleteUser revokes all bindings on cleanup, so no explicit revoke is needed.
+	helper.AssignRoleToUser(t, adminKey, authorization.Admin, ns+":"+userID)
+
+	// AssignRoleToUser returns once the leader applies the binding; the follower
+	// the test client talks to may still be replicating it. Wait until the role
+	// is locally visible so the caller's next request can't race that
+	// replication and get a spurious 403.
+	helper.WaitForOwnRole(t, apikey, authorization.Admin)
+
 	return apikey
 }
 
 // TestNamespaces_CollectionAndAliasCreate exercises the inline qualification
 // added to AddClass / AddAlias, as well as the read path with namespace resolution.
-// RBAC is off so namespaced DB users reach the handler unconditionally; the only
-// gating in play is the handler-level IsGlobalOperator/Namespace check plus the
-// entity-name validators.
+// The namespaced users hold the built-in admin role (granted in
+// createNamespacedUser), whose wildcard templates the matcher specializes to the
+// caller's namespace; on top of that sits the handler-level
+// IsGlobalOperator/Namespace check plus the entity-name validators.
 func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	const (
 		ns1 = "customer1"

@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
+	mcpmetrics "github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 )
 
 // Request types
@@ -40,7 +41,7 @@ type QueryHybridResp struct {
 
 // Tool registration
 
-func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig) []server.ServerTool {
+func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig, m *mcpmetrics.MCPMetrics) []server.ServerTool {
 	toolName := "weaviate-query-hybrid"
 	tool := mcp.NewTool(
 		toolName,
@@ -53,6 +54,6 @@ func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig) [
 	)
 	internal.ApplySchemaDescriptions(&tool, toolName, configs)
 	return []server.ServerTool{
-		{Tool: tool, Handler: mcp.NewStructuredToolHandler(searcher.Hybrid)},
+		{Tool: tool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, toolName, searcher.Hybrid))},
 	}
 }

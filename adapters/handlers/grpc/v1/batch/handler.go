@@ -66,38 +66,38 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	// - to pass down the stack to reuse, index by classname so it can be found easily
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
-	classGetter := func(classname, shard string) (*models.Class, error) {
+	classGetter := func(classname, shard string) (string, *models.Class, error) {
 		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		classname = resolved
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
 		classTenantName := classname + "#" + shard
 		class, ok := knownClassesAuthCheck[classTenantName]
 		if ok {
-			return class, nil
+			return resolved, class, nil
 		}
 
 		// batch is upsert
 		if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return nil, err
+			return "", nil, err
 		}
 
 		if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return nil, err
+			return "", nil, err
 		}
 
 		// we don't leak any info that someone who inserts data does not have anyway
 		vClass, err := h.schemaManager.GetCachedClassNoAuth(ctx, classname)
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		knownClasses[classname] = vClass[classname]
 		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
-		return vClass[classname].Class, nil
+		return resolved, vClass[classname].Class, nil
 	}
-	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter)
+	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter, principal, h.namespacesEnabled)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {

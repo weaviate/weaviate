@@ -62,6 +62,16 @@ type stubRaft struct {
 	deleteClassErr   map[string]error
 	removeEntityErr  map[string]error
 	removeEntityCall map[string]int
+
+	// onCall fires at the start of every RAFT method with the op name; tests
+	// use it to cancel the tick context mid-flight.
+	onCall func(op string)
+}
+
+func (s *stubRaft) fireOnCall(op string) {
+	if s.onCall != nil {
+		s.onCall(op)
+	}
 }
 
 func newStubRaft() *stubRaft {
@@ -75,21 +85,25 @@ func newStubRaft() *stubRaft {
 }
 
 func (s *stubRaft) DeleteUsersInNamespace(_ context.Context, name string) error {
+	s.fireOnCall("users")
 	s.calls = append(s.calls, recordedCall{op: "users", arg: name, from: name})
 	return s.deleteUsersErr[name]
 }
 
 func (s *stubRaft) DeleteAlias(_ context.Context, alias string) (uint64, error) {
+	s.fireOnCall("alias")
 	s.calls = append(s.calls, recordedCall{op: "alias", arg: alias})
 	return 0, s.deleteAliasErr[alias]
 }
 
 func (s *stubRaft) DeleteClass(_ context.Context, name string) (uint64, error) {
+	s.fireOnCall("class")
 	s.calls = append(s.calls, recordedCall{op: "class", arg: name})
 	return 0, s.deleteClassErr[name]
 }
 
 func (s *stubRaft) RemoveNamespaceEntity(_ context.Context, name string) (uint64, error) {
+	s.fireOnCall("entity")
 	s.calls = append(s.calls, recordedCall{op: "entity", arg: name, from: name})
 	s.removeEntityCall[name]++
 	return 0, s.removeEntityErr[name]
@@ -364,6 +378,98 @@ func TestCoordinator_Tick_RejectsConcurrentRun(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already ongoing")
 	assert.Empty(t, raft.calls, "Tick must not enter cleanup while another run is ongoing")
+}
+
+// TestCoordinator_Tick_StopsOnContextCancellation pins that a cancelled tick
+// context halts the tick: when already cancelled, between namespaces, and
+// partway through one namespace's class deletions.
+func TestCoordinator_Tick_StopsOnContextCancellation(t *testing.T) {
+	t.Run("already-cancelled ctx does no work", func(t *testing.T) {
+		raft := newStubRaft()
+		ns := stubNamespaces{deleting: []string{"alpha", "beta"}}
+		c := newTestCoordinator(t, ns, stubSchema{}, raft, alwaysLeader)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		require.NoError(t, c.Tick(ctx))
+		assert.Empty(t, raft.calls, "no namespace may be touched once ctx is cancelled")
+	})
+
+	t.Run("cancellation between namespaces stops the loop", func(t *testing.T) {
+		raft := newStubRaft()
+		ns := stubNamespaces{deleting: []string{"alpha", "beta"}}
+		ctx, cancel := context.WithCancel(context.Background())
+		// Cancel on alpha's first call; the loop guard must then skip beta.
+		raft.onCall = func(string) { cancel() }
+		c := newTestCoordinator(t, ns, stubSchema{}, raft, alwaysLeader)
+		require.NoError(t, c.Tick(ctx))
+
+		require.NotEmpty(t, raft.calls)
+		for _, call := range raft.calls {
+			assert.NotEqual(t, "beta", call.arg, "beta must be untouched after cancellation")
+			assert.NotEqual(t, "beta", call.from, "beta must be untouched after cancellation")
+		}
+		assert.Equal(t, 0, raft.removeEntityCall["beta"])
+	})
+
+	t.Run("cancellation mid-namespace stops before remaining classes", func(t *testing.T) {
+		raft := newStubRaft()
+		ns := stubNamespaces{deleting: []string{"alpha"}}
+		schema := stubSchema{classes: map[string][]string{"alpha": {"alpha:Foo", "alpha:Bar", "alpha:Baz"}}}
+		ctx, cancel := context.WithCancel(context.Background())
+		var cancelled bool
+		raft.onCall = func(op string) {
+			if op == "class" && !cancelled {
+				cancelled = true
+				cancel()
+			}
+		}
+		c := newTestCoordinator(t, ns, schema, raft, alwaysLeader)
+		require.NoError(t, c.Tick(ctx))
+
+		// users + the in-flight class only; the inner guard aborts before
+		// the rest and before RemoveNamespaceEntity.
+		assert.Equal(t, []string{"users", "class"}, opsOf(raft.calls))
+		assert.Equal(t, 0, raft.removeEntityCall["alpha"],
+			"entity removal must not run when the tick was cancelled mid-cleanup")
+	})
+
+	t.Run("cancellation before the user delete issues no writes", func(t *testing.T) {
+		// Cancel on the cleanupSingleNamespace entry isLeader call (#2), just
+		// before the user delete; the pre-write guard must abort cleanly.
+		raft := newStubRaft()
+		ns := stubNamespaces{deleting: []string{"alpha"}}
+		ctx, cancel := context.WithCancel(context.Background())
+		calls := 0
+		isLeader := func() bool {
+			calls++
+			if calls == 2 {
+				cancel()
+			}
+			return true
+		}
+		c := newTestCoordinator(t, ns, stubSchema{}, raft, isLeader)
+		require.NoError(t, c.Tick(ctx))
+		assert.Empty(t, raft.calls, "no RAFT write may run once ctx is cancelled before the user delete")
+	})
+
+	t.Run("cancellation after the user delete stops before entity removal", func(t *testing.T) {
+		// No aliases or classes, so the only guard after the user delete is
+		// the one before RemoveNamespaceEntity.
+		raft := newStubRaft()
+		ns := stubNamespaces{deleting: []string{"alpha"}}
+		ctx, cancel := context.WithCancel(context.Background())
+		raft.onCall = func(op string) {
+			if op == "users" {
+				cancel()
+			}
+		}
+		c := newTestCoordinator(t, ns, stubSchema{}, raft, alwaysLeader)
+		require.NoError(t, c.Tick(ctx))
+
+		assert.Equal(t, []string{"users"}, opsOf(raft.calls))
+		assert.Equal(t, 0, raft.removeEntityCall["alpha"],
+			"entity removal must not run when ctx is cancelled before it")
+	})
 }
 
 func opsOf(calls []recordedCall) []string {

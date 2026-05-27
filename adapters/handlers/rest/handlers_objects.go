@@ -527,6 +527,9 @@ func (h *objectHandlers) addObjectReference(
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.NotFound():
 			return objects.NewObjectsClassReferencesCreateNotFound()
+		case objErr.Gone():
+			return objects.NewObjectsClassReferencesCreateGone().
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
@@ -572,6 +575,9 @@ func (h *objectHandlers) putObjectReferences(params objects.ObjectsClassReferenc
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.NotFound():
 			return objects.NewObjectsClassReferencesPutNotFound()
+		case objErr.Gone():
+			return objects.NewObjectsClassReferencesPutGone().
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case objErr.BadRequest():
 			return objects.NewObjectsClassReferencesPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
@@ -616,6 +622,9 @@ func (h *objectHandlers) deleteObjectReference(params objects.ObjectsClassRefere
 				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case uco.StatusNotFound:
 			return objects.NewObjectsClassReferencesDeleteNotFound()
+		case uco.StatusGone:
+			return objects.NewObjectsClassReferencesDeleteGone().
+				WithPayload(errPayloadFromSingleErr(principal, objErr))
 		case uco.StatusBadRequest:
 			return objects.NewObjectsClassReferencesDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, objErr))

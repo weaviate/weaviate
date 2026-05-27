@@ -39,16 +39,9 @@ func retryOnAliasLag(t *testing.T, op func() error) {
 	}, 10*time.Second, 50*time.Millisecond, "operation kept failing while waiting for alias to be visible locally")
 }
 
-// Test personas. All API keys are statically declared at compose-up time.
-// Per-test work is limited to creating a role with the desired permissions
-// and assigning it to one of these users (reversed in t.Cleanup).
-const (
-	adminUser, adminKey               = "admin-user", "admin-key"
-	manageUser, manageKey             = "manage-user", "manage-key"
-	scopedManageUser, scopedManageKey = "scoped-manage-user", "scoped-manage-key"
-	viewerUser, viewerKey             = "viewer-user", "viewer-key"
-	noPermsUser, noPermsKey           = "no-perms-user", "no-perms-key"
-)
+// adminUser is the env-var root. Namespaced DB users are created at runtime via
+// createNamespacedUser and granted the built-in admin role by this root.
+const adminUser, adminKey = "admin-user", "admin-key"
 
 var sharedCompose *docker.DockerCompose
 
@@ -63,15 +56,21 @@ func TestMain(m *testing.M) {
 
 	compose, err := docker.New().
 		WithApiKey().
+		WithRBAC().
 		WithUserApiKey(adminUser, adminKey).
-		WithUserApiKey(manageUser, manageKey).
-		WithUserApiKey(scopedManageUser, scopedManageKey).
-		WithUserApiKey(viewerUser, viewerKey).
-		WithUserApiKey(noPermsUser, noPermsKey).
+		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().
 		WithMCP().
 		WithOffloadS3("offloading", "us-west-1").
+		// backup-s3 + export share the MinIO sidecar; the "backups" bucket backs
+		// both. REPLICA_MOVEMENT_ENABLED ensures the Replicate handler reaches the
+		// auth check (it 501s before authz when movement is off), so the RBAC deny
+		// in rbac_surfaces_test.go is observable.
+		WithBackendS3("backups", "us-west-1").
+		WithWeaviateEnv("EXPORT_ENABLED", "true").
+		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", "backups").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)

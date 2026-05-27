@@ -46,7 +46,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	err = m.validateObjectAndNormalizeNames(ctx, repl, obj, nil, fetchedClasses)
+	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, obj, nil, fetchedClasses)
 	if err != nil {
 		var forbidden autherrs.Forbidden
 		if errors.As(err, &forbidden) {

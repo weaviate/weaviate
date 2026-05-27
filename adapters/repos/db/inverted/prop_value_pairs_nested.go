@@ -387,8 +387,8 @@ func (pv *propValuePair) fetchNestedPositions(ctx context.Context, s *Searcher) 
 // IdxKey(relPath, index) from the nested metadata bucket and ANDs it into
 // the accumulator using mergeBitmapsAndOrWithDenyList, which selects the more
 // efficient accumulator (smaller for AND) and releases the discarded buffer.
-// Returns the (potentially swapped) accumulator. On error the current
-// accumulator is returned unchanged — the caller is responsible for releasing it.
+// Returns the (potentially swapped) accumulator on success. On error the
+// accumulator is released internally and nil is returned.
 // No-op when arrayIndices is empty.
 func (pv *propValuePair) restrictByNestedIdx(s *Searcher, positions *docBitmap) (*docBitmap, error) {
 	if len(pv.nested.arrayIndices) == 0 {

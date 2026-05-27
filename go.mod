@@ -89,6 +89,7 @@ require (
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.14-0.20260511125437-5d49ac3cb4c0
 	github.com/weaviate/tiktoken-go v0.0.3
+	github.com/zeebo/xxh3 v1.1.0
 	go.etcd.io/bbolt v1.4.3
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.43.0

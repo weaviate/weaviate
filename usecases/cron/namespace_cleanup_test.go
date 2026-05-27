@@ -13,6 +13,7 @@ package cron
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,6 +131,60 @@ func TestCronsNamespaceCleanup_Init_SkipsForNonPositiveInterval(t *testing.T) {
 	}
 }
 
+func TestCronsNamespaceCleanup_Wait_AwaitsRegistrationGoroutine(t *testing.T) {
+	c, cr, cancel := newTestNamespaceCleanup(t, time.Minute)
+	require.NoError(t, c.Init(cr, nil, nonNilCoordinator(t)))
+
+	// While the shutdown ctx is live the registration goroutine is parked in
+	// its select, so wait() must block.
+	done := make(chan struct{})
+	go func() {
+		c.wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("wait() returned while the registration goroutine was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Shutdown unblocks the goroutine's select; wait() must then return.
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("wait() did not return after shutdown")
+	}
+}
+
+func TestCronsNamespaceCleanup_Wait_ReturnsWhenNoGoroutineLaunched(t *testing.T) {
+	// Namespaces disabled: Init returns without launching the goroutine, so
+	// registerWG was never incremented and wait() must not block.
+	logger, _ := test.NewNullLogger()
+	getter := func() config.Config {
+		return config.Config{Namespaces: config.Namespaces{
+			Enabled:         false,
+			CleanupInterval: configRuntime.NewDynamicValue(time.Minute),
+		}}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, getter)
+	cr := initGoCron(ctx, gocron.DiscardLogger)
+	require.NoError(t, c.Init(cr, nil, nonNilCoordinator(t)))
+
+	done := make(chan struct{})
+	go func() {
+		c.wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("wait() blocked even though no registration goroutine was launched")
+	}
+}
+
 func TestCronsNamespaceCleanup_RuntimeConfigHook(t *testing.T) {
 	// Drive the hook directly: set up a configGetter whose returned value
 	// can change between Hook calls, and assert the new value reaches
@@ -160,5 +215,48 @@ func TestCronsNamespaceCleanup_RuntimeConfigHook(t *testing.T) {
 	case got := <-c.intervalCh:
 		t.Fatalf("hook pushed on unchanged value: %s", got)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// TestCronsNamespaceCleanup_RuntimeConfigHook_ConcurrentCallsConsistent is a
+// regression test for the read-compare-store-push race: concurrent hook
+// callers must not leave intervalCh holding a different interval than
+// currentInterval. Many goroutines flip the config and call the hook at
+// once; afterwards the buffered channel value must equal currentInterval.
+// Run with -race to also catch the underlying data race directly.
+func TestCronsNamespaceCleanup_RuntimeConfigHook_ConcurrentCallsConsistent(t *testing.T) {
+	dv := configRuntime.NewDynamicValue(time.Minute)
+	getter := func() config.Config {
+		return config.Config{Namespaces: config.Namespaces{Enabled: true, CleanupInterval: dv}}
+	}
+	logger, _ := test.NewNullLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := newCronsNamespaceCleanup(ctx, logger, gocron.DiscardLogger, getter)
+	<-c.intervalCh // drain the constructor's initial value
+
+	const n = 64
+	var wg sync.WaitGroup
+	for i := 1; i <= n; i++ {
+		wg.Add(1)
+		go func(d time.Duration) {
+			defer wg.Done()
+			_ = dv.SetValue(d)
+			_ = c.RuntimeConfigHook()
+		}(time.Duration(i) * time.Second)
+	}
+	wg.Wait()
+
+	// Each change path stores currentInterval and pushes the same value under
+	// mu, so once the goroutines settle the channel must agree with
+	// currentInterval — the invariant the mutex restores.
+	c.mu.Lock()
+	current := c.currentInterval
+	c.mu.Unlock()
+	select {
+	case got := <-c.intervalCh:
+		assert.Equal(t, current, got, "channel interval diverged from currentInterval")
+	case <-time.After(time.Second):
+		t.Fatal("channel empty after concurrent hooks")
 	}
 }

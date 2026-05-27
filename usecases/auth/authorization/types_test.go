@@ -298,7 +298,7 @@ func TestBuiltInPermissions_NamespaceManageOnly(t *testing.T) {
 
 // TestBuiltInPermissions_NamespacesEnabled asserts the narrowed admin/viewer
 // shape on NS-enabled clusters: CRUD/READ over collections/data/tenants/
-// aliases only, no cluster-only domains. Root/read-only keep wildcard
+// aliases plus MCP, no cluster-only domains. Root/read-only keep wildcard
 // permissions regardless of NAMESPACES_ENABLED.
 func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 	builtIn := BuiltInPermissionsFor(true)
@@ -312,9 +312,12 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 		CreateData: {}, ReadData: {}, UpdateData: {}, DeleteData: {},
 		CreateTenants: {}, ReadTenants: {}, UpdateTenants: {}, DeleteTenants: {},
 		CreateAliases: {}, ReadAliases: {}, UpdateAliases: {}, DeleteAliases: {},
+		// MCP tools self-scope to principal.Namespace, so they are namespace-safe.
+		CreateMcp: {}, ReadMcp: {}, UpdateMcp: {},
 	}
 	allowedViewerActions := map[string]struct{}{
 		ReadCollections: {}, ReadData: {}, ReadTenants: {}, ReadAliases: {},
+		ReadMcp: {},
 	}
 
 	collectActions := func(perms []*models.Permission) map[string]struct{} {
@@ -336,7 +339,8 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 	assert.Equal(t, allowedAdminActions, gotAdmin, "Admin (NS-enabled) must contain only CRUD over namespace-bearing domains")
 	assert.Equal(t, allowedViewerActions, gotViewer, "Viewer (NS-enabled) must contain only READ over namespace-bearing domains")
 
-	// Disallowed domains for narrowed admin/viewer
+	// Disallowed domains for narrowed admin/viewer. MCP is intentionally absent
+	// here — it is namespace-safe and covered by the allowed maps above.
 	for _, action := range []string{
 		ManageBackups, ManageNamespaces,
 		ReadNodes, ReadCluster,
@@ -344,7 +348,6 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 		AssignAndRevokeGroups, ReadGroups,
 		ReadRoles, CreateRoles, UpdateRoles, DeleteRoles,
 		CreateReplicate, ReadReplicate, UpdateReplicate, DeleteReplicate,
-		CreateMcp, ReadMcp, UpdateMcp,
 	} {
 		_, hasAdmin := gotAdmin[action]
 		_, hasViewer := gotViewer[action]

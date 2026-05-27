@@ -387,7 +387,7 @@ func (e *recExecutor) runIdxLoopRecursive(ctx context.Context, g *recGroupNode, 
 		return nil, nil, err
 	}
 
-	idxPrefix := invnested.PathPrefix("_idx." + g.lca)
+	idxPrefix := invnested.IdxKeyPrefix(g.lca)
 
 	capHint := 64
 	for _, leaf := range g.here {

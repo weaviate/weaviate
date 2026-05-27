@@ -69,6 +69,42 @@ func TestNamespaces_ResponseStripping_Errors_REST(t *testing.T) {
 		assert.Contains(t, unproc.Payload.Error[0].Message, "customer1:", "admin must see qualified name: %s", unproc.Payload.Error[0].Message)
 	})
 
+	t.Run("indexes update on missing property surfaces stripped message", func(t *testing.T) {
+		// PUT on an existing class but a non-existent property returns 404 with a
+		// message naming the qualified collection internally; the strip removes "customer1:".
+		body := &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Tokenization: "lowercase"}}
+		_, err := helper.Client(t).Schema.SchemaObjectsIndexesUpdate(
+			schema.NewSchemaObjectsIndexesUpdateParams().
+				WithClassName(class). // short name; class exists, property does not
+				WithPropertyName("ghostprop").
+				WithBody(body),
+			helper.CreateAuth(user1Key),
+		)
+		require.Error(t, err)
+		var notFound *schema.SchemaObjectsIndexesUpdateNotFound
+		require.True(t, stderrors.As(err, &notFound), "expected 404, got %T: %v", err, err)
+		require.NotEmpty(t, notFound.Payload.Error)
+		msg := notFound.Payload.Error[0].Message
+		assert.Contains(t, msg, "ghostprop", "sanity: error names the missing property: %s", msg)
+		assert.NotContains(t, msg, "customer1:", "namespaced caller must not see own-prefix in indexes error: %s", msg)
+	})
+
+	t.Run("indexes update error: global admin sees raw qualified name (control)", func(t *testing.T) {
+		body := &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Tokenization: "lowercase"}}
+		_, err := helper.Client(t).Schema.SchemaObjectsIndexesUpdate(
+			schema.NewSchemaObjectsIndexesUpdateParams().
+				WithClassName("customer1:"+class). // qualified name
+				WithPropertyName("ghostprop").
+				WithBody(body),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var notFound *schema.SchemaObjectsIndexesUpdateNotFound
+		require.True(t, stderrors.As(err, &notFound), "expected 404, got %T: %v", err, err)
+		require.NotEmpty(t, notFound.Payload.Error)
+		assert.Contains(t, notFound.Payload.Error[0].Message, "customer1:", "admin must see qualified name: %s", notFound.Payload.Error[0].Message)
+	})
+
 	t.Run("batch per-item error: object with type-mismatched property is stripped", func(t *testing.T) {
 		// Number value for a text property — auto-schema can't reconcile
 		// a type conflict on an existing prop, so the validator emits a
@@ -122,14 +158,14 @@ func TestNamespaces_ResponseStripping_Errors_GRPC(t *testing.T) {
 	})
 
 	t.Run("batch reply per-item error: invalid object yields stripped per-item entry", func(t *testing.T) {
-		// Inject a per-item error by referencing an unknown collection so
-		// the classGetter inside BatchObjects fails for that item; the
-		// resulting BatchError must have no "customer1:" prefix.
+		// A number for the text "title" property fails per-object validation
+		// (an unknown collection would instead be auto-created and succeed).
+		// The error names the qualified class, so the BatchError must be stripped.
 		resp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
 			Objects: []*pb.BatchObject{
-				{Uuid: "11111111-1111-1111-1111-111111111111", Collection: "NoSuchClass", Properties: &pb.BatchObject_Properties{
+				{Uuid: "11111111-1111-1111-1111-111111111111", Collection: class, Properties: &pb.BatchObject_Properties{
 					NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{
-						"title": structpb.NewStringValue("bad"),
+						"title": structpb.NewNumberValue(42),
 					}},
 				}},
 			},
@@ -152,12 +188,14 @@ func TestNamespaces_ResponseStripping_Errors_GRPC(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, started.GetStarted())
 
+		// As above: a number for the text "title" property forces a per-object
+		// validation error naming the qualified class.
 		require.NoError(t, stream.Send(&pb.BatchStreamRequest{
 			Message: &pb.BatchStreamRequest_Data_{Data: &pb.BatchStreamRequest_Data{
 				Objects: &pb.BatchStreamRequest_Data_Objects{Values: []*pb.BatchObject{
-					{Uuid: "22222222-2222-2222-2222-222222222222", Collection: "NoSuchStreamClass", Properties: &pb.BatchObject_Properties{
+					{Uuid: "22222222-2222-2222-2222-222222222222", Collection: class, Properties: &pb.BatchObject_Properties{
 						NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{
-							"title": structpb.NewStringValue("bad"),
+							"title": structpb.NewNumberValue(42),
 						}},
 					}},
 				}},

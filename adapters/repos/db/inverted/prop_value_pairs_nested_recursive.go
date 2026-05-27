@@ -253,31 +253,8 @@ func materializeNestedContainsNone(
 // element at LCA where the operand is missing.
 func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmapFetcher, bitmapOps *invnested.BitmapOps, input *recGroupInput) error {
 	if leaf.operator == filters.OperatorIsNull {
-		bm, rel, err := fetcher.fetchExists(leaf)
-		if err != nil {
-			return fmt.Errorf("normalizeRecGroup: fetch exists for %q: %w", leaf.nested.relPath, err)
-		}
-		input.releases = append(input.releases, rel)
-		isAbsent := len(leaf.value) > 0 && leaf.value[0] == 0x01
-		if isAbsent {
-			lca, err := leaf.isNullOperandLCA()
-			if err != nil {
-				return fmt.Errorf("normalizeRecGroup: compute LCA for IsNull %q: %w", leaf.nested.relPath, err)
-			}
-			lcaBm, lcaRel, err := fetcher.fetchExistsAtPath(leaf, lca)
-			if err != nil {
-				return fmt.Errorf("normalizeRecGroup: fetch exists at LCA %q for IsNull on %q: %w", lca, leaf.nested.relPath, err)
-			}
-			input.releases = append(input.releases, lcaRel)
-			existential, existRel := bitmapOps.AndNot(lcaBm, bm, concurrency.SROAR_MERGE)
-			input.releases = append(input.releases, existRel)
-			input.positives = append(input.positives, leaf)
-			input.rawsByCond[leaf] = existential
-			return nil
-		}
 		input.positives = append(input.positives, leaf)
-		input.rawsByCond[leaf] = bm
-		return nil
+		return materializeNestedIsNull(leaf, fetcher, bitmapOps, input)
 	}
 
 	bm, rel, err := fetcher.fetchValue(ctx, leaf)
@@ -287,6 +264,54 @@ func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmap
 	input.releases = append(input.releases, rel)
 	input.positives = append(input.positives, leaf)
 	input.rawsByCond[leaf] = bm
+	return nil
+}
+
+// materializeNestedIsNull computes the IsNull leaf's strict-existential
+// bitmap (when IsNull=true) or positive existence bitmap (when IsNull=false)
+// and stores it in input.rawsByCond keyed by the leaf. Used by both
+// routeDirectLeaf (direct child of correlated AND) and
+// fetchOperatorSubtreeBitmaps (IsNull buried inside an OR/NOT/inner-AND
+// subtree). Does NOT touch input.positives — the caller decides whether the
+// leaf is itself a planner entry.
+//
+// IsNull=true is materialized as _exists.{operandLCA} AndNot _exists.{relPath}
+// — a strict-existential bitmap at the operand's natural LCA marking elements
+// that have the field absent. IsNull=false reduces to the operand's own
+// _exists.{relPath} bitmap (the field is present at those positions).
+//
+// Phase-3 inheritance makes the resulting bitmap compose correctly through
+// OR / NOT siblings at the same operand LCA: scalars within a parent element
+// share their parent's element-position encoding, so the existential bitmap
+// and value-leaf bitmaps live at the same per-element leaf positions.
+func materializeNestedIsNull(
+	leaf *propValuePair,
+	fetcher recBitmapFetcher,
+	bitmapOps *invnested.BitmapOps,
+	input *recGroupInput,
+) error {
+	bm, rel, err := fetcher.fetchExists(leaf)
+	if err != nil {
+		return fmt.Errorf("normalizeRecGroup: fetch exists for %q: %w", leaf.nested.relPath, err)
+	}
+	input.releases = append(input.releases, rel)
+	isAbsent := len(leaf.value) > 0 && leaf.value[0] == 0x01
+	if !isAbsent {
+		input.rawsByCond[leaf] = bm
+		return nil
+	}
+	lca, err := leaf.isNullOperandLCA()
+	if err != nil {
+		return fmt.Errorf("normalizeRecGroup: compute LCA for IsNull %q: %w", leaf.nested.relPath, err)
+	}
+	lcaBm, lcaRel, err := fetcher.fetchExistsAtPath(leaf, lca)
+	if err != nil {
+		return fmt.Errorf("normalizeRecGroup: fetch exists at LCA %q for IsNull on %q: %w", lca, leaf.nested.relPath, err)
+	}
+	input.releases = append(input.releases, lcaRel)
+	existential, existRel := bitmapOps.AndNot(lcaBm, bm, concurrency.SROAR_MERGE)
+	input.releases = append(input.releases, existRel)
+	input.rawsByCond[leaf] = existential
 	return nil
 }
 
@@ -303,10 +328,9 @@ func routeDirectLeaf(ctx context.Context, leaf *propValuePair, fetcher recBitmap
 // so the planner sees the same shape regardless of how deeply the wrapper is
 // nested under operator subtrees.
 //
-// IsNull leaves inside operator subtrees are not yet supported; if encountered
-// the function returns an error so callers can detect the gap rather than
-// produce silent wrong results. Mixing IsNull with same-element OR/NOT
-// semantics will be addressed alongside the IsNull validation step.
+// IsNull leaves are materialized via materializeNestedIsNull (same path
+// routeDirectLeaf uses), so the resulting bitmap composes with sibling
+// value leaves through OR / NOT via Phase-3 inheritance.
 func fetchOperatorSubtreeBitmaps(
 	ctx context.Context,
 	node *propValuePair,
@@ -317,7 +341,7 @@ func fetchOperatorSubtreeBitmaps(
 ) error {
 	if node.nested.isNested {
 		if node.operator == filters.OperatorIsNull {
-			return fmt.Errorf("normalizeRecGroup: IsNull leaf inside operator subtree not yet supported (%q)", node.nested.relPath)
+			return materializeNestedIsNull(node, fetcher, bitmapOps, input)
 		}
 		bm, rel, err := fetcher.fetchValue(ctx, node)
 		if err != nil {

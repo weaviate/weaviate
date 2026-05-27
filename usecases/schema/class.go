@@ -153,6 +153,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
+	// DataType is pre-qualified; used as-is for authz + schema lookup.
 	classGetterWithAuth := func(name string) (*models.Class, error) {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err

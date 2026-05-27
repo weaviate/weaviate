@@ -142,6 +142,26 @@ func TestNamespaceFromQualified(t *testing.T) {
 	}
 }
 
+func TestStripQualification(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "no separator returns input unchanged", in: "MyClass", want: "MyClass"},
+		{name: "qualified name returns entity portion", in: "alpha:MyClass", want: "MyClass"},
+		{name: "empty input returns empty", in: "", want: ""},
+		{name: "trailing separator returns empty entity", in: "alpha:", want: ""},
+		{name: "leading separator returns input after separator", in: ":MyClass", want: "MyClass"},
+		{name: "multiple separators split only on first", in: "alpha:beta:MyClass", want: "beta:MyClass"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, StripQualification(tc.in))
+		})
+	}
+}
+
 func TestQualifyClass(t *testing.T) {
 	cases := []struct {
 		testName          string
@@ -1075,6 +1095,120 @@ func TestStripOwnNamespace(t *testing.T) {
 		t.Run(tc.testName, func(t *testing.T) {
 			got := StripOwnNamespace(tc.principal, tc.input)
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestQualifyRefTarget(t *testing.T) {
+	ns := &models.Principal{Username: "u", Namespace: "customer1"}
+	admin := &models.Principal{Username: "admin"}
+
+	cases := []struct {
+		name           string
+		principal      *models.Principal
+		nsEnabled      bool
+		sourceClass    string
+		target         string
+		wantQualified  string
+		wantShort      string
+		wantErr        bool
+		wantErrContent string
+	}{
+		// Non-NS cluster: pass-through, short==qualified==target.
+		{
+			name:      "NS-disabled passes target through",
+			principal: admin, nsEnabled: false,
+			sourceClass:   "Zoo",
+			target:        "Animal",
+			wantQualified: "Animal", wantShort: "Animal",
+		},
+
+		// Namespaced principal, short target — qualified with source NS.
+		{
+			name:      "namespaced principal short target qualifies via source",
+			principal: ns, nsEnabled: true,
+			sourceClass:   "customer1:Zoo",
+			target:        "Animal",
+			wantQualified: "customer1:Animal", wantShort: "Animal",
+		},
+		// Namespaced principal must never type any prefix — even their own.
+		{
+			name:      "namespaced principal own-NS qualified target is rejected",
+			principal: ns, nsEnabled: true,
+			sourceClass: "customer1:Zoo",
+			target:      "customer1:Animal",
+			wantErr:     true,
+		},
+		{
+			name:      "namespaced principal foreign-NS target is rejected",
+			principal: ns, nsEnabled: true,
+			sourceClass: "customer1:Zoo",
+			target:      "customer2:Animal",
+			wantErr:     true,
+		},
+
+		// Global admin — short target inherits source's NS, qualified
+		// target accepted iff it names the same NS as the source.
+		{
+			name:      "admin short target inherits source NS",
+			principal: admin, nsEnabled: true,
+			sourceClass:   "customer1:Zoo",
+			target:        "Animal",
+			wantQualified: "customer1:Animal", wantShort: "Animal",
+		},
+		{
+			name:      "admin own-NS qualified target normalizes",
+			principal: admin, nsEnabled: true,
+			sourceClass:   "customer1:Zoo",
+			target:        "customer1:Animal",
+			wantQualified: "customer1:Animal", wantShort: "Animal",
+		},
+		{
+			name:      "admin cross-NS qualified target is rejected",
+			principal: admin, nsEnabled: true,
+			sourceClass: "customer1:Zoo",
+			target:      "customer2:Animal",
+			wantErr:     true,
+		},
+
+		// Edge: NS-enabled but the source is itself short (e.g. test
+		// fixture or non-NS-resolved input). Treat as no-source-NS —
+		// qualified == short == target, no rejection. Matches the
+		// non-NS branch's pass-through.
+		{
+			name:      "NS-enabled but source unqualified leaves target untouched",
+			principal: ns, nsEnabled: true,
+			sourceClass:   "Zoo",
+			target:        "Animal",
+			wantQualified: "Animal", wantShort: "Animal",
+		},
+
+		// Admin typo — syntactically invalid namespace prefix. Caught by the
+		// ValidateNamespacePrefix safeguard at the top of QualifyRefTarget,
+		// which surfaces the specific "invalid namespace prefix" error
+		// rather than the generic cross-NS rejection.
+		{
+			name:      "admin syntactically invalid NS prefix is rejected with specific error",
+			principal: admin, nsEnabled: true,
+			sourceClass:    "customer1:Zoo",
+			target:         "BadCase:Animal",
+			wantErr:        true,
+			wantErrContent: "invalid namespace prefix",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			qualified, short, err := QualifyRefTarget(tc.principal, tc.nsEnabled, tc.sourceClass, tc.target)
+			if tc.wantErr {
+				require.Error(t, err)
+				if tc.wantErrContent != "" {
+					assert.Contains(t, err.Error(), tc.wantErrContent)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantQualified, qualified, "qualified")
+			assert.Equal(t, tc.wantShort, short, "short")
 		})
 	}
 }

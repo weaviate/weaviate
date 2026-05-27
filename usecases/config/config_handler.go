@@ -372,6 +372,13 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true: GraphQL is not supported on namespace-enabled clusters")
 	}
 
+	// Without RBAC the role narrowing that keeps namespaced principals off
+	// cluster-wide operator surfaces never runs. Also rejects AdminList-only,
+	// which sets Rbac.Enabled=false.
+	if c.Namespaces.Enabled && !c.Authorization.Rbac.Enabled {
+		return fmt.Errorf("NAMESPACES_ENABLED=true requires RBAC to be enabled")
+	}
+
 	if err := c.validateOIDCNamespaceClaims(); err != nil {
 		return configErr(err)
 	}
