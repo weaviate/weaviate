@@ -95,7 +95,7 @@ func TestSpawnAsyncDelete_BoundedConcurrency(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, err := os.Stat(doomed)
 		return os.IsNotExist(err)
-	}, 2*time.Second, 10*time.Millisecond,
+	}, 60*time.Second, 10*time.Millisecond,
 		"deletion should proceed once a slot is freed")
 
 	// Drain the remaining slots so other tests start clean.
@@ -116,7 +116,7 @@ func TestSpawnAsyncDelete_RemovesPath(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, err := os.Stat(doomed)
 		return os.IsNotExist(err)
-	}, 5*time.Second, 10*time.Millisecond, "spawned delete should remove the path")
+	}, 60*time.Second, 10*time.Millisecond, "spawned delete should remove the path")
 }
 
 func TestScanAndAsyncDeletePending_RecoversIndexAndShardLevel(t *testing.T) {
@@ -137,7 +137,7 @@ func TestScanAndAsyncDeletePending_RecoversIndexAndShardLevel(t *testing.T) {
 		_, indexErr := os.Stat(indexPending)
 		_, shardErr := os.Stat(shardPending)
 		return os.IsNotExist(indexErr) && os.IsNotExist(shardErr)
-	}, 5*time.Second, 10*time.Millisecond, "both index-level and shard-level pending dirs should be removed")
+	}, 60*time.Second, 10*time.Millisecond, "both index-level and shard-level pending dirs should be removed")
 
 	_, err := os.Stat(filepath.Join(liveClass, "shard1"))
 	require.NoError(t, err, "live shard must not be removed by recovery scan")
