@@ -128,9 +128,7 @@ func (c *CursorMap) seekAll(target []byte) {
 		}
 
 		state[i].key = key
-		if !c.keyOnly {
-			state[i].value = value
-		}
+		state[i].value = value
 	}
 
 	c.state = state
@@ -150,9 +148,7 @@ func (c *CursorMap) firstAll() {
 		}
 
 		state[i].key = key
-		if !c.keyOnly {
-			state[i].value = value
-		}
+		state[i].value = value
 	}
 
 	c.state = state
@@ -220,7 +216,6 @@ func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []
 		// overwritten.
 		c.pendingAdvanceIDs = append(c.pendingAdvanceIDs, ids...)
 
-		// TODO remove keyOnly option, not used anyway
 		if !c.keyOnly {
 			return key, merged
 		}
@@ -292,8 +287,6 @@ func (c *CursorMap) advanceInner(id int) {
 	}
 
 	c.state[id].key = k
-	if !c.keyOnly {
-		c.state[id].value = v
-	}
+	c.state[id].value = v
 	c.state[id].err = nil
 }
