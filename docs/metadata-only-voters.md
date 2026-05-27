@@ -19,7 +19,7 @@ that replicates the RAFT log but can never be elected leader). With the flag on:
 
 | | RAFT role | Holds shards? | Coordinates requests? |
 |---|---|---|---|
-| Voters (first `BOOTSTRAP_EXPECT` of `RAFT_JOIN`) | voter, quorum | no | yes |
+| Voters (first `RAFT_BOOTSTRAP_EXPECT` of `RAFT_JOIN`) | voter, quorum | no | yes |
 | All other nodes | non-voter | yes | yes |
 
 ## Enabling it

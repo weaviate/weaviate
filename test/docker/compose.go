@@ -598,6 +598,12 @@ func (d *Compose) WithWeaviateClusterWithVoters(voterCount, dataNodeCount int) *
 	if voterCount%2 == 0 {
 		panic("voterCount must be odd so a quorum majority can be achieved")
 	}
+	if dataNodeCount < 1 {
+		// With no data nodes voterCount == size, so RAFT_METADATA_ONLY_VOTERS is
+		// never set and this would just be a plain all-voter cluster — use
+		// WithWeaviateCluster for that instead.
+		panic("dataNodeCount must be at least 1 for the metadata-only-voters topology")
+	}
 	d.withWeaviateCluster = true
 	d.withWeaviateVoterCount = voterCount
 	d.withWeaviateClusterSize = voterCount + dataNodeCount
