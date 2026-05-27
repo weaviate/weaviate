@@ -138,7 +138,11 @@ type Config struct {
 	Logger       *logrus.Logger
 	Voter        bool
 
-	// MetadataOnlyVoters configures the voters to store metadata exclusively, without storing any other data
+	// MetadataOnlyVoters makes this node apply schema to the FSM without touching
+	// the local DB. It is NOT set from the RAFT_METADATA_ONLY_VOTERS env var (that
+	// only excludes voters from shard placement; voters still run the coordinator
+	// layer). Only recoverSingleNode sets it, so RAFT config rewrites cannot
+	// mutate the DB.
 	MetadataOnlyVoters bool
 
 	// DB is the interface to the weaviate database. It is necessary so that schema changes are reflected to the DB

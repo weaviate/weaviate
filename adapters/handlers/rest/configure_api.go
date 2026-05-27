@@ -667,7 +667,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		SnapshotThreshold:           appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		TrailingLogs:                appState.ServerConfig.Config.Raft.TrailingLogs,
 		ConsistencyWaitTimeout:      appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
-		MetadataOnlyVoters:          appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		MetadataOnlyVoters:          false, // not env-driven; see Config.MetadataOnlyVoters and startupRoutine
 		EnableOneNodeRecovery:       appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:        appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
 		DB:                          nil,
@@ -1620,6 +1620,10 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
+	// RAFT_METADATA_ONLY_VOTERS excludes voters from shard placement: they own no
+	// shards but still run the coordinator layer, so requests reaching a voter are
+	// proxied to the data nodes. This is computed per-node, so the env var must be
+	// set on every node; otherwise a node without it could place shards on a voter.
 	var nonStorageNodes map[string]struct{}
 	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
 		nonStorageNodes = parseVotersNames(cfg)
