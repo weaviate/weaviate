@@ -541,5 +541,9 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 			helper.CreateAuth(user1Key),
 		)
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "hasOther",
+			"must fail on the unknown ref property, not the removed upfront rejection")
+		assert.NotContains(t, err.Error(), "reference-path filters",
+			"the upfront path-len > 1 rejection no longer exists")
 	})
 }
