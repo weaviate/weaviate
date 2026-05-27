@@ -48,6 +48,13 @@ func renameForAsyncDelete(path string, logger logrus.FieldLogger) (string, error
 			asyncDeleteSuffix))
 
 	if err := os.Rename(path, target); err != nil {
+		// Source already gone: nothing to delete. The prior drop impl was
+		// os.RemoveAll, which treats a missing path as success; idempotent
+		// callers (e.g. Migrator.UpdateIndex re-running a tenant drop) rely
+		// on that. Preserve the no-op contract rather than erroring.
+		if os.IsNotExist(err) {
+			return "", nil
+		}
 		return "", fmt.Errorf("rename %q to %q: %w", path, target, err)
 	}
 
