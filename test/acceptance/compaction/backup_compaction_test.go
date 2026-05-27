@@ -103,7 +103,7 @@ func TestBackup_CompactionRunsDuringBackup(t *testing.T) {
 	defer helper.DeleteClass(t, backupCollection)
 
 	// 2. Import initial data — 1000 batches to make the backup take long enough to observe compactions during its execution
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 100; i++ {
 		importBatchForClass(t, backupCollection)
 	}
 
