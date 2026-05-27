@@ -21,13 +21,11 @@ import (
 
 // Parse Filter from REST construct to entities filter.
 //
-// When namespacesEnabled is true, reference-path filters (Path with more
-// than one element) get their inner class segments qualified against the
-// previous level's namespace via namespacing.QualifyRefTarget. This mirrors
-// the gRPC parser's extractPathNew. Direct-property filters (single-element
-// Path) are unchanged. The principal drives QualifyRefTarget's policy:
-// namespaced callers can't type any prefix, admins must address the
-// source's namespace, foreign-NS prefixes are rejected.
+// On NS clusters, reference-path inner class segments are qualified against
+// the previous level's namespace via QualifyRefTarget (same policy as the
+// rest of the NS code). Unlike gRPC's extractPathNew, which reads the linked
+// class from the schema, REST qualifies the caller-typed name as-is — a
+// wrong-but-same-NS class only fails the schema lookup downstream.
 func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool, principal *models.Principal) (*filters.LocalFilter, error) {
 	if in == nil {
 		return nil, nil
@@ -168,11 +166,8 @@ func parsePath(in []string, rootClass string, namespacesEnabled bool, principal 
 		return nil, fmt.Errorf("field 'path': must have at least one element")
 	}
 
-	// On NS-enabled clusters with a reference-path filter, qualify each
-	// inner class segment relative to its parent's namespace, mirroring
-	// the gRPC parser's extractPathNew. Inner class segments live at odd
-	// indices (path[1], path[3], ...); the parent for path[1] is rootClass,
-	// for path[3] it's the already-qualified path[1], and so on.
+	// Qualify each inner class segment (odd indices) against its parent's
+	// namespace: rootClass for path[1], the qualified path[1] for path[3], etc.
 	if namespacesEnabled && len(in) > 1 {
 		qualified := make([]string, len(in))
 		copy(qualified, in)

@@ -553,13 +553,11 @@ func ptFloat32(in float32) *float32 {
 	return &in
 }
 
-// Test_Parse_NamespacesEnabledQualifiesRefPath asserts the where-filter
-// reference-path qualification on namespace-enabled clusters. Inner class
-// segments are qualified via namespacing.QualifyRefTarget relative to the
-// previous level's namespace, mirroring the gRPC parser's extractPathNew.
-// QualifyRefTarget's policy (namespaced callers can't type a prefix; admins
-// may but only matching the source NS; foreign-NS rejected) is enforced
-// here too. Non-NS clusters keep the original pass-through behavior.
+// Test_Parse_NamespacesEnabledQualifiesRefPath asserts that reference-path
+// inner class segments are qualified via QualifyRefTarget against the previous
+// level's namespace, including its policy (namespaced callers can't type a
+// prefix; admins must match the source NS; foreign-NS rejected). Non-NS
+// clusters pass through unchanged.
 func Test_Parse_NamespacesEnabledQualifiesRefPath(t *testing.T) {
 	t.Parallel()
 
