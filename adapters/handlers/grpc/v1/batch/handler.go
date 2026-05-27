@@ -99,12 +99,6 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		// deleted collection with an empty schema. Non-alias requests for an
 		// unknown class are still allowed through so legitimate auto-schema
 		// creates continue to work.
-		//
-		// Pass qualified names verbatim — the deferred
-		// StripErrForPrincipal at the top of BatchObjects strips the
-		// caller's own namespace prefix, leaving foreign prefixes intact
-		// for global principals (a debugging-friendly compromise that
-		// keeps namespace policy a single source of truth).
 		if qualifiedAlias != "" && vClass[classname].Class == nil {
 			return "", nil, fmt.Errorf("alias %q points to collection %q which does not exist", qualifiedAlias, classname)
 		}
