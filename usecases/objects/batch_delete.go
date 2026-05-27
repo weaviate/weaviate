@@ -145,14 +145,18 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 	class := vclasses[match.Class].Class
 
+	// A malformed where filter (bad path, unknown property, foreign-namespace
+	// class name, etc.) is caller input, so classify it as ErrInvalidUserInput
+	// — otherwise the REST handler maps the parse/validation failure to a 500
+	// instead of a 422. The message wording is preserved for callers/tests.
 	filter, err := filterext.Parse(match.Where, class.Class, b.config.Config.Namespaces.Enabled, principal)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse where filter: %w", err)
+		return nil, 0, NewErrInvalidUserInput("failed to parse where filter: %v", err)
 	}
 
 	err = filters.ValidateFilters(b.classGetterFunc(ctx, principal), filter)
 	if err != nil {
-		return nil, 0, fmt.Errorf("invalid where filter: %w", err)
+		return nil, 0, NewErrInvalidUserInput("invalid where filter: %v", err)
 	}
 
 	dryRunParam := false

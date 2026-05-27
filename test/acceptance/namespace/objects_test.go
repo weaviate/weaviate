@@ -541,9 +541,16 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 			helper.CreateAuth(user1Key),
 		)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "hasOther",
+		// A malformed where filter is caller input, so the handler returns a 422
+		// (not a 500). The swagger client hides the message behind a pointer in
+		// err.Error(), so read it from the typed payload.
+		var unproc *batch.BatchObjectsDeleteUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected 422 UnprocessableEntity, got %T: %v", err, err)
+		require.NotEmpty(t, unproc.Payload.Error)
+		msg := unproc.Payload.Error[0].Message
+		assert.Contains(t, msg, "hasOther",
 			"must fail on the unknown ref property, not the removed upfront rejection")
-		assert.NotContains(t, err.Error(), "reference-path filters",
+		assert.NotContains(t, msg, "reference-path filters",
 			"the upfront path-len > 1 rejection no longer exists")
 	})
 }

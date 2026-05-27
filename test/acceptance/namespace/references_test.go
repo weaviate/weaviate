@@ -590,7 +590,13 @@ func TestNamespaces_References(t *testing.T) {
 			helper.CreateAuth(user1Key),
 		)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "is not a valid class name")
+		// A bad inner class name is caller input, so the handler returns a 422
+		// (not a 500). The swagger client hides the message behind a pointer in
+		// err.Error(), so read it from the typed payload.
+		var unproc *batch.BatchObjectsDeleteUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected 422 UnprocessableEntity, got %T: %v", err, err)
+		require.NotEmpty(t, unproc.Payload.Error)
+		assert.Contains(t, unproc.Payload.Error[0].Message, "is not a valid class name")
 	})
 
 	t.Run("create object with ref property in Properties payload (NS happy path)", func(t *testing.T) {
