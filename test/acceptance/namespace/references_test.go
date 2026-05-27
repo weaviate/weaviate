@@ -518,6 +518,80 @@ func TestNamespaces_References(t *testing.T) {
 		assert.False(t, sawLion, "by-ref filter must not return zoos whose ref points to a different animal")
 	})
 
+	t.Run("REST ref-path where filter resolves target via source namespace", func(t *testing.T) {
+		// REST ingress (batch-delete → filterext.Parse), independent of the
+		// gRPC path above. The short inner class "Animal" must qualify to
+		// "customer1:Animal" or the ref sub-search matches nothing. dryRun
+		// keeps the shared Zoo class intact.
+		tigerID, lionID := newID(), newID()
+		zooTigerID, zooLionID := newID(), newID()
+		createIn(t, user1Key, "Animal", tigerID, map[string]any{"name": "bd-tiger"})
+		createIn(t, user1Key, "Animal", lionID, map[string]any{"name": "bd-lion"})
+		createIn(t, user1Key, "Zoo", zooTigerID, map[string]any{"name": "zoo-bd-tiger"})
+		createIn(t, user1Key, "Zoo", zooLionID, map[string]any{"name": "zoo-bd-lion"})
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(tigerID))},
+			zooTigerID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(lionID))},
+			zooLionID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		dryRun := true
+		verbose := "verbose"
+		wantName := "bd-tiger"
+		resp, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(&models.BatchDelete{
+				DryRun: &dryRun,
+				Output: &verbose,
+				Match: &models.BatchDeleteMatch{
+					Class: "Zoo",
+					Where: &models.WhereFilter{
+						Operator:  models.WhereFilterOperatorEqual,
+						Path:      []string{"hasAnimals", "Animal", "name"},
+						ValueText: &wantName,
+					},
+				},
+			}),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err, "ref-path where filter must qualify the inner class and resolve on NS clusters")
+		require.NotNil(t, resp.Payload.Results)
+		assert.Equal(t, int64(1), resp.Payload.Results.Matches,
+			"only the zoo whose hasAnimals.name=='bd-tiger' should match")
+
+		var matchedIDs []strfmt.UUID
+		for _, o := range resp.Payload.Results.Objects {
+			matchedIDs = append(matchedIDs, o.ID)
+		}
+		assert.Contains(t, matchedIDs, zooTigerID, "the tiger zoo must match the ref-path filter")
+		assert.NotContains(t, matchedIDs, zooLionID, "the lion zoo must not match")
+	})
+
+	t.Run("REST ref-path where filter rejects foreign-namespace inner class", func(t *testing.T) {
+		// QualifyRefTarget runs before any schema lookup, so a foreign-NS
+		// prefix on the inner class is rejected regardless of the schema.
+		dryRun := true
+		anyName := "x"
+		_, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(&models.BatchDelete{
+				DryRun: &dryRun,
+				Match: &models.BatchDeleteMatch{
+					Class: "Zoo",
+					Where: &models.WhereFilter{
+						Operator:  models.WhereFilterOperatorEqual,
+						Path:      []string{"hasAnimals", "customer2:Animal", "name"},
+						ValueText: &anyName,
+					},
+				},
+			}),
+			helper.CreateAuth(user1Key),
+		)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "is not a valid class name")
+	})
+
 	t.Run("create object with ref property in Properties payload (NS happy path)", func(t *testing.T) {
 		// Reproduction guard: object create that *embeds* the ref in the
 		// Properties payload (instead of using the dedicated /references
