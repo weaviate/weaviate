@@ -76,9 +76,23 @@ echo "    binary:    $MUTEST_BIN ($("$MUTEST_BIN" -version 2>/dev/null || echo '
 echo "    package:   $PKG" >&2
 echo "    flags:     ${flags[*]} $*" >&2
 
+cd "$REPO_ROOT"
+
+# Guard: mutest does NOT validate the baseline, so a failing test would make the
+# whole suite fail for every mutant and report a meaningless 100% kill rate.
+# Refuse to run unless the unmutated package tests pass first.
+echo "▶ verifying green baseline (go test $PKG) ..." >&2
+if ! go test -count=1 "$PKG" >/tmp/mutest_baseline.$$ 2>&1; then
+  echo "error: baseline 'go test $PKG' is RED — fix the tests first." >&2
+  echo "       (mutest reports a false 100% on a red baseline.)" >&2
+  tail -20 /tmp/mutest_baseline.$$ >&2
+  rm -f /tmp/mutest_baseline.$$
+  exit 1
+fi
+rm -f /tmp/mutest_baseline.$$
+
 # User-supplied flags ("$@") come after the defaults so they win on conflict;
 # the package pattern is the trailing positional argument.
-cd "$REPO_ROOT"
 rc=0
 "$MUTEST_BIN" "${flags[@]}" "$@" "$PKG" || rc=$?
 exit "$rc"

@@ -193,6 +193,22 @@ func TestCoordinator_Tick_RemoveEntityNotEmptyIsSwallowed(t *testing.T) {
 	}
 }
 
+// TestCoordinator_cleanupSingleNamespace_GenericErrorPropagates pins that a
+// non-sentinel error from RemoveNamespaceEntity is surfaced rather than
+// swallowed — i.e. the `err != nil` guard actually fires on a real failure
+// (the sentinel ErrNamespaceNotEmpty case, which returns nil, is covered above).
+func TestCoordinator_cleanupSingleNamespace_GenericErrorPropagates(t *testing.T) {
+	raft := newStubRaft()
+	wantErr := errors.New("raft apply failed")
+	raft.removeEntityErr["alpha"] = wantErr
+	c := newTestCoordinator(t, stubNamespaces{deleting: []string{"alpha"}}, stubSchema{}, raft, alwaysLeader)
+
+	err := c.cleanupSingleNamespace(context.Background(), "alpha")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantErr)
+	assert.Equal(t, 1, raft.removeEntityCall["alpha"])
+}
+
 // TestCoordinator_Tick_LeaderFlipBetweenPhasesAborts walks an isLeader
 // sequence: every call returns true except the configured one. The
 // coordinator must abort the tick once it sees false.
