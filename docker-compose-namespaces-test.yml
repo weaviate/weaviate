@@ -3,13 +3,16 @@
 # Mirrors the wiring produced by test/docker/compose.go for
 #   docker.New().
 #     WithApiKey().
+#     WithRBAC().
 #     WithUserApiKey("admin-user", "admin-key").
+#     WithRbacRoots("admin-user").
 #     WithDbUsers().
 #     WithNamespaces().
 #     WithWeaviateClusterWithGRPC()
 #
 # Namespaces.Enabled forces:
 #   - DISABLE_GRAPHQL=true                  (Config.Validate requirement)
+#   - RBAC enabled                          (Config.Validate requirement)
 #   - REPLICATION_MAXIMUM_FACTOR=1          (home_node pins each shard)
 #
 # Usage:
@@ -28,6 +31,8 @@ x-weaviate-env: &weaviate-env
   AUTHENTICATION_APIKEY_ALLOWED_KEYS: "admin-key"
   AUTHENTICATION_APIKEY_USERS: "admin-user"
   AUTHENTICATION_DB_USERS_ENABLED: "true"
+  AUTHORIZATION_RBAC_ENABLED: "true"
+  AUTHORIZATION_RBAC_ROOT_USERS: "admin-user"
   NAMESPACES_ENABLED: "true"
   DISABLE_GRAPHQL: "true"
   REPLICATION_MAXIMUM_FACTOR: "1"
