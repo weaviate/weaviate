@@ -2497,6 +2497,38 @@ func (_c *MockShardLike_Name_Call) RunAndReturn(run func() string) *MockShardLik
 	return _c
 }
 
+// MayResetTransferInactivityTimer provides a mock function with no fields
+func (_m *MockShardLike) MayResetTransferInactivityTimer() {
+	_m.Called()
+}
+
+// MockShardLike_MayResetTransferInactivityTimer_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MayResetTransferInactivityTimer'
+type MockShardLike_MayResetTransferInactivityTimer_Call struct {
+	*mock.Call
+}
+
+// MayResetTransferInactivityTimer is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) MayResetTransferInactivityTimer() *MockShardLike_MayResetTransferInactivityTimer_Call {
+	return &MockShardLike_MayResetTransferInactivityTimer_Call{Call: _e.mock.On("MayResetTransferInactivityTimer")}
+}
+
+func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) Run(run func()) *MockShardLike_MayResetTransferInactivityTimer_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) Return() *MockShardLike_MayResetTransferInactivityTimer_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockShardLike_MayResetTransferInactivityTimer_Call) RunAndReturn(run func()) *MockShardLike_MayResetTransferInactivityTimer_Call {
+	_c.Run(run)
+	return _c
+}
+
 // NotifyReady provides a mock function with no fields
 func (_m *MockShardLike) NotifyReady() {
 	_m.Called()

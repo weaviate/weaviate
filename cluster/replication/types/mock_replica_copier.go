@@ -608,6 +608,55 @@ func (_c *MockReplicaCopier_StopChangeCapture_Call) RunAndReturn(run func(contex
 	return _c
 }
 
+// ReleaseReplicaSnapshot provides a mock function with given fields: ctx, srcNodeId, indexName, opID
+func (_m *MockReplicaCopier) ReleaseReplicaSnapshot(ctx context.Context, srcNodeId string, indexName string, opID string) error {
+	ret := _m.Called(ctx, srcNodeId, indexName, opID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReleaseReplicaSnapshot")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
+		r0 = rf(ctx, srcNodeId, indexName, opID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_ReleaseReplicaSnapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReleaseReplicaSnapshot'
+type MockReplicaCopier_ReleaseReplicaSnapshot_Call struct {
+	*mock.Call
+}
+
+// ReleaseReplicaSnapshot is a helper method to define mock.On call
+//   - ctx context.Context
+//   - srcNodeId string
+//   - indexName string
+//   - opID string
+func (_e *MockReplicaCopier_Expecter) ReleaseReplicaSnapshot(ctx interface{}, srcNodeId interface{}, indexName interface{}, opID interface{}) *MockReplicaCopier_ReleaseReplicaSnapshot_Call {
+	return &MockReplicaCopier_ReleaseReplicaSnapshot_Call{Call: _e.mock.On("ReleaseReplicaSnapshot", ctx, srcNodeId, indexName, opID)}
+}
+
+func (_c *MockReplicaCopier_ReleaseReplicaSnapshot_Call) Run(run func(ctx context.Context, srcNodeId string, indexName string, opID string)) *MockReplicaCopier_ReleaseReplicaSnapshot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_ReleaseReplicaSnapshot_Call) Return(_a0 error) *MockReplicaCopier_ReleaseReplicaSnapshot_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_ReleaseReplicaSnapshot_Call) RunAndReturn(run func(context.Context, string, string, string) error) *MockReplicaCopier_ReleaseReplicaSnapshot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // TailAndApply provides a mock function with given fields: ctx, srcNodeId, indexName, shardName, opID, untilLSN
 func (_m *MockReplicaCopier) TailAndApply(ctx context.Context, srcNodeId string, indexName string, shardName string, opID string, untilLSN uint64) (uint64, error) {
 	ret := _m.Called(ctx, srcNodeId, indexName, shardName, opID, untilLSN)

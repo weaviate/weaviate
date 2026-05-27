@@ -284,6 +284,11 @@ type Index struct {
 	replicaSnapshotsMu sync.Mutex
 	replicaSnapshots   map[string]replicaSnapshotState
 
+	// Serializes create/release per opID against target retries. Read RPCs
+	// skip it on purpose — locking them would queue downloads behind any
+	// concurrent Release and tank throughput.
+	replicaSnapshotOpLocks *esync.KeyRWLocker
+
 	metrics          *Metrics
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
@@ -419,6 +424,7 @@ func NewIndex(
 		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
 		shardCreateLocks:        esync.NewKeyRWLocker(),
+		replicaSnapshotOpLocks:  esync.NewKeyRWLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		shardReindexer:          shardReindexer,

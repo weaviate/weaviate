@@ -39,6 +39,11 @@ type replicaSnapshotState struct {
 }
 
 func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, opID string) ([]string, error) {
+	// Target retries can land twice server-side for the same opID; without
+	// this lock they race on the staging dir.
+	i.replicaSnapshotOpLocks.Lock(opID)
+	defer i.replicaSnapshotOpLocks.Unlock(opID)
+
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("incoming create replica snapshot get shard %s: %w", shardName, err)
@@ -87,6 +92,11 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 }
 
 func (i *Index) IncomingReleaseReplicaSnapshot(ctx context.Context, opID string) error {
+	// Without the lock, Release can RemoveAll the staging dir mid-hardlink
+	// of a concurrent Create for the same opID.
+	i.replicaSnapshotOpLocks.Lock(opID)
+	defer i.replicaSnapshotOpLocks.Unlock(opID)
+
 	return i.releaseReplicaSnapshot(ctx, opID)
 }
 
@@ -136,6 +146,19 @@ func (i *Index) resolveReplicaSnapshotPath(opID, rel string) (string, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("stat staging %q: %w", rel, err)
 	}
+
+	// Halt-for-duration serves segments from the live root; without this
+	// reset, a slow transfer trips the watchdog and compaction can delete
+	// segments mid-stream. Background ctx — request deadlines must not
+	// suppress the reset.
+	if !st.isSnapshot {
+		shard, release, err := i.GetShard(context.Background(), st.shardName)
+		if err == nil && shard != nil {
+			shard.MayResetTransferInactivityTimer()
+			release()
+		}
+	}
+
 	shardRoot := shardPath(i.path(), st.shardName)
 	return containedPath(shardRoot, rel)
 }

@@ -99,18 +99,11 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, srcNode
 		return fmt.Errorf("failed to create gRPC client connection: %w", err)
 	}
 
-	snapResp, err := client.CreateReplicaSnapshot(ctx, &protocol.CreateReplicaSnapshotRequest{
-		IndexName:     collectionName,
-		ShardName:     shardName,
-		OpId:          string(opID),
-		SchemaVersion: schemaVersion,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create replica snapshot: %w", err)
-	}
+	// Registered before CreateReplicaSnapshot: the server may have created
+	// the snapshot even when the response was lost in transit, and
+	// unknown-opID Release is a no-op. Background ctx so request
+	// cancellation can't suppress the cleanup.
 	defer func() {
-		// Background ctx so release fires even on request cancellation, otherwise
-		// the source would leak the staging dir on every cancelled transfer.
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if _, rerr := client.ReleaseReplicaSnapshot(releaseCtx, &protocol.ReleaseReplicaSnapshotRequest{
@@ -120,6 +113,16 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, opID strfmt.UUID, srcNode
 			c.logger.WithError(rerr).Warn("failed to release replica snapshot")
 		}
 	}()
+
+	snapResp, err := client.CreateReplicaSnapshot(ctx, &protocol.CreateReplicaSnapshotRequest{
+		IndexName:     collectionName,
+		ShardName:     shardName,
+		OpId:          string(opID),
+		SchemaVersion: schemaVersion,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create replica snapshot: %w", err)
+	}
 
 	fileNameChan := make(chan string, 1000)
 	enterrors.GoWrapper(func() {
@@ -312,17 +315,20 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 			if err != nil {
 				return fmt.Errorf("open file %q for writing: %w", tmpPath, err)
 			}
+			eg := enterrors.NewErrorGroupWrapper(c.logger)
+			eg.SetLimit(_NUMCPU)
+			// Drain writers before closing the FD: a late WriteAt against a
+			// recycled descriptor would otherwise land on the wrong file.
 			defer func() {
+				_ = eg.Wait()
 				if f != nil {
-					f.Close()
+					_ = f.Close()
 				}
 			}()
 			if err := f.Truncate(meta.Size); err != nil {
 				return fmt.Errorf("failed to preallocate file: %w", err)
 			}
 
-			eg := enterrors.NewErrorGroupWrapper(c.logger)
-			eg.SetLimit(_NUMCPU)
 			for {
 				chunk, err := stream.Recv()
 				if err != nil {
@@ -330,6 +336,12 @@ func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServi
 				}
 				if len(chunk.Data) > 0 {
 					eg.Go(func() error {
+						// Test-only: forces a deterministic WriteAt-after-Close window.
+						if sleep := os.Getenv("WEAVIATE_TEST_DOWNLOAD_WRITE_SLEEP"); sleep != "" {
+							if d, err := time.ParseDuration(sleep); err == nil {
+								time.Sleep(d)
+							}
+						}
 						if _, err := f.WriteAt(chunk.Data, chunk.Offset); err != nil {
 							return fmt.Errorf("writing chunk to file %q: %w", tmpPath, err)
 						}

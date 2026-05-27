@@ -569,6 +569,14 @@ func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, in
 	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
 }
 
+// Skips Load: a never-loaded shard can't be halted, so there's no timer.
+func (l *LazyLoadShard) MayResetTransferInactivityTimer() {
+	if l.shard == nil {
+		return
+	}
+	l.shard.MayResetTransferInactivityTimer()
+}
+
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err

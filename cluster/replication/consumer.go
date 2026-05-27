@@ -492,6 +492,13 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 		logger.WithError(err).Warn("StopChangeCapture failed during cancel (non-fatal)")
 	}
 
+	// Covers the case where CopyReplicaFiles' defer never registered — a
+	// leaked staging dir would otherwise pin compaction.
+	if err := c.replicaCopier.ReleaseReplicaSnapshot(ctx, op.Op.SourceShard.NodeId,
+		op.Op.SourceShard.CollectionId, strconv.FormatUint(op.Op.ID, 10)); err != nil {
+		logger.WithError(err).Warn("ReleaseReplicaSnapshot failed during cancel (non-fatal)")
+	}
+
 	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
 	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
 	if err := c.sync(ctx, op); err != nil {
@@ -827,6 +834,12 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 	if err := c.replicaCopier.StopChangeCapture(ctx, op.Op.SourceShard.NodeId,
 		op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, strconv.FormatUint(op.Op.ID, 10)); err != nil {
 		logger.WithError(err).Warn("StopChangeCapture failed during cancelled-op cleanup (non-fatal)")
+	}
+
+	// Same cleanup as cancelOp, for the FSM-dispatched cancel path.
+	if err := c.replicaCopier.ReleaseReplicaSnapshot(ctx, op.Op.SourceShard.NodeId,
+		op.Op.SourceShard.CollectionId, strconv.FormatUint(op.Op.ID, 10)); err != nil {
+		logger.WithError(err).Warn("ReleaseReplicaSnapshot failed during cancelled-op cleanup (non-fatal)")
 	}
 
 	if err := c.leaderClient.ReplicationRemoveReplicaOp(ctx, op.Op.ID); err != nil {

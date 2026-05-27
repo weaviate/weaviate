@@ -56,4 +56,8 @@ type ReplicaCopier interface {
 
 	// StopChangeCapture see cluster/replication/copier.Copier.StopChangeCapture
 	StopChangeCapture(ctx context.Context, srcNodeId, indexName, shardName, opID string) error
+
+	// ReleaseReplicaSnapshot is the cancellation-path cleanup for snapshots
+	// that escaped the CopyReplicaFiles release defer. Idempotent.
+	ReleaseReplicaSnapshot(ctx context.Context, srcNodeId, indexName, opID string) error
 }

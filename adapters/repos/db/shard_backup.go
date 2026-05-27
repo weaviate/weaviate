@@ -132,6 +132,14 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	return nil
 }
 
+// MayResetTransferInactivityTimer counts an in-flight transfer RPC as
+// activity so the halt watchdog doesn't force-resume mid-stream.
+func (s *Shard) MayResetTransferInactivityTimer() {
+	s.haltForTransferMux.Lock()
+	defer s.haltForTransferMux.Unlock()
+	s.mayResetInactivityTimer()
+}
+
 func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 	if s.haltForTransferInactivityTimeout != 0 && s.haltForTransferInactivityTimeout <= inactivityTimeout {
 		// no need to update current inactivity timeout
@@ -302,6 +310,13 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	if forced {
 		s.haltForTransferCount = 0
+		// Non-zero in steady state means a transfer was force-resumed
+		// mid-stream — i.e. the read-path timer reset isn't reaching us.
+		if s.promMetrics != nil && s.promMetrics.ShardHaltForTransferForceResume != nil {
+			s.promMetrics.ShardHaltForTransferForceResume.
+				WithLabelValues(s.index.Config.ClassName.String(), s.name).
+				Inc()
+		}
 	} else {
 		s.haltForTransferCount--
 

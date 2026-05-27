@@ -1644,6 +1644,7 @@ func expectChangeCaptureMocks(m *types.MockReplicaCopier, fsm *types.MockFSMUpda
 	m.EXPECT().TailAndApply(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().FinalizeChangeLog(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 	m.EXPECT().StopChangeCapture(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	m.EXPECT().ReleaseReplicaSnapshot(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	// PerNodeState convergence wait: satisfied immediately by default.
 	fsm.EXPECT().ReplicationAllPeersAtLeast(mock.Anything, mock.Anything).Return(true, nil).Maybe()
 }
