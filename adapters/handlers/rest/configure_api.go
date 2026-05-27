@@ -1619,10 +1619,9 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	// RAFT_METADATA_ONLY_VOTERS excludes voters from shard placement: they own no
-	// shards but still run the coordinator layer, so requests reaching a voter are
-	// proxied to the data nodes. This is computed per-node, so the env var must be
-	// set on every node; otherwise a node without it could place shards on a voter.
+	// RAFT_METADATA_ONLY_VOTERS excludes voters from shard placement (they still
+	// coordinate, just hold no data). Computed per-node, so it must be set on
+	// every node, or a node without it could place shards on a voter.
 	var nonStorageNodes map[string]struct{}
 	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
 		nonStorageNodes = parseVotersNames(cfg)

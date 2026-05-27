@@ -138,12 +138,8 @@ type Config struct {
 	Logger       *logrus.Logger
 	Voter        bool
 
-	// recoverSchemaOnly makes this FSM apply schema to memory only and never
-	// touch the local DB. It is set exclusively by recoverSingleNode (on a
-	// throwaway config copy) so raft.RecoverCluster can rewrite the cluster
-	// configuration without mutating the DB. It is unrelated to the
-	// RAFT_METADATA_ONLY_VOTERS env var, which only excludes voters from shard
-	// placement (see startupRoutine in configure_api.go).
+	// recoverSchemaOnly forces schema-only apply (no local DB writes). Set only by
+	// recoverSingleNode; not driven by the RAFT_METADATA_ONLY_VOTERS env var.
 	recoverSchemaOnly bool
 
 	// DB is the interface to the weaviate database. It is necessary so that schema changes are reflected to the DB
