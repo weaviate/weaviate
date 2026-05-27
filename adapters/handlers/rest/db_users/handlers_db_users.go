@@ -708,7 +708,7 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 	if principal == nil {
 		return false
 	}
-	return h.rbacConfig.IsRoot(principal.Username, principal.Groups)
+	return h.rbacConfig.IsRootUser(principal.Username, principal.Groups)
 }
 
 // validateRoleName validates that this string is a valid role name (format wise)

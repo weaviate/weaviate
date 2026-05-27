@@ -460,12 +460,13 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	}
 
 	status := &Status{
-		Path:        store.HomeDir(store.bucket, store.path),
-		StartedAt:   meta.StartedAt,
-		CompletedAt: meta.CompletedAt,
-		Status:      meta.Status,
-		Err:         meta.Error,
-		Size:        float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
+		Path:         store.HomeDir(store.bucket, store.path),
+		StartedAt:    meta.StartedAt,
+		CompletedAt:  meta.CompletedAt,
+		Status:       meta.Status,
+		Err:          meta.Error,
+		Size:         float64(meta.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB,
+		BaseBackupID: meta.BaseBackupID,
 	}
 	return status, nil
 }
