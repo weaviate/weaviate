@@ -429,8 +429,6 @@ func (c *compactorInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 }
 
 func (c *compactorInverted) computeTombstonesAndPropLengths() *sroar.Bitmap {
-	// Property lengths are already merged in do() — no merge needed here.
-
 	if c.cleanupTombstones { // no tombstones to write
 		return sroar.NewBitmap()
 	}
