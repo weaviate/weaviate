@@ -1554,6 +1554,12 @@ func (b *Bucket) shouldReuseWAL() bool {
 	return uint64(b.active.commitlogSize()) <= uint64(b.minWalThreshold)
 }
 
+func (b *Bucket) clearFlushing() {
+	b.flushLock.Lock()
+	defer b.flushLock.Unlock()
+	b.flushing = nil
+}
+
 // flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
 func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	flushCtx, cancel := ctxFromShouldAbort(shouldAbort, b.logger)
@@ -1725,9 +1731,7 @@ func (b *Bucket) FlushAndSwitch(ctx context.Context) error {
 		// Clear b.flushing on a failed flush, else Shutdown's wait-for-flushing
 		// loop and later flush cycles wedge. Data is safe: flush deletes the
 		// commitlog only on success, so it survives via WAL replay.
-		b.flushLock.Lock()
-		b.flushing = nil
-		b.flushLock.Unlock()
+		b.clearFlushing()
 		return fmt.Errorf("flush: %w", err)
 	}
 

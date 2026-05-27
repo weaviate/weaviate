@@ -20,11 +20,9 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// ctxFromShouldAbort bridges a cyclemanager ShouldAbortCallback to a context
-// that cancels the moment shouldAbort first returns true. The compaction and
-// flush hot loops take a ctx, while the cyclemanager only offers a polled
-// callback; a 50ms watcher closes the gap. The watcher exits when the returned
-// cancel runs, so callers must defer it. shouldAbort may be nil.
+// ctxFromShouldAbort adapts a cyclemanager ShouldAbortCallback into a ctx for
+// the compaction/flush loops: a 50ms watcher cancels once shouldAbort fires.
+// Callers must defer the returned cancel — it also stops the watcher.
 func ctxFromShouldAbort(shouldAbort cyclemanager.ShouldAbortCallback, logger logrus.FieldLogger) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
 	if shouldAbort == nil {
