@@ -14,6 +14,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	htmlpkg "html"
 	"io"
 	"log"
 	"net/http"
@@ -411,6 +412,19 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
     </div>
 
     <script>
+        // escapeHtml escapes user-controlled values (integration names, versions,
+        // client SDK identifiers) before they are concatenated into HTML, so a
+        // crafted telemetry payload cannot execute markup in the dashboard.
+        function escapeHtml(s) {
+            if (s === null || s === undefined) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function formatTime(timeStr) {
             if (!timeStr) return 'N/A';
             const date = new Date(timeStr);
@@ -444,9 +458,9 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
                 const integrationHtml = Object.keys(integrationUsage).map(function(name) {
                     const versions = integrationUsage[name] || {};
                     const versionItems = Object.keys(versions).map(function(version) {
-                        return version + ' (' + versions[version] + ')';
+                        return escapeHtml(version) + ' (' + versions[version] + ')';
                     }).join(', ');
-                    return '<span class="client-item" style="background:#d1fae5;"><strong>' + name + ':</strong> ' + versionItems + '</span>';
+                    return '<span class="client-item" style="background:#d1fae5;"><strong>' + escapeHtml(name) + ':</strong> ' + versionItems + '</span>';
                 }).join('');
                 var html = '<div class="payload-item">' +
                     '<div class="payload-header">' +
@@ -535,9 +549,9 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
                     var totalCount = 0;
                     const versionDetails = Object.keys(versions).map(function(version) {
                         totalCount += versions[version];
-                        return version + ' (' + versions[version] + ')';
+                        return escapeHtml(version) + ' (' + versions[version] + ')';
                     }).join(', ');
-                    return '<span class="client-item" style="background:#d1fae5;"><strong>' + name + ':</strong> ' + totalCount + ' total (' + versionDetails + ')</span>';
+                    return '<span class="client-item" style="background:#d1fae5;"><strong>' + escapeHtml(name) + ':</strong> ' + totalCount + ' total (' + versionDetails + ')</span>';
                 }).join('');
                 if (modules.length > 0) {
                     html += '<div style="margin-top: 10px;"><strong>Modules:</strong> ' + modules.join(', ') + '</div>';
@@ -619,9 +633,11 @@ func renderPayloadsHTML(payloads []*TelemetryPayload) string {
 			for integration, versions := range p.ClientIntegrationUsage {
 				versionItems := make([]string, 0)
 				for version, count := range versions {
-					versionItems = append(versionItems, fmtVersionCount(version, count))
+					// Integration names and versions come from a user-controlled
+					// header, escape before concatenating into HTML.
+					versionItems = append(versionItems, fmtVersionCount(htmlpkg.EscapeString(version), count))
 				}
-				html += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %s</span>`, integration, joinStrings(versionItems, ", "))
+				html += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %s</span>`, htmlpkg.EscapeString(integration), joinStrings(versionItems, ", "))
 			}
 			html += `</div>`
 		}
@@ -673,9 +689,11 @@ func renderMachinesHTML(machines map[string]*MachineStats) string {
 				versionItems := make([]string, 0)
 				for version, count := range versions {
 					totalCount += count
-					versionItems = append(versionItems, fmtVersionCount(version, count))
+					// Integration names and versions come from a user-controlled
+					// header, escape before concatenating into HTML.
+					versionItems = append(versionItems, fmtVersionCount(htmlpkg.EscapeString(version), count))
 				}
-				integrationUsageHtml += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %d total (%s)</span>`, integration, totalCount, joinStrings(versionItems, ", "))
+				integrationUsageHtml += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %d total (%s)</span>`, htmlpkg.EscapeString(integration), totalCount, joinStrings(versionItems, ", "))
 			}
 			integrationUsageHtml += `</div>`
 		}
