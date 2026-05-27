@@ -808,3 +808,63 @@ func TestFileWriter_Write_MaterializedNameAlignment(t *testing.T) {
 	require.Equal(t, "ns1:Foo/chunk-0", capturedKey,
 		"chunk key must use desc.Name, not the materialized name")
 }
+
+// TestFileWriter_Write_StripRenamesInnerIndexDir pins the second half of the
+// strip plumbing. Tarball entries were uploaded keyed by the source class's
+// lowercased indexID (adapters/repos/db/index.go:indexID); RestoreClassDir
+// moves classTempDir contents into dataPath verbatim. Without an in-place
+// rename of <tempDir>/Foo/ns1:foo -> <tempDir>/Foo/foo the schema applies
+// at name "Foo" while data sits at dataPath/ns1:foo — silent corruption.
+func TestFileWriter_Write_StripRenamesInnerIndexDir(t *testing.T) {
+	tempDir := t.TempDir()
+	shardPayload := []byte("shard-bytes")
+
+	// Build an in-memory tar carrying a single regular file under the
+	// source class's lowercased indexID. The tar reader inside
+	// readAndUnzipChunk expects the chunk to end on a clean tar EOF.
+	var tarBuf bytes.Buffer
+	tw := tar.NewWriter(&tarBuf)
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name:    "ns1:foo/shard1/segment.db",
+		Mode:    0o644,
+		Size:    int64(len(shardPayload)),
+		ModTime: time.Now(),
+	}))
+	_, err := tw.Write(shardPayload)
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+
+	mockBackend := modulecapabilities.NewMockBackupBackend(t)
+	mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+	mockBackend.EXPECT().
+		Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _, _, _, _ string, w io.WriteCloser) (int64, error) {
+			n, err := io.Copy(w, bytes.NewReader(tarBuf.Bytes()))
+			_ = w.Close()
+			return n, err
+		})
+
+	fw := newFileWriter(nil, nodeStore{
+		objectStore: objectStore{backend: mockBackend},
+	}, true, logrus.New())
+
+	desc := &backup.ClassDescriptor{
+		Name:   "ns1:Foo",
+		Shards: []*backup.ShardDescriptor{{Name: "shard1", Node: "n1"}},
+		Chunks: map[int32][]string{0: {"shard1"}},
+	}
+
+	require.NoError(t, fw.Write(context.Background(), desc, "Foo", "", "", backup.CompressionNone))
+
+	// The renamed dir holds the shard files at the new index ID.
+	renamed := filepath.Join(tempDir, TempDirectory, "Foo", "foo", "shard1", "segment.db")
+	got, err := os.ReadFile(renamed)
+	require.NoError(t, err, "shard file must be reachable under the materialized indexID")
+	require.Equal(t, shardPayload, got)
+
+	// The source-named directory must be gone — otherwise RestoreClassDir
+	// would move data to both old and new index paths.
+	_, err = os.Stat(filepath.Join(tempDir, TempDirectory, "Foo", "ns1:foo"))
+	require.True(t, os.IsNotExist(err),
+		"source-indexID dir must not survive the strip rename")
+}

@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -765,6 +766,18 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, m
 
 	if err := fw.writeTempFiles(ctx, classTempDir, overrideBucket, overridePath, desc, compressionType); err != nil {
 		return fmt.Errorf("get files: %w", err)
+	}
+
+	if materializedName != desc.Name {
+		oldIndexDir := filepath.Join(classTempDir, strings.ToLower(desc.Name))
+		newIndexDir := filepath.Join(classTempDir, strings.ToLower(materializedName))
+		if oldIndexDir != newIndexDir {
+			if _, err := os.Stat(oldIndexDir); err == nil {
+				if err := os.Rename(oldIndexDir, newIndexDir); err != nil {
+					return fmt.Errorf("rename strip index dir %s -> %s: %w", oldIndexDir, newIndexDir, err)
+				}
+			}
+		}
 	}
 
 	if fw.migrator != nil {
