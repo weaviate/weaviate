@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path"
@@ -2762,24 +2763,30 @@ func (i *Index) drop() error {
 		return err
 	}
 
-	// Dropping the shards only unregisters the shards callbacks, but we still
-	// need to stop the cycle managers that those shards used to register with.
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
+	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	i.logger.WithFields(logrus.Fields{
-		"action":   "drop_index",
-		"duration": 60 * time.Second,
-	}).Debug("context.WithTimeout")
 
-	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
+	if err := i.stopCycleManagers(ctx, "drop"); err != nil &&
+		!stderrors.Is(err, context.Canceled) && !stderrors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
 
-	if !keepFiles {
-		return os.RemoveAll(i.path())
-	} else {
+	if keepFiles {
+		// backup framework expects the DeleteMarkerAdd-prefixed rename
 		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
 	}
+
+	// rename sync (must complete even if ctx is expired); RemoveAll async
+	deleted, err := renameForAsyncDelete(i.path(), i.logger)
+	if err != nil {
+		return fmt.Errorf("rename index for async delete: %w", err)
+	}
+	if deleted != "" {
+		spawnAsyncDelete(deleted, i.logger)
+	}
+	return nil
 }
 
 func (i *Index) dropShards(names []string) error {
