@@ -265,7 +265,7 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	if req.State == nil {
 		return fmt.Errorf("%w: nil sharding state", ErrBadRequest)
 	}
-	// validate xrefs within the class for existence
+	// Validate xref existence. DataType is pre-qualified on NS clusters.
 	for _, prop := range req.Class.Properties {
 		if !entSchema.IsRefDataType(prop.DataType) {
 			// don't need to validate non-xref data types

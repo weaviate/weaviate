@@ -181,6 +181,57 @@ func TestNamespaces_EndpointsGone(t *testing.T) {
 		assert.NotEmpty(t, gone.Payload.Error[0].Message)
 	})
 
+	// The classed reference endpoints declare 410 in the OpenAPI spec and
+	// the handler dispatches uco.StatusGone to the generated *Gone responder.
+	// The only path that reaches StatusGone through the classed handler is an
+	// empty input.Class — i.e. a request with an empty {className} URL segment
+	// — which on a namespace-enabled cluster the use case rejects with the
+	// NS-only gate added next to the legacy classless fallback.
+	t.Run("POST /v1/objects//{id}/references/{propertyName} returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsClassReferencesCreate(
+			objects.NewObjectsClassReferencesCreateParams().
+				WithClassName("").WithID(id).WithPropertyName("ref").
+				WithBody(&models.SingleRef{Beacon: beacon}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsClassReferencesCreateGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsClassReferencesCreateGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
+	t.Run("PUT /v1/objects//{id}/references/{propertyName} returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsClassReferencesPut(
+			objects.NewObjectsClassReferencesPutParams().
+				WithClassName("").WithID(id).WithPropertyName("ref").
+				WithBody(models.MultipleRef{{Beacon: beacon}}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsClassReferencesPutGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsClassReferencesPutGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
+	t.Run("DELETE /v1/objects//{id}/references/{propertyName} returns 410", func(t *testing.T) {
+		_, err := helper.Client(t).Objects.ObjectsClassReferencesDelete(
+			objects.NewObjectsClassReferencesDeleteParams().
+				WithClassName("").WithID(id).WithPropertyName("ref").
+				WithBody(&models.SingleRef{Beacon: beacon}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var gone *objects.ObjectsClassReferencesDeleteGone
+		require.True(t, errors.As(err, &gone), "expected ObjectsClassReferencesDeleteGone, got %T: %v", err, err)
+		require.NotNil(t, gone.Payload)
+		require.NotEmpty(t, gone.Payload.Error)
+		assert.NotEmpty(t, gone.Payload.Error[0].Message)
+	})
+
 	t.Run("POST /v1/classifications returns 410", func(t *testing.T) {
 		_, err := helper.Client(t).Classifications.ClassificationsPost(
 			classifications.NewClassificationsPostParams().WithParams(&models.Classification{}),

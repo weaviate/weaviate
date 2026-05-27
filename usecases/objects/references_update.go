@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // PutReferenceInput represents required inputs to add a reference to an existing object.
@@ -50,14 +51,26 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	defer m.metrics.UpdateReferenceDec()
 
 	ctx = classcache.ContextWithClassCache(ctx)
-	input.Class = schema.UppercaseClassName(input.Class)
-	input.Class, _ = m.resolveAlias(input.Class)
+	if input.Class != "" {
+		class, _, err := m.resolveNS(principal, input.Class)
+		if err != nil {
+			return &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		input.Class = class
+	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	if input.Class == "" {
+		// NS-enabled: refuse the legacy scan-all-collections fallback. The
+		// REST layer rejects the deprecated route with 410 before this point;
+		// this is defensive for direct callers.
+		if m.config.Config.Namespaces.Enabled {
+			err := fmt.Errorf("replacing references without a class is not supported; use /objects/{className}/{id}/references/{propertyName}")
+			return &Error{err.Error(), StatusGone, err}
+		}
 		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
@@ -87,7 +100,8 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		return typedErr
 	}
 
-	validator := validation.New(m.vectorRepo.Exists, m.config, repl)
+	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
+		principal, m.config.Config.Namespaces.Enabled)
 	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -109,6 +123,24 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 				input.Refs[i].Beacon = toBeacon
 				parsedTargetRefs[i].Class = string(toClass)
 			}
+		}
+		// NS-enabled: classless beacon on a multi-target prop would reach
+		// validateExistence → DB.anyExists and persist a wildcard-deletable
+		// classless beacon.
+		if m.config.Config.Namespaces.Enabled && parsedTargetRefs[i].Class == "" {
+			err := fmt.Errorf("multi-target references require the class name in the target beacon url")
+			return &Error{err.Error(), StatusBadRequest, err}
+		}
+		if parsedTargetRefs[i].Class != "" {
+			// Qualified for authz/existence, short for the stored beacon.
+			qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
+				principal, m.config.Config.Namespaces.Enabled, input.Class, parsedTargetRefs[i].Class)
+			if err != nil {
+				return &Error{err.Error(), StatusUnprocessableEntity, err}
+			}
+			parsedTargetRefs[i].Class = qualifiedTarget
+			input.Refs[i].Class = strfmt.URI(shortTarget)
+			input.Refs[i].Beacon = strfmt.URI(crossref.NewLocalhost(shortTarget, parsedTargetRefs[i].TargetID).String())
 		}
 
 		// only check authZ once per class/tenant combination
