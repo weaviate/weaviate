@@ -14,6 +14,7 @@ package telemetry
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -51,18 +52,37 @@ func (ct *ClientTracker) TrackHeader(headerValue string) {
 	ct.inner.send(clientInfo.Type, clientInfo.Version)
 }
 
+// TrackHeader records an integration from a raw header value. This is useful for
+// gRPC requests where there is no *http.Request available. The header is parsed
+// using the same {name}/{version} format as the HTTP path and length-capped via
+// SanitizeClientHeader.
+func (it *IntegrationTracker) TrackHeader(headerValue string) {
+	name, version := parseIntegrationHeader(headerValue)
+	if name == "" {
+		return
+	}
+	it.inner.send(name, version)
+}
+
 // ClientTrackingUnaryInterceptor creates a gRPC unary interceptor that tracks
-// client SDK usage by reading the x-weaviate-client metadata header.
-// It also sets the sanitized header value in the context under "clientIdentifier",
-// combining both tracking and context-setting to avoid parsing metadata twice.
-func ClientTrackingUnaryInterceptor(tracker *ClientTracker) grpc.UnaryServerInterceptor {
+// client SDK usage (from x-weaviate-client) and integration usage (from
+// x-weaviate-client-integration) via the gRPC metadata. It also sets the
+// sanitized client header in the context under "clientIdentifier", combining
+// tracking and context-setting to avoid parsing metadata twice.
+// Either tracker may be nil; the respective metadata header is then ignored.
+func ClientTrackingUnaryInterceptor(tracker *ClientTracker, integrationTracker *IntegrationTracker) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if tracker != nil {
-			if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			if tracker != nil {
 				if vals := md.Get("x-weaviate-client"); len(vals) > 0 {
 					sanitized := SanitizeClientHeader(vals[0])
 					ctx = context.WithValue(ctx, "clientIdentifier", sanitized)
 					tracker.TrackHeader(vals[0])
+				}
+			}
+			if integrationTracker != nil {
+				if vals := md.Get(strings.ToLower(integrationHeaderKey)); len(vals) > 0 {
+					integrationTracker.TrackHeader(vals[0])
 				}
 			}
 		}

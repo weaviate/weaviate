@@ -358,13 +358,19 @@ func (it *IntegrationTracker) Stop() {
 }
 
 // identifyIntegration reads the X-Weaviate-Client-Integration header and returns
-// the integration name and version. The header format is: {name}/{version}
-// Any non-empty name is accepted — there is no predefined list of known integrations.
-// Returns ("", "") if the header is absent or empty.
-// The header is length-capped via SanitizeClientHeader before parsing to prevent
-// arbitrarily large strings from reaching the tracker map or the telemetry payload.
+// the integration name and version. See parseIntegrationHeader for the header
+// format and sanitization rules.
 func identifyIntegration(r *http.Request) (name, version string) {
-	header := SanitizeClientHeader(strings.TrimSpace(r.Header.Get(integrationHeaderKey)))
+	return parseIntegrationHeader(r.Header.Get(integrationHeaderKey))
+}
+
+// parseIntegrationHeader parses a raw X-Weaviate-Client-Integration header value.
+// Format: {name}/{version}. Any non-empty name is accepted — there is no predefined
+// list of known integrations. Returns ("", "") if the value is absent or empty.
+// The value is length-capped via SanitizeClientHeader before parsing to prevent
+// arbitrarily large strings from reaching the tracker map or the telemetry payload.
+func parseIntegrationHeader(headerValue string) (name, version string) {
+	header := SanitizeClientHeader(strings.TrimSpace(headerValue))
 	if header == "" {
 		return "", ""
 	}
