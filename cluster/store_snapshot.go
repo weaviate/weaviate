@@ -181,7 +181,7 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			}
 		}
 
-		if st.cfg.MetadataOnlyVoters {
+		if st.cfg.recoverSchemaOnly {
 			return nil
 		}
 

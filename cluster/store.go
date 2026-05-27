@@ -138,12 +138,13 @@ type Config struct {
 	Logger       *logrus.Logger
 	Voter        bool
 
-	// MetadataOnlyVoters makes this node apply schema to the FSM without touching
-	// the local DB. It is NOT set from the RAFT_METADATA_ONLY_VOTERS env var (that
-	// only excludes voters from shard placement; voters still run the coordinator
-	// layer). Only recoverSingleNode sets it, so RAFT config rewrites cannot
-	// mutate the DB.
-	MetadataOnlyVoters bool
+	// recoverSchemaOnly makes this FSM apply schema to memory only and never
+	// touch the local DB. It is set exclusively by recoverSingleNode (on a
+	// throwaway config copy) so raft.RecoverCluster can rewrite the cluster
+	// configuration without mutating the DB. It is unrelated to the
+	// RAFT_METADATA_ONLY_VOTERS env var, which only excludes voters from shard
+	// placement (see startupRoutine in configure_api.go).
+	recoverSchemaOnly bool
 
 	// DB is the interface to the weaviate database. It is necessary so that schema changes are reflected to the DB
 	DB schema.Indexer
@@ -450,8 +451,8 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.openDatabase(ctx)
 
 	st.log.WithFields(logrus.Fields{
-		"name":                 st.cfg.NodeID,
-		"metadata_only_voters": st.cfg.MetadataOnlyVoters,
+		"name":                st.cfg.NodeID,
+		"recover_schema_only": st.cfg.recoverSchemaOnly,
 	}).Info("construct a new raft node")
 	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {
@@ -868,8 +869,8 @@ func (st *Store) openDatabase(ctx context.Context) {
 		return
 	}
 
-	if st.cfg.MetadataOnlyVoters {
-		st.log.Info("Not loading local DB as the node is metadata only")
+	if st.cfg.recoverSchemaOnly {
+		st.log.Info("not loading local DB (recovery: schema-only)")
 	} else {
 		st.log.Info("loading local db")
 		if err := st.schemaManager.Load(ctx, st.cfg.NodeID); err != nil {
@@ -887,10 +888,10 @@ func (st *Store) openDatabase(ctx context.Context) {
 // call Restore() first to restore from snapshots if there is any and
 // then later will call Apply() on any new committed log
 func (st *Store) reloadDBFromSchema() {
-	if !st.cfg.MetadataOnlyVoters {
+	if !st.cfg.recoverSchemaOnly {
 		st.schemaManager.ReloadDBFromSchema()
 	} else {
-		st.log.Info("skipping reload DB from schema as the node is metadata only")
+		st.log.Info("skipping DB reload from schema (recovery: schema-only)")
 	}
 	st.dbLoaded.Store(true)
 
@@ -980,9 +981,9 @@ func (st *Store) recoverSingleNode(force bool) error {
 	}
 
 	recoveryConfig := st.cfg
-	// Force the recovery to be metadata only and un-assign the associated DB to ensure no DB operations are made during
-	// the restore to avoid any data change.
-	recoveryConfig.MetadataOnlyVoters = true
+	// Apply schema only and detach the DB so RecoverCluster makes no DB writes
+	// while it rewrites the cluster configuration.
+	recoveryConfig.recoverSchemaOnly = true
 	recoveryConfig.DB = nil
 	// we don't use actual registry here, because we don't want to register metrics, it's already registered
 	// in actually FSM and this is FSM is temporary for recovery.

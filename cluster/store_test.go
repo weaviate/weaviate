@@ -122,7 +122,7 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "AddClass/Success/MetadataOnly",
+			name: "AddClass/Success/SchemaOnly",
 			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_ADD_CLASS,
 				cmd.AddClassRequest{Class: cls, State: ss},
@@ -131,7 +131,7 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-				m.store.cfg.MetadataOnlyVoters = true
+				m.store.cfg.recoverSchemaOnly = true
 			},
 			doAfter: func(ms *MockStore) error {
 				class := ms.store.SchemaReader().ReadOnlyClass("C1")
