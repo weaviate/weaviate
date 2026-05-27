@@ -56,6 +56,7 @@ function main() {
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
+  run_flake_hunt_11311=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -108,6 +109,7 @@ function main() {
           --acceptance-reindex-singlenode-a|-arsa) run_all_tests=false; run_acceptance_reindex_singlenode_a=true;;
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
+          --flake-hunt-11311) run_all_tests=false; run_flake_hunt_11311=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
@@ -390,6 +392,11 @@ function main() {
   if $run_acceptance_reindex_concurrent; then
     echo "running reindex concurrent acceptance tests"
     run_acceptance_reindex_concurrent
+  fi
+
+  if $run_flake_hunt_11311; then
+    echo "running QA-11311 flake hunt (TestConcurrentReindex x N)"
+    run_flake_hunt_11311
   fi
 
   if $run_acceptance_reindex_mt; then
@@ -914,6 +921,32 @@ function run_acceptance_reindex_concurrent() {
   # singlenode bundle for fast feedback.
   run_aof_group "reindex-concurrent" \
     test/acceptance/reindex_concurrent
+}
+
+# run_flake_hunt_11311 reproduces the reported TestConcurrentReindex flake
+# (CI run 26452655941 / PR #11311: all 15 reindex tasks stalled at "did not
+# finish within 5m0s"). Each iteration runs only TestConcurrentReindex under
+# the race detector. The test is instrumented to dump goroutine stacks + task
+# states mid-stall, so a reproduction captures exactly where the workers and
+# the RAFT apply loop are parked. DO NOT MERGE — diagnostic only.
+function run_flake_hunt_11311() {
+  build_weaviate_test_image
+  local iters="${FLAKE_HUNT_ITERS:-8}"
+  echo_green "QA-11311 flake hunt: TestConcurrentReindex x ${iters} (-race)"
+  local pass=0 fail=0
+  for i in $(seq 1 "$iters"); do
+    echo "=== iter $i/${iters} — $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+    if go test -count 1 -timeout 12m -race -v \
+        -run '^TestConcurrentReindex$' \
+        ./test/acceptance/reindex_concurrent/; then
+      pass=$((pass+1)); echo "iter $i: PASS"
+    else
+      fail=$((fail+1)); echo "iter $i: FAIL"
+    fi
+  done
+  echo "QA-11311 flake-hunt summary: ${pass} pass / ${fail} fail of ${iters}"
+  # Exit non-zero if any iteration failed so the shard surfaces the repro.
+  [[ $fail -eq 0 ]]
 }
 
 function run_acceptance_reindex_mt() {

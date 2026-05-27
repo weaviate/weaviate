@@ -50,7 +50,7 @@ func TestConcurrentReindex(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
-		WithWeaviate().
+		WithWeaviateWithDebugPort(). // QA-11311: expose pprof:6060 for goroutine dumps on stall
 		WithWeaviateEnv("USE_INVERTED_SEARCHABLE", "false").
 		WithWeaviateEnv("DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS", "1").
 		Start(ctx)
@@ -62,6 +62,7 @@ func TestConcurrentReindex(t *testing.T) {
 	}()
 
 	restURI := compose.GetWeaviate().URI()
+	debugURI := compose.GetWeaviate().DebugURI()
 	helper.SetupClient(restURI)
 
 	// Dump container logs on failure.
@@ -120,6 +121,32 @@ func TestConcurrentReindex(t *testing.T) {
 	}
 
 	// 4. Wait for ALL tasks to complete.
+	//
+	// QA-11311 instrumentation: while tasks are in-flight, periodically dump the
+	// server's goroutine stacks and the /v1/tasks state. The failing CI run
+	// (run 26452655941) showed ALL 15 tasks stuck at "did not finish within
+	// 5m0s" — a hard stall. A goroutine dump taken mid-stall shows exactly where
+	// the task workers and the RAFT apply loop are parked, which the test output
+	// otherwise cannot reveal.
+	stopWatchdog := make(chan struct{})
+	watchdogDone := make(chan struct{})
+	go func() {
+		defer close(watchdogDone)
+		ticker := time.NewTicker(75 * time.Second)
+		defer ticker.Stop()
+		n := 0
+		for {
+			select {
+			case <-stopWatchdog:
+				return
+			case <-ticker.C:
+				n++
+				dumpTaskStates(t, restURI, fmt.Sprintf("watchdog-%d (~%ds)", n, n*75))
+				dumpGoroutines(t, debugURI, fmt.Sprintf("watchdog-%d (~%ds)", n, n*75))
+			}
+		}
+	}()
+
 	var wg sync.WaitGroup
 	var errors []string
 	for _, task := range tasks {
@@ -135,6 +162,14 @@ func TestConcurrentReindex(t *testing.T) {
 		}(task)
 	}
 	wg.Wait()
+	close(stopWatchdog)
+	<-watchdogDone
+
+	// QA-11311: capture a final frozen snapshot of the stall before asserting.
+	if len(errors) > 0 {
+		dumpTaskStates(t, restURI, "post-stall")
+		dumpGoroutines(t, debugURI, "post-stall")
+	}
 	require.Empty(t, errors, "some tasks failed: %s", strings.Join(errors, "; "))
 
 	// 5. Verify schema changes — poll until they propagate.
@@ -277,6 +312,39 @@ func importData(t *testing.T, restURI, collection string) {
 	}
 	helper.CreateObjectsBatch(t, objects)
 	t.Logf("imported %d objects", numObjectsSmall)
+}
+
+// dumpGoroutines fetches the full goroutine stack dump (debug=2) from the
+// server's pprof endpoint and logs it. QA-11311: this is the decisive artifact
+// for diagnosing the all-tasks-stalled failure — it shows where every task
+// worker and the RAFT apply loop are parked, plus how long each has been
+// blocked.
+func dumpGoroutines(t *testing.T, debugURI, label string) {
+	t.Helper()
+	url := fmt.Sprintf("http://%s/debug/pprof/goroutine?debug=2", debugURI)
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Logf("[QA-11311] dumpGoroutines(%s): GET %s failed: %v", label, url, err)
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	t.Logf("[QA-11311] ===== BEGIN GOROUTINE DUMP (%s) =====\n%s\n[QA-11311] ===== END GOROUTINE DUMP (%s) =====",
+		label, string(body), label)
+}
+
+// dumpTaskStates fetches GET /v1/tasks and logs the raw payload so we can see
+// each reindex task's status (STARTED/FINISHED/FAILED) at the moment of capture.
+func dumpTaskStates(t *testing.T, restURI, label string) {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+	if err != nil {
+		t.Logf("[QA-11311] dumpTaskStates(%s): %v", label, err)
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	t.Logf("[QA-11311] ===== TASK STATES (%s) =====\n%s", label, string(body))
 }
 
 func awaitTask(t *testing.T, restURI, taskID string, timeout time.Duration) error {
