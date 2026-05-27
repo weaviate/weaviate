@@ -23,8 +23,9 @@ import (
 //
 // On NS clusters, reference-path inner class segments are qualified against
 // the previous level's namespace via QualifyRefTarget (same policy as the
-// rest of the NS code). Unlike gRPC's extractPathNew, which reads the linked
-// class from the schema, REST qualifies the caller-typed name as-is — a
+// rest of the NS code). gRPC's extractPathNew does the same for multi-target
+// refs, but derives single-target linked classes from the schema. REST has no
+// schema lookup here and qualifies the caller-typed name as-is, so a
 // wrong-but-same-NS class only fails the schema lookup downstream.
 func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool, principal *models.Principal) (*filters.LocalFilter, error) {
 	if in == nil {

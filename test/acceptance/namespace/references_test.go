@@ -569,9 +569,10 @@ func TestNamespaces_References(t *testing.T) {
 		assert.NotContains(t, matchedIDs, zooLionID, "the lion zoo must not match")
 	})
 
-	t.Run("REST ref-path where filter rejects foreign-namespace inner class", func(t *testing.T) {
-		// QualifyRefTarget runs before any schema lookup, so a foreign-NS
-		// prefix on the inner class is rejected regardless of the schema.
+	t.Run("REST ref-path where filter rejects prefixed inner class", func(t *testing.T) {
+		// user1Key is a namespaced caller, so QualifyRefTarget rejects ANY
+		// prefix it types on the inner class (here a foreign one). The check
+		// runs before any schema lookup, so it fails regardless of the schema.
 		dryRun := true
 		anyName := "x"
 		_, err := helper.Client(t).Batch.BatchObjectsDelete(

@@ -515,11 +515,13 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 		assert.Equal(t, "keep", got.Properties.(map[string]any)["title"])
 	})
 
-	t.Run("batch delete by reference-path filter is rejected", func(t *testing.T) {
-		// Inner class segments in reference-path filters are caller-supplied
-		// and not auto-qualified. The REST handler rejects path-len > 1
-		// upfront on namespace-enabled clusters; this guards against silent
-		// "class not found" failures downstream.
+	t.Run("batch delete by reference-path filter is validated against the schema", func(t *testing.T) {
+		// Reference-path filters are no longer rejected upfront on NS-enabled
+		// clusters: filterext.Parse qualifies each inner class segment against
+		// the source's namespace and then the filter is validated like any
+		// other. This fixture has no "hasOther" ref property, so the request is
+		// rejected by the downstream schema lookup ("no such prop") rather than
+		// the removed path-len > 1 guard.
 		const class = "BatchDeleteRefPath"
 		setupClassInNs1(t, class, user1Key)
 
