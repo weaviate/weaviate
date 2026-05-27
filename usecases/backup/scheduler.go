@@ -575,7 +575,8 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("find backup %s: %w", destPath, err)
 	}
 	if meta.ID != req.ID {
-		return nil, fmt.Errorf("wrong backup file: expected %q got %q", req.ID, meta.ID)
+		return nil, fmt.Errorf("wrong backup file: restore request asked for %q but the descriptor at %q reports its ID as %q (someone placed metadata from a different backup into this slot, or the backup_config.json was overwritten by an aborted operation; remove the slot and retry with the original backup ID)",
+			req.ID, path.Join(destPath, GlobalBackupFile), meta.ID)
 	}
 	if meta.Status != backup.Success {
 		return nil, fmt.Errorf("invalid backup in scheduler %s status: %s", destPath, meta.Status)

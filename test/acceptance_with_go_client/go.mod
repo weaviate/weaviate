@@ -193,7 +193,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/weaviate/s5cmd/v2 v2.0.1 // indirect
-	github.com/weaviate/sroar v0.0.14-0.20260407105840-f1351692405c // indirect
+	github.com/weaviate/sroar v0.0.14-0.20260511125437-5d49ac3cb4c0 // indirect
 	github.com/weaviate/tiktoken-go v0.0.3 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect

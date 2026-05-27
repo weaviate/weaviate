@@ -53,7 +53,6 @@ const (
 	DefaultReindexConcurrency                    = 2
 
 	DefaultReplicationEngineMaxWorkers        = 10
-	DefaultReplicaMovementMinimumAsyncWait    = 60 * time.Second
 	DefaultReplicationEngineFileCopyWorkers   = 10
 	DefaultReplicationEngineFileCopyChunkSize = 1 * 1024 * 1024 // 1 MB
 
@@ -573,13 +572,15 @@ func FromEnv(config *Config) error {
 
 	defaultQuantization := ""
 	if v := os.Getenv("DEFAULT_QUANTIZATION"); v != "" {
-		defaultQuantization = strings.ToLower(v)
+		// Trim/lowercase for symmetry with ALLOWED_COMPRESSION_TYPES.
+		defaultQuantization = strings.ToLower(strings.TrimSpace(v))
 	}
 	config.DefaultQuantization = configRuntime.NewDynamicValue(defaultQuantization)
 
 	defaultVectorIndexType := ""
 	if v := os.Getenv("DEFAULT_VECTOR_INDEX"); v != "" {
-		defaultVectorIndexType = strings.ToLower(v)
+		// Trim/lowercase for symmetry with ALLOWED_VECTOR_INDEX_TYPES.
+		defaultVectorIndexType = strings.ToLower(strings.TrimSpace(v))
 		validTypes := []string{"hnsw", "flat", "dynamic", "hfresh"}
 		if !slices.Contains(validTypes, defaultVectorIndexType) {
 			return fmt.Errorf("invalid DEFAULT_VECTOR_INDEX %q, must be one of: %v", defaultVectorIndexType, validTypes)
@@ -1237,6 +1238,33 @@ func FromEnv(config *Config) error {
 		config.UsageLimits.ErrorMessage = configRuntime.NewDynamicValue(val)
 	}, DefaultUsageLimitsErrorMessage)
 
+	// Allow-list env vars. Empty = no restriction. Cross-field validation
+	// runs in validateRestrictions; per-entry runs at SetValue time so
+	// runtime YAML pushes of unknown entries are rejected before they hit
+	// the schema layer. DynamicValues are initialized even when unset so
+	// the runtime-overrides merger has a non-nil pointer to mutate.
+	var allowVector []string
+	if v := os.Getenv("ALLOWED_VECTOR_INDEX_TYPES"); v != "" {
+		allowVector = strings.Split(v, ",")
+	}
+	allowVectorDV, err := configRuntime.NewDynamicValueWithValidation(allowVector, NewRestrictionVectorIndexTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_VECTOR_INDEX_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedVectorIndexTypes = allowVectorDV
+	var allowCompression []string
+	if v := os.Getenv("ALLOWED_COMPRESSION_TYPES"); v != "" {
+		allowCompression = strings.Split(v, ",")
+	}
+	allowCompressionDV, err := configRuntime.NewDynamicValueWithValidation(allowCompression, NewRestrictionCompressionTypeListValidator())
+	if err != nil {
+		return fmt.Errorf("parse ALLOWED_COMPRESSION_TYPES: %w", err)
+	}
+	config.Restrictions.AllowedCompressionTypes = allowCompressionDV
+	parseString("RESTRICTIONS_ERROR_MESSAGE", func(val string) {
+		config.Restrictions.ErrorMessage = configRuntime.NewDynamicValue(val)
+	}, DefaultRestrictionsErrorMessage)
+
 	// explicitly reset sentry config
 	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()
@@ -1308,18 +1336,6 @@ func FromEnv(config *Config) error {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
 
-	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
-		duration, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT as time.Duration: %w", err)
-		}
-		if duration < 0 {
-			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT must be a positive duration")
-		}
-		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(duration)
-	} else {
-		config.ReplicaMovementMinimumAsyncWait = configRuntime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
-	}
 	revoctorizeCheckDisabled := false
 	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
 		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
@@ -1810,6 +1826,7 @@ const (
 	DefaultMaximumAllowedTenantsPerCollection      = -1 // unlimited
 	DefaultMaximumAllowedShardsPerCollection       = -1 // unlimited
 	DefaultUsageLimitsErrorMessage                 = "" // empty → usagelimits.RenderTemplate falls back to its built-in default
+	DefaultRestrictionsErrorMessage                = "" // empty → restrictions.RenderTemplate falls back to its built-in default
 )
 
 const VectorizerModuleNone = "none"

@@ -119,6 +119,10 @@ func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
 }
 
+func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicationState) (bool, error) {
+	return s.store.replicationManager.GetReplicationFSM().AllPeersAtLeast(opID, target), nil
+}
+
 func (s *Raft) NodeSelector() cluster.NodeSelector {
 	return s.nodeSelector
 }

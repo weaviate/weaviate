@@ -355,9 +355,10 @@ func NewSchemaObjectsIndexesUpdateNotFound() *SchemaObjectsIndexesUpdateNotFound
 /*
 SchemaObjectsIndexesUpdateNotFound describes a response with status code 404, with default header values.
 
-Collection or property not found.
+Collection or property not found. cancel:true with nothing to cancel returns 202 with Status: NO_OP instead — 404 is reserved for missing collection/property.
 */
 type SchemaObjectsIndexesUpdateNotFound struct {
+	Payload *models.ErrorResponse
 }
 
 // IsSuccess returns true when this schema objects indexes update not found response has a 2xx status code
@@ -391,14 +392,25 @@ func (o *SchemaObjectsIndexesUpdateNotFound) Code() int {
 }
 
 func (o *SchemaObjectsIndexesUpdateNotFound) Error() string {
-	return fmt.Sprintf("[PUT /schema/{className}/indexes/{propertyName}][%d] schemaObjectsIndexesUpdateNotFound ", 404)
+	return fmt.Sprintf("[PUT /schema/{className}/indexes/{propertyName}][%d] schemaObjectsIndexesUpdateNotFound  %+v", 404, o.Payload)
 }
 
 func (o *SchemaObjectsIndexesUpdateNotFound) String() string {
-	return fmt.Sprintf("[PUT /schema/{className}/indexes/{propertyName}][%d] schemaObjectsIndexesUpdateNotFound ", 404)
+	return fmt.Sprintf("[PUT /schema/{className}/indexes/{propertyName}][%d] schemaObjectsIndexesUpdateNotFound  %+v", 404, o.Payload)
+}
+
+func (o *SchemaObjectsIndexesUpdateNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaObjectsIndexesUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

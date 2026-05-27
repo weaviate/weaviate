@@ -36,6 +36,7 @@ services:
       QUERY_MAXIMUM_RESULTS: 10005
       OBJECTS_TTL_DELETE_SCHEDULE: "@every 12h"
       ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT: "true"
+      WEAVIATE_PREVIEW_NESTED_FILTERING: "true"
 
       # necessary for the metrics tests, some metrics only exist once segments
       # are flushed. If we wait to long the before run is completely in

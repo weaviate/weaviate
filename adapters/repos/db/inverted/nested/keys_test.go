@@ -20,6 +20,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPathPrefix(t *testing.T) {
+	t.Run("returns 8-byte xxhash of path", func(t *testing.T) {
+		prefix := PathPrefix("addresses.city")
+		require.Len(t, prefix, 8)
+		assert.Equal(t, xxhash.Sum64String("addresses.city"), binary.BigEndian.Uint64(prefix))
+	})
+
+	t.Run("different paths produce different prefixes", func(t *testing.T) {
+		assert.NotEqual(t, PathPrefix("addresses.city"), PathPrefix("addresses.postcode"))
+	})
+
+	t.Run("matches first 8 bytes of ValueKey for same path", func(t *testing.T) {
+		path := "addresses.city"
+		assert.Equal(t, PathPrefix(path), ValueKey(path, []byte("Berlin"))[:8])
+	})
+}
+
 func TestValueKey(t *testing.T) {
 	t.Run("hash prefix followed by value", func(t *testing.T) {
 		value := []byte("Berlin")
@@ -65,6 +82,28 @@ func TestIdxKey(t *testing.T) {
 		k1 := IdxKey("addresses", 0)
 		k2 := IdxKey("cars", 0)
 		assert.NotEqual(t, k1[:8], k2[:8])
+	})
+}
+
+func TestIdxKeyToBuf(t *testing.T) {
+	t.Run("produces same result as IdxKey", func(t *testing.T) {
+		var buf [IdxKeySize]byte
+		assert.Equal(t, IdxKey("addresses", 0), IdxKeyToBuf("addresses", 0, buf[:]))
+		assert.Equal(t, IdxKey("addresses", 3), IdxKeyToBuf("addresses", 3, buf[:]))
+		assert.Equal(t, IdxKey("cars", 7), IdxKeyToBuf("cars", 7, buf[:]))
+	})
+
+	t.Run("buffer is reused across calls", func(t *testing.T) {
+		var buf [IdxKeySize]byte
+		k0 := IdxKeyToBuf("addresses", 0, buf[:])
+		k1 := IdxKeyToBuf("addresses", 1, buf[:])
+		// Both slices point into the same backing array — k0 reflects the last write.
+		assert.Equal(t, k0, k1)
+	})
+
+	t.Run("result length is always IdxKeySize", func(t *testing.T) {
+		var buf [IdxKeySize]byte
+		assert.Len(t, IdxKeyToBuf("some.nested.path", 42, buf[:]), IdxKeySize)
 	})
 }
 

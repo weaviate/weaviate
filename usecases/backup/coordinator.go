@@ -470,6 +470,25 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	return status, nil
 }
 
+// canCommitErrFromResponse promotes a refused [CanCommitResponse] into a
+// typed error. When the response has [CanCommitErrInFlightReindex] kind, we
+// wrap the shared [backup.ErrBackupBlockedByInFlightReindex] sentinel so
+// upstream `errors.Is` checks succeed across the RPC boundary. Empty or
+// [CanCommitErrCannotCommit] kinds (including responses from older nodes
+// that don't set the field) keep the legacy [errCannotCommit] wrapping so
+// existing callers and tests continue to match.
+func canCommitErrFromResponse(resp *CanCommitResponse) error {
+	if resp == nil {
+		return errCannotCommit
+	}
+	switch resp.ErrKind {
+	case CanCommitErrInFlightReindex:
+		return fmt.Errorf("%w: %s", backup.ErrBackupBlockedByInFlightReindex, resp.Err)
+	default:
+		return fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
+	}
+}
+
 // canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
 func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]string, error) {
@@ -529,7 +548,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
-				err = fmt.Errorf("%w : %v", errCannotCommit, resp.Err)
+				err = canCommitErrFromResponse(resp)
 			}
 			if err != nil {
 				return fmt.Errorf("node %q: %w", req.NodeName, err)

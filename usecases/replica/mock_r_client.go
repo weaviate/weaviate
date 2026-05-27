@@ -15,7 +15,6 @@ package replica
 
 import (
 	context "context"
-	time "time"
 
 	additional "github.com/weaviate/weaviate/entities/additional"
 
@@ -30,6 +29,8 @@ import (
 	search "github.com/weaviate/weaviate/entities/search"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	time "time"
 
 	types "github.com/weaviate/weaviate/cluster/router/types"
 )
@@ -109,37 +110,6 @@ func (_c *MockRClient_CompareDigests_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// CreateAsyncCheckpoint provides a mock function with given fields: ctx, host, index, shardNames, cutoffMs, createdAt
-func (_m *MockRClient) CreateAsyncCheckpoint(ctx context.Context, host string, index string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
-	ret := _m.Called(ctx, host, index, shardNames, cutoffMs, createdAt)
-	if len(ret) == 0 {
-		panic("no return value specified for CreateAsyncCheckpoint")
-	}
-	return ret.Error(0)
-}
-
-// DeleteAsyncCheckpoint provides a mock function with given fields: ctx, host, index, shardNames
-func (_m *MockRClient) DeleteAsyncCheckpoint(ctx context.Context, host string, index string, shardNames []string) error {
-	ret := _m.Called(ctx, host, index, shardNames)
-	if len(ret) == 0 {
-		panic("no return value specified for DeleteAsyncCheckpoint")
-	}
-	return ret.Error(0)
-}
-
-// GetAsyncCheckpointStatus provides a mock function with given fields: ctx, host, index, shardNames
-func (_m *MockRClient) GetAsyncCheckpointStatus(ctx context.Context, host string, index string, shardNames []string) (map[string]AsyncCheckpointShardStatus, error) {
-	ret := _m.Called(ctx, host, index, shardNames)
-	if len(ret) == 0 {
-		panic("no return value specified for GetAsyncCheckpointStatus")
-	}
-	var r0 map[string]AsyncCheckpointShardStatus
-	if ret.Get(0) != nil {
-		r0 = ret.Get(0).(map[string]AsyncCheckpointShardStatus)
-	}
-	return r0, ret.Error(1)
-}
-
 // CountObjects provides a mock function with given fields: ctx, host, index, shard
 func (_m *MockRClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
 	ret := _m.Called(ctx, host, index, shard)
@@ -195,6 +165,106 @@ func (_c *MockRClient_CountObjects_Call) Return(_a0 int, _a1 error) *MockRClient
 }
 
 func (_c *MockRClient_CountObjects_Call) RunAndReturn(run func(context.Context, string, string, string) (int, error)) *MockRClient_CountObjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateAsyncCheckpoint provides a mock function with given fields: ctx, host, index, shardNames, cutoffMs, createdAt
+func (_m *MockRClient) CreateAsyncCheckpoint(ctx context.Context, host string, index string, shardNames []string, cutoffMs int64, createdAt time.Time) error {
+	ret := _m.Called(ctx, host, index, shardNames, cutoffMs, createdAt)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateAsyncCheckpoint")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []string, int64, time.Time) error); ok {
+		r0 = rf(ctx, host, index, shardNames, cutoffMs, createdAt)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRClient_CreateAsyncCheckpoint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateAsyncCheckpoint'
+type MockRClient_CreateAsyncCheckpoint_Call struct {
+	*mock.Call
+}
+
+// CreateAsyncCheckpoint is a helper method to define mock.On call
+//   - ctx context.Context
+//   - host string
+//   - index string
+//   - shardNames []string
+//   - cutoffMs int64
+//   - createdAt time.Time
+func (_e *MockRClient_Expecter) CreateAsyncCheckpoint(ctx interface{}, host interface{}, index interface{}, shardNames interface{}, cutoffMs interface{}, createdAt interface{}) *MockRClient_CreateAsyncCheckpoint_Call {
+	return &MockRClient_CreateAsyncCheckpoint_Call{Call: _e.mock.On("CreateAsyncCheckpoint", ctx, host, index, shardNames, cutoffMs, createdAt)}
+}
+
+func (_c *MockRClient_CreateAsyncCheckpoint_Call) Run(run func(ctx context.Context, host string, index string, shardNames []string, cutoffMs int64, createdAt time.Time)) *MockRClient_CreateAsyncCheckpoint_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]string), args[4].(int64), args[5].(time.Time))
+	})
+	return _c
+}
+
+func (_c *MockRClient_CreateAsyncCheckpoint_Call) Return(_a0 error) *MockRClient_CreateAsyncCheckpoint_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRClient_CreateAsyncCheckpoint_Call) RunAndReturn(run func(context.Context, string, string, []string, int64, time.Time) error) *MockRClient_CreateAsyncCheckpoint_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteAsyncCheckpoint provides a mock function with given fields: ctx, host, index, shardNames
+func (_m *MockRClient) DeleteAsyncCheckpoint(ctx context.Context, host string, index string, shardNames []string) error {
+	ret := _m.Called(ctx, host, index, shardNames)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAsyncCheckpoint")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []string) error); ok {
+		r0 = rf(ctx, host, index, shardNames)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockRClient_DeleteAsyncCheckpoint_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteAsyncCheckpoint'
+type MockRClient_DeleteAsyncCheckpoint_Call struct {
+	*mock.Call
+}
+
+// DeleteAsyncCheckpoint is a helper method to define mock.On call
+//   - ctx context.Context
+//   - host string
+//   - index string
+//   - shardNames []string
+func (_e *MockRClient_Expecter) DeleteAsyncCheckpoint(ctx interface{}, host interface{}, index interface{}, shardNames interface{}) *MockRClient_DeleteAsyncCheckpoint_Call {
+	return &MockRClient_DeleteAsyncCheckpoint_Call{Call: _e.mock.On("DeleteAsyncCheckpoint", ctx, host, index, shardNames)}
+}
+
+func (_c *MockRClient_DeleteAsyncCheckpoint_Call) Run(run func(ctx context.Context, host string, index string, shardNames []string)) *MockRClient_DeleteAsyncCheckpoint_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]string))
+	})
+	return _c
+}
+
+func (_c *MockRClient_DeleteAsyncCheckpoint_Call) Return(_a0 error) *MockRClient_DeleteAsyncCheckpoint_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRClient_DeleteAsyncCheckpoint_Call) RunAndReturn(run func(context.Context, string, string, []string) error) *MockRClient_DeleteAsyncCheckpoint_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -510,6 +580,67 @@ func (_c *MockRClient_FindUUIDs_Call) Return(_a0 []strfmt.UUID, _a1 error) *Mock
 }
 
 func (_c *MockRClient_FindUUIDs_Call) RunAndReturn(run func(context.Context, string, string, string, *filters.LocalFilter, int) ([]strfmt.UUID, error)) *MockRClient_FindUUIDs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetAsyncCheckpointStatus provides a mock function with given fields: ctx, host, index, shardNames
+func (_m *MockRClient) GetAsyncCheckpointStatus(ctx context.Context, host string, index string, shardNames []string) (map[string]AsyncCheckpointShardStatus, error) {
+	ret := _m.Called(ctx, host, index, shardNames)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetAsyncCheckpointStatus")
+	}
+
+	var r0 map[string]AsyncCheckpointShardStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []string) (map[string]AsyncCheckpointShardStatus, error)); ok {
+		return rf(ctx, host, index, shardNames)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, []string) map[string]AsyncCheckpointShardStatus); ok {
+		r0 = rf(ctx, host, index, shardNames)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]AsyncCheckpointShardStatus)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, []string) error); ok {
+		r1 = rf(ctx, host, index, shardNames)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRClient_GetAsyncCheckpointStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAsyncCheckpointStatus'
+type MockRClient_GetAsyncCheckpointStatus_Call struct {
+	*mock.Call
+}
+
+// GetAsyncCheckpointStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - host string
+//   - index string
+//   - shardNames []string
+func (_e *MockRClient_Expecter) GetAsyncCheckpointStatus(ctx interface{}, host interface{}, index interface{}, shardNames interface{}) *MockRClient_GetAsyncCheckpointStatus_Call {
+	return &MockRClient_GetAsyncCheckpointStatus_Call{Call: _e.mock.On("GetAsyncCheckpointStatus", ctx, host, index, shardNames)}
+}
+
+func (_c *MockRClient_GetAsyncCheckpointStatus_Call) Run(run func(ctx context.Context, host string, index string, shardNames []string)) *MockRClient_GetAsyncCheckpointStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].([]string))
+	})
+	return _c
+}
+
+func (_c *MockRClient_GetAsyncCheckpointStatus_Call) Return(_a0 map[string]AsyncCheckpointShardStatus, _a1 error) *MockRClient_GetAsyncCheckpointStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRClient_GetAsyncCheckpointStatus_Call) RunAndReturn(run func(context.Context, string, string, []string) (map[string]AsyncCheckpointShardStatus, error)) *MockRClient_GetAsyncCheckpointStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

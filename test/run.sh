@@ -54,6 +54,7 @@ function main() {
   run_acceptance_reindex_singlenode_b=false
   run_acceptance_reindex_concurrent=false
   run_acceptance_reindex_mt=false
+  run_acceptance_reindex_backup=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -106,6 +107,7 @@ function main() {
           --acceptance-reindex-singlenode-b|-arsb) run_all_tests=false; run_acceptance_reindex_singlenode_b=true;;
           --acceptance-reindex-concurrent|-arc) run_all_tests=false; run_acceptance_reindex_concurrent=true;;
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
+          --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -149,6 +151,7 @@ function main() {
               "--acceptance-reindex-singlenode-b | -arsb"\
               "--acceptance-reindex-concurrent | -arc"\
               "--acceptance-reindex-mt | -armt"\
+              "--acceptance-reindex-backup | -arb"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -272,6 +275,16 @@ function main() {
     run_acceptance_recovery
   fi
 
+  # Dispatch the dedicated --acceptance-distributed-tasks shard at the top
+  # level. Nesting inside run_acceptance_tests() silently dropped the
+  # shard because that function is gated by the big-IF a few hundred
+  # lines below, which does not include $run_acceptance_distributed_tasks.
+  if $run_acceptance_distributed_tasks; then
+    echo "running acceptance distributed_tasks"
+    build_weaviate_test_image
+    run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
+  fi
+
   if $run_acceptance_reindex_multinode; then
     echo "running reindex multinode acceptance tests (catch-all: everything not in -aj/-rm/-restart/-scale/-changetok sub-shards)"
     run_acceptance_reindex_multinode
@@ -325,6 +338,11 @@ function main() {
   if $run_acceptance_reindex_mt; then
     echo "running reindex multi-tenant acceptance tests"
     run_acceptance_reindex_mt
+  fi
+
+  if $run_acceptance_reindex_backup; then
+    echo "running backup × runtime-reindex acceptance tests"
+    run_acceptance_reindex_backup
   fi
   echo "Done!"
 }
@@ -412,8 +430,13 @@ function run_acceptance_tests() {
       run_acceptance_only_fast_group 4
     fi
   fi
-  if $run_acceptance_distributed_tasks || $run_acceptance_tests || $run_all_tests; then
-    echo "running acceptance distributed_tasks"
+  # Catch-all for --acceptance-only / --all-tests. The dedicated
+  # --acceptance-distributed-tasks shard is dispatched at the top level
+  # (search for "distributed_tasks" above); $run_acceptance_distributed_tasks
+  # is intentionally absent from this predicate.
+  if $run_acceptance_tests || $run_all_tests; then
+    echo "running acceptance distributed_tasks (via catch-all)"
+    build_weaviate_test_image
     run_aof_group "distributed-tasks" test/acceptance/distributed_tasks
   fi
   if $run_acceptance_only_authz || $run_acceptance_tests || $run_all_tests; then
@@ -845,6 +868,13 @@ function run_acceptance_reindex_mt() {
   # gated on this suite's duration.
   run_aof_group "reindex-mt" \
     test/acceptance/reindex_mt
+}
+
+function run_acceptance_reindex_backup() {
+  build_weaviate_test_image
+  echo_green "acceptance — reindex-backup"
+  run_aof_group "reindex-backup" \
+    test/acceptance/reindex_backup
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
