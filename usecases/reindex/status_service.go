@@ -51,9 +51,8 @@ type PropertyIndexStatus struct {
 	Indexes     []*models.IndexStatus
 }
 
-// CollectionStatus reads the class definition, lists in-flight reindex
-// tasks, and merges them into a per-property index-status snapshot.
-// Returns [ErrNotFound] when the collection does not exist.
+// CollectionStatus returns [ErrNotFound] when the collection does not
+// exist.
 //
 // schedulerTick is the DTM scheduler's configured tick interval; the
 // finalize window is computed from it (clamped to [finalizeWindowMin,
@@ -147,8 +146,6 @@ func (s *Service) CollectionStatus(ctx context.Context, collection string, sched
 	return CollectionIndexStatus{Properties: out}, nil
 }
 
-// dataTypeString returns the first data-type string of the property,
-// or "" if absent.
 func dataTypeString(prop *models.Property) string {
 	if len(prop.DataType) > 0 {
 		return prop.DataType[0]

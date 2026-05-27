@@ -33,10 +33,9 @@ import (
 // test exercises 15 simultaneous non-conflicting submits.
 const MaxConcurrentReindexPerCollection = 32
 
-// CountStartedTasksForCollection counts in-flight reindex tasks for a
-// collection. Counts every non-terminal status (STARTED / PREPARING /
-// SWAPPING via [distributedtask.TaskStatus.IsActive]) because
-// PREPARING / SWAPPING still hold tracker dirs and reindex buckets.
+// CountStartedTasksForCollection counts every non-terminal status
+// (STARTED / PREPARING / SWAPPING) because PREPARING / SWAPPING still
+// hold tracker dirs and reindex buckets.
 func CountStartedTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {
@@ -54,17 +53,12 @@ func CountStartedTasksForCollection(collection string, tasks []*distributedtask.
 	return n
 }
 
-// CheckReindexConflict checks whether a new reindex task would
-// conflict with any running tasks. Returns ("", nil) when no conflict,
-// (reason, nil) when a conflict is detected, or ("", err) when a
-// running task has a payload we cannot decode — in which case we
-// cannot prove non-conflict and the caller must reject the submit.
+// CheckReindexConflict returns a non-nil error when a running task has
+// a payload it cannot decode: it cannot prove non-conflict, so the
+// caller must reject the submit.
 //
-// Two tasks conflict if they touch the same index bucket type for the
-// same property. Every migration type is property-scoped: the property
-// the task targets is the one named in payload.Properties. An empty
-// Properties list is reserved for a future whole-collection rebuild
-// and is treated as matching any property for conflict purposes.
+// An empty Properties list is reserved for a future whole-collection
+// rebuild and is treated as matching any property for conflict purposes.
 //
 // Unparseable payloads (e.g. payload schema change across versions,
 // RAFT replay of a task from an older binary) are treated as a hard

@@ -19,21 +19,17 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// ShardOwnershipReader is the slice of *db.DB the reindex service
-// needs for resolving shard/replica placement. Defined here (consumer)
-// so tests can substitute fakes without standing up a real DB.
+// ShardOwnershipReader is defined here (consumer side) so tests can
+// substitute fakes without standing up a real DB.
 type ShardOwnershipReader interface {
 	ShardReplicaOwnership(ctx context.Context, className string) (map[string][]string, error)
 	ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string) (map[string][]string, error)
 }
 
-// BuildUnitMaps flattens shard-by-node ownership into the three maps
-// the distributed-task layer needs: the ordered list of unit IDs and
-// the two reverse maps unit → shard / unit → node.
-//
-// One unit per (node, shard) replica — each replica processes its own
-// local copy of the data. Unit IDs are deterministic and stable for
-// the same shard placement so retries reuse the same identifiers.
+// BuildUnitMaps creates one unit per (node, shard) replica — each
+// replica processes its own local copy of the data. Unit IDs are
+// deterministic and stable for the same shard placement so retries
+// reuse the same identifiers.
 func BuildUnitMaps(shardOwnership map[string][]string) (unitIDs []string, unitToShard, unitToNode map[string]string) {
 	unitToShard = make(map[string]string)
 	unitToNode = make(map[string]string)

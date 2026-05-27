@@ -13,10 +13,9 @@ package reindex
 
 import "github.com/weaviate/weaviate/adapters/repos/db/reindex"
 
-// IndexTypesFromMigrationType lists the inverted-index buckets a
-// migration type touches. The boolean is `false` for future migration
-// types added without being mapped here — callers that need to
-// log/alert on that case can check it.
+// IndexTypesFromMigrationType returns a false bool for future migration
+// types added without being mapped here, so callers can log/alert on
+// that case.
 func IndexTypesFromMigrationType(mt reindex.ReindexMigrationType) ([]string, bool) {
 	switch mt {
 	case reindex.ReindexTypeEnableSearchable, reindex.ReindexTypeChangeAlgorithm, reindex.ReindexTypeRebuildSearchable:
@@ -39,13 +38,8 @@ func IndexTypesFromMigrationType(mt reindex.ReindexMigrationType) ([]string, boo
 	return nil, false
 }
 
-// MigrationTypeTargetsIndex returns:
-//
-//   - matches: true if the migration type writes to the named index bucket.
-//   - isKnown: true if the migration type is one this function knows about.
-//
-// A new ReindexType added to the codebase without being mapped here
-// would return (false, false).
+// MigrationTypeTargetsIndex returns (false, false) for a ReindexType
+// added to the codebase without being mapped here.
 func MigrationTypeTargetsIndex(mt reindex.ReindexMigrationType, indexType string) (matches, isKnown bool) {
 	switch mt {
 	case reindex.ReindexTypeEnableSearchable, reindex.ReindexTypeChangeAlgorithm, reindex.ReindexTypeRebuildSearchable:

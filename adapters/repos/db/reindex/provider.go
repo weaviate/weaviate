@@ -335,7 +335,6 @@ func (p *ReindexProvider) StartTask(task *distributedtask.Task) (distributedtask
 		return nil, fmt.Errorf("collection %q not found", payload.Collection)
 	}
 
-	// Determine which units belong to this node.
 	var localUnits []string
 	for unitID, nodeName := range payload.UnitToNode {
 		if nodeName == p.LocalNode {
@@ -435,7 +434,6 @@ func (p *ReindexProvider) ProcessOneUnit(
 		return
 	}
 
-	// Find the shard.
 	shard, err := lookupShardByName(idx, shardName)
 	if err != nil {
 		p.FailUnit(ctx, task, unitID, recorder, err.Error())
@@ -2196,7 +2194,6 @@ func (h *reindexTaskHandle) Done() <-chan struct{} {
 	return h.DoneCh
 }
 
-// error.
 func lookupShardByName(idx IndexLike, shardName string) (ShardLike, error) {
 	var found ShardLike
 	if err := idx.ForEachShard(func(name string, s ShardLike) error {

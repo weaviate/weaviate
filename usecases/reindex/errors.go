@@ -18,22 +18,17 @@ import "errors"
 // [fmt.Errorf] when adding context; callers use [errors.Is] for the
 // dispatch.
 var (
-	// ErrBadRequest is the default failure mode for validation errors
-	// — invalid body shape, property mismatch, unsupported data type.
 	// Maps to HTTP 400.
 	ErrBadRequest = errors.New("reindex: bad request")
 
-	// ErrNotFound indicates the collection, property, or in-flight
-	// task does not exist. Maps to HTTP 404.
+	// Maps to HTTP 404. Reserved for "collection or property does not
+	// exist" — not for "nothing in flight" (that is an idempotent NO_OP).
 	ErrNotFound = errors.New("reindex: not found")
 
-	// ErrConflict indicates a competing in-flight task already targets
-	// the same (collection, property, index type) tuple. Maps to
-	// HTTP 409.
+	// Maps to HTTP 409.
 	ErrConflict = errors.New("reindex: conflicting task in flight")
 
-	// ErrServiceUnavailable indicates the cluster service is not yet
-	// wired up (typically during startup) or has reported an
-	// unrecoverable read failure. Maps to HTTP 503.
+	// Maps to HTTP 503. Returned when the cluster service is not yet
+	// wired up (typically during startup).
 	ErrServiceUnavailable = errors.New("reindex: service unavailable")
 )

@@ -18,18 +18,14 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
-// SearchableBucketStrategyReader returns the LSM bucket strategy for
-// the named property's searchable bucket on this collection, or "" if
-// no searchable bucket exists. The reindex service uses the strategy
-// string to decide which kind of retokenize sub-task to schedule.
+// SearchableBucketStrategyReader returns "" when no searchable bucket
+// exists. The reindex service uses the strategy string to decide which
+// kind of retokenize sub-task to schedule.
 type SearchableBucketStrategyReader interface {
 	SearchableBucketStrategy(className entschema.ClassName, propName string) (strategy string)
 }
 
-// ValidateTokenizationChange validates the body for
-// `PUT /v1/schema/{class}/indexes/{prop}` with
-// `{searchable:{tokenization:X}}` and returns the searchable bucket's
-// LSM strategy. Distinct from
+// ValidateTokenizationChange is distinct from
 // [ValidateFilterableTokenizationChange]: this one REQUIRES a
 // searchable bucket.
 func ValidateTokenizationChange(

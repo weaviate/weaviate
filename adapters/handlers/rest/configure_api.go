@@ -1147,8 +1147,6 @@ func initReindexAndDistributedTasks(
 	providers[reindex.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
 
-	// The reindex usecase Service owns Submit / Cancel / Status
-	// business logic; REST handlers are thin shells over it.
 	appState.ReindexService = reindexusecase.New(reindexusecase.Deps{
 		Cluster:       appState.ClusterService,
 		DB:            repo,

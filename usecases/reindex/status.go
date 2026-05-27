@@ -52,21 +52,11 @@ func ParseReindexTasks(tasks []*distributedtask.Task) []ParsedReindexTask {
 	return parsed
 }
 
-// MergeReindexStatus checks if there's an active or recently-terminated
-// reindex task that targets the given property+indexType and updates
-// the IndexStatus accordingly.
-//
-// Status values produced (in addition to the caller-supplied default
-// "ready"):
-//
-//   - "pending":    STARTED task, no unit progress yet.
-//   - "indexing":   STARTED task with some progress, OR a FINISHED
-//     task whose swap hasn't propagated to the schema flag yet (the
-//     brief OnGroupCompleted finalize window). `flagOn` distinguishes
-//     the two: when the schema flag is already on, a stale FINISHED
-//     task is ignored — the base "ready" wins.
-//   - "failed":     latest matching task ended in FAILED.
-//   - "cancelled":  latest matching task ended in CANCELLED.
+// MergeReindexStatus emits "indexing" both for a STARTED task with
+// progress AND for a FINISHED task whose swap hasn't propagated to the
+// schema flag yet (the brief OnGroupCompleted finalize window). `flagOn`
+// distinguishes the two: when the schema flag is already on, a stale
+// FINISHED task is ignored — the base "ready" wins.
 //
 // `finalizeWindow` caps the FINISHED-but-flag-off → indexing@100%
 // override. Logger may be nil; the entry is still skipped, just
@@ -215,8 +205,6 @@ func taskStatusPriority(task *distributedtask.Task) int {
 	}
 }
 
-// AggregateProgress averages Unit.Progress across all units in the
-// task. Returns 0 when there are no units.
 func AggregateProgress(task *distributedtask.Task) float32 {
 	if len(task.Units) == 0 {
 		return 0
@@ -228,9 +216,6 @@ func AggregateProgress(task *distributedtask.Task) float32 {
 	return total / float32(len(task.Units))
 }
 
-// AnyUnitWorking returns true if at least one unit has transitioned
-// out of PENDING — i.e. some shard is actively iterating, has
-// finished, or failed.
 func AnyUnitWorking(task *distributedtask.Task) bool {
 	for _, u := range task.Units {
 		if u.Status != distributedtask.UnitStatusPending {

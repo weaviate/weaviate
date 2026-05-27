@@ -18,18 +18,14 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
-// IsNumericProperty reports whether the property's data type is one of
-// the three numeric primitives that support rangeable indexing.
 func IsNumericProperty(prop *models.Property) bool {
 	dt, ok := entschema.AsPrimitive(prop.DataType)
 	return ok && (dt == entschema.DataTypeInt || dt == entschema.DataTypeNumber || dt == entschema.DataTypeDate)
 }
 
-// ValidateRangeableProperties validates that the named properties are
-// eligible for enable-rangeable: numeric type, not already rangeable.
-// Whether the property currently has a filterable index is deliberately
-// NOT checked — the migration sources from the objects bucket and can
-// build a rangeable index regardless.
+// ValidateRangeableProperties deliberately does NOT check whether the
+// property currently has a filterable index — the migration sources
+// from the objects bucket and can build a rangeable index regardless.
 func ValidateRangeableProperties(class *models.Class, propNames []string) error {
 	propsByName := make(map[string]*models.Property, len(class.Properties))
 	for _, p := range class.Properties {
@@ -51,9 +47,8 @@ func ValidateRangeableProperties(class *models.Class, propNames []string) error 
 	return nil
 }
 
-// ValidateRebuildRangeableProperty is the inverse-precondition counterpart
-// of ValidateRangeableProperties: the property must already have rangeable
-// indexing enabled (otherwise there's nothing to rebuild).
+// ValidateRebuildRangeableProperty is the inverse-precondition
+// counterpart of ValidateRangeableProperties.
 func ValidateRebuildRangeableProperty(prop *models.Property) error {
 	if !IsNumericProperty(prop) {
 		return fmt.Errorf("property %q is not a numeric type (int, number, date)", prop.Name)
@@ -64,10 +59,6 @@ func ValidateRebuildRangeableProperty(prop *models.Property) error {
 	return nil
 }
 
-// ValidateEnableFilterableProperty validates that the property is a
-// suitable target for enable-filterable: it must not already have a
-// filterable index, and its data type must support inverted filtering
-// (everything except blob, geoCoordinates, and phoneNumber).
 func ValidateEnableFilterableProperty(prop *models.Property) error {
 	if prop.IndexFilterable != nil && *prop.IndexFilterable {
 		return fmt.Errorf("property %q already has a filterable index", prop.Name)
@@ -106,12 +97,9 @@ func ValidateRebuildFilterableDataType(prop *models.Property) error {
 	return nil
 }
 
-// ValidateEnableSearchableProperty validates that the property is a
-// suitable target for enable-searchable: text/text[] type, not already
-// searchable, with a valid tokenization specified.
-//
-// Also rejects the request if the property already has a filterable
-// index AND a stored tokenization that differs from the requested one.
+// ValidateEnableSearchableProperty also rejects the request if the
+// property already has a filterable index AND a stored tokenization
+// that differs from the requested one.
 // EnableSearchable.OnMigrationComplete unconditionally writes
 // Tokenization = s.tokenization alongside IndexSearchable = true; if
 // the property has a pre-existing filterable bucket built with the old
@@ -141,10 +129,9 @@ func ValidateEnableSearchableProperty(prop *models.Property, tokenization string
 	return nil
 }
 
-// ValidateFilterableTokenizationChange validates the body for
-// `PUT /v1/schema/{class}/indexes/{prop}` with `{filterable:{tokenization:X}}`.
-// Distinct from ValidateTokenizationChange: does NOT require a
-// searchable bucket — this is the filterable-only retokenize variant.
+// ValidateFilterableTokenizationChange is distinct from
+// ValidateTokenizationChange: it does NOT require a searchable bucket —
+// this is the filterable-only retokenize variant.
 func ValidateFilterableTokenizationChange(prop *models.Property, targetTokenization string) error {
 	if prop == nil {
 		return fmt.Errorf("property not found")

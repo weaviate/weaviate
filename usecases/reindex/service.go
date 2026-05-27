@@ -74,10 +74,8 @@ type SubmitResult struct {
 // 404; clients assert this exact string.
 const StatusNoOp = "NO_OP"
 
-// Submit validates the request, checks for conflicts, builds the
-// payload, runs pre-submit cleanup, and submits the distributed task.
-// Returns the task ID on success or a sentinel error (see errors.go)
-// the handler maps to an HTTP status.
+// Submit returns a sentinel error (see errors.go) the handler maps to
+// an HTTP status.
 //
 // Cancel verbs are routed to [Service.Cancel] internally so handlers
 // can call a single entry point per HTTP method.
@@ -189,7 +187,6 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (SubmitResult, 
 		if reason != "" {
 			return SubmitResult{}, fmt.Errorf("%w: %s", ErrConflict, reason)
 		}
-		// Per-collection cap on concurrent in-flight reindex tasks.
 		if inflight := CountStartedTasksForCollection(req.Collection, tasks[dbreindex.ReindexNamespace]); inflight >= MaxConcurrentReindexPerCollection {
 			return SubmitResult{}, fmt.Errorf("%w: collection %q already has %d concurrent reindex tasks (max %d); wait for one to finish before submitting another",
 				ErrServiceUnavailable, req.Collection, inflight, MaxConcurrentReindexPerCollection)
@@ -242,9 +239,6 @@ func (s *Service) Submit(ctx context.Context, req SubmitRequest) (SubmitResult, 
 	return SubmitResult{TaskID: taskID, Status: "STARTED"}, nil
 }
 
-// dispatchMigration translates the request body into the migration
-// type + properties + tokenization tuple that the rest of Submit
-// passes to the distributed-task layer.
 func (s *Service) dispatchMigration(
 	body *models.IndexUpdateRequest,
 	class *models.Class,
@@ -345,9 +339,6 @@ func (s *Service) dispatchMigration(
 // submit clean up".
 const reindexCancelDrainTimeout = 10 * time.Second
 
-// Cancel finds the in-flight reindex task targeting (collection,
-// propertyName, indexType), asks DTM to cancel it, drains the local
-// worker, and wipes the on-disk partial state.
 func (s *Service) Cancel(ctx context.Context, collection, propertyName, indexType, principalUsername string) (SubmitResult, error) {
 	if s.deps.Cluster == nil {
 		return SubmitResult{}, fmt.Errorf("%w: cluster service unavailable; cannot cancel reindex task", ErrServiceUnavailable)
@@ -466,8 +457,8 @@ func (s *Service) Cancel(ctx context.Context, collection, propertyName, indexTyp
 	return SubmitResult{TaskID: target.ID, Status: "CANCELLED"}, nil
 }
 
-// shortRandomSuffix returns four hex characters used to deduplicate
-// otherwise identical task IDs submitted back-to-back.
+// shortRandomSuffix deduplicates otherwise identical task IDs submitted
+// back-to-back.
 func shortRandomSuffix() string {
 	b := make([]byte, 2)
 	if _, err := rand.Read(b); err != nil {

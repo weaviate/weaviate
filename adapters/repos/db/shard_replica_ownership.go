@@ -21,10 +21,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// ShardReplicaOwnershipForMT returns shard ownership filtered for multi-tenant
-// collections. It filters by the given tenant names (or all tenants if empty)
-// and skips tenants whose activity status indicates no local data (OFFLOADED,
-// OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING).
+// ShardReplicaOwnershipForMT is the multi-tenant variant of
+// [DB.ShardReplicaOwnership]: it narrows to the given tenant names (or all
+// tenants if empty) and skips tenants whose activity status means no local
+// data (OFFLOADED, OFFLOADING, FROZEN, FREEZING, UNFREEZING, ONLOADING).
 func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, tenantNames []string) (map[string][]string, error) {
 	result := make(map[string][]string)
 	tenantSet := make(map[string]struct{}, len(tenantNames))
@@ -38,14 +38,12 @@ func (db *DB) ShardReplicaOwnershipForMT(ctx context.Context, className string, 
 		}
 
 		for shardName, shard := range state.Physical {
-			// Filter by tenant names if specified.
 			if len(tenantSet) > 0 {
 				if _, ok := tenantSet[shardName]; !ok {
 					continue
 				}
 			}
 
-			// Skip tenants without local data.
 			status := entschema.ActivityStatus(shard.Status)
 			switch status {
 			case models.TenantActivityStatusHOT,

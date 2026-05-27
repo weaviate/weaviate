@@ -142,11 +142,9 @@ type State struct {
 	// single-node race window that any realistic UI/CLI flow can hit.
 	ReindexSubmitLocks *ReindexSubmitLocks
 
-	// ReindexService owns the reindex submit / cancel business logic.
-	// REST handlers are thin shells that authorize, parse params, and
-	// delegate here; the service maps directly back to typed sentinel
-	// errors (see usecases/reindex/errors.go) that the handler maps to
-	// HTTP status codes.
+	// ReindexService owns the reindex submit / cancel business logic;
+	// REST handlers delegate here and translate its typed sentinel
+	// errors (usecases/reindex/errors.go) into HTTP status codes.
 	ReindexService *reindexusecase.Service
 
 	// UsageLimits gates the object-count cap only. Collections/tenants/

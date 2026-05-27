@@ -69,10 +69,9 @@ var (
 )
 
 type ShardLike interface {
-	// CleanStalePartialReindexState wipes any stale runtime-reindex
-	// state on disk for a given (property, indexType) tuple. Lives on
-	// db.ShardLike (not reindex.ShardLike) because the cancel-cleanup
-	// orchestration uses it from the db package's audit path.
+	// CleanStalePartialReindexState lives on db.ShardLike (not
+	// reindex.ShardLike) because the cancel-cleanup orchestration uses
+	// it from the db package's audit path.
 	CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error
 
 	Index() *Index                                                                                 // Get the parent index

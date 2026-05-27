@@ -18,24 +18,15 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// ValidateBodyExclusivity guards against ambiguous PUT
-// /v1/schema/{class}/indexes/{prop} request bodies that the
-// switch-based dispatch in updateIndex would otherwise silently
-// misroute.
+// ValidateBodyExclusivity guards against ambiguous request bodies that
+// the switch-based dispatch in updateIndex would otherwise silently
+// misroute. A request like `{searchable:{rebuild:true},
+// filterable:{rebuild:true}}` matches the first arm (searchable.rebuild)
+// and silently ignores filterable.rebuild — the user gets a 202 but only
+// half the requested work runs.
 //
-// The dispatch is a switch on field truthiness. A request like
-// `{searchable:{rebuild:true}, filterable:{rebuild:true}}` would match
-// the first arm (searchable.rebuild) and silently ignore
-// filterable.rebuild — the user gets a 202 but only half the requested
-// work runs. This helper rejects such bodies up front.
-//
-// Rules:
-//   - At most one group (Searchable / Filterable / Rangeable) may be set.
-//   - Within a group, at most one verb may be set.
-//   - Searchable.Tokenization with Searchable.Enabled is allowed:
-//     enable-searchable REQUIRES a tokenization, so they are one verb.
-//   - Zero verbs total is rejected (consistent with the default arm in
-//     updateIndex), so this helper covers that case too.
+// Searchable.Tokenization combined with Searchable.Enabled is allowed:
+// enable-searchable REQUIRES a tokenization, so they count as one verb.
 func ValidateBodyExclusivity(body *models.IndexUpdateRequest) error {
 	if body == nil {
 		return fmt.Errorf("request body required")
@@ -121,11 +112,8 @@ func ValidateBodyExclusivity(body *models.IndexUpdateRequest) error {
 	return nil
 }
 
-// RequestedCancel returns (indexType, true) if the body asks to cancel
-// an in-flight reindex on this property, where indexType is one of
-// "filterable", "searchable", or "rangeable". Returns ("", false)
-// otherwise. ValidateBodyExclusivity must have already guaranteed at
-// most one cancel field is set across the body.
+// RequestedCancel assumes ValidateBodyExclusivity has already
+// guaranteed at most one cancel field is set across the body.
 func RequestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 	switch {
 	case body.Searchable != nil && body.Searchable.Cancel:
@@ -138,11 +126,10 @@ func RequestedCancel(body *models.IndexUpdateRequest) (string, bool) {
 	return "", false
 }
 
-// NormalizeSearchableAlgorithm maps an explicit searchable.algorithm
-// value to its canonical form ("BlockMaxWAND") or "" if unsupported.
-// The reverse direction (BlockMax→WAND) is not supported: the
-// repair-searchable migration only writes blockmax-format segments.
-// Callers map "" to a 400.
+// NormalizeSearchableAlgorithm returns "" (which callers map to a 400)
+// for unsupported values. The reverse direction (BlockMax→WAND) is not
+// supported: the repair-searchable migration only writes
+// blockmax-format segments.
 func NormalizeSearchableAlgorithm(value string) string {
 	switch strings.ToLower(strings.ReplaceAll(value, "_", "")) {
 	case "blockmaxwand", "blockmax", "bmw":

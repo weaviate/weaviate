@@ -28,13 +28,7 @@ import (
 )
 
 // The reindex submit / cancel / status business logic lives in
-// [reindexusecase.Service]. This file is a thin HTTP shell:
-//
-//   - authorize the request (REST concern, not business logic);
-//   - parse the swagger-generated params struct;
-//   - delegate to the service;
-//   - map [reindexusecase] sentinel errors to HTTP status codes via
-//     [reindexErrorResponse].
+// [reindexusecase.Service]; this file is a thin HTTP shell.
 //
 // No domain rules should live in this file. If you find yourself
 // editing migration-type dispatch, validation, conflict checks, or
@@ -54,9 +48,7 @@ type indexesHandlers struct {
 	metricRequestsTotal restApiRequestsTotal
 }
 
-// indexesRequestsTotal labels Prometheus emissions for the two
-// /v1/schema/{collection}/indexes endpoints. Same shape as
-// [schemaRequestsTotal] — every per-handler family gets its own
+// indexesRequestsTotal gives the indexes endpoints their own
 // `query_type` so dashboards can split reindex submit/cancel/status
 // traffic from generic schema mutations.
 type indexesRequestsTotal struct {
@@ -130,7 +122,6 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 }
 
 // updateIndex implements PUT /v1/schema/{className}/indexes/{propertyName}.
-// Authorize → delegate → translate. No business logic in this method.
 func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
 	collection := params.ClassName
 	propertyName := params.PropertyName
@@ -167,9 +158,7 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 
 // reindexUpdateResponse maps the service's sentinel errors to the
 // generated swagger response shapes. Centralised here so handlers
-// don't sprinkle status-code policy through their bodies. Every
-// failure path carries the error message body so operators can read
-// which sentinel was hit from the response payload alone.
+// don't sprinkle status-code policy through their bodies.
 func reindexUpdateResponse(principal *models.Principal, err error) middleware.Responder {
 	payload := errorResponse(principal, err.Error())
 	switch {
@@ -186,9 +175,8 @@ func reindexUpdateResponse(principal *models.Principal, err error) middleware.Re
 	}
 }
 
-// principalUsername extracts the user-facing identifier for the audit
-// log line the service emits at submit/cancel time. Falls back to
-// "anonymous" when the principal is nil.
+// principalUsername feeds the audit log line the service emits at
+// submit/cancel time; falls back to "anonymous" when nil.
 func principalUsername(principal *models.Principal) string {
 	if principal == nil {
 		return "anonymous"
@@ -196,8 +184,6 @@ func principalUsername(principal *models.Principal) string {
 	return principal.Username
 }
 
-// errorResponse wraps a single-error response with the namespace-aware
-// message stripper.
 func errorResponse(principal *models.Principal, msg string) *models.ErrorResponse {
 	return &models.ErrorResponse{
 		Error: []*models.ErrorResponseErrorItems0{

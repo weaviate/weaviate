@@ -16,10 +16,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
-// areAllSearchableBucketsBlockMax reports whether the shard's
-// searchable indices already use the BlockMax WAND format. The
-// shard-init path uses this to set s.usingBlockMaxWAND so the read
-// path picks the right bucket strategy without consulting the schema.
+// areAllSearchableBucketsBlockMax feeds s.usingBlockMaxWAND at
+// shard-init time so the read path picks the right bucket strategy
+// without consulting the schema.
 func (s *Shard) areAllSearchableBucketsBlockMax() bool {
 	for name, bucket := range s.Store().GetBucketsByName() {
 		_, indexType := reindex.GetPropNameAndIndexTypeFromBucketName(name)
