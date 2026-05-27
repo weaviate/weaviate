@@ -174,8 +174,8 @@ func TestAuthzNamespaces(t *testing.T) {
 		assert.Empty(t, helper.ListNamespaces(t, noPermsKey))
 	})
 
-	// Namespace-scoping subtests (WS5 matcher + role-safety guards). Reuses
-	// the same compose to avoid a second cluster boot.
+	// Namespace-scoping subtests (matcher + role-safety guards). Reuses the
+	// same compose to avoid a second cluster boot.
 	const (
 		ns1 = "customer1"
 		ns2 = "customer2"
@@ -191,14 +191,15 @@ func TestAuthzNamespaces(t *testing.T) {
 	defer helper.DeleteUser(t, ns2+":u2", adminKey)
 
 	// Namespaced DB users start with no permissions. Grant both a single
-	// namespace-relative create_collections role; the matcher specializes the
-	// unqualified `*` template per caller, so each user can only create within
-	// their own namespace.
+	// namespace-relative role covering create_collections and create_aliases;
+	// the matcher specializes the unqualified `*` template per caller, so each
+	// user can only create within their own namespace.
 	const bootstrapRole = "ns-bootstrap-create"
 	helper.CreateRole(t, adminKey, &models.Role{
 		Name: String(bootstrapRole),
 		Permissions: []*models.Permission{
 			helper.NewCollectionsPermission().WithAction(authorization.CreateCollections).WithCollection("*").Permission(),
+			helper.NewAliasesPermission().WithAction(authorization.CreateAliases).WithCollection("*").WithAlias("*").Permission(),
 		},
 	})
 	defer helper.DeleteRole(t, adminKey, bootstrapRole)
@@ -231,7 +232,7 @@ func TestAuthzNamespaces(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
 		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
 
-		assert.Equal(t, ns1+":Movies", helper.GetClassAuth(t, "Movies", user1Key).Class)
+		assert.Equal(t, "Movies", helper.GetClassAuth(t, "Movies", user1Key).Class)
 	})
 
 	t.Run("read_collections regex scope (Movies*): matches in own namespace only", func(t *testing.T) {
@@ -246,8 +247,8 @@ func TestAuthzNamespaces(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
 		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
 
-		assert.Equal(t, ns1+":Movies", helper.GetClassAuth(t, "Movies", user1Key).Class)
-		assert.Equal(t, ns1+":MoviesArchive", helper.GetClassAuth(t, "MoviesArchive", user1Key).Class)
+		assert.Equal(t, "Movies", helper.GetClassAuth(t, "Movies", user1Key).Class)
+		assert.Equal(t, "MoviesArchive", helper.GetClassAuth(t, "MoviesArchive", user1Key).Class)
 
 		_, err := helper.Client(t).Schema.SchemaObjectsGet(
 			schema.NewSchemaObjectsGetParams().WithClassName("Music"),
@@ -268,7 +269,7 @@ func TestAuthzNamespaces(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
 		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
 
-		assert.Equal(t, ns1+":Movies", helper.GetClassAuth(t, "Movies", user1Key).Class)
+		assert.Equal(t, "Movies", helper.GetClassAuth(t, "Movies", user1Key).Class)
 
 		_, err := helper.Client(t).Schema.SchemaObjectsGet(
 			schema.NewSchemaObjectsGetParams().WithClassName("MoviesArchive"),
@@ -292,8 +293,8 @@ func TestAuthzNamespaces(t *testing.T) {
 		resp, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams(), helper.CreateAuth(user1Key))
 		require.NoError(t, err)
 		got := classNames(resp.Payload.Classes)
-		assert.ElementsMatch(t, []string{ns1 + ":Movies", ns1 + ":MoviesArchive", ns1 + ":Music"}, got,
-			"namespaced caller must only see own-namespace classes in schema dump")
+		assert.ElementsMatch(t, []string{"Movies", "MoviesArchive", "Music"}, got,
+			"namespaced caller must only see own-namespace classes in schema dump, stripped to short names")
 	})
 
 	t.Run("global operator sees both namespaces in schema dump by qualified name", func(t *testing.T) {
@@ -304,6 +305,102 @@ func TestAuthzNamespaces(t *testing.T) {
 			ns1 + ":Movies", ns1 + ":MoviesArchive", ns1 + ":Music",
 			ns2 + ":Movies", ns2 + ":Music",
 		}, got)
+	})
+
+	t.Run("alias list filters to own namespace for namespaced caller", func(t *testing.T) {
+		// Each namespace gets the same short alias name pointing at its own
+		// Movies class. RBAC scopes the list to entries the caller can READ;
+		// stripping returns short forms to namespaced callers.
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Films", Class: "Movies"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Films", helper.CreateAuth(adminKey))
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Films", Class: "Movies"}, user2Key)
+		defer helper.DeleteAliasWithAuthz(t, ns2+":Films", helper.CreateAuth(adminKey))
+
+		const role = "read-aliases-all"
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: String(role),
+			Permissions: []*models.Permission{
+				helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection("*").WithAlias("*").Permission(),
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
+		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
+
+		resp, err := helper.GetAliasesAuthWithReturn(t, nil, user1Key)
+		require.NoError(t, err)
+		seenAlias := map[string]string{}
+		for _, a := range resp.Payload.Aliases {
+			seenAlias[a.Alias] = a.Class
+		}
+		assert.Equal(t, "Movies", seenAlias["Films"], "namespaced caller sees own alias in short form")
+		assert.NotContains(t, seenAlias, ns2+":Films", "namespaced caller must not see foreign-namespace alias")
+	})
+
+	t.Run("global operator sees both namespaces in alias list by qualified name", func(t *testing.T) {
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Songs", Class: "Music"}, user1Key)
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Songs", helper.CreateAuth(adminKey))
+		helper.CreateAliasAuth(t, &models.Alias{Alias: "Songs", Class: "Music"}, user2Key)
+		defer helper.DeleteAliasWithAuthz(t, ns2+":Songs", helper.CreateAuth(adminKey))
+
+		resp, err := helper.GetAliasesAuthWithReturn(t, nil, adminKey)
+		require.NoError(t, err)
+		seenAlias := map[string]string{}
+		for _, a := range resp.Payload.Aliases {
+			seenAlias[a.Alias] = a.Class
+		}
+		assert.Equal(t, ns1+":Music", seenAlias[ns1+":Songs"], "admin sees ns1 alias raw")
+		assert.Equal(t, ns2+":Music", seenAlias[ns2+":Songs"], "admin sees ns2 alias raw")
+	})
+
+	t.Run("own-info strips username and lets wildcard permission resources pass through", func(t *testing.T) {
+		// Role creation rejects qualified resource paths for now
+		const role = "own-info-strip"
+		helper.CreateRole(t, adminKey, &models.Role{
+			Name: String(role),
+			Permissions: []*models.Permission{
+				helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+				helper.NewAliasesPermission().WithAction(authorization.ReadAliases).WithCollection("*").WithAlias("*").Permission(),
+			},
+		})
+		defer helper.DeleteRole(t, adminKey, role)
+		helper.AssignRoleToUser(t, adminKey, role, ns1+":u1")
+		defer helper.RevokeRoleFromUser(t, adminKey, role, ns1+":u1")
+
+		info := helper.GetInfoForOwnUser(t, user1Key)
+		require.NotNil(t, info.Username)
+		assert.Equal(t, "u1", *info.Username, "namespaced caller's username must be stripped")
+
+		// Find the assigned role on the principal and assert wildcard
+		// permissions pass through unchanged (StripOwnNamespace is a no-op on `*`).
+		var found *models.Role
+		for _, r := range info.Roles {
+			if r.Name != nil && *r.Name == role {
+				found = r
+				break
+			}
+		}
+		require.NotNil(t, found, "role must be present on own-info response")
+		require.NotEmpty(t, found.Permissions)
+		sawCollectionsStar := false
+		sawAliasesStar := false
+		for _, p := range found.Permissions {
+			if p.Collections != nil && p.Collections.Collection != nil && *p.Collections.Collection == "*" {
+				sawCollectionsStar = true
+			}
+			if p.Aliases != nil && p.Aliases.Collection != nil && *p.Aliases.Collection == "*" &&
+				p.Aliases.Alias != nil && *p.Aliases.Alias == "*" {
+				sawAliasesStar = true
+			}
+		}
+		assert.True(t, sawCollectionsStar, "wildcard collection must pass through unchanged")
+		assert.True(t, sawAliasesStar, "wildcard alias must pass through unchanged")
+	})
+
+	t.Run("own-info: global admin sees raw username", func(t *testing.T) {
+		info := helper.GetInfoForOwnUser(t, adminKey)
+		require.NotNil(t, info.Username)
+		assert.Equal(t, adminUser, *info.Username)
 	})
 
 	t.Run("role with namespace-qualified resource path is rejected at create time", func(t *testing.T) {

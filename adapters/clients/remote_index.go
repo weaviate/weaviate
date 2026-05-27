@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 const (
@@ -79,6 +80,22 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
 	_, err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, nil, successCode)
+	return rehydrateUsageLimit(err)
+}
+
+// rehydrateUsageLimit returns a *LimitExceededError when err is a 429
+// carrying the USAGE_LIMIT_EXCEEDED payload, else err unchanged.
+func rehydrateUsageLimit(err error) error {
+	if err == nil {
+		return nil
+	}
+	he, ok := AsHTTPError(err)
+	if !ok || he.Code != http.StatusTooManyRequests {
+		return err
+	}
+	if le, ok := usagelimits.FromBodyJSON(he.Body); ok {
+		return le
+	}
 	return err
 }
 

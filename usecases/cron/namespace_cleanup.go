@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	gocron "github.com/netresearch/go-cron"
@@ -32,8 +31,17 @@ const namespaceCleanupJobName = "namespace_cleanup"
 // The interval is read from runtime config and hot-reloads via
 // RuntimeConfigHook.
 type cronsNamespaceCleanup struct {
-	currentInterval atomic.Int64 // time.Duration nanoseconds
+	// mu serialises RuntimeConfigHook so the read-compare-store and the
+	// channel drain+push run as one unit. Without it, concurrent callers
+	// can interleave and leave the channel holding a different interval
+	// than currentInterval.
+	mu              sync.Mutex
+	currentInterval time.Duration // guarded by mu
 	intervalCh      chan time.Duration
+
+	// registerWG lets shutdown await Init's registration goroutine instead
+	// of returning while it still runs.
+	registerWG sync.WaitGroup
 
 	logger            logrus.FieldLogger
 	gocronLogger      gocron.Logger
@@ -49,13 +57,13 @@ func newCronsNamespaceCleanup(serverShutdownCtx context.Context,
 	intervalCh <- current
 
 	c := &cronsNamespaceCleanup{
+		currentInterval:   current,
 		intervalCh:        intervalCh,
 		logger:            logger,
 		gocronLogger:      gocronLogger,
 		configGetter:      configGetter,
 		serverShutdownCtx: serverShutdownCtx,
 	}
-	c.currentInterval.Store(int64(current))
 	return c
 }
 
@@ -72,7 +80,9 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 	if coordinator == nil {
 		return fmt.Errorf("namespace cleanup coordinator is nil")
 	}
+	c.registerWG.Add(1)
 	errors.GoWrapper(func() {
+		defer c.registerWG.Done()
 		jobLogger := c.logger.WithField("job", namespaceCleanupJobName)
 		// runMu serialises the cron callback with the re-registration
 		// loop: the callback holds it for one tick, the loop Lock/Unlocks
@@ -103,7 +113,7 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 				job := c.createJob(jobLogger, clusterService, coordinator, runMu)
 				entryId, err := cr.AddJob(schedule, job, gocron.WithName(namespaceCleanupJobName))
 				if err != nil {
-					jobLogger.WithError(err).Error("cron job not added")
+					jobLogger.Errorf("cron job not added: %v", err)
 					continue
 				}
 				jobLogger.WithFields(logrus.Fields{
@@ -119,6 +129,12 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 	}, c.logger)
 
 	return nil
+}
+
+// wait blocks until Init's registration goroutine has exited. Returns at
+// once when Init never launched one (namespaces disabled, nil coordinator).
+func (c *cronsNamespaceCleanup) wait() {
+	c.registerWG.Wait()
 }
 
 // createJob returns the per-tick callback. SkipIfStillRunning prevents
@@ -138,24 +154,31 @@ func (c *cronsNamespaceCleanup) createJob(jobLogger logrus.FieldLogger,
 			return
 		}
 		if err := coordinator.Tick(c.serverShutdownCtx); err != nil {
-			jobLogger.WithError(err).Error("namespace cleanup tick failed")
+			jobLogger.Errorf("namespace cleanup tick failed: %v", err)
 		}
 	}))
 }
 
-// RuntimeConfigHook re-reads the interval from config; on change, pushes
-// the new value to the registration loop.
+// RuntimeConfigHook re-reads the interval from config and, on change,
+// pushes the new value to the registration loop. The whole read-compare-
+// store-and-push runs under mu so concurrent callers can't interleave and
+// leave the channel holding a different interval than currentInterval.
 func (c *cronsNamespaceCleanup) RuntimeConfigHook() error {
-	newInterval := int64(c.configGetter().Namespaces.CleanupInterval.Get())
-	old := c.currentInterval.Load()
-	if old == newInterval || !c.currentInterval.CompareAndSwap(old, newInterval) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	newInterval := c.configGetter().Namespaces.CleanupInterval.Get()
+	if newInterval == c.currentInterval {
 		return nil
 	}
+	c.currentInterval = newInterval
 
+	// Drain the stale value (if any) before pushing. The buffer is size 1,
+	// so the send stays non-blocking while we hold the lock.
 	select {
 	case <-c.intervalCh:
 	default:
 	}
-	c.intervalCh <- time.Duration(newInterval)
+	c.intervalCh <- newInterval
 	return nil
 }

@@ -176,6 +176,7 @@ func (db *DB) init(ctx context.Context) error {
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
 				TransferInactivityTimeout:                    db.config.TransferInactivityTimeout,
 				LSMEnableSegmentsChecksumValidation:          db.config.LSMEnableSegmentsChecksumValidation,
+				SkipWriteClassNameOnDisk:                     db.config.LSMSkipWriteClassNameEnabled,
 				ReplicationFactor:                            class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 				AsyncReplicationConfig:                       asyncConfig,
@@ -219,6 +220,7 @@ func (db *DB) init(ctx context.Context) error {
 			}
 
 			idx.usageLimits = db.usageLimits
+			idx.db = db
 			db.indexLock.Lock()
 			db.indices[idx.ID()] = idx
 			db.indexLock.Unlock()

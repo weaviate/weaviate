@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 // PrependSegmentsFromBucket copies all segments from srcDir and atomically
@@ -105,6 +107,24 @@ func (sg *SegmentGroup) PrependSegmentsFromBucket(ctx context.Context, srcDir st
 	for _, seg := range initialized {
 		sg.metrics.IncSegmentTotalByStrategy(sg.strategy)
 		sg.metrics.ObserveSegmentSize(sg.strategy, seg.Size())
+	}
+
+	// For Inverted strategy, update the segment group's average property
+	// length tracking from the prepended segments. Without this, the
+	// bucket's GetAveragePropertyLength returns 0, causing BM25 scoring
+	// to produce zero scores and empty query results.
+	if sg.strategy == StrategyInverted {
+		for _, seg := range initialized {
+			if seg.getStrategy() != segmentindex.StrategyInverted {
+				continue
+			}
+			data := seg.getInvertedData()
+			avg, count := data.avgPropertyLengthsAvg, data.avgPropertyLengthsCount
+			if count > 0 {
+				sg.averagePropSum.Add(uint64(avg * float64(count)))
+				sg.averagePropCount.Add(count)
+			}
+		}
 	}
 
 	return nil

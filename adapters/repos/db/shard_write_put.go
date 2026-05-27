@@ -35,7 +35,7 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
-	if err := s.index.usageLimits.CheckObjects(ctx, 1); err != nil {
+	if err := s.index.usageLimits.CheckObjects(ctx, 1, s.index.Config.ClassName.String()); err != nil {
 		return err
 	}
 	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
@@ -282,7 +282,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
-		objBinary, err := obj.MarshalBinary()
+		objBinary, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 		if err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 		}
@@ -292,6 +292,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return errors.Wrap(err, "upsert object data")
 		}
 		s.metrics.PutObjectUpsertObject(before)
+
+		// Tee before hashtree: the bucket is the SSOT for movement catchup.
+		s.AppendChangeLogPut(idBytes, obj.LastUpdateTimeUnix(), objBinary)
 
 		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
 			return errors.Wrap(err, "object creation in hashtree")
@@ -510,8 +513,6 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
 	}
-	_ = prevNestedProps // TODO(Step 8): delete previous nested props on update
-
 	// if object updated (with or without docID changed)
 	if status.docIDChanged || status.docIDPreserved {
 		if err := s.subtractPropLengths(prevProps); err != nil {
@@ -557,6 +558,9 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		// TODO: metrics
 		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
+		}
+		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
+			return fmt.Errorf("delete nested inverted indices: %w", err)
 		}
 		if s.index.Config.TrackVectorDimensions {
 			err = prevObject.IterateThroughVectorDimensions(func(targetVector string, dims int) error {

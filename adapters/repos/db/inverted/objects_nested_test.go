@@ -12,13 +12,19 @@
 package inverted
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+// Nested filtering is preview-gated. Enable the gate at package init via
+// the env var; individual tests that want the off state use t.Setenv.
+func init() { os.Setenv(entcfg.EnvNestedFilteringPreview, "true") }
 
 func boolPtr(v bool) *bool { return &v }
 
@@ -419,7 +425,7 @@ func TestAnalyzeNestedProp(t *testing.T) {
 		assert.NotEmpty(t, result.Exists)
 	})
 
-	t.Run("non-filterable paths are excluded from values", func(t *testing.T) {
+	t.Run("non-filterable paths are excluded from values and exists", func(t *testing.T) {
 		prop := &models.Property{
 			Name:     "nested",
 			DataType: schema.DataTypeObject.PropString(),
@@ -438,18 +444,22 @@ func TestAnalyzeNestedProp(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result)
 
-		// Only "indexed" should produce values
+		// Only "indexed" should produce values.
 		for _, v := range result.Values {
 			assert.Equal(t, "indexed", v.Path, "skipped path should not appear in values")
 		}
 
-		// But metadata still includes both (structural)
+		// _exists entries for non-indexable leaves are also skipped:
+		// the validator rejects IS NULL on such leaves, so writing
+		// _exists.{skipped} would be pure waste. Root sentinel ("")
+		// stays — used by IS NULL on the root prop itself.
 		existsPaths := map[string]bool{}
 		for _, e := range result.Exists {
 			existsPaths[e.Path] = true
 		}
-		assert.True(t, existsPaths["indexed"])
-		assert.True(t, existsPaths["skipped"])
+		assert.True(t, existsPaths[""], "root sentinel _exists is always kept")
+		assert.True(t, existsPaths["indexed"], "indexed leaf _exists kept")
+		assert.False(t, existsPaths["skipped"], "non-indexable leaf _exists dropped")
 	})
 
 	t.Run("aggregate flags reflect index types", func(t *testing.T) {
@@ -474,6 +484,92 @@ func TestAnalyzeNestedProp(t *testing.T) {
 		assert.False(t, result.HasFilterableIndex, "no filterable paths")
 		assert.True(t, result.HasSearchableIndex, "title is searchable by default")
 		assert.True(t, result.HasRangeableIndex, "price is rangeable")
+	})
+
+	t.Run("per-leaf filterable gates values and exists across mixed leaf types", func(t *testing.T) {
+		// Mixed-leaf fixture exercising every leaf kind that produces _exists
+		// entries:
+		//   - scalar leaf indexed (make) / non-indexed (color)
+		//   - scalar-array leaf indexed (tags) / non-indexed (repair_years)
+		//   - object-array intermediate (tires) — not a leaf, never gated
+		//   - leaves nested INSIDE the intermediate, indexed (tires.width)
+		//     and non-indexed (tires.brand)
+		//
+		// "Non-indexed" means all of IndexFilterable/IndexSearchable/
+		// IndexRangeFilters explicitly false. Schema accepts the prop and
+		// it ends up in the assignResult, but the analyzer must drop both
+		// values AND per-leaf _exists for it.
+		off := boolPtr(false)
+		prop := &models.Property{
+			Name:     "cars",
+			DataType: schema.DataTypeObjectArray.PropString(),
+			NestedProperties: []*models.NestedProperty{
+				{Name: "make", DataType: schema.DataTypeText.PropString(), Tokenization: "field", IndexFilterable: boolPtr(true)},
+				{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: "field", IndexFilterable: off, IndexSearchable: off},
+				{Name: "tags", DataType: schema.DataTypeTextArray.PropString(), Tokenization: "field", IndexFilterable: boolPtr(true)},
+				{Name: "repair_years", DataType: schema.DataTypeIntArray.PropString(), IndexFilterable: off, IndexRangeFilters: off},
+				{
+					Name:     "tires",
+					DataType: schema.DataTypeObjectArray.PropString(),
+					NestedProperties: []*models.NestedProperty{
+						{Name: "width", DataType: schema.DataTypeInt.PropString(), IndexFilterable: boolPtr(true)},
+						{Name: "brand", DataType: schema.DataTypeText.PropString(), Tokenization: "field", IndexFilterable: off, IndexSearchable: off},
+					},
+				},
+			},
+		}
+		value := []any{
+			map[string]any{
+				"make":         "Toyota",
+				"color":        "red",
+				"tags":         []any{"family", "hybrid"},
+				"repair_years": []any{float64(2020), float64(2021)},
+				"tires": []any{
+					map[string]any{"width": float64(215), "brand": "Michelin"},
+				},
+			},
+		}
+
+		result, err := analyzer.analyzeNestedProp(prop, value)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+
+		// --- Values: only indexed leaves contribute -----------------
+		valuePaths := map[string]int{}
+		for _, v := range result.Values {
+			valuePaths[v.Path]++
+		}
+		assert.Equal(t, 1, valuePaths["make"], "indexed scalar leaf produces one value")
+		assert.Equal(t, 2, valuePaths["tags"], "indexed scalar-array leaf produces one value per token")
+		assert.Equal(t, 1, valuePaths["tires.width"], "indexed leaf inside object-array intermediate produces one value")
+		assert.Zero(t, valuePaths["color"], "non-indexable scalar leaf must not appear in values")
+		assert.Zero(t, valuePaths["repair_years"], "non-indexable scalar-array leaf must not appear in values")
+		assert.Zero(t, valuePaths["tires.brand"], "non-indexable leaf inside object-array intermediate must not appear in values")
+
+		// --- _exists: same gating as values plus structural sentinels --
+		existsPaths := map[string]bool{}
+		for _, e := range result.Exists {
+			existsPaths[e.Path] = true
+		}
+		assert.True(t, existsPaths[""], "root sentinel _exists always kept (IS NULL on root nested prop)")
+		assert.True(t, existsPaths["tires"], "intermediate object-array _exists always kept (IS NULL on the array prop)")
+		assert.True(t, existsPaths["make"], "indexed scalar leaf _exists kept")
+		assert.True(t, existsPaths["tags"], "indexed scalar-array leaf _exists kept")
+		assert.True(t, existsPaths["tires.width"], "indexed leaf inside intermediate _exists kept")
+		assert.False(t, existsPaths["color"], "non-indexable scalar leaf _exists dropped")
+		assert.False(t, existsPaths["repair_years"], "non-indexable scalar-array leaf _exists dropped")
+		assert.False(t, existsPaths["tires.brand"], "non-indexable leaf inside intermediate _exists dropped")
+
+		// --- _idx: per-array-path, universal (orthogonal to leaf flags) ---
+		// Root-array idx entries use Path="" (the root nested prop's own
+		// element index); deeper array intermediates use the dotted
+		// relative path.
+		idxPaths := map[string]bool{}
+		for _, i := range result.Idx {
+			idxPaths[i.Path] = true
+		}
+		assert.True(t, idxPaths[""], "root cars[] idx kept (arr[N] dispatch on cars)")
+		assert.True(t, idxPaths["tires"], "nested object-array idx kept (arr[N] dispatch on cars.tires)")
 	})
 
 	t.Run("per-value flags match path config", func(t *testing.T) {
@@ -746,7 +842,7 @@ func assertAnalyzeDoc123(t *testing.T, analyzer *Analyzer, prop *models.Property
 	assert.Contains(t, valuePaths, "addresses.city")
 	assert.Contains(t, valuePaths, "addresses.postcode")
 
-	assert.Len(t, result.Idx, 14)
+	assert.Len(t, result.Idx, 15)
 	assert.Len(t, result.Exists, 17)
 }
 
@@ -798,7 +894,7 @@ func assertAnalyzeDoc124(t *testing.T, analyzer *Analyzer, prop *models.Property
 	assert.Equal(t, 2, valuePaths["cars.make"])
 	assert.Equal(t, 1, valuePaths["cars.colors"])
 
-	assert.Len(t, result.Idx, 16)
+	assert.Len(t, result.Idx, 17)
 	assert.Len(t, result.Exists, 23)
 }
 
@@ -841,7 +937,7 @@ func assertAnalyzeDoc125(t *testing.T, analyzer *Analyzer, prop *models.Property
 	assert.Equal(t, 1, valuePaths["cars.colors"])
 	assert.Equal(t, 1, valuePaths["cars.make"])
 
-	assert.Len(t, result.Idx, 12)
+	assert.Len(t, result.Idx, 13)
 	assert.Len(t, result.Exists, 19)
 }
 
@@ -918,7 +1014,7 @@ func assertAnalyzeDoc999(t *testing.T, analyzer *Analyzer, prop *models.Property
 	assert.Equal(t, 2, valuePaths["cars.colors"])
 	assert.Equal(t, 2, valuePaths["cars.accessories.type"])
 
-	assert.Len(t, result.Idx, 28)
+	assert.Len(t, result.Idx, 30)
 	assert.Len(t, result.Exists, 41)
 }
 

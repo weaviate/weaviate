@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Get build date
         id: date
@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
         with:
           sarif_file: results/image.sarif
 
@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Login to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
@@ -187,7 +187,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Build Docker image
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
@@ -219,7 +219,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4
+        uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4
         with:
           sarif_file: results/image.sarif
 
@@ -588,6 +588,8 @@ jobs:
             test: "--only-module-text2vec-voyageai"
           - name: "multi2vec-voyageai"
             test: "--only-module-multi2vec-voyageai"
+          - name: "text2vec-digitalocean"
+            test: "--only-module-text2vec-digitalocean"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -646,6 +648,7 @@ jobs:
           COHERE_APIKEY: ${{ secrets.COHERE_APIKEY }}
           ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
+          DIGITALOCEAN_APIKEY: ${{ secrets.DIGITALOCEAN_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
@@ -730,6 +733,8 @@ jobs:
             test: "--acceptance-recovery"
           - name: "python"
             test: "--acceptance-only-python"
+          - name: "python-namespaces"
+            test: "--acceptance-only-python-namespaces"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
@@ -756,7 +761,7 @@ jobs:
         env:
           MATRIX_TEST: ${{ matrix.name }}
         run: |
-          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" ]]; then
+          if [[ "$MATRIX_TEST" == "replica-slow" || "$MATRIX_TEST" == "replica-slow-grpc" || "$MATRIX_TEST" == "fast-group-4" || "$MATRIX_TEST" == "recovery" || "$MATRIX_TEST" == "distributed-tasks" || "$MATRIX_TEST" == "compaction" || "$MATRIX_TEST" == "python-namespaces" ]]; then
             echo "test_timeout_minutes=45" >> $GITHUB_ENV
           else
             echo "test_timeout_minutes=15" >> $GITHUB_ENV
@@ -768,6 +773,61 @@ jobs:
         with:
           timeout_minutes: ${{ env.test_timeout_minutes }}
           max_attempts: ${{ env.retry_max_attempts }}
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
+  Acceptance-Reindex-Tests:
+    name: reindex (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "multinode"
+            test: "--acceptance-reindex-multinode"
+          - name: "multinode-aj"
+            test: "--acceptance-reindex-multinode-aj"
+          - name: "multinode-rm"
+            test: "--acceptance-reindex-multinode-rm"
+          - name: "multinode-restart-a"
+            test: "--acceptance-reindex-multinode-restart-a"
+          - name: "multinode-restart-b"
+            test: "--acceptance-reindex-multinode-restart-b"
+          - name: "multinode-scale"
+            test: "--acceptance-reindex-multinode-scale"
+          - name: "multinode-changetok"
+            test: "--acceptance-reindex-multinode-changetok"
+          - name: "singlenode-a"
+            test: "--acceptance-reindex-singlenode-a"
+          - name: "singlenode-b"
+            test: "--acceptance-reindex-singlenode-b"
+          - name: "concurrent"
+            test: "--acceptance-reindex-concurrent"
+          - name: "mt"
+            test: "--acceptance-reindex-mt"
+          - name: "backup"
+            test: "--acceptance-reindex-backup"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests reindex
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+        with:
+          # Flat 45-minute timeout for every reindex matrix entry — these are
+          # multi-node testcontainer suites that occasionally need the full
+          # window. Avoids the per-test if-chain Acceptance-Tests-4-cores
+          # carried before the split.
+          timeout_minutes: 45
+          max_attempts: 1
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Acceptance-Tests-github-4-cores:
@@ -831,7 +891,7 @@ jobs:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
       - name: Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6
         with:
           fail_ci_if_error: false
           files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt
@@ -847,7 +907,7 @@ jobs:
           go-version: '1.26'
           cache: true
       - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7
         with:
           install-only: true
       - name: goreleaser

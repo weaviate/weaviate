@@ -12,6 +12,7 @@
 package usagelimits
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -87,4 +88,26 @@ func NewLimitExceededError(template string, limit LimitName, value int64) *Limit
 		Value:           value,
 		RenderedMessage: RenderTemplate(template, limit, value),
 	}
+}
+
+// FromBodyJSON parses a *LimitExceededError from a USAGE_LIMIT_EXCEEDED
+// 429 body. Returns false on any other shape.
+func FromBodyJSON(body []byte) (*LimitExceededError, bool) {
+	var payload struct {
+		ErrorCode string `json:"errorCode"`
+		Limit     string `json:"limit"`
+		Value     int64  `json:"value"`
+		Message   string `json:"message"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, false
+	}
+	if payload.ErrorCode != ErrorCode {
+		return nil, false
+	}
+	return &LimitExceededError{
+		Limit:           LimitName(payload.Limit),
+		Value:           payload.Value,
+		RenderedMessage: payload.Message,
+	}, true
 }

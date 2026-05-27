@@ -200,6 +200,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			ForceFullReplicasSearch:                      m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:                    m.db.config.TransferInactivityTimeout,
 			LSMEnableSegmentsChecksumValidation:          m.db.config.LSMEnableSegmentsChecksumValidation,
+			SkipWriteClassNameOnDisk:                     m.db.config.LSMSkipWriteClassNameEnabled,
 			ReplicationFactor:                            class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:                      class.ReplicationConfig.AsyncEnabled,
 			AsyncReplicationConfig:                       asyncConfig,
@@ -243,6 +244,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	idx.usageLimits = m.db.usageLimits
+	idx.db = m.db
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()

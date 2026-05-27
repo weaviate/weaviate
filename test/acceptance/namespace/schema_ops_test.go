@@ -12,6 +12,7 @@
 package namespace
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,18 @@ func addPropertyAuth(t *testing.T, className string, prop *models.Property, key 
 		WithBody(prop)
 	_, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(params, helper.CreateAuth(key))
 	return err
+}
+
+func addPropertyAuthWithReturn(t *testing.T, className string, prop *models.Property, key string) (*models.Property, error) {
+	t.Helper()
+	params := schema.NewSchemaObjectsPropertiesAddParams().
+		WithClassName(className).
+		WithBody(prop)
+	resp, err := helper.Client(t).Schema.SchemaObjectsPropertiesAdd(params, helper.CreateAuth(key))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
 }
 
 func deletePropertyIndexAuth(t *testing.T, className, propName, indexName, key string) error {
@@ -354,26 +367,28 @@ func TestNamespaces_PropertyTokenize(t *testing.T) {
 }
 
 // TestNamespaces_ShardsStatus exercises GET /v1/schema/<class>/shards on a
-// multi-shard namespaced class. With 3 shards on a 3-node cluster at least
-// one shard lives on a remote node, so the request must hop the
-// /indices/<ns>:<class>/shards/<sh>/status route to collect each shard's
-// status.
+// namespaced class. The namespace is pinned to a node that is provably not
+// the test client's entry (helper.SetupClient binds to GetWeaviate(),
+// i.e. weaviate-0), so the shard always lives remote and the request hops
+// the /indices/<ns>:<class>/shards/<sh>/status route every run.
 func TestNamespaces_ShardsStatus(t *testing.T) {
-	const ns1 = "customer1"
+	const (
+		ns1      = "shardsstatusns"
+		homeNode = "weaviate-2"
+	)
 
-	helper.CreateNamespace(t, ns1, adminKey)
+	helper.CreateNamespaceWithHomeNode(t, ns1, homeNode, adminKey)
 	t.Cleanup(func() { helper.DeleteNamespace(t, ns1, adminKey) })
 
 	user1Key := createNamespacedUser(t, "u1", ns1, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns1+":u1", adminKey) })
 
-	classWithShards := func(name string) *models.Class {
+	makeClass := func(name string) *models.Class {
 		return &models.Class{
 			Class: name,
 			Properties: []*models.Property{
 				{Name: "title", DataType: []string{"text"}},
 			},
-			ShardingConfig: map[string]any{"desiredCount": 3},
 		}
 	}
 
@@ -387,35 +402,35 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 		return resp.Payload, nil
 	}
 
-	t.Run("namespaced user gets shards by short name across nodes", func(t *testing.T) {
-		helper.CreateClassAuth(t, classWithShards("Movies"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+	t.Run("namespaced user gets shard by short name", func(t *testing.T) {
+		helper.CreateClassAuth(t, makeClass("Movies"), user1Key)
+		defer helper.DeleteClassAuth(t, ns1+":Movies", adminKey)
 
 		shards, err := getShards(t, "Movies", user1Key)
 		require.NoError(t, err)
-		require.Len(t, shards, 3)
+		require.Len(t, shards, 1)
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
 		}
 	})
 
-	t.Run("global admin gets shards by qualified name across nodes", func(t *testing.T) {
-		helper.CreateClassAuth(t, classWithShards("Shows"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Shows", adminKey)
+	t.Run("global admin gets shard by qualified name", func(t *testing.T) {
+		helper.CreateClassAuth(t, makeClass("Shows"), user1Key)
+		defer helper.DeleteClassAuth(t, ns1+":Shows", adminKey)
 
-		shards, err := getShards(t, "customer1:Shows", adminKey)
+		shards, err := getShards(t, ns1+":Shows", adminKey)
 		require.NoError(t, err)
-		require.Len(t, shards, 3)
+		require.Len(t, shards, 1)
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
 		}
 	})
 
-	t.Run("namespaced user gets shards via alias across nodes", func(t *testing.T) {
-		helper.CreateClassAuth(t, classWithShards("Concerts"), user1Key)
-		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
+	t.Run("namespaced user gets shard via alias", func(t *testing.T) {
+		helper.CreateClassAuth(t, makeClass("Concerts"), user1Key)
+		defer helper.DeleteClassAuth(t, ns1+":Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
+		defer helper.DeleteAliasWithAuthz(t, ns1+":Gigs", helper.CreateAuth(adminKey))
 
 		// retryOnAliasLag absorbs the brief window where the alias entry has
 		// been applied on the leader but the follower has not yet replicated
@@ -426,7 +441,7 @@ func TestNamespaces_ShardsStatus(t *testing.T) {
 			shards, err = getShards(t, "Gigs", user1Key)
 			return err
 		})
-		require.Len(t, shards, 3)
+		require.Len(t, shards, 1)
 		for _, s := range shards {
 			assert.NotEmpty(t, s.Status, "shard %q should have a populated status", s.Name)
 		}
@@ -594,9 +609,11 @@ func TestNamespaces_UpdateShardStatus(t *testing.T) {
 }
 
 // TestNamespaces_NodesGetClass exercises GET /v1/nodes/<class> on a
-// namespaced class. The cluster-API URL routes through `regxNodesClass`
-// for cross-node hops, which only accepts namespace-qualified names once
-// it is built from IndexNameRegexCore.
+// namespaced class. /nodes is an operator-only surface: under the narrowed
+// built-in admin a namespaced user is denied (403), while the env-var root
+// reaches it by qualified name. The qualified-name path also covers the
+// cluster-API URL routing through `regxNodesClass`, which only accepts
+// namespace-qualified names once it is built from IndexNameRegexCore.
 func TestNamespaces_NodesGetClass(t *testing.T) {
 	const ns1 = "customer1"
 
@@ -611,18 +628,17 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "title", DataType: []string{"text"}},
 		},
-		ShardingConfig: map[string]any{"desiredCount": 3},
 	}, user1Key)
 	defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
 
 	verbose := "verbose"
 
-	t.Run("namespaced user gets node status by short class name", func(t *testing.T) {
+	t.Run("namespaced user denied node status by short class name", func(t *testing.T) {
 		params := nodes.NewNodesGetClassParams().WithClassName("Movies").WithOutput(&verbose)
-		resp, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
-		require.NoError(t, err)
-		require.NotNil(t, resp.Payload)
-		assert.NotEmpty(t, resp.Payload.Nodes)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
 	})
 
 	t.Run("global admin gets node status by qualified class name", func(t *testing.T) {
@@ -633,29 +649,23 @@ func TestNamespaces_NodesGetClass(t *testing.T) {
 		assert.NotEmpty(t, resp.Payload.Nodes)
 	})
 
-	t.Run("namespaced user gets node status via alias", func(t *testing.T) {
+	t.Run("namespaced user denied node status via alias", func(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{
 			Class: "Concerts",
 			Properties: []*models.Property{
 				{Name: "title", DataType: []string{"text"}},
 			},
-			ShardingConfig: map[string]any{"desiredCount": 3},
 		}, user1Key)
 		defer helper.DeleteClassAuth(t, "customer1:Concerts", adminKey)
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "Gigs", Class: "Concerts"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, "customer1:Gigs", helper.CreateAuth(adminKey))
 
-		// retryOnAliasLag absorbs the brief window where the alias entry has
-		// been applied on the leader but the follower has not yet replicated
-		// it, which would surface here as a 404 from local alias resolution.
-		var resp *nodes.NodesGetClassOK
-		retryOnAliasLag(t, func() error {
-			params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&verbose)
-			var err error
-			resp, err = helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
-			return err
-		})
-		require.NotNil(t, resp.Payload)
-		assert.NotEmpty(t, resp.Payload.Nodes)
+		// A 403 is immediate (the authz deny precedes alias resolution), so no
+		// retryOnAliasLag wrapper is needed here.
+		params := nodes.NewNodesGetClassParams().WithClassName("Gigs").WithOutput(&verbose)
+		_, err := helper.Client(t).Nodes.NodesGetClass(params, helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *nodes.NodesGetClassForbidden
+		require.True(t, errors.As(err, &forbidden), "expected NodesGetClassForbidden, got %T: %v", err, err)
 	})
 }

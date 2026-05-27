@@ -45,10 +45,10 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		}, user1Key)
 		require.NoError(t, err)
 
-		// Namespaced principal sees the qualified class on read-back.
+		// Namespaced principal sees the short class on read-back (response stripping).
 		got, err := helper.GetObjectAuth(t, class, id, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, class, got.Class)
 		assert.Equal(t, "Inception", got.Properties.(map[string]any)["title"])
 
 		// Admin's raw schema view confirms a single-qualified class exists.
@@ -85,7 +85,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 
 		got, err := helper.GetObjectAuth(t, class, id, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, class, got.Class)
 		props := got.Properties.(map[string]any)
 		assert.Equal(t, "Tenet", props["title"])
 		assert.NotNil(t, props["runtime"])
@@ -173,7 +173,7 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 
 		got, err := helper.GetObjectAuthWithTenant(t, class, id, "tenantA", user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, class, got.Class)
 		assert.Equal(t, "tenantA", got.Tenant)
 	})
 
@@ -191,10 +191,10 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 
 		got1, err := helper.GetObjectAuthWithTenant(t, class, id1, "tenantB", user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got1.Class)
+		assert.Equal(t, class, got1.Class)
 		got2, err := helper.GetObjectAuthWithTenant(t, class, id2, "tenantC", user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got2.Class)
+		assert.Equal(t, class, got2.Class)
 	})
 
 	t.Run("auto-activate cold tenant on insert", func(t *testing.T) {
@@ -223,7 +223,68 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 
 		got, err := helper.GetObjectAuthWithTenant(t, class, id, "tenantD", user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:"+class, got.Class)
+		assert.Equal(t, class, got.Class)
+	})
+
+	t.Run("auto-add cross-ref property on object insert", func(t *testing.T) {
+		// Auto-schema detects a beacon-shaped value in the payload and adds a
+		// cross-ref property whose DataType is the SHORT target class. The
+		// schema handler then namespaces that DataType via
+		// QualifyPropertyDataTypes, so storage holds "customer1:Target".
+		// Pinned here because the path crosses three NS-aware seams:
+		//   1. The validator's QualifyRefTarget call on the beacon's class.
+		//   2. The schema handler qualifying the auto-added DataType.
+		//   3. The class-response stripping back to short on read.
+		const source, target = "AutoRefSource", "AutoRefTarget"
+		setupClassInNs1(t, source, user1Key)
+		setupClassInNs1(t, target, user1Key)
+
+		targetID := strfmt.UUID("88888888-aaaa-bbbb-cccc-111111111111")
+		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID: targetID, Class: target, Properties: map[string]any{"title": "ref-target"},
+		}, user1Key)
+		require.NoError(t, err)
+
+		sourceID := strfmt.UUID("88888888-aaaa-bbbb-cccc-222222222222")
+		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID: sourceID, Class: source,
+			Properties: map[string]any{
+				"title": "ref-source",
+				"linkedTo": []any{
+					map[string]any{"beacon": "weaviate://localhost/" + target + "/" + string(targetID)},
+				},
+			},
+		}, user1Key)
+		require.NoError(t, err)
+
+		// Admin sees the qualified DataType in storage.
+		gotAdmin := helper.GetClassAuth(t, "customer1:"+source, adminKey)
+		var foundDT []string
+		for _, p := range gotAdmin.Properties {
+			if p.Name == "linkedTo" {
+				foundDT = p.DataType
+			}
+		}
+		require.Len(t, foundDT, 1, "linkedTo should have been auto-added with one DataType entry")
+		assert.Equal(t, "customer1:"+target, foundDT[0],
+			"auto-schema must qualify the cross-ref DataType under the caller's namespace")
+
+		// Namespaced caller reads it back as the short form (response stripping).
+		gotUser := helper.GetClassAuth(t, source, user1Key)
+		for _, p := range gotUser.Properties {
+			if p.Name == "linkedTo" {
+				assert.Equal(t, []string{target}, p.DataType,
+					"namespaced view of the cross-ref DataType must be short")
+			}
+		}
+
+		// And the stored beacon is short (portability invariant).
+		got, err := helper.GetObjectAuth(t, "customer1:"+source, sourceID, adminKey)
+		require.NoError(t, err)
+		refs := got.Properties.(map[string]any)["linkedTo"].([]interface{})
+		require.Len(t, refs, 1)
+		beaconStr, _ := refs[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t, "weaviate://localhost/"+target+"/"+string(targetID), beaconStr)
 	})
 
 	t.Run("global principal auto-create rejected with 403", func(t *testing.T) {

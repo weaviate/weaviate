@@ -472,7 +472,7 @@ func TestHandleGenericTokenize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params)
+			resp := genericTokenize(nil, params)
 
 			if tt.wantOK {
 				okResp, ok := resp.(*tokenizeops.TokenizeOK)
@@ -669,7 +669,7 @@ func TestHandleGenericTokenizeGSE(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params)
+			resp := genericTokenize(nil, params)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")
@@ -725,7 +725,7 @@ func TestHandleGenericTokenizeKagome(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := tokenizeops.TokenizeParams{Body: tt.body}
-			resp := genericTokenize(params)
+			resp := genericTokenize(nil, params)
 
 			okResp, ok := resp.(*tokenizeops.TokenizeOK)
 			require.True(t, ok, "expected TokenizeOK response")

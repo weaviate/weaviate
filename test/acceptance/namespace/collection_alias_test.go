@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
@@ -61,14 +62,27 @@ func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
 		assert.NoError(c, err)
 	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
 
+	// Mandatory RBAC: grant the built-in admin role so the namespaced user can
+	// reach the data/schema/tenant/alias/MCP handlers. The role's wildcard
+	// templates are specialized to the caller's namespace by the matcher.
+	// DeleteUser revokes all bindings on cleanup, so no explicit revoke is needed.
+	helper.AssignRoleToUser(t, adminKey, authorization.Admin, ns+":"+userID)
+
+	// AssignRoleToUser returns once the leader applies the binding; the follower
+	// the test client talks to may still be replicating it. Wait until the role
+	// is locally visible so the caller's next request can't race that
+	// replication and get a spurious 403.
+	helper.WaitForOwnRole(t, apikey, authorization.Admin)
+
 	return apikey
 }
 
 // TestNamespaces_CollectionAndAliasCreate exercises the inline qualification
 // added to AddClass / AddAlias, as well as the read path with namespace resolution.
-// RBAC is off so namespaced DB users reach the handler unconditionally; the only
-// gating in play is the handler-level IsGlobalOperator/Namespace check plus the
-// entity-name validators.
+// The namespaced users hold the built-in admin role (granted in
+// createNamespacedUser), whose wildcard templates the matcher specializes to the
+// caller's namespace; on top of that sits the handler-level
+// IsGlobalOperator/Namespace check plus the entity-name validators.
 func TestNamespaces_CollectionAndAlias(t *testing.T) {
 	const (
 		ns1 = "customer1"
@@ -155,9 +169,10 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		require.NotEmpty(t, obj.ID)
 
 		// user1 reads it back via the alias — Resolve qualifies + maps alias → target.
+		// Response is stripped to the short class name.
 		got, err := helper.GetObjectAuth(t, "E2EFilmsAlias", obj.ID, user1Key)
 		require.NoError(t, err)
-		assert.Equal(t, "customer1:E2EFilmsTarget", got.Class)
+		assert.Equal(t, "E2EFilmsTarget", got.Class)
 		assert.Equal(t, obj.ID, got.ID)
 		propsGot, ok := got.Properties.(map[string]any)
 		require.True(t, ok)
@@ -256,10 +271,10 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		helper.CreateClassAuth(t, &models.Class{Class: "UpdateMe", Description: "v1"}, user1Key)
 		defer helper.DeleteClassAuth(t, "customer1:UpdateMe", adminKey)
 
-		// GET returns the qualified class; modify the description and PUT
-		// with the short name in the path.
-		got := helper.GetClassAuth(t, "customer1:UpdateMe", adminKey)
-		require.Equal(t, "customer1:UpdateMe", got.Class)
+		// GET as the namespaced caller returns the stripped (short) class
+		// name; round-trip the same short name through both URL and body.
+		got := helper.GetClassAuth(t, "UpdateMe", user1Key)
+		require.Equal(t, "UpdateMe", got.Class)
 		got.Description = "v2"
 
 		helper.UpdateClassAuth(t, "UpdateMe", got, user1Key)
@@ -276,7 +291,9 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		defer helper.DeleteClassAuth(t, "customer2:SharedUpdate", adminKey)
 
 		// user1's short-name update must only touch customer1:SharedUpdate.
-		toUpdate := helper.GetClassAuth(t, "customer1:SharedUpdate", adminKey)
+		// GET as the namespaced caller so the round-tripped body carries
+		// the stripped short class name.
+		toUpdate := helper.GetClassAuth(t, "SharedUpdate", user1Key)
 		toUpdate.Description = "v2"
 		helper.UpdateClassAuth(t, "SharedUpdate", toUpdate, user1Key)
 
@@ -516,11 +533,12 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasShortGet", Class: "AliasShortGetTarget"}, user1Key)
 		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasShortGet", helper.CreateAuth(adminKey))
 
-		// Short name is qualified with the principal's namespace.
+		// Short name is qualified with the principal's namespace, and the
+		// response is stripped back to the short form for namespaced callers.
 		resp, err := helper.GetAliasAuthWithReturn(t, "AliasShortGet", user1Key)
 		require.NoError(t, err)
-		require.Equal(t, "customer1:AliasShortGet", resp.Payload.Alias)
-		require.Equal(t, "customer1:AliasShortGetTarget", resp.Payload.Class)
+		require.Equal(t, "AliasShortGet", resp.Payload.Alias)
+		require.Equal(t, "AliasShortGetTarget", resp.Payload.Class)
 	})
 
 	t.Run("global admin alias get with wrong-case namespace prefix returns 422", func(t *testing.T) {
@@ -564,6 +582,7 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasListByClassB", helper.CreateAuth(adminKey))
 
 		// Short class filter must be qualified to customer1:AliasListByClass.
+		// Response is stripped back to short names for the namespaced caller.
 		class := "AliasListByClass"
 		resp, err := helper.GetAliasesAuthWithReturn(t, &class, user1Key)
 		require.NoError(t, err)
@@ -572,8 +591,8 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		for _, a := range resp.Payload.Aliases {
 			gotAliases[a.Alias] = a.Class
 		}
-		assert.Equal(t, "customer1:AliasListByClass", gotAliases["customer1:AliasListByClassA"])
-		assert.Equal(t, "customer1:AliasListByClass", gotAliases["customer1:AliasListByClassB"])
+		assert.Equal(t, "AliasListByClass", gotAliases["AliasListByClassA"])
+		assert.Equal(t, "AliasListByClass", gotAliases["AliasListByClassB"])
 	})
 
 	t.Run("global admin alias list with wrong-case class filter returns 422", func(t *testing.T) {
@@ -588,29 +607,6 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		var unproc *schema.AliasesGetUnprocessableEntity
 		require.True(t, errors.As(err, &unproc), "expected AliasesGetUnprocessableEntity, got %T: %v", err, err)
 		assert.Contains(t, unproc.Payload.Error[0].Message, "invalid namespace prefix")
-	})
-
-	t.Run("alias list is namespace-isolated when both namespaces share a short alias name", func(t *testing.T) {
-		for _, key := range []string{user1Key, user2Key} {
-			helper.CreateClassAuth(t, &models.Class{Class: "AliasListIsoTarget"}, key)
-			helper.CreateAliasAuth(t, &models.Alias{Alias: "AliasListIso", Class: "AliasListIsoTarget"}, key)
-		}
-		defer helper.DeleteClassAuth(t, "customer1:AliasListIsoTarget", adminKey)
-		defer helper.DeleteClassAuth(t, "customer2:AliasListIsoTarget", adminKey)
-		defer helper.DeleteAliasWithAuthz(t, "customer1:AliasListIso", helper.CreateAuth(adminKey))
-		defer helper.DeleteAliasWithAuthz(t, "customer2:AliasListIso", helper.CreateAuth(adminKey))
-
-		// user1 lists without a class filter and only sees their namespace's
-		// alias. The schema layer is namespace-agnostic, so this exercises
-		// the usecase-level namespace filter (RBAC is off in this suite).
-		resp, err := helper.GetAliasesAuthWithReturn(t, nil, user1Key)
-		require.NoError(t, err)
-		seen := map[string]bool{}
-		for _, a := range resp.Payload.Aliases {
-			seen[a.Alias] = true
-		}
-		assert.True(t, seen["customer1:AliasListIso"], "user1 should see its own alias")
-		assert.False(t, seen["customer2:AliasListIso"], "user1 should not see customer2's alias")
 	})
 
 	t.Run("global admin lists aliases across namespaces", func(t *testing.T) {

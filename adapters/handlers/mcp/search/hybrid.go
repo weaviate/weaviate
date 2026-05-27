@@ -27,20 +27,29 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (*QueryHybridResp, error) {
+func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (resp *QueryHybridResp, retErr error) {
+	// Authorize the request: first check MCP-level permission, then collection-level data permission
+	principal, err := s.Authorize(ctx, req, authorization.READ)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
+
+	resolved, _, err := namespacing.Resolve(principal, s.schemaManager, s.namespacesEnabled, args.CollectionName)
+	if err != nil {
+		return nil, err
+	}
+	args.CollectionName = resolved
+
 	log := s.logger.WithFields(logrus.Fields{
 		"tool":       "weaviate-query-hybrid",
 		"collection": args.CollectionName,
 	})
 	log.Debug("executing hybrid query")
 
-	// Authorize the request: first check MCP-level permission, then collection-level data permission
-	principal, err := s.Authorize(ctx, req, authorization.READ)
-	if err != nil {
-		return nil, err
-	}
 	if err := s.AuthorizeCollectionData(ctx, principal, authorization.READ, args.CollectionName, args.TenantName); err != nil {
 		return nil, err
 	}
@@ -96,11 +105,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 			return nil, fmt.Errorf("failed to unmarshal filters: %w", err)
 		}
 
-		// Parse to LocalFilter. MCP does not yet support namespaces, so the
-		// nested-path guard in filterext.Parse is hard-wired off here. Wire
-		// the real namespacesEnabled flag through when MCP gains namespace
-		// support.
-		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, false)
+		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, s.namespacesEnabled)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse filters: %w", err)
 		}

@@ -17,7 +17,9 @@
 // the next write would push the live total past MAXIMUM_ALLOWED_OBJECTS_COUNT.
 // The check is invoked from the storage chokepoint (Shard.PutObject{,Batch}
 // in adapters/repos/db/) so it covers both local and forwarded writes for
-// RF=1.
+// RF=1. On namespace-enabled clusters the cap applies per namespace: the
+// chokepoint passes the (namespace-qualified) class name and CheckObjects
+// extracts the namespace so the counter sums only indices in that namespace.
 //
 // Schema-side limits (collections, tenants, shards) do their own counting
 // inline in usecases/schema/ and only reach into this package for the typed
@@ -31,15 +33,19 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-// ObjectCounter sums object counts across all locally-owned shards. The
+// ObjectCounter sums object counts across all locally-loaded indices. The
 // implementation must use the async (CountAsync) path because synchronous
 // counting on every write is unacceptable on hot paths. Brief overshoot
 // during fast bulk imports is documented and accepted; it self-corrects on
 // the next memtable flush.
+//
+// A non-empty namespace scopes the sum to indices in that namespace; empty
+// means sum all (NS-disabled clusters or pre-namespaces classes).
 type ObjectCounter interface {
-	LocalObjectCount(ctx context.Context) (int64, error)
+	LocalObjectCount(ctx context.Context, namespace string) (int64, error)
 }
 
 // Config is the read-only view of usage-limit configuration the Manager
@@ -69,12 +75,12 @@ func NewManager(cfg Config, counter ObjectCounter) *Manager {
 	return &Manager{cfg: cfg, counter: counter}
 }
 
-// CheckObjects rejects when (currentObjects + n) would exceed the cap. n is
-// the number of objects this request would add (1 for single writes,
-// len(batch) for batches). Whole-batch-rejection is the caller's
-// responsibility — the caller passes len(batch) and rejects the entire
-// request on a non-nil return.
-func (m *Manager) CheckObjects(ctx context.Context, n int64) error {
+// CheckObjects rejects when (currentObjects + n) would exceed the cap. n
+// is 1 for single writes, len(batch) for batches. className may be
+// namespace-qualified; the namespace prefix scopes the count per namespace,
+// an unqualified name counts globally. Whole-batch rejection is the
+// caller's responsibility — pass len(batch) and reject on a non-nil return.
+func (m *Manager) CheckObjects(ctx context.Context, n int64, className string) error {
 	if m == nil {
 		return nil
 	}
@@ -85,7 +91,8 @@ func (m *Manager) CheckObjects(ctx context.Context, n int64) error {
 	if m.counter == nil {
 		return fmt.Errorf("usagelimits: object limit configured but no counter wired")
 	}
-	current, err := m.counter.LocalObjectCount(ctx)
+	namespace := namespacing.NamespaceFromQualified(className)
+	current, err := m.counter.LocalObjectCount(ctx, namespace)
 	if err != nil {
 		return fmt.Errorf("usagelimits: counting objects: %w", err)
 	}

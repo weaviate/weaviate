@@ -691,8 +691,8 @@ func assertDoc123(t *testing.T, schema []*models.NestedProperty) {
 	assertValue(t, result, "cars.colors", "orange", positions(1, 10))
 	assertValue(t, result, "name", "subdoc_123", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 
-	// Idx: 14 entries
-	require.Len(t, result.Idx, 14)
+	// Idx: 15 entries (14 sub-array + 1 root)
+	require.Len(t, result.Idx, 15)
 	assertIdx(t, result, "owner", 0, positions(1, 1, 2))
 	assertIdx(t, result, "owner.nicknames", 0, positions(1, 1))
 	assertIdx(t, result, "owner.nicknames", 1, positions(1, 2))
@@ -707,6 +707,8 @@ func assertDoc123(t *testing.T, schema []*models.NestedProperty) {
 	assertIdx(t, result, "cars.tires.radiuses", 1, positions(1, 8))
 	assertIdx(t, result, "cars.colors", 0, positions(1, 9))
 	assertIdx(t, result, "cars.colors", 1, positions(1, 10))
+	// root-level _idx entry for arr[N] positional filtering
+	assertIdx(t, result, "", 0, positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10))
 
 	// Exists: 17 entries
 	require.Len(t, result.Exists, 17)
@@ -848,8 +850,8 @@ func assertDoc124(t *testing.T, schema []*models.NestedProperty) {
 	assertValue(t, result, "cars.colors", "white", positions(1, 11))
 	assertValue(t, result, "name", "subdoc_124", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
 
-	// Idx: 16 entries (aggregated by path+index)
-	require.Len(t, result.Idx, 16)
+	// Idx: 17 entries (16 sub-array + 1 root, aggregated by path+index)
+	require.Len(t, result.Idx, 17)
 	assertIdx(t, result, "owner", 0, positions(1, 1))
 	assertIdx(t, result, "owner.nicknames", 0, positions(1, 1))
 	assertIdx(t, result, "addresses", 0, positions(1, 2))
@@ -865,6 +867,8 @@ func assertDoc124(t *testing.T, schema []*models.NestedProperty) {
 	assertIdx(t, result, "cars.tires.radiuses", 0, positions(1, 7))
 	assertIdx(t, result, "cars.tires.radiuses", 1, positions(1, 8))
 	assertIdx(t, result, "cars.colors", 0, positions(1, 11))
+	// root-level _idx entry for arr[N] positional filtering
+	assertIdx(t, result, "", 0, positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
 
 	// Exists: 23 raw entries, 17 unique paths (aggregated)
 	require.Len(t, result.Exists, 23)
@@ -980,8 +984,8 @@ func assertDoc125(t *testing.T, schema []*models.NestedProperty) {
 	assertValue(t, result, "cars.make", "Tesla", positions(1, 4, 5, 6, 7, 8, 9))
 	assertValue(t, result, "name", "subdoc_125", positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9))
 
-	// Idx: 12 entries (no owner.nicknames — Anna has no nicknames)
-	require.Len(t, result.Idx, 12)
+	// Idx: 13 entries (12 sub-array + 1 root; no owner.nicknames — Anna has no nicknames)
+	require.Len(t, result.Idx, 13)
 	assertIdx(t, result, "owner", 0, positions(1, 1))
 	assertIdx(t, result, "addresses", 0, positions(1, 2))
 	assertIdx(t, result, "addresses.numbers", 0, positions(1, 2))
@@ -994,6 +998,8 @@ func assertDoc125(t *testing.T, schema []*models.NestedProperty) {
 	assertIdx(t, result, "cars.accessories", 0, positions(1, 7))
 	assertIdx(t, result, "cars.accessories", 1, positions(1, 8))
 	assertIdx(t, result, "cars.colors", 0, positions(1, 9))
+	// root-level _idx entry for arr[N] positional filtering
+	assertIdx(t, result, "", 0, positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9))
 
 	// Exists: 19 raw entries, 17 unique paths (no owner.nicknames)
 	// accessories.type appears twice (one per leaf element)
@@ -1204,8 +1210,8 @@ func assertDoc999(t *testing.T, schema []*models.NestedProperty) {
 	assertValue(t, result, "cars.make", "Tesla", positions(2, 4, 5, 6, 7, 8, 9))
 	assertValue(t, result, "name", "subdoc_125", positions(2, 1, 2, 3, 4, 5, 6, 7, 8, 9))
 
-	// Idx: 28 (16 from r1/Justin + 12 from r2/Anna)
-	require.Len(t, result.Idx, 28)
+	// Idx: 30 (16 from r1/Justin + 12 from r2/Anna + 2 root entries)
+	require.Len(t, result.Idx, 30)
 	assertIdx(t, result, "owner", 0, append(positions(1, 1), positions(2, 1)...))
 	assertIdx(t, result, "owner.nicknames", 0, positions(1, 1))
 	assertIdx(t, result, "addresses", 0, append(positions(1, 2), positions(2, 2)...))
@@ -1224,6 +1230,9 @@ func assertDoc999(t *testing.T, schema []*models.NestedProperty) {
 	assertIdx(t, result, "cars.accessories", 0, positions(2, 7))
 	assertIdx(t, result, "cars.accessories", 1, positions(2, 8))
 	assertIdx(t, result, "cars.colors", 0, append(positions(1, 11), positions(2, 9)...))
+	// root-level _idx entries for arr[N] positional filtering
+	assertIdx(t, result, "", 0, positions(1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
+	assertIdx(t, result, "", 1, positions(2, 1, 2, 3, 4, 5, 6, 7, 8, 9))
 
 	// Exists: 40 raw entries (23 from r1 + 17 from r2)
 	require.Len(t, result.Exists, 41) // 23 + 17 + 1 root

@@ -201,7 +201,7 @@ func (c *Client) rejectNamespacedRoot(namespace, qualifiedUsername string, group
 	if namespace == "" {
 		return nil
 	}
-	if !c.rbac.IsRoot(qualifiedUsername, groups) {
+	if !c.rbac.IsRootUser(qualifiedUsername, groups) {
 		return nil
 	}
 	return errors.New(401, "unauthorized: namespaced OIDC principal cannot be granted the root role; remove the namespace claim or remove the principal from RBAC root configuration")

@@ -272,8 +272,8 @@ func Test_BatchDelete_NamespaceResolution(t *testing.T) {
 	})
 
 	t.Run("global principal leaves the class unchanged", func(t *testing.T) {
-		// Global principal (no namespace) must observe the pre-WS16
-		// behavior: short class name flows through untouched.
+		// Global principal (no namespace) must leave short class names
+		// untouched: no qualification, no rewriting.
 		manager, vectorRepo, authorizer := makeManager(t, []*models.Class{fooClass("Foo")})
 		vectorRepo.On("BatchDeleteObjects", mock.MatchedBy(func(p BatchDeleteParams) bool {
 			return string(p.ClassName) == "Foo" && string(p.Filters.Root.On.Class) == "Foo"

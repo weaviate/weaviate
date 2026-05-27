@@ -110,6 +110,154 @@ func (_c *MockFileReplicationServiceClient_CreateReplicaSnapshot_Call) RunAndRet
 	return _c
 }
 
+// FinalizeChangeLog provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) FinalizeChangeLog(ctx context.Context, in *protocol.FinalizeChangeLogRequest, opts ...grpc.CallOption) (*protocol.FinalizeChangeLogResponse, error) {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, in)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FinalizeChangeLog")
+	}
+
+	var r0 *protocol.FinalizeChangeLogResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.FinalizeChangeLogRequest, ...grpc.CallOption) (*protocol.FinalizeChangeLogResponse, error)); ok {
+		return rf(ctx, in, opts...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.FinalizeChangeLogRequest, ...grpc.CallOption) *protocol.FinalizeChangeLogResponse); ok {
+		r0 = rf(ctx, in, opts...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*protocol.FinalizeChangeLogResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.FinalizeChangeLogRequest, ...grpc.CallOption) error); ok {
+		r1 = rf(ctx, in, opts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFileReplicationServiceClient_FinalizeChangeLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FinalizeChangeLog'
+type MockFileReplicationServiceClient_FinalizeChangeLog_Call struct {
+	*mock.Call
+}
+
+// FinalizeChangeLog is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in *protocol.FinalizeChangeLogRequest
+//   - opts ...grpc.CallOption
+func (_e *MockFileReplicationServiceClient_Expecter) FinalizeChangeLog(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_FinalizeChangeLog_Call {
+	return &MockFileReplicationServiceClient_FinalizeChangeLog_Call{Call: _e.mock.On("FinalizeChangeLog",
+		append([]interface{}{ctx, in}, opts...)...)}
+}
+
+func (_c *MockFileReplicationServiceClient_FinalizeChangeLog_Call) Run(run func(ctx context.Context, in *protocol.FinalizeChangeLogRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_FinalizeChangeLog_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]grpc.CallOption, len(args)-2)
+		for i, a := range args[2:] {
+			if a != nil {
+				variadicArgs[i] = a.(grpc.CallOption)
+			}
+		}
+		run(args[0].(context.Context), args[1].(*protocol.FinalizeChangeLogRequest), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_FinalizeChangeLog_Call) Return(_a0 *protocol.FinalizeChangeLogResponse, _a1 error) *MockFileReplicationServiceClient_FinalizeChangeLog_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_FinalizeChangeLog_Call) RunAndReturn(run func(context.Context, *protocol.FinalizeChangeLogRequest, ...grpc.CallOption) (*protocol.FinalizeChangeLogResponse, error)) *MockFileReplicationServiceClient_FinalizeChangeLog_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetChangeLog provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) GetChangeLog(ctx context.Context, in *protocol.GetChangeLogRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.ChangeLogStreamEntry], error) {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, in)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetChangeLog")
+	}
+
+	var r0 grpc.ServerStreamingClient[protocol.ChangeLogStreamEntry]
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetChangeLogRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.ChangeLogStreamEntry], error)); ok {
+		return rf(ctx, in, opts...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.GetChangeLogRequest, ...grpc.CallOption) grpc.ServerStreamingClient[protocol.ChangeLogStreamEntry]); ok {
+		r0 = rf(ctx, in, opts...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(grpc.ServerStreamingClient[protocol.ChangeLogStreamEntry])
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.GetChangeLogRequest, ...grpc.CallOption) error); ok {
+		r1 = rf(ctx, in, opts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFileReplicationServiceClient_GetChangeLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetChangeLog'
+type MockFileReplicationServiceClient_GetChangeLog_Call struct {
+	*mock.Call
+}
+
+// GetChangeLog is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in *protocol.GetChangeLogRequest
+//   - opts ...grpc.CallOption
+func (_e *MockFileReplicationServiceClient_Expecter) GetChangeLog(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_GetChangeLog_Call {
+	return &MockFileReplicationServiceClient_GetChangeLog_Call{Call: _e.mock.On("GetChangeLog",
+		append([]interface{}{ctx, in}, opts...)...)}
+}
+
+func (_c *MockFileReplicationServiceClient_GetChangeLog_Call) Run(run func(ctx context.Context, in *protocol.GetChangeLogRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_GetChangeLog_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]grpc.CallOption, len(args)-2)
+		for i, a := range args[2:] {
+			if a != nil {
+				variadicArgs[i] = a.(grpc.CallOption)
+			}
+		}
+		run(args[0].(context.Context), args[1].(*protocol.GetChangeLogRequest), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_GetChangeLog_Call) Return(_a0 grpc.ServerStreamingClient[protocol.ChangeLogStreamEntry], _a1 error) *MockFileReplicationServiceClient_GetChangeLog_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_GetChangeLog_Call) RunAndReturn(run func(context.Context, *protocol.GetChangeLogRequest, ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.ChangeLogStreamEntry], error)) *MockFileReplicationServiceClient_GetChangeLog_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetReplicaSnapshotFile provides a mock function with given fields: ctx, in, opts
 func (_m *MockFileReplicationServiceClient) GetReplicaSnapshotFile(ctx context.Context, in *protocol.GetReplicaSnapshotFileRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[protocol.FileChunk], error) {
 	_va := make([]interface{}, len(opts))
@@ -328,6 +476,228 @@ func (_c *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call) Return(_
 }
 
 func (_c *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call) RunAndReturn(run func(context.Context, *protocol.ReleaseReplicaSnapshotRequest, ...grpc.CallOption) (*protocol.ReleaseReplicaSnapshotResponse, error)) *MockFileReplicationServiceClient_ReleaseReplicaSnapshot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SnapshotChangeLogLSN provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) SnapshotChangeLogLSN(ctx context.Context, in *protocol.SnapshotChangeLogLSNRequest, opts ...grpc.CallOption) (*protocol.SnapshotChangeLogLSNResponse, error) {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, in)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SnapshotChangeLogLSN")
+	}
+
+	var r0 *protocol.SnapshotChangeLogLSNResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.SnapshotChangeLogLSNRequest, ...grpc.CallOption) (*protocol.SnapshotChangeLogLSNResponse, error)); ok {
+		return rf(ctx, in, opts...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.SnapshotChangeLogLSNRequest, ...grpc.CallOption) *protocol.SnapshotChangeLogLSNResponse); ok {
+		r0 = rf(ctx, in, opts...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*protocol.SnapshotChangeLogLSNResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.SnapshotChangeLogLSNRequest, ...grpc.CallOption) error); ok {
+		r1 = rf(ctx, in, opts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SnapshotChangeLogLSN'
+type MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call struct {
+	*mock.Call
+}
+
+// SnapshotChangeLogLSN is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in *protocol.SnapshotChangeLogLSNRequest
+//   - opts ...grpc.CallOption
+func (_e *MockFileReplicationServiceClient_Expecter) SnapshotChangeLogLSN(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call {
+	return &MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call{Call: _e.mock.On("SnapshotChangeLogLSN",
+		append([]interface{}{ctx, in}, opts...)...)}
+}
+
+func (_c *MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call) Run(run func(ctx context.Context, in *protocol.SnapshotChangeLogLSNRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]grpc.CallOption, len(args)-2)
+		for i, a := range args[2:] {
+			if a != nil {
+				variadicArgs[i] = a.(grpc.CallOption)
+			}
+		}
+		run(args[0].(context.Context), args[1].(*protocol.SnapshotChangeLogLSNRequest), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call) Return(_a0 *protocol.SnapshotChangeLogLSNResponse, _a1 error) *MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call) RunAndReturn(run func(context.Context, *protocol.SnapshotChangeLogLSNRequest, ...grpc.CallOption) (*protocol.SnapshotChangeLogLSNResponse, error)) *MockFileReplicationServiceClient_SnapshotChangeLogLSN_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StartChangeCapture provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) StartChangeCapture(ctx context.Context, in *protocol.StartChangeCaptureRequest, opts ...grpc.CallOption) (*protocol.StartChangeCaptureResponse, error) {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, in)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartChangeCapture")
+	}
+
+	var r0 *protocol.StartChangeCaptureResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.StartChangeCaptureRequest, ...grpc.CallOption) (*protocol.StartChangeCaptureResponse, error)); ok {
+		return rf(ctx, in, opts...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.StartChangeCaptureRequest, ...grpc.CallOption) *protocol.StartChangeCaptureResponse); ok {
+		r0 = rf(ctx, in, opts...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*protocol.StartChangeCaptureResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.StartChangeCaptureRequest, ...grpc.CallOption) error); ok {
+		r1 = rf(ctx, in, opts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFileReplicationServiceClient_StartChangeCapture_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartChangeCapture'
+type MockFileReplicationServiceClient_StartChangeCapture_Call struct {
+	*mock.Call
+}
+
+// StartChangeCapture is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in *protocol.StartChangeCaptureRequest
+//   - opts ...grpc.CallOption
+func (_e *MockFileReplicationServiceClient_Expecter) StartChangeCapture(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_StartChangeCapture_Call {
+	return &MockFileReplicationServiceClient_StartChangeCapture_Call{Call: _e.mock.On("StartChangeCapture",
+		append([]interface{}{ctx, in}, opts...)...)}
+}
+
+func (_c *MockFileReplicationServiceClient_StartChangeCapture_Call) Run(run func(ctx context.Context, in *protocol.StartChangeCaptureRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_StartChangeCapture_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]grpc.CallOption, len(args)-2)
+		for i, a := range args[2:] {
+			if a != nil {
+				variadicArgs[i] = a.(grpc.CallOption)
+			}
+		}
+		run(args[0].(context.Context), args[1].(*protocol.StartChangeCaptureRequest), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_StartChangeCapture_Call) Return(_a0 *protocol.StartChangeCaptureResponse, _a1 error) *MockFileReplicationServiceClient_StartChangeCapture_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_StartChangeCapture_Call) RunAndReturn(run func(context.Context, *protocol.StartChangeCaptureRequest, ...grpc.CallOption) (*protocol.StartChangeCaptureResponse, error)) *MockFileReplicationServiceClient_StartChangeCapture_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StopChangeCapture provides a mock function with given fields: ctx, in, opts
+func (_m *MockFileReplicationServiceClient) StopChangeCapture(ctx context.Context, in *protocol.StopChangeCaptureRequest, opts ...grpc.CallOption) (*protocol.StopChangeCaptureResponse, error) {
+	_va := make([]interface{}, len(opts))
+	for _i := range opts {
+		_va[_i] = opts[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, in)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopChangeCapture")
+	}
+
+	var r0 *protocol.StopChangeCaptureResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.StopChangeCaptureRequest, ...grpc.CallOption) (*protocol.StopChangeCaptureResponse, error)); ok {
+		return rf(ctx, in, opts...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *protocol.StopChangeCaptureRequest, ...grpc.CallOption) *protocol.StopChangeCaptureResponse); ok {
+		r0 = rf(ctx, in, opts...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*protocol.StopChangeCaptureResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *protocol.StopChangeCaptureRequest, ...grpc.CallOption) error); ok {
+		r1 = rf(ctx, in, opts...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFileReplicationServiceClient_StopChangeCapture_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopChangeCapture'
+type MockFileReplicationServiceClient_StopChangeCapture_Call struct {
+	*mock.Call
+}
+
+// StopChangeCapture is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in *protocol.StopChangeCaptureRequest
+//   - opts ...grpc.CallOption
+func (_e *MockFileReplicationServiceClient_Expecter) StopChangeCapture(ctx interface{}, in interface{}, opts ...interface{}) *MockFileReplicationServiceClient_StopChangeCapture_Call {
+	return &MockFileReplicationServiceClient_StopChangeCapture_Call{Call: _e.mock.On("StopChangeCapture",
+		append([]interface{}{ctx, in}, opts...)...)}
+}
+
+func (_c *MockFileReplicationServiceClient_StopChangeCapture_Call) Run(run func(ctx context.Context, in *protocol.StopChangeCaptureRequest, opts ...grpc.CallOption)) *MockFileReplicationServiceClient_StopChangeCapture_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]grpc.CallOption, len(args)-2)
+		for i, a := range args[2:] {
+			if a != nil {
+				variadicArgs[i] = a.(grpc.CallOption)
+			}
+		}
+		run(args[0].(context.Context), args[1].(*protocol.StopChangeCaptureRequest), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_StopChangeCapture_Call) Return(_a0 *protocol.StopChangeCaptureResponse, _a1 error) *MockFileReplicationServiceClient_StopChangeCapture_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFileReplicationServiceClient_StopChangeCapture_Call) RunAndReturn(run func(context.Context, *protocol.StopChangeCaptureRequest, ...grpc.CallOption) (*protocol.StopChangeCaptureResponse, error)) *MockFileReplicationServiceClient_StopChangeCapture_Call {
 	_c.Call.Return(run)
 	return _c
 }

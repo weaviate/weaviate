@@ -29,9 +29,23 @@ import (
 // This method could be called multiple times with different inactivity timeouts,
 // a zeroed `inactivityTimeout` implies no timeout.
 // If inactivity timeout is reached it will resume maintenance cycle independently on how many halt request has been made.
+//
+// On the backup path (offloading=false) it rejects with
+// [ErrBackupBlockedByInFlightReindex] when a runtime-reindex tracker is
+// in flight on this shard. The tenant offload path (offloading=true)
+// is intentionally not gated.
 func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) (err error) {
 	s.haltForTransferMux.Lock()
 	defer s.haltForTransferMux.Unlock()
+
+	// Check before bumping haltForTransferCount so a rejection does not
+	// leave the counter incremented; the error path would not run a
+	// matching resume.
+	if !offloading {
+		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
+			return blockedErr
+		}
+	}
 
 	s.haltForTransferCount++
 
@@ -176,9 +190,11 @@ func (s *Shard) mayInitInactivityMonitoring() {
 		case <-ctx.Done():
 			return
 		case <-s.haltForTransferInactivityTimer.C:
-			s.haltForTransferMux.Lock()
-			s.mayForceResumeMaintenanceCycles(context.Background(), true)
-			s.haltForTransferMux.Unlock()
+			func() {
+				s.haltForTransferMux.Lock()
+				defer s.haltForTransferMux.Unlock()
+				s.mayForceResumeMaintenanceCycles(context.Background(), true)
+			}()
 			return
 		}
 	}, s.index.logger)

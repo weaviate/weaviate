@@ -321,6 +321,12 @@ type Index struct {
 	// means no enforcement. Read by Shards on the write path. See
 	// docs/usage_limits.md.
 	usageLimits *usagelimits.Manager
+
+	// db is the owning *DB, set by the caller right after NewIndex
+	// returns. Used by [Index.refuseIfReindexInFlight] to consult the
+	// DTM-backed backup gate. Nil is treated conservatively by the gate
+	// (refuses), matching the pre-wire stance.
+	db *DB
 }
 
 func (i *Index) ID() string {
@@ -968,6 +974,7 @@ type IndexConfig struct {
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
+	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool

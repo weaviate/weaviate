@@ -64,18 +64,27 @@ const (
 )
 
 type Validator struct {
-	exists           exists
-	config           *config.WeaviateConfig
-	replicationProps *additional.ReplicationProperties
+	exists            exists
+	config            *config.WeaviateConfig
+	replicationProps  *additional.ReplicationProperties
+	principal         *models.Principal
+	namespacesEnabled bool
 }
 
+// New constructs a Validator. principal + namespacesEnabled drive
+// cross-NS deny and storage-shape normalisation for inline-payload refs.
+// Production callers pass the request's principal and
+// m.config.Config.Namespaces.Enabled; tests may pass nil/false.
 func New(exists exists, config *config.WeaviateConfig,
 	repl *additional.ReplicationProperties,
+	principal *models.Principal, namespacesEnabled bool,
 ) *Validator {
 	return &Validator{
-		exists:           exists,
-		config:           config,
-		replicationProps: repl,
+		exists:            exists,
+		config:            config,
+		replicationProps:  repl,
+		principal:         principal,
+		namespacesEnabled: namespacesEnabled,
 	}
 }
 

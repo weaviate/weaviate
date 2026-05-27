@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -73,6 +74,14 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 		}
 
 		if _, ok := schema.AsNested(prop.DataType); ok {
+			// Preview gate — when off we silently skip nested analysis so no
+			// entries are appended to nested filterable or meta buckets. Pairs
+			// with the bucket-creation skip in shard_init_properties.go; even
+			// if one leaks past the other, the absence of buckets makes the
+			// writes inert.
+			if !entcfg.NestedFilteringEnabled() {
+				continue
+			}
 			// TODO aliszka:nested_filtering respect top-level indexFilterable/
 			// indexSearchable/indexRangeable settings for nested properties. Currently
 			// these are ignored — the nested write path bypasses HasAnyInvertedIndex
@@ -88,26 +97,70 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			continue
 		}
 
-		if !HasAnyInvertedIndex(prop) {
+		// Apply the in-memory schema overlay (if any) before deciding whether
+		// to skip the property. This is how runtime reindex migrations
+		// (enable-filterable / enable-searchable) keep the analyzer in sync
+		// with the *target* schema while the live RAFT-stored schema still
+		// has the index flag off. The overlay never mutates the input prop;
+		// it produces a shallow copy with the relevant flags/tokenization
+		// overridden for the duration of this analysis call.
+		effective := a.effectiveProperty(prop)
+
+		if !HasAnyInvertedIndex(effective) {
 			continue
 		}
 
-		if schema.IsRefDataType(prop.DataType) {
-			if err := a.extendPropertiesWithReference(&out, prop, input, key); err != nil {
+		if schema.IsRefDataType(effective.DataType) {
+			if err := a.extendPropertiesWithReference(&out, effective, input, key); err != nil {
 				return nil, nil, err
 			}
-		} else if schema.IsArrayDataType(prop.DataType) {
-			if err := a.extendPropertiesWithArrayType(&out, prop, input, key); err != nil {
+		} else if schema.IsArrayDataType(effective.DataType) {
+			if err := a.extendPropertiesWithArrayType(&out, effective, input, key); err != nil {
 				return nil, nil, err
 			}
 		} else {
-			if err := a.extendPropertiesWithPrimitive(&out, prop, input, key); err != nil {
+			if err := a.extendPropertiesWithPrimitive(&out, effective, input, key); err != nil {
 				return nil, nil, err
 			}
 		}
 
 	}
 	return out, nestedOut, nil
+}
+
+// effectiveProperty returns either the input property unchanged (the common
+// case — overlay is nil or doesn't mention this property) or a shallow copy
+// with the relevant inverted-index flags / tokenization overridden. The
+// original is never modified. See PropertyOverlay for context.
+func (a *Analyzer) effectiveProperty(prop *models.Property) *models.Property {
+	if len(a.schemaOverlay) == 0 {
+		return prop
+	}
+	o, ok := a.schemaOverlay[prop.Name]
+	if !ok {
+		return prop
+	}
+	// Shallow copy. Pointer fields (IndexFilterable/IndexSearchable/...) are
+	// replaced with locally-owned bools so we never mutate the caller's
+	// schema. DataType / NestedProperties are read-only downstream so a
+	// shallow copy is safe.
+	clone := *prop
+	if o.ForceFilterable {
+		t := true
+		clone.IndexFilterable = &t
+	}
+	if o.ForceSearchable {
+		t := true
+		clone.IndexSearchable = &t
+	}
+	if o.ForceRangeable {
+		t := true
+		clone.IndexRangeFilters = &t
+	}
+	if o.Tokenization != "" {
+		clone.Tokenization = o.Tokenization
+	}
+	return &clone
 }
 
 func (a *Analyzer) analyzeIDProp(id strfmt.UUID) (*Property, error) {
@@ -230,9 +283,14 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 			return nil, err
 		}
 		hasFilterableIndex := HasFilterableIndex(prop) && !a.isFallbackToSearchable()
+		var rawValues []string
+		if a.captureRawValues {
+			rawValues = in
+		}
 		return &Property{
 			Name:               prop.Name,
 			Items:              a.TextArray(prop.Tokenization, in, prop.Name, prop.TextAnalyzer),
+			RawValues:          rawValues,
 			Length:             len(values),
 			HasFilterableIndex: hasFilterableIndex,
 			HasSearchableIndex: HasSearchableIndex(prop),
@@ -290,17 +348,22 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 	propertyLength := -1
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
+	var rawValues []string
 
 	if dt == schema.DataTypeText {
 		hasFilterableIndex = hasFilterableIndex && !a.isFallbackToSearchable()
 		if asString, ok := value.(string); ok {
 			propertyLength = utf8.RuneCountInString(asString)
+			if a.captureRawValues {
+				rawValues = []string{asString}
+			}
 		}
 	}
 
 	return &Property{
 		Name:               prop.Name,
 		Items:              items,
+		RawValues:          rawValues,
 		Length:             propertyLength,
 		HasFilterableIndex: hasFilterableIndex,
 		HasSearchableIndex: hasSearchableIndex,

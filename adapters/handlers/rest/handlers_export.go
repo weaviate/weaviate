@@ -36,7 +36,7 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 ) middleware.Responder {
 	if params.Body.ID == nil || *params.Body.ID == "" {
 		return export.NewExportCreateUnprocessableEntity().
-			WithPayload(errPayloadFromSingleErr(errors.New("export ID is required")))
+			WithPayload(errPayloadFromSingleErr(principal, errors.New("export ID is required")))
 	}
 
 	id := *params.Body.ID
@@ -51,20 +51,20 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, ucexport.ErrExportDisabled):
 			return export.NewExportCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, ucexport.ErrExportAlreadyExists),
 			errors.Is(err, ucexport.ErrExportAlreadyActive):
 			return export.NewExportCreateConflict().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, ucexport.ErrExportValidation):
 			return export.NewExportCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return export.NewExportCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -83,19 +83,19 @@ func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 		switch {
 		case errors.Is(err, ucexport.ErrExportDisabled):
 			return export.NewExportStatusUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportStatusForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, ucexport.ErrExportNotFound):
 			return export.NewExportStatusNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, ucexport.ErrExportValidation):
 			return export.NewExportStatusUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return export.NewExportStatusInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 
@@ -114,22 +114,22 @@ func (h *exportHandlers) cancelExport(params export.ExportCancelParams,
 		switch {
 		case errors.Is(err, ucexport.ErrExportDisabled):
 			return export.NewExportCancelUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return export.NewExportCancelForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, ucexport.ErrExportNotFound):
 			return export.NewExportCancelNotFound().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, ucexport.ErrExportValidation):
 			return export.NewExportCancelUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.Is(err, ucexport.ErrExportAlreadyFinished):
 			return export.NewExportCancelConflict().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:
 			return export.NewExportCancelInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
+				WithPayload(errPayloadFromSingleErr(principal, err))
 		}
 	}
 

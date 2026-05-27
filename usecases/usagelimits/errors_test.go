@@ -80,3 +80,45 @@ func TestAsLimitExceeded(t *testing.T) {
 		}
 	})
 }
+
+func TestFromBodyJSON(t *testing.T) {
+	tests := []struct {
+		name   string
+		body   string
+		want   *LimitExceededError
+		wantOK bool
+	}{
+		{
+			name:   "usage-limit body parses",
+			body:   `{"errorCode":"USAGE_LIMIT_EXCEEDED","limit":"objects","value":10,"message":"hit cap"}`,
+			want:   &LimitExceededError{Limit: LimitObjects, Value: 10, RenderedMessage: "hit cap"},
+			wantOK: true,
+		},
+		{
+			name: "wrong errorCode is not a usage-limit body",
+			body: `{"errorCode":"OTHER","limit":"objects","value":10}`,
+		},
+		{
+			name: "non-JSON body is not a usage-limit body",
+			body: `status code: 429, error: oops`,
+		},
+		{
+			name: "empty body",
+			body: ``,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := FromBodyJSON([]byte(tt.body))
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v (got=%v)", ok, tt.wantOK, got)
+			}
+			if !tt.wantOK {
+				return
+			}
+			if got.Limit != tt.want.Limit || got.Value != tt.want.Value || got.RenderedMessage != tt.want.RenderedMessage {
+				t.Errorf("FromBodyJSON = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}

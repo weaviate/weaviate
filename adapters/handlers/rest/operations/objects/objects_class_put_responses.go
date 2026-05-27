@@ -209,6 +209,51 @@ func (o *ObjectsClassPutUnprocessableEntity) WriteResponse(rw http.ResponseWrite
 	}
 }
 
+// ObjectsClassPutTooManyRequestsCode is the HTTP code returned for type ObjectsClassPutTooManyRequests
+const ObjectsClassPutTooManyRequestsCode int = 429
+
+/*
+ObjectsClassPutTooManyRequests The configured object-count usage limit was exceeded. See `UsageLimitExceededResponse` for the limit value.
+
+swagger:response objectsClassPutTooManyRequests
+*/
+type ObjectsClassPutTooManyRequests struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.UsageLimitExceededResponse `json:"body,omitempty"`
+}
+
+// NewObjectsClassPutTooManyRequests creates ObjectsClassPutTooManyRequests with default headers values
+func NewObjectsClassPutTooManyRequests() *ObjectsClassPutTooManyRequests {
+
+	return &ObjectsClassPutTooManyRequests{}
+}
+
+// WithPayload adds the payload to the objects class put too many requests response
+func (o *ObjectsClassPutTooManyRequests) WithPayload(payload *models.UsageLimitExceededResponse) *ObjectsClassPutTooManyRequests {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the objects class put too many requests response
+func (o *ObjectsClassPutTooManyRequests) SetPayload(payload *models.UsageLimitExceededResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ObjectsClassPutTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(429)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ObjectsClassPutInternalServerErrorCode is the HTTP code returned for type ObjectsClassPutInternalServerError
 const ObjectsClassPutInternalServerErrorCode int = 500
 

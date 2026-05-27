@@ -76,6 +76,7 @@ message ApplyRequest {
     TYPE_DELETE_USERS_IN_NAMESPACE = 91;
     TYPE_CHANGE_NAMESPACE_STATE = 92;
     TYPE_REMOVE_NAMESPACE_ENTITY = 93;
+    TYPE_UPDATE_NAMESPACE = 94;
 
     // originally was rolling back schema before raft
     reserved 99;
@@ -93,6 +94,7 @@ message ApplyRequest {
     TYPE_REPLICATION_REPLICATE_SYNC_SHARD = 210;
     TYPE_REPLICATION_REGISTER_SCHEMA_VERSION = 211;
     TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD = 212;
+    TYPE_REPLICATION_NODE_REACHED_STATE = 213;
 
     TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL = 220;
     TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION = 221;
@@ -107,6 +109,9 @@ message ApplyRequest {
     TYPE_DISTRIBUTED_TASK_CLEAN_UP = 303;
     TYPE_DISTRIBUTED_TASK_RECORD_UNIT_COMPLETED = 304;
     TYPE_DISTRIBUTED_TASK_UPDATE_UNIT_PROGRESS = 305;
+    TYPE_DISTRIBUTED_TASK_MARK_FINALIZED = 306;
+    TYPE_DISTRIBUTED_TASK_RECORD_POST_COMPLETION_ACK = 307;
+    TYPE_DISTRIBUTED_TASK_RECORD_PREPARATION_COMPLETE_ACK = 308;
   }
   Type type = 1;
   string class = 2;
@@ -221,6 +226,7 @@ message AddDistributedTaskRequest {
   int64 submitted_at_unix_millis = 5;
   repeated string unit_ids = 6;
   repeated UnitSpec unit_specs = 7;
+  bool needs_preparation_barrier = 8;
 }
 
 // Deprecated: legacy node-level tracking removed. Kept for backward compat with existing Raft logs/snapshots.
@@ -284,4 +290,60 @@ message UpdateDistributedTaskUnitProgressRequest {
   string unit_id = 5;
   float progress = 6;
   int64 updated_at_unix_millis = 7;
+}
+
+// MarkTaskFinalizedRequest transitions a task from SWAPPING to
+// FINISHED. The scheduler issues this from OnTaskCompleted once
+// every post-task callback (per-node swap, cluster-wide schema flip)
+// has succeeded, so callers polling for FINISHED can trust the
+// terminal status to mean "all side-effects committed." Idempotent at
+// the FSM layer — every node's scheduler fires the same command after
+// its local OnTaskCompleted returns; only the first commit actually
+// flips the status.
+message MarkTaskFinalizedRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  int64 finalized_at_unix_millis = 4;
+}
+
+// RecordDistributedTaskPostCompletionAckRequest captures one node's
+// SWAP-phase callback result (OnGroupCompleted for non-barrier tasks,
+// OnSwapRequested for barrier tasks) — i.e. did every local unit's
+// swap/finalize phase succeed? Emitted by every node that has local
+// units, after the SWAP callback returns, before the cluster-wide
+// MarkTaskFinalized commit lands.
+//
+// The scheduler gates MarkTaskFinalized on having an ack from every
+// node with local units in the task. If any ack reports success=false,
+// the FSM transitions the task to FAILED instead of FINISHED, which
+// makes OnTaskCompleted skip the cluster-wide schema flip — so a
+// node that silently failed its local swap can no longer let the
+// cluster-wide schema commit while one replica is broken.
+//
+// Idempotent: the FSM keeps the first ack per (task, node) — duplicate
+// acks (from retries on the scheduler's wake/tick loop) are no-ops.
+//
+// The recorder closes the crash-safety gap where a node whose
+// RunSwapOnShard silently failed could otherwise let the
+// cluster-wide schema flip commit while one replica's bucket pointer
+// never moved.
+message RecordDistributedTaskPostCompletionAckRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string node_id = 4;
+  bool success = 5;
+  string error = 6;
+  int64 acked_at_unix_millis = 7;
+}
+
+message RecordDistributedTaskPreparationCompleteAckRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string node_id = 4;
+  bool success = 5;
+  string error = 6;
+  int64 acked_at_unix_millis = 7;
 }

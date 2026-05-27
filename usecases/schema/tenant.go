@@ -82,8 +82,12 @@ func (h *Handler) AddTenants(ctx context.Context,
 		}
 	}
 
+	candidates, err := h.namespaceCandidates(class)
+	if err != nil {
+		return 0, err
+	}
 	request := api.AddTenantsRequest{
-		ClusterNodes: h.schemaManager.StorageCandidates(),
+		ClusterNodes: candidates,
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
 	for i, tenant := range validated {
@@ -197,9 +201,16 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		return nil, err
 	}
 
+	// ClusterNodes is only consulted on unfreeze. Pinning to [home_node]
+	// makes the unfrozen tenant land back on its namespace's home_node;
+	// HOT↔COLD ignore the list and stay no-ops.
+	candidates, err := h.namespaceCandidates(class)
+	if err != nil {
+		return nil, err
+	}
 	req := api.UpdateTenantsRequest{
 		Tenants:      make([]*api.Tenant, len(tenants)),
-		ClusterNodes: h.schemaManager.StorageCandidates(),
+		ClusterNodes: candidates,
 	}
 	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {

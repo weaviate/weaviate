@@ -124,9 +124,11 @@
 //
 // OnGroupCompleted: fires on each node AFTER all units across all nodes finish
 // (since all units share the default group ""). Receives localGroupUnitIDs —
-// the Provider looks up the shard mapping from task.Payload to know which local
+// which contains ONLY units assigned to THIS node (not all units in the group).
+// The Provider looks up the shard mapping from task.Payload to know which local
 // shards to swap. Atomically swaps bucket pointers for each local shard. This is
-// a local operation, no Raft needed.
+// a local operation, no Raft needed. If a node has no units in the group,
+// OnGroupCompleted does not fire on that node.
 //
 // OnTaskCompleted: submits a Raft schema update to change the tokenization config.
 // Because Raft deduplicates, the schema update happens exactly once even though
@@ -162,8 +164,9 @@
 //
 // Unit progress updates go through Raft consensus. To prevent flooding the log,
 // the [Scheduler] wraps the [TaskCompletionRecorder] in a [ThrottledRecorder] that
-// forwards progress for each unit at most once per 30 seconds. Completion and
-// failure calls are never throttled.
+// forwards progress for each unit at most once per [DefaultThrottleInterval]
+// (3 seconds, see the constant's godoc for the rationale). Completion and failure
+// calls are never throttled.
 //
 // # Adding a new task type
 //

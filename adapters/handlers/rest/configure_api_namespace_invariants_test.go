@@ -26,66 +26,97 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		enabled    bool
-		classNames []string
-		nsCount    int
-		wantErr    bool
-		errSubstr  string
+		name                         string
+		enabled                      bool
+		lsmSkipWriteClassNameEnabled bool
+		maxReplicationFac            int
+		classNames                   []string
+		nsCount                      int
+		wantErr                      bool
+		errSubstr                    string
 	}{
 		{
-			name:       "enabled, fresh cluster",
-			enabled:    true,
-			classNames: nil,
-			nsCount:    0,
+			name:                         "enabled, fresh cluster",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
 		},
 		{
-			name:       "enabled, only namespaced classes",
-			enabled:    true,
-			classNames: []string{qualified("tenant1", "Movie")},
-			nsCount:    1,
+			name:                         "enabled, only namespaced classes",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			classNames:                   []string{qualified("tenant1", "Movie")},
+			nsCount:                      1,
 		},
 		{
-			name:       "enabled, non-namespaced class present",
-			enabled:    true,
-			classNames: []string{"Movie"},
-			nsCount:    0,
-			wantErr:    true,
-			errSubstr:  "non-namespaced collection",
+			name:                         "enabled, non-namespaced class present",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			classNames:                   []string{"Movie"},
+			wantErr:                      true,
+			errSubstr:                    "non-namespaced collection",
 		},
 		{
-			name:       "enabled, mixed but contains legacy class",
-			enabled:    true,
-			classNames: []string{qualified("tenant1", "Movie"), "Legacy"},
-			nsCount:    1,
-			wantErr:    true,
-			errSubstr:  "Legacy",
+			name:                         "enabled, mixed but contains legacy class",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            1,
+			classNames:                   []string{qualified("tenant1", "Movie"), "Legacy"},
+			nsCount:                      1,
+			wantErr:                      true,
+			errSubstr:                    "Legacy",
 		},
 		{
-			name:       "disabled, fresh cluster",
-			enabled:    false,
-			classNames: nil,
-			nsCount:    0,
+			name:                         "enabled but lsm skip write classname disabled",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: false,
+			maxReplicationFac:            1,
+			wantErr:                      true,
+			errSubstr:                    "internal invariant violated",
+		},
+		{
+			name:                         "enabled, MaximumFactor unset",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            0,
+			wantErr:                      true,
+			errSubstr:                    "REPLICATION_MAXIMUM_FACTOR",
+		},
+		{
+			name:                         "enabled, MaximumFactor=3",
+			enabled:                      true,
+			lsmSkipWriteClassNameEnabled: true,
+			maxReplicationFac:            3,
+			wantErr:                      true,
+			errSubstr:                    "REPLICATION_MAXIMUM_FACTOR",
+		},
+		{
+			name:    "disabled, fresh cluster",
+			enabled: false,
+		},
+		{
+			name:              "disabled, MaximumFactor>1 is allowed",
+			enabled:           false,
+			maxReplicationFac: 3,
 		},
 		{
 			name:       "disabled, legacy classes only",
 			enabled:    false,
 			classNames: []string{"Movie", "Article"},
-			nsCount:    0,
 		},
 		{
-			name:       "disabled, namespace entities exist",
-			enabled:    false,
-			classNames: nil,
-			nsCount:    3,
-			wantErr:    true,
-			errSubstr:  "namespace entities",
+			name:      "disabled, namespace entities exist",
+			enabled:   false,
+			nsCount:   3,
+			wantErr:   true,
+			errSubstr: "namespace entities",
 		},
 		{
 			name:       "disabled, namespace-qualified class exists (defense in depth)",
 			enabled:    false,
 			classNames: []string{qualified("tenant1", "Movie")},
-			nsCount:    0,
 			wantErr:    true,
 			errSubstr:  "namespace-qualified collection",
 		},
@@ -93,7 +124,6 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 			name:       "disabled, mixed classes where qualified branch wins",
 			enabled:    false,
 			classNames: []string{"Movie", qualified("tenant1", "X")},
-			nsCount:    0,
 			wantErr:    true,
 			errSubstr:  "namespace-qualified collection",
 		},
@@ -101,7 +131,7 @@ func TestEnforceNamespaceStartupInvariants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := enforceNamespaceStartupInvariants(tt.enabled, tt.classNames, tt.nsCount)
+			err := enforceNamespaceStartupInvariants(tt.enabled, tt.lsmSkipWriteClassNameEnabled, tt.maxReplicationFac, tt.classNames, tt.nsCount)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errSubstr)

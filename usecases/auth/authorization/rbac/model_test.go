@@ -519,7 +519,7 @@ func roleHasResourceVerb(rows [][]string, resourceContains, verb string) bool {
 
 // TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed asserts
 // admin/viewer on NS-enabled clusters cover only collections/data/tenants/
-// aliases.
+// aliases plus MCP.
 func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
@@ -534,17 +534,20 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	rootRows := rolePolicies(t, m, authorization.Root)
 	readOnlyRows := rolePolicies(t, m, authorization.ReadOnly)
 
-	// admin: must contain CRUD over schema/data/aliases; tenant rows
+	// admin: must contain CRUD over schema/data/aliases plus MCP; tenant rows
 	// share the schema domain. No backups/replicate/cluster/nodes/users/
-	// roles/groups/namespaces/mcp.
+	// roles/groups/namespaces.
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.CREATE))
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.UPDATE))
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.DELETE))
 	assert.True(t, roleHasResourceVerb(adminRows, "data/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(adminRows, "aliases/collections/", authorization.READ))
+	assert.True(t, roleHasResourceVerb(adminRows, conv.CasbinMcp(), authorization.CREATE))
+	assert.True(t, roleHasResourceVerb(adminRows, conv.CasbinMcp(), authorization.READ))
+	assert.True(t, roleHasResourceVerb(adminRows, conv.CasbinMcp(), authorization.UPDATE))
 	for _, prohibited := range []string{
-		"backups/", "cluster/", "nodes/", "users/", "roles/", "groups/", "namespaces/", "replicate/", "mcp",
+		"backups/", "cluster/", "nodes/", "users/", "roles/", "groups/", "namespaces/", "replicate/",
 	} {
 		for _, row := range adminRows {
 			assert.NotContains(t, row[1], prohibited, "admin (NS-enabled) must not have policy on %s domain", prohibited)
@@ -552,12 +555,13 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	}
 
 	// viewer: read-only over the same domains, no other verbs, no other
-	// domains.
+	// domains. MCP is included as READ only.
 	for _, row := range viewerRows {
 		assert.Equal(t, authorization.READ, row[2], "viewer (NS-enabled) must only have READ verb")
 	}
 	assert.True(t, roleHasResourceVerb(viewerRows, "schema/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, "data/collections/", authorization.READ))
+	assert.True(t, roleHasResourceVerb(viewerRows, conv.CasbinMcp(), authorization.READ))
 
 	// root and read-only keep wildcard cluster-wide policies.
 	require.Len(t, rootRows, 1)

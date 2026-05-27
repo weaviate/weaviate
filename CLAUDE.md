@@ -4,6 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Weaviate is an open-source, cloud-native vector database written in Go. It stores both objects and vectors, supporting semantic search, hybrid search (BM25 + vector), RAG, and reranking.
 
+## No bug is ever out of scope
+
+This is a production database. Data loss and silent failures are unacceptable, full stop. If you uncover or even *suspect* a bug — adjacent failure mode, race window, edge case in a related journey, anything — you MUST address it in the same change set. Acceptable outcomes:
+
+1. **Reproduce and fix it.** Include a regression test that fails without the fix and passes with it.
+2. **Reproduce it and commit a failing (red) test** that pins the bug, then escalate explicitly to the user. Never silently leave a known-bad code path with no test.
+
+Unacceptable:
+
+- "Out of scope." There is no out of scope for bugs in this codebase. If you find one, you own it until it's either fixed or pinned with a failing test.
+- "Known issue, leaving for follow-up." Same rule — pin it with a failing test before you stop working on it.
+- Fixing only the one specific reproduction a reviewer gave you and shipping. If a bug exists in journey X, enumerate every realistic adjacent journey (X-1, X+1, multi-property, multi-round, every related state-machine transition) and add tests for the lot. Whack-a-mole on individual repros is forbidden.
+
+When you find a bug while working on something else, the response is: stop the original work, switch context to the bug, write the test, write the fix (or commit the red test and surface it loudly), then resume. The original task can wait.
+
+This rule overrides any conflicting guidance about staying focused, minimal diffs, or scope discipline. Bug coverage wins.
+
 ## Build & Run
 
 ```bash
@@ -54,6 +71,37 @@ Prefer testcontainers (modern style) over requiring a running Weaviate instance 
 go test -count 1 -race -timeout 15m ./test/acceptance/grpc/...
 ```
 When adding new e2e tests, prefer creating a separate package. Only extend existing packages when tests clearly fit.
+
+**Pre-building the Docker image for acceptance tests:**
+By default, testcontainers builds the Weaviate Docker image from source on every test run. For packages with many test functions (e.g. `reindex_multinode` with 9 tests), this rebuilds the image 9 times, wasting disk and time.
+
+Pre-build once and reuse:
+```bash
+# Build the image once (tag it with a recognizable name)
+make weaviate-image WEAVIATE_IMAGE=weaviate-test:local
+
+# Run tests with the pre-built image (skips docker build entirely)
+TEST_WEAVIATE_IMAGE=weaviate-test:local go test -count 1 -race -timeout 20m ./test/acceptance/reindex_multinode/...
+```
+
+Always rebuild the image after code changes. The `TEST_WEAVIATE_IMAGE` env var is read by `test/docker/compose.go` and applies to all testcontainer-based tests.
+
+**Adding new acceptance test CI jobs (`test/run.sh`):**
+When adding a new `run_acceptance_*` function in `test/run.sh`, it **must** build the Docker image and export `TEST_WEAVIATE_IMAGE` before running tests. Without this, testcontainers builds from source on every test function, which is slow and can exceed startup timeouts. Follow this pattern:
+```bash
+function run_acceptance_my_new_tests() {
+  echo_green "acceptance — my-tests: building weaviate/test-server image..."
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  docker compose -f docker-compose-test.yml build \
+    --build-arg GIT_REVISION="$GIT_REVISION" \
+    --build-arg GIT_BRANCH="$GIT_BRANCH" \
+    --build-arg EXTRA_BUILD_ARGS="-race" \
+    weaviate
+  export TEST_WEAVIATE_IMAGE=weaviate/test-server
+  run_aof_group "my-tests" test/acceptance/my_tests
+}
+```
 
 ### Linting
 Always validate linters pass at the end of a task:
@@ -121,7 +169,28 @@ Never use bare `go` statements. Always use the wrapper from `entities/errors/go_
 Uses `golangci-lint` v2 with `gofumpt` formatter. Key enabled linters: `bodyclose`, `errorlint`, `exhaustive`, `forbidigo` (no `fmt.Print*` or `println`), `gocritic` (deferInLoop), `misspell`, `nolintlint`.
 
 ### Logging
-We use logrus as logger. Always populate errors using `.Error(err)` and do NOT use `WithError`.
+
+We use logrus. Errors land in the **message body**, not in a separate `WithError` field, at **every level** (`Error`, `Warn`, `Info`, `Debug`).
+
+```go
+// Wrong — error text ends up in a separate "error" field that operator-side
+// log aggregators frequently render as a sibling column rather than inline.
+logger.WithField("path", p).WithError(err).Warn("failed to remove dir")
+
+// Right — error text lands in the message body.
+logger.WithField("path", p).Warnf("failed to remove dir: %v", err)
+```
+
+```go
+// Wrong — Error(fmt.Errorf(...)) builds a useless intermediate error value
+// just to stringify it.
+logger.WithField("k", v).Error(fmt.Errorf("torn state: %q missing", x))
+
+// Right — let the logger format directly.
+logger.WithField("k", v).Errorf("torn state: %q missing", x)
+```
+
+The rule applies to every level — `Errorf`, `Warnf`, `Infof`, `Debugf`. `WithError` is never used.
 
 
 ### API Code Generation

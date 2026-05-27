@@ -45,7 +45,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -182,11 +181,15 @@ type Config struct {
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
 
-	ReplicaMovementEnabled bool
+	// DistributedTaskCollectionExtractors are registered on the
+	// distributed-task Manager at FSM construction time, BEFORE RAFT
+	// replay runs, so the DELETE_CLASS cascade fires on catchup-replay
+	// (schemaOnly) apply too. Late post-construction registration would
+	// miss tasks resurrected by replay. See [distributedtask.CollectionExtractor]
+	// and weaviate/0-weaviate-issues#231.
+	DistributedTaskCollectionExtractors map[string]distributedtask.CollectionExtractor
 
-	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
-	// async replication can complete.
-	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration]
+	ReplicaMovementEnabled bool
 
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
@@ -319,6 +322,26 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
+	// Two-way wiring: mutation-guard (prevents schema↔reindex races) and
+	// cascade-delete (weaviate/0-weaviate-issues#231).
+	distributedTasksManager := distributedtask.NewManager(distributedtask.ManagerParameters{
+		Clock:            clockwork.NewRealClock(),
+		CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
+		Logger:           cfg.Logger,
+	})
+
+	schemaManager.SetMutationGuard(distributedTasksManager)
+	schemaManager.SetDistributedTaskManager(distributedTasksManager)
+
+	// Register collection extractors BEFORE RAFT.Apply replay can fire.
+	// The DELETE_CLASS cascade lives in updateSchema (runs even on
+	// schemaOnly replay), but with no extractor registered for the
+	// reindex namespace the cascade is a no-op and the resurrected task
+	// records survive. weaviate/0-weaviate-issues#231.
+	for namespace, extractor := range cfg.DistributedTaskCollectionExtractors {
+		distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
+	}
+
 	var dynusersLister namespaces.DynusersNamespaceLister
 	if cfg.DynamicUserController != nil {
 		dynusersLister = cfg.DynamicUserController
@@ -337,23 +360,54 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			LocalName:          cfg.NodeID,
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
-		schemaManager:      schemaManager,
-		snapshotter:        snapshotter,
-		authZController:    authZController,
-		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
-		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
-		namespaceManager:   namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, cfg.Logger),
-		replicationManager: replicationManager,
-		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
-			Clock:            clockwork.NewRealClock(),
-			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
-		}),
-		metrics: newStoreMetrics(cfg.NodeID, reg),
+		schemaManager:           schemaManager,
+		snapshotter:             snapshotter,
+		authZController:         authZController,
+		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
+		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, cfg.Logger),
+		replicationManager:      replicationManager,
+		distributedTasksManager: distributedTasksManager,
+		metrics:                 newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
 func (st *Store) ID() string    { return st.cfg.NodeID }
+
+// SetDistributedTaskSchedulerNotifier installs the wake-up notifier on
+// the distributed task FSM Manager so it can poke the Scheduler from
+// RAFT-apply paths (see [distributedtask.SchedulerNotifier] for the
+// rationale). Called once at startup after both Store and Scheduler
+// exist, from MakeAppState's wiring.
+func (st *Store) SetDistributedTaskSchedulerNotifier(notifier distributedtask.SchedulerNotifier) {
+	st.distributedTasksManager.SetSchedulerNotifier(notifier)
+}
+
+// SetDistributedTaskConflictDetectors installs the per-namespace
+// conflict-detection hooks on the distributed task FSM Manager. Called
+// once at startup from MakeAppState. See
+// [distributedtask.ConflictDetector] for the contract.
+func (st *Store) SetDistributedTaskConflictDetectors(detectors map[string]distributedtask.ConflictDetector) {
+	st.distributedTasksManager.SetConflictDetectors(detectors)
+}
+
+// SetDistributedTaskSchemaMutationDetectors installs the per-namespace
+// detectors consulted from the schema FSM's UpdateProperty apply path
+// via the Manager's CheckPropertyUpdate method. Called once at startup
+// from MakeAppState, after the providers exist. See
+// [distributedtask.SchemaMutationDetector] for the FSM-determinism
+// contract and motivating failure mode.
+func (st *Store) SetDistributedTaskSchemaMutationDetectors(detectors map[string]distributedtask.SchemaMutationDetector) {
+	st.distributedTasksManager.SetSchemaMutationDetectors(detectors)
+}
+
+// RegisterDistributedTaskCollectionExtractor opts a task namespace into
+// [SchemaManager.DeleteClass]'s cascade-delete of task records.
+// weaviate/0-weaviate-issues#231.
+func (st *Store) RegisterDistributedTaskCollectionExtractor(namespace string, extractor distributedtask.CollectionExtractor) {
+	st.distributedTasksManager.RegisterCollectionExtractor(namespace, extractor)
+}
 
 // lastIndex returns the last index in stable storage,
 // either from the last log or from the last snapshot.
