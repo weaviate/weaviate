@@ -381,6 +381,8 @@ func TestConfigValidation_OIDCNamespaceClaims(t *testing.T) {
 						GlobalPrincipalClaim: runtime.NewDynamicValue(tc.globalClaim),
 					},
 				},
+				// RBAC is required whenever NS is on; enable in lockstep.
+				Authorization:  Authorization{Rbac: rbacconf.Config{Enabled: tc.namespacesEnabled}},
 				DisableGraphQL: true,
 				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
 			}
@@ -396,60 +398,67 @@ func TestConfigValidation_OIDCNamespaceClaims(t *testing.T) {
 	}
 }
 
-// TestConfigValidation_Namespaces covers the cross-field requirement that
-// NAMESPACES_ENABLED=true mandates DISABLE_GRAPHQL=true. The check fires
-// before Persistence.Validate (which would otherwise also fail on an empty
-// DataPath), so we assert on the error message to distinguish the namespace
-// error from downstream validation noise.
+// TestConfigValidation_Namespaces covers the two cross-field requirements that
+// NAMESPACES_ENABLED=true mandates: DISABLE_GRAPHQL=true and RBAC enabled. We
+// assert on the error substring to distinguish these from downstream validation
+// noise. The graphql check runs before the RBAC check, so each row isolates a
+// single expected failure.
 func TestConfigValidation_Namespaces(t *testing.T) {
 	tests := []struct {
 		name              string
 		namespacesEnabled bool
 		disableGraphQL    bool
-		wantNamespacesErr bool
+		rbacEnabled       bool
+		// wantErrSubstr is empty when no namespace cross-field error is expected.
+		wantErrSubstr string
 	}{
 		{
-			name:              "namespaces disabled, graphql enabled — no namespace error",
-			namespacesEnabled: false,
-			disableGraphQL:    false,
-			wantNamespacesErr: false,
-		},
-		{
-			name:              "namespaces disabled, graphql disabled — no namespace error",
+			name:              "namespaces disabled — no namespace error",
 			namespacesEnabled: false,
 			disableGraphQL:    true,
-			wantNamespacesErr: false,
+			rbacEnabled:       false,
+			wantErrSubstr:     "",
 		},
 		{
-			name:              "namespaces enabled without DISABLE_GRAPHQL — error",
-			namespacesEnabled: true,
-			disableGraphQL:    false,
-			wantNamespacesErr: true,
-		},
-		{
-			name:              "namespaces enabled with DISABLE_GRAPHQL — no namespace error",
+			name:              "namespaces enabled without RBAC — requires RBAC error",
 			namespacesEnabled: true,
 			disableGraphQL:    true,
-			wantNamespacesErr: false,
+			rbacEnabled:       false,
+			wantErrSubstr:     "NAMESPACES_ENABLED=true requires RBAC to be enabled",
+		},
+		{
+			name:              "namespaces enabled without DISABLE_GRAPHQL — requires DISABLE_GRAPHQL error",
+			namespacesEnabled: true,
+			disableGraphQL:    false,
+			rbacEnabled:       true,
+			wantErrSubstr:     "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true",
+		},
+		{
+			name:              "namespaces enabled with DISABLE_GRAPHQL and RBAC — no namespace error",
+			namespacesEnabled: true,
+			disableGraphQL:    true,
+			rbacEnabled:       true,
+			wantErrSubstr:     "",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &Config{
-				Authentication: Authentication{AnonymousAccess: AnonymousAccess{Enabled: true}},
+				Authentication: Authentication{APIKey: StaticAPIKey{Enabled: true, Users: []string{"u"}, AllowedKeys: []string{"k"}}},
+				Authorization:  Authorization{Rbac: rbacconf.Config{Enabled: tc.rbacEnabled}},
 				DisableGraphQL: tc.disableGraphQL,
 				Namespaces:     Namespaces{Enabled: tc.namespacesEnabled},
 			}
 			err := c.Validate()
-			if tc.wantNamespacesErr {
+			if tc.wantErrSubstr != "" {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true")
+				assert.Contains(t, err.Error(), tc.wantErrSubstr)
 			} else if err != nil {
-				// Validate may still fail on unrelated fields (e.g. Persistence).
-				// What matters here is that it does NOT fail on the namespaces
-				// cross-field check.
+				// Validate may still fail on unrelated fields (e.g. Persistence);
+				// only assert it does NOT fail on either namespace cross-field check.
 				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true")
+				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires RBAC to be enabled")
 			}
 		})
 	}

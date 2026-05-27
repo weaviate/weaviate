@@ -165,8 +165,25 @@ def _create_namespace(http_port: int, name: str) -> None:
         r.raise_for_status()
 
 
+def _assign_admin_role(http_port: int, qualified_user: str) -> None:
+    """Grant the built-in admin role to a namespaced DB user.
+
+    RBAC is mandatory on NS clusters, so without a role the user is denied on
+    every data/schema/ref op. Mirrors helper.AssignRoleToUser in
+    createNamespacedUser (test/acceptance/namespace/collection_alias_test.go).
+    """
+    r = _http(
+        "POST",
+        f"{_rest_base(http_port)}/authz/users/{qualified_user}/assign",
+        headers=_admin_headers(),
+        json_body={"roles": ["admin"], "userType": "db"},
+    )
+    if r.status_code not in (200, 201):
+        r.raise_for_status()
+
+
 def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str:
-    """POST /users/db/{user}. Returns the apikey to authenticate as that user.
+    """POST /users/db/{user}, then grant the admin role. Returns the apikey.
 
     Mirrors createNamespacedUser in test/acceptance/namespace/collection_alias_test.go.
     On 409 (user already exists from a prior run) we delete and recreate so
@@ -184,6 +201,7 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
         if r.status_code == 201:
             apikey = r.json().get("apikey")
             assert apikey, f"createUser returned no apikey: {r.text}"
+            _assign_admin_role(http_port, qualified)
             return apikey
         if r.status_code == 409:
             d = _http(
