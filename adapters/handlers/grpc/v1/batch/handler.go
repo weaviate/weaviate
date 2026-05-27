@@ -93,12 +93,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		if err != nil {
 			return "", nil, err
 		}
-		// Reject writes through an alias whose target collection no longer
-		// exists. Without this guard, the nil *models.Class falls through to
-		// the auto-schema path in batch_add and silently re-creates the
-		// deleted collection with an empty schema. Non-alias requests for an
-		// unknown class are still allowed through so legitimate auto-schema
-		// creates continue to work.
+		// Without this guard the nil class falls into auto-schema and silently re-creates the deleted target.
 		if qualifiedAlias != "" && vClass[classname].Class == nil {
 			return "", nil, fmt.Errorf("alias %q points to collection %q which does not exist", qualifiedAlias, classname)
 		}

@@ -412,10 +412,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		}
 	})
 
-	// Regression: writing through an alias whose target was deleted used to
-	// hit auto-schema and silently re-create the deleted collection with an
-	// empty schema. The batch must surface a per-object error and the schema
-	// must remain unchanged.
+	// Regression: dangling-alias writes used to fall into auto-schema and silently re-create the deleted target.
 	t.Run("batch insert through alias with deleted target fails", func(t *testing.T) {
 		danglingClass := "GRPCBatchAliasDanglingTarget"
 		danglingAlias := "GRPCBatchAliasDangling"
@@ -426,8 +423,6 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		})
 		helper.CreateAlias(t, &models.Alias{Alias: danglingAlias, Class: danglingClass})
 		defer helper.DeleteAlias(t, danglingAlias)
-
-		// Delete the target collection — alias is now dangling.
 		helper.DeleteClass(t, danglingClass)
 
 		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
@@ -445,17 +440,13 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 				},
 			},
 		})
-		// Per-object failure surfaces as Errors entries, not a transport error.
+		// Per-object failure: transport call succeeds, error surfaces in resp.Errors.
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.Len(t, resp.Errors, 1, "expected the dangling-alias insert to fail")
 		assert.Contains(t, resp.Errors[0].Error, danglingAlias)
 		assert.Contains(t, resp.Errors[0].Error, "does not exist")
 
-		// Schema must not have been silently re-created via auto-schema.
-		// Assert on both the API error and the nil payload so a transient
-		// API failure can't mask the regression: the bug we are guarding
-		// against produces a present class, not a missing one.
 		got, getErr := helper.GetClassWithoutAssert(t, danglingClass, "")
 		require.Error(t, getErr, "deleted collection should return an error from the schema API")
 		require.Nil(t, got, "alias write must not auto-create the deleted collection")
