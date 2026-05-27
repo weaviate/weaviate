@@ -17,6 +17,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"io"
 	"net/http"
 	"time"
@@ -63,8 +64,20 @@ func buildURL(useGenerativeAI bool, apiEndpoint, projectID, modelID string) stri
 		}
 		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", modelID)
 	}
-	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
-	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, modelID)
+
+	// Strip scheme prefixes if accidentally included
+	apiEndpoint = strings.TrimPrefix(apiEndpoint, "https://")
+
+	// Default location to us-central1
+	location := "us-central1"
+	
+	// If apiEndpoint is explicitly set with Google's domain, extract the region prefix
+	if strings.Contains(apiEndpoint, "-aiplatform.googleapis.com") {
+		location = strings.Split(apiEndpoint, "-aiplatform.googleapis.com")[0]
+	}
+
+	urlTemplate := "https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:predict"
+	return fmt.Sprintf(urlTemplate, apiEndpoint, projectID, location, modelID)
 }
 
 type settings struct {
