@@ -134,7 +134,12 @@ func (m *Memtable) flushDataInverted(ctx context.Context, f *segmentindex.Segmen
 		return nil, nil, fmt.Errorf("segment file body writer is nil, cannot write inverted index")
 	}
 
-	for _, mapNode := range flat {
+	for i, mapNode := range flat {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, fmt.Errorf("flush inverted memtable: %w", err)
+			}
+		}
 		if len(mapNode.values) > 0 {
 
 			ki := segmentindex.Key{

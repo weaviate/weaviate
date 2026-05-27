@@ -1728,10 +1728,13 @@ func (b *Bucket) FlushAndSwitch(ctx context.Context) error {
 	}
 	segmentPath, err := b.flushing.flush(ctx)
 	if err != nil {
-		// Clear b.flushing on a failed flush, else Shutdown's wait-for-flushing
-		// loop and later flush cycles wedge. Data is safe: flush deletes the
-		// commitlog only on success, so it survives via WAL replay.
-		b.clearFlushing()
+		// Only an aborted (ctx-cancelled) flush drops b.flushing: the bucket is
+		// being torn down, so this avoids wedging Shutdown's wait-for-flushing
+		// loop and the data is recovered via WAL replay on reopen. A non-cancel
+		// flush error keeps b.flushing so the data stays readable.
+		if ctx.Err() != nil {
+			b.clearFlushing()
+		}
 		return fmt.Errorf("flush: %w", err)
 	}
 
