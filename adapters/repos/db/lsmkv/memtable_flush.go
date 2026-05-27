@@ -21,14 +21,10 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
-
-// abortCheckEveryN bounds how often a flushing memtable probes ctx.Err().
-// Matches the compactor's cancellation granularity so delete responsiveness
-// is consistent across the LSM hot paths.
-const abortCheckEveryN = 1024
 
 func (m *Memtable) flushWAL() error {
 	if err := m.commitlog.close(); err != nil {
@@ -224,7 +220,7 @@ func (m *Memtable) flushDataReplace(ctx context.Context, f *segmentindex.Segment
 
 	totalWritten := headerSize
 	for i, node := range flat {
-		if i%abortCheckEveryN == 0 {
+		if i%compactor.AbortCheckEveryN == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, fmt.Errorf("flush replace memtable: %w", err)
 			}
@@ -313,7 +309,7 @@ func (m *Memtable) flushDataCollection(ctx context.Context, f *segmentindex.Segm
 		if _, ok := keysToSkip[j]; ok {
 			continue
 		}
-		if j%abortCheckEveryN == 0 {
+		if j%compactor.AbortCheckEveryN == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, fmt.Errorf("flush collection memtable: %w", err)
 			}

@@ -54,13 +54,11 @@ func TestFlushAbort_LeavesWALForReplay(t *testing.T) {
 				WithStrategy(strategy))
 			require.NoError(t, err)
 
-			// Seed enough rows that the abort fires well before the inner write
-			// loop completes. abortCheckEveryN = 1024, so > 2048 guarantees at
-			// least one probe.
+			// Seed enough rows that the abort fires before the inner write loop
+			// completes: > 2× compactor.AbortCheckEveryN (1024) guarantees a probe.
 			const n = 4096
 			seedBucket(t, b, strategy, n)
 
-			// WAL files exist before the flush attempt.
 			walsBefore := countFilesWithExt(t, b.GetDir(), ".wal")
 			require.Greater(t, walsBefore, 0,
 				"sanity: WAL must exist before the aborted flush")
@@ -74,19 +72,15 @@ func TestFlushAbort_LeavesWALForReplay(t *testing.T) {
 				strings.Contains(flushErr.Error(), context.Canceled.Error()),
 				"err should wrap context.Canceled, got: %v", flushErr)
 
-			// .tmp file removed by the deferred cleanup; no .db left behind for
-			// the aborted segment.
 			tmps := countFilesWithExt(t, b.GetDir(), ".tmp")
 			assert.Equal(t, 0, tmps, "partial .db.tmp must be cleaned up")
 
-			// Critical invariant: WAL preserved so reopen replays the data.
 			walsAfter := countFilesWithExt(t, b.GetDir(), ".wal")
 			assert.Equal(t, walsBefore, walsAfter,
 				"WAL must survive an aborted flush — reopen relies on it")
 
 			require.NoError(t, b.Shutdown(ctx))
 
-			// Reopen and assert the seeded data is back via WAL replay.
 			b2, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(),
 				cyclemanager.NewCallbackGroupNoop(),
@@ -129,8 +123,6 @@ func TestFlushAbort_ReopenAndRetryFlush(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, b2.Shutdown(ctx)) })
 
-	// A second, uncancelled flush must succeed cleanly and produce a stable
-	// .db segment.
 	require.NoError(t, b2.FlushAndSwitch(ctx))
 	assert.Greater(t, countFilesWithExt(t, b2.GetDir(), ".db"), 0,
 		"successful flush after reopen must produce a .db segment")

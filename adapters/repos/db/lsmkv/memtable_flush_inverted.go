@@ -45,7 +45,7 @@ func (m *Memtable) flushDataInverted(ctx context.Context, f *segmentindex.Segmen
 	propLengthCount := uint64(0)
 
 	for i, mapNode := range flatA {
-		if i%abortCheckEveryN == 0 {
+		if i%compactor.AbortCheckEveryN == 0 {
 			if err := ctx.Err(); err != nil {
 				return nil, nil, fmt.Errorf("flush inverted memtable: %w", err)
 			}
