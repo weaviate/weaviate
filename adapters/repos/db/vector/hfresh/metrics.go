@@ -19,7 +19,14 @@ import (
 )
 
 type Metrics struct {
-	enabled          bool
+	enabled bool
+	// group mirrors PrometheusMetrics.Group. When true, every shard / named
+	// vector on this node collapses to the same (class=n/a, shard=n/a)
+	// label set, and per-shard .Set() on gauges becomes last-writer-wins.
+	// SetPostings is no-op'd in that mode; the sole writer is the
+	// node-wide sweep (db/node_wide_metrics.go observeHFreshPostings),
+	// which sums PostingMap.Size() across every loaded hfresh index.
+	group            bool
 	size             prometheus.Gauge
 	insert           prometheus.Gauge
 	insertTime       prometheus.Observer
@@ -109,6 +116,7 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 
 	return &Metrics{
 		enabled:          true,
+		group:            prom.Group,
 		size:             size,
 		insert:           insert,
 		insertTime:       insertTime,
@@ -161,8 +169,26 @@ func (m *Metrics) DeleteVector(start time.Time) {
 	m.delete.Inc()
 }
 
+// SetPostings sets this index's contribution to the postings gauge.
+//
+// Per-shard write path: when grouping is disabled (PROMETHEUS_MONITORING_GROUP
+// unset), each (class, shard) hfresh index has its own gauge series; this
+// just updates it. When grouping is enabled, every shard/named-vector on the
+// node collapses to (class=n/a, shard=n/a), and per-shard .Set() becomes
+// last-writer-wins — the reported value is whichever shard wrote most
+// recently rather than the node-wide total, which made the recall-after-
+// restart e2e test flaky (pre and post counts drifted across a graceful
+// restart because the "last writer" identity changed).
+//
+// Under grouping, this is a no-op. The node-wide sweep in
+// db.nodeWideMetricsObserver.observeHFreshPostings owns the (n/a, n/a)
+// series and sums PostingMap.Size() across every loaded hfresh index every
+// 30s. PostingMap.Size() is used as the source on both sides of a restart
+// (it's the in-memory count, and HFresh.Flush() persists in-memory
+// FastAddVectorID-only entries to LSMKV so Restore() recovers them), so
+// the metric stays stable.
 func (m *Metrics) SetPostings(count int) {
-	if !m.enabled {
+	if !m.enabled || m.group {
 		return
 	}
 

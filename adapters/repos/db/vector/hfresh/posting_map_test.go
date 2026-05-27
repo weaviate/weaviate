@@ -567,6 +567,49 @@ func TestPostingMetadataStore(t *testing.T) {
 	})
 }
 
+// TestPostingMapRestoreAfterFastAdd pins the second half of the recall-after-
+// restart bug: FastAddVectorID updates only the in-memory xsync.Map, with
+// LSMKV persistence deferred to a later analyze/split/merge task. If the
+// node shuts down between FastAddVectorID and that follow-up task, the
+// entry is lost — Restore() then sees fewer postings than were live
+// in-memory pre-shutdown, which surfaces as vector_index_postings dropping
+// across a graceful restart in e2e.
+//
+// HFresh.Flush() (called during Shutdown) must call PostingMap.Flush() to
+// persist every in-memory entry; this test asserts the round-trip survives.
+func TestPostingMapRestoreAfterFastAdd(t *testing.T) {
+	ctx := t.Context()
+
+	store := testinghelpers.NewDummyStore(t)
+	bucket, err := NewSharedBucket(store, "flush-test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+
+	pm := NewPostingMap(bucket, makeTestMetrics())
+
+	const numPostings = 10
+	for i := uint64(0); i < numPostings; i++ {
+		_, err := pm.FastAddVectorID(ctx, i, i*10+1, 1)
+		require.NoError(t, err)
+	}
+	require.Equal(t, numPostings, pm.Size())
+
+	// Before Flush: a fresh PostingMap reading from the same bucket finds
+	// nothing, because FastAddVectorID only touches the in-memory xsync.Map.
+	pmBefore := NewPostingMap(bucket, makeTestMetrics())
+	require.NoError(t, pmBefore.Restore(ctx))
+	require.Equal(t, 0, pmBefore.Size(), "FastAddVectorID entries must not appear in LSMKV before Flush")
+
+	// Flush writes all in-memory entries to LSMKV.
+	require.NoError(t, pm.Flush(ctx))
+
+	// After Flush: a fresh PostingMap reading from the same bucket recovers
+	// all entries, matching the pre-shutdown PostingMap.Size().
+	pmAfter := NewPostingMap(bucket, makeTestMetrics())
+	require.NoError(t, pmAfter.Restore(ctx))
+	require.Equal(t, numPostings, pmAfter.Size(),
+		"all FastAddVectorID entries must be visible after Flush+Restore")
+}
+
 func TestOncePer(t *testing.T) {
 	t.Run("first call always runs f", func(t *testing.T) {
 		var count atomic.Int64

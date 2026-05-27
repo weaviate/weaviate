@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	prometheusdto "github.com/prometheus/client_model/go"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -238,4 +240,48 @@ func TestHFreshRecall(t *testing.T) {
 		recall, latency = testinghelpers.RecallAndLatency(t.Context(), queries, k, index, truths)
 		require.Greater(t, recall, float32(0.7))
 	})
+}
+
+// TestSetPostingsNoOpUnderGrouping pins the per-shard half of the recall-
+// after-restart bug. Under PROMETHEUS_MONITORING_GROUP=true every
+// (class, shard, named_vector) hfresh index collapses onto the shared
+// (n/a, n/a) label set, and per-shard SetPostings(count) was
+// last-writer-wins — the reported value was whichever index wrote most
+// recently rather than the node-wide total, and the "last writer" identity
+// drifted across a process restart (Restore() finishes in a non-
+// deterministic order). This is what made vector_index_postings flap
+// across the recall_after_restart e2e test.
+//
+// The fix gates SetPostings on !group. The sole writer to the shared
+// series in grouped mode is the 30s sweep
+// db.nodeWideMetricsObserver.observeHFreshPostings, which sums
+// PostingMap.Size() across every loaded hfresh index.
+func TestSetPostingsNoOpUnderGrouping(t *testing.T) {
+	prom := monitoring.GetMetrics()
+	prevGroup := prom.Group
+	prom.Group = true
+	t.Cleanup(func() { prom.Group = prevGroup })
+
+	gauge := prom.VectorIndexPostings.With(map[string]string{"class_name": "n/a", "shard_name": "n/a"})
+	gaugeValue := func() float64 {
+		var m prometheusdto.Metric
+		require.NoError(t, gauge.Write(&m))
+		return m.Gauge.GetValue()
+	}
+	baseline := gaugeValue()
+
+	// Per-shard Metrics built under group=true. NewMetrics rewrites the
+	// labels to (n/a, n/a), so both call sites point at the same series.
+	m1 := NewMetrics(prom, "ClassA", "shard-1")
+	m2 := NewMetrics(prom, "ClassB", "shard-2")
+
+	// Pre-fix this would be last-writer-wins (gauge ends at 7).
+	// Post-fix both calls are no-ops; the gauge is owned by the node-wide
+	// sweep, not by per-shard writes.
+	m1.SetPostings(3)
+	m2.SetPostings(7)
+
+	require.Equalf(t, baseline, gaugeValue(),
+		"SetPostings must be no-op under PROMETHEUS_MONITORING_GROUP=true; "+
+			"otherwise per-shard writes race on the shared (n/a, n/a) series")
 }

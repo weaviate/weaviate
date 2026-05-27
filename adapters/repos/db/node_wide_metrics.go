@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
@@ -90,10 +91,84 @@ func (o *nodeWideMetricsObserver) observeShards() {
 			return
 		case <-t10.C:
 			o.observeActivity()
+			// vector_index_postings drives the recall-after-restart e2e
+			// test's stability check; refresh on the 10s cadence so the
+			// gauge converges shortly after a write burst ends.
+			o.observeHFreshPostings()
 		case <-t30.C:
 			o.observeObjectCount()
 		}
 	}
+}
+
+// observeHFreshPostings is the sole writer to vector_index_postings when
+// PROMETHEUS_MONITORING_GROUP=true: it walks all loaded hfresh indexes on
+// the node, sums PostingMap.Size(), and writes the total to the shared
+// (class=n/a, shard=n/a) series.
+//
+// Why a sweep instead of per-shard .Set(): with grouping enabled the per-
+// shard label set collapses, so multiple hfresh indexes (typically N shards
+// x M named vectors per shard) race to .Set() the same gauge — last writer
+// wins, and the reported value is whichever shard wrote most recently, not
+// the node-wide total. The recall-after-restart e2e test (which asserts
+// vector_index_postings is unchanged across a graceful restart) fails when
+// the "last writer" identity differs pre- vs post-restart, even on
+// otherwise-healthy data. Reading PostingMap.Size() on both sides — and
+// pairing it with PostingMap.Flush() at shutdown so FastAddVectorID-only
+// entries survive — keeps the metric stable.
+//
+// Locking shape matches publishVectorMetrics: copy the indices map under a
+// brief indexLock.RLock and release before iterating so the 30s sweep can't
+// starve schema writers; per-index work takes index.dropIndex.RLock and
+// index.shardCreateLocks.RLock (the same pattern the dimensions sweep
+// uses). ForEachLoadedShard skips cold tenants — no force activation.
+func (o *nodeWideMetricsObserver) observeHFreshPostings() {
+	if !o.db.promMetrics.Group {
+		return
+	}
+
+	var indices map[string]*Index
+	func() {
+		o.db.indexLock.RLock()
+		defer o.db.indexLock.RUnlock()
+		indices = make(map[string]*Index, len(o.db.indices))
+		maps.Copy(indices, o.db.indices)
+	}()
+
+	var totalPostings int
+
+	for _, index := range indices {
+		func() {
+			index.dropIndex.RLock()
+			defer index.dropIndex.RUnlock()
+
+			index.closeLock.RLock()
+			closed := index.closed
+			index.closeLock.RUnlock()
+			if closed {
+				return
+			}
+
+			_ = index.ForEachLoadedShard(func(name string, shard ShardLike) error {
+				index.shardCreateLocks.RLock(name)
+				defer index.shardCreateLocks.RUnlock(name)
+
+				_ = shard.ForEachVectorIndex(func(_ string, vi VectorIndex) error {
+					if h, ok := vi.(*hfresh.HFresh); ok {
+						totalPostings += h.PostingMap.Size()
+					}
+					return nil
+				})
+
+				return nil
+			})
+		}()
+	}
+
+	o.db.promMetrics.VectorIndexPostings.With(prometheus.Labels{
+		"class_name": "n/a",
+		"shard_name": "n/a",
+	}).Set(float64(totalPostings))
 }
 
 // Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.

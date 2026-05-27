@@ -255,6 +255,17 @@ func (h *HFresh) Flush() error {
 		errs = append(errs, err)
 	}
 
+	// Persist any in-memory PostingMap entries that haven't been written to
+	// LSMKV yet. FastAddVectorID only updates the in-memory xsync.Map; the
+	// matching LSMKV write happens later from an analyze/split/merge task.
+	// If a shutdown lands between FastAddVectorID and that follow-up task,
+	// the entry is lost — Restore() then sees fewer postings than were
+	// reported pre-shutdown, which breaks the recall-after-restart e2e test
+	// that asserts vector_index_postings is stable across a graceful restart.
+	if err := h.PostingMap.Flush(context.Background()); err != nil {
+		errs = append(errs, errors.Wrap(err, "flush posting map"))
+	}
+
 	return stderrors.Join(errs...)
 }
 
