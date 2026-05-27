@@ -183,7 +183,7 @@ func (m *Metrics) DeleteVector(start time.Time) {
 // Under grouping, this is a no-op. The node-wide sweep in
 // db.nodeWideMetricsObserver.observeHFreshPostings owns the (n/a, n/a)
 // series and sums PostingMap.Size() across every loaded hfresh index every
-// 30s. PostingMap.Size() is used as the source on both sides of a restart
+// 10s. PostingMap.Size() is used as the source on both sides of a restart
 // (it's the in-memory count, and HFresh.Flush() persists in-memory
 // FastAddVectorID-only entries to LSMKV so Restore() recovers them), so
 // the metric stays stable.

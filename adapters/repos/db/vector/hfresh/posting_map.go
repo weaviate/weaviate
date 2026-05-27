@@ -202,17 +202,24 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 
 // Flush persists every in-memory PostingMap entry to LSMKV. FastAddVectorID
 // updates the in-memory xsync.Map immediately but defers the LSMKV write to
-// a later analyze/split/merge task; this method bridges that gap so
-// shutdown captures every entry. Called from HFresh.Flush() during
-// graceful shutdown so a subsequent Restore() loads back the full state
-// reported in the postings gauge pre-shutdown.
+// a later analyze/split/merge task; this method bridges that gap so a
+// subsequent Restore() loads back the full state reported in the postings
+// gauge pre-shutdown.
+//
+// Called from HFresh.Flush(), which runs at graceful shutdown but also
+// from TaskQueue.OnBatchProcessed while the index is live and concurrent
+// FastAddVectorID writers are active. AddVector returns the old backing
+// slice to a shared bufferPool, so the bytes referenced by
+// m.PackedPostingMetadata can be handed to another caller and overwritten
+// the moment we drop m.RLock — copy the bytes locally under the lock
+// before calling bucket.Set.
 func (v *PostingMap) Flush(ctx context.Context) error {
 	for postingID, m := range v.data.AllRelaxed() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		m.RLock()
-		pm := m.PackedPostingMetadata
+		pm := append(PackedPostingMetadata(nil), m.PackedPostingMetadata...)
 		m.RUnlock()
 		if err := v.bucket.Set(ctx, postingID, pm); err != nil {
 			return errors.Wrapf(err, "failed to persist posting %d", postingID)

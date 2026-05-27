@@ -118,7 +118,7 @@ func (o *nodeWideMetricsObserver) observeShards() {
 // entries survive — keeps the metric stable.
 //
 // Locking shape matches publishVectorMetrics: copy the indices map under a
-// brief indexLock.RLock and release before iterating so the 30s sweep can't
+// brief indexLock.RLock and release before iterating so the 10s sweep can't
 // starve schema writers; per-index work takes index.dropIndex.RLock and
 // index.shardCreateLocks.RLock (the same pattern the dimensions sweep
 // uses). ForEachLoadedShard skips cold tenants — no force activation.

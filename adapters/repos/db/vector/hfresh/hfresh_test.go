@@ -253,15 +253,16 @@ func TestHFreshRecall(t *testing.T) {
 // across the recall_after_restart e2e test.
 //
 // The fix gates SetPostings on !group. The sole writer to the shared
-// series in grouped mode is the 30s sweep
+// series in grouped mode is the 10s sweep
 // db.nodeWideMetricsObserver.observeHFreshPostings, which sums
 // PostingMap.Size() across every loaded hfresh index.
+//
+// We construct Metrics with the group flag set directly (rather than
+// mutating monitoring.GetMetrics().Group, which is process-global and
+// would race with any concurrently-running test that calls NewMetrics)
+// so the assertion is self-contained.
 func TestSetPostingsNoOpUnderGrouping(t *testing.T) {
 	prom := monitoring.GetMetrics()
-	prevGroup := prom.Group
-	prom.Group = true
-	t.Cleanup(func() { prom.Group = prevGroup })
-
 	gauge := prom.VectorIndexPostings.With(map[string]string{"class_name": "n/a", "shard_name": "n/a"})
 	gaugeValue := func() float64 {
 		var m prometheusdto.Metric
@@ -270,10 +271,13 @@ func TestSetPostingsNoOpUnderGrouping(t *testing.T) {
 	}
 	baseline := gaugeValue()
 
-	// Per-shard Metrics built under group=true. NewMetrics rewrites the
-	// labels to (n/a, n/a), so both call sites point at the same series.
-	m1 := NewMetrics(prom, "ClassA", "shard-1")
-	m2 := NewMetrics(prom, "ClassB", "shard-2")
+	// Two per-shard Metrics targeting the shared (n/a, n/a) series, the
+	// shape NewMetrics produces when prom.Group=true.
+	postings := prom.VectorIndexPostings.With(map[string]string{
+		"class_name": "n/a", "shard_name": "n/a",
+	})
+	m1 := &Metrics{enabled: true, group: true, postings: postings}
+	m2 := &Metrics{enabled: true, group: true, postings: postings}
 
 	// Pre-fix this would be last-writer-wins (gauge ends at 7).
 	// Post-fix both calls are no-ops; the gauge is owned by the node-wide
