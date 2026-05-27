@@ -667,7 +667,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		SnapshotThreshold:           appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		TrailingLogs:                appState.ServerConfig.Config.Raft.TrailingLogs,
 		ConsistencyWaitTimeout:      appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
-		MetadataOnlyVoters:          false, // not env-driven; see Config.MetadataOnlyVoters and startupRoutine
 		EnableOneNodeRecovery:       appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:        appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
 		DB:                          nil,
