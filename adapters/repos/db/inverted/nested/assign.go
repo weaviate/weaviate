@@ -390,9 +390,13 @@ func (w *walker) walkScalarArray(path string, dt schema.DataType,
 	return allPositions, nil
 }
 
+// joinPath concatenates prefix + separator + name without the
+// []string + strings.Join allocation that filnested.JoinPath incurs.
+// Called once per NestedProperty per object during nested write
+// analysis, so the per-call alloc adds up on heavy ingest.
 func joinPath(prefix, name string) string {
 	if prefix == "" {
 		return name
 	}
-	return filnested.JoinPath([]string{prefix, name})
+	return prefix + filnested.PathSep + name
 }
