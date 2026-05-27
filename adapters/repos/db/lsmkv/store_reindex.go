@@ -25,7 +25,10 @@ func (s *Store) PauseObjectBucketCompaction(ctx context.Context) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	b := s.Bucket(helpers.ObjectsBucketLSM)
+	// Already holding bucketAccessLock — use the non-locking accessor. Calling
+	// the public Bucket() here would take RLock recursively and deadlock if a
+	// setBucket writer is waiting (see weaviate/0-weaviate-issues#251).
+	b := s.bucket(helpers.ObjectsBucketLSM)
 
 	b.disk.compactionCallbackCtrl.Deactivate(ctx)
 	b.doStartPauseTimer()
@@ -37,7 +40,8 @@ func (s *Store) ResumeObjectBucketCompaction(ctx context.Context) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	b := s.Bucket(helpers.ObjectsBucketLSM)
+	// Non-locking accessor: we already hold bucketAccessLock (see above / #251).
+	b := s.bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return fmt.Errorf("no bucket named 'objects' found in store %s", s.dir)
 	}
