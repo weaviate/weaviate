@@ -357,6 +357,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		for _, alias := range aliases {
 			alias.Alias = namespacing.StripNamespacePrefix(alias.Alias)
 		}
+		shardingState.IndexID = class.Class
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreClassDurations.GetMetricWithLabelValues(class.Class)

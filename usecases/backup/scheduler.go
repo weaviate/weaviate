@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -212,6 +211,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(meta.Classes()...)...); err != nil {
 		return nil, err
 	}
+	if len(req.IncludeUsers) > 0 {
+		if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.BackupUsers(req.IncludeUsers...)...); err != nil {
+			return nil, err
+		}
+	}
 
 	schema, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
 	if err != nil {
@@ -232,6 +236,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Backend:               req.Backend,
 		Compression:           req.Compression,
 		Classes:               meta.Classes(),
+		Users:                 req.IncludeUsers,
 		Bucket:                req.Bucket,
 		Path:                  req.Path,
 		UserRestoreOption:     req.UserRestoreOption,
@@ -668,22 +673,6 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	}
 	if meta.RemoveEmpty().Count() == 0 {
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
-	}
-	if req.ShouldStripNamespaces {
-		// Reject when no qualified classes exist: the flag would be a no-op
-		// and is almost certainly an operator mistake. Aliases and user ids
-		// aren't inspected — Stage-1 backups are single-namespace by
-		// construction (plans/rfc.md), and per-identifier strip is loud.
-		hasQualified := false
-		for _, name := range meta.Classes() {
-			if strings.Contains(name, schema.NamespaceSeparator) {
-				hasQualified = true
-				break
-			}
-		}
-		if !hasQualified {
-			return nil, fmt.Errorf("shouldStripNamespaces requested but no namespace-qualified collections in backup")
-		}
 	}
 	if len(req.NodeMapping) > 0 {
 		meta.NodeMapping = req.NodeMapping

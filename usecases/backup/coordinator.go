@@ -518,6 +518,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				ID:                    c.descriptor.ID,
 				Backend:               req.Backend,
 				Classes:               gr.Classes,
+				Users:                 req.Users,
 				Duration:              _BookingPeriod,
 				NodeMapping:           c.descriptor.NodeMapping,
 				Compression:           req.Compression,

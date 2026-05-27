@@ -38,9 +38,6 @@ type BackupRestoreRequest struct {
 	// List of collections (classes) to include in the backup restoration process.
 	Include []string `json:"include"`
 
-	// List of namespace-scoped dynamic user selectors to restore from the backup, e.g. `["namespace:*"]`. When set, restore materializes only the matching dynamic users from the artefact. Mutually exclusive with `config.usersOptions`.
-	IncludeUsers []string `json:"includeUsers"`
-
 	// Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.
 	NodeMapping map[string]string `json:"node_mapping,omitempty"`
 

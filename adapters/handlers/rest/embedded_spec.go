@@ -7360,13 +7360,6 @@ func init() {
             "type": "string"
           }
         },
-        "includeUsers": {
-          "description": "List of namespace-scoped dynamic user selectors to restore from the backup, e.g. ` + "`" + `[\"namespace:*\"]` + "`" + `. When set, restore materializes only the matching dynamic users from the artefact. Mutually exclusive with ` + "`" + `config.usersOptions` + "`" + `.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "node_mapping": {
           "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
           "type": "object",
@@ -7376,6 +7369,10 @@ func init() {
         },
         "overwriteAlias": {
           "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
+        },
+        "shouldStripNamespaces": {
+          "description": "When true, restore strips the leading namespace prefix from each qualified collection, alias, and dynamic-user identifier before materializing them on the target. Used for Stage-1 namespace graduation onto a namespace-disabled cluster.",
           "type": "boolean"
         }
       }
@@ -18367,13 +18364,6 @@ func init() {
             "type": "string"
           }
         },
-        "includeUsers": {
-          "description": "List of namespace-scoped dynamic user selectors to restore from the backup, e.g. ` + "`" + `[\"namespace:*\"]` + "`" + `. When set, restore materializes only the matching dynamic users from the artefact. Mutually exclusive with ` + "`" + `config.usersOptions` + "`" + `.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "node_mapping": {
           "description": "Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.",
           "type": "object",
@@ -18383,6 +18373,10 @@ func init() {
         },
         "overwriteAlias": {
           "description": "Allows ovewriting the collection alias if there is a conflict",
+          "type": "boolean"
+        },
+        "shouldStripNamespaces": {
+          "description": "When true, restore strips the leading namespace prefix from each qualified collection, alias, and dynamic-user identifier before materializing them on the target. Used for Stage-1 namespace graduation onto a namespace-disabled cluster.",
           "type": "boolean"
         }
       }
