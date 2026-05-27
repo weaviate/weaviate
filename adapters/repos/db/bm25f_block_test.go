@@ -188,6 +188,15 @@ func TestBM25FJourneyBlock(t *testing.T) {
 			require.Equal(t, uint64(3), res[6].DocID)
 		})
 
+		t.Run("bm25f journey fractional boost "+location, func(t *testing.T) {
+			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^0.5"}, Query: "journey"}
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+
+			require.Nil(t, err)
+			require.NotEmpty(t, res)
+			require.Greater(t, scores[0], float32(0))
+		})
+
 		t.Run("Check search with two terms "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
 			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
