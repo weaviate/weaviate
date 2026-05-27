@@ -214,6 +214,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// key); the manager delete call qualifies internally, so it gets the raw name.
 	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
 	if qErr != nil {
+		s.metricRequestsTotal.logError(params.ClassName, qErr)
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}
@@ -592,6 +593,7 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 		}
 	}
 
+	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewTenantExistsOK()
 }
 
