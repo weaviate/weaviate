@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -44,6 +45,7 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
+	reindexusecase "github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -105,8 +107,8 @@ type State struct {
 	// distributed-task provider. Exposed here so the REST cancel handler
 	// can wait for a cancelled task's local goroutine to drain before
 	// triggering the on-disk state cleanup — see
-	// [db.ReindexProvider.WaitForLocalTaskDrain].
-	ReindexProvider *db.ReindexProvider
+	// [reindex.ReindexProvider.WaitForLocalTaskDrain].
+	ReindexProvider *reindex.ReindexProvider
 
 	// ReindexSubmitLocks serializes mutating REST operations on the same
 	// (collection, property) tuple across BOTH the reindex-submit
@@ -139,6 +141,11 @@ type State struct {
 	// authoritative defense; this lock just collapses the local
 	// single-node race window that any realistic UI/CLI flow can hit.
 	ReindexSubmitLocks *ReindexSubmitLocks
+
+	// ReindexService owns the reindex submit / cancel business logic;
+	// REST handlers delegate here and translate its typed sentinel
+	// errors (usecases/reindex/errors.go) into HTTP status codes.
+	ReindexService *reindexusecase.Service
 
 	// UsageLimits gates the object-count cap only. Collections/tenants/
 	// shards caps are read directly at the schema-handler use sites.

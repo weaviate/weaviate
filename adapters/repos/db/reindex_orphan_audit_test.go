@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
@@ -31,29 +32,29 @@ func TestAuditOrphanReindexTrackers_NilLookup_Refuses(t *testing.T) {
 	logger := logrus.New()
 	outcome, err := db.AuditOrphanReindexTrackers(context.Background(), nil, logger)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "KnownReindexTaskLookup is nil")
+	assert.Contains(t, err.Error(), "reindex.KnownReindexTaskLookup is nil")
 	assert.Equal(t, AuditStatusSkipped, outcome.Status)
 	assert.Equal(t, "nil_lookup", outcome.SkipReason)
 }
 
 func TestSemanticMigrationIndexTypesForAudit_Coverage(t *testing.T) {
 	cases := []struct {
-		mt         ReindexMigrationType
+		mt         reindex.ReindexMigrationType
 		wantTypes  []string
 		wantPolicy string
 	}{
-		{ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, "two strategies per task"},
-		{ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, "filterable-only retokenize"},
-		{ReindexTypeEnableSearchable, []string{"searchable"}, "schema-flip on searchable"},
-		{ReindexTypeEnableFilterable, []string{"filterable"}, "schema-flip on filterable"},
-		{ReindexTypeEnableRangeable, []string{"rangeable"}, "from-scratch rangeable build"},
-		{ReindexTypeRepairRangeable, []string{"rangeable"}, "rebuild of existing rangeable"},
-		{ReindexTypeChangeAlgorithm, []string{"searchable"}, "class-level Map to Blockmax"},
-		{ReindexTypeRebuildSearchable, []string{"searchable"}, "rebuild of existing blockmax"},
-		{ReindexTypeRepairFilterable, []string{"filterable"}, "class-level roaringset refresh"},
+		{reindex.ReindexTypeChangeTokenization, []string{"searchable", "filterable"}, "two strategies per task"},
+		{reindex.ReindexTypeChangeTokenizationFilterable, []string{"filterable"}, "filterable-only retokenize"},
+		{reindex.ReindexTypeEnableSearchable, []string{"searchable"}, "schema-flip on searchable"},
+		{reindex.ReindexTypeEnableFilterable, []string{"filterable"}, "schema-flip on filterable"},
+		{reindex.ReindexTypeEnableRangeable, []string{"rangeable"}, "from-scratch rangeable build"},
+		{reindex.ReindexTypeRepairRangeable, []string{"rangeable"}, "rebuild of existing rangeable"},
+		{reindex.ReindexTypeChangeAlgorithm, []string{"searchable"}, "class-level Map to Blockmax"},
+		{reindex.ReindexTypeRebuildSearchable, []string{"searchable"}, "rebuild of existing blockmax"},
+		{reindex.ReindexTypeRepairFilterable, []string{"filterable"}, "class-level roaringset refresh"},
 	}
 	for _, c := range cases {
-		got := semanticMigrationIndexTypesForAudit(c.mt)
+		got := reindex.SemanticMigrationIndexTypesForAudit(c.mt)
 		assert.Equal(t, c.wantTypes, got, "migration type %q (%s)", c.mt, c.wantPolicy)
 	}
 }
@@ -89,19 +90,19 @@ func TestOrphanTrackerString_PinsLogShape(t *testing.T) {
 
 func TestLoadAuditRecord_RoundTripsPayload(t *testing.T) {
 	dir := t.TempDir()
-	rec := reindexRecoveryRecord{
+	rec := reindex.ReindexRecoveryRecord{
 		TaskID:      "tid-x",
 		TaskVersion: 11,
 		UnitID:      "uid-y",
-		Payload: ReindexTaskPayload{
+		Payload: reindex.ReindexTaskPayload{
 			Collection:    "Cls",
-			MigrationType: ReindexTypeChangeTokenization,
+			MigrationType: reindex.ReindexTypeChangeTokenization,
 			Properties:    []string{"foo"},
 		},
 	}
 	data, err := json.Marshal(rec)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), data, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, reindex.ReindexRecoveryPayloadFile), data, 0o600))
 
 	got, ok := loadAuditRecord(dir)
 	require.True(t, ok)
@@ -120,7 +121,7 @@ func TestLoadAuditRecord_MissingFile(t *testing.T) {
 
 func TestLoadAuditRecord_MalformedJSON(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile),
+	require.NoError(t, os.WriteFile(filepath.Join(dir, reindex.ReindexRecoveryPayloadFile),
 		[]byte("not json"), 0o600))
 	_, ok := loadAuditRecord(dir)
 	assert.False(t, ok)
@@ -139,13 +140,13 @@ func TestAuditOrphanReindexTrackers_KnownTaskSkipped_OrphanCleaned(t *testing.T)
 	require.NoError(t, os.WriteFile(filepath.Join(knownDir, "started.mig"), nil, 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(knownDir, "reindexed.mig"), nil, 0o600))
 	writePayload(t, knownDir, "task-known", 5, "unit-known", className,
-		ReindexTypeChangeTokenization, []string{"known"})
+		reindex.ReindexTypeChangeTokenization, []string{"known"})
 
 	orphanDir := filepath.Join(migsDir, "searchable_retokenize_orphan_1")
 	require.NoError(t, os.MkdirAll(orphanDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(orphanDir, "started.mig"), nil, 0o600))
 	writePayload(t, orphanDir, "task-orphan", 9, "unit-orphan", className,
-		ReindexTypeChangeTokenization, []string{"orphan"})
+		reindex.ReindexTypeChangeTokenization, []string{"orphan"})
 	// S2: pre-age the quarantine sentinel so this single sweep exercises
 	// the post-quarantine destructive-cleanup path. The first sweep
 	// would otherwise only quarantine and defer cleanup.
@@ -201,7 +202,7 @@ func TestAuditOrphanReindexTrackers_MultipleOrphansOnOneShard(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
 		writePayload(t, dir, fmt.Sprintf("task-orphan-%d", i), uint64(i+1),
 			fmt.Sprintf("unit-orphan-%d", i), className,
-			ReindexTypeChangeTokenization, []string{o.prop})
+			reindex.ReindexTypeChangeTokenization, []string{o.prop})
 		// S2: pre-age the quarantine sentinel so this single sweep
 		// runs the destructive cleanup path.
 		writePreAgedQuarantineSentinel(t, dir)
@@ -240,7 +241,7 @@ func TestAuditOrphanReindexTrackers_TidiedTrackerLeftAlone(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, s), nil, 0o600))
 	}
 	writePayload(t, dir, "task-finished", 1, "unit-0", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+		reindex.ReindexTypeChangeTokenization, []string{"body"})
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -339,7 +340,7 @@ func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
 	writePayload(t, dir, "task-orphan-deferred", 7, "unit-deferred", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+		reindex.ReindexTypeChangeTokenization, []string{"body"})
 	// S2: pre-age the quarantine sentinel so the replay sweep
 	// completes destructive cleanup synchronously rather than only
 	// quarantining and deferring.
@@ -370,7 +371,7 @@ func TestSetReindexAuditDeps_ReplaysDeferredRequests(t *testing.T) {
 	// Install deps; SetReindexAuditDeps must drain the deferred
 	// counter and replay the audit synchronously.
 	knownNothing := func(string, uint64) bool { return false }
-	builder := func() (KnownReindexTaskLookup, error) { return knownNothing, nil }
+	builder := func() (reindex.KnownReindexTaskLookup, error) { return knownNothing, nil }
 	db.SetReindexAuditDeps(builder, logrus.New())
 
 	// Replay must have cleaned the orphan AND reset the counter.
@@ -402,7 +403,7 @@ func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
 	writePayload(t, dir, "task-noreplay", 11, "unit-noreplay", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+		reindex.ReindexTypeChangeTokenization, []string{"body"})
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -410,7 +411,7 @@ func TestSetReindexAuditDeps_NoReplayWhenCounterZero(t *testing.T) {
 	}
 	_ = ctx
 	knownNothing := func(string, uint64) bool { return false }
-	builder := func() (KnownReindexTaskLookup, error) { return knownNothing, nil }
+	builder := func() (reindex.KnownReindexTaskLookup, error) { return knownNothing, nil }
 	// Counter is 0 here — no prior AuditOrphanReindexTrackersIfReady call.
 	db.SetReindexAuditDeps(builder, logrus.New())
 	_, err := os.Stat(dir)
@@ -435,7 +436,7 @@ func TestAuditOrphanReindexTrackers_TwoSweepCycle_ClassicalOrphan(t *testing.T) 
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
 	writePayload(t, dir, "task-orphan", 9, "unit-orphan", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+		reindex.ReindexTypeChangeTokenization, []string{"body"})
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -482,7 +483,7 @@ func TestAuditOrphanReindexTrackers_FirstSweep_OnlyQuarantines(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
 	writePayload(t, dir, "task-orphan", 9, "unit-orphan", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+		reindex.ReindexTypeChangeTokenization, []string{"body"})
 
 	db := &DB{
 		indices: map[string]*Index{indexID(idx.Config.ClassName): idx},
@@ -520,7 +521,7 @@ func TestAuditOrphanReindexTrackers_SecondSweep_ClearsSentinelWhenTaskLive(t *te
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "started.mig"), nil, 0o600))
 	writePayload(t, dir, "task-recovering", 17, "unit-recovering", className,
-		ReindexTypeChangeTokenization, []string{"body"})
+		reindex.ReindexTypeChangeTokenization, []string{"body"})
 	// Pre-write a quarantine sentinel as if a previous sweep had
 	// already classified this tracker as orphan.
 	writePreAgedQuarantineSentinel(t, dir)
@@ -786,7 +787,7 @@ func TestIsLiveReindexTaskStatus_TerminalReleasesOwnership(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(string(c.status), func(t *testing.T) {
-			assert.Equal(t, c.live, IsLiveReindexTaskStatus(c.status))
+			assert.Equal(t, c.live, reindex.IsLiveReindexTaskStatus(c.status))
 		})
 	}
 }
@@ -807,13 +808,13 @@ func writePreAgedQuarantineSentinel(t *testing.T, trackerDir string) {
 
 // writePayload mirrors ReindexProvider.persistRecoveryRecord: emits the
 // same JSON shape loadAuditRecord reads.
-func writePayload(t *testing.T, dir, taskID string, taskVersion uint64, unitID, collection string, mt ReindexMigrationType, props []string) {
+func writePayload(t *testing.T, dir, taskID string, taskVersion uint64, unitID, collection string, mt reindex.ReindexMigrationType, props []string) {
 	t.Helper()
-	rec := reindexRecoveryRecord{
+	rec := reindex.ReindexRecoveryRecord{
 		TaskID:      taskID,
 		TaskVersion: taskVersion,
 		UnitID:      unitID,
-		Payload: ReindexTaskPayload{
+		Payload: reindex.ReindexTaskPayload{
 			Collection:    collection,
 			MigrationType: mt,
 			Properties:    props,
@@ -821,5 +822,5 @@ func writePayload(t *testing.T, dir, taskID string, taskVersion uint64, unitID, 
 	}
 	data, err := json.Marshal(rec)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), data, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, reindex.ReindexRecoveryPayloadFile), data, 0o600))
 }

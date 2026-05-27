@@ -16,6 +16,8 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 )
 
@@ -106,7 +108,7 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 // [DB.AnyLiveReindexForShard] to detect terminal-task cleanup that has
 // not yet finished tearing __reindex / __ingest sidecar dirs. Wired in
 // post-bootstrap alongside [DB.SetShardReindexActivityLookup].
-func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupBuilder) {
+func (db *DB) SetReindexCleanupInProgressLookup(builder reindex.CleanupInProgressLookupBuilder) {
 	db.reindexAuditMu.Lock()
 	defer db.reindexAuditMu.Unlock()
 	db.reindexCleanupInProgressLookupBldr = builder

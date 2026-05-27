@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"go.etcd.io/bbolt"
 
@@ -68,6 +69,11 @@ var (
 )
 
 type ShardLike interface {
+	// CleanStalePartialReindexState lives on db.ShardLike (not
+	// reindex.ShardLike) because the cancel-cleanup orchestration uses
+	// it from the db package's audit path.
+	CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error
+
 	Index() *Index                                                                                 // Get the parent index
 	Name() string                                                                                  // Get the shard name
 	Store() *lsmkv.Store                                                                           // Get the underlying store
@@ -468,7 +474,7 @@ type Shard struct {
 	shutCtx       context.Context
 	shutCtxCancel context.CancelCauseFunc
 
-	reindexer ShardReindexerV3
+	reindexer reindex.ShardReindexerV3
 
 	// Copy-on-write callback slices stored in atomic.Value for lock-free reads
 	// on the hot write path. Registration (rare) copies the slice behind

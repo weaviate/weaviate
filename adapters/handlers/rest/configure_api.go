@@ -64,6 +64,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
@@ -162,6 +163,7 @@ import (
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/objects"
+	reindexusecase "github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
@@ -688,7 +690,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 		DistributedTaskCollectionExtractors: map[string]distributedtask.CollectionExtractor{
-			db.ReindexNamespace: db.ExtractReindexTaskCollection,
+			reindex.ReindexNamespace: reindex.ExtractReindexTaskCollection,
 		},
 		ReplicaMovementEnabled: appState.ServerConfig.Config.ReplicaMovementEnabled,
 		DrainSleep:             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
@@ -823,7 +825,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// (written by ReindexProvider.persistRecoveryRecord before reindex
 	// starts), plus the existing started.mig / tidied.mig sentinels to
 	// decide which migrations are still in flight.
-	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
+	recoveredReindexes, recoveryErr := reindex.DiscoverInFlightReindexTasks(
 		appState.ServerConfig.Config.Persistence.DataPath,
 		appState.Logger,
 		appState.SchemaManager,
@@ -1008,14 +1010,14 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// "treat every tracker as known" closure, which silently
 		// misclassified orphans during a DTM partition. Explicit
 		// error makes the failure path operator-observable.
-		buildKnownTask := func() (db.KnownReindexTaskLookup, error) {
+		buildKnownTask := func() (reindex.KnownReindexTaskLookup, error) {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
 			if err != nil {
 				return nil, fmt.Errorf("ListDistributedTasks: %w", err)
 			}
-			live := make(map[taskKey]bool, len(tasksByNamespace[db.ReindexNamespace]))
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				live[taskKey{task.ID, task.Version}] = db.IsLiveReindexTaskStatus(task.Status)
+			live := make(map[taskKey]bool, len(tasksByNamespace[reindex.ReindexNamespace]))
+			for _, task := range tasksByNamespace[reindex.ReindexNamespace] {
+				live[taskKey{task.ID, task.Version}] = reindex.IsLiveReindexTaskStatus(task.Status)
 			}
 			return func(taskID string, taskVersion uint64) bool {
 				return live[taskKey{taskID, taskVersion}]
@@ -1080,11 +1082,11 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				return func(string, string) bool { return true }
 			}
 			live := make(map[shardKey]bool)
-			for _, task := range tasksByNamespace[db.ReindexNamespace] {
-				if !db.IsLiveReindexTaskStatus(task.Status) {
+			for _, task := range tasksByNamespace[reindex.ReindexNamespace] {
+				if !reindex.IsLiveReindexTaskStatus(task.Status) {
 					continue
 				}
-				var payload db.ReindexTaskPayload
+				var payload reindex.ReindexTaskPayload
 				if err := json.Unmarshal(task.Payload, &payload); err != nil {
 					appState.Logger.WithField("action", "backup_reindex_gate").
 						WithField("task_id", task.ID).
@@ -1128,12 +1130,12 @@ func initReindexAndDistributedTasks(
 	appState *state.State,
 	repo *db.DB,
 	providers map[string]distributedtask.Provider,
-	recoveredReindexes []db.RecoveredReindex,
+	recoveredReindexes []reindex.RecoveredReindex,
 	metricsRegisterer prometheus.Registerer,
 	serverShutdownCtx context.Context,
 ) {
-	reindexProvider := db.NewReindexProvider(
-		repo, appState.SchemaManager, appState.Logger,
+	reindexProvider := reindex.NewReindexProvider(
+		repo.ReindexHandle(), appState.SchemaManager, appState.Logger,
 		appState.Cluster.LocalName(),
 		appState.ServerConfig.Config.DistributedTasks.ReindexConcurrency.Get,
 		serverShutdownCtx,
@@ -1141,9 +1143,17 @@ func initReindexAndDistributedTasks(
 	// Seed re-uses the SAME task instances ShardReindexerV3 registered, so
 	// OnGroupCompleted's swap phase doesn't take the rehydrate path and try
 	// to load already-loaded ingest buckets.
-	db.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
-	providers[db.ReindexNamespace] = reindexProvider
+	reindex.SeedReindexProviderFromRecovery(reindexProvider, recoveredReindexes)
+	providers[reindex.ReindexNamespace] = reindexProvider
 	appState.ReindexProvider = reindexProvider
+
+	appState.ReindexService = reindexusecase.New(reindexusecase.Deps{
+		Cluster:       appState.ClusterService,
+		DB:            repo,
+		SchemaManager: appState.SchemaManager,
+		Provider:      appState.ReindexProvider,
+		SubmitLocks:   appState.ReindexSubmitLocks,
+	}, appState.Logger)
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -1187,7 +1197,7 @@ func initReindexAndDistributedTasks(
 	appState.ClusterService.SetDistributedTaskSchemaMutationDetectors(schemaMutationDetectors)
 }
 
-func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogger) db.ShardReindexerV3 {
+func configureReindexer(recovered []reindex.RecoveredReindex, logger logrus.FieldLogger) reindex.ShardReindexerV3 {
 	// All reindex operations are now triggered via the REST API
 	// (DTM-based). The V3 startup reindexer is no longer used for
 	// kicking off new reindexes — but we still need it for restart
@@ -1196,11 +1206,11 @@ func configureReindexer(recovered []db.RecoveredReindex, logger logrus.FieldLogg
 	// re-installs the double-write callbacks before any post-restart
 	// write reaches the shard.
 	if len(recovered) == 0 {
-		return db.NewShardReindexerV3Noop()
+		return reindex.NewShardReindexerV3Noop()
 	}
 	logger.WithField("count", len(recovered)).
 		Info("reindex recovery: registering in-flight tasks discovered on disk")
-	return db.NewShardReindexerV3FromRecovered(recovered, logger)
+	return reindex.NewShardReindexerV3FromRecovered(recovered, logger)
 }
 
 // enforceNamespaceStartupInvariants decides whether the current cluster state
@@ -1348,8 +1358,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer, appState.Logger)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks)
-	setupIndexesHandlers(api, appState)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger, appState.ReindexService, appState.ReindexSubmitLocks)
+	setupIndexesHandlers(api, appState, appState.Metrics, appState.Logger)
 	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,

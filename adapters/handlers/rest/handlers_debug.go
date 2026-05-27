@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/config"
@@ -238,8 +239,8 @@ func setupDebugHandlers(appState *state.State) {
 					continue
 				}
 
-				keyParser := &db.UuidKeyParser{}
-				rt := db.NewFileMapToBlockmaxReindexTracker(path, keyParser)
+				keyParser := &reindex.UuidKeyParser{}
+				rt := reindex.NewFileMapToBlockmaxReindexTracker(path, keyParser)
 
 				status, message, action := rt.GetStatusStrings()
 

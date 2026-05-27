@@ -524,6 +524,54 @@ func (_c *MockShardLike_AsyncCheckpointRoot_Call) RunAndReturn(run func(context.
 	return _c
 }
 
+// CleanStalePartialReindexState provides a mock function with given fields: ctx, propName, indexType
+func (_m *MockShardLike) CleanStalePartialReindexState(ctx context.Context, propName string, indexType string) error {
+	ret := _m.Called(ctx, propName, indexType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CleanStalePartialReindexState")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, propName, indexType)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_CleanStalePartialReindexState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CleanStalePartialReindexState'
+type MockShardLike_CleanStalePartialReindexState_Call struct {
+	*mock.Call
+}
+
+// CleanStalePartialReindexState is a helper method to define mock.On call
+//   - ctx context.Context
+//   - propName string
+//   - indexType string
+func (_e *MockShardLike_Expecter) CleanStalePartialReindexState(ctx interface{}, propName interface{}, indexType interface{}) *MockShardLike_CleanStalePartialReindexState_Call {
+	return &MockShardLike_CleanStalePartialReindexState_Call{Call: _e.mock.On("CleanStalePartialReindexState", ctx, propName, indexType)}
+}
+
+func (_c *MockShardLike_CleanStalePartialReindexState_Call) Run(run func(ctx context.Context, propName string, indexType string)) *MockShardLike_CleanStalePartialReindexState_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_CleanStalePartialReindexState_Call) Return(_a0 error) *MockShardLike_CleanStalePartialReindexState_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_CleanStalePartialReindexState_Call) RunAndReturn(run func(context.Context, string, string) error) *MockShardLike_CleanStalePartialReindexState_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CompareDigests provides a mock function with given fields: ctx, sourceDigests
 func (_m *MockShardLike) CompareDigests(ctx context.Context, sourceDigests []types.RepairResponse) ([]types.RepairResponse, error) {
 	ret := _m.Called(ctx, sourceDigests)

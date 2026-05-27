@@ -31,6 +31,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
@@ -107,12 +108,11 @@ type DB struct {
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
 
-	reindexer      ShardReindexerV3
+	reindexer      reindex.ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexAuditMu guards the audit deps installed by
 	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
 	// installed by [DB.SetShardReindexActivityLookup] so they are
 	// safely visible from any post-restore goroutine.
@@ -126,11 +126,11 @@ type DB struct {
 	// install path runs a single replay sweep so the deferred
 	// per-class audits are not silently lost. Closes B2.
 	reindexAuditMu                     sync.RWMutex
-	reindexAuditLookupBuilder          KnownReindexTaskLookupBuilder
+	reindexAuditLookupBuilder          reindex.KnownReindexTaskLookupBuilder
 	reindexAuditLogger                 logrus.FieldLogger
 	reindexAuditDeferredRequests       int
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
-	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
+	reindexCleanupInProgressLookupBldr reindex.CleanupInProgressLookupBuilder
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
@@ -277,7 +277,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		memMonitor:                memMonitor,
 		shardLoadLimiter:          loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
 		bucketLoadLimiter:         loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
-		reindexer:                 NewShardReindexerV3Noop(),
+		reindexer:                 reindex.NewShardReindexerV3Noop(),
 		nodeSelector:              nodeSelector,
 		schemaReader:              schemaReader,
 		replicationFSM:            replicationFSM,
@@ -554,7 +554,7 @@ func (db *DB) batchWorker(first bool) {
 	}
 }
 
-func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
+func (db *DB) SetReindexer(reindexer reindex.ShardReindexerV3) {
 	db.reindexer = reindexer
 }
 

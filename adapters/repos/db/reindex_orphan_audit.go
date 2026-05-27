@@ -20,21 +20,14 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 )
 
-// KnownReindexTaskLookup reports whether (taskID, taskVersion) is live
-// in the DTM scheduler snapshot. One instance is built per audit
+// [reindex.KnownReindexTaskLookup] reports whether (taskID, taskVersion)
+// is live in the DTM scheduler snapshot. One instance is built per audit
 // invocation so all per-tracker classifications share a consistent
-// snapshot.
-type KnownReindexTaskLookup func(taskID string, taskVersion uint64) bool
-
-// KnownReindexTaskLookupBuilder returns a fresh [KnownReindexTaskLookup]
-// for one audit invocation. Returns an error when the underlying DTM
-// snapshot cannot be obtained (e.g. ListDistributedTasks is timing out
-// during a network partition). Callers MUST propagate the error rather
-// than substitute a soft default — an unobservable "all known" fallback
-// would silently misclassify orphans as in-flight migrations.
-type KnownReindexTaskLookupBuilder func() (KnownReindexTaskLookup, error)
+// snapshot. [reindex.KnownReindexTaskLookupBuilder] returns a fresh
+// [reindex.KnownReindexTaskLookup] for one audit invocation.
 
 // AuditOutcomeStatus distinguishes the three operationally distinct
 // reasons an [DB.AuditOrphanReindexTrackers] invocation can return
@@ -104,14 +97,10 @@ type AuditOutcome struct {
 // counter is non-zero and a single replay sweep runs synchronously so
 // the deferred audit work is not silently lost. Closes B2.
 //
-// The deferred-replay path runs with [context.Background]; it does not
-// inherit the caller's context. A caller-side cancellation that needs to
-// abort an in-flight replay must wait for [PauseCompaction]'s internal
-// timeout. Switching to a caller-supplied context would let SIGTERM /
-// shutdown abort the replay cleanly, but the current shape — fire-and-
-// forget background — matches the post-bootstrap goroutine that calls
-// us in production.
-func (db *DB) SetReindexAuditDeps(builder KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
+// Callers must therefore invoke SetReindexAuditDeps with the audit
+// context they want any replay sweep to inherit; a closed context will
+// cause the replay sweep to early-return on PauseCompaction.
+func (db *DB) SetReindexAuditDeps(builder reindex.KnownReindexTaskLookupBuilder, logger logrus.FieldLogger) {
 	db.reindexAuditMu.Lock()
 	db.reindexAuditLookupBuilder = builder
 	db.reindexAuditLogger = logger
@@ -223,18 +212,19 @@ func (o *orphanReindexTracker) String() string {
 // from "audit ran but K cleanups failed". The outcome is also logged
 // at Info level on every successful invocation (S4 fix: absence of
 // that log line in operator dashboards is now detectable).
-func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) (AuditOutcome, error) {
+func (db *DB) AuditOrphanReindexTrackers(ctx context.Context, knownTask reindex.KnownReindexTaskLookup, logger logrus.FieldLogger) (AuditOutcome, error) {
 	if logger == nil {
 		logger = logrus.New()
 	}
-	auditLogger := logger.WithField("action", "reindex_orphan_audit")
 	if knownTask == nil {
 		// A nil lookup would misclassify every in-flight migration as an
 		// orphan. Refuse rather than auto-quarantine on a normal restart.
-		auditLogger.Error("reindex orphan audit: KnownReindexTaskLookup is nil; skipping audit")
+		logger.Error("reindex orphan audit: reindex.KnownReindexTaskLookup is nil; skipping audit")
 		return AuditOutcome{Status: AuditStatusSkipped, SkipReason: "nil_lookup"},
-			fmt.Errorf("reindex orphan audit: KnownReindexTaskLookup is nil")
+			fmt.Errorf("reindex orphan audit: reindex.KnownReindexTaskLookup is nil")
 	}
+
+	auditLogger := logger.WithField("action", "reindex_orphan_audit")
 
 	rootPath := db.config.RootPath
 	if rootPath == "" {
@@ -425,7 +415,7 @@ const reindexAuditQuarantineWindow = 5 * time.Minute
 // tracker-dir removal. Newer trackers without payload.mig (mtime
 // after process start) are skipped with a WARN and left for the next
 // audit invocation — they may still be mid-flush.
-func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
+func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask reindex.KnownReindexTaskLookup, logger logrus.FieldLogger) []orphanReindexTracker {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
@@ -437,15 +427,15 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			continue
 		}
 		dirName := entry.Name()
-		prefix, generation, ok := parseMigrationDirName(dirName)
+		prefix, generation, ok := reindex.ParseMigrationDirName(dirName)
 		if !ok {
 			continue
 		}
 		trackerPath := filepath.Join(migsDir, dirName)
-		if fileExistsInDir(trackerPath, "tidied.mig") || fileExistsInDir(trackerPath, "merged.mig") {
+		if reindex.FileExistsInDir(trackerPath, "tidied.mig") || reindex.FileExistsInDir(trackerPath, "merged.mig") {
 			continue
 		}
-		if !fileExistsInDir(trackerPath, "started.mig") {
+		if !reindex.FileExistsInDir(trackerPath, "started.mig") {
 			continue
 		}
 		rec, recOK := loadAuditRecord(trackerPath)
@@ -502,7 +492,7 @@ func collectOrphanTrackers(lsmPath, collection, shardName string, knownTask Know
 			taskVersion: rec.TaskVersion,
 			unitID:      rec.UnitID,
 			properties:  append([]string(nil), rec.Payload.Properties...),
-			indexTypes:  semanticMigrationIndexTypesForAudit(rec.Payload.MigrationType),
+			indexTypes:  reindex.SemanticMigrationIndexTypesForAudit(rec.Payload.MigrationType),
 		})
 	}
 	return orphans
@@ -620,7 +610,7 @@ func writeQuarantineSentinel(trackerPath string) error {
 // a stale sentinel that converts a future-detected orphan into an
 // immediate destructive cleanup — at which point the orphan was
 // real and the operator visibility is preserved.
-func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLookup, logger logrus.FieldLogger) {
+func clearStaleQuarantineSentinels(lsmPath string, knownTask reindex.KnownReindexTaskLookup, logger logrus.FieldLogger) {
 	migsDir := filepath.Join(lsmPath, ".migrations")
 	entries, err := os.ReadDir(migsDir)
 	if err != nil {
@@ -633,7 +623,7 @@ func clearStaleQuarantineSentinels(lsmPath string, knownTask KnownReindexTaskLoo
 		dirName := entry.Name()
 		trackerPath := filepath.Join(migsDir, dirName)
 		sentinelPath := filepath.Join(trackerPath, reindexAuditQuarantineFile)
-		if !fileExists(sentinelPath) {
+		if !reindex.FileExists(sentinelPath) {
 			continue
 		}
 		rec, recOK := loadAuditRecord(trackerPath)
@@ -670,7 +660,7 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 	}
 	pauseCtx, cancelPause := context.WithTimeout(ctx, orphanCleanupPauseTimeout)
 	defer cancelPause()
-	if err := shard.store.PauseCompaction(pauseCtx); err != nil {
+	if err := shard.Store().PauseCompaction(pauseCtx); err != nil {
 		logger.WithField("collection", orphans[0].collection).WithField("shard", orphans[0].shardName).
 			Warnf("reindex orphan audit: failed to pause compaction; skipping shard cleanup: %v", err)
 		// Every orphan on this shard counts as a failed cleanup so the
@@ -683,7 +673,7 @@ func (db *DB) cleanLoadedShardOrphans(ctx context.Context, shard *Shard, orphans
 	}
 	// Resume must fire even if the audit ctx was canceled.
 	defer func() {
-		if err := shard.store.ResumeCompaction(context.Background()); err != nil {
+		if err := shard.Store().ResumeCompaction(context.Background()); err != nil {
 			logger.WithField("shard", orphans[0].shardName).
 				Warnf("reindex orphan audit: failed to resume compaction: %v", err)
 		}
@@ -735,12 +725,12 @@ func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, l
 
 // removeUnloadedSidecarsForOrphan removes per-property sidecar bucket
 // directories owned by the orphan tracker. Routes through the strategy
-// registry (migrationSuffixes) keyed by the orphan's tracker dirName
+// registry (reindex.MigrationSuffixes) keyed by the orphan's tracker dirName
 // — the strategy's MigrationDirName() and IngestSuffix/BackupSuffix/
 // ReindexSuffix methods are the single source of truth for the on-disk
 // dir layout (S3 fix). Falls back to no-op if the tracker dirName does
 // not match any registered strategy: defensive, but it also means a
-// future strategy added to migrationSuffixes will be picked up here
+// future strategy added to reindex.MigrationSuffixes will be picked up here
 // automatically.
 //
 // Sidecar dir names that this consults:
@@ -755,7 +745,7 @@ func cleanUnloadedShardOrphans(lsmPath string, orphans []orphanReindexTracker, l
 func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, logger logrus.FieldLogger) {
 	for _, sidecar := range sidecarDirsForOrphan(o) {
 		path := filepath.Join(lsmPath, sidecar)
-		if !fileExists(path) {
+		if !reindex.FileExists(path) {
 			continue
 		}
 		if err := os.RemoveAll(path); err != nil {
@@ -768,8 +758,8 @@ func removeUnloadedSidecarsForOrphan(lsmPath string, o *orphanReindexTracker, lo
 // sidecarDirsForOrphan returns the lsm-relative sidecar bucket dir
 // names the strategy registry says are owned by this orphan's tracker
 // dir + property set + generation. Computed by consulting
-// [migrationSuffixes] keyed off the orphan's tracker dirName: the
-// strategy itself owns the IngestSuffix / BackupSuffix /
+// [reindex.MigrationSuffixes] keyed off the orphan's tracker dirName:
+// the strategy itself owns the IngestSuffix / BackupSuffix /
 // ReindexSuffix tail base, and the audit appends the matching
 // `_<gen>` to each. Returns an empty slice when the tracker dirName
 // does not match any registered strategy or when the orphan carries
@@ -782,18 +772,18 @@ func sidecarDirsForOrphan(o *orphanReindexTracker) []string {
 	if len(o.properties) == 0 {
 		return nil
 	}
-	suffixes := migrationSuffixes(o.dirName)
+	suffixes := reindex.MigrationSuffixes(o.dirName)
 	if suffixes == nil {
 		return nil
 	}
-	reindexSuffix := reindexSuffixForFinalize(o.prefix)
-	genTail := genSuffix(o.generation)
+	reindexSuffix := reindex.ReindexSuffixForFinalize(o.prefix)
+	genTail := reindex.GenSuffix(o.generation)
 	out := make([]string, 0, 3*len(o.properties))
 	for _, propName := range o.properties {
-		main := suffixes.sourceBucketName(propName)
+		main := suffixes.SourceBucketName(propName)
 		out = append(out,
-			main+suffixes.ingestSuffix+genTail,
-			main+suffixes.backupSuffix+genTail,
+			main+suffixes.IngestSuffix+genTail,
+			main+suffixes.BackupSuffix+genTail,
 		)
 		if reindexSuffix != "" {
 			out = append(out, main+reindexSuffix+genTail)
@@ -837,9 +827,9 @@ func (db *DB) cleanupOrphanTrackerCompactionPaused(ctx context.Context, shard *S
 // loadAuditRecord reads the payload.mig recovery record for a tracker
 // dir. Returns false if missing or unparseable. Sentinel-file presence
 // checks are the caller's responsibility.
-func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
-	var rec reindexRecoveryRecord
-	data, err := os.ReadFile(filepath.Join(trackerPath, reindexRecoveryPayloadFile))
+func loadAuditRecord(trackerPath string) (reindex.ReindexRecoveryRecord, bool) {
+	var rec reindex.ReindexRecoveryRecord
+	data, err := os.ReadFile(filepath.Join(trackerPath, reindex.ReindexRecoveryPayloadFile))
 	if err != nil {
 		return rec, false
 	}
@@ -847,25 +837,4 @@ func loadAuditRecord(trackerPath string) (reindexRecoveryRecord, bool) {
 		return rec, false
 	}
 	return rec, true
-}
-
-// semanticMigrationIndexTypesForAudit returns the indexType fan-out
-// the audit's CleanStalePartialReindexState loop iterates over for a
-// given migration type. Mirrors [indexTypesFromMigrationType] in the
-// REST handler. Returns nil for class-level migrations; the audit then
-// falls back to direct tracker-dir removal.
-func semanticMigrationIndexTypesForAudit(mt ReindexMigrationType) []string {
-	switch mt {
-	case ReindexTypeChangeTokenization:
-		return []string{"searchable", "filterable"}
-	case ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable:
-		return []string{"searchable"}
-	case ReindexTypeEnableFilterable, ReindexTypeRepairFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		return []string{"rangeable"}
-	}
-	return nil
 }

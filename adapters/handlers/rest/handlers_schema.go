@@ -12,11 +12,8 @@
 package rest
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -25,33 +22,16 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
-	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	uco "github.com/weaviate/weaviate/usecases/objects"
+	reindexusecase "github.com/weaviate/weaviate/usecases/reindex"
 	"github.com/weaviate/weaviate/usecases/restrictions"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
-
-// reindexInFlightChecker is the narrow interface schema handlers use
-// to fail fast on property mutations that would conflict with an
-// in-flight reindex migration. Implemented by the RAFT-backed
-// distributed-task state (today: cluster/raft.Raft).
-//
-// This is the REST-handler UX layer of the mutation guard: the
-// handler returns 409 Conflict before issuing the RAFT command, so
-// operators see a clean error instead of a downstream "apply rejected"
-// surprise. The cluster-wide safety net lives at the schema FSM's
-// UpdateProperty apply path via [cluster/schema.SchemaManager]'s
-// [MutationGuard] — that is the load-bearing check; this one is a
-// pre-flight optimization.
-type reindexInFlightChecker interface {
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
-}
 
 // reindexSubmitLockProvider returns the per-(collection, property)
 // mutex shared with the reindex-submit REST handler. This is the
@@ -69,8 +49,8 @@ type reindexSubmitLockProvider interface {
 type schemaHandlers struct {
 	manager             *schemaUC.Manager
 	metricRequestsTotal restApiRequestsTotal
-	reindexTaskLister   reindexInFlightChecker
 	reindexSubmitLocks  reindexSubmitLockProvider
+	reindexService      *reindexusecase.Service
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -238,7 +218,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	// UpdateProperty apply ([MutationGuard]) still closes the
 	// multi-node race that this per-node check cannot — they are
 	// complementary, not redundant.
-	if conflict := s.checkReindexConflictForPropertyMutation(ctx, params.ClassName, params.PropertyName); conflict != "" {
+	if conflict := s.reindexService.PropertyMutationConflict(ctx, params.ClassName, params.PropertyName); conflict != "" {
 		s.metricRequestsTotal.logError(params.ClassName, fmt.Errorf("reindex conflict: %s", conflict))
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, fmt.Errorf("%s", conflict)))
@@ -259,78 +239,6 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 
 	s.metricRequestsTotal.logOk(params.ClassName)
 	return schema.NewSchemaObjectsPropertiesDeleteOK()
-}
-
-// checkReindexConflictForPropertyMutation is the REST-handler
-// pre-flight for the mutation guard. Returns a non-empty conflict
-// reason iff a reindex migration on (className, propertyName) is in
-// any non-terminal state (STARTED, PREPARING, or SWAPPING) — same
-// epistemics as the schema FSM's MutationGuard at apply time, just
-// earlier in the request lifecycle for operator UX.
-//
-// Per-node, in-memory: two REST handlers on different nodes can both
-// observe "no conflict" and both forward to RAFT — that's expected,
-// the apply-time [MutationGuard] is what closes that multi-node
-// race. This check exists purely to short-circuit the common
-// single-node case with a clean 4xx instead of an apply-time
-// rejection.
-//
-// Degrades gracefully: a TaskLister error returns "" (no conflict
-// detected) so the request proceeds to RAFT and the apply-time guard
-// handles correctness. We never spuriously reject due to a transient
-// local error.
-func (s *schemaHandlers) checkReindexConflictForPropertyMutation(ctx context.Context, className, propertyName string) string {
-	if s.reindexTaskLister == nil {
-		return ""
-	}
-	tasksByNamespace, err := s.reindexTaskLister.ListDistributedTasks(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, task := range tasksByNamespace[db.ReindexNamespace] {
-		// PREPARING and SWAPPING count as in-flight (via
-		// [distributedtask.TaskStatus.IsActive]) — see the godoc on
-		// [checkReindexConflict] for the full reasoning. Mutating the
-		// property during either phase would race the in-flight per-
-		// shard bucket-pointer flip.
-		if !task.Status.IsActive() {
-			continue
-		}
-		var payload db.ReindexTaskPayload
-		if err := json.Unmarshal(task.Payload, &payload); err != nil {
-			// Unparseable payload in flight is a hard reject reason on
-			// the apply side; mirror that here so the REST caller
-			// doesn't get a spurious "ok-then-FAILED" two-step.
-			return fmt.Sprintf(
-				"in-flight reindex task %q has unparseable payload; "+
-					"refusing property mutation on %s.%s until the task "+
-					"is inspected", task.ID, className, propertyName)
-		}
-		if !strings.EqualFold(payload.Collection, className) {
-			continue
-		}
-		// Empty Properties means "all properties" (whole-collection
-		// rebuild, reserved); treat as a match.
-		matches := len(payload.Properties) == 0
-		for _, p := range payload.Properties {
-			if p == propertyName {
-				matches = true
-				break
-			}
-		}
-		if !matches {
-			continue
-		}
-		return fmt.Sprintf(
-			"reindex task %q (%s) is in flight on %s.%s (status=%s); "+
-				"schema mutations on this property are blocked until "+
-				"the reindex completes or is cancelled — wait for the "+
-				"task to reach a terminal state, or cancel it via the "+
-				"reindex REST API before retrying",
-			task.ID, payload.MigrationType, payload.Collection,
-			propertyName, task.Status)
-	}
-	return ""
 }
 
 func (s *schemaHandlers) deleteClassVectorIndex(params schema.SchemaObjectsVectorsDeleteParams,
@@ -586,11 +494,11 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexService *reindexusecase.Service, reindexSubmitLocks reindexSubmitLockProvider) {
 	h := &schemaHandlers{
 		manager:             manager,
 		metricRequestsTotal: newSchemaRequestsTotal(metrics, logger),
-		reindexTaskLister:   reindexTaskLister,
+		reindexService:      reindexService,
 		reindexSubmitLocks:  reindexSubmitLocks,
 	}
 

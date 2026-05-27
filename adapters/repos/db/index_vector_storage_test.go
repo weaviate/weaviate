@@ -27,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
@@ -233,7 +234,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				EnableLazyLoadShards:  true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				reindex.NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -540,7 +541,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
 				}, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				reindex.NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -761,7 +762,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
 		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		reindex.NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
 	// Add properties
@@ -870,7 +871,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
 		}, index.GetVectorIndexConfigs(), mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		reindex.NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
 

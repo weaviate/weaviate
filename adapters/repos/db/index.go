@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/reindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -305,7 +306,7 @@ type Index struct {
 
 	closed bool
 
-	shardReindexer ShardReindexerV3
+	shardReindexer reindex.ShardReindexerV3
 
 	router         routerTypes.Router
 	shardResolver  *resolver.ShardResolver
@@ -360,7 +361,7 @@ func NewIndex(
 	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 	allocChecker memwatch.AllocChecker,
-	shardReindexer ShardReindexerV3,
+	shardReindexer reindex.ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
 	asyncIndexingEnabled bool,
 	tenantsManager schemaUC.TenantsActivityManager,
