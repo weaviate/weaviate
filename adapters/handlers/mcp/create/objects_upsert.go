@@ -36,7 +36,7 @@ func (c *WeaviateCreator) UpsertObject(ctx context.Context, req mcp.CallToolRequ
 	// MCP_SERVER_WRITE_ACCESS_ENABLED runtime override. When disabled,
 	// reject the call even though the tool is still registered.
 	if !c.IsWriteAccessEnabled() {
-		return nil, fmt.Errorf("%w; to enable, either set MCP_SERVER_WRITE_ACCESS_ENABLED=true "+
+		return nil, fmt.Errorf("%w: to enable, either set MCP_SERVER_WRITE_ACCESS_ENABLED=true "+
 			"(requires restart) or set mcp_server_write_access_enabled: true in the runtime "+
 			"overrides YAML (no restart needed)", mcpmetrics.ErrWriteDisabled)
 	}
