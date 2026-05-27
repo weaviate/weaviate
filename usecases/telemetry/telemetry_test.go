@@ -156,7 +156,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on update", func(t *testing.T) {
-			tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(withIntegrationTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -203,6 +203,18 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			trackClientRequest(t, tel, "typescript", "weaviate-client-typescript/1.0.0")
 			trackClientRequest(t, tel, "go", "weaviate-client-go/1.0.0")
 			trackClientRequest(t, tel, "csharp", "weaviate-client-csharp/1.0.0")
+			// Track integrations to populate ClientIntegrationUsage
+			trackIntegrationRequest(t, tel, "llamaindex", "0.10.5")
+			trackIntegrationRequest(t, tel, "llamaindex", "0.10.5")
+			trackIntegrationRequest(t, tel, "langchain", "0.2.0")
+
+			// Trackers process events asynchronously; wait for the integration
+			// counter to settle before the synchronous GetAndReset inside
+			// buildPayload reads it.
+			require.Eventually(t, func() bool {
+				snapshot := tel.integrationTracker.Get()
+				return snapshot["llamaindex"]["0.10.5"] == 2 && snapshot["langchain"]["0.2.0"] == 1
+			}, time.Second, 10*time.Millisecond)
 
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
 			assert.Nil(t, err)
@@ -229,15 +241,20 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeGo]["1.0.0"])
 			assert.NotNil(t, payload.ClientUsage[ClientTypeCSharp])
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeCSharp]["1.0.0"])
+			// UPDATE payloads should include integration usage data
+			assert.NotNil(t, payload.ClientIntegrationUsage)
+			assert.Equal(t, int64(2), payload.ClientIntegrationUsage["llamaindex"]["0.10.5"])
+			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["langchain"]["0.2.0"])
 			// Verify tracker was reset after GetAndReset
 			currentCounts := tel.clientTracker.Get()
 			assert.Empty(t, currentCounts)
+			assert.Empty(t, tel.integrationTracker.Get())
 			assert.Nil(t, payload.CloudProvider)
 			assert.Nil(t, payload.UniqueID)
 		})
 
 		t.Run("on terminate", func(t *testing.T) {
-			tel, sg, _, ci := newTestTelemeterWithCloudInfo()
+			tel, sg, _, ci := newTestTelemeterWithCloudInfo(withIntegrationTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -250,6 +267,14 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			trackClientRequest(t, tel, "python", "weaviate-client-python/1.0.0")
 			trackClientRequest(t, tel, "java", "weaviate-client-java/1.0.0")
 			trackClientRequest(t, tel, "typescript", "weaviate-client-typescript/1.0.0")
+			// Track integrations before terminate
+			trackIntegrationRequest(t, tel, "llamaindex", "0.10.5")
+			trackIntegrationRequest(t, tel, "dspy", "0.1.0")
+
+			require.Eventually(t, func() bool {
+				snapshot := tel.integrationTracker.Get()
+				return snapshot["llamaindex"]["0.10.5"] == 1 && snapshot["dspy"]["0.1.0"] == 1
+			}, time.Second, 10*time.Millisecond)
 
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, err)
@@ -268,6 +293,12 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava]["1.0.0"])
 			assert.NotNil(t, payload.ClientUsage[ClientTypeTypeScript])
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript]["1.0.0"])
+			// TERMINATE payloads should include integration usage data
+			assert.NotNil(t, payload.ClientIntegrationUsage)
+			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["llamaindex"]["0.10.5"])
+			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["dspy"]["0.1.0"])
+			// Verify integration tracker was reset after GetAndReset
+			assert.Empty(t, tel.integrationTracker.Get())
 			assert.Nil(t, payload.CloudProvider)
 			assert.Nil(t, payload.UniqueID)
 		})
@@ -601,6 +632,17 @@ func withPushInterval(interval time.Duration) telemetryOpt {
 	}
 }
 
+// withIntegrationTracker attaches a freshly-spawned IntegrationTracker so tests
+// that drive buildPayload can exercise the ClientIntegrationUsage field. Needed
+// because the default test telemeter is constructed with telemetryEnabled=false,
+// which skips IntegrationTracker creation to avoid a goroutine leak in disabled
+// deployments.
+func withIntegrationTracker() telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.integrationTracker = NewIntegrationTracker(tel.logger)
+	}
+}
+
 func newTestTelemeter(opts ...telemetryOpt,
 ) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
 ) {
@@ -786,6 +828,13 @@ func trackClientRequest(t *testing.T, tel *Telemeter, clientType, userAgent stri
 		req.Header.Set("X-Weaviate-Client", "weaviate-client-csharp/1.0.0")
 	}
 	tel.clientTracker.Track(req)
+}
+
+func trackIntegrationRequest(t *testing.T, tel *Telemeter, name, version string) {
+	require.NotNil(t, tel.integrationTracker, "telemeter must be built with withIntegrationTracker()")
+	req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
+	req.Header.Set("X-Weaviate-Client-Integration", name+"/"+version)
+	tel.integrationTracker.Track(req)
 }
 
 func TestClientTracker(t *testing.T) {
