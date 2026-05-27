@@ -70,6 +70,15 @@ func TestRenameForAsyncDelete_RenameInvariants(t *testing.T) {
 	require.True(t, strings.HasSuffix(deleted, asyncDeleteSuffix))
 }
 
+func TestRenameForAsyncDelete_MissingSourceIsNoOp(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	missing := filepath.Join(t.TempDir(), "never_existed")
+
+	deleted, err := renameForAsyncDelete(missing, logger)
+	require.NoError(t, err, "dropping an already-gone path must be a no-op, not an error")
+	require.Empty(t, deleted, "no target to delete when there was nothing to rename")
+}
+
 func TestSpawnAsyncDelete_BoundedConcurrency(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	root := t.TempDir()

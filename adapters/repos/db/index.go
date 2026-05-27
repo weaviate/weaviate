@@ -2783,7 +2783,9 @@ func (i *Index) drop() error {
 	if err != nil {
 		return fmt.Errorf("rename index for async delete: %w", err)
 	}
-	spawnAsyncDelete(deleted, i.logger)
+	if deleted != "" {
+		spawnAsyncDelete(deleted, i.logger)
+	}
 	return nil
 }
 

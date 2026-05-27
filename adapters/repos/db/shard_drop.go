@@ -133,7 +133,9 @@ func (s *Shard) drop(keepFiles bool) (err error) {
 		if err != nil {
 			return fmt.Errorf("rename shard for async delete: %w", err)
 		}
-		spawnAsyncDelete(deleted, s.index.logger)
+		if deleted != "" {
+			spawnAsyncDelete(deleted, s.index.logger)
+		}
 	}
 
 	s.metrics.baseMetrics.FinishUnloadingShard()

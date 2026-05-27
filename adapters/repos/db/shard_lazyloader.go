@@ -408,7 +408,9 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 			if err != nil {
 				return fmt.Errorf("rename shard for async delete: %w", err)
 			}
-			spawnAsyncDelete(deleted, idx.logger)
+			if deleted != "" {
+				spawnAsyncDelete(deleted, idx.logger)
+			}
 		}
 
 		return nil
