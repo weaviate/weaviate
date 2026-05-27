@@ -13,6 +13,8 @@ package docker
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -25,20 +27,19 @@ const (
 	TestGateway = "10.99.0.1"
 )
 
-// StaticIPForHostname returns a deterministic static IP for a weaviate node.
-// weaviate-0 → 10.99.0.10, weaviate-1 → 10.99.0.11, weaviate-2 → 10.99.0.12.
-// Returns empty string for non-weaviate containers.
+// StaticIPForHostname returns a deterministic static IP for a weaviate node:
+// weaviate-N → 10.99.0.(10+N) (weaviate-0 → 10.99.0.10, weaviate-1 → 10.99.0.11, …).
+// Returns empty string for non-weaviate containers (e.g. SecondWeaviate, modules).
 func StaticIPForHostname(hostname string) string {
-	switch hostname {
-	case Weaviate0:
-		return "10.99.0.10"
-	case Weaviate1:
-		return "10.99.0.11"
-	case Weaviate2:
-		return "10.99.0.12"
-	default:
+	const prefix = "weaviate-"
+	if !strings.HasPrefix(hostname, prefix) {
 		return ""
 	}
+	n, err := strconv.Atoi(strings.TrimPrefix(hostname, prefix))
+	if err != nil || n < 0 || n > 240 { // keep the last octet < 256
+		return ""
+	}
+	return fmt.Sprintf("10.99.0.%d", 10+n)
 }
 
 type EndpointName string

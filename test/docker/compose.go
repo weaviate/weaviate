@@ -130,6 +130,10 @@ type Compose struct {
 	withSecondWeaviate          bool
 	withWeaviateCluster         bool
 	withWeaviateClusterSize     int
+	// withWeaviateVoterCount, when > 0 and < cluster size, runs the first N nodes
+	// as RAFT voters with RAFT_METADATA_ONLY_VOTERS=true (no shard data) and the
+	// rest as non-voter data nodes. 0 means every node is a voter.
+	withWeaviateVoterCount int
 
 	withWeaviateAuth               bool
 	withWeaviateBasicAuth          bool
@@ -584,6 +588,22 @@ func (d *Compose) WithWeaviateCluster(size int) *Compose {
 	return d
 }
 
+// WithWeaviateClusterWithVoters starts a cluster of voterCount RAFT voters plus
+// dataNodeCount non-voter data nodes (total = voterCount + dataNodeCount). Every
+// node runs with RAFT_METADATA_ONLY_VOTERS=true: only the voters appear in
+// RAFT_JOIN (so they form the quorum and hold no shard data), while the data
+// nodes join via gossip as non-voters and own all the shards. voterCount must be
+// odd to keep a quorum.
+func (d *Compose) WithWeaviateClusterWithVoters(voterCount, dataNodeCount int) *Compose {
+	if voterCount%2 == 0 {
+		panic("voterCount must be odd so a quorum majority can be achieved")
+	}
+	d.withWeaviateCluster = true
+	d.withWeaviateVoterCount = voterCount
+	d.withWeaviateClusterSize = voterCount + dataNodeCount
+	return d
+}
+
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
 	d.With3NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
@@ -1006,7 +1026,7 @@ func (d *Compose) With3NodeCluster() *Compose {
 }
 
 func (d *Compose) startCluster(ctx context.Context, size int, settings map[string]string) ([]*DockerContainer, error) {
-	if size == 0 || size > 3 {
+	if size == 0 {
 		return nil, nil
 	}
 	for k, v := range d.weaviateEnvs {
@@ -1017,12 +1037,18 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		delete(settings, k)
 	}
 
-	raft_join := Weaviate0 + "," + Weaviate1 + "," + Weaviate2
-	if size == 1 {
-		raft_join = Weaviate0
-	} else if size == 2 {
-		raft_join = Weaviate0 + "," + Weaviate1
+	// voterCount defaults to the full size (every node is a voter). When fewer,
+	// the first voterCount nodes are the RAFT voters and the rest join as
+	// non-voter data nodes (see RAFT_METADATA_ONLY_VOTERS below).
+	voterCount := d.withWeaviateVoterCount
+	if voterCount <= 0 || voterCount > size {
+		voterCount = size
 	}
+	voterNames := make([]string, voterCount)
+	for i := range voterNames {
+		voterNames[i] = fmt.Sprintf("weaviate-%d", i)
+	}
+	raft_join := strings.Join(voterNames, ",")
 
 	cs := make([]*DockerContainer, size)
 	image := os.Getenv(envTestWeaviateImage)
@@ -1111,13 +1137,13 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	settings["RAFT_PORT"] = "8300"
 	settings["RAFT_INTERNAL_RPC_PORT"] = "8301"
 	settings["RAFT_JOIN"] = raft_join
-	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.withWeaviateClusterSize)
+	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(voterCount)
+	if voterCount < size {
+		// Voters form the quorum and hold no shard data; the remaining nodes join
+		// as non-voters and own the shards.
+		settings["RAFT_METADATA_ONLY_VOTERS"] = "true"
+	}
 
-	// first node
-	config1 := copySettings(settings)
-	config1["CLUSTER_HOSTNAME"] = Weaviate0
-	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
-	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
 	// Cluster startup mimics k8s behavior: all pods start concurrently, become
 	// "live" quickly (process running, ports listening), then become "ready"
 	// only after Raft quorum is established. This is critical because Raft
@@ -1176,34 +1202,22 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 
 	// Phase 1: Start all nodes concurrently — each blocks until live.
-	// Static IPs are derived from hostnames via StaticIPForHostname.
+	// Static IPs are derived from hostnames via StaticIPForHostname. Node 0 is the
+	// gossip seed (no CLUSTER_JOIN); the rest join it. The first voterCount nodes
+	// are RAFT voters (via RAFT_JOIN above); any beyond join as non-voters.
 	eg := errgroup.Group{}
-
-	eg.Go(func() (err error) {
-		cs[0], err = startNodeWithRetry(config1, Weaviate0)
-		return err
-	})
-
-	if size > 1 {
-		config2 := copySettings(settings)
-		config2["CLUSTER_HOSTNAME"] = Weaviate1
-		config2["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
-		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
-		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
+	for i := 0; i < size; i++ {
+		i := i
+		hostname := fmt.Sprintf("weaviate-%d", i)
+		cfg := copySettings(settings)
+		cfg["CLUSTER_HOSTNAME"] = hostname
+		cfg["CLUSTER_GOSSIP_BIND_PORT"] = strconv.Itoa(7100 + 2*i)
+		cfg["CLUSTER_DATA_BIND_PORT"] = strconv.Itoa(7101 + 2*i)
+		if i > 0 {
+			cfg["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
+		}
 		eg.Go(func() (err error) {
-			cs[1], err = startNodeWithRetry(config2, Weaviate1)
-			return err
-		})
-	}
-
-	if size > 2 {
-		config3 := copySettings(settings)
-		config3["CLUSTER_HOSTNAME"] = Weaviate2
-		config3["CLUSTER_GOSSIP_BIND_PORT"] = "7104"
-		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
-		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
-		eg.Go(func() (err error) {
-			cs[2], err = startNodeWithRetry(config3, Weaviate2)
+			cs[i], err = startNodeWithRetry(cfg, hostname)
 			return err
 		})
 	}
@@ -1221,7 +1235,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		if c == nil {
 			continue
 		}
-		hostname := []string{Weaviate0, Weaviate1, Weaviate2}[i]
+		hostname := fmt.Sprintf("weaviate-%d", i)
 		readyEg.Go(func() error {
 			readyCtx, cancel := context.WithTimeout(context.Background(), readinessTimeout)
 			defer cancel()
