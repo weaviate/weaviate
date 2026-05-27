@@ -32,7 +32,7 @@ import (
 // HYDRATING. WEAVIATE_TEST_COPY_REPLICA_SLEEP holds the transfer open for a
 // known wall-clock window after the source has resumed maintenance, giving
 // us a deterministic interval to observe compaction signal on disk.
-func (suite *ReplicationTestSuite) TestReplicaMovementCompactionContinuesOnSourceDuringHydrating() {
+func (suite *ReplicationTestSuiteSlow) TestReplicaMovementCompactionContinuesOnSourceDuringHydrating() {
 	t := suite.T()
 	ctx := context.Background()
 
