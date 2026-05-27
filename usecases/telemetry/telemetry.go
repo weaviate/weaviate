@@ -78,16 +78,22 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	}
 
 	tel := &Telemeter{
-		machineID:          strfmt.UUID(uuid.NewString()),
-		nodesStatusGetter:  nodesStatusGetter,
-		schemaManager:      schemaManager,
-		logger:             logger,
-		shutdown:           make(chan struct{}),
-		consumer:           consumerURL,
-		pushInterval:       pushInterval,
-		clientTracker:      NewClientTracker(logger),
-		integrationTracker: NewIntegrationTracker(logger),
-		cloudInfoHelper:    newCloudInfoHelper(logger, telemetryEnabled),
+		machineID:         strfmt.UUID(uuid.NewString()),
+		nodesStatusGetter: nodesStatusGetter,
+		schemaManager:     schemaManager,
+		logger:            logger,
+		shutdown:          make(chan struct{}),
+		consumer:          consumerURL,
+		pushInterval:      pushInterval,
+		clientTracker:     NewClientTracker(logger),
+		cloudInfoHelper:   newCloudInfoHelper(logger, telemetryEnabled),
+	}
+	// Only spin up the IntegrationTracker goroutine when telemetry is enabled;
+	// otherwise it would leak for the lifetime of the process, since shutdown
+	// only calls Stop when telemetry is enabled. Callers must handle a nil
+	// IntegrationTracker (middleware and debug handlers already do).
+	if telemetryEnabled {
+		tel.integrationTracker = NewIntegrationTracker(logger)
 	}
 	return tel
 }
