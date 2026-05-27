@@ -68,7 +68,12 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 
 // getIndexes implements GET /v1/schema/{className}/indexes.
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
-	collection := params.ClassName
+	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
+	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
+		h.appState.ServerConfig.Config.Namespaces.Enabled, params.ClassName)
+	if rErr != nil {
+		return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, rErr))
+	}
 
 	// Require READ on the collection's metadata: this endpoint exposes
 	// per-property index state, which is collection-internal information.
@@ -134,8 +139,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	props := make([]*models.PropertyIndexStatus, 0, len(class.Properties))
 	for _, prop := range class.Properties {
 		pis := &models.PropertyIndexStatus{
-			Name:     prop.Name,
-			DataType: dataTypeString(prop),
+			Name: prop.Name,
+			// Reference DataTypes carry the qualified target class.
+			DataType: namespacing.StripOwnNamespace(principal, dataTypeString(prop)),
 		}
 		pis.Description = prop.Description
 
@@ -184,7 +190,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	}
 
 	return schema.NewSchemaObjectsIndexesGetOK().WithPayload(&models.IndexStatusResponse{
-		Collection: collection,
+		Collection: namespacing.StripOwnNamespace(principal, collection),
 		Properties: props,
 	})
 }
@@ -197,8 +203,14 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 // repair-searchable blocks change-tokenization on any property since
 // repair-searchable touches all searchable buckets).
 func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdateParams, principal *models.Principal) middleware.Responder {
-	collection := params.ClassName
 	propertyName := params.PropertyName
+
+	// Qualify (no alias resolution, like DeleteClassPropertyIndex) before authz + lookup.
+	collection, qErr := namespacing.QualifyClass(principal,
+		h.appState.ServerConfig.Config.Namespaces.Enabled, params.ClassName)
+	if qErr != nil {
+		return schema.NewSchemaObjectsIndexesUpdateBadRequest().WithPayload(errPayloadFromSingleErr(principal, qErr))
+	}
 
 	// Require UPDATE on the collection itself: submitting a reindex task is a
 	// privileged, cluster-wide, destructive operation (rebuilds buckets on
@@ -236,6 +248,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	// rejects the DELETE deterministically. If DELETE wins instead,
 	// PUT's class read sees IndexSearchable=false and
 	// validateTokenizationChange rejects with 400.
+	// Key on the qualified class (the reindex-task key) so short- and qualified-name
+	// callers for the same collection share the DeleteClassPropertyIndex lock.
 	propLock := h.submitLock(collection, propertyName)
 	propLock.Lock()
 	defer propLock.Unlock()
@@ -627,7 +641,8 @@ func (h *indexesHandlers) updateIndex(params schema.SchemaObjectsIndexesUpdatePa
 	}).Info("reindex provider: submitted task")
 
 	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
-		TaskID: taskID,
+		// The task ID embeds the qualified collection.
+		TaskID: namespacing.StripOwnNamespace(principal, taskID),
 		Status: "STARTED",
 	})
 }
@@ -831,7 +846,8 @@ func (h *indexesHandlers) cancelReindexTask(ctx context.Context, collection, pro
 	}).Info("reindex provider: cancelled task")
 
 	return schema.NewSchemaObjectsIndexesUpdateAccepted().WithPayload(&models.IndexUpdateResponse{
-		TaskID: target.ID,
+		// The task ID embeds the qualified collection.
+		TaskID: namespacing.StripOwnNamespace(principal, target.ID),
 		Status: "CANCELLED",
 	})
 }

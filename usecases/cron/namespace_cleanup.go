@@ -113,7 +113,7 @@ func (c *cronsNamespaceCleanup) Init(cr *gocron.Cron, clusterService *cluster.Se
 				job := c.createJob(jobLogger, clusterService, coordinator, runMu)
 				entryId, err := cr.AddJob(schedule, job, gocron.WithName(namespaceCleanupJobName))
 				if err != nil {
-					jobLogger.WithError(err).Error("cron job not added")
+					jobLogger.Errorf("cron job not added: %v", err)
 					continue
 				}
 				jobLogger.WithFields(logrus.Fields{
@@ -154,7 +154,7 @@ func (c *cronsNamespaceCleanup) createJob(jobLogger logrus.FieldLogger,
 			return
 		}
 		if err := coordinator.Tick(c.serverShutdownCtx); err != nil {
-			jobLogger.WithError(err).Error("namespace cleanup tick failed")
+			jobLogger.Errorf("namespace cleanup tick failed: %v", err)
 		}
 	}))
 }

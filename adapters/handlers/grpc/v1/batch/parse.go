@@ -34,7 +34,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error), principal *models.Principal, namespacesEnabled bool) ([]*models.Object, map[int]int, map[int]error) {
+func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (string, *models.Class, error), principal *models.Principal, namespacesEnabled bool) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
@@ -45,15 +45,15 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 		var props map[string]interface{}
 
 		collection := schema.UppercaseClassName(obj.Collection)
-		class, err := authorizedGetClass(collection, obj.Tenant)
+		resolved, class, err := authorizedGetClass(collection, obj.Tenant)
 		if err != nil {
 			objectErrors[i] = err
 			continue
 		}
-		obj.Collection = collection
+		// resolved is namespace-qualified even before the class exists, so an
+		// auto-schema create and the object write agree on the qualified name.
+		obj.Collection = resolved
 		if class != nil {
-			// class is nil when we are relying on auto schema to create a collection
-			// aliases cannot be created for non-existent classes
 			obj.Collection = class.Class
 		}
 

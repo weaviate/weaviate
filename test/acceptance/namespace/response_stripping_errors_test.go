@@ -69,6 +69,42 @@ func TestNamespaces_ResponseStripping_Errors_REST(t *testing.T) {
 		assert.Contains(t, unproc.Payload.Error[0].Message, "customer1:", "admin must see qualified name: %s", unproc.Payload.Error[0].Message)
 	})
 
+	t.Run("indexes update on missing property surfaces stripped message", func(t *testing.T) {
+		// PUT on an existing class but a non-existent property returns 404 with a
+		// message naming the qualified collection internally; the strip removes "customer1:".
+		body := &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Tokenization: "lowercase"}}
+		_, err := helper.Client(t).Schema.SchemaObjectsIndexesUpdate(
+			schema.NewSchemaObjectsIndexesUpdateParams().
+				WithClassName(class). // short name; class exists, property does not
+				WithPropertyName("ghostprop").
+				WithBody(body),
+			helper.CreateAuth(user1Key),
+		)
+		require.Error(t, err)
+		var notFound *schema.SchemaObjectsIndexesUpdateNotFound
+		require.True(t, stderrors.As(err, &notFound), "expected 404, got %T: %v", err, err)
+		require.NotEmpty(t, notFound.Payload.Error)
+		msg := notFound.Payload.Error[0].Message
+		assert.Contains(t, msg, "ghostprop", "sanity: error names the missing property: %s", msg)
+		assert.NotContains(t, msg, "customer1:", "namespaced caller must not see own-prefix in indexes error: %s", msg)
+	})
+
+	t.Run("indexes update error: global admin sees raw qualified name (control)", func(t *testing.T) {
+		body := &models.IndexUpdateRequest{Filterable: &models.IndexUpdateFilterable{Tokenization: "lowercase"}}
+		_, err := helper.Client(t).Schema.SchemaObjectsIndexesUpdate(
+			schema.NewSchemaObjectsIndexesUpdateParams().
+				WithClassName("customer1:"+class). // qualified name
+				WithPropertyName("ghostprop").
+				WithBody(body),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var notFound *schema.SchemaObjectsIndexesUpdateNotFound
+		require.True(t, stderrors.As(err, &notFound), "expected 404, got %T: %v", err, err)
+		require.NotEmpty(t, notFound.Payload.Error)
+		assert.Contains(t, notFound.Payload.Error[0].Message, "customer1:", "admin must see qualified name: %s", notFound.Payload.Error[0].Message)
+	})
+
 	t.Run("batch per-item error: object with type-mismatched property is stripped", func(t *testing.T) {
 		// Number value for a text property — auto-schema can't reconcile
 		// a type conflict on an existing prop, so the validator emits a
