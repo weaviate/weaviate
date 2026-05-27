@@ -1202,9 +1202,17 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 
 	// Phase 1: Start all nodes concurrently — each blocks until live.
-	// Static IPs are derived from hostnames via StaticIPForHostname. Node 0 is the
-	// gossip seed (no CLUSTER_JOIN); the rest join it. The first voterCount nodes
-	// are RAFT voters (via RAFT_JOIN above); any beyond join as non-voters.
+	// Each node is created with a deterministic static IP (IPAMConfig in
+	// startWeaviate) and is joined via that IP, so node addresses stay identical
+	// across container restarts and the cluster never has to re-learn one;
+	// StartAt re-verifies the IP after a restart. We do NOT set
+	// CLUSTER_ADVERTISE_ADDR: it would flip memberlist to its WAN profile (much
+	// slower failure detection) and make restart/stop tests flaky. The static IP
+	// is the container's only address, so memberlist advertises it regardless.
+	// Node 0 is the gossip seed (no CLUSTER_JOIN); the rest join it. The first
+	// voterCount nodes are RAFT voters (via RAFT_JOIN above); any beyond join as
+	// non-voters.
+	seedJoin := fmt.Sprintf("%s:7100", StaticIPForHostname(Weaviate0))
 	eg := errgroup.Group{}
 	for i := 0; i < size; i++ {
 		i := i
@@ -1214,7 +1222,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		cfg["CLUSTER_GOSSIP_BIND_PORT"] = strconv.Itoa(7100 + 2*i)
 		cfg["CLUSTER_DATA_BIND_PORT"] = strconv.Itoa(7101 + 2*i)
 		if i > 0 {
-			cfg["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate0)
+			cfg["CLUSTER_JOIN"] = seedJoin
 		}
 		eg.Go(func() (err error) {
 			cs[i], err = startNodeWithRetry(cfg, hostname)
