@@ -65,6 +65,81 @@ func TestAuthzRolesForUsers(t *testing.T) {
 		require.True(t, errors.As(err, &targetErr))
 		require.Equal(t, 404, targetErr.Code())
 	})
+
+	// A delegate holding only assign_and_revoke_users must not be able to assign
+	// itself a higher-privileged role (e.g. admin). Role setup stays in this
+	// subtest so its t.Cleanup runs before the parent's container teardown.
+	t.Run("assign_and_revoke_users alone cannot escalate privileges", func(t *testing.T) {
+		all := "*"
+		assignUsers := authorization.AssignAndRevokeUsers
+		helper.CreateRoleAndAssign(t, adminKey, customUser, "delegate", &models.Permission{
+			Action: &assignUsers,
+			Users:  &models.PermissionUsers{Users: &all},
+		})
+		helper.WaitForOwnRole(t, customKey, "delegate")
+
+		t.Run("cannot assign built-in admin to itself", func(t *testing.T) {
+			_, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(
+					authz.AssignRoleToUserBody{Roles: []string{authorization.Admin}, UserType: models.UserTypeInputDb}),
+				helper.CreateAuth(customKey),
+			)
+			require.Error(t, err)
+			var forbidden *authz.AssignRoleToUserForbidden
+			require.True(t, errors.As(err, &forbidden), "expected 403, got %T", err)
+			require.Contains(t, forbidden.Payload.Error[0].Message, "less or equal permissions")
+		})
+
+		t.Run("cannot assign a custom role granting permissions it lacks", func(t *testing.T) {
+			powerful := "powerful-role"
+			helper.DeleteRole(t, adminKey, powerful)
+			helper.CreateRole(t, adminKey, &models.Role{
+				Name: &powerful,
+				Permissions: []*models.Permission{
+					helper.NewCollectionsPermission().WithAction(authorization.DeleteCollections).WithCollection("*").Permission(),
+				},
+			})
+			defer helper.DeleteRole(t, adminKey, powerful)
+
+			_, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(
+					authz.AssignRoleToUserBody{Roles: []string{powerful}, UserType: models.UserTypeInputDb}),
+				helper.CreateAuth(customKey),
+			)
+			require.Error(t, err)
+			var forbidden *authz.AssignRoleToUserForbidden
+			require.True(t, errors.As(err, &forbidden), "expected 403, got %T", err)
+			require.Contains(t, forbidden.Payload.Error[0].Message, "less or equal permissions")
+		})
+
+		t.Run("can assign a role whose permissions it already holds", func(t *testing.T) {
+			readCollectionA := func() *models.Permission {
+				return helper.NewDataPermission().WithAction(authorization.ReadData).WithCollection("CollectionA").Permission()
+			}
+			// Also grant the delegate read_data on CollectionA, so it now holds
+			// exactly what assignable-role grants (identical builder => identical
+			// policy) and the guard is satisfied.
+			helper.CreateRoleAndAssign(t, adminKey, customUser, "data-reader", readCollectionA())
+			helper.WaitForOwnRole(t, customKey, "data-reader")
+
+			assignable := "assignable-role"
+			helper.DeleteRole(t, adminKey, assignable)
+			helper.CreateRole(t, adminKey, &models.Role{
+				Name:        &assignable,
+				Permissions: []*models.Permission{readCollectionA()},
+			})
+			defer helper.DeleteRole(t, adminKey, assignable)
+
+			resp, err := helper.Client(t).Authz.AssignRoleToUser(
+				authz.NewAssignRoleToUserParams().WithID(customUser).WithBody(
+					authz.AssignRoleToUserBody{Roles: []string{assignable}, UserType: models.UserTypeInputDb}),
+				helper.CreateAuth(customKey),
+			)
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			helper.RevokeRoleFromUser(t, adminKey, assignable, customUser)
+		})
+	})
 }
 
 func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
