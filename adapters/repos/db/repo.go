@@ -216,6 +216,9 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		}
 	}
 
+	// resume any .deleteme cleanup that didn't finish before the last shutdown
+	scanAndAsyncDeletePending(config.RootPath, logger)
+
 	asyncReplicationWorkersLimiter := dynsemaphore.NewDynamicWeighted(func() int64 {
 		return int64(config.Replication.AsyncReplicationClusterMaxWorkers.Get())
 	})
