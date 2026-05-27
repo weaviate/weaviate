@@ -1,0 +1,83 @@
+# Docker Compose for the cross-reference + namespaces python acceptance test.
+#
+# Mirrors the wiring produced by test/docker/compose.go for
+#   docker.New().
+#     WithApiKey().
+#     WithUserApiKey("admin-user", "admin-key").
+#     WithDbUsers().
+#     WithNamespaces().
+#     WithWeaviateClusterWithGRPC()
+#
+# Namespaces.Enabled forces:
+#   - DISABLE_GRAPHQL=true                  (Config.Validate requirement)
+#   - REPLICATION_MAXIMUM_FACTOR=1          (home_node pins each shard)
+#
+# Usage:
+#   docker compose -f docker-compose-test.yml build
+#   docker compose -f docker-compose-namespaces-test.yml up -d
+#   pytest test/acceptance_with_python/test_namespace_refs.py
+#   docker compose -f docker-compose-namespaces-test.yml down -v
+
+x-weaviate-env: &weaviate-env
+  LOG_LEVEL: "info"
+  PERSISTENCE_DATA_PATH: "./data"
+  DEFAULT_VECTORIZER_MODULE: "none"
+  ENABLE_MODULES: ""
+  AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
+  AUTHENTICATION_APIKEY_ENABLED: "true"
+  AUTHENTICATION_APIKEY_ALLOWED_KEYS: "admin-key"
+  AUTHENTICATION_APIKEY_USERS: "admin-user"
+  AUTHENTICATION_DB_USERS_ENABLED: "true"
+  NAMESPACES_ENABLED: "true"
+  DISABLE_GRAPHQL: "true"
+  REPLICATION_MAXIMUM_FACTOR: "1"
+  NAMESPACE_CLEANUP_INTERVAL: "1s"
+  CLUSTER_GOSSIP_BIND_PORT: "7100"
+  CLUSTER_DATA_BIND_PORT: "7101"
+  RAFT_PORT: "8300"
+  RAFT_INTERNAL_RPC_PORT: "8301"
+  RAFT_JOIN: "weaviate-ns-1,weaviate-ns-2,weaviate-ns-3"
+  RAFT_BOOTSTRAP_EXPECT: "3"
+  DISABLE_TELEMETRY: "true"
+  AUTOSCHEMA_ENABLED: "false"
+
+services:
+  weaviate-ns-1:
+    image: weaviate/test-server
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: weaviate
+    restart: on-failure:0
+    ports:
+      - "8190:8080"
+      - "50190:50051"
+    environment:
+      <<: *weaviate-env
+      CLUSTER_HOSTNAME: "weaviate-ns-1"
+
+  weaviate-ns-2:
+    image: weaviate/test-server
+    restart: on-failure:0
+    ports:
+      - "8191:8080"
+      - "50191:50051"
+    environment:
+      <<: *weaviate-env
+      CLUSTER_HOSTNAME: "weaviate-ns-2"
+      CLUSTER_JOIN: "weaviate-ns-1:7100"
+    depends_on:
+      - weaviate-ns-1
+
+  weaviate-ns-3:
+    image: weaviate/test-server
+    restart: on-failure:0
+    ports:
+      - "8192:8080"
+      - "50192:50051"
+    environment:
+      <<: *weaviate-env
+      CLUSTER_HOSTNAME: "weaviate-ns-3"
+      CLUSTER_JOIN: "weaviate-ns-1:7100"
+    depends_on:
+      - weaviate-ns-1

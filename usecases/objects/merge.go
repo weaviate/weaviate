@@ -130,7 +130,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 
 	prevObj := obj.Object()
-	if err := m.validateObjectAndNormalizeNames(ctx, repl, updates, prevObj, fetchedClass); err != nil {
+	if err := m.validateObjectAndNormalizeNames(ctx, principal, repl, updates, prevObj, fetchedClass); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 

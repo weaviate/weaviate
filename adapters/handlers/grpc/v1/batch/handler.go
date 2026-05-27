@@ -97,7 +97,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
 		return vClass[classname].Class, nil
 	}
-	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter)
+	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter, principal, h.namespacesEnabled)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {

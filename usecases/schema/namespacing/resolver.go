@@ -12,6 +12,7 @@
 package namespacing
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -46,12 +47,58 @@ func NamespaceFromQualified(name string) string {
 	return ""
 }
 
+// StripQualification returns the entity portion of a qualified name
+// ("<ns>:<entity>") — the substring after the first namespace separator.
+// Names without the separator are returned unchanged. Used at write
+// boundaries that must persist a short, namespace-portable form (e.g.
+// cross-reference beacons) regardless of which form the caller submitted.
+func StripQualification(name string) string {
+	if _, entity, ok := strings.Cut(name, schema.NamespaceSeparator); ok {
+		return entity
+	}
+	return name
+}
+
 // qualify prepends principal.Namespace to name.
 func qualify(principal *models.Principal, name string) string {
 	if principal == nil {
 		return name
 	}
 	return QualifiedName(principal.Namespace, name)
+}
+
+// QualifyRefTarget normalises a cross-reference target. Refs can't cross
+// namespaces, so the source class's namespace is the authority — never the
+// principal's.
+//
+// Returns:
+//   - qualified: for authz, schema lookup, MT validation, shard routing
+//   - short: for the stored beacon (portable on export/import)
+//
+// Rejects with `<name> is not a valid class name`:
+//   - any prefix from a namespaced principal (resolver adds it for them)
+//   - a prefix naming a different namespace from sourceClass
+//
+// NS-disabled: pass-through. Centralises the policy shared by
+// references_add, references_update, batch_references_add and
+// properties_validation.
+func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourceClass, target string) (qualified, short string, err error) {
+	if !namespacesEnabled {
+		return target, target, nil
+	}
+	// Reject namespaced principals typing any prefix, and validate prefix
+	// syntax for global principals (so admin typos surface a specific
+	// "invalid namespace prefix" error instead of the generic mismatch one).
+	if err := ValidateNamespacePrefix(principal, namespacesEnabled, target, "class"); err != nil {
+		return "", "", err
+	}
+	sourceNS := NamespaceFromQualified(sourceClass)
+	if ns := NamespaceFromQualified(target); ns != "" && ns != sourceNS {
+		return "", "", fmt.Errorf("'%s' is not a valid class name", target)
+	}
+	short = StripQualification(target)
+	qualified = QualifiedName(sourceNS, short)
+	return qualified, short, nil
 }
 
 // Resolve is the read-side entry point used everywhere a user-supplied
@@ -117,7 +164,19 @@ func QualifyClass(principal *models.Principal, namespacesEnabled bool, name stri
 // pass short DataType names; an already-qualified value will be rejected.
 //
 // Scope: top-level properties only. NestedProperty.DataType cross-refs are
-// rejected at usecases/schema/validation.go and never reach this path.
+// rejected upstream.
+//
+// # Storage-shape rule for ref-property readers
+//
+// After AddClass on an NS-enabled cluster, every cross-ref Property.DataType
+// entry is stored qualified ("customer1:Animal"). Downstream readers must:
+//   - in-memory ops (authz, schema lookup, MT validation, shard routing):
+//     use the stored DataType as-is; re-qualifying produces
+//     "customer1:customer1:Foo".
+//   - storage-shape outputs (beacons, filter values compared against stored
+//     beacons): StripQualification first so the on-disk URI stays portable.
+//
+// Call sites referencing the split point at this comment.
 func QualifyPropertyDataTypes(
 	principal *models.Principal,
 	namespacesEnabled bool,

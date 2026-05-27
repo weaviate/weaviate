@@ -109,6 +109,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (repl
 	parser := NewAggregateParser(
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 		s.config.Namespaces.Enabled,
+		principal,
 	)
 
 	params, err := parser.Aggregate(req)
@@ -193,7 +194,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.config.Namespaces.Enabled)
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.config.Namespaces.Enabled, principal)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -296,6 +297,8 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 	parser := NewParser(
 		req.Uses_127Api,
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
+		principal,
+		s.config.Namespaces.Enabled,
 	)
 	replier := NewReplier(
 		req.Uses_127Api,

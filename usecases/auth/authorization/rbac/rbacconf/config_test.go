@@ -80,7 +80,32 @@ func TestIsRoot(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.cfg.IsRoot(tt.username, tt.groups))
+			assert.Equal(t, tt.want, tt.cfg.IsRootUser(tt.username, tt.groups))
+		})
+	}
+}
+
+func TestConfigIsRootUser(t *testing.T) {
+	cfg := Config{
+		RootUsers:  []string{"root-user"},
+		RootGroups: []string{"root-group"},
+	}
+
+	tcs := map[string]struct {
+		username string
+		groups   []string
+		expect   bool
+	}{
+		"root user":            {username: "root-user", expect: true},
+		"member of root group": {username: "alice", groups: []string{"root-group"}, expect: true},
+		"non-root user":        {username: "alice", expect: false},
+		"non-root group":       {username: "alice", groups: []string{"other-group"}, expect: false},
+		"empty username":       {username: "", expect: false},
+	}
+
+	for name, tc := range tcs {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.expect, cfg.IsRootUser(tc.username, tc.groups))
 		})
 	}
 }

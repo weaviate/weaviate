@@ -471,7 +471,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, origIndex, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass)
+			out, origIndex, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass, nil, false)
 			if len(tt.outError) > 0 {
 				require.NotNil(t, batchErrors)
 				if len(tt.out) > 0 {
@@ -484,4 +484,73 @@ func TestGRPCBatchRequest(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGRPCBatchRequest_MultiTargetNamespace pins the cross-namespace
+// policy for MultiTargetRefProps at the parser boundary. The
+// user-supplied TargetCollection is the only target source for the
+// multi-target branch, so QualifyRefTarget must apply here exactly as
+// it does in references_add / references_update / properties_validation
+// / the search and filter parsers — otherwise stored beacons could
+// carry a qualified class name (breaking namespace portability) or a
+// foreign-NS deny could be silently bypassed.
+func TestGRPCBatchRequest_MultiTargetNamespace(t *testing.T) {
+	src := "customer1:Zoo"
+	a := "customer1:Animal"
+	classes := map[string]*models.Class{
+		src: {
+			Class: src,
+			Properties: []*models.Property{
+				{Name: "linkedTo", DataType: []string{"customer1:Animal", "customer1:Habitat"}},
+			},
+		},
+		a: {Class: a},
+	}
+	getClass := func(class, shard string) (*models.Class, error) {
+		return classes[class], nil
+	}
+	makeReq := func(target string) *pb.BatchObjectsRequest {
+		return &pb.BatchObjectsRequest{Objects: []*pb.BatchObject{{
+			Collection: src, Uuid: UUID4,
+			Properties: &pb.BatchObject_Properties{
+				MultiTargetRefProps: []*pb.BatchObject_MultiTargetRefProps{
+					{PropName: "linkedTo", Uuids: []string{UUID3}, TargetCollection: target},
+				},
+			},
+		}}}
+	}
+
+	t.Run("namespaced principal short target writes short beacon", func(t *testing.T) {
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		out, _, errs := batch.BatchObjectsFromProto(makeReq("Animal"), getClass, principal, true)
+		require.Len(t, errs, 0)
+		require.Len(t, out, 1)
+		refs := out[0].Properties.(map[string]interface{})["linkedTo"].([]interface{})
+		require.Len(t, refs, 1)
+		require.Equal(t, batch.BEACON_START+"Animal/"+UUID3, refs[0].(map[string]interface{})["beacon"])
+	})
+
+	t.Run("admin own-namespace qualified target is stripped to short", func(t *testing.T) {
+		admin := &models.Principal{Username: "admin"}
+		out, _, errs := batch.BatchObjectsFromProto(makeReq("customer1:Animal"), getClass, admin, true)
+		require.Len(t, errs, 0)
+		require.Len(t, out, 1)
+		refs := out[0].Properties.(map[string]interface{})["linkedTo"].([]interface{})
+		require.Len(t, refs, 1)
+		require.Equal(t, batch.BEACON_START+"Animal/"+UUID3, refs[0].(map[string]interface{})["beacon"])
+	})
+
+	t.Run("admin foreign-namespace qualified target is rejected", func(t *testing.T) {
+		admin := &models.Principal{Username: "admin"}
+		_, _, errs := batch.BatchObjectsFromProto(makeReq("customer2:Animal"), getClass, admin, true)
+		require.Len(t, errs, 1)
+		require.Contains(t, errs[0].Error(), "not a valid class name")
+	})
+
+	t.Run("namespaced principal cannot type any prefix", func(t *testing.T) {
+		principal := &models.Principal{Username: "u", Namespace: "customer1"}
+		_, _, errs := batch.BatchObjectsFromProto(makeReq("customer1:Animal"), getClass, principal, true)
+		require.Len(t, errs, 1)
+		require.Contains(t, errs[0].Error(), "not a valid class name")
+	})
 }

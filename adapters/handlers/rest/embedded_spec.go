@@ -3903,6 +3903,12 @@ func init() {
           "404": {
             "description": "Source object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
@@ -3990,6 +3996,12 @@ func init() {
           "404": {
             "description": "Source object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
@@ -4076,6 +4088,12 @@ func init() {
           },
           "404": {
             "description": "Object or reference not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7247,6 +7265,10 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
+        "incremental_base_backup_id": {
+          "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
+          "type": "string"
+        },
         "path": {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
@@ -7298,6 +7320,10 @@ func init() {
           },
           "id": {
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+            "type": "string"
+          },
+          "incremental_base_backup_id": {
+            "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
             "type": "string"
           },
           "size": {
@@ -14904,6 +14930,12 @@ func init() {
           "404": {
             "description": "Source object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
@@ -14997,6 +15029,12 @@ func init() {
           "404": {
             "description": "Source object not found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request. Ensure the property exists and is a reference type.",
             "schema": {
@@ -15089,6 +15127,12 @@ func init() {
           },
           "404": {
             "description": "Object or reference not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -18284,6 +18328,10 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
+        "incremental_base_backup_id": {
+          "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
+          "type": "string"
+        },
         "path": {
           "description": "Destination path of backup files valid for the selected backend.",
           "type": "string"
@@ -18339,6 +18387,10 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
+          "type": "string"
+        },
+        "incremental_base_backup_id": {
+          "description": "The ID of the base backup this incremental backup was built on; empty if the backup is not incremental.",
           "type": "string"
         },
         "size": {

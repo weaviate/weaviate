@@ -110,7 +110,9 @@ func NewCoordinator(
 
 // Tick cleans up every namespace currently in the deleting state. A
 // per-namespace error is logged and the loop moves on; a not-leader
-// error stops the tick so the new leader can take over.
+// error stops the tick so the new leader can take over. A cancelled ctx
+// (server shutdown) stops the tick cleanly between namespaces and mid
+// cleanup; the next tick resumes the rest.
 //
 // Returns an error if another Tick is already running.
 func (c *Coordinator) Tick(ctx context.Context) error {
@@ -123,8 +125,11 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 		return nil
 	}
 	for _, ns := range c.namespaces.ListDeleting() {
+		if ctx.Err() != nil {
+			return nil
+		}
 		if err := c.cleanupSingleNamespace(ctx, ns); err != nil {
-			if errors.Is(err, types.ErrNotLeader) {
+			if errors.Is(err, types.ErrNotLeader) || ctx.Err() != nil {
 				return nil
 			}
 			c.logger.WithField("namespace", ns).Error(err)
@@ -136,10 +141,14 @@ func (c *Coordinator) Tick(ctx context.Context) error {
 // cleanupSingleNamespace deletes the users, aliases, and classes (in this order) that
 // belong to ns, then removes the namespace entry. If the entry is not
 // empty when RemoveNamespaceEntity reaches the apply path, the error is
-// ignored and the next tick retries.
+// ignored and the next tick retries. ctx is re-checked before every RAFT
+// write so a long cleanup stops on shutdown.
 func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) error {
 	if !c.isLeader() {
 		return types.ErrNotLeader
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := c.raft.DeleteUsersInNamespace(ctx, ns); err != nil {
 		return err
@@ -147,6 +156,9 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 	for _, alias := range c.schema.AliasesInNamespace(ns) {
 		if !c.isLeader() {
 			return types.ErrNotLeader
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		if _, err := c.raft.DeleteAlias(ctx, alias); err != nil {
 			return err
@@ -160,12 +172,18 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 		if !c.isLeader() {
 			return types.ErrNotLeader
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if _, err := c.raft.DeleteClass(ctx, cls); err != nil {
 			return err
 		}
 	}
 	if !c.isLeader() {
 		return types.ErrNotLeader
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if _, err := c.raft.RemoveNamespaceEntity(ctx, ns); err != nil {
 		// Apply re-checks emptiness against authoritative state; the
