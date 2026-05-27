@@ -15,6 +15,7 @@ import (
 	stderrors "errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -137,6 +138,27 @@ func TestNamespaces_IndexesUpdate(t *testing.T) {
 		var badReq *schema.SchemaObjectsIndexesUpdateBadRequest
 		require.True(t, stderrors.As(err, &badReq), "expected 400 after resolution, got %T: %v", err, err)
 	}
+	// setupReindexClassInNs1 creates the class in ns1; its cleanup cancels the
+	// in-flight reindex on "title" then retries the delete until it lands —
+	// CheckClassMutation rejects DeleteClass while a reindex task is active.
+	setupReindexClassInNs1 := func(t *testing.T, name string) {
+		t.Helper()
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      name,
+			Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		}, user1Key)
+		qualified := "customer1:" + name
+		t.Cleanup(func() {
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				// Cancel only matches STARTED tasks; retry covers the window
+				// where the task is transitioning and momentarily uncancellable.
+				_, _ = put(qualified, adminKey, &models.IndexUpdateRequest{
+					Filterable: &models.IndexUpdateFilterable{Cancel: true},
+				})
+				assert.NoError(c, helper.DeleteClassAuthWithReturn(t, qualified, adminKey))
+			}, 30*time.Second, 200*time.Millisecond)
+		})
+	}
 
 	t.Run("namespaced caller: invalid body resolves to 400, not 404", func(t *testing.T) {
 		const class = "IdxPutNsResolve"
@@ -147,7 +169,7 @@ func TestNamespaces_IndexesUpdate(t *testing.T) {
 
 	t.Run("namespaced caller: valid reindex accepted (202)", func(t *testing.T) {
 		const class = "IdxPutNsReindex"
-		setupClassInNs1(t, class, user1Key)
+		setupReindexClassInNs1(t, class)
 		resp, err := put(class, user1Key, validBody()) // short name
 		require.NoError(t, err)
 		require.NotNil(t, resp)
@@ -166,7 +188,7 @@ func TestNamespaces_IndexesUpdate(t *testing.T) {
 
 	t.Run("global admin: valid reindex accepted (202)", func(t *testing.T) {
 		const class = "IdxPutAdminReindex"
-		setupClassInNs1(t, class, user1Key)
+		setupReindexClassInNs1(t, class)
 		resp, err := put("customer1:"+class, adminKey, validBody()) // qualified name
 		require.NoError(t, err)
 		require.NotNil(t, resp)
