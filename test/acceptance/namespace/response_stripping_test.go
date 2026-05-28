@@ -353,6 +353,43 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		assert.Equal(t, "customer1:"+class, helper.GetClassAuth(t, "customer1:"+class, adminKey).Class)
 		assert.Equal(t, "customer2:"+class, helper.GetClassAuth(t, "customer2:"+class, adminKey).Class)
 	})
+
+	t.Run("SchemaDump strips for namespaced caller and keeps qualified for admin", func(t *testing.T) {
+		const class = "SchemaDumpStrip"
+		setupClassInBothNamespaces(t, class, user1Key, user2Key)
+
+		dump := func(key string) []*models.Class {
+			resp, err := helper.Client(t).Schema.SchemaDump(clschema.NewSchemaDumpParams(), helper.CreateAuth(key))
+			require.NoError(t, err)
+			require.NotNil(t, resp.Payload)
+			return resp.Payload.Classes
+		}
+
+		u1Classes := dump(user1Key)
+		var u1Names []string
+		for _, c := range u1Classes {
+			u1Names = append(u1Names, c.Class)
+			assert.NotContains(t, c.Class, ":",
+				"namespaced caller must see no qualified class names; got %q", c.Class)
+		}
+		assert.Contains(t, u1Names, class)
+
+		u2Classes := dump(user2Key)
+		var u2Names []string
+		for _, c := range u2Classes {
+			u2Names = append(u2Names, c.Class)
+			assert.NotContains(t, c.Class, ":",
+				"namespaced caller must see no qualified class names; got %q", c.Class)
+		}
+		assert.Contains(t, u2Names, class)
+
+		var adminNames []string
+		for _, c := range dump(adminKey) {
+			adminNames = append(adminNames, c.Class)
+		}
+		assert.Contains(t, adminNames, "customer1:"+class)
+		assert.Contains(t, adminNames, "customer2:"+class)
+	})
 }
 
 // TestNamespaces_ResponseStripping_OwnInfoUsername pins the Username strip
