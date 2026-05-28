@@ -633,7 +633,7 @@ function run_aof_group() {
 function get_aof_group() {
   case "$1" in
     1) echo "test/acceptance/multi_node test/acceptance/actions" ;;
-    2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
+    2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints test/acceptance/backup_restore" ;;
     3) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/grpc test/acceptance/vector_distances" ;;
     *) echo "" ;;
   esac
