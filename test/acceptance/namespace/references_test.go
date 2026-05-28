@@ -446,7 +446,7 @@ func TestNamespaces_References(t *testing.T) {
 		require.NotEmpty(t, resp.Results)
 
 		var foundResolved bool
-		var resolvedName string
+		var resolvedName, resolvedTargetCollection string
 		for _, result := range resp.Results {
 			// Find our Zoo by name.
 			zooName := result.Properties.NonRefProps.Fields["name"]
@@ -458,6 +458,7 @@ func TestNamespaces_References(t *testing.T) {
 					continue
 				}
 				require.NotEmpty(t, np.Properties)
+				resolvedTargetCollection = np.Properties[0].TargetCollection
 				if v, ok := np.Properties[0].NonRefProps.Fields["name"]; ok {
 					resolvedName = v.GetTextValue()
 					if resolvedName == "habitat-lion" {
@@ -468,6 +469,11 @@ func TestNamespaces_References(t *testing.T) {
 		}
 		assert.True(t, foundResolved,
 			"gRPC ref-resolve should inline the customer1:Animal target via the source namespace; got name=%q", resolvedName)
+		// Every expanded cross-ref hit must apply the same strip as the
+		// top-level result — pre-fix the nested branch echoed the qualified
+		// "customer1:Animal" verbatim, leaking the caller's own namespace.
+		assert.Equal(t, "Animal", resolvedTargetCollection,
+			"nested-ref TargetCollection must be stripped of the caller's own namespace prefix")
 	})
 
 	t.Run("gRPC filter-by-ref via SingleTarget returns the right row on NS cluster", func(t *testing.T) {

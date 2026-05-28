@@ -15,16 +15,24 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type AggregateReplier struct {
 	authorizedGetDataTypeOfProp func(string) (string, error)
+	// principal carries the caller identity into parseAggregateGroupedBy so
+	// group-by values that happen to be class names (ref-target grouping on
+	// NS clusters) get the caller's own "<ns>:" stripped before reaching the
+	// wire. nil principal is treated as no-strip (NS-disabled / unauth contexts).
+	principal *models.Principal
 }
 
-func NewAggregateReplier(authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
+func NewAggregateReplier(principal *models.Principal, authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
 	return &AggregateReplier{
+		principal: principal,
 		authorizedGetDataTypeOfProp: func(propName string) (string, error) {
 			class, err := authorizedGetClass(string(params.ClassName))
 			if err != nil {
@@ -92,9 +100,14 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*
 	if in != nil {
 		switch val := in.Value.(type) {
 		case string:
+			// Group-by on a ref-target ends up with the linked class name as
+			// the bucket value. On NS clusters that name is qualified in
+			// storage, so strip the caller's own "<ns>:" before emitting. For
+			// non-class string values (the common case) StripOwnNamespace is
+			// a no-op since there's no separator to match.
 			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: val},
+				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: namespacing.StripOwnNamespace(r.principal, val)},
 			}, nil
 		case bool:
 			return &pb.AggregateReply_Group_GroupedBy{
@@ -112,9 +125,11 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*
 				Value: &pb.AggregateReply_Group_GroupedBy_Int{Int: val},
 			}, nil
 		case []string:
+			// Same rationale as the string case — strip every entry so a
+			// list-shaped ref-target group-by doesn't leak qualified names.
 			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateReply_Group_GroupedBy_Texts{Texts: &pb.TextArray{Values: val}},
+				Value: &pb.AggregateReply_Group_GroupedBy_Texts{Texts: &pb.TextArray{Values: namespacing.StripClassNames(r.principal, val)}},
 			}, nil
 		case []bool:
 			return &pb.AggregateReply_Group_GroupedBy{

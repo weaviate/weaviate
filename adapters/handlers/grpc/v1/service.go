@@ -123,6 +123,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (repl
 	}
 
 	replier := NewAggregateReplier(
+		principal,
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 		params,
 	)
