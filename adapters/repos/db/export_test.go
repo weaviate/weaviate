@@ -21,8 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestAssignShardsToNodes(t *testing.T) {
@@ -126,6 +128,110 @@ func newTestIndexForSnapshot(t *testing.T, className string) *Index {
 		logger:           logrus.New(),
 		shardCreateLocks: esync.NewKeyRWLocker(),
 	}
+}
+
+// TestIsAsyncReplicationEnabledOrIrrelevant covers the config-based export
+// gate: exportable when RF ≤ 1 (irrelevant) or RF > 1 and async replication is
+// not globally disabled.
+func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
+	disabled := func(v bool) *replication.GlobalConfig {
+		return &replication.GlobalConfig{
+			AsyncReplicationDisabled: configRuntime.NewDynamicValue(v),
+		}
+	}
+
+	tests := []struct {
+		name              string
+		replicationFactor int64
+		globalConfig      *replication.GlobalConfig
+		want              bool
+	}{
+		{
+			name:              "RF=1 is irrelevant: always exportable",
+			replicationFactor: 1,
+			globalConfig:      disabled(true),
+			want:              true,
+		},
+		{
+			name:              "RF=0 is irrelevant: always exportable",
+			replicationFactor: 0,
+			globalConfig:      nil,
+			want:              true,
+		},
+		{
+			name:              "RF>1 globally disabled: not exportable",
+			replicationFactor: 3,
+			globalConfig:      disabled(true),
+			want:              false,
+		},
+		{
+			name:              "RF>1 not globally disabled: exportable",
+			replicationFactor: 3,
+			globalConfig:      disabled(false),
+			want:              true,
+		},
+		{
+			name:              "RF>1 nil global config: enabled by default, exportable",
+			replicationFactor: 3,
+			globalConfig:      nil,
+			want:              true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := &Index{
+				Config:                  IndexConfig{ReplicationFactor: tt.replicationFactor},
+				globalreplicationConfig: tt.globalConfig,
+			}
+			assert.Equal(t, tt.want, idx.IsAsyncReplicationEnabledOrIrrelevant())
+		})
+	}
+}
+
+// TestDBIsAsyncReplicationEnabled verifies the DB-level export gate: a missing
+// index is not exportable, and an existing index delegates to its own
+// IsAsyncReplicationEnabledOrIrrelevant predicate.
+func TestDBIsAsyncReplicationEnabled(t *testing.T) {
+	const className = "TestClass"
+
+	newDB := func(idx *Index) *DB {
+		indices := map[string]*Index{}
+		if idx != nil {
+			indices[indexID(schema.ClassName(className))] = idx
+		}
+		return &DB{indices: indices}
+	}
+
+	t.Run("index not found: not exportable", func(t *testing.T) {
+		db := newDB(nil)
+		assert.False(t, db.IsAsyncReplicationEnabled(context.Background(), className))
+	})
+
+	t.Run("RF=1 index: exportable (irrelevant)", func(t *testing.T) {
+		db := newDB(&Index{Config: IndexConfig{ReplicationFactor: 1}})
+		assert.True(t, db.IsAsyncReplicationEnabled(context.Background(), className))
+	})
+
+	t.Run("RF>1 not globally disabled: exportable", func(t *testing.T) {
+		db := newDB(&Index{
+			Config: IndexConfig{ReplicationFactor: 3},
+			globalreplicationConfig: &replication.GlobalConfig{
+				AsyncReplicationDisabled: configRuntime.NewDynamicValue(false),
+			},
+		})
+		assert.True(t, db.IsAsyncReplicationEnabled(context.Background(), className))
+	})
+
+	t.Run("RF>1 with async replication globally disabled: not exportable", func(t *testing.T) {
+		db := newDB(&Index{
+			Config: IndexConfig{ReplicationFactor: 3},
+			globalreplicationConfig: &replication.GlobalConfig{
+				AsyncReplicationDisabled: configRuntime.NewDynamicValue(true),
+			},
+		})
+		assert.False(t, db.IsAsyncReplicationEnabled(context.Background(), className))
+	})
 }
 
 // TestSnapshotShardsForExport_EmptyShardNames asserts that passing an empty
