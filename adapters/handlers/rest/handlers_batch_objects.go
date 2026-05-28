@@ -15,7 +15,6 @@ import (
 	"errors"
 
 	middleware "github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -145,8 +144,14 @@ func (h *batchObjectHandlers) referencesResponse(principal *models.Principal, in
 			errorResponse = errPayloadFromSingleErr(principal, ref.Err)
 			status = models.BatchReferenceResponseAO1ResultStatusFAILED
 		} else {
-			reference.From = strfmt.URI(ref.From.String())
-			reference.To = strfmt.URI(ref.To.String())
+			// Strip the principal's own namespace from the beacons before
+			// they reach the response: the From class is qualified upstream
+			// by resolveNS, and the namespacing contract is that namespaced
+			// callers never see "<ns>:" in their own data. The To helper is
+			// defense in depth — the target class is already short at this
+			// point (QualifyRefTarget normalises it before storage).
+			reference.From = namespacing.StripRefSourceBeacon(principal, ref.From)
+			reference.To = namespacing.StripRefBeacon(principal, ref.To)
 		}
 
 		response[i] = &models.BatchReferenceResponse{

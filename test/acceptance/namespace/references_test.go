@@ -187,6 +187,22 @@ func TestNamespaces_References(t *testing.T) {
 		require.Len(t, resp.Payload, 1)
 		assert.Nil(t, resp.Payload[0].Result.Errors,
 			"expected no batch errors, got %+v", resp.Payload[0].Result.Errors)
+
+		// Beacons echoed back must be namespace-free for the namespaced
+		// caller: usecases/objects/batch_references_add.go qualifies the
+		// From class via resolveNS before the response is built, so without
+		// StripRefSourceBeacon the namespaced caller would see
+		// "weaviate://localhost/customer1:Zoo/<uuid>/hasAnimals" — exactly
+		// the leak that violated the response-stripping contract before
+		// the helper landed.
+		gotFrom := string(resp.Payload[0].From)
+		gotTo := string(resp.Payload[0].To)
+		assert.NotContains(t, gotFrom, "customer1:",
+			"From beacon must not leak the caller's own namespace prefix: %s", gotFrom)
+		assert.NotContains(t, gotTo, "customer1:",
+			"To beacon must stay short for the caller's own namespace: %s", gotTo)
+		assert.Equal(t, "weaviate://localhost/Zoo/"+string(zooID)+"/hasAnimals", gotFrom)
+		assert.Equal(t, "weaviate://localhost/Animal/"+string(animalID), gotTo)
 	})
 
 	t.Run("batch references against cross-namespace target fail that ref", func(t *testing.T) {

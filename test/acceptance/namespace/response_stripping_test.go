@@ -339,6 +339,64 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		assert.Equal(t, class, resp.Payload.Match.Class)
 	})
 
+	// Regression: BatchReferencesCreate used to echo the From beacon back
+	// with the qualified source class because resolveNS rewrites
+	// BatchReference.From.Class to "<ns>:Class" before the response writer
+	// runs (usecases/objects/batch_references_add.go:52-57), and
+	// RefSource.String() embeds Class directly into the URI path. Without
+	// StripRefSourceBeacon, a namespaced caller would see
+	// "weaviate://localhost/customer1:Zoo/<uuid>/hasAnimals" — leaking their
+	// own namespace through the response. The unit-level coverage lives at
+	// usecases/schema/namespacing/resolver_test.go (TestStripRefSourceBeacon,
+	// TestStripRefBeacon); this guards the end-to-end wire shape.
+	t.Run("BatchReferencesCreate response strips own-namespace prefix from From/To beacons", func(t *testing.T) {
+		const zoo, animal = "BatchRefStripZoo", "BatchRefStripAnimal"
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      animal,
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+animal, adminKey) })
+		helper.CreateClassAuth(t, &models.Class{
+			Class: zoo,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "hasAnimals", DataType: []string{animal}},
+			},
+		}, user1Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+zoo, adminKey) })
+
+		zooID := strfmt.UUID("bbbb1111-2222-3333-4444-bbbb11112222")
+		animalID := strfmt.UUID("bbbb3333-4444-5555-6666-bbbb33334444")
+		_, err := helper.CreateObjectWithResponseAuth(t,
+			&models.Object{ID: zooID, Class: zoo, Properties: map[string]any{"name": "z"}}, user1Key)
+		require.NoError(t, err)
+		_, err = helper.CreateObjectWithResponseAuth(t,
+			&models.Object{ID: animalID, Class: animal, Properties: map[string]any{"name": "a"}}, user1Key)
+		require.NoError(t, err)
+
+		refs := []*models.BatchReference{{
+			From: strfmt.URI("weaviate://localhost/" + zoo + "/" + string(zooID) + "/hasAnimals"),
+			To:   strfmt.URI("weaviate://localhost/" + animal + "/" + string(animalID)),
+		}}
+		resp, err := helper.Client(t).Batch.BatchReferencesCreate(
+			batch.NewBatchReferencesCreateParams().WithBody(refs),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err)
+		require.Len(t, resp.Payload, 1)
+		require.Nil(t, resp.Payload[0].Result.Errors,
+			"expected no batch errors, got %+v", resp.Payload[0].Result.Errors)
+
+		gotFrom := string(resp.Payload[0].From)
+		gotTo := string(resp.Payload[0].To)
+		assert.NotContains(t, gotFrom, "customer1:",
+			"namespaced caller must see short From beacon: %s", gotFrom)
+		assert.NotContains(t, gotTo, "customer1:",
+			"namespaced caller must see short To beacon: %s", gotTo)
+		assert.Equal(t, "weaviate://localhost/"+zoo+"/"+string(zooID)+"/hasAnimals", gotFrom)
+		assert.Equal(t, "weaviate://localhost/"+animal+"/"+string(animalID), gotTo)
+	})
+
 	t.Run("cross-NS isolation: same short class name in both namespaces, each sees only own", func(t *testing.T) {
 		const class = "CrossNSStrip"
 		setupClassInBothNamespaces(t, class, user1Key, user2Key)

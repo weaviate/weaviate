@@ -15,8 +15,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
 // SchemaManager is a single-method interface exposing alias resolution.
@@ -310,6 +313,46 @@ func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
 		return
 	}
 	obj.Class = StripOwnNamespace(principal, obj.Class)
+}
+
+// StripRefSourceBeacon returns the RefSource as a beacon URI with the
+// principal's own namespace prefix stripped from the class. The REST batch
+// reference response writer is the only place that serializes a RefSource
+// back to the user; without this strip, namespaced callers see qualified
+// "<ns>:Class" embedded in their own From beacons (they never typed it on
+// the way in — usecases/objects/batch_references_add.go:52-57 qualifies it
+// via resolveNS before the response is built). Returns the unmodified URI
+// for nil RefSource, global principals, or NS-disabled clusters. The input
+// is not mutated.
+func StripRefSourceBeacon(principal *models.Principal, src *crossref.RefSource) strfmt.URI {
+	if src == nil {
+		return ""
+	}
+	if principal == nil || principal.Namespace == "" {
+		return strfmt.URI(src.String())
+	}
+	out := *src
+	out.Class = schema.ClassName(StripOwnNamespace(principal, string(src.Class)))
+	return strfmt.URI(out.String())
+}
+
+// StripRefBeacon is the symmetric helper for cross-ref targets (the To side).
+// At the response-writer call site the target class is already short — the
+// batch_references_add path normalises it via QualifyRefTarget before reaching
+// the handler — but this helper exists as defense in depth: a future change
+// that forgets to short-form the target won't leak the prefix through the
+// response writer. Returns the unmodified URI for nil Ref, global principals,
+// or NS-disabled clusters. The input is not mutated.
+func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
+	if r == nil {
+		return ""
+	}
+	if principal == nil || principal.Namespace == "" {
+		return strfmt.URI(r.String())
+	}
+	out := *r
+	out.Class = StripOwnNamespace(principal, r.Class)
+	return strfmt.URI(out.String())
 }
 
 // StripErrorMessage removes every occurrence of the principal's own
