@@ -1050,6 +1050,39 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 	})
 }
 
+// A stray qualified class on a beacon never leaks into the Href URL.
+func TestExtendReferenceWithAPILink_StripsQualifiedClass(t *testing.T) {
+	cases := []struct {
+		name     string
+		beacon   string
+		wantHref string
+	}{
+		{
+			name:     "short class passes through",
+			beacon:   "weaviate://localhost/Movies/85f78e29-5937-4390-a121-5379f262b4e5",
+			wantHref: "https://awesomehost.com/v1/objects/Movies/85f78e29-5937-4390-a121-5379f262b4e5",
+		},
+		{
+			name:     "qualified class is stripped to short",
+			beacon:   "weaviate://localhost/customer1:Movies/85f78e29-5937-4390-a121-5379f262b4e5",
+			wantHref: "https://awesomehost.com/v1/objects/Movies/85f78e29-5937-4390-a121-5379f262b4e5",
+		},
+		{
+			name:     "beacon without class stays classless",
+			beacon:   "weaviate://localhost/85f78e29-5937-4390-a121-5379f262b4e5",
+			wantHref: "https://awesomehost.com/v1/objects/85f78e29-5937-4390-a121-5379f262b4e5",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &objectHandlers{config: config.Config{Origin: "https://awesomehost.com"}}
+			ref := &models.SingleRef{Beacon: strfmt.URI(tc.beacon)}
+			got := h.extendReferenceWithAPILink(ref)
+			assert.Equal(t, strfmt.URI(tc.wantHref), got.Href)
+		})
+	}
+}
+
 type fakeManager struct {
 	getObjectReturn *models.Object
 	getObjectErr    error

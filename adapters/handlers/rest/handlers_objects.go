@@ -856,11 +856,11 @@ func (h *objectHandlers) extendReferenceWithAPILink(principal *models.Principal,
 		// ignore return unchanged
 		return ref
 	}
-	// Defense in depth: beacons are stored short on every write path today,
-	// but the response writer shouldn't silently rely on that.
-	class := namespacing.StripOwnNamespace(principal, parsed.Class)
-	href := fmt.Sprintf("%s/v1/objects/%s/%s", h.config.Origin, class, parsed.TargetID)
-	if class == "" {
+	// Defensive: beacons are written short, but strip here so a stray qualified
+	// class doesn't leak into the Href URL.
+	parsed.Class = namespacing.StripQualification(parsed.Class)
+	href := fmt.Sprintf("%s/v1/objects/%s/%s", h.config.Origin, parsed.Class, parsed.TargetID)
+	if parsed.Class == "" {
 		href = fmt.Sprintf("%s/v1/objects/%s", h.config.Origin, parsed.TargetID)
 	}
 	ref.Href = strfmt.URI(href)
