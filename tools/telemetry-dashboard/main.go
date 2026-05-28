@@ -449,8 +449,11 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
                 const clientUsage = p.clientUsage || {};
                 const clientHtml = Object.keys(clientUsage).map(function(type) {
                     const versions = clientUsage[type] || {};
+                    // The client SDK type is constrained to a fixed enum by the
+                    // server-side parser, but the version is taken verbatim
+                    // from the X-Weaviate-Client header and must be escaped.
                     const versionItems = Object.keys(versions).map(function(version) {
-                        return version + ' (' + versions[version] + ')';
+                        return escapeHtml(version) + ' (' + versions[version] + ')';
                     }).join(', ');
                     return '<span class="client-item"><strong>' + type + ':</strong> ' + versionItems + '</span>';
                 }).join('');
@@ -504,9 +507,11 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
                 const clientHtml = Object.keys(clientUsage).map(function(type) {
                     const versions = clientUsage[type] || {};
                     var totalCount = 0;
+                    // See renderPayloads: type is enum-constrained, version is
+                    // user-controlled and must be escaped.
                     const versionDetails = Object.keys(versions).map(function(version) {
                         totalCount += versions[version];
-                        return version + ' (' + versions[version] + ')';
+                        return escapeHtml(version) + ' (' + versions[version] + ')';
                     }).join(', ');
                     return '<span class="client-item"><strong>' + type + ':</strong> ' + totalCount + ' total (' + versionDetails + ')</span>';
                 }).join('');
