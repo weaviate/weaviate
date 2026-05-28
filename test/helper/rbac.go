@@ -134,16 +134,23 @@ func CreateUser(t *testing.T, userId, key string) string {
 
 func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) string {
 	t.Helper()
-	resp, err := Client(t).Users.CreateUser(
-		users.NewCreateUserParams().WithUserID(namespace+":"+userId).WithBody(users.CreateUserBody{}),
-		CreateAuth(adminKey),
-	)
-	AssertRequestOk(t, resp, err, nil)
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	require.NotNil(t, resp.Payload)
-	require.NotNil(t, resp.Payload.Apikey)
-	return *resp.Payload.Apikey
+	// Retry until the follower has applied the namespace; the local fast-path
+	// Exists() check 422s before any RAFT command is sent, so this is safe.
+	var apikey string
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(namespace+":"+userId).WithBody(users.CreateUserBody{}),
+			CreateAuth(adminKey),
+		)
+		if !assert.NoError(c, err) {
+			return
+		}
+		if !assert.NotNil(c, resp.Payload.Apikey) {
+			return
+		}
+		apikey = *resp.Payload.Apikey
+	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created in namespace %q", userId, namespace)
+	return apikey
 }
 
 func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time) string {
