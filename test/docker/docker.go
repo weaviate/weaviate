@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"os/exec"
+	"slices"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -167,6 +168,20 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	c := d.containers[nodeIndex]
 	if err := c.container.Start(ctx); err != nil {
 		return fmt.Errorf("cannot start container at index %d : %w", nodeIndex, err)
+	}
+
+	// A restarted container must keep the deterministic static IP it was created
+	// with — RAFT/memberlist peers address it by that IP. Stop/Start preserves the
+	// IPAMConfig requested at creation; assert it so any drift fails loudly here
+	// instead of as a flaky reconvergence timeout downstream.
+	if want := c.StaticIP(); want != "" {
+		ips, err := c.container.ContainerIPs(ctx)
+		if err != nil {
+			return fmt.Errorf("StartAt[%s]: read container IPs after restart: %w", c.name, err)
+		}
+		if !slices.Contains(ips, want) {
+			return fmt.Errorf("StartAt[%s]: static IP %s not preserved across restart (got %v)", c.name, want, ips)
+		}
 	}
 
 	endPoints := map[EndpointName]endpoint{}

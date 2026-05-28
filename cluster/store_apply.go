@@ -105,7 +105,7 @@ func (st *Store) Apply(l *raft.Log) any {
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
-	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
+	schemaOnly := catchingUp || st.cfg.recoverSchemaOnly
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
