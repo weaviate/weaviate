@@ -150,6 +150,68 @@ func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 	return &result
 }
 
+// AwaitReindexLive polls /v1/tasks until the named reindex task is
+// reported in a LIVE (non-terminal) status — STARTED, PREPARING, or
+// SWAPPING — i.e. exactly the states the server-side backup gate
+// ([DB.AnyLiveReindexForShard] via IsLiveReindexTaskStatus) treats as
+// "a reindex is in flight on this shard".
+//
+// Why this and not the index-status surface: the backup admission gate
+// reads DTM task liveness, NOT GET /v1/schema/<class>/indexes. Those are
+// two different surfaces with no ordering guarantee and, with
+// DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS=1, up to ~1s of skew
+// between them. A test that arms "expect the backup to be refused" by
+// waiting on the index-status surface can fire the backup in a window
+// where index-status already reads "indexing" but DTM has not yet
+// registered the task as live (or has already flipped it terminal) — the
+// gate then admits the backup and the expected 422 never arrives. Syncing
+// on the same DTM surface the gate consults removes that TOCTOU.
+//
+// Fails on FAILED/CANCELLED or on timeout (default 120s).
+func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
+	t.Helper()
+	o := applyOptions(opts)
+
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return false
+		}
+		var tasks models.DistributedTasks
+		if err := json.Unmarshal(body, &tasks); err != nil {
+			return false
+		}
+		for _, task := range tasks["reindex"] {
+			if task.ID != taskID {
+				continue
+			}
+			t.Logf("task %s status: %s", taskID, task.Status)
+			switch task.Status {
+			case "FAILED", "CANCELLED":
+				t.Fatalf("reindex task %s reached terminal status %s before going live: %s",
+					taskID, task.Status, task.Error)
+			case "FINISHED":
+				// Drained before we could observe a live status. Treat as a
+				// fixture sizing problem rather than a gate regression: the
+				// caller's "expect refusal" assertion can no longer be
+				// satisfied, so fail loudly with an actionable message.
+				t.Fatalf("reindex task %s reached FINISHED before a live status was observed; "+
+					"increase the import corpus so the migration outlives the gate-arming poll",
+					taskID)
+			case "STARTED", "PREPARING", "SWAPPING":
+				return true
+			}
+		}
+		return false
+	}, o.timeout, 200*time.Millisecond,
+		"reindex task %s should reach a live (STARTED/PREPARING/SWAPPING) status", taskID)
+}
+
 // AwaitReindexFinished polls /v1/tasks until the named reindex task
 // reaches FINISHED. Fails on FAILED or on timeout (default 120s).
 func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) {
