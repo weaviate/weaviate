@@ -1112,6 +1112,62 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 	}
 }
 
+// TestDeleteClassProperty_Namespacing pins that DeleteClassProperty qualifies
+// the class before authorize. The handler itself returns a stub "not supported"
+// error on the happy path (see https://github.com/weaviate/weaviate/issues/973),
+// so a non-stub error proves the qualify step rejected the input first.
+func TestDeleteClassProperty_Namespacing(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name            string
+		enabled         bool
+		principal       *models.Principal
+		inputName       string
+		wantErrContains string
+	}{
+		{
+			name:            "namespaced short input reaches stub after qualify+authorize",
+			enabled:         true,
+			principal:       namespacedPrincipal("customer1"),
+			inputName:       "Movies",
+			wantErrContains: "not supported",
+		},
+		{
+			name:            "namespaced qualified input is rejected by QualifyClass",
+			enabled:         true,
+			principal:       namespacedPrincipal("customer1"),
+			inputName:       "customer1:Movies",
+			wantErrContains: "is not a valid class name",
+		},
+		{
+			name:            "global qualified input reaches stub",
+			enabled:         true,
+			principal:       globalPrincipal(),
+			inputName:       "customer1:Movies",
+			wantErrContains: "not supported",
+		},
+		{
+			name:            "namespaces disabled reaches stub",
+			enabled:         false,
+			principal:       nil,
+			inputName:       "Movies",
+			wantErrContains: "not supported",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, _ := newTestHandlerWithNamespaces(t, tt.enabled)
+
+			err := handler.DeleteClassProperty(context.Background(), tt.principal,
+				tt.inputName, "title")
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantErrContains)
+		})
+	}
+}
+
 // TestDeleteClassPropertyIndex_NoLocalMutationOnUpdatePropertyError pins
 // the regression fixed in PR https://github.com/weaviate/weaviate/pull/11320 after Copilot's review on
 // `cluster/schema/manager.go:520`:
