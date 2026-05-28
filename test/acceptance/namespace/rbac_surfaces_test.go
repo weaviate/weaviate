@@ -125,15 +125,12 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 			t, helper.DefaultBackupConfig(), qualified, s3Backend, backupID,
 			helper.CreateAuth(adminKey))
 		require.NoError(t, err)
-		// Response-stripping contract: StripClassNames is a no-op for global
-		// principals, so root's BackupCreateResponse.Classes must contain the
-		// qualified class name verbatim. (The namespaced-stripped variant is
-		// not reachable here — narrowed admins are forbidden on backup — so
-		// the namespaced strip is covered at the unit level by
-		// TestStripClassNames in usecases/schema/namespacing/.)
+		// Root sees the qualified storage class in BackupCreateResponse.Classes
+		// because backup endpoints are not reachable by namespaced principals
+		// (they 403 above), so no response-side strip is applied here.
 		require.NotNil(t, okResp.Payload)
 		assert.Contains(t, okResp.Payload.Classes, qualified,
-			"root's backup-create response must echo the qualified class through StripClassNames as a no-op")
+			"root's backup-create response must echo the qualified class verbatim")
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))
 	})
 

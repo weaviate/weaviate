@@ -53,10 +53,6 @@ func (n *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *m
 	status := &models.NodesStatusResponse{
 		Nodes: nodeStatuses,
 	}
-	// Shard.Class comes straight from i.Config.ClassName.String() (qualified
-	// storage name); strip the caller's own prefix so namespaced callers
-	// don't see "<ns>:" in their /v1/nodes response. No-op for global admins.
-	namespacing.StripNodesStatusResponse(principal, status)
 
 	n.metricRequestsTotal.logOk("")
 	return nodes.NewNodesGetOK().WithPayload(status)
@@ -86,8 +82,6 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 	status := &models.NodesStatusResponse{
 		Nodes: nodeStatuses,
 	}
-	// Same reason as getNodesStatus — Shard.Class is qualified upstream.
-	namespacing.StripNodesStatusResponse(principal, status)
 
 	n.metricRequestsTotal.logOk("")
 	return nodes.NewNodesGetOK().WithPayload(status)

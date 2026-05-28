@@ -373,29 +373,6 @@ func StripClassNames(principal *models.Principal, classes []string) []string {
 	return out
 }
 
-// StripNodesStatusResponse mutates resp in place to remove the principal's
-// own namespace prefix from every NodeShardStatus.Class. The REST nodes
-// endpoint populates these from i.Config.ClassName.String() (the qualified
-// storage name) — without stripping, namespaced callers see their own
-// "<ns>:" in /v1/nodes and /v1/nodes/{className} responses. No-op for nil
-// resp / nil principal / global principals.
-func StripNodesStatusResponse(principal *models.Principal, resp *models.NodesStatusResponse) {
-	if resp == nil || principal == nil || principal.Namespace == "" {
-		return
-	}
-	for _, node := range resp.Nodes {
-		if node == nil {
-			continue
-		}
-		for _, shard := range node.Shards {
-			if shard == nil {
-				continue
-			}
-			shard.Class = StripOwnNamespace(principal, shard.Class)
-		}
-	}
-}
-
 // StripErrorMessage removes every occurrence of the principal's own
 // "<namespace>:" prefix from msg. Returns msg unchanged when principal is
 // nil or has no namespace.

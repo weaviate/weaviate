@@ -1014,50 +1014,6 @@ func TestStripClassNames(t *testing.T) {
 	}
 }
 
-func TestStripNodesStatusResponse(t *testing.T) {
-	mkResp := func() *models.NodesStatusResponse {
-		return &models.NodesStatusResponse{
-			Nodes: []*models.NodeStatus{
-				{
-					Name: "node-1",
-					Shards: []*models.NodeShardStatus{
-						{Name: "s1", Class: "customer1:Movies"},
-						{Name: "s2", Class: "customer2:Films"},
-						{Name: "s3", Class: "Global"},
-					},
-				},
-				nil, // nil node tolerated
-				{
-					Name:   "node-2",
-					Shards: []*models.NodeShardStatus{nil, {Name: "s4", Class: "customer1:Books"}},
-				},
-			},
-		}
-	}
-	t.Run("namespaced caller: own prefix stripped on every shard", func(t *testing.T) {
-		resp := mkResp()
-		StripNodesStatusResponse(namespacedPrincipal, resp)
-		assert.Equal(t, "Movies", resp.Nodes[0].Shards[0].Class)
-		assert.Equal(t, "customer2:Films", resp.Nodes[0].Shards[1].Class, "foreign NS preserved")
-		assert.Equal(t, "Global", resp.Nodes[0].Shards[2].Class, "unprefixed unchanged")
-		assert.Equal(t, "Books", resp.Nodes[2].Shards[1].Class)
-	})
-	t.Run("global principal: no mutation", func(t *testing.T) {
-		resp := mkResp()
-		StripNodesStatusResponse(globalPrincipal, resp)
-		assert.Equal(t, "customer1:Movies", resp.Nodes[0].Shards[0].Class)
-		assert.Equal(t, "customer1:Books", resp.Nodes[2].Shards[1].Class)
-	})
-	t.Run("nil principal: no mutation", func(t *testing.T) {
-		resp := mkResp()
-		StripNodesStatusResponse(nil, resp)
-		assert.Equal(t, "customer1:Movies", resp.Nodes[0].Shards[0].Class)
-	})
-	t.Run("nil response: no panic", func(t *testing.T) {
-		StripNodesStatusResponse(namespacedPrincipal, nil)
-	})
-}
-
 func TestStripErrorMessage(t *testing.T) {
 	cases := []struct {
 		name      string
