@@ -136,6 +136,10 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		res = filterResultProperties(res, selectProps)
 	}
 
+	// Strip caller's NS from nested LocalRef.Class — mirror of the gRPC
+	// extractRefPropertiesAnswer strip.
+	res = stripResultsOwnNamespace(principal, res)
+
 	return &QueryHybridResp{Results: res}, nil
 }
 
@@ -164,6 +168,53 @@ func buildAdditionalProperties(metadata []string) additional.Properties {
 	}
 
 	return props
+}
+
+// stripResultsOwnNamespace deep-copies results with every nested
+// search.LocalRef.Class stripped of the caller's own NS. Recurses into
+// Fields so deeper cross-refs are stripped too. No-op for global /
+// NS-disabled principals.
+func stripResultsOwnNamespace(principal *models.Principal, results []any) []any {
+	if principal == nil || principal.Namespace == "" || len(results) == 0 {
+		return results
+	}
+	out := make([]any, len(results))
+	for i, r := range results {
+		out[i] = stripResultValue(principal, r)
+	}
+	return out
+}
+
+// stripResultValue handles LocalRef / map / slice; other types pass through.
+func stripResultValue(principal *models.Principal, val any) any {
+	switch v := val.(type) {
+	case search.LocalRef:
+		return search.LocalRef{
+			Class:  namespacing.StripOwnNamespace(principal, v.Class),
+			Fields: stripResultMap(principal, v.Fields),
+		}
+	case map[string]any:
+		return stripResultMap(principal, v)
+	case []any:
+		out := make([]any, len(v))
+		for i, vv := range v {
+			out[i] = stripResultValue(principal, vv)
+		}
+		return out
+	default:
+		return val
+	}
+}
+
+func stripResultMap(principal *models.Principal, m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = stripResultValue(principal, v)
+	}
+	return out
 }
 
 // filterResultProperties filters each result to only include requested properties
