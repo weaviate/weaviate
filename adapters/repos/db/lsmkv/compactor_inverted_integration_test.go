@@ -804,7 +804,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 		i := 0
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 			i++
 			t.Run("verify control during compaction", func(t *testing.T) {
 				var retrieved []kv
@@ -970,7 +970,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
 		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+		for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 			t.Run("verify control during compaction", func(t *testing.T) {
 				var retrieved []kv
 
@@ -1151,7 +1151,7 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
 				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+				for compacted, err = bucket.disk.compactOnce(context.Background()); err == nil && compacted; compacted, err = bucket.disk.compactOnce(context.Background()) {
 					t.Run("check entries during compaction", func(t *testing.T) {
 						res, err := bucket.MapList(ctx, key)
 						assert.Nil(t, err)
