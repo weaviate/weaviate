@@ -158,6 +158,34 @@ func TestHasUntidiedTracker(t *testing.T) {
 	}
 }
 
+// TestIsSemanticMigration pins the semantic/format-only classification
+// (weaviate/0-weaviate-issues#254 promoted change-algorithm to semantic).
+func TestIsSemanticMigration(t *testing.T) {
+	semantic := []ReindexMigrationType{
+		ReindexTypeChangeTokenization,
+		ReindexTypeChangeTokenizationFilterable,
+		ReindexTypeEnableFilterable,
+		ReindexTypeEnableSearchable,
+		ReindexTypeChangeAlgorithm,
+	}
+	formatOnly := []ReindexMigrationType{
+		ReindexTypeRebuildSearchable,
+		ReindexTypeRepairFilterable,
+		ReindexTypeEnableRangeable,
+		ReindexTypeRepairRangeable,
+	}
+	for _, mt := range semantic {
+		t.Run(string(mt)+" → semantic", func(t *testing.T) {
+			require.True(t, IsSemanticMigration(mt))
+		})
+	}
+	for _, mt := range formatOnly {
+		t.Run(string(mt)+" → format-only", func(t *testing.T) {
+			require.False(t, IsSemanticMigration(mt))
+		})
+	}
+}
+
 // TestSemanticMigrationIndexTypes pins the migration-type → index-type
 // mapping. Format-only migrations (repair-*, enable-rangeable) MUST
 // return nil here — they don't go through the swap barrier, so
@@ -189,9 +217,9 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 			want: []string{"filterable"},
 		},
 		{
-			name: "repair-searchable → empty (format-only, no swap barrier)",
+			name: "change-algorithm → searchable (semantic, cluster-wide flag flip)",
 			mt:   ReindexTypeChangeAlgorithm,
-			want: nil,
+			want: []string{"searchable"},
 		},
 		{
 			name: "repair-filterable → empty (format-only)",

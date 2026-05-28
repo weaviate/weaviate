@@ -157,12 +157,22 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			wantBodyHas: "multi-tenant",
 		},
 		{
-			name:       "tenants= empty value treated as nonexistent",
+			// Format-only body so the per-tenant existence check is reached
+			// (semantic bodies short-circuit on the semantic-vs-tenants gate).
+			name:       "tenants=<nonexistent> on MT class with format-only migration",
 			collection: mtClass, property: "text_word",
-			body:        `{"searchable":{"algorithm":"blockmax"}}`,
+			body:        `{"filterable":{"rebuild":true}}`,
 			tenantsQS:   "?tenants=nonexistent_tenant_xyz",
 			wantStatus:  http.StatusBadRequest,
 			wantBodyHas: "does not exist",
+		},
+		{
+			name:       "tenants on semantic change-algorithm rejected",
+			collection: mtClass, property: "text_word",
+			body:        `{"searchable":{"algorithm":"blockmax"}}`,
+			tenantsQS:   "?tenants=t1",
+			wantStatus:  http.StatusBadRequest,
+			wantBodyHas: "semantic migrations",
 		},
 		{
 			name:       "change-tokenization same value (word -> word) rejected",
