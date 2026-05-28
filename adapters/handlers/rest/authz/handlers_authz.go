@@ -134,6 +134,10 @@ func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, prin
 	var errs error
 	for _, policies := range roles {
 		for _, policy := range policies {
+			// GetRoles returns this placeholder for permission-less roles; it grants nothing.
+			if policy.Resource == conv.InternalPlaceHolder {
+				continue
+			}
 			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, policy.Resource); err != nil {
 				errs = errors.Join(errs, err)
 			}
