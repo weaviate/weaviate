@@ -372,6 +372,59 @@ func TestNamespaces_GRPC(t *testing.T) {
 		}
 	})
 
+	// Aggregate GroupBy threads the principal through NewAggregateReplier so
+	// parseAggregateGroupedBy can strip class-name bucket values for the
+	// namespaced caller. The unit suite pins the strip itself
+	// (TestGRPCAggregateReply_GroupByStripsNamespace); this guards the wiring
+	// end-to-end. Non-class bucket values (the common case) are unaffected.
+	t.Run("Aggregate GroupBy on a string property succeeds on NS cluster", func(t *testing.T) {
+		req := &pb.AggregateRequest{
+			Collection:   class,
+			ObjectsCount: true,
+			GroupBy:      &pb.AggregateRequest_GroupBy{Collection: class, Property: "title"},
+		}
+		bucketsFor := func(t *testing.T, key string) []string {
+			t.Helper()
+			resp, err := grpcClient.Aggregate(authCtx(key), req)
+			require.NoError(t, err)
+			groups := resp.GetGroupedResults().GetGroups()
+			require.NotEmpty(t, groups, "expected groupedResults for caller %q", key)
+			out := make([]string, 0, len(groups))
+			for _, g := range groups {
+				val := g.GroupedBy.GetText()
+				// Group-by buckets must never carry the caller's own NS
+				// prefix. The strip in parseAggregateGroupedBy is unconditional
+				// (no-op for non-class strings), so this also catches a
+				// regression where ref-target group-by would have leaked a
+				// qualified class name.
+				assert.NotContains(t, val, "customer1:",
+					"group-by bucket must not leak any '<ns>:' prefix: %s", val)
+				assert.NotContains(t, val, "customer2:",
+					"group-by bucket must not leak any '<ns>:' prefix: %s", val)
+				out = append(out, val)
+			}
+			return out
+		}
+
+		// Each namespaced caller sees only their own seeded buckets;
+		// namespace isolation holds at the aggregate level.
+		buckets1 := bucketsFor(t, user1Key)
+		buckets2 := bucketsFor(t, user2Key)
+		assert.NotEqual(t, buckets1, buckets2,
+			"buckets should differ between namespaces; got %v on both", buckets1)
+
+		// Global admin against the qualified class name: must succeed and
+		// return buckets unchanged (Strip is a no-op for globals).
+		respAdmin, err := grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
+			Collection:   "customer1:" + class,
+			ObjectsCount: true,
+			GroupBy:      &pb.AggregateRequest_GroupBy{Collection: "customer1:" + class, Property: "title"},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, respAdmin.GetGroupedResults().GetGroups(),
+			"admin's aggregate over the qualified class must return the same shape")
+	})
+
 	t.Run("Search and Aggregate via alias resolve per namespace", func(t *testing.T) {
 		// Both namespaces register the same short alias name pointing at
 		// their own copy of MoviesGRPC. The handler must qualify the alias

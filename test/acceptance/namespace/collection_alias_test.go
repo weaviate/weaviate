@@ -539,6 +539,16 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "AliasShortGet", resp.Payload.Alias)
 		require.Equal(t, "AliasShortGetTarget", resp.Payload.Class)
+
+		// Admin-side symmetric: GET the same alias by its qualified name
+		// must return the qualified Alias/Class verbatim (StripAliasResponse
+		// is a no-op for global principals).
+		respAdmin, err := helper.GetAliasAuthWithReturn(t, "customer1:AliasShortGet", adminKey)
+		require.NoError(t, err)
+		assert.Equal(t, "customer1:AliasShortGet", respAdmin.Payload.Alias,
+			"global admin must see the qualified Alias unchanged")
+		assert.Equal(t, "customer1:AliasShortGetTarget", respAdmin.Payload.Class,
+			"global admin must see the qualified Class unchanged")
 	})
 
 	t.Run("global admin alias get with wrong-case namespace prefix returns 422", func(t *testing.T) {

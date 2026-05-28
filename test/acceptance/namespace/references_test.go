@@ -474,6 +474,35 @@ func TestNamespaces_References(t *testing.T) {
 		// "customer1:Animal" verbatim, leaking the caller's own namespace.
 		assert.Equal(t, "Animal", resolvedTargetCollection,
 			"nested-ref TargetCollection must be stripped of the caller's own namespace prefix")
+
+		// Admin-side symmetric check: the same query as adminKey against the
+		// qualified collection must return the QUALIFIED nested
+		// TargetCollection, proving Strip is a no-op for global principals
+		// and the qualified shape is preserved end-to-end.
+		adminReq := searchReq("customer1:Zoo", 100)
+		adminReq.Properties = &pb.PropertiesRequest{
+			NonRefProperties: []string{"name"},
+			RefProperties: []*pb.RefPropertiesRequest{{
+				ReferenceProperty: "hasAnimals",
+				Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"name"}},
+			}},
+		}
+		adminResp, err := grpcClient.Search(authCtx(adminKey), adminReq)
+		require.NoError(t, err)
+		var adminResolvedTargetCollection string
+		for _, result := range adminResp.Results {
+			zooName := result.Properties.NonRefProps.Fields["name"]
+			if zooName == nil || zooName.GetTextValue() != "z-grpc" {
+				continue
+			}
+			for _, np := range result.Properties.RefProps {
+				if np.PropName == "hasAnimals" && len(np.Properties) > 0 {
+					adminResolvedTargetCollection = np.Properties[0].TargetCollection
+				}
+			}
+		}
+		assert.Equal(t, "customer1:Animal", adminResolvedTargetCollection,
+			"admin must see the qualified nested-ref TargetCollection unchanged")
 	})
 
 	t.Run("gRPC filter-by-ref via SingleTarget returns the right row on NS cluster", func(t *testing.T) {
@@ -535,6 +564,11 @@ func TestNamespaces_References(t *testing.T) {
 			if name == "zoo-with-lion" {
 				sawLion = true
 			}
+			// Filter-driven search results must still emit the short-form
+			// TargetCollection for the namespaced caller — a regression that
+			// bypassed StripOwnNamespace on the filter path would land here.
+			assert.Equal(t, "Zoo", r.Properties.TargetCollection,
+				"filter-by-ref result TargetCollection must be stripped for namespaced caller")
 		}
 		assert.True(t, sawTiger, "by-ref filter on hasAnimals.name=='filter-tiger' should return zoo-with-tiger")
 		assert.False(t, sawLion, "by-ref filter must not return zoos whose ref points to a different animal")

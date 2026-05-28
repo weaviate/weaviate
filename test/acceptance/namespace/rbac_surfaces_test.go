@@ -121,10 +121,19 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 		// Root backs up the same namespaced class by qualified name and the backup
 		// reaches SUCCESS — a real, completed operator action.
 		const backupID = "ns-root-backup"
-		_, err = helper.CreateBackupWithAuthz(
+		okResp, err := helper.CreateBackupWithAuthz(
 			t, helper.DefaultBackupConfig(), qualified, s3Backend, backupID,
 			helper.CreateAuth(adminKey))
 		require.NoError(t, err)
+		// Response-stripping contract: StripClassNames is a no-op for global
+		// principals, so root's BackupCreateResponse.Classes must contain the
+		// qualified class name verbatim. (The namespaced-stripped variant is
+		// not reachable here — narrowed admins are forbidden on backup — so
+		// the namespaced strip is covered at the unit level by
+		// TestStripClassNames in usecases/schema/namespacing/.)
+		require.NotNil(t, okResp.Payload)
+		assert.Contains(t, okResp.Payload.Classes, qualified,
+			"root's backup-create response must echo the qualified class through StripClassNames as a no-op")
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))
 	})
 

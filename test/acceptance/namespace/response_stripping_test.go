@@ -309,6 +309,22 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		require.Len(t, resp.Payload, 2)
 		assert.Equal(t, class, resp.Payload[0].Class)
 		assert.Equal(t, class, resp.Payload[1].Class)
+
+		// Admin-side symmetric: posting against the qualified class name
+		// returns the qualified Class verbatim (StripObjectResponseClass is
+		// a no-op for global principals).
+		respAdmin, err := helper.Client(t).Batch.BatchObjectsCreate(
+			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
+				Objects: []*models.Object{
+					{Class: "customer1:" + class, Properties: map[string]any{"title": "admin-a"}},
+				},
+			}),
+			helper.CreateAuth(adminKey),
+		)
+		require.NoError(t, err)
+		require.Len(t, respAdmin.Payload, 1)
+		assert.Equal(t, "customer1:"+class, respAdmin.Payload[0].Class,
+			"global admin must see the qualified Class in the batch-create response")
 	})
 
 	t.Run("batch delete response strips Match.Class", func(t *testing.T) {
@@ -337,6 +353,33 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp.Payload.Match)
 		assert.Equal(t, class, resp.Payload.Match.Class)
+
+		// Admin-side symmetric: seed a fresh row in customer1's class and
+		// delete it via the qualified class name; the echoed Match.Class
+		// must remain qualified (StripOwnNamespace is a no-op for globals).
+		idAdmin := strfmt.UUID("cccc3333-4444-5555-6666-cccc33335555")
+		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID: idAdmin, Class: class, Properties: map[string]any{"title": "admin-kill"},
+		}, user1Key)
+		require.NoError(t, err)
+		killTextAdmin := "admin-kill"
+		respAdmin, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(&models.BatchDelete{
+				Match: &models.BatchDeleteMatch{
+					Class: "customer1:" + class,
+					Where: &models.WhereFilter{
+						Operator:  "Equal",
+						Path:      []string{"title"},
+						ValueText: &killTextAdmin,
+					},
+				},
+			}),
+			helper.CreateAuth(adminKey),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, respAdmin.Payload.Match)
+		assert.Equal(t, "customer1:"+class, respAdmin.Payload.Match.Class,
+			"global admin must see the qualified Match.Class in the batch-delete response")
 	})
 
 	// Regression: BatchReferencesCreate used to echo the From beacon back
