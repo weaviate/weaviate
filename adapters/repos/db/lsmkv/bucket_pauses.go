@@ -18,9 +18,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// pauseCompactionForReindex pauses objects-bucket compaction for a reindex task.
-// Reference-counted and mutex-guarded so parallel reindex tasks on one shard
-// share a single pause and never race the pauseTimer (weaviate/0-weaviate-issues#251).
+// pauseCompactionForReindex ref-counts the pause so parallel reindex tasks on
+// one shard share a single pause (weaviate/0-weaviate-issues#251).
 func (b *Bucket) pauseCompactionForReindex(ctx context.Context) error {
 	b.pauseCompactionMu.Lock()
 	defer b.pauseCompactionMu.Unlock()
@@ -37,8 +36,7 @@ func (b *Bucket) pauseCompactionForReindex(ctx context.Context) error {
 	return nil
 }
 
-// resumeCompactionForReindex is the reference-counted counterpart; it
-// reactivates compaction only once the last reindex pauser resumes.
+// resumeCompactionForReindex reactivates compaction once the last pauser resumes.
 func (b *Bucket) resumeCompactionForReindex(ctx context.Context) error {
 	b.pauseCompactionMu.Lock()
 	defer b.pauseCompactionMu.Unlock()
@@ -58,18 +56,27 @@ func (b *Bucket) resumeCompactionForReindex(ctx context.Context) error {
 	return nil
 }
 
+// doStartPauseTimer + doStopPauseTimer are shared between the backup and reindex
+// pause paths; pauseTimerMu serializes them against the per-bucket pauseTimer.
 func (b *Bucket) doStartPauseTimer() {
 	label := b.GetDir()
 	if monitoring.GetMetrics().Group {
 		label = "n/a"
 	}
-	if metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(label); err == nil {
-		b.pauseTimer = prometheus.NewTimer(metric)
+	metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(label)
+	if err != nil {
+		return
 	}
+	b.pauseTimerMu.Lock()
+	defer b.pauseTimerMu.Unlock()
+	b.pauseTimer = prometheus.NewTimer(metric)
 }
 
 func (b *Bucket) doStopPauseTimer() {
+	b.pauseTimerMu.Lock()
+	defer b.pauseTimerMu.Unlock()
 	if b.pauseTimer != nil {
 		b.pauseTimer.ObserveDuration()
+		b.pauseTimer = nil
 	}
 }

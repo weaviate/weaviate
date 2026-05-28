@@ -24,19 +24,9 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestPauseResumeObjectBucketCompaction_NoRecursiveRLock guards against
-// reintroducing the recursive bucketAccessLock.RLock in Pause/Resume
-// ObjectBucketCompaction (weaviate/0-weaviate-issues#251).
-//
-// Both methods take bucketAccessLock.RLock() and then look up the objects
-// bucket. The fix has them use the non-locking bucketNoLock; the bug used the
-// public Bucket(), which RLocks again. RWMutex is not reentrant: if a writer
-// takes bucketAccessLock.Lock() while queued between the two RLocks, the second
-// RLock blocks, the first is never released, and the store deadlocks.
-//
-// Here many goroutines run Pause/Resume while others hold the write lock; with
-// the recursive RLock this hangs (caught by the timeout), with the fix it
-// drains promptly.
+// TestPauseResumeObjectBucketCompaction_NoRecursiveRLock pins
+// weaviate/0-weaviate-issues#251: a bucketAccessLock writer queued between
+// recursive RLocks deadlocked the store. With the bug, this test hangs.
 func TestPauseResumeObjectBucketCompaction_NoRecursiveRLock(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -72,13 +62,13 @@ func TestPauseResumeObjectBucketCompaction_NoRecursiveRLock(t *testing.T) {
 		}()
 	}
 
-	// Writers take bucketAccessLock.Lock() directly: this is the queued writer
-	// that the recursive RLock deadlocks against.
+	// Queued writers — the contention the recursive RLock would deadlock against.
 	for i := 0; i < writers; i++ {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iters; j++ {
 				store.bucketAccessLock.Lock()
+				runtime.Gosched()
 				store.bucketAccessLock.Unlock()
 			}
 		}()
@@ -98,4 +88,47 @@ func TestPauseResumeObjectBucketCompaction_NoRecursiveRLock(t *testing.T) {
 		t.Fatalf("deadlock: Pause/Resume + write-lock contention did not drain in 60s "+
 			"(recursive bucketAccessLock.RLock regression, see weaviate/0-weaviate-issues#251)\n%s", buf)
 	}
+}
+
+// TestDoStartStopPauseTimer_RaceFree pins the race surfaced on
+// weaviate/weaviate#11486: b.pauseTimer is touched by both the backup path
+// (Store.Pause/ResumeCompaction) and the reindex path
+// (Pause/ResumeObjectBucketCompaction), both via doStartPauseTimer /
+// doStopPauseTimer. Without a shared mutex these race on b.pauseTimer
+// (assignment vs ObserveDuration); -race fails the test under the bug.
+func TestDoStartStopPauseTimer_RaceFree(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	store, err := New(dir, dir, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	defer store.Shutdown(ctx)
+
+	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+		WithStrategy(StrategyReplace)))
+
+	b := store.bucketsByName[helpers.ObjectsBucketLSM]
+	require.NotNil(t, b)
+
+	const (
+		goroutines = 50
+		iters      = 200
+	)
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iters; j++ {
+				b.doStartPauseTimer()
+				b.doStopPauseTimer()
+			}
+		}()
+	}
+	wg.Wait()
 }

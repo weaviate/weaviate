@@ -25,7 +25,7 @@ func (s *Store) PauseObjectBucketCompaction(ctx context.Context) error {
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
-	// bucketNoLock: RLock already held; a recursive RLock would deadlock against a setBucket writer (#251).
+	// Bucket() would recursively RLock and deadlock against a queued writer (weaviate/0-weaviate-issues#251).
 	b := s.bucketNoLock(helpers.ObjectsBucketLSM)
 	if b == nil {
 		return fmt.Errorf("no bucket named 'objects' found in store %s", s.dir)

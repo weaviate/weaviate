@@ -91,7 +91,7 @@ func (s *Store) Bucket(name string) *Bucket {
 	return s.bucketNoLock(name)
 }
 
-// bucketNoLock returns a bucket by name without locking; the caller must hold bucketAccessLock.
+// bucketNoLock returns a bucket by name; caller must hold bucketAccessLock.
 func (s *Store) bucketNoLock(name string) *Bucket {
 	return s.bucketsByName[name]
 }
