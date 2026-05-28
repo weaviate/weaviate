@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"strings"
 	"testing"
@@ -28,12 +29,21 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
+// Retry budget for the WithRetryOnReadOnly mitigation. See AwaitReindexFinished.
+const (
+	readOnlyRetryInterval = 50 * time.Millisecond
+	readOnlyRetryTimeout  = 2 * time.Second
+	readOnlyMaxRetries    = 3
+	readOnlyErrorMarker   = "store is read-only"
+)
+
 // Option configures optional behavior of a helper call.
 type Option func(*options)
 
 type options struct {
-	tenants []string
-	timeout time.Duration
+	tenants            []string
+	timeout            time.Duration
+	resubmitOnReadOnly func() string
 }
 
 func applyOptions(opts []Option) options {
@@ -52,6 +62,34 @@ func WithTenants(tenants []string) Option {
 // WithTimeout overrides the default 120s require.Eventually timeout.
 func WithTimeout(d time.Duration) Option {
 	return func(o *options) { o.timeout = d }
+}
+
+// WithRetryOnReadOnly enables retry-on-read-only for AwaitReindexFinished. When
+// the task transitions to FAILED with an error containing "store is read-only"
+// (the known legacy PQ-compression schema-change code path that briefly marks a
+// collection read-only on any schema change), AwaitReindexFinished polls for
+// readOnlyRetryTimeout at readOnlyRetryInterval (with jitter) and calls
+// `resubmit` to obtain a fresh taskID, retrying up to readOnlyMaxRetries times
+// before failing.
+//
+// The `resubmit` closure must reproduce the SAME schema-change body as the
+// original submit — typically:
+//
+//	submit := func() string {
+//	    return reindexhelpers.SubmitIndexUpdate(t, restURI, class, prop, body)
+//	}
+//	taskID := submit()
+//	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
+//
+// Other FAILED reasons (anything not containing the marker substring) take
+// the original fatal path.
+//
+// The 50ms/2s/3-retry budget composes with the default 120s AwaitReindexFinished
+// timeout — pass WithTimeout(...) to shrink the per-attempt budget if needed.
+//
+// This mitigation will be removed once the server-side fix lands post-v1.38.
+func WithRetryOnReadOnly(resubmit func() string) Option {
+	return func(o *options) { o.resubmitOnReadOnly = resubmit }
 }
 
 // SubmitIndexUpdate fires PUT /v1/schema/{collection}/indexes/{property}
@@ -152,35 +190,93 @@ func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 
 // AwaitReindexFinished polls /v1/tasks until the named reindex task
 // reaches FINISHED. Fails on FAILED or on timeout (default 120s).
+//
+// If WithRetryOnReadOnly is set and the task FAILS with an error containing
+// "store is read-only" (the legacy PQ-compression schema-change race), the
+// helper polls briefly for the read-only window to clear, then resubmits via
+// the supplied closure (up to readOnlyMaxRetries times) before failing.
 func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
 
-	require.Eventually(t, func() bool {
+	deadline := time.Now().Add(o.timeout)
+	retries := 0
+
+	for time.Now().Before(deadline) {
 		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 		if err != nil {
-			return false
+			time.Sleep(1 * time.Second)
+			continue
 		}
-		defer resp.Body.Close()
 		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		if err != nil {
-			return false
+			time.Sleep(1 * time.Second)
+			continue
 		}
 		var tasks models.DistributedTasks
 		if err := json.Unmarshal(body, &tasks); err != nil {
-			return false
+			time.Sleep(1 * time.Second)
+			continue
 		}
+
 		for _, task := range tasks["reindex"] {
-			if task.ID == taskID {
-				t.Logf("task %s status: %s", taskID, task.Status)
-				if task.Status == "FAILED" {
-					t.Fatalf("reindex task failed: %s", task.Error)
-				}
-				return task.Status == "FINISHED"
+			if task.ID != taskID {
+				continue
 			}
+			t.Logf("task %s status: %s", taskID, task.Status)
+			if task.Status == "FINISHED" {
+				return
+			}
+			if task.Status == "FAILED" {
+				// Retry path: legacy PQ-compression schema-change race. The
+				// collection is briefly read-only on any schema change; the
+				// reindex writer collides and surfaces this error. We poll
+				// briefly for the window to clear and resubmit.
+				if o.resubmitOnReadOnly != nil && strings.Contains(task.Error, readOnlyErrorMarker) {
+					if retries >= readOnlyMaxRetries {
+						t.Fatalf("reindex task failed with read-only error after %d retries: %s", retries, task.Error)
+					}
+					retries++
+					t.Logf("reindex task %s hit read-only race (attempt %d/%d); waiting for window to clear before resubmitting: %s",
+						taskID, retries, readOnlyMaxRetries, task.Error)
+					waitForReadOnlyWindow(readOnlyRetryTimeout, readOnlyRetryInterval)
+					newTaskID := o.resubmitOnReadOnly()
+					t.Logf("resubmitted reindex after read-only race; new task %s (was %s)", newTaskID, taskID)
+					taskID = newTaskID
+					// Extend the deadline so a late retry still has the full
+					// per-attempt budget — the contract is documented on
+					// WithRetryOnReadOnly.
+					deadline = time.Now().Add(o.timeout)
+					break
+				}
+				t.Fatalf("reindex task failed: %s", task.Error)
+			}
+			break
 		}
-		return false
-	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
+
+		time.Sleep(1 * time.Second)
+	}
+
+	t.Fatalf("reindex task %s should reach FINISHED status within %s", taskID, o.timeout)
+}
+
+// waitForReadOnlyWindow sleeps for `total` in increments of `step` with 50%-150%
+// jitter, to desynchronize concurrent retriers competing on the same window.
+func waitForReadOnlyWindow(total, step time.Duration) {
+	end := time.Now().Add(total)
+	for time.Now().Before(end) {
+		// Jitter the step between 50% and 150% of the nominal interval.
+		factor := 0.5 + rand.Float64()
+		sleep := time.Duration(float64(step) * factor)
+		if remaining := time.Until(end); sleep > remaining {
+			sleep = remaining
+		}
+		if sleep <= 0 {
+			return
+		}
+		time.Sleep(sleep)
+	}
 }
 
 // AwaitReindexViaIndexes polls GET /v1/schema/{collection}/indexes until

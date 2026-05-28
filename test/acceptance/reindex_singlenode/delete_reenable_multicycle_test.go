@@ -71,10 +71,13 @@ func testDeleteThenReEnableSearchableMultiCycle(t *testing.T, restURI string, cy
 		}), "object %d", i)
 	}
 
-	for cycle := 1; cycle <= cycles; cycle++ {
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
 			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	}
+	for cycle := 1; cycle <= cycles; cycle++ {
+		taskID := submit()
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 		requireSearchableEnabled(t, class, "body")
 		require.GreaterOrEqual(t, bm25Hits(t, class, "fox"), 3,
 			"cycle %d/%d: post-enable bm25('fox') must return all 3 docs", cycle, cycles)
@@ -107,10 +110,13 @@ func testDeleteThenReEnableFilterableMultiCycle(t *testing.T, restURI string, cy
 		}))
 	}
 
-	for cycle := 1; cycle <= cycles; cycle++ {
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 			`{"filterable":{"enabled":true}}`)
-		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	}
+	for cycle := 1; cycle <= cycles; cycle++ {
+		taskID := submit()
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 		requireFilterableEnabled(t, class, "name")
 		require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha"),
 			"cycle %d/%d: post-enable Equal('alpha') must return 1", cycle, cycles)
@@ -142,10 +148,13 @@ func testDeleteThenReEnableRangeableMultiCycle(t *testing.T, restURI string, cyc
 		}))
 	}
 
-	for cycle := 1; cycle <= cycles; cycle++ {
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
 			`{"rangeable":{"enabled":true}}`)
-		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	}
+	for cycle := 1; cycle <= cycles; cycle++ {
+		taskID := submit()
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 		requireRangeableEnabled(t, class, "score")
 		require.Equal(t, 2, rangeFilterHits(t, class, "score", 30),
 			"cycle %d/%d: post-enable LessThan(30) must return 2", cycle, cycles)

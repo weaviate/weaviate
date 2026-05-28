@@ -112,15 +112,21 @@ func testEnableRangeable(t *testing.T, restURI string) {
 		}
 	}()
 
-	taskID1 := reindexhelpers.SubmitIndexUpdate(t, restURI, rangeableClassName, "score", `{"rangeable":{"enabled":true}}`)
+	submitScore := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, rangeableClassName, "score", `{"rangeable":{"enabled":true}}`)
+	}
+	taskID1 := submitScore()
 	t.Logf("submitted reindex task for score: %s", taskID1)
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, rangeableClassName, "score", "rangeable")
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1, reindexhelpers.WithRetryOnReadOnly(submitScore))
 
-	taskID2 := reindexhelpers.SubmitIndexUpdate(t, restURI, rangeableClassName, "price", `{"rangeable":{"enabled":true}}`)
+	submitPrice := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, rangeableClassName, "price", `{"rangeable":{"enabled":true}}`)
+	}
+	taskID2 := submitPrice()
 	t.Logf("submitted reindex task for price: %s", taskID2)
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, rangeableClassName, "price", "rangeable")
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2, reindexhelpers.WithRetryOnReadOnly(submitPrice))
 
 	close(stopCh)
 	wg.Wait()

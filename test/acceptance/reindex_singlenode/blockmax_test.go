@@ -131,7 +131,10 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 		}
 	}()
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, blockmaxClassName, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, blockmaxClassName, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	}
+	taskID := submit()
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// While the rebuild is in flight, GET /indexes must surface
@@ -146,7 +149,7 @@ func testBlockmaxMigration(t *testing.T, restURI string) {
 	}
 
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, blockmaxClassName, "text", "searchable")
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 	// Post-rebuild: GET /indexes must surface algorithm=blockmax and must
 	// no longer carry targetAlgorithm (the rebuild has completed and the

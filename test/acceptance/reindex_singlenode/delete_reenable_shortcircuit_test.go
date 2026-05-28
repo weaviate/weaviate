@@ -81,11 +81,14 @@ func testDeleteThenReEnableShortCircuit(t *testing.T, restURI string) {
 	}
 	results := make([]cycleResult, 3)
 
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
+			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
+	}
 	for cycle := 0; cycle < 3; cycle++ {
 		start := time.Now()
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "body",
-			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+		taskID := submit()
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 		results[cycle].taskID = taskID
 		results[cycle].finishedT = time.Now()
 		results[cycle].duration = time.Since(start)

@@ -123,11 +123,14 @@ func testChangeTokenization(t *testing.T, restURI string) {
 		}
 	}()
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, retokenizeClassName, "filepath", `{"searchable":{"tokenization":"field"}}`)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, retokenizeClassName, "filepath", `{"searchable":{"tokenization":"field"}}`)
+	}
+	taskID := submit()
 	t.Logf("submitted reindex task: %s", taskID)
 
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, retokenizeClassName, "filepath", "searchable")
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 	require.Eventually(t, func() bool {
 		cls := helper.GetClass(t, retokenizeClassName)

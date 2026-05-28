@@ -232,11 +232,14 @@ func runLiveQueryDuringChangeTokenizationCase(
 	indexUpdateJSON := buildTokenizationIndexUpdate(t, indexType, targetTok)
 
 	var taskID string
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text", indexUpdateJSON)
+	}
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(), className, "text", indexUpdateJSON)
+			taskID = submit()
 			t.Logf("submitted change-tokenization-%s task: %s", indexType, taskID)
-			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
+			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submit))
 			require.Eventually(t, func() bool {
 				return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
 					className, "text") == targetTok
@@ -454,12 +457,15 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 	}
 
 	var taskID string
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
+			className, "text", `{"searchable":{"tokenization":"field"}}`)
+	}
 	samples, migrationStart := runMigrationWithProbes(t, compose, className,
 		25*time.Millisecond, 2*time.Second, probe, func() {
-			taskID = reindexhelpers.SubmitIndexUpdate(t, compose.GetWeaviateNode(1).URI(),
-				className, "text", `{"searchable":{"tokenization":"field"}}`)
+			taskID = submit()
 			t.Logf("submitted change-tokenization task: %s", taskID)
-			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second))
+			reindexhelpers.AwaitReindexFinished(t, compose.GetWeaviateNode(1).URI(), taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submit))
 			require.Eventually(t, func() bool {
 				return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
 					className, "text") == "field"

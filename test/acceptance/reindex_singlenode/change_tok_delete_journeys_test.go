@@ -111,9 +111,12 @@ func testChangeTokBothThenDeleteSearchableThenChangeTokFilterable(t *testing.T, 
 	// Step 1: change-tok-both from word → field via {searchable:{tokenization:field}}.
 	// This goes through ReindexTypeChangeTokenization and retokenizes BOTH
 	// buckets.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"searchable":{"tokenization":"field"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submitSearchableField := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"searchable":{"tokenization":"field"}}`)
+	}
+	taskID := submitSearchableField()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submitSearchableField))
 	requireTokenizationEquals(t, class, "name", "field")
 
 	// Step 2: DELETE the searchable index.
@@ -123,9 +126,12 @@ func testChangeTokBothThenDeleteSearchableThenChangeTokFilterable(t *testing.T, 
 	// the searchable bucket and its migration sentinels gone (or never
 	// having existed if step 1 collapsed them properly), this should
 	// retokenize only the filterable bucket cleanly.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submitFilterableWord := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"filterable":{"tokenization":"word"}}`)
+	}
+	taskID = submitFilterableWord()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submitFilterableWord))
 	requireTokenizationEquals(t, class, "name", "word")
 
 	hits := equalFilterHits(t, class, "name", "alpha")
@@ -168,9 +174,12 @@ func testChangeTokFilterableThenDeleteFilterable(t *testing.T, restURI string) {
 	}
 
 	// Step 1: change-tokenization-filterable from field → word.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"filterable":{"tokenization":"word"}}`)
+	}
+	taskID := submit()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 	requireTokenizationEquals(t, class, "name", "word")
 
 	require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha"),
@@ -237,9 +246,12 @@ func testChangeTokFilterableThenEnableSearchable(t *testing.T, restURI string) {
 	}
 
 	// Step 1: retokenize filterable from field → word.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submitFilterable := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"filterable":{"tokenization":"word"}}`)
+	}
+	taskID := submitFilterable()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submitFilterable))
 	requireTokenizationEquals(t, class, "name", "word")
 
 	// Step 2: enable-searchable with matching tokenization "word".
@@ -247,9 +259,12 @@ func testChangeTokFilterableThenEnableSearchable(t *testing.T, restURI string) {
 	// tokenization differs from the property's current tokenization
 	// when there is a pre-existing filterable index, so we use the
 	// same tokenization the filterable was just changed to.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"searchable":{"enabled":true,"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submitSearchable := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"searchable":{"enabled":true,"tokenization":"word"}}`)
+	}
+	taskID = submitSearchable()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submitSearchable))
 	requireSearchableEnabled(t, class, "name")
 	requireTokenizationEquals(t, class, "name", "word")
 
@@ -428,17 +443,23 @@ func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 	}))
 
 	// Step 1: field → word.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submitWord := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"filterable":{"tokenization":"word"}}`)
+	}
+	taskID := submitWord()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submitWord))
 	requireTokenizationEquals(t, class, "name", "word")
 	require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha"),
 		"after first retokenize (word): Equal('alpha') must hit 1")
 
 	// Step 2: word → field.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"field"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submitField := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"filterable":{"tokenization":"field"}}`)
+	}
+	taskID = submitField()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submitField))
 	requireTokenizationEquals(t, class, "name", "field")
 
 	// With "field" the whole string is a single token. Equal('alpha
@@ -556,27 +577,36 @@ func testChangeTokFilterableEnableSearchableThenChangeTokBoth(t *testing.T, rest
 	}
 
 	// Step 1: retokenize filterable from word → field.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"filterable":{"tokenization":"field"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submitFilterableField := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"filterable":{"tokenization":"field"}}`)
+	}
+	taskID := submitFilterableField()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submitFilterableField))
 	requireTokenizationEquals(t, class, "name", "field")
 	require.Equal(t, 1, equalFilterHits(t, class, "name", "alpha beta"),
 		"after step 1 (filterable field): Equal('alpha beta') must hit 1")
 
 	// Step 2: enable-searchable with matching field tokenization (must
 	// match because validateEnableSearchableProperty rejects mismatch).
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"searchable":{"enabled":true,"tokenization":"field"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submitEnableSearchable := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"searchable":{"enabled":true,"tokenization":"field"}}`)
+	}
+	taskID = submitEnableSearchable()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submitEnableSearchable))
 	requireSearchableEnabled(t, class, "name")
 	requireTokenizationEquals(t, class, "name", "field")
 
 	// Step 3: change-tok-both from field → word using
 	// {searchable:{tokenization:word}}. This runs ReindexTypeChangeTokenization
 	// which retokenizes BOTH buckets.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
-		`{"searchable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submitBothWord := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
+			`{"searchable":{"tokenization":"word"}}`)
+	}
+	taskID = submitBothWord()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submitBothWord))
 	requireTokenizationEquals(t, class, "name", "word")
 
 	// Step 4: assert both buckets reflect word tokenization. With

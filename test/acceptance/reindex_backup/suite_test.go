@@ -455,10 +455,13 @@ func testAlgorithmVerb(t *testing.T, restURI string) {
 	// USE_INVERTED_SEARCHABLE=false starts the class on Map (WAND); migrate
 	// it to blockmax via the algorithm verb so the refusal cases below
 	// have an already-blockmax target.
-	preTaskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, propName,
-		`{"searchable":{"algorithm":"blockmax"}}`)
+	submitPre := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, propName,
+			`{"searchable":{"algorithm":"blockmax"}}`)
+	}
+	preTaskID := submitPre()
 	reindexhelpers.AwaitReindexFinished(t, restURI, preTaskID,
-		reindexhelpers.WithTimeout(60*time.Second))
+		reindexhelpers.WithTimeout(60*time.Second), reindexhelpers.WithRetryOnReadOnly(submitPre))
 
 	preTasksResp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 	require.NoError(t, err)
@@ -531,7 +534,10 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 
 	importBodies(t, className, 50_000)
 
-	taskID := submitChangeTokenization(t, restURI, className, propName, "lowercase")
+	submit := func() string {
+		return submitChangeTokenization(t, restURI, className, propName, "lowercase")
+	}
+	taskID := submit()
 	t.Logf("change-tokenization task submitted for mutation-guard probe: %s", taskID)
 
 	awaitIndexingState(t, restURI, className, propName)
@@ -563,7 +569,7 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 	require.Equal(t, http.StatusOK, resp.StatusCode,
 		"class must survive a guard-rejected DELETE; got %d on GET", resp.StatusCode)
 
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(120*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(120*time.Second), reindexhelpers.WithRetryOnReadOnly(submit))
 
 	req, err = http.NewRequest(http.MethodDelete, deleteURL, nil)
 	require.NoError(t, err)

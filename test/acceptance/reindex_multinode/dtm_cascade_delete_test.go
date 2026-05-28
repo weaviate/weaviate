@@ -61,10 +61,13 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	importObjects(t, uri, className, texts)
 
 	// Run a migration → first task record under "reindex" namespace.
-	task1 := reindexhelpers.SubmitIndexUpdate(t, uri, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	submit1 := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, uri, className, "text",
+			`{"searchable":{"tokenization":"field"}}`)
+	}
+	task1 := submit1()
 	reindexhelpers.AwaitReindexFinished(t, uri, task1,
-		reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submit1))
 	t.Logf("first migration FINISHED: task=%s", task1)
 
 	// Spot-check pre-delete: task record is present on this node's view.
@@ -119,12 +122,15 @@ func TestMultiNode_DeleteRecreateCleansReindexTasks(t *testing.T) {
 	// ephemeral host port on every container start.
 	postRestartURI := restURIOf(compose, 1)
 	importObjects(t, postRestartURI, className, texts[:10])
-	task2 := reindexhelpers.SubmitIndexUpdate(t, postRestartURI, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
+	submit2 := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, postRestartURI, className, "text",
+			`{"searchable":{"tokenization":"field"}}`)
+	}
+	task2 := submit2()
 	require.NotEqual(t, task1, task2,
 		"recreated class must produce a fresh task ID, not the old one")
 	reindexhelpers.AwaitReindexFinished(t, postRestartURI, task2,
-		reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submit2))
 	t.Logf("post-recreate migration FINISHED: task=%s", task2)
 }
 

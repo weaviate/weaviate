@@ -96,9 +96,12 @@ func testRepairRangeable(t *testing.T, restURI string) {
 	})
 
 	t.Run("RebuildSucceedsOnEnabledNumeric", func(t *testing.T) {
-		taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score", `{"rangeable":{"rebuild":true}}`)
+		submit := func() string {
+			return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score", `{"rangeable":{"rebuild":true}}`)
+		}
+		taskID := submit()
 		t.Logf("submitted repair-rangeable task: %s", taskID)
 		reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "score", "rangeable")
-		reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+		reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 	})
 }

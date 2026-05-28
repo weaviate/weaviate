@@ -360,6 +360,18 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 	// rolling restart in Phase 4 has something interesting to recover.
 	uri1 := restURIOf(compose, 1)
 	{
+		submitPrice := func() string {
+			return reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
+				`{"rangeable":{"enabled":true}}`)
+		}
+		submitCategory := func() string {
+			return reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
+				`{"filterable":{"enabled":true}}`)
+		}
+		submitPath := func() string {
+			return reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
+				`{"searchable":{"tokenization":"field"}}`)
+		}
 		var (
 			tp, tc, tk string
 			wg         sync.WaitGroup
@@ -367,23 +379,20 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
-				`{"rangeable":{"enabled":true}}`)
+			tp = submitPrice()
 		}()
 		go func() {
 			defer wg.Done()
-			tc = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
-				`{"filterable":{"enabled":true}}`)
+			tc = submitCategory()
 		}()
 		go func() {
 			defer wg.Done()
-			tk = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-				`{"searchable":{"tokenization":"field"}}`)
+			tk = submitPath()
 		}()
 		wg.Wait()
-		reindexhelpers.AwaitReindexFinished(t, uri1, tp, reindexhelpers.WithTimeout(180*time.Second))
-		reindexhelpers.AwaitReindexFinished(t, uri1, tc, reindexhelpers.WithTimeout(180*time.Second))
-		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tp, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitPrice))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tc, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitCategory))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitPath))
 	}
 	time.Sleep(3 * time.Second)
 
@@ -438,6 +447,21 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 	t.Log("submitting post-restart re-apply migrations (3 concurrent)")
 	uri1 = restURIOf(compose, 1)
 	{
+		submitPrice := func() string {
+			return reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
+				`{"rangeable":{"rebuild":true}}`)
+		}
+		submitCategory := func() string {
+			return reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
+				`{"filterable":{"rebuild":true}}`)
+		}
+		submitPath := func() string {
+			// Flip tokenization back to word (the pre-Phase-2 value).
+			// This matches the migration shape from the original
+			// production-scale repro.
+			return reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
+				`{"searchable":{"tokenization":"word"}}`)
+		}
 		var (
 			tp, tc, tk string
 			wg         sync.WaitGroup
@@ -445,28 +469,22 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			tp = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
-				`{"rangeable":{"rebuild":true}}`)
+			tp = submitPrice()
 		}()
 		go func() {
 			defer wg.Done()
-			tc = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
-				`{"filterable":{"rebuild":true}}`)
+			tc = submitCategory()
 		}()
 		go func() {
 			defer wg.Done()
-			// Flip tokenization back to word (the pre-Phase-2 value).
-			// This matches the migration shape from the original
-			// production-scale repro.
-			tk = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-				`{"searchable":{"tokenization":"word"}}`)
+			tk = submitPath()
 		}()
 		wg.Wait()
 		t.Logf("submitted post-restart re-apply migrations: price=%s category=%s path=%s",
 			tp, tc, tk)
-		reindexhelpers.AwaitReindexFinished(t, uri1, tp, reindexhelpers.WithTimeout(180*time.Second))
-		reindexhelpers.AwaitReindexFinished(t, uri1, tc, reindexhelpers.WithTimeout(180*time.Second))
-		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tp, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitPrice))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tc, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitCategory))
+		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitPath))
 	}
 	time.Sleep(3 * time.Second)
 

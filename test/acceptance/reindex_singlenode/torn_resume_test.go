@@ -142,10 +142,13 @@ func testTornResumeEnableRangeable(t *testing.T, restURI string, container testc
 	migDir := "filterable_to_rangeable_score"
 	plantTornSentinels(t, container, class, migDir, []string{"score"})
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
-		`{"rangeable":{"enabled":true}}`)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
+			`{"rangeable":{"enabled":true}}`)
+	}
+	taskID := submit()
 	t.Logf("torn-resume rangeable: submitted task %s with planted torn sentinels", taskID)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 	// Functional check: half the objects have score<50, half score>50.
 	expected := tornResumeObjectCount / 2

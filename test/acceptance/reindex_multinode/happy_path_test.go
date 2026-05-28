@@ -159,14 +159,17 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	}
 
 	// Submit reindex.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	}
+	taskID := submit()
 	t.Logf("submitted reindex task: %s", taskID)
 
 	// Poll until reindex is done via /indexes endpoint.
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "text", "searchable", reindexhelpers.WithTimeout(180*time.Second))
 
 	// Verify task reached FINISHED state.
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submit))
 
 	// Stop background queries.
 	close(stopCh)
@@ -413,10 +416,13 @@ func testQueryConsistencyDuringReindex(t *testing.T, compose *docker.DockerCompo
 	}
 
 	// Submit reindex (repair-searchable — the most common type).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	}
+	taskID := submit()
 	t.Logf("submitted reindex task: %s", taskID)
 
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submit))
 
 	// Continue queries for several consecutive successful rounds after
 	// completion to catch post-swap transients.

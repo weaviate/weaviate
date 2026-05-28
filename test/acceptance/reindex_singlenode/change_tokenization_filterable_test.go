@@ -89,9 +89,12 @@ func testFilterableTokenizationFilterableOnly(t *testing.T, restURI, dataType st
 		"pre-migration: Equal('alpha') with field tokenization must match exactly one object")
 
 	// Submit {"filterable":{"tokenization":"word"}} — the new body shape.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "name",
-		`{"filterable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "name",
+			`{"filterable":{"tokenization":"word"}}`)
+	}
+	taskID := submit()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 	// Schema flag: Tokenization must now be "word".
 	require.Eventually(t, func() bool {
@@ -194,9 +197,12 @@ func testFilterableTokenizationOnBothIndexes(t *testing.T, restURI string) {
 		Class: className, Properties: map[string]interface{}{"name": "gamma"},
 	}))
 
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "name",
-		`{"filterable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "name",
+			`{"filterable":{"tokenization":"word"}}`)
+	}
+	taskID := submit()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 	require.Eventually(t, func() bool {
 		c := helper.GetClass(t, className)

@@ -80,15 +80,21 @@ func TestMultiNode_ChangeTokenization_RoundTrip(t *testing.T) {
 	}
 
 	// word → field.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"field"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
+	submitField := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
+			`{"searchable":{"tokenization":"field"}}`)
+	}
+	taskID := submitField()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitField))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "field")
 
 	// field → word.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
+	submitWord := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
+			`{"searchable":{"tokenization":"word"}}`)
+	}
+	taskID = submitWord()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitWord))
 	awaitTokenizationOnAllNodes(t, compose, className, "text", "word")
 
 	// Per-node assertion: every replica must return the baseline count for

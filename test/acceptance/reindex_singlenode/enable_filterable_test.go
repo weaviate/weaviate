@@ -142,14 +142,20 @@ func testEnableFilterable(t *testing.T, restURI string) {
 	}()
 
 	// 1) Enable filterable on the int property.
-	taskID1 := reindexhelpers.SubmitIndexUpdate(t, restURI, enableFilterableClassName, "score", `{"filterable":{"enabled":true}}`)
+	submitScore := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, enableFilterableClassName, "score", `{"filterable":{"enabled":true}}`)
+	}
+	taskID1 := submitScore()
 	t.Logf("submitted enable-filterable task for score: %s", taskID1)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1, reindexhelpers.WithRetryOnReadOnly(submitScore))
 
 	// 2) Enable filterable on the boolean property.
-	taskID2 := reindexhelpers.SubmitIndexUpdate(t, restURI, enableFilterableClassName, "available", `{"filterable":{"enabled":true}}`)
+	submitAvailable := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, enableFilterableClassName, "available", `{"filterable":{"enabled":true}}`)
+	}
+	taskID2 := submitAvailable()
 	t.Logf("submitted enable-filterable task for available: %s", taskID2)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2, reindexhelpers.WithRetryOnReadOnly(submitAvailable))
 
 	close(stopCh)
 	wg.Wait()

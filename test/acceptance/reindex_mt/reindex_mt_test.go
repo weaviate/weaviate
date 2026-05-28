@@ -136,9 +136,12 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 	}
 
 	// Submit repair-searchable (no tenants param → all tenants).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text", `{"searchable":{"algorithm":"blockmax"}}`)
+	}
+	taskID := submit()
 	t.Logf("repair all tenants task: %s", taskID)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 	// Verify data still intact.
 	for _, tn := range tenantNames {
@@ -173,10 +176,13 @@ func testRepairSpecificTenants(t *testing.T, restURI string) {
 
 	// Repair only t1 and t2.
 	targetTenants := []string{"t1", "t2"}
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants(targetTenants))
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
+			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants(targetTenants))
+	}
+	taskID := submit()
 	t.Logf("repair specific tenants task: %s", taskID)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 	// All tenants should still have data.
 	for _, tn := range tenantNames {
@@ -236,10 +242,13 @@ func testChangeTokenizationMT(t *testing.T, restURI string) {
 	}
 
 	// Change tokenization to field (must target all tenants).
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "filepath",
-		`{"searchable":{"tokenization":"field"}}`)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "filepath",
+			`{"searchable":{"tokenization":"field"}}`)
+	}
+	taskID := submit()
 	t.Logf("change tokenization MT task: %s", taskID)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 	// Wait for schema update.
 	require.Eventually(t, func() bool {
@@ -337,10 +346,13 @@ func testEnableRangeableMT(t *testing.T, restURI string) {
 	}
 
 	// Enable rangeable.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
-		`{"rangeable":{"enabled":true}}`)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
+			`{"rangeable":{"enabled":true}}`)
+	}
+	taskID := submit()
 	t.Logf("enable rangeable MT task: %s", taskID)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 	// Schema should show indexRangeFilters=true.
 	require.Eventually(t, func() bool {

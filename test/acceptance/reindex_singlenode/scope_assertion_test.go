@@ -317,7 +317,10 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			}()
 
 			// Submit the reindex and wait for it to finish.
-			taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, tc.className, tc.target, tc.body)
+			submit := func() string {
+				return reindexhelpers.SubmitIndexUpdate(t, restURI, tc.className, tc.target, tc.body)
+			}
+			taskID := submit()
 			t.Logf("submitted reindex task: %s", taskID)
 
 			// Assertion 3: the task ID must encode the targeted property.
@@ -330,7 +333,7 @@ func testReindexScopeAssertion(t *testing.T, restURI string) {
 			// after FINISHED the task may be pruned, so capture early.
 			assertPayloadProperties(t, restURI, taskID, tc.target)
 
-			reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+			reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 
 			stopPoller()
 

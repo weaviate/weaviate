@@ -158,6 +158,18 @@ func TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle(t *testin
 	// Submit 3 migrations in parallel — same shape as Frontend Claude's
 	// Phase 2 of the 1M-record demo.
 	uri1 := restURIOf(compose, 1)
+	submitPrice := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
+			`{"rangeable":{"enabled":true}}`)
+	}
+	submitCat := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
+			`{"filterable":{"enabled":true}}`)
+	}
+	submitPath := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
+			`{"searchable":{"tokenization":"word"}}`)
+	}
 	var (
 		priceTaskID, catTaskID, pathTaskID string
 		wg                                 sync.WaitGroup
@@ -165,18 +177,15 @@ func TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle(t *testin
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
-		priceTaskID = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "price",
-			`{"rangeable":{"enabled":true}}`)
+		priceTaskID = submitPrice()
 	}()
 	go func() {
 		defer wg.Done()
-		catTaskID = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "category",
-			`{"filterable":{"enabled":true}}`)
+		catTaskID = submitCat()
 	}()
 	go func() {
 		defer wg.Done()
-		pathTaskID = reindexhelpers.SubmitIndexUpdate(t, uri1, className, "path",
-			`{"searchable":{"tokenization":"word"}}`)
+		pathTaskID = submitPath()
 	}()
 	wg.Wait()
 	t.Logf("submitted parallel migrations: price=%s category=%s path=%s",
@@ -185,9 +194,9 @@ func TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle(t *testin
 	// Block until all three reach FINISHED. The default 180s budget per
 	// task is fine — on 10k records the migrations run in seconds, but
 	// they can pile up serially through the scheduler.
-	reindexhelpers.AwaitReindexFinished(t, uri1, priceTaskID, reindexhelpers.WithTimeout(180*time.Second))
-	reindexhelpers.AwaitReindexFinished(t, uri1, catTaskID, reindexhelpers.WithTimeout(180*time.Second))
-	reindexhelpers.AwaitReindexFinished(t, uri1, pathTaskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, uri1, priceTaskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitPrice))
+	reindexhelpers.AwaitReindexFinished(t, uri1, catTaskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitCat))
+	reindexhelpers.AwaitReindexFinished(t, uri1, pathTaskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitPath))
 
 	// Brief settle so schema flips propagate to every node.
 	time.Sleep(3 * time.Second)

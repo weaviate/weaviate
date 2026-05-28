@@ -390,42 +390,54 @@ func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {
 	baselinesBody := captureBaselineCounts(t, compose, className, "body", testBM25Queries)
 
 	// Fire two change-tok migrations in parallel.
+	submitTitleField := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
+			`{"searchable":{"tokenization":"field"}}`)
+	}
+	submitBodyField := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
+			`{"searchable":{"tokenization":"field"}}`)
+	}
 	var wg sync.WaitGroup
 	var titleTaskID, bodyTaskID string
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		titleTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
-			`{"searchable":{"tokenization":"field"}}`)
+		titleTaskID = submitTitleField()
 	}()
 	go func() {
 		defer wg.Done()
-		bodyTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
-			`{"searchable":{"tokenization":"field"}}`)
+		bodyTaskID = submitBodyField()
 	}()
 	wg.Wait()
 
-	reindexhelpers.AwaitReindexFinished(t, restURI, titleTaskID, reindexhelpers.WithTimeout(180*time.Second))
-	reindexhelpers.AwaitReindexFinished(t, restURI, bodyTaskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, titleTaskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitTitleField))
+	reindexhelpers.AwaitReindexFinished(t, restURI, bodyTaskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitBodyField))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "field")
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "field")
 
 	// Now reverse, in parallel.
+	submitTitleWord := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
+			`{"searchable":{"tokenization":"word"}}`)
+	}
+	submitBodyWord := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
+			`{"searchable":{"tokenization":"word"}}`)
+	}
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		titleTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
-			`{"searchable":{"tokenization":"word"}}`)
+		titleTaskID = submitTitleWord()
 	}()
 	go func() {
 		defer wg.Done()
-		bodyTaskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
-			`{"searchable":{"tokenization":"word"}}`)
+		bodyTaskID = submitBodyWord()
 	}()
 	wg.Wait()
 
-	reindexhelpers.AwaitReindexFinished(t, restURI, titleTaskID, reindexhelpers.WithTimeout(180*time.Second))
-	reindexhelpers.AwaitReindexFinished(t, restURI, bodyTaskID, reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, titleTaskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitTitleWord))
+	reindexhelpers.AwaitReindexFinished(t, restURI, bodyTaskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitBodyWord))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "word")
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "word")
 
@@ -549,23 +561,35 @@ func testMultiPropertyRoundTrip(t *testing.T, compose *docker.DockerCompose) {
 	baselinesBody := captureBaselineCounts(t, compose, className, "body", testBM25Queries)
 
 	// Sequential round-trip on title.
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
-		`{"searchable":{"tokenization":"field"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
+	submitTitleField := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
+			`{"searchable":{"tokenization":"field"}}`)
+	}
+	taskID := submitTitleField()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitTitleField))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "field")
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
-		`{"searchable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
+	submitTitleWord := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title",
+			`{"searchable":{"tokenization":"word"}}`)
+	}
+	taskID = submitTitleWord()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitTitleWord))
 	awaitTokenizationOnAllNodes(t, compose, className, "title", "word")
 
 	// Then on body.
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
-		`{"searchable":{"tokenization":"field"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
+	submitBodyField := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
+			`{"searchable":{"tokenization":"field"}}`)
+	}
+	taskID = submitBodyField()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitBodyField))
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "field")
-	taskID = reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
-		`{"searchable":{"tokenization":"word"}}`)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second))
+	submitBodyWord := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body",
+			`{"searchable":{"tokenization":"word"}}`)
+	}
+	taskID = submitBodyWord()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(180*time.Second), reindexhelpers.WithRetryOnReadOnly(submitBodyWord))
 	awaitTokenizationOnAllNodes(t, compose, className, "body", "word")
 
 	// Poll both properties' per-replica counts until they match the

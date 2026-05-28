@@ -154,8 +154,11 @@ func runEnableThenDeleteCycle(
 	requireEnabled func(),
 ) {
 	t.Helper()
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, propName, putBody)
-	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
+	submit := func() string {
+		return reindexhelpers.SubmitIndexUpdate(t, restURI, class, propName, putBody)
+	}
+	taskID := submit()
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithRetryOnReadOnly(submit))
 	requireEnabled()
 	deleteIndex(t, restURI, class, propName, deleteIndexName)
 }
