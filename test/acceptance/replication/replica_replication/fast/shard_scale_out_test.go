@@ -36,9 +36,9 @@ import (
 // TestReplicaMovementShardScaleOutParallelWrites: COPY/single-tenant
 // analogue of TestReplicaMovementTenantParallelWrites. Scales a 3-shard
 // collection rf=1→3 (six COPY ops, two per source shard) while parallel
-// writes hammer every node at CL=ALL. AsyncEnabled=false so the CCL is
-// the only path bringing in-flight writes onto a fresh replica — any
-// lost write surfaces directly.
+// writes hammer every node at CL=ALL. With async replication off (the
+// cluster default in this suite) the CCL is the only path bringing
+// in-flight writes onto a fresh replica — any lost write surfaces directly.
 func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutParallelWrites() {
 	t := suite.T()
 	mainCtx := context.Background()
@@ -62,8 +62,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 
 	t.Run("create thrice-sharded single-tenant class at rf=1", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       1,
-			AsyncEnabled: false,
+			Factor: 1,
 		}
 		paragraphClass.ShardingConfig = map[string]any{"desiredCount": 3}
 		helper.CreateClass(t, paragraphClass)

@@ -131,6 +131,7 @@ type fakeSelector struct {
 	shards        map[string]map[string]*testShard
 	skipped       map[string]map[string]string
 	mt            map[string]bool
+	asyncDisabled map[string]bool
 	snapshotsRoot string
 }
 
@@ -146,8 +147,8 @@ func (s *fakeSelector) IsMultiTenant(_ context.Context, className string) bool {
 	return s.mt[className]
 }
 
-func (s *fakeSelector) IsAsyncReplicationEnabled(_ context.Context, _ string) bool {
-	return true
+func (s *fakeSelector) IsAsyncReplicationEnabled(_ context.Context, className string) bool {
+	return !s.asyncDisabled[className]
 }
 
 func (s *fakeSelector) SnapshotShards(ctx context.Context, className string, shardNames []string, _ string) ([]ShardSnapshotResult, error) {
