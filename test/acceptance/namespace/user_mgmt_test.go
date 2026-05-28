@@ -224,9 +224,9 @@ func TestNamespacedViewerDeniedUserMutations(t *testing.T) {
 }
 
 // TestGlobalOperatorReach — the operator manages users in multiple namespaces
-// via the qualified id, reads roles via both the current and deprecated
-// endpoints, and assigns / revokes roles on a namespaced user (matcher
-// blast-radius guard).
+// via the qualified id, reads roles via the current endpoint, and assigns /
+// revokes roles on a namespaced user (matcher blast-radius guard). The
+// deprecated role-read endpoint is gated off on NS clusters — 410.
 func TestGlobalOperatorReach(t *testing.T) {
 	const ns1, ns2 = "umg-reach-a", "umg-reach-b"
 	helper.CreateNamespace(t, ns1, adminKey)
@@ -262,13 +262,15 @@ func TestGlobalOperatorReach(t *testing.T) {
 	// Read roles via the current endpoint.
 	require.NotNil(t, helper.GetRolesForUser(t, ns1+":bob", adminKey, false))
 
-	// Read roles via the deprecated endpoint.
-	deprecatedResp, err := helper.Client(t).Authz.GetRolesForUserDeprecated(
+	// Deprecated endpoint is gated off on namespace-enabled clusters even
+	// for the operator — 410 Gone.
+	_, err := helper.Client(t).Authz.GetRolesForUserDeprecated(
 		authz.NewGetRolesForUserDeprecatedParams().WithID(ns1+":bob"),
 		helper.CreateAuth(adminKey),
 	)
-	require.NoError(t, err)
-	require.NotNil(t, deprecatedResp)
+	require.Error(t, err)
+	var deprecatedGone *authz.GetRolesForUserDeprecatedGone
+	require.True(t, errors.As(err, &deprecatedGone), "expected GetRolesForUserDeprecatedGone, got %T", err)
 
 	// Assign + revoke a built-in role on a namespaced user — the matcher's
 	// widen branch keeps users/<ns>:<user> reachable for global operators.
@@ -344,14 +346,14 @@ func TestNamespacedAdminAuthzSurface(t *testing.T) {
 	helper.CreateUserWithNamespace(t, "bob", ns, adminKey)
 	t.Cleanup(func() { helper.DeleteUser(t, ns+":bob", adminKey) })
 
-	// 1. Deprecated endpoint fails closed.
+	// 1. Deprecated endpoint is gated off at the handler — 410 Gone.
 	_, err := helper.Client(t).Authz.GetRolesForUserDeprecated(
 		authz.NewGetRolesForUserDeprecatedParams().WithID("bob"),
 		helper.CreateAuth(nsAdminKey),
 	)
 	require.Error(t, err)
-	var deprecatedForbidden *authz.GetRolesForUserDeprecatedForbidden
-	require.True(t, errors.As(err, &deprecatedForbidden), "expected GetRolesForUserDeprecatedForbidden, got %T", err)
+	var deprecatedGone *authz.GetRolesForUserDeprecatedGone
+	require.True(t, errors.As(err, &deprecatedGone), "expected GetRolesForUserDeprecatedGone, got %T", err)
 
 	// 2. assign → 403-at-authz (no AssignAndRevokeUsers grant for namespaced admin).
 	_, err = helper.Client(t).Authz.AssignRoleToUser(

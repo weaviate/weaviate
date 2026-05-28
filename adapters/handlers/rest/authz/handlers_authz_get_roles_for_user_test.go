@@ -445,22 +445,20 @@ func TestGetRolesForUser_OwnUserSelfReadBypass(t *testing.T) {
 	}
 }
 
-// TestGetRolesForUserDeprecated_NamespacedFailsClosed — the deprecated
-// path is not namespace-aware; a namespaced caller's short id authorizes
-// on the raw key, which the matcher cannot specialize to the caller's
-// grant, so 403.
-func TestGetRolesForUserDeprecated_NamespacedFailsClosed(t *testing.T) {
+// TestGetRolesForUserDeprecated_DisabledOnNamespacesEnabled — the deprecated
+// path is gated off at the top of the handler on namespace-enabled clusters;
+// callers get a 410 before any authz / lookup runs. Pre-NS-disabled clusters
+// keep the existing behavior (covered by other tests in this file).
+func TestGetRolesForUserDeprecated_DisabledOnNamespacesEnabled(t *testing.T) {
 	principal := &models.Principal{
 		Username:  "customer1:alice",
 		Namespace: "customer1",
 		UserType:  models.UserTypeInputDb,
 	}
-	authorizer := authorization.NewMockAuthorizer(t)
-	// Authz on the raw key denied — what the matcher produces in production.
-	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("bob")[0]).Return(fmt.Errorf("not allowed"))
-
+	// No authorizer / controller calls — the gate fires first; an unexpected
+	// invocation here would fail the test.
 	h := &authZHandlers{
-		authorizer:        authorizer,
+		authorizer:        authorization.NewMockAuthorizer(t),
 		controller:        NewMockControllerAndGetUsers(t),
 		namespacesEnabled: true,
 	}
@@ -468,6 +466,6 @@ func TestGetRolesForUserDeprecated_NamespacedFailsClosed(t *testing.T) {
 		ID:          "bob",
 		HTTPRequest: req,
 	}, principal)
-	_, ok := res.(*authz.GetRolesForUserDeprecatedForbidden)
-	assert.True(t, ok, "expected 403, got %T", res)
+	_, ok := res.(*authz.GetRolesForUserDeprecatedGone)
+	assert.True(t, ok, "expected 410 Gone, got %T", res)
 }

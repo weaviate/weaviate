@@ -606,6 +606,11 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDeprecatedParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
+	if h.namespacesEnabled {
+		return authz.NewGetRolesForUserDeprecatedGone().WithPayload(cerrors.ErrPayloadFromSingleErr(principal,
+			errors.New("endpoint is not supported in the current cluster configuration")))
+	}
+
 	ownUser := params.ID == principal.Username
 
 	if !ownUser {
@@ -861,6 +866,11 @@ func (h *authZHandlers) getGroupsForRole(params authz.GetGroupsForRoleParams, pr
 // Delete this when 1.29 is not supported anymore
 func (h *authZHandlers) getUsersForRoleDeprecated(params authz.GetUsersForRoleDeprecatedParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
+
+	if h.namespacesEnabled {
+		return authz.NewGetUsersForRoleDeprecatedGone().WithPayload(cerrors.ErrPayloadFromSingleErr(principal,
+			errors.New("endpoint is not supported in the current cluster configuration")))
+	}
 
 	if err := validateEnvVarRoles(params.ID); err != nil && !slices.Contains(h.rbacconfig.RootUsers, principal.Username) {
 		return authz.NewGetUsersForRoleForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
