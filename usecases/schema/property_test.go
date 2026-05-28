@@ -1112,10 +1112,9 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 	}
 }
 
-// TestDeleteClassProperty_Namespacing pins that DeleteClassProperty qualifies
-// the class before authorize. The handler itself returns a stub "not supported"
-// error on the happy path (see https://github.com/weaviate/weaviate/issues/973),
-// so a non-stub error proves the qualify step rejected the input first.
+// TestDeleteClassProperty_Namespacing pins that QualifyClass runs before
+// Authorize; the handler is stubbed (#973), so a non-stub error means the
+// qualify step rejected the input.
 func TestDeleteClassProperty_Namespacing(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

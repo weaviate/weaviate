@@ -157,7 +157,6 @@ func (s *Scheduler) Export(ctx context.Context, principal *models.Principal, id,
 
 	classes = filter.New[string](s.authorizer, s.rbacConfig).Filter(
 		ctx,
-		s.logger,
 		principal,
 		classes,
 		authorization.CREATE,
