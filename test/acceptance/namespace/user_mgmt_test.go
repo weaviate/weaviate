@@ -380,6 +380,74 @@ func TestNamespacedAdminAuthzSurface(t *testing.T) {
 	require.True(t, errors.As(err, &revokeForbidden), "expected RevokeRoleFromUserForbidden, got %T", err)
 }
 
+// TestCreateUserAgainstDeletingNamespace — createUser into a namespace
+// mid-delete is 422. A class makes cleanup non-instant so the race lands
+// somewhere between deleting and gone; both surface 422.
+func TestCreateUserAgainstDeletingNamespace(t *testing.T) {
+	const ns = "umg-deleting"
+	helper.CreateNamespace(t, ns, adminKey)
+
+	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)
+	helper.CreateClassAuth(t, &models.Class{
+		Class:      "Movies",
+		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+	}, nsAdminKey)
+	defer helper.DeleteClassWithoutAssert(t, ns+":Movies", adminKey)
+
+	helper.DeleteNamespace(t, ns, adminKey, helper.WithoutWaitForCleanup())
+	t.Cleanup(func() { helper.WaitForNamespaceGone(t, ns, adminKey, 30*time.Second) })
+
+	_, err := helper.Client(t).Users.CreateUser(
+		users.NewCreateUserParams().WithUserID(ns+":new-user").WithBody(users.CreateUserBody{}),
+		helper.CreateAuth(adminKey),
+	)
+	require.Error(t, err)
+	var unproc *users.CreateUserUnprocessableEntity
+	require.True(t, errors.As(err, &unproc),
+		"expected CreateUserUnprocessableEntity (deleting or gone), got %T: %v", err, err)
+}
+
+// TestNamespacedAdminSelfTargetIs422 — self-delete/deactivate via the
+// short name hits the self-target guard on the resolved key; the 422
+// message must not leak the ':' separator.
+func TestNamespacedAdminSelfTargetIs422(t *testing.T) {
+	const ns = "umg-self"
+	helper.CreateNamespace(t, ns, adminKey)
+	nsAdminKey := createNamespacedUser(t, "alice", ns, adminKey)
+	t.Cleanup(func() { helper.DeleteUser(t, ns+":alice", adminKey) })
+
+	t.Run("self-deactivate", func(t *testing.T) {
+		_, err := helper.Client(t).Users.DeactivateUser(
+			users.NewDeactivateUserParams().WithUserID("alice").WithBody(users.DeactivateUserBody{}),
+			helper.CreateAuth(nsAdminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.DeactivateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc),
+			"expected DeactivateUserUnprocessableEntity, got %T: %v", err, err)
+		require.NotNil(t, unproc.Payload)
+		for _, e := range unproc.Payload.Error {
+			require.NotContains(t, e.Message, ":", "self-deactivate 422 leaked the namespace separator")
+		}
+	})
+
+	t.Run("self-delete", func(t *testing.T) {
+		// Runs last: the 422 keeps alice alive for the outer t.Cleanup.
+		_, err := helper.Client(t).Users.DeleteUser(
+			users.NewDeleteUserParams().WithUserID("alice"),
+			helper.CreateAuth(nsAdminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.DeleteUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc),
+			"expected DeleteUserUnprocessableEntity, got %T: %v", err, err)
+		require.NotNil(t, unproc.Payload)
+		for _, e := range unproc.Payload.Error {
+			require.NotContains(t, e.Message, ":", "self-delete 422 leaked the namespace separator")
+		}
+	})
+}
+
 // containsRoleName reports whether any role in roles has the given name.
 func containsRoleName(roles []*models.Role, name string) bool {
 	for _, r := range roles {

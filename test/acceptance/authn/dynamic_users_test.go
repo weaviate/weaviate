@@ -454,6 +454,37 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
 	})
 
+	t.Run("empty namespace prefix rejected", func(t *testing.T) {
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(":u-empty-ns").WithBody(users.CreateUserBody{}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
+	t.Run("empty user part rejected", func(t *testing.T) {
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID("ns1:").WithBody(users.CreateUserBody{}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
+	t.Run("multi-colon name rejected", func(t *testing.T) {
+		// First ':' is the ns separator; "user:extra" then fails the user-name regex.
+		_, err := helper.Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID("ns1:user:extra").WithBody(users.CreateUserBody{}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Error(t, err)
+		var unproc *users.CreateUserUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	})
+
 	t.Run("unknown namespace rejects", func(t *testing.T) {
 		_, err := helper.Client(t).Users.CreateUser(
 			users.NewCreateUserParams().WithUserID("ns404:u-unknown").WithBody(users.CreateUserBody{}),
