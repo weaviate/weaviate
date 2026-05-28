@@ -1191,58 +1191,6 @@ func (f *fakeManager) DeleteObjectReference(context.Context, *models.Principal,
 	return f.deleteRefErr
 }
 
-// TestExtendReferenceWithAPILink_StripsNamespacePrefix pins the
-// defense-in-depth strip on the Href builder against a hypothetical
-// qualified beacon.
-func TestExtendReferenceWithAPILink_StripsNamespacePrefix(t *testing.T) {
-	h := &objectHandlers{config: config.Config{Origin: "https://weaviate.local"}}
-	const uuid = "85f78e29-5937-4390-a121-5379f262b4e5"
-	cases := []struct {
-		name      string
-		principal *models.Principal
-		beacon    string
-		wantHref  strfmt.URI
-	}{
-		{
-			name:      "namespaced caller: own NS prefix stripped from Href",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			beacon:    "weaviate://localhost/customer1:Animal/" + uuid,
-			wantHref:  strfmt.URI("https://weaviate.local/v1/objects/Animal/" + uuid),
-		},
-		{
-			name:      "namespaced caller: short beacon (production shape) unchanged",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			beacon:    "weaviate://localhost/Animal/" + uuid,
-			wantHref:  strfmt.URI("https://weaviate.local/v1/objects/Animal/" + uuid),
-		},
-		{
-			name:      "namespaced caller: foreign NS prefix preserved",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			beacon:    "weaviate://localhost/customer2:Animal/" + uuid,
-			wantHref:  strfmt.URI("https://weaviate.local/v1/objects/customer2:Animal/" + uuid),
-		},
-		{
-			name:      "global admin: qualified beacon preserved",
-			principal: &models.Principal{Username: "admin"},
-			beacon:    "weaviate://localhost/customer1:Animal/" + uuid,
-			wantHref:  strfmt.URI("https://weaviate.local/v1/objects/customer1:Animal/" + uuid),
-		},
-		{
-			name:      "nil principal: pass-through (NS-disabled cluster)",
-			principal: nil,
-			beacon:    "weaviate://localhost/customer1:Animal/" + uuid,
-			wantHref:  strfmt.URI("https://weaviate.local/v1/objects/customer1:Animal/" + uuid),
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ref := &models.SingleRef{Beacon: strfmt.URI(tc.beacon)}
-			out := h.extendReferenceWithAPILink(tc.principal, ref)
-			assert.Equal(t, tc.wantHref, out.Href)
-		})
-	}
-}
-
 type fakeMetricRequestsTotal struct{}
 
 func (f *fakeMetricRequestsTotal) logError(className string, err error)       {}

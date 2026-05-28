@@ -114,7 +114,7 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 
 	propertiesMap, ok := object.Properties.(map[string]interface{})
 	if ok {
-		object.Properties = h.extendPropertiesWithAPILinks(principal, propertiesMap)
+		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
 	namespacing.StripObjectResponseClass(principal, object)
@@ -218,7 +218,7 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 
 	propertiesMap, ok := object.Properties.(map[string]interface{})
 	if ok {
-		object.Properties = h.extendPropertiesWithAPILinks(principal, propertiesMap)
+		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
 	namespacing.StripObjectResponseClass(principal, object)
@@ -266,7 +266,7 @@ func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
 	for i, object := range list {
 		propertiesMap, ok := object.Properties.(map[string]interface{})
 		if ok {
-			list[i].Properties = h.extendPropertiesWithAPILinks(principal, propertiesMap)
+			list[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
 		namespacing.StripObjectResponseClass(principal, list[i])
 	}
@@ -324,7 +324,7 @@ func (h *objectHandlers) query(params objects.ObjectsListParams,
 	for i, object := range resultSet {
 		propertiesMap, ok := object.Properties.(map[string]interface{})
 		if ok {
-			resultSet[i].Properties = h.extendPropertiesWithAPILinks(principal, propertiesMap)
+			resultSet[i].Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 		}
 		namespacing.StripObjectResponseClass(principal, resultSet[i])
 	}
@@ -412,7 +412,7 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 
 	propertiesMap, ok := object.Properties.(map[string]interface{})
 	if ok {
-		object.Properties = h.extendPropertiesWithAPILinks(principal, propertiesMap)
+		object.Properties = h.extendPropertiesWithAPILinks(propertiesMap)
 	}
 
 	namespacing.StripObjectResponseClass(principal, object)
@@ -826,7 +826,7 @@ func (h *objectHandlers) deleteObjectReferenceDeprecated(params objects.ObjectsR
 	return h.deleteObjectReference(req, principal)
 }
 
-func (h *objectHandlers) extendPropertiesWithAPILinks(principal *models.Principal, schema map[string]interface{}) map[string]interface{} {
+func (h *objectHandlers) extendPropertiesWithAPILinks(schema map[string]interface{}) map[string]interface{} {
 	if schema == nil {
 		return schema
 	}
@@ -837,20 +837,20 @@ func (h *objectHandlers) extendPropertiesWithAPILinks(principal *models.Principa
 			continue
 		}
 
-		schema[key] = h.extendReferencesWithAPILinks(principal, asMultiRef)
+		schema[key] = h.extendReferencesWithAPILinks(asMultiRef)
 	}
 	return schema
 }
 
-func (h *objectHandlers) extendReferencesWithAPILinks(principal *models.Principal, refs models.MultipleRef) models.MultipleRef {
+func (h *objectHandlers) extendReferencesWithAPILinks(refs models.MultipleRef) models.MultipleRef {
 	for i, ref := range refs {
-		refs[i] = h.extendReferenceWithAPILink(principal, ref)
+		refs[i] = h.extendReferenceWithAPILink(ref)
 	}
 
 	return refs
 }
 
-func (h *objectHandlers) extendReferenceWithAPILink(principal *models.Principal, ref *models.SingleRef) *models.SingleRef {
+func (h *objectHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models.SingleRef {
 	parsed, err := crossref.Parse(ref.Beacon.String())
 	if err != nil {
 		// ignore return unchanged
