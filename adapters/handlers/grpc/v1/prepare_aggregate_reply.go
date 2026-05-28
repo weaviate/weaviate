@@ -15,22 +15,16 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type AggregateReplier struct {
 	authorizedGetDataTypeOfProp func(string) (string, error)
-	// principal drives the namespace strip on ref-target group-by values
-	// in parseAggregateGroupedBy. nil = no strip.
-	principal *models.Principal
 }
 
-func NewAggregateReplier(principal *models.Principal, authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
+func NewAggregateReplier(authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
 	return &AggregateReplier{
-		principal: principal,
 		authorizedGetDataTypeOfProp: func(propName string) (string, error) {
 			class, err := authorizedGetClass(string(params.ClassName))
 			if err != nil {
@@ -98,11 +92,9 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*
 	if in != nil {
 		switch val := in.Value.(type) {
 		case string:
-			// Ref-target group-by buckets are qualified class names; strip
-			// the caller's own NS. No-op for non-class strings.
 			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: namespacing.StripOwnNamespace(r.principal, val)},
+				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: val},
 			}, nil
 		case bool:
 			return &pb.AggregateReply_Group_GroupedBy{
@@ -120,10 +112,9 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*
 				Value: &pb.AggregateReply_Group_GroupedBy_Int{Int: val},
 			}, nil
 		case []string:
-			// Same as the string case for list-shaped ref-target buckets.
 			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
-				Value: &pb.AggregateReply_Group_GroupedBy_Texts{Texts: &pb.TextArray{Values: namespacing.StripClassNames(r.principal, val)}},
+				Value: &pb.AggregateReply_Group_GroupedBy_Texts{Texts: &pb.TextArray{Values: val}},
 			}, nil
 		case []bool:
 			return &pb.AggregateReply_Group_GroupedBy{

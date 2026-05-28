@@ -17,61 +17,39 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-// TestGRPCAggregateReply_GroupByStripsNamespace pins the NS strip on
-// group-by bucket values (string + []string) that carry a ref-target
-// class name. Non-class strings are unaffected (no separator).
-func TestGRPCAggregateReply_GroupByStripsNamespace(t *testing.T) {
-	nsCaller := &models.Principal{Username: "u", Namespace: "customer1"}
+// TestGRPCAggregateReply_GroupByPassesValuesThrough pins that bucket
+// values flow unchanged for string / []string. Group-by values can be
+// arbitrary user text (e.g. "customer1:foo"), so we must not rewrite
+// them — ref-target buckets, the one case where a class name could
+// appear, surface as beacon URIs ("weaviate://.../") not bare names.
+func TestGRPCAggregateReply_GroupByPassesValuesThrough(t *testing.T) {
 	cases := []struct {
 		name      string
-		principal *models.Principal
 		in        aggregation.GroupedBy
 		wantValue any
 	}{
 		{
-			name:      "namespaced caller: own-NS class-name bucket stripped (string)",
-			principal: nsCaller,
-			in:        aggregation.GroupedBy{Path: []string{"hasAnimals"}, Value: "customer1:Animal"},
-			wantValue: &pb.AggregateReply_Group_GroupedBy_Text{Text: "Animal"},
+			name:      "string with namespace-shaped prefix is preserved (user data)",
+			in:        aggregation.GroupedBy{Path: []string{"title"}, Value: "customer1:foo"},
+			wantValue: &pb.AggregateReply_Group_GroupedBy_Text{Text: "customer1:foo"},
 		},
 		{
-			name:      "namespaced caller: foreign-NS bucket preserved (string)",
-			principal: nsCaller,
-			in:        aggregation.GroupedBy{Path: []string{"hasAnimals"}, Value: "customer2:Animal"},
-			wantValue: &pb.AggregateReply_Group_GroupedBy_Text{Text: "customer2:Animal"},
-		},
-		{
-			name:      "namespaced caller: plain value unchanged (string)",
-			principal: nsCaller,
-			in:        aggregation.GroupedBy{Path: []string{"name"}, Value: "Tigger"},
+			name:      "plain string value preserved",
+			in:        aggregation.GroupedBy{Path: []string{"title"}, Value: "Tigger"},
 			wantValue: &pb.AggregateReply_Group_GroupedBy_Text{Text: "Tigger"},
 		},
 		{
-			name:      "namespaced caller: own-NS class names in slice stripped ([]string)",
-			principal: nsCaller,
-			in:        aggregation.GroupedBy{Path: []string{"hasAnimals"}, Value: []string{"customer1:Animal", "customer2:Plant", "Global"}},
-			wantValue: &pb.AggregateReply_Group_GroupedBy_Texts{Texts: &pb.TextArray{Values: []string{"Animal", "customer2:Plant", "Global"}}},
-		},
-		{
-			name:      "global admin: qualified bucket preserved",
-			principal: &models.Principal{Username: "admin"},
-			in:        aggregation.GroupedBy{Path: []string{"hasAnimals"}, Value: "customer1:Animal"},
-			wantValue: &pb.AggregateReply_Group_GroupedBy_Text{Text: "customer1:Animal"},
-		},
-		{
-			name:      "nil principal: pass-through (NS-disabled cluster)",
-			principal: nil,
-			in:        aggregation.GroupedBy{Path: []string{"hasAnimals"}, Value: "customer1:Animal"},
-			wantValue: &pb.AggregateReply_Group_GroupedBy_Text{Text: "customer1:Animal"},
+			name:      "[]string preserves every entry verbatim",
+			in:        aggregation.GroupedBy{Path: []string{"tags"}, Value: []string{"customer1:tag", "Global", "customer2:tag"}},
+			wantValue: &pb.AggregateReply_Group_GroupedBy_Texts{Texts: &pb.TextArray{Values: []string{"customer1:tag", "Global", "customer2:tag"}}},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			replier := NewAggregateReplier(tc.principal, nil, nil)
+			replier := NewAggregateReplier(nil, nil)
 			got, err := replier.parseAggregateGroupedBy(&tc.in)
 			require.NoError(t, err)
 			require.NotNil(t, got)
@@ -112,7 +90,7 @@ func TestGRPCAggregateReply(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			replier := NewAggregateReplier(nil, nil, nil)
+			replier := NewAggregateReplier(nil, nil)
 			result, err := replier.Aggregate(tt.res, true)
 			if tt.wantError != nil {
 				require.Error(t, err)

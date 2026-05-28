@@ -372,8 +372,8 @@ func TestNamespaces_GRPC(t *testing.T) {
 		}
 	})
 
-	// End-to-end wire-shape check for parseAggregateGroupedBy strip
-	// (TestGRPCAggregateReply_GroupByStripsNamespace pins the helper).
+	// Namespace isolation for Aggregate GroupBy: each namespace sees only
+	// its own seeded buckets, and admin can still hit the qualified class.
 	t.Run("Aggregate GroupBy on a string property succeeds on NS cluster", func(t *testing.T) {
 		req := &pb.AggregateRequest{
 			Collection:   class,
@@ -388,24 +388,16 @@ func TestNamespaces_GRPC(t *testing.T) {
 			require.NotEmpty(t, groups, "expected groupedResults for caller %q", key)
 			out := make([]string, 0, len(groups))
 			for _, g := range groups {
-				val := g.GroupedBy.GetText()
-				// Buckets must not leak any "<ns>:" prefix.
-				assert.NotContains(t, val, "customer1:",
-					"group-by bucket must not leak any '<ns>:' prefix: %s", val)
-				assert.NotContains(t, val, "customer2:",
-					"group-by bucket must not leak any '<ns>:' prefix: %s", val)
-				out = append(out, val)
+				out = append(out, g.GroupedBy.GetText())
 			}
 			return out
 		}
 
-		// Per-NS isolation: each caller sees only their own seeded buckets.
 		buckets1 := bucketsFor(t, user1Key)
 		buckets2 := bucketsFor(t, user2Key)
 		assert.NotEqual(t, buckets1, buckets2,
 			"buckets should differ between namespaces; got %v on both", buckets1)
 
-		// Admin against qualified class: strip is a no-op.
 		respAdmin, err := grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
 			Collection:   "customer1:" + class,
 			ObjectsCount: true,
