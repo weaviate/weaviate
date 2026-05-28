@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func TestCreateUser(t *testing.T) {
@@ -519,6 +520,12 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		require.NotNil(t, createResp.Payload.Apikey)
 		callerApiKey := *createResp.Payload.Apikey
 		t.Cleanup(func() { helper.DeleteUser(t, callerKey, adminKey) })
+
+		// Grant the namespaced admin role so the caller has CreateUsers
+		// within ns1. Without RBAC the handler-level operator gate is gone,
+		// so creates need an actual permission.
+		helper.AssignRoleToUser(t, adminKey, authorization.Admin, callerKey)
+		helper.WaitForOwnRole(t, callerApiKey, authorization.Admin)
 
 		_, err = helper.Client(t).Users.CreateUser(
 			users.NewCreateUserParams().WithUserID("u2").WithBody(users.CreateUserBody{}),
