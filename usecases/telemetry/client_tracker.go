@@ -136,20 +136,22 @@ func (t *mapTracker[K]) run() {
 }
 
 func (t *mapTracker[K]) processEvent(counts map[K]map[string]int64, ev trackEvent[K]) {
-	if t.maxKeys > 0 && counts[ev.key] == nil && len(counts) >= t.maxKeys {
-		return
-	}
-	if counts[ev.key] == nil {
-		counts[ev.key] = make(map[string]int64)
+	versions, ok := counts[ev.key]
+	if !ok {
+		if t.maxKeys > 0 && len(counts) >= t.maxKeys {
+			return
+		}
+		versions = make(map[string]int64)
+		counts[ev.key] = versions
 	}
 	version := ev.version
 	if version == "" {
 		version = "unknown"
 	}
-	if t.maxVersions > 0 && counts[ev.key][version] == 0 && len(counts[ev.key]) >= t.maxVersions {
+	if _, vok := versions[version]; !vok && t.maxVersions > 0 && len(versions) >= t.maxVersions {
 		return
 	}
-	counts[ev.key][version]++
+	versions[version]++
 }
 
 func (t *mapTracker[K]) deepCopy(counts map[K]map[string]int64) map[K]map[string]int64 {
