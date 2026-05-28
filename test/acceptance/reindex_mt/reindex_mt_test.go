@@ -152,29 +152,42 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 // =============================================================================
 
 func testRepairSpecificTenants(t *testing.T, restURI string) {
+	// Format-only migration on specific tenants. The prior body
+	// `{"searchable":{"algorithm":"blockmax"}}` submitted a
+	// ChangeAlgorithm migration, which is now (post
+	// weaviate/0-weaviate-issues#254) rejected at the handler — the
+	// class-level UsingBlockMaxWAND flag cannot be flipped on a tenant
+	// subset (the un-reindexed tenants' queries would route through
+	// the wrong BM25 path post-flip). Replaced with enable-rangeable
+	// on an int property: format-only, per-tenant compatible, exercises
+	// the same tenant-filter dispatch.
 	className := "MTRepairSpecific"
 	tenantNames := []string{"t1", "t2", "t3", "t4", "t5"}
 
 	createMTClass(t, className, []*models.Property{
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
+		{Name: "score", DataType: []string{"int"}},
 	})
 	addTenants(t, className, tenantNames)
 
 	for _, tn := range tenantNames {
 		for i := 0; i < 3; i++ {
 			obj := &models.Object{
-				Class:      className,
-				Properties: map[string]interface{}{"text": fmt.Sprintf("item_%d from %s", i, tn)},
-				Tenant:     tn,
+				Class: className,
+				Properties: map[string]interface{}{
+					"text":  fmt.Sprintf("item_%d from %s", i, tn),
+					"score": float64(i + 1),
+				},
+				Tenant: tn,
 			}
 			require.NoError(t, helper.CreateObject(t, obj))
 		}
 	}
 
-	// Repair only t1 and t2.
+	// Repair only t1 and t2 via enable-rangeable on the int property.
 	targetTenants := []string{"t1", "t2"}
-	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "text",
-		`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants(targetTenants))
+	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "score",
+		`{"rangeable":{"enabled":true}}`, reindexhelpers.WithTenants(targetTenants))
 	t.Logf("repair specific tenants task: %s", taskID)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
@@ -429,6 +442,15 @@ func testValidation(t *testing.T, restURI string) {
 			`{"searchable":{"tokenization":"field"}}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,
 			"MT class with tenants on change-tokenization should reject as 400: %s", got.Body)
+	})
+
+	t.Run("ChangeAlgorithm_with_tenants", func(t *testing.T) {
+		// Post weaviate/0-weaviate-issues#254, change-algorithm is
+		// semantic — same tenant-subset rejection as change-tokenization.
+		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
+			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"active1"}))
+		require.Equal(t, http.StatusBadRequest, got.StatusCode,
+			"MT class with tenants on change-algorithm should reject as 400: %s", got.Body)
 	})
 
 	t.Run("Nonexistent_tenant", func(t *testing.T) {
