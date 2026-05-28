@@ -41,7 +41,7 @@ const (
 func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
-			tel, sg, sm, ci := newTestTelemeterWithCloudInfo()
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(withClientTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -156,7 +156,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on update", func(t *testing.T) {
-			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(withIntegrationTracker())
+			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(withClientTracker(), withIntegrationTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -254,7 +254,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("on terminate", func(t *testing.T) {
-			tel, sg, _, ci := newTestTelemeterWithCloudInfo(withIntegrationTracker())
+			tel, sg, _, ci := newTestTelemeterWithCloudInfo(withClientTracker(), withIntegrationTracker())
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -364,6 +364,7 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	opts := []telemetryOpt{
 		withConsumerURL(consumerURL),
 		withPushInterval(100 * time.Millisecond),
+		withClientTracker(),
 	}
 	tel, sg, sm := newTestTelemeter(opts...)
 
@@ -643,6 +644,17 @@ func withIntegrationTracker() telemetryOpt {
 	}
 }
 
+// withClientTracker attaches a freshly-spawned ClientTracker so tests that
+// drive buildPayload or directly invoke clientTracker.Track can exercise the
+// ClientUsage field. Needed because the default test telemeter is constructed
+// with telemetryEnabled=false, which skips ClientTracker creation to avoid a
+// goroutine leak in disabled deployments.
+func withClientTracker() telemetryOpt {
+	return func(tel *Telemeter) {
+		tel.clientTracker = NewClientTracker(tel.logger)
+	}
+}
+
 func newTestTelemeter(opts ...telemetryOpt,
 ) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
 ) {
@@ -810,6 +822,7 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // trackClientRequest is a helper function to simulate a client request
 func trackClientRequest(t *testing.T, tel *Telemeter, clientType, userAgent string) {
+	require.NotNil(t, tel.clientTracker, "telemeter must be built with withClientTracker()")
 	req := httptest.NewRequest(http.MethodGet, "/v1/objects", nil)
 	if userAgent != "" {
 		req.Header.Set("User-Agent", userAgent)

@@ -85,14 +85,14 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 		shutdown:          make(chan struct{}),
 		consumer:          consumerURL,
 		pushInterval:      pushInterval,
-		clientTracker:     NewClientTracker(logger),
 		cloudInfoHelper:   newCloudInfoHelper(logger, telemetryEnabled),
 	}
-	// Only spin up the IntegrationTracker goroutine when telemetry is enabled;
-	// otherwise it would leak for the lifetime of the process, since shutdown
-	// only calls Stop when telemetry is enabled. Callers must handle a nil
-	// IntegrationTracker (middleware and debug handlers already do).
+	// Only spin up tracker goroutines when telemetry is enabled; otherwise they
+	// would leak for the lifetime of the process, since shutdown only calls
+	// Stop when telemetry is enabled. Callers must handle a nil tracker
+	// (middleware and debug handlers already do).
 	if telemetryEnabled {
+		tel.clientTracker = NewClientTracker(logger)
 		tel.integrationTracker = NewIntegrationTracker(logger)
 	}
 	return tel
