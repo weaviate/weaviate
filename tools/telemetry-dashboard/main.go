@@ -149,17 +149,49 @@ func (d *Dashboard) GetData() ([]*TelemetryPayload, map[string]*MachineStats) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	// Return copies
+	// Return copies. A shallow copy of *MachineStats is not enough — its
+	// map fields are reference types, so a concurrent AddPayload that
+	// inserts into e.g. stats.ClientUsage[type] would race with the
+	// renderer (or JSON encoder) iterating the same map after GetData
+	// returns and releases the read lock.
 	payloads := make([]*TelemetryPayload, len(d.payloads))
 	copy(payloads, d.payloads)
 
-	machines := make(map[string]*MachineStats)
+	machines := make(map[string]*MachineStats, len(d.machines))
 	for k, v := range d.machines {
-		stats := *v
-		machines[k] = &stats
+		machines[k] = copyMachineStats(v)
 	}
 
 	return payloads, machines
+}
+
+// copyMachineStats returns a deep copy of m so callers can iterate its
+// map fields without holding d.mu against concurrent writers.
+func copyMachineStats(m *MachineStats) *MachineStats {
+	out := *m
+	out.UsedModules = make(map[string]bool, len(m.UsedModules))
+	for k, v := range m.UsedModules {
+		out.UsedModules[k] = v
+	}
+	out.PayloadTypes = make(map[string]int, len(m.PayloadTypes))
+	for k, v := range m.PayloadTypes {
+		out.PayloadTypes[k] = v
+	}
+	out.ClientUsage = copyCountMap(m.ClientUsage)
+	out.ClientIntegrationUsage = copyCountMap(m.ClientIntegrationUsage)
+	return &out
+}
+
+func copyCountMap(m map[string]map[string]int64) map[string]map[string]int64 {
+	out := make(map[string]map[string]int64, len(m))
+	for k, inner := range m {
+		dup := make(map[string]int64, len(inner))
+		for ik, iv := range inner {
+			dup[ik] = iv
+		}
+		out[k] = dup
+	}
+	return out
 }
 
 func main() {
