@@ -60,9 +60,9 @@ func TestCreateUser(t *testing.T) {
 	}()
 	userName := "CreateUserTestUser"
 
-	t.Run("namespace on NS-disabled cluster rejects", func(t *testing.T) {
+	t.Run("qualified name on NS-disabled cluster rejects", func(t *testing.T) {
 		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(userName).WithBody(users.CreateUserBody{Namespace: "ns1"}),
+			users.NewCreateUserParams().WithUserID("ns1:"+userName).WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Error(t, err)
@@ -418,7 +418,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		helper.DeleteUser(t, fullKey, adminKey)
 
 		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(userID).WithBody(users.CreateUserBody{Namespace: "ns1"}),
+			users.NewCreateUserParams().WithUserID(fullKey).WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		require.NoError(t, err)
@@ -456,7 +456,7 @@ func TestCreateUser_Namespaces(t *testing.T) {
 
 	t.Run("unknown namespace rejects", func(t *testing.T) {
 		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("u-unknown").WithBody(users.CreateUserBody{Namespace: "ns404"}),
+			users.NewCreateUserParams().WithUserID("ns404:u-unknown").WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Error(t, err)
@@ -464,9 +464,10 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
 	})
 
-	t.Run("import of existing key on NS-enabled cluster rejects", func(t *testing.T) {
+	t.Run("import on NS-enabled cluster rejects", func(t *testing.T) {
+		imp := true
 		_, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(adminUser).WithBody(users.CreateUserBody{Import: new(true), Namespace: "ns1"}),
+			users.NewCreateUserParams().WithUserID("ns1:"+adminUser).WithBody(users.CreateUserBody{Import: &imp}),
 			helper.CreateAuth(adminKey),
 		)
 		require.Error(t, err)
@@ -474,16 +475,13 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
 	})
 
-	t.Run("non-operator cannot bind a user to a namespace", func(t *testing.T) {
-		// RBAC is off, so the namespaced DB user u1 reaches the handler unconditionally.
-		// The 403 here proves the handler-level IsGlobalOperator check is the ceiling.
-		const (
-			callerID  = "u1"
-			callerKey = "ns1:u1" // operator-facing form
-		)
+	t.Run("namespaced caller is confined to its own namespace", func(t *testing.T) {
+		// A namespaced caller's short-name create lands in its own namespace —
+		// u1 (ns1) cannot create into ns2.
+		const callerKey = "ns1:u1" // operator-facing form
 		helper.DeleteUser(t, callerKey, adminKey)
 		createResp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(callerID).WithBody(users.CreateUserBody{Namespace: "ns1"}),
+			users.NewCreateUserParams().WithUserID(callerKey).WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		require.NoError(t, err)
@@ -492,11 +490,20 @@ func TestCreateUser_Namespaces(t *testing.T) {
 		t.Cleanup(func() { helper.DeleteUser(t, callerKey, adminKey) })
 
 		_, err = helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID("u2").WithBody(users.CreateUserBody{Namespace: "ns2"}),
+			users.NewCreateUserParams().WithUserID("u2").WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(callerApiKey),
 		)
+		require.NoError(t, err)
+		t.Cleanup(func() { helper.DeleteUser(t, "ns1:u2", adminKey) })
+
+		got := helper.GetUser(t, "ns1:u2", adminKey)
+		require.Equal(t, "ns1", got.Namespace)
+		_, err = helper.Client(t).Users.GetUserInfo(
+			users.NewGetUserInfoParams().WithUserID("ns2:u2"),
+			helper.CreateAuth(adminKey),
+		)
 		require.Error(t, err)
-		var forbidden *users.CreateUserForbidden
-		require.True(t, errors.As(err, &forbidden), "expected CreateUserForbidden, got %T: %v", err, err)
+		var notFound *users.GetUserInfoNotFound
+		require.True(t, errors.As(err, &notFound), "expected ns2:u2 to not exist, got %T: %v", err, err)
 	})
 }

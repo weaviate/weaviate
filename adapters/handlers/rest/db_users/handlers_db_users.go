@@ -45,6 +45,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type dynUserHandler struct {
@@ -326,50 +327,53 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 	return usersWithTime
 }
 
+// resolveUserKeyForCreate validates the user id and returns the storage key
+// plus the derived namespace ("" when namespaces are disabled).
+func (h *dynUserHandler) resolveUserKeyForCreate(principal *models.Principal, raw string) (key, ns string, err error) {
+	if !h.namespacesEnabled {
+		if err := validateUserName(raw); err != nil {
+			return "", "", err
+		}
+		return raw, "", nil
+	}
+
+	if err := namespacing.ValidateNamespacePrefix(principal, h.namespacesEnabled, raw, "user"); err != nil {
+		return "", "", err
+	}
+
+	if principal == nil || principal.IsGlobalOperator {
+		ns = namespacing.NamespaceFromQualified(raw)
+		if ns == "" {
+			return "", "", errors.New(`a namespace-qualified user name "<namespace>:<user>" is required`)
+		}
+		// Validate the portion after the "<ns>:" prefix.
+		if err := validateUserName(raw[len(ns)+1:]); err != nil {
+			return "", "", err
+		}
+		return raw, ns, nil
+	}
+
+	// Namespaced principal: short name only (a ':' was rejected above).
+	if err := validateUserName(raw); err != nil {
+		return "", "", err
+	}
+	return apikey.MakeUserKey(raw, principal.Namespace), principal.Namespace, nil
+}
+
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	if err := validateUserName(params.UserID); err != nil {
+	internalKey, ns, err := h.resolveUserKeyForCreate(principal, params.UserID)
+	if err != nil {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(params.UserID)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(internalKey)...); err != nil {
 		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if !h.dbUserEnabled {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
-	}
-
-	// Authorization of namespace-related concerns runs before any 422
-	// validation so an unauthorized caller always sees 403, never leaks
-	// shape-of-request hints via 422 responses.
-	if h.namespacesEnabled && !principal.IsGlobalOperator {
-		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("user management on namespace-enabled clusters is restricted to global operators")))
-	}
-
-	if params.Body.Namespace != "" && !principal.IsGlobalOperator {
-		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only global operators may bind a user to a namespace")))
-	}
-
-	if !h.namespacesEnabled && params.Body.Namespace != "" {
-		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("namespace is not supported: namespaces are not enabled on this cluster")))
-	}
-
-	if h.namespacesEnabled {
-		if params.Body.Namespace == "" {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("namespace is required on namespace-enabled clusters")))
-		}
-		// Fast-path local check before the RAFT round-trip. The apply
-		// path re-validates against authoritative state and surfaces
-		// the same sentinels (mapped below), so the worst case for a
-		// stale local view is a redundant 422.
-		if !h.namespaces.Exists(params.Body.Namespace) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q does not exist", params.Body.Namespace)))
-		}
-		if !h.namespaces.IsActive(params.Body.Namespace) {
-			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted", params.Body.Namespace)))
-		}
 	}
 
 	if params.Body.Import != nil && *params.Body.Import && h.namespacesEnabled {
@@ -404,11 +408,16 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
 	}
 
-	// internalKey is the storage key. For namespaced users it is
-	// "namespace:userId" so two namespaces can host the same short id without
-	// collision; for unnamespaced users it equals params.UserID. Used for all
-	// downstream conflict checks and persistence.
-	internalKey := apikey.MakeUserKey(params.UserID, params.Body.Namespace)
+	// Skip the RAFT round-trip when the namespace is locally known missing or
+	// deleting; the apply path re-validates authoritatively.
+	if ns != "" {
+		if !h.namespaces.Exists(ns) {
+			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q does not exist", ns)))
+		}
+		if !h.namespaces.IsActive(ns) {
+			return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("namespace %q is being deleted", ns)))
+		}
+	}
 
 	if h.staticUserExists(internalKey) {
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user '%v' already exists", params.UserID)))
@@ -434,7 +443,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], params.Body.Namespace, time.Now()); err != nil {
+	if err := h.dbUsers.CreateUser(ctx, internalKey, hash, userIdentifier, apiKey[:3], ns, time.Now()); err != nil {
 		// Apply-time race: surface a deleted/deleting namespace as 422 so
 		// clients can retry against current state.
 		if errors.Is(err, namespaces.ErrNamespaceGone) || errors.Is(err, namespaces.ErrNamespaceDeleting) {

@@ -135,7 +135,7 @@ func CreateUser(t *testing.T, userId, key string) string {
 func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) string {
 	t.Helper()
 	resp, err := Client(t).Users.CreateUser(
-		users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{Namespace: namespace}),
+		users.NewCreateUserParams().WithUserID(namespace+":"+userId).WithBody(users.CreateUserBody{}),
 		CreateAuth(adminKey),
 	)
 	AssertRequestOk(t, resp, err, nil)
