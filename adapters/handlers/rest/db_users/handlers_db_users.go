@@ -119,7 +119,6 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 	resourceFilter := filter.New[*apikey.User](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
 		ctx,
-		h.logger,
 		principal,
 		allUsers,
 		authorization.READ,

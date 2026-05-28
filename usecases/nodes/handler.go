@@ -74,7 +74,6 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 		for i, nodeS := range status {
 			status[i].Shards = resourceFilter.Filter(
 				ctx,
-				m.logger,
 				principal,
 				nodeS.Shards,
 				authorization.READ,

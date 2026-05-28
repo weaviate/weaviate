@@ -1165,6 +1165,42 @@ func TestStripOwnNamespace(t *testing.T) {
 	}
 }
 
+// TestStripHelpers_GlobalOperatorDominatesNamespace pins that every strip
+// helper short-circuits when IsGlobalOperator=true, even if Namespace is set.
+// Today's invariant is "globals have empty namespace"; this gate makes the
+// helpers safe if that invariant ever drifts.
+func TestStripHelpers_GlobalOperatorDominatesNamespace(t *testing.T) {
+	op := &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"}
+
+	t.Run("StripOwnNamespace", func(t *testing.T) {
+		assert.Equal(t, "customer1:Movies", StripOwnNamespace(op, "customer1:Movies"))
+	})
+	t.Run("StripErrorMessage", func(t *testing.T) {
+		assert.Equal(t, "class customer1:Movies not found",
+			StripErrorMessage(op, "class customer1:Movies not found"))
+	})
+	t.Run("StripClassResponse", func(t *testing.T) {
+		got := StripClassResponse(op, &models.Class{Class: "customer1:Movies"})
+		assert.Equal(t, "customer1:Movies", got.Class)
+	})
+	t.Run("StripPropertyResponse", func(t *testing.T) {
+		got := StripPropertyResponse(op, &models.Property{
+			Name: "ref", DataType: []string{"customer1:Movies"},
+		})
+		assert.Equal(t, []string{"customer1:Movies"}, got.DataType)
+	})
+	t.Run("StripAliasResponse", func(t *testing.T) {
+		got := StripAliasResponse(op, &models.Alias{Alias: "customer1:Films", Class: "customer1:Movies"})
+		assert.Equal(t, "customer1:Films", got.Alias)
+		assert.Equal(t, "customer1:Movies", got.Class)
+	})
+	t.Run("StripObjectResponseClass", func(t *testing.T) {
+		obj := &models.Object{Class: "customer1:Movies"}
+		StripObjectResponseClass(op, obj)
+		assert.Equal(t, "customer1:Movies", obj.Class)
+	})
+}
+
 func TestQualifyRefTarget(t *testing.T) {
 	ns := &models.Principal{Username: "u", Namespace: "customer1"}
 	admin := &models.Principal{Username: "admin"}

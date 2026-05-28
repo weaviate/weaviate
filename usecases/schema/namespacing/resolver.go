@@ -225,7 +225,7 @@ func QualifyPropertyDataTypes(
 // or short input). A foreign prefix is left intact so downstream
 // ValidateClassName fails closed on the embedded ":".
 func StripOwnNamespace(principal *models.Principal, name string) string {
-	if principal == nil || principal.Namespace == "" {
+	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
 		return name
 	}
 	return strings.TrimPrefix(name, principal.Namespace+schema.NamespaceSeparator)
@@ -238,7 +238,7 @@ func StripOwnNamespace(principal *models.Principal, name string) string {
 // pass-through. The input is never mutated: callers can safely pass cached
 // schema pointers without affecting concurrent readers.
 func StripClassResponse(principal *models.Principal, src *models.Class) *models.Class {
-	if src == nil || principal == nil || principal.Namespace == "" {
+	if src == nil || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
 		return src
 	}
 	out := *src
@@ -257,7 +257,7 @@ func StripClassResponse(principal *models.Principal, src *models.Class) *models.
 // namespace prefix. Primitive types (text, int, …) never carry a namespace
 // prefix, so StripOwnNamespace is a no-op on them. The input is never mutated.
 func StripPropertyResponse(principal *models.Principal, src *models.Property) *models.Property {
-	if src == nil || principal == nil || principal.Namespace == "" {
+	if src == nil || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
 		return src
 	}
 	out := *src
@@ -302,7 +302,7 @@ func stripDataTypes(principal *models.Principal, src []string) []string {
 // mutated: callers can safely pass cached schema pointers without affecting
 // concurrent readers.
 func StripAliasResponse(principal *models.Principal, src *models.Alias) *models.Alias {
-	if src == nil || principal == nil || principal.Namespace == "" {
+	if src == nil || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
 		return src
 	}
 	out := *src
@@ -316,7 +316,7 @@ func StripAliasResponse(principal *models.Principal, src *models.Alias) *models.
 // objects manager — there are no shared pointers to protect — so in-place
 // mutation is safe.
 func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
-	if obj == nil || principal == nil || principal.Namespace == "" {
+	if obj == nil || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
 		return
 	}
 	obj.Class = StripOwnNamespace(principal, obj.Class)
@@ -326,7 +326,7 @@ func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
 // "<namespace>:" prefix from msg. Returns msg unchanged when principal is
 // nil or has no namespace.
 func StripErrorMessage(principal *models.Principal, msg string) string {
-	if principal == nil || principal.Namespace == "" {
+	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
 		return msg
 	}
 	return strings.ReplaceAll(msg, principal.Namespace+schema.NamespaceSeparator, "")
