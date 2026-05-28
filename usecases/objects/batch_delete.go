@@ -136,13 +136,17 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, 0, errors.New("empty match.where clause")
 	}
 
-	// Validate schema given in body with the weaviate schema
+	// GetCachedClass authorizes READ; preserve Forbidden (→ 403), classify
+	// other lookup failures as caller input (→ 422).
 	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get class: %s: %w", match.Class, err)
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, 0, fmt.Errorf("failed to get class: %s: %w", match.Class, err)
+		}
+		return nil, 0, NewErrInvalidUserInput("failed to get class: %s: %v", match.Class, err)
 	}
 	if vclasses[match.Class].Class == nil {
-		return nil, 0, fmt.Errorf("failed to get class: %s", match.Class)
+		return nil, 0, NewErrInvalidUserInput("failed to get class: %s", match.Class)
 	}
 	class := vclasses[match.Class].Class
 
