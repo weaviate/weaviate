@@ -491,8 +491,12 @@ func (f *fakeReplicationFSM) SetUnCancellable(id uint64) error {
 	return nil
 }
 
-func (f *fakeReplicationFSM) HasOngoingReplication(string, string, string) bool {
-	panic("unexpected HasOngoingReplication call")
+func (f *fakeReplicationFSM) HasActiveReplicationForShard(string, string) bool {
+	panic("unexpected HasActiveReplicationForShard call")
+}
+
+func (f *fakeReplicationFSM) HasActiveReplicationForCollection(string) bool {
+	panic("unexpected HasActiveReplicationForCollection call")
 }
 
 func (f *fakeReplicationFSM) DeleteReplicationsByCollection(string) error {

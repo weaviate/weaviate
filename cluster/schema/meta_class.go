@@ -504,7 +504,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			continue
 		}
 
-		if requestTenant.Status == models.TenantActivityStatusCOLD && replicationFSM.HasOngoingReplication(m.Class.Class, requestTenant.Name, nodeID) {
+		// COLD shuts the shard down, which would break an in-flight movement on it.
+		if requestTenant.Status == models.TenantActivityStatusCOLD && replicationFSM.HasActiveReplicationForShard(m.Class.Class, requestTenant.Name) {
 			continue
 		}
 
