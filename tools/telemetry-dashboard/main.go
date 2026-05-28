@@ -14,7 +14,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	htmlpkg "html"
 	"io"
 	"log"
 	"net/http"
@@ -200,10 +199,11 @@ func main() {
 			return
 		}
 
-		payloads, machines := dashboard.GetData()
-		html := generateDashboardHTML(payloads, machines)
+		// The dashboard markup is static; refreshData() populates
+		// #payloads and #machines from /api/data on load and every
+		// 2 seconds thereafter.
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(html))
+		w.Write([]byte(generateDashboardHTML()))
 	})
 
 	// API endpoint for JSON data (for auto-refresh)
@@ -223,7 +223,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(port, nil))
 }
 
-func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*MachineStats) string {
+func generateDashboardHTML() string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -396,14 +396,14 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
             <div class="card">
                 <h2>📊 Recent Payloads</h2>
                 <div class="payload-list" id="payloads">
-                    %s
+                    <div class="empty">Loading…</div>
                 </div>
             </div>
 
             <div class="card">
                 <h2>🖥️ Machines</h2>
                 <div id="machines">
-                    %s
+                    <div class="empty">Loading…</div>
                 </div>
             </div>
         </div>
@@ -593,213 +593,7 @@ func generateDashboardHTML(payloads []*TelemetryPayload, machines map[string]*Ma
         setInterval(refreshData, 2000);
     </script>
 </body>
-</html>`, port, telemetryURL, renderPayloadsHTML(payloads), renderMachinesHTML(machines))
-}
-
-func renderPayloadsHTML(payloads []*TelemetryPayload) string {
-	if len(payloads) == 0 {
-		return `<div class="empty">No telemetry data received yet</div>`
-	}
-
-	html := ""
-	for i := len(payloads) - 1; i >= 0; i-- {
-		p := payloads[i]
-		html += fmt.Sprintf(`
-			<div class="payload-item">
-				<div class="payload-header">
-					<span class="badge badge-%s">%s</span>
-					<span class="payload-time">%s</span>
-				</div>
-				<div><strong>Machine:</strong> <span class="machine-id">%s</span></div>
-				<div><strong>Version:</strong> %s</div>
-				<div><strong>OS/Arch:</strong> %s/%s</div>`,
-			toLower(p.Type), p.Type, formatRelativeTime(p.ReceivedAt),
-			p.MachineID, p.Version, p.OS, p.Arch)
-
-		if p.ObjectsCount > 0 {
-			html += fmt.Sprintf(`<div><strong>Objects:</strong> %s</div>`, formatNumber(p.ObjectsCount))
-		}
-		if p.CollectionsCount > 0 {
-			html += fmt.Sprintf(`<div><strong>Collections:</strong> %d</div>`, p.CollectionsCount)
-		}
-		if len(p.ClientUsage) > 0 {
-			html += `<div class="client-usage"><strong>Client Usage:</strong><br>`
-			for clientType, versions := range p.ClientUsage {
-				versionItems := make([]string, 0)
-				for version, count := range versions {
-					versionItems = append(versionItems, fmtVersionCount(version, count))
-				}
-				html += fmt.Sprintf(`<span class="client-item"><strong>%s:</strong> %s</span>`, clientType, joinStrings(versionItems, ", "))
-			}
-			html += `</div>`
-		}
-		if len(p.ClientIntegrationUsage) > 0 {
-			html += `<div class="client-usage"><strong>Integration Usage:</strong><br>`
-			for integration, versions := range p.ClientIntegrationUsage {
-				versionItems := make([]string, 0)
-				for version, count := range versions {
-					// Integration names and versions come from a user-controlled
-					// header, escape before concatenating into HTML.
-					versionItems = append(versionItems, fmtVersionCount(htmlpkg.EscapeString(version), count))
-				}
-				html += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %s</span>`, htmlpkg.EscapeString(integration), joinStrings(versionItems, ", "))
-			}
-			html += `</div>`
-		}
-		if len(p.UsedModules) > 0 {
-			html += fmt.Sprintf(`<div><strong>Modules:</strong> %s</div>`, joinStrings(p.UsedModules, ", "))
-		}
-		html += `</div>`
-	}
-	return html
-}
-
-func renderMachinesHTML(machines map[string]*MachineStats) string {
-	if len(machines) == 0 {
-		return `<div class="empty">No machines registered yet</div>`
-	}
-
-	html := ""
-	for _, m := range machines {
-		modules := make([]string, 0, len(m.UsedModules))
-		for mod := range m.UsedModules {
-			modules = append(modules, mod)
-		}
-
-		payloadTypesHtml := ""
-		for ptype, count := range m.PayloadTypes {
-			payloadTypesHtml += fmt.Sprintf(`<span class="badge badge-%s">%s: %d</span> `, toLower(ptype), ptype, count)
-		}
-
-		clientUsageHtml := ""
-		if len(m.ClientUsage) > 0 {
-			clientUsageHtml = `<div class="client-usage" style="margin-top: 10px;"><strong>Total Client Usage:</strong><br>`
-			for clientType, versions := range m.ClientUsage {
-				var totalCount int64
-				versionItems := make([]string, 0)
-				for version, count := range versions {
-					totalCount += count
-					versionItems = append(versionItems, fmtVersionCount(version, count))
-				}
-				clientUsageHtml += fmt.Sprintf(`<span class="client-item"><strong>%s:</strong> %d total (%s)</span>`, clientType, totalCount, joinStrings(versionItems, ", "))
-			}
-			clientUsageHtml += `</div>`
-		}
-
-		integrationUsageHtml := ""
-		if len(m.ClientIntegrationUsage) > 0 {
-			integrationUsageHtml = `<div class="client-usage" style="margin-top: 10px;"><strong>Total Integration Usage:</strong><br>`
-			for integration, versions := range m.ClientIntegrationUsage {
-				var totalCount int64
-				versionItems := make([]string, 0)
-				for version, count := range versions {
-					totalCount += count
-					// Integration names and versions come from a user-controlled
-					// header, escape before concatenating into HTML.
-					versionItems = append(versionItems, fmtVersionCount(htmlpkg.EscapeString(version), count))
-				}
-				integrationUsageHtml += fmt.Sprintf(`<span class="client-item" style="background:#d1fae5;"><strong>%s:</strong> %d total (%s)</span>`, htmlpkg.EscapeString(integration), totalCount, joinStrings(versionItems, ", "))
-			}
-			integrationUsageHtml += `</div>`
-		}
-
-		modulesHtml := ""
-		if len(modules) > 0 {
-			modulesHtml = fmt.Sprintf(`<div style="margin-top: 10px;"><strong>Modules:</strong> %s</div>`, joinStrings(modules, ", "))
-		}
-
-		html += fmt.Sprintf(`
-			<div class="machine">
-				<div class="machine-header">
-					<div>
-						<div class="machine-id">%s</div>
-						<div style="margin-top: 5px;">%s</div>
-					</div>
-				</div>
-				<div class="stats">
-					<div class="stat-item">
-						<div class="stat-label">Version</div>
-						<div class="stat-value">%s</div>
-					</div>
-					<div class="stat-item">
-						<div class="stat-label">OS/Arch</div>
-						<div class="stat-value">%s/%s</div>
-					</div>
-					<div class="stat-item">
-						<div class="stat-label">Total Payloads</div>
-						<div class="stat-value">%d</div>
-					</div>
-					<div class="stat-item">
-						<div class="stat-label">Objects</div>
-						<div class="stat-value">%s</div>
-					</div>
-					<div class="stat-item">
-						<div class="stat-label">Collections</div>
-						<div class="stat-value">%d</div>
-					</div>
-					<div class="stat-item">
-						<div class="stat-label">Modules</div>
-						<div class="stat-value">%d</div>
-					</div>
-				</div>
-				%s
-				%s
-				%s
-				<div style="margin-top: 10px; font-size: 11px; color: #666;">
-					First seen: %s<br>
-					Last seen: %s (%s)
-				</div>
-			</div>`,
-			m.MachineID, payloadTypesHtml,
-			m.Version, m.OS, m.Arch,
-			m.TotalPayloads, formatNumber(m.TotalObjects), m.CollectionsCount, len(modules),
-			modulesHtml,
-			clientUsageHtml,
-			integrationUsageHtml,
-			formatTime(m.FirstSeen), formatTime(m.LastSeen), formatRelativeTime(m.LastSeen))
-	}
-	return html
-}
-
-func formatTime(t time.Time) string {
-	return t.Format("2006-01-02 15:04:05")
-}
-
-func formatRelativeTime(t time.Time) string {
-	diff := time.Since(t)
-	if diff < time.Minute {
-		return fmt.Sprintf("%ds ago", int(diff.Seconds()))
-	}
-	if diff < time.Hour {
-		return fmt.Sprintf("%dm ago", int(diff.Minutes()))
-	}
-	return fmt.Sprintf("%dh ago", int(diff.Hours()))
-}
-
-func formatNumber(n int64) string {
-	if n >= 1000000 {
-		return fmt.Sprintf("%.1fM", float64(n)/1000000)
-	}
-	if n >= 1000 {
-		return fmt.Sprintf("%.1fK", float64(n)/1000)
-	}
-	return fmt.Sprintf("%d", n)
-}
-
-// fmtVersionCount formats a version string with its count for display, e.g. "1.0.0 (42)".
-func fmtVersionCount(version string, count int64) string {
-	return fmt.Sprintf("%s (%d)", version, count)
-}
-
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
+</html>`, port, telemetryURL)
 }
 
 func toLower(s string) string {
