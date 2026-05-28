@@ -861,6 +861,12 @@ func TestStripRefSourceBeacon(t *testing.T) {
 			want:      strfmt.URI("weaviate://localhost/customer1:Zoo/" + refBeaconUUID + "/hasAnimals"),
 		},
 		{
+			name:      "IsGlobalOperator with own-NS namespace set still skips strip",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
+			in:        mkSrc("customer1:Zoo"),
+			want:      strfmt.URI("weaviate://localhost/customer1:Zoo/" + refBeaconUUID + "/hasAnimals"),
+		},
+		{
 			name:      "nil principal: pass-through (NS-disabled cluster)",
 			principal: nil,
 			in:        mkSrc("customer1:Zoo"),
@@ -924,6 +930,12 @@ func TestStripRefBeacon(t *testing.T) {
 			want:      strfmt.URI("weaviate://localhost/customer1:Animal/" + refBeaconUUID),
 		},
 		{
+			name:      "IsGlobalOperator with own-NS namespace set still skips strip",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
+			in:        mkRef("customer1:Animal"),
+			want:      strfmt.URI("weaviate://localhost/customer1:Animal/" + refBeaconUUID),
+		},
+		{
 			name:      "nil principal: pass-through (NS-disabled cluster)",
 			principal: nil,
 			in:        mkRef("customer1:Animal"),
@@ -974,6 +986,12 @@ func TestStripClassNames(t *testing.T) {
 		{
 			name:      "global principal: pass-through preserves qualified view",
 			principal: globalPrincipal,
+			in:        []string{"customer1:Movies", "customer2:Films"},
+			want:      []string{"customer1:Movies", "customer2:Films"},
+		},
+		{
+			name:      "IsGlobalOperator with own-NS namespace set still skips strip",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
 			in:        []string{"customer1:Movies", "customer2:Films"},
 			want:      []string{"customer1:Movies", "customer2:Films"},
 		},

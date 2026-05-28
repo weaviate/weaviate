@@ -234,6 +234,11 @@ func TestHybrid_NestedRefClassStripped(t *testing.T) {
 			want:      wantClass{top: "customer1:Animal", mid: "customer2:Animal", deep: "customer1:Habitat"},
 		},
 		{
+			name:      "IsGlobalOperator with own-NS set still skips strip",
+			principal: &models.Principal{IsGlobalOperator: true, Namespace: "customer1"},
+			want:      wantClass{top: "customer1:Animal", mid: "customer2:Animal", deep: "customer1:Habitat"},
+		},
+		{
 			name:      "nil principal: passthrough (NS-disabled)",
 			principal: nil,
 			want:      wantClass{top: "customer1:Animal", mid: "customer2:Animal", deep: "customer1:Habitat"},

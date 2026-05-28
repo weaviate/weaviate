@@ -323,7 +323,7 @@ func StripRefSourceBeacon(principal *models.Principal, src *crossref.RefSource) 
 	if src == nil {
 		return ""
 	}
-	if principal == nil || principal.Namespace == "" {
+	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
 		return strfmt.URI(src.String())
 	}
 	out := *src
@@ -339,7 +339,7 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 	if r == nil {
 		return ""
 	}
-	if principal == nil || principal.Namespace == "" {
+	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
 		return strfmt.URI(r.String())
 	}
 	out := *r
@@ -352,7 +352,7 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 // []string class lists populated from qualified storage names. Input is
 // not mutated.
 func StripClassNames(principal *models.Principal, classes []string) []string {
-	if len(classes) == 0 || principal == nil || principal.Namespace == "" {
+	if len(classes) == 0 || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
 		return classes
 	}
 	out := make([]string, len(classes))
