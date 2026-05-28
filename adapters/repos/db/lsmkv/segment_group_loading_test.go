@@ -349,7 +349,7 @@ func createSegmentFiles(t *testing.T, ctx context.Context, logger logrus.FieldLo
 		}
 	}
 
-	once, err := b.disk.compactOnce()
+	once, err := b.disk.compactOnce(context.Background())
 	require.NoError(t, err)
 	require.True(t, once)
 	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
