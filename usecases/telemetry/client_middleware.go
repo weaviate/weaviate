@@ -14,7 +14,6 @@ package telemetry
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -81,7 +80,7 @@ func ClientTrackingUnaryInterceptor(tracker *ClientTracker, integrationTracker *
 				}
 			}
 			if integrationTracker != nil {
-				if vals := md.Get(strings.ToLower(integrationHeaderKey)); len(vals) > 0 {
+				if vals := md.Get(integrationHeaderKeyLower); len(vals) > 0 {
 					integrationTracker.TrackHeader(vals[0])
 				}
 			}

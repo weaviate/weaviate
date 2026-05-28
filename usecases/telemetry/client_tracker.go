@@ -47,7 +47,13 @@ const (
 )
 
 // integrationHeaderKey is the HTTP header used to identify the client integration.
-const integrationHeaderKey = "X-Weaviate-Client-Integration"
+// integrationHeaderKeyLower is the same value pre-lowercased so the gRPC
+// interceptor (which receives metadata with lowercased keys) does not have to
+// call strings.ToLower on every request.
+const (
+	integrationHeaderKey      = "X-Weaviate-Client-Integration"
+	integrationHeaderKeyLower = "x-weaviate-client-integration"
+)
 
 // ClientInfo represents a client SDK with its type and version
 type ClientInfo struct {
