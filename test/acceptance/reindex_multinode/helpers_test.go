@@ -541,34 +541,18 @@ func restartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCom
 	rollingRestartCluster(ctx, t, compose)
 }
 
-// cycleNodeFast restarts the node at nodeIdx atomically via the Docker
-// daemon's restart endpoint and waits for /v1/.well-known/ready. Use this
-// when a test just needs a clean restart cycle.
-//
-// Compared to compose.StopAt + compose.StartAt, this skips StopAt's
-// memberlist-departure poll (a 30s wait for the cluster to mark the node
-// unhealthy via /v1/nodes). That convergence is unnecessary for most
-// reindex tests — they just need the process down and back up — and the
-// 30s exited-state window has been observed to let the testcontainers
-// reaper remove the container, producing "No such container" on
-// StartAt. The daemon-side `docker restart` transitions exited → running
-// in one step, so the reaper never sees a long-stopped container.
-//
-// Use StopAt + StartAt instead when the test specifically needs cluster
-// membership to converge on "node X unhealthy" before proceeding (for
-// example, consistency_level=ALL writes against the remaining nodes
-// mid-restart).
+// cycleNodeFast restarts a node via `docker restart` and waits for
+// /v1/.well-known/ready. Use compose.StopAt + StartAt instead when the
+// test needs cluster membership to converge on "node X unhealthy" first
+// (e.g. consistency_level=ALL writes mid-restart). See weaviate/0-weaviate-issues#254.
 func cycleNodeFast(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int) {
 	t.Helper()
 	require.NoErrorf(t, compose.RestartAt(ctx, nodeIdx, nil),
 		"cycleNodeFast: restart node at index %d", nodeIdx)
 }
 
-// cycleNodeFastKill is the SIGKILL variant of cycleNodeFast — used by
-// crash-path tests that need to bypass the on-shutdown bucket flush.
-// `docker restart -t 0` sends SIGKILL immediately, matching
-// compose.StopAt(ctx, _, &killTimeout) semantics for the kill-then-resume
-// shape.
+// cycleNodeFastKill is cycleNodeFast with SIGKILL (`docker restart -t 0`).
+// For crash-path tests that need to bypass the on-shutdown bucket flush.
 func cycleNodeFastKill(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int) {
 	t.Helper()
 	zero := 0 * time.Second
@@ -589,13 +573,6 @@ func cycleNodeFastKill(ctx context.Context, t *testing.T, compose *docker.Docker
 // promoted canonical dir is present on disk. That manifested as a
 // per-replica `[6 6 0]`/`[0 0 0]` failure that looks identical to the
 // real #10675 prod data-loss bug but is just a missing test barrier.
-//
-// Uses cycleNodeFast so the per-node restart is atomic at the daemon
-// level — the testcontainers reaper does not see a long-stopped
-// container during the cycle. The follow-up `/v1/.well-known/ready` poll
-// is layered on top to wait for FinalizeCompletedMigrations and
-// shard-init to complete; RestartAt's own readiness wait covers the
-// process being up, but tests assert on routing being live too.
 func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
 	t.Helper()
 	for i := 1; i <= 3; i++ {

@@ -85,10 +85,6 @@ func assertReindexCompleteAndConsistent(
 }
 
 // timeout=nil → graceful SIGTERM; non-nil → SIGKILL after expiry.
-//
-// Routes through RestartAt (one atomic daemon-side stop+start) instead of
-// StopAt+StartAt so the testcontainers reaper cannot remove the container
-// during a 30s memberlist-departure poll. See cycleNodeFast godoc.
 func stopStart(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int, timeout *time.Duration) {
 	t.Helper()
 	require.NoError(t, compose.RestartAt(ctx, nodeIdx, timeout))
@@ -147,13 +143,8 @@ func TestMultiNode_CrashDuringReindex(t *testing.T) {
 func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
 	runRestartDuringReindex(t, "MajorityCrash", 360*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
-			// Intentionally StopAt + StartAt (not RestartAt): this is an
-			// ordered TWO-node down → TWO-node up sequence to lose then
-			// restore RAFT quorum. RestartAt collapses stop+start into one
-			// daemon transition, so it cannot express "both nodes down at
-			// the same time". The reaper-removal risk is bounded here too
-			// because the cluster loses quorum within seconds; the surviving
-			// node has nothing to converge to in StopAt's membership poll.
+			// StopAt+StartAt (not RestartAt) — needs both nodes down at
+			// the same time to lose RAFT quorum.
 			require.NoError(t, compose.StopAt(ctx, 2, &sigkillFast))
 			require.NoError(t, compose.StopAt(ctx, 1, &sigkillFast))
 			// Node 2 first → restores quorum with node 1 before node 3.

@@ -191,29 +191,9 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	return nil
 }
 
-// RestartAt restarts the container at nodeIndex atomically via the Docker
-// daemon's restart endpoint (shell out to `docker restart`) and then
-// re-resolves its mapped host ports and waits for /v1/.well-known/ready.
-//
-// timeout controls the graceful-stop window before SIGKILL — nil uses
-// Docker's default (10s SIGTERM grace), and a non-nil pointer is passed
-// through as `-t <seconds>`. Passing &zero (0s) forces an immediate
-// SIGKILL, matching StopAt(ctx, _, &killTimeout) semantics for crash-path
-// tests.
-//
-// Compared to StopAt+StartAt, this skips the memberlist-departure poll in
-// StopAt. The daemon-side restart goes exited → running in one transition
-// from the daemon's perspective, so the testcontainers reaper (Ryuk) is
-// never given a window to observe a long-stopped container and remove it.
-// That is the failure mode this helper is designed to avoid; the reaper
-// has been observed to remove a Weaviate container during the 30s
-// convergence wait, causing a subsequent StartAt to fail with
-// "No such container".
-//
-// Use this when a test just needs a clean restart cycle. Use StopAt +
-// StartAt if the test specifically needs cluster membership to converge on
-// "node X unhealthy" before proceeding (for example, consistency_level=ALL
-// writes against the remaining nodes mid-restart).
+// RestartAt restarts a container via `docker restart` and waits for
+// /v1/.well-known/ready. timeout=nil uses Docker's default SIGTERM grace;
+// &zero forces SIGKILL. See weaviate/0-weaviate-issues#254.
 func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
 	if nodeIndex >= len(d.containers) {
 		return errors.Errorf("node index is greater than available nodes")
@@ -221,9 +201,6 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 	c := d.containers[nodeIndex]
 	containerID := c.container.GetContainerID()
 
-	// `docker restart` is atomic at the daemon level: the container goes
-	// through stop → start in one daemon-side transition. No client-side
-	// gap during which an external observer (reaper) can remove it.
 	args := []string{"restart"}
 	if timeout != nil {
 		args = append(args, "-t", fmt.Sprintf("%d", int(timeout.Seconds())))
@@ -235,9 +212,6 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 			c.name, containerID, err, string(out))
 	}
 
-	// Re-resolve mapped host ports. Port bindings survive a Docker
-	// restart in practice, but this mirrors StartAt's behaviour and
-	// guards against any caller that cached an old endpoint string.
 	endPoints := map[EndpointName]endpoint{}
 	for name, e := range c.endpoints {
 		newURI, err := c.container.PortEndpoint(ctx, nat.Port(e.port), "")
