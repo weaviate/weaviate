@@ -232,22 +232,26 @@ func TestNamespaces_MCP(t *testing.T) {
 		require.NotEmpty(t, hybridResp.Results)
 	})
 
-	// filterext.Parse rejects reference-path filters (path length > 1) on
-	// namespace-enabled clusters. Confirms the hardcoded `false` removed in
-	// hybrid.go is now wired to s.namespacesEnabled.
-	t.Run("hybrid reference-path filter is rejected on namespace-enabled cluster", func(t *testing.T) {
+	// filterext.Parse qualifies reference-path inner class segments against
+	// the source's namespace on NS-enabled clusters (mirroring the gRPC
+	// parser). user1Key is a namespaced caller, so QualifyRefTarget rejects
+	// ANY prefix it types on an inner class (the resolver adds the prefix
+	// automatically) — here a foreign one. The rejection happens BEFORE the
+	// schema lookup, so the call fails with the "is not a valid class name"
+	// wording regardless of whether the source class has the named ref property.
+	t.Run("hybrid reference-path filter with prefixed inner class is rejected", func(t *testing.T) {
 		var hybridResp *search.QueryHybridResp
 		err := helper.CallToolOnce(t.Context(), t, mcpToolHybrid, &search.QueryHybridArgs{
 			CollectionName: short,
 			Query:          "Inception",
 			Alpha:          &alpha0,
 			Filters: map[string]any{
-				"path":      []any{"hasAuthor", "Author", "name"},
+				"path":      []any{"hasAuthor", "customer2:Author", "name"},
 				"operator":  "Equal",
 				"valueText": "Anyone",
 			},
 		}, &hybridResp, user1Key)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "reference-path filters")
+		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
 }

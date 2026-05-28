@@ -69,14 +69,10 @@ func bearerReq() mcp.CallToolRequest {
 	return mcp.CallToolRequest{Header: http.Header{"Authorization": []string{"Bearer dummy"}}}
 }
 
-// TestHybrid_NamespaceResolution covers what the MCP search handler must do
-// once namespacing is wired in:
-//
-//   - the resolved class name (qualified, alias-resolved) flows into the
-//     traverser params
-//   - invalid namespace prefixes from a namespaced principal are rejected
-//   - filterext.Parse picks up the namespacesEnabled flag (reference-path
-//     filters are rejected on NS-enabled clusters, accepted otherwise)
+// TestHybrid_NamespaceResolution covers the MCP search handler under
+// namespacing: the resolved (qualified, alias-resolved) class flows into the
+// traverser params, invalid prefixes from a namespaced principal are rejected,
+// and filterext.Parse qualifies reference-path inner classes on NS clusters.
 func TestHybrid_NamespaceResolution(t *testing.T) {
 	aliases := map[string]string{
 		"customer1:Films": "customer1:Movies",
@@ -137,11 +133,11 @@ func TestHybrid_NamespaceResolution(t *testing.T) {
 			wantClassName:     "Global",
 		},
 		{
-			name:              "namespacesEnabled rejects reference-path filter",
+			name:              "namespacesEnabled accepts reference-path filter (inner class qualified)",
 			principal:         &models.Principal{Namespace: "customer1"},
 			namespacesEnabled: true,
 			args:              QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: refPathFilter},
-			wantErrSubstr:     "reference-path filters",
+			wantClassName:     "customer1:Movies",
 		},
 		{
 			name:              "namespacesEnabled accepts direct-property filter",

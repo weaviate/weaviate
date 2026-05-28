@@ -16,17 +16,18 @@ import (
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // Parse Filter from REST construct to entities filter.
 //
-// When namespacesEnabled is true, reference-path filters (Path with more
-// than one element) are rejected. Inner class segments in such paths are
-// taken from caller input and are not auto-qualified by the resolver, so
-// allowing them through would silently fail downstream when the schema
-// lookup misses the unqualified inner class. Direct-property filters
-// (single-element Path) are unaffected.
-func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool) (*filters.LocalFilter, error) {
+// On NS clusters, reference-path inner class segments are qualified against
+// the previous level's namespace via QualifyRefTarget (same policy as the
+// rest of the NS code). gRPC's extractPathNew does the same for multi-target
+// refs, but derives single-target linked classes from the schema. REST has no
+// schema lookup here and qualifies the caller-typed name as-is, so a
+// wrong-but-same-NS class only fails the schema lookup downstream.
+func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool, principal *models.Principal) (*filters.LocalFilter, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -37,14 +38,14 @@ func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool) (*f
 	}
 
 	if operator.OnValue() {
-		filter, err := parseValueFilter(in, operator, rootClass, namespacesEnabled)
+		filter, err := parseValueFilter(in, operator, rootClass, namespacesEnabled, principal)
 		if err != nil {
 			return nil, fmt.Errorf("invalid where filter: %w", err)
 		}
 		return filter, nil
 	}
 
-	filter, err := parseNestedFilter(in, operator, rootClass, namespacesEnabled)
+	filter, err := parseNestedFilter(in, operator, rootClass, namespacesEnabled, principal)
 	if err != nil {
 		return nil, fmt.Errorf("invalid where filter: %w", err)
 	}
@@ -52,14 +53,14 @@ func Parse(in *models.WhereFilter, rootClass string, namespacesEnabled bool) (*f
 }
 
 func parseValueFilter(in *models.WhereFilter,
-	operator filters.Operator, rootClass string, namespacesEnabled bool,
+	operator filters.Operator, rootClass string, namespacesEnabled bool, principal *models.Principal,
 ) (*filters.LocalFilter, error) {
 	value, err := parseValue(in)
 	if err != nil {
 		return nil, err
 	}
 
-	path, err := parsePath(in.Path, rootClass, namespacesEnabled)
+	path, err := parsePath(in.Path, rootClass, namespacesEnabled, principal)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +75,7 @@ func parseValueFilter(in *models.WhereFilter,
 }
 
 func parseNestedFilter(in *models.WhereFilter,
-	operator filters.Operator, rootClass string, namespacesEnabled bool,
+	operator filters.Operator, rootClass string, namespacesEnabled bool, principal *models.Principal,
 ) (*filters.LocalFilter, error) {
 	if in.Path != nil {
 		return nil, fmt.Errorf(
@@ -97,7 +98,7 @@ func parseNestedFilter(in *models.WhereFilter,
 			operator.Name())
 	}
 
-	operands, err := parseOperands(in.Operands, rootClass, namespacesEnabled)
+	operands, err := parseOperands(in.Operands, rootClass, namespacesEnabled, principal)
 	if err != nil {
 		return nil, err
 	}
@@ -110,10 +111,10 @@ func parseNestedFilter(in *models.WhereFilter,
 	}, nil
 }
 
-func parseOperands(ops []*models.WhereFilter, rootClass string, namespacesEnabled bool) ([]filters.Clause, error) {
+func parseOperands(ops []*models.WhereFilter, rootClass string, namespacesEnabled bool, principal *models.Principal) ([]filters.Clause, error) {
 	out := make([]filters.Clause, len(ops))
 	for i, operand := range ops {
-		res, err := Parse(operand, rootClass, namespacesEnabled)
+		res, err := Parse(operand, rootClass, namespacesEnabled, principal)
 		if err != nil {
 			return nil, fmt.Errorf("operand %d: %w", i, err)
 		}
@@ -161,13 +162,26 @@ func parseOperator(in string) (filters.Operator, error) {
 	}
 }
 
-func parsePath(in []string, rootClass string, namespacesEnabled bool) (*filters.Path, error) {
+func parsePath(in []string, rootClass string, namespacesEnabled bool, principal *models.Principal) (*filters.Path, error) {
 	if len(in) == 0 {
 		return nil, fmt.Errorf("field 'path': must have at least one element")
 	}
 
+	// Qualify each inner class segment (odd indices) against its parent's
+	// namespace: rootClass for path[1], the qualified path[1] for path[3], etc.
 	if namespacesEnabled && len(in) > 1 {
-		return nil, fmt.Errorf("field 'path': reference-path filters (path with more than one element) are not supported on namespace-enabled clusters")
+		qualified := make([]string, len(in))
+		copy(qualified, in)
+		parent := rootClass
+		for i := 1; i < len(qualified); i += 2 {
+			q, _, err := namespacing.QualifyRefTarget(principal, namespacesEnabled, parent, qualified[i])
+			if err != nil {
+				return nil, fmt.Errorf("field 'path': %w", err)
+			}
+			qualified[i] = q
+			parent = q
+		}
+		in = qualified
 	}
 
 	pathElements := make([]interface{}, len(in))
