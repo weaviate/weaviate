@@ -798,6 +798,7 @@ func TestReplicationDigestObjectsInRange(t *testing.T) {
 		defer server.Close()
 
 		c := newReplicationClient(t, server.Client())
+		c.timeoutUnit = time.Second
 		_, err := c.DigestObjectsInRange(context.Background(), server.URL[7:], "C1", "S1", UUID1, UUID2, 10)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "read digest in range record")
