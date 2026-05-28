@@ -59,6 +59,7 @@ import (
 	rest_namespaces "github.com/weaviate/weaviate/adapters/handlers/rest/namespaces"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/restcompat"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -570,6 +571,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.DB = repo
+	// Seed the REST asyncEnabled shim; the runtime-config hook below keeps it live.
+	restcompat.SetAsyncReplicationGloballyDisabled(appState.ServerConfig.Config.Replication.AsyncReplicationDisabled.Get())
 	// Construct the usage-limits Manager now that its ObjectCounter (the
 	// DB) exists, then install it on the DB so each Index inherits it
 	// when loaded (init.go) or created at runtime (migrator.go). Both
@@ -1314,6 +1317,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServeError = openapierrors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
+	// REST-only asyncEnabled shim — see adapters/handlers/rest/restcompat.
+	api.JSONProducer = restcompat.NewJSONProducer()
 
 	api.OidcAuth = composer.New(
 		appState.ServerConfig.Config.Authentication,
@@ -2635,6 +2640,7 @@ func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.C
 		// config reload loop. serverShutdownCtx makes it cancellable on shutdown;
 		// errors are logged here and surfaced via the reconcileFailures metric.
 		hooks["AsyncReplicationDisabled"] = func() error {
+			restcompat.SetAsyncReplicationGloballyDisabled(appState.ServerConfig.Config.Replication.AsyncReplicationDisabled.Get())
 			enterrors.GoWrapper(func() {
 				if err := appState.DB.ReconcileAsyncReplication(serverShutdownCtx); err != nil {
 					appState.Logger.WithField("action", "reconcile_async_replication").Error(err)
