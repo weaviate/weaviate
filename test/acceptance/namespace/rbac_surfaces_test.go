@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/export"
+	clns "github.com/weaviate/weaviate/client/namespaces"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
@@ -126,6 +127,37 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 			helper.CreateAuth(adminKey))
 		require.NoError(t, err)
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))
+	})
+
+	t.Run("create namespace: namespaced denied, root allowed", func(t *testing.T) {
+		// manage_namespaces is root-only; the narrowed admin lacks it.
+		const newNS = "ns-deny-create"
+		_, err := helper.Client(t).Namespaces.CreateNamespace(
+			clns.NewCreateNamespaceParams().WithNamespaceID(newNS),
+			helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *clns.CreateNamespaceForbidden
+		require.True(t, errors.As(err, &forbidden), "expected CreateNamespaceForbidden, got %T: %v", err, err)
+
+		helper.CreateNamespace(t, newNS, adminKey)
+		t.Cleanup(func() { helper.DeleteNamespace(t, newNS, adminKey) })
+	})
+
+	t.Run("delete namespace: namespaced denied, root allowed", func(t *testing.T) {
+		// Throwaway target so a regression letting the call through cannot
+		// remove customer1 mid-test; authz runs before existence checks.
+		const throwaway = "ns-root-delete"
+		helper.CreateNamespace(t, throwaway, adminKey)
+
+		_, err := helper.Client(t).Namespaces.DeleteNamespace(
+			clns.NewDeleteNamespaceParams().WithNamespaceID(throwaway),
+			helper.CreateAuth(user1Key))
+		require.Error(t, err)
+		var forbidden *clns.DeleteNamespaceForbidden
+		require.True(t, errors.As(err, &forbidden), "expected DeleteNamespaceForbidden, got %T: %v", err, err)
+
+		// Positive control: root completes the delete.
+		helper.DeleteNamespace(t, throwaway, adminKey)
 	})
 
 	t.Run("export: namespaced denied via empty backups filter, root passes filter", func(t *testing.T) {
