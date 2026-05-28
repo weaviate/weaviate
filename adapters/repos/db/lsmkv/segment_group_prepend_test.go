@@ -284,7 +284,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		// Now run compaction — it should work correctly with the new
 		// segment ordering (prepended segments at position 0).
 		for {
-			compacted, err := tgtBucket.disk.compactOnce()
+			compacted, err := tgtBucket.disk.compactOnce(ctx)
 			require.NoError(t, err)
 			if !compacted {
 				break
@@ -336,7 +336,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		assert.Equal(t, 7, srcBucket.disk.Len())
 
 		for {
-			compacted, err := srcBucket.disk.compactOnce()
+			compacted, err := srcBucket.disk.compactOnce(ctx)
 			require.NoError(t, err)
 			if !compacted {
 				break
@@ -359,7 +359,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		assert.Equal(t, 9, tgtBucket.disk.Len())
 
 		for {
-			compacted, err := tgtBucket.disk.compactOnce()
+			compacted, err := tgtBucket.disk.compactOnce(ctx)
 			require.NoError(t, err)
 			if !compacted {
 				break
@@ -379,7 +379,7 @@ func TestSegmentGroup_PrependSegments(t *testing.T) {
 		//   step 2: src(2) + merged(1) → merged(3) → [3, 3, 0]
 		//   step 3: merged(3) + dest(3) → merged(4) → [4, 0]
 		for {
-			compacted, err := tgtBucket.disk.compactOnce()
+			compacted, err := tgtBucket.disk.compactOnce(ctx)
 			require.NoError(t, err)
 			if !compacted {
 				break
