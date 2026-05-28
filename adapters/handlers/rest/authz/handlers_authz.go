@@ -368,7 +368,6 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 	resourceFilter := filter.New[*models.Role](h.authorizer, h.rbacconfig)
 	filteredRoles := resourceFilter.Filter(
 		ctx,
-		h.logger,
 		principal,
 		response,
 		authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL),
@@ -380,7 +379,6 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 		// try match if all was none
 		filteredRoles = resourceFilter.Filter(
 			ctx,
-			h.logger,
 			principal,
 			response,
 			authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH),
@@ -1033,7 +1031,6 @@ func (h *authZHandlers) getGroups(params authz.GetGroupsParams, principal *model
 	resourceFilter := filter.New[string](h.authorizer, h.rbacconfig)
 	filteredGroups := resourceFilter.Filter(
 		ctx,
-		h.logger,
 		principal,
 		groups,
 		authorization.READ,
