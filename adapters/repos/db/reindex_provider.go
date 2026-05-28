@@ -1556,10 +1556,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	logger.Info("reindex provider: task-completion")
 
 	if task.Status != distributedtask.TaskStatusSwapping {
-		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip via
-		// the barrier path. FAILED/CANCELLED auto-clean partial sidecar
-		// state on every node; FAILED additionally logs operator repair
-		// guidance.
+		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.
+		// FAILED/CANCELLED auto-clean partial sidecar state on every node;
+		// FAILED additionally logs operator repair guidance.
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
@@ -1567,21 +1566,12 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				p.autoCleanupAfterTerminal(task, payload, logger)
-			case distributedtask.TaskStatusFinished:
-				// Legacy semantic task (BarrierTask=false from a pre-fix
-				// binary, in-flight at upgrade) bypasses the barrier-path
-				// flip below. Fire it explicitly.
-				if !task.NeedsPreparationBarrier && IsSemanticMigration(payload.MigrationType) {
-					ctx := p.serverCtx
-					if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
-						logger.Errorf("reindex provider: task-completion (legacy non-barrier semantic): schema flip failed: %v", err)
-					}
-				}
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
-				distributedtask.TaskStatusSwapping:
+				distributedtask.TaskStatusSwapping,
+				distributedtask.TaskStatusFinished:
 				// SWAPPING handled below; STARTED/PREPARING never reach
-				// OnTaskCompleted.
+				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
 			}
 		}
 		return
