@@ -627,18 +627,3 @@ func generateDashboardHTML() string {
 </body>
 </html>`, port, telemetryURL)
 }
-
-func toLower(s string) string {
-	if len(s) == 0 {
-		return s
-	}
-	result := ""
-	for _, r := range s {
-		if r >= 'A' && r <= 'Z' {
-			result += string(r + 32)
-		} else {
-			result += string(r)
-		}
-	}
-	return result
-}
