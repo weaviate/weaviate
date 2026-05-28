@@ -417,11 +417,21 @@ type Shard struct {
 	//
 	// Lifecycle (see reindex_provider.go's OnGroupCompleted +
 	// OnTaskCompleted):
-	//   1. SET: pre-swap, just BEFORE the per-task RunSwapOnShard loop
-	//      kicks off on this shard. Setting pre-swap means the brief
-	//      in-flight window between bucket-pointer flip and overlay
-	//      visibility is bounded by the in-memory swap latency
-	//      (microseconds) rather than the cluster-wide cutover spread.
+	//   1. SET: per property, ATOMICALLY with that property's
+	//      bucket-pointer flip — inside the swap's Phase 2a tight loop,
+	//      immediately after store.SwapBucketPointer, via the task's
+	//      onPropSwapped hook wired by reindex_provider's
+	//      maybeWirePerPropOverlaySet. Co-locating the set with the flip
+	//      bounds the overlay≠bucket window (in BOTH directions:
+	//      word→field and field→word) to a single in-memory map write —
+	//      the genuine in-memory swap latency. An earlier design set the
+	//      overlay once-for-the-whole-shard BEFORE the per-task
+	//      RunSwapOnShard loop; that opened a disk-I/O-sized window
+	//      across RunSwapOnShard's tracker/sentinel/prop preamble where
+	//      overlay=NEW while the bucket was still OLD, so a query
+	//      tokenized input with the new analyzer against the old bucket
+	//      and returned a transiently wrong count (e.g. 0 for the
+	//      reverse field→word case).
 	//   2. CLEAR (defensive, all-failed path): if every per-task swap on
 	//      this shard fails before flipping its bucket pointer (e.g.
 	//      ctx.Canceled during graceful shutdown), the post-loop branch

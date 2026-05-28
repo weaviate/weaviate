@@ -42,12 +42,24 @@
 //
 // 2a — tight loop, microseconds: per property, call
 // store.SwapBucketPointer(mainName, ingestName) followed by
-// rt.markSwappedProp(propName). The tight loop bounds the per-shard
-// "mixed-state" subwindow (some props swapped, others not) to a few
-// microseconds total. Queries during this subwindow that hit
-// not-yet-swapped props would tokenize input with the new value
-// against an old-tokenized bucket — wrong — so the subwindow MUST
-// stay microseconds.
+// rt.markSwappedProp(propName), then the [onPropSwapped] hook (which
+// sets the per-shard tokenization overlay for tokenization-changing
+// migrations). The tight loop bounds the per-shard "mixed-state"
+// subwindow (some props swapped, others not) to a few microseconds
+// total. Queries during this subwindow that hit not-yet-swapped props
+// would tokenize input with the new value against an old-tokenized
+// bucket — wrong — so the subwindow MUST stay microseconds.
+//
+// The overlay set MUST be co-located here, adjacent to this prop's
+// pointer flip, NOT once-for-the-whole-shard before Phase 2. Setting
+// it earlier (e.g. before [RunSwapOnShard]'s tracker/sentinel/prop
+// preamble) opens a disk-I/O-sized window where overlay=NEW while the
+// bucket is still OLD: a query in that window tokenizes input with the
+// new analyzer and looks it up in the still-old bucket, returning the
+// wrong count (e.g. 0 for a field→word reverse migration). Pairing the
+// overlay set with the flip makes the only residual exposure a single
+// in-memory map write, symmetric in both directions (word→field and
+// field→word).
 //
 // 2b — post-atomic inline tidy (slow but correctness-safe):
 // oldMainBucket.Shutdown(ctx) + os.Rename(oldMainDir, backupDir) per
@@ -200,6 +212,30 @@ type ShardReindexTaskGeneric struct {
 	// [processOneSwapPropFn] — defaults to the [processOneTidyProp]
 	// method; tests substitute a wrapper.
 	processOneTidyPropFn func(propIdx int, propName, lsmPath string) error
+
+	// onPropSwapped, when non-nil, is invoked per property IMMEDIATELY
+	// after that property's bucket pointer has been flipped — both on
+	// the in-process happy path ([runtimeSwap] Phase 2a) and on the
+	// post-restart dir-rename recovery path ([recoverRuntimeSwapBuckets]).
+	// It runs inside the Phase 2a tight loop, adjacent to the flip and
+	// before any other prop is processed, so the only work between the
+	// bucket-pointer flip and the callback is a single in-memory map
+	// write.
+	//
+	// Production wiring: [reindex_provider.runShardSwapPhase] sets this
+	// to the per-shard tokenization-overlay setter for
+	// tokenization-changing migrations, so a query can never observe
+	// overlay=NEW while the bucket is still OLD (nor the reverse) for
+	// more than the in-memory swap latency. nil for every other
+	// migration type — the callback is skipped entirely.
+	//
+	// Set on the shared task instance before [RunSwapOnShard]; read on
+	// the same goroutine that runs the swap, so no extra
+	// synchronization is needed beyond the SetTokenizationOverlay call's
+	// own lock. The target shard is captured by the closure at wiring
+	// time (the provider already holds the unwrapped *Shard), so the
+	// callback takes only the prop name.
+	onPropSwapped func(propName string)
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -1767,6 +1803,17 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		if oldMainBucket != nil {
 			oldMainBuckets[propName] = oldMainBucket
 		}
+		// Co-locate the per-shard query-path alignment (tokenization
+		// overlay) with this prop's pointer flip. Setting it here — in
+		// the tight loop, immediately after the flip and before the
+		// next prop — bounds the overlay≠bucket window to a single
+		// in-memory map write. processOneSwapPropFn returns (nil, nil)
+		// for props whose per-prop sentinel was already on disk
+		// (recovery idempotency); fire the hook regardless so a resumed
+		// swap re-establishes the overlay for already-flipped props.
+		if t.onPropSwapped != nil {
+			t.onPropSwapped(propName)
+		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 
@@ -2191,6 +2238,14 @@ func (t *ShardReindexTaskGeneric) recoverRuntimeSwapBuckets(ctx context.Context,
 
 		if err := rt.markSwappedProp(propName); err != nil {
 			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
+		}
+		// Keep the recovery path direction-symmetric with the in-process
+		// happy path: re-establish the per-shard query-path alignment for
+		// this prop right after its swap converges. The callback is the
+		// same overlay setter wired by [reindex_provider.runShardSwapPhase]
+		// (nil for non-tokenization migrations).
+		if t.onPropSwapped != nil {
+			t.onPropSwapped(propName)
 		}
 	}
 
