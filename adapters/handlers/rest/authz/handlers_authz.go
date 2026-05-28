@@ -127,6 +127,28 @@ func (h *authZHandlers) authorizeRoleScopes(ctx context.Context, principal *mode
 	return fmt.Errorf("can only create roles with less or equal permissions as the current user: %w", err)
 }
 
+// authorizeAssignRolePermissions blocks privilege escalation via role
+// assignment: the caller must already hold every permission the assigned roles
+// grant, else assign_and_revoke_users alone could be used to grant admin.
+func (h *authZHandlers) authorizeAssignRolePermissions(ctx context.Context, principal *models.Principal, roles map[string][]authorization.Policy) error {
+	var errs error
+	for _, policies := range roles {
+		for _, policy := range policies {
+			// GetRoles returns this placeholder for permission-less roles; it grants nothing.
+			if policy.Resource == conv.InternalPlaceHolder {
+				continue
+			}
+			if err := h.authorizer.AuthorizeSilent(ctx, principal, policy.Verb, policy.Resource); err != nil {
+				errs = errors.Join(errs, err)
+			}
+		}
+	}
+	if errs != nil {
+		return fmt.Errorf("can only assign roles with less or equal permissions as the current user: %w", errs)
+	}
+	return nil
+}
+
 func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
@@ -491,6 +513,10 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
 
+	if err := h.authorizeAssignRolePermissions(ctx, principal, existedRoles); err != nil {
+		return authz.NewAssignRoleToUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	userTypes, err := h.getUserTypesAndValidateExistence(params.ID, authentication.AuthType(params.Body.UserType))
 	if err != nil {
 		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("user exists: %w", err)))
@@ -553,6 +579,10 @@ func (h *authZHandlers) assignRoleToGroup(params authz.AssignRoleToGroupParams, 
 
 	if len(existedRoles) != len(params.Body.Roles) && len(params.Body.Roles) > 0 {
 		return authz.NewAssignRoleToGroupNotFound()
+	}
+
+	if err := h.authorizeAssignRolePermissions(ctx, principal, existedRoles); err != nil {
+		return authz.NewAssignRoleToGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := h.controller.AddRolesForUser(conv.PrefixGroupName(params.ID), params.Body.Roles); err != nil {
