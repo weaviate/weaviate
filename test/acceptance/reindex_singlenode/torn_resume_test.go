@@ -96,15 +96,18 @@ import (
 //   - enable-filterable (semantic): OnGroupCompleted DOES run swap, but
 //     against an empty reindex bucket → schema flag flips to true on an
 //     empty bucket. Silent data loss in a different shape.
-func testTornResumeReindexedNotTidied(t *testing.T, restURI string, compose *docker.DockerCompose) {
+//
+// restURI is re-derived inside each subtest from plantTornSentinelsAcrossRestart
+// (the host port changes across the restart), so no URI is threaded in here.
+func testTornResumeReindexedNotTidied(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("enable_rangeable_nonSemantic", func(t *testing.T) {
-		testTornResumeEnableRangeable(t, restURI, compose)
+		testTornResumeEnableRangeable(t, compose)
 	})
 	t.Run("repair_filterable_nonSemantic", func(t *testing.T) {
-		testTornResumeRepairFilterable(t, restURI, compose)
+		testTornResumeRepairFilterable(t, compose)
 	})
 	t.Run("enable_filterable_semantic", func(t *testing.T) {
-		testTornResumeEnableFilterable(t, restURI, compose)
+		testTornResumeEnableFilterable(t, compose)
 	})
 }
 
@@ -117,7 +120,7 @@ func testTornResumeReindexedNotTidied(t *testing.T, restURI string, compose *doc
 // a slow CI runner.
 const tornResumeObjectCount = 30
 
-func testTornResumeEnableRangeable(t *testing.T, restURI string, compose *docker.DockerCompose) {
+func testTornResumeEnableRangeable(t *testing.T, compose *docker.DockerCompose) {
 	const class = "TornResumeRangeable"
 	trueVal, falseVal := true, false
 	helper.CreateClass(t, &models.Class{
@@ -142,7 +145,7 @@ func testTornResumeEnableRangeable(t *testing.T, restURI string, compose *docker
 	// migrationDirName for enable-rangeable on a single property:
 	// MigrationDirPrefixFilterableToRangeable + "_" + propName.
 	migDir := "filterable_to_rangeable_score"
-	restURI = plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"score"})
+	restURI := plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"score"})
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
 		`{"rangeable":{"enabled":true}}`)
@@ -175,7 +178,7 @@ func testTornResumeEnableRangeable(t *testing.T, restURI string, compose *docker
 		expected, hits)
 }
 
-func testTornResumeRepairFilterable(t *testing.T, restURI string, compose *docker.DockerCompose) {
+func testTornResumeRepairFilterable(t *testing.T, compose *docker.DockerCompose) {
 	const class = "TornResumeRepairFilterable"
 	trueVal := true
 	helper.CreateClass(t, &models.Class{
@@ -197,7 +200,7 @@ func testTornResumeRepairFilterable(t *testing.T, restURI string, compose *docke
 	// migrationDirName for repair-filterable: the fixed
 	// MigrationDirFilterableRoaringsetRefresh constant.
 	migDir := "filterable_roaringset_refresh"
-	restURI = plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"name"})
+	restURI := plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"name"})
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 		`{"filterable":{"rebuild":true}}`)
@@ -213,7 +216,7 @@ func testTornResumeRepairFilterable(t *testing.T, restURI string, compose *docke
 		tornResumeObjectCount, hits)
 }
 
-func testTornResumeEnableFilterable(t *testing.T, restURI string, compose *docker.DockerCompose) {
+func testTornResumeEnableFilterable(t *testing.T, compose *docker.DockerCompose) {
 	const class = "TornResumeEnableFilterable"
 	trueVal, falseVal := true, false
 	helper.CreateClass(t, &models.Class{
@@ -235,7 +238,7 @@ func testTornResumeEnableFilterable(t *testing.T, restURI string, compose *docke
 	// migrationDirName for enable-filterable: MigrationDirPrefixEnableFilterable
 	// + "_" + sorted propNames.
 	migDir := "enable_filterable_name"
-	restURI = plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"name"})
+	restURI := plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"name"})
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 		`{"filterable":{"enabled":true}}`)
@@ -394,7 +397,6 @@ func TestTornResume_StandaloneSmoke(t *testing.T) {
 	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-	restURI := compose.GetWeaviate().URI()
 	container := compose.GetWeaviate().Container()
 
 	defer func() {
@@ -415,7 +417,7 @@ func TestTornResume_StandaloneSmoke(t *testing.T) {
 		}
 	}()
 
-	testTornResumeReindexedNotTidied(t, restURI, compose)
+	testTornResumeReindexedNotTidied(t, compose)
 }
 
 // TestSuppress ensures this file compiles in isolation. The suite-driven

@@ -252,7 +252,7 @@ func TestSingleNode_ReindexSuite(t *testing.T) {
 	// either finish the swap or rebuild from scratch. If RED, schema
 	// reports ready while queries return zero hits (Sev 1).
 	t.Run("TornResumeReindexedNotTidied", func(t *testing.T) {
-		testTornResumeReindexedNotTidied(t, restURI, compose)
+		testTornResumeReindexedNotTidied(t, compose)
 	})
 
 	// --- Shared restart: verify all deferred finalizations ---
