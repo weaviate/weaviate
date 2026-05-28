@@ -15,12 +15,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	pkgerrors "github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -36,34 +34,6 @@ const (
 	adminKey  = "admin-key"
 )
 
-var sharedCompose *docker.DockerCompose
-
-func TestMain(m *testing.M) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().
-		WithApiKey().
-		WithUserApiKey(adminUser, adminKey).
-		WithDbUsers().
-		WithNamespaces().
-		WithBackendFilesystem().
-		WithWeaviate(). // single-node — no NodeMapping plumbing needed
-		Start(ctx)
-	if err != nil {
-		panic(pkgerrors.Wrap(err, "failed to start namespace_graduation compose"))
-	}
-	sharedCompose = compose
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	code := m.Run()
-
-	if err := sharedCompose.Terminate(ctx); err != nil {
-		panic(pkgerrors.Wrap(err, "failed to terminate namespace_graduation compose"))
-	}
-	os.Exit(code)
-}
-
 // TestNamespaceGraduationE2E pins the full Stage-1 graduation journey: a
 // single Weaviate cluster hosts two namespaces, backup picks one via
 // includeUsers/include, the cluster is reset, and restore lands the
@@ -77,6 +47,24 @@ func TestMain(m *testing.M) {
 // through, the participant ships a whole-cluster snapshot and these
 // assertions surface the leak loudly.
 func TestNamespaceGraduationE2E(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().
+		WithApiKey().
+		WithUserApiKey(adminUser, adminKey).
+		WithDbUsers().
+		WithNamespaces().
+		WithBackendFilesystem().
+		WithWeaviate(). // single-node — no NodeMapping plumbing needed
+		Start(ctx)
+	require.NoError(t, err, "failed to start compose: %v", err)
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx), "failed to terminate compose: %v", err)
+	}()
+
 	const (
 		ns1      = "ns1"
 		ns2      = "ns2"
