@@ -137,36 +137,14 @@ func (s *MapToBlockmaxStrategy) PreReindexHook(shard *Shard, props []string) {
 	shard.markSearchableBlockmaxProperties(props...)
 }
 
-// OnMigrationComplete flips the UsingBlockMaxWAND class flag, but only once
-// every searchable bucket on this shard has already been migrated to the
-// target (blockmax) strategy. When a per-property rebuild targets a subset
-// of the class's searchable properties, the remaining properties still use
-// the source (map) strategy and the class-level flag must stay off until
-// they are migrated too — otherwise BM25 queries over the still-map
-// properties would hit the wrong query path.
-//
-// The check is shard-local, which is sufficient because each shard runs its
-// own migration independently and this hook fires after that shard's swap
-// phase has finished. Once the last property on the last shard reaches this
-// hook, the class-level flag is flipped (the flag write itself is a single
-// RAFT entry guarded by an "already set" short-circuit).
-func (s *MapToBlockmaxStrategy) OnMigrationComplete(ctx context.Context, shard ShardLike) error {
-	className := shard.Index().Config.ClassName.String()
-
-	for name, bucket := range shard.Store().GetBucketsByName() {
-		_, indexType := GetPropNameAndIndexTypeFromBucketName(name)
-		if indexType != IndexTypePropSearchableValue {
-			continue
-		}
-		if bucket.Strategy() == s.SourceStrategy() {
-			// At least one searchable property on this shard still uses the
-			// pre-migration (map) strategy. Defer flipping the class flag
-			// until a subsequent per-property rebuild completes the migration.
-			return nil
-		}
-	}
-
-	return updateToBlockMaxInvertedIndexConfig(ctx, s.schemaManager, className)
+// OnMigrationComplete is a no-op: MapToBlockmax is a semantic migration, so
+// the class-level UsingBlockMaxWAND flip lives in
+// [ReindexProvider.flipSemanticMigrationSchema] after every node's swap has
+// completed. The previous shard-local flip from this hook fired the
+// `UpdateVectorIndexConfig` → `SetStatusReadonly` cascade on still-iterating
+// shards (weaviate/0-weaviate-issues#254 finding 3).
+func (s *MapToBlockmaxStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+	return nil
 }
 
 // calcPropLenInverted computes property length as the sum of term frequencies.

@@ -189,9 +189,9 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 			want: []string{"filterable"},
 		},
 		{
-			name: "repair-searchable → empty (format-only, no swap barrier)",
+			name: "change-algorithm → searchable (semantic, cluster-wide flag flip)",
 			mt:   ReindexTypeChangeAlgorithm,
-			want: nil,
+			want: []string{"searchable"},
 		},
 		{
 			name: "repair-filterable → empty (format-only)",

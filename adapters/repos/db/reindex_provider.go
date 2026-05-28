@@ -1927,7 +1927,9 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"searchable"}
 	case ReindexTypeEnableFilterable:
 		return []string{"filterable"}
-	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable,
+	case ReindexTypeChangeAlgorithm:
+		return []string{"searchable"}
+	case ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
 		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits
@@ -2061,6 +2063,18 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			Info("reindex provider: enable-searchable cutover committed")
 		return nil
 
+	case ReindexTypeChangeAlgorithm:
+		// Class-level flag flip — driven from here (and not from the
+		// per-shard OnMigrationComplete) so it fires only after every
+		// shard's swap is acknowledged. updateToBlockMaxInvertedIndexConfig
+		// is idempotent at the RAFT layer (already-set short-circuit), so
+		// firing it from OnTaskCompleted on multiple nodes is safe.
+		if err := updateToBlockMaxInvertedIndexConfig(ctx, p.schemaManager, payload.Collection); err != nil {
+			return fmt.Errorf("flip UsingBlockMaxWAND: %w", err)
+		}
+		logger.Info("reindex provider: change-algorithm cutover committed")
+		return nil
+
 	default:
 		// IsSemanticMigration above gates this; reaching here is a programming error.
 		return fmt.Errorf("unexpected semantic migration type %q in task-completion", payload.MigrationType)
@@ -2069,14 +2083,23 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 
 // IsSemanticMigration returns true for migration types that change query
 // behavior and therefore require the cross-replica swap barrier: every
-// shard must finish reindexing before any shard swaps. enable-rangeable
-// is intentionally NOT semantic — it predates the barrier family and
-// promoting it would change existing operator behavior.
+// shard must finish reindexing before any shard swaps, and the cluster-wide
+// schema flip fires only after every node has acknowledged.
+//
+// change-algorithm is semantic because the class-level UsingBlockMaxWAND
+// flag flip cascades into Shard.UpdateVectorIndexConfig → SetStatusReadonly
+// on every loaded shard; without the barrier the first-finishing shard's
+// flip would put still-iterating sidecar buckets into read-only state on
+// other shards (weaviate/0-weaviate-issues#254 finding 3).
+//
+// enable-rangeable is intentionally NOT semantic — it predates the barrier
+// family and promoting it would change existing operator behavior.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
-		mt == ReindexTypeEnableSearchable
+		mt == ReindexTypeEnableSearchable ||
+		mt == ReindexTypeChangeAlgorithm
 }
 
 // IsTokenizationChangingMigration is true for migrations that flip a
