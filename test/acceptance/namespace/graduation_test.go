@@ -9,14 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package namespace_graduation
+package namespace
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -25,13 +23,7 @@ import (
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
-)
-
-const (
-	adminUser = "admin-user"
-	adminKey  = "admin-key"
 )
 
 // TestNamespaceGraduationE2E pins the full Stage-1 graduation journey: a
@@ -47,30 +39,10 @@ const (
 // through, the participant ships a whole-cluster snapshot and these
 // assertions surface the leak loudly.
 func TestNamespaceGraduationE2E(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().
-		WithApiKey().
-		WithRBAC().
-		WithUserApiKey(adminUser, adminKey).
-		WithRbacRoots(adminUser). // admin must be root or every op below 403s
-		WithDbUsers().
-		WithNamespaces(). // requires RBAC — Config.Validate rejects NS-without-RBAC
-		WithBackendFilesystem().
-		WithWeaviate(). // single-node — no NodeMapping plumbing needed
-		Start(ctx)
-	require.NoError(t, err, "failed to start compose: %v", err)
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx), "failed to terminate compose: %v", err)
-	}()
-
 	const (
 		ns1      = "ns1"
 		ns2      = "ns2"
-		backend  = "filesystem"
+		backend  = "s3"
 		backupID = "graduation-1"
 	)
 	adminAuth := helper.CreateAuth(adminKey)
@@ -257,35 +229,4 @@ func assertUserNotFound(t *testing.T, userID, key string) {
 	var nf *users.GetUserInfoNotFound
 	require.True(t, errors.As(err, &nf),
 		"expected user %q to return 404, got %T: %v", userID, err, err)
-}
-
-// createNamespacedUser mirrors test/acceptance/namespace/collection_alias_test.go:
-// the CreateUser handler 422s if the namespace isn't yet locally visible,
-// and the freshly-issued apikey can briefly 401 against followers — both
-// poll-until-visible to absorb the RAFT replication window.
-func createNamespacedUser(t *testing.T, userID, ns, adminKey string) string {
-	t.Helper()
-
-	var apikey string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(userID).WithBody(users.CreateUserBody{Namespace: ns}),
-			helper.CreateAuth(adminKey),
-		)
-		if !assert.NoError(c, err) {
-			return
-		}
-		if !assert.NotNil(c, resp.Payload.Apikey) {
-			return
-		}
-		apikey = *resp.Payload.Apikey
-	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created", userID)
-
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		_, err := helper.Client(t).Users.GetOwnInfo(
-			users.NewGetOwnInfoParams(), helper.CreateAuth(apikey))
-		assert.NoError(c, err)
-	}, 10*time.Second, 50*time.Millisecond, "user %q apikey not recognized after create", userID)
-
-	return apikey
 }
