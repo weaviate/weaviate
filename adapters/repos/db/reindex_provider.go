@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -1555,9 +1556,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 	logger.Info("reindex provider: task-completion")
 
 	if task.Status != distributedtask.TaskStatusSwapping {
-		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip.
-		// FAILED/CANCELLED auto-clean partial sidecar state on every node;
-		// FAILED additionally logs operator repair guidance.
+		// Non-SWAPPING terminal/in-flight: no cluster-wide schema flip via
+		// the barrier path. FAILED/CANCELLED auto-clean partial sidecar
+		// state on every node; FAILED additionally logs operator repair
+		// guidance.
 		if payloadErr == nil {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
@@ -1565,12 +1567,31 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				p.autoCleanupAfterTerminal(task, payload, logger)
+			case distributedtask.TaskStatusFinished:
+				// Upgrade-compat fallback: a pre-fix MapToBlockmax task
+				// (or any semantic-migration task submitted before its
+				// type was promoted) was submitted with
+				// NeedsPreparationBarrier=false and reaches Finished via
+				// the inline non-barrier path — bypassing the
+				// flipSemanticMigrationSchema dispatch below. Fire the
+				// flip here so the cluster doesn't end up with all
+				// shards on the new format but the class flag still on
+				// the old one. The flip is idempotent at the RAFT layer
+				// (already-set short-circuit) and the per-migration-type
+				// guards inside flipSemanticMigrationSchema gate any
+				// premature cutover (e.g. the shouldDeferBlockmaxFlip
+				// shard-walk for ChangeAlgorithm).
+				if !task.NeedsPreparationBarrier && IsSemanticMigration(payload.MigrationType) {
+					ctx := p.serverCtx
+					if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
+						logger.Errorf("reindex provider: task-completion (legacy non-barrier semantic): schema flip failed: %v", err)
+					}
+				}
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
-				distributedtask.TaskStatusSwapping,
-				distributedtask.TaskStatusFinished:
+				distributedtask.TaskStatusSwapping:
 				// SWAPPING handled below; STARTED/PREPARING never reach
-				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
+				// OnTaskCompleted.
 			}
 		}
 		return
@@ -2069,6 +2090,23 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// shard's swap is acknowledged. updateToBlockMaxInvertedIndexConfig
 		// is idempotent at the RAFT layer (already-set short-circuit), so
 		// firing it from OnTaskCompleted on multiple nodes is safe.
+		//
+		// Guard before flipping: walk loaded shards and defer if any
+		// searchable bucket is still on the source (map) strategy.
+		// payload.Properties only covers the property this task migrated;
+		// other searchable properties on the class may still be on map
+		// (per-property submit path, handlers_indexes.go). The old
+		// shard-local check in OnMigrationComplete enforced this — we
+		// restore it here so a single-property migration defers the
+		// cluster-wide flip until every searchable bucket on every shard
+		// is blockmax. Cross-node consistency holds because a ChangeAlgorithm
+		// task covers every shard for the given property, so the local
+		// blockmax/map state per property is the same on every node.
+		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
+			return err
+		} else if defer_ {
+			return nil
+		}
 		if err := updateToBlockMaxInvertedIndexConfig(ctx, p.schemaManager, payload.Collection); err != nil {
 			return fmt.Errorf("flip UsingBlockMaxWAND: %w", err)
 		}
@@ -2079,6 +2117,47 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// IsSemanticMigration above gates this; reaching here is a programming error.
 		return fmt.Errorf("unexpected semantic migration type %q in task-completion", payload.MigrationType)
 	}
+}
+
+// shouldDeferBlockmaxFlip returns true if any loaded shard on this node still
+// has a searchable bucket on the source (map) strategy. The cluster-wide
+// UsingBlockMaxWAND flip is deferred until every per-property ChangeAlgorithm
+// migration has drained — restoring the invariant the strategy file's godoc
+// states ("the class-level flag must stay off until [all properties on all
+// shards] are migrated too").
+func (p *ReindexProvider) shouldDeferBlockmaxFlip(
+	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
+) (bool, error) {
+	if p.db == nil {
+		return false, nil
+	}
+	idx := p.db.GetIndex(entschema.ClassName(payload.Collection))
+	if idx == nil {
+		return false, fmt.Errorf("collection %q not found on this node", payload.Collection)
+	}
+	var stillMap bool
+	idx.ForEachLoadedShard(func(_ string, sh ShardLike) error {
+		concrete, err := unwrapShard(ctx, sh)
+		if err != nil {
+			return nil
+		}
+		for name, bucket := range concrete.Store().GetBucketsByName() {
+			_, indexType := GetPropNameAndIndexTypeFromBucketName(name)
+			if indexType != IndexTypePropSearchableValue {
+				continue
+			}
+			if bucket.Strategy() == lsmkv.StrategyMapCollection {
+				stillMap = true
+				return nil
+			}
+		}
+		return nil
+	})
+	if stillMap {
+		logger.Info("reindex provider: change-algorithm cutover deferred — some searchable buckets still on map (subsequent per-property migration will complete the flip)")
+		return true, nil
+	}
+	return false, nil
 }
 
 // IsSemanticMigration returns true for migration types that change query

@@ -128,3 +128,24 @@ func TestFinalizeMigrationSuffixesUnknown(t *testing.T) {
 		t.Fatalf("migrationSuffixes(unknown) = %+v, want nil", got)
 	}
 }
+
+// TestMigrationDirsForPropertyIndex_IncludesMapToBlockmaxForSearchable pins
+// the recovery-prefix contract for ChangeAlgorithm: MapToBlockmax writes a
+// class-level tracker dir (not per-property), but LocalCallbacksDone iterates
+// per-property prefixes — so the class-level dir must be returned on every
+// searchable lookup or interrupted blockmax swaps would silently slip past
+// the post-restart recovery check (weaviate/0-weaviate-issues#254 review).
+func TestMigrationDirsForPropertyIndex_IncludesMapToBlockmaxForSearchable(t *testing.T) {
+	got := migrationDirsForPropertyIndex("text", "searchable")
+	var found bool
+	for _, p := range got {
+		if p == MigrationDirSearchableMapToBlockmax {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("migrationDirsForPropertyIndex(text, searchable) = %v, want to include %q",
+			got, MigrationDirSearchableMapToBlockmax)
+	}
+}
