@@ -20,9 +20,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -160,12 +162,18 @@ func (w *worker) sendObjects(
 	usesVectorisationByCollection map[string]bool,
 	retries int,
 ) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
+	// Strip the caller's own "<ns>:" from every Error string we emit to the
+	// stream. Internal batch errors mention the qualified storage class
+	// (e.g. "shard ... of class customer1:Movies"); without this strip the
+	// namespaced caller sees their own namespace in BatchStreamReply errors.
+	// Logs above stay raw — operators want the qualified name.
+	principal := restCtx.GetPrincipalFromContext(ctx)
 	if ctx.Err() != nil {
 		w.logger.WithField("streamId", streamId).Warnf("context error before sending objects: %s", ctx.Err())
 		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(objs))
 		for _, obj := range objs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  ctx.Err().Error(),
+				Error:  namespacing.StripErrorMessage(principal, ctx.Err().Error()),
 				Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
 			})
 		}
@@ -201,7 +209,7 @@ func (w *worker) sendObjects(
 					w.logger.WithField("streamId", streamId).Errorf("failed to batch objects: %s", resp.err)
 					for _, obj := range objs {
 						errors = append(errors, &pb.BatchStreamReply_Results_Error{
-							Error:  resp.err.Error(),
+							Error:  namespacing.StripErrorMessage(principal, resp.err.Error()),
 							Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
 						})
 					}
@@ -220,7 +228,7 @@ func (w *worker) sendObjects(
 							continue
 						}
 						errors = append(errors, &pb.BatchStreamReply_Results_Error{
-							Error:  err.Error,
+							Error:  namespacing.StripErrorMessage(principal, err.Error),
 							Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[index].Uuid},
 						})
 					}
@@ -256,12 +264,15 @@ func toBeacon(ref *pb.BatchReference) string {
 }
 
 func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
+	// See sendObjects: namespaced callers must not see "<ns>:" in any error
+	// they receive over the stream. Strip every Error string we emit.
+	principal := restCtx.GetPrincipalFromContext(ctx)
 	if ctx.Err() != nil {
 		w.logger.WithField("streamId", streamId).Warnf("context error before sending references: %s", ctx.Err())
 		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(refs))
 		for _, ref := range refs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  ctx.Err().Error(),
+				Error:  namespacing.StripErrorMessage(principal, ctx.Err().Error()),
 				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
 			})
 		}
@@ -276,7 +287,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(refs))
 		for _, ref := range refs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  err.Error(),
+				Error:  namespacing.StripErrorMessage(principal, err.Error()),
 				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
 			})
 		}
@@ -301,7 +312,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 				continue
 			}
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  err.Error,
+				Error:  namespacing.StripErrorMessage(principal, err.Error),
 				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(refs[err.Index])},
 			})
 		}
