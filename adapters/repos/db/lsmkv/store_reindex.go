@@ -31,7 +31,7 @@ func (s *Store) PauseObjectBucketCompaction(ctx context.Context) error {
 		return fmt.Errorf("no bucket named 'objects' found in store %s", s.dir)
 	}
 
-	return b.pauseCompactionForReindex(ctx)
+	return b.pauseCompaction(ctx)
 }
 
 // ResumeObjectBucketCompaction resumes the compaction cycle for the objects bucket.
@@ -44,5 +44,5 @@ func (s *Store) ResumeObjectBucketCompaction(ctx context.Context) error {
 		return fmt.Errorf("no bucket named 'objects' found in store %s", s.dir)
 	}
 
-	return b.resumeCompactionForReindex(ctx)
+	return b.resumeCompaction(ctx)
 }

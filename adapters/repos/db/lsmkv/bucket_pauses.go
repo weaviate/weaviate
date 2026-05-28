@@ -12,46 +12,9 @@
 package lsmkv
 
 import (
-	"context"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
-
-func (b *Bucket) pauseCompactionForReindex(ctx context.Context) error {
-	b.pauseCompactionMu.Lock()
-	defer b.pauseCompactionMu.Unlock()
-
-	b.pauseCompactionCount++
-	if b.pauseCompactionCount > 1 {
-		return nil
-	}
-	if err := b.pauseCompaction(ctx); err != nil {
-		b.pauseCompactionCount--
-		return err
-	}
-	b.doStartPauseTimer()
-	return nil
-}
-
-func (b *Bucket) resumeCompactionForReindex(ctx context.Context) error {
-	b.pauseCompactionMu.Lock()
-	defer b.pauseCompactionMu.Unlock()
-
-	if b.pauseCompactionCount == 0 {
-		return nil
-	}
-	if b.pauseCompactionCount > 1 {
-		b.pauseCompactionCount--
-		return nil
-	}
-	if err := b.resumeCompaction(ctx); err != nil {
-		return err
-	}
-	b.doStopPauseTimer()
-	b.pauseCompactionCount--
-	return nil
-}
 
 func (b *Bucket) doStartPauseTimer() {
 	label := b.GetDir()

@@ -24,10 +24,11 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-// TestPauseResumeObjectBucketCompaction_NoRecursiveRLock pins
-// weaviate/0-weaviate-issues#251: a bucketAccessLock writer queued between
-// recursive RLocks deadlocked the store. With the bug, this test hangs.
-func TestPauseResumeObjectBucketCompaction_NoRecursiveRLock(t *testing.T) {
+// newTestStoreWithObjectsBucket spins up a noop-cycled store with a real
+// objects bucket — needed because Pause/Resume dereferences
+// b.disk.compactionCallbackCtrl.
+func newTestStoreWithObjectsBucket(t *testing.T) (*Store, *Bucket) {
+	t.Helper()
 	ctx := context.Background()
 	dir := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -37,11 +38,21 @@ func TestPauseResumeObjectBucketCompaction_NoRecursiveRLock(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
-	defer store.Shutdown(ctx)
+	t.Cleanup(func() { _ = store.Shutdown(ctx) })
 
-	// Real objects bucket — Pause/Resume dereference b.disk.compactionCallbackCtrl.
 	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
 		WithStrategy(StrategyReplace)))
+	b := store.bucketsByName[helpers.ObjectsBucketLSM]
+	require.NotNil(t, b)
+	return store, b
+}
+
+// TestPauseResumeObjectBucketCompaction_NoRecursiveRLock pins
+// weaviate/0-weaviate-issues#251: a bucketAccessLock writer queued between
+// recursive RLocks deadlocked the store. With the bug, this test hangs.
+func TestPauseResumeObjectBucketCompaction_NoRecursiveRLock(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newTestStoreWithObjectsBucket(t)
 
 	const (
 		readers = 100
@@ -94,22 +105,7 @@ func TestPauseResumeObjectBucketCompaction_NoRecursiveRLock(t *testing.T) {
 // overlapping pause sources (backup + reindex) must not overwrite a live
 // timer (weaviate/weaviate#11486 Copilot review).
 func TestDoStartStopPauseTimer_RefCount(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	logger, _ := test.NewNullLogger()
-
-	store, err := New(dir, dir, logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
-	defer store.Shutdown(ctx)
-
-	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
-		WithStrategy(StrategyReplace)))
-
-	b := store.bucketsByName[helpers.ObjectsBucketLSM]
-	require.NotNil(t, b)
+	_, b := newTestStoreWithObjectsBucket(t)
 
 	b.doStartPauseTimer()
 	outer := b.pauseTimer
@@ -136,22 +132,7 @@ func TestDoStartStopPauseTimer_RefCount(t *testing.T) {
 // doStopPauseTimer. Without a shared mutex these race on b.pauseTimer
 // (assignment vs ObserveDuration); -race fails the test under the bug.
 func TestDoStartStopPauseTimer_RaceFree(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	logger, _ := test.NewNullLogger()
-
-	store, err := New(dir, dir, logger, nil, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.NoError(t, err)
-	defer store.Shutdown(ctx)
-
-	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
-		WithStrategy(StrategyReplace)))
-
-	b := store.bucketsByName[helpers.ObjectsBucketLSM]
-	require.NotNil(t, b)
+	_, b := newTestStoreWithObjectsBucket(t)
 
 	const (
 		goroutines = 50
