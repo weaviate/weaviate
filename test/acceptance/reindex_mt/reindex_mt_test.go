@@ -152,15 +152,8 @@ func testRepairAllTenants(t *testing.T, restURI string) {
 // =============================================================================
 
 func testRepairSpecificTenants(t *testing.T, restURI string) {
-	// Format-only migration on specific tenants. The prior body
-	// `{"searchable":{"algorithm":"blockmax"}}` submitted a
-	// ChangeAlgorithm migration, which is now (post
-	// weaviate/0-weaviate-issues#254) rejected at the handler — the
-	// class-level UsingBlockMaxWAND flag cannot be flipped on a tenant
-	// subset (the un-reindexed tenants' queries would route through
-	// the wrong BM25 path post-flip). Replaced with enable-rangeable
-	// on an int property: format-only, per-tenant compatible, exercises
-	// the same tenant-filter dispatch.
+	// Per-tenant filter dispatch via enable-rangeable (format-only).
+	// ChangeAlgorithm + tenant subset is rejected post weaviate/0-weaviate-issues#254.
 	className := "MTRepairSpecific"
 	tenantNames := []string{"t1", "t2", "t3", "t4", "t5"}
 
@@ -445,8 +438,6 @@ func testValidation(t *testing.T, restURI string) {
 	})
 
 	t.Run("ChangeAlgorithm_with_tenants", func(t *testing.T) {
-		// Post weaviate/0-weaviate-issues#254, change-algorithm is
-		// semantic — same tenant-subset rejection as change-tokenization.
 		got := reindexhelpers.SubmitIndexUpdateExpect4xx(t, restURI, mtClass, "text",
 			`{"searchable":{"algorithm":"blockmax"}}`, reindexhelpers.WithTenants([]string{"active1"}))
 		require.Equal(t, http.StatusBadRequest, got.StatusCode,

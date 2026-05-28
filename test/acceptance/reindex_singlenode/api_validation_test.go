@@ -157,15 +157,8 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 			wantBodyHas: "multi-tenant",
 		},
 		{
-			// repair-filterable is format-only (per-tenant supported);
-			// algorithm:blockmax used to fit here but
-			// weaviate/0-weaviate-issues#254 promoted change-algorithm to
-			// semantic — the new "tenants parameter cannot be used with
-			// semantic migrations" validation short-circuits before the
-			// per-tenant existence check, so the "does not exist" path is
-			// only reachable for format-only migrations. The semantic-vs-
-			// tenants rejection has its own pin
-			// ("tenants on semantic change-algorithm" below).
+			// Format-only body so the per-tenant existence check is reached
+			// (semantic bodies short-circuit on the semantic-vs-tenants gate).
 			name:       "tenants=<nonexistent> on MT class with format-only migration",
 			collection: mtClass, property: "text_word",
 			body:        `{"filterable":{"rebuild":true}}`,

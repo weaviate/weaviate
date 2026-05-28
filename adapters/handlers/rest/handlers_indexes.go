@@ -123,14 +123,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 		finalizeWindow = finalizeWindowMax
 	}
 
-	// BM25 algorithm currently backing searchable indexes for this class.
-	// The schema-level UsingBlockMaxWAND flag flips only after every
-	// searchable bucket on every shard has been migrated to blockmax —
-	// the cluster-wide cutover lives in
-	// [ReindexProvider.flipSemanticMigrationSchema] for
-	// ReindexTypeChangeAlgorithm. While a per-property repair-searchable
-	// is in flight the flag is still false; targetAlgorithm (set by
-	// mergeReindexStatus) carries the "incoming" signal in that case.
+	// UsingBlockMaxWAND flips cluster-wide only after every searchable
+	// bucket on every shard is blockmax; mid-flight, targetAlgorithm
+	// (set by mergeReindexStatus) carries the "incoming" signal.
 	searchableAlgorithm := models.IndexStatusAlgorithmWand
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.UsingBlockMaxWAND {
 		searchableAlgorithm = models.IndexStatusAlgorithmBlockmax

@@ -137,12 +137,8 @@ func (s *MapToBlockmaxStrategy) PreReindexHook(shard *Shard, props []string) {
 	shard.markSearchableBlockmaxProperties(props...)
 }
 
-// OnMigrationComplete is a no-op: MapToBlockmax is a semantic migration, so
-// the class-level UsingBlockMaxWAND flip lives in
-// [ReindexProvider.flipSemanticMigrationSchema] after every node's swap has
-// completed. The previous shard-local flip from this hook fired the
-// `UpdateVectorIndexConfig` → `SetStatusReadonly` cascade on still-iterating
-// shards (weaviate/0-weaviate-issues#254 finding 3).
+// OnMigrationComplete: no-op for a semantic migration. Class-level flip
+// happens cluster-wide in flipSemanticMigrationSchema (weaviate/0-weaviate-issues#254).
 func (s *MapToBlockmaxStrategy) OnMigrationComplete(_ context.Context, _ ShardLike) error {
 	return nil
 }

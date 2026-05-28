@@ -129,23 +129,17 @@ func TestFinalizeMigrationSuffixesUnknown(t *testing.T) {
 	}
 }
 
-// TestMigrationDirsForPropertyIndex_IncludesMapToBlockmaxForSearchable pins
-// the recovery-prefix contract for ChangeAlgorithm: MapToBlockmax writes a
-// class-level tracker dir (not per-property), but LocalCallbacksDone iterates
-// per-property prefixes — so the class-level dir must be returned on every
-// searchable lookup or interrupted blockmax swaps would silently slip past
-// the post-restart recovery check (weaviate/0-weaviate-issues#254 review).
-func TestMigrationDirsForPropertyIndex_IncludesMapToBlockmaxForSearchable(t *testing.T) {
+// TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax pins the
+// per-property contract: the class-level MapToBlockmax tracker must NOT be
+// returned here (cleanStaleMigrationDirsAt + CleanStalePartialReindexState
+// would corrupt the class-level dir on single-property cleanup). The
+// blockmax tracker is matched directly in LocalCallbacksDone instead.
+func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T) {
 	got := migrationDirsForPropertyIndex("text", "searchable")
-	var found bool
 	for _, p := range got {
 		if p == MigrationDirSearchableMapToBlockmax {
-			found = true
-			break
+			t.Fatalf("migrationDirsForPropertyIndex(text, searchable) = %v, must NOT include class-level %q",
+				got, MigrationDirSearchableMapToBlockmax)
 		}
-	}
-	if !found {
-		t.Fatalf("migrationDirsForPropertyIndex(text, searchable) = %v, want to include %q",
-			got, MigrationDirSearchableMapToBlockmax)
 	}
 }

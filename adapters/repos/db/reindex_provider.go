@@ -1568,19 +1568,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) {
 			case distributedtask.TaskStatusCancelled:
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusFinished:
-				// Upgrade-compat fallback: a pre-fix MapToBlockmax task
-				// (or any semantic-migration task submitted before its
-				// type was promoted) was submitted with
-				// NeedsPreparationBarrier=false and reaches Finished via
-				// the inline non-barrier path — bypassing the
-				// flipSemanticMigrationSchema dispatch below. Fire the
-				// flip here so the cluster doesn't end up with all
-				// shards on the new format but the class flag still on
-				// the old one. The flip is idempotent at the RAFT layer
-				// (already-set short-circuit) and the per-migration-type
-				// guards inside flipSemanticMigrationSchema gate any
-				// premature cutover (e.g. the shouldDeferBlockmaxFlip
-				// shard-walk for ChangeAlgorithm).
+				// Legacy semantic task (BarrierTask=false from a pre-fix
+				// binary, in-flight at upgrade) bypasses the barrier-path
+				// flip below. Fire it explicitly.
 				if !task.NeedsPreparationBarrier && IsSemanticMigration(payload.MigrationType) {
 					ctx := p.serverCtx
 					if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
@@ -1922,6 +1912,12 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 			continue
 		}
 		lsmPath := concrete.pathLSM()
+		// ChangeAlgorithm uses a class-level tracker dir; per-property
+		// migrationDirsForPropertyIndex deliberately omits it.
+		if payload.MigrationType == ReindexTypeChangeAlgorithm &&
+			hasUntidiedTracker(lsmPath, []string{MigrationDirSearchableMapToBlockmax}) {
+			return false
+		}
 		for _, indexType := range indexTypes {
 			for _, propName := range payload.Properties {
 				prefixes := migrationDirsForPropertyIndex(propName, indexType)
@@ -2085,23 +2081,8 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		return nil
 
 	case ReindexTypeChangeAlgorithm:
-		// Class-level flag flip — driven from here (and not from the
-		// per-shard OnMigrationComplete) so it fires only after every
-		// shard's swap is acknowledged. updateToBlockMaxInvertedIndexConfig
-		// is idempotent at the RAFT layer (already-set short-circuit), so
-		// firing it from OnTaskCompleted on multiple nodes is safe.
-		//
-		// Guard before flipping: walk loaded shards and defer if any
-		// searchable bucket is still on the source (map) strategy.
-		// payload.Properties only covers the property this task migrated;
-		// other searchable properties on the class may still be on map
-		// (per-property submit path, handlers_indexes.go). The old
-		// shard-local check in OnMigrationComplete enforced this — we
-		// restore it here so a single-property migration defers the
-		// cluster-wide flip until every searchable bucket on every shard
-		// is blockmax. Cross-node consistency holds because a ChangeAlgorithm
-		// task covers every shard for the given property, so the local
-		// blockmax/map state per property is the same on every node.
+		// Defer until every local searchable bucket is blockmax — submit is
+		// per-property, so the class may still have map buckets.
 		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
 			return err
 		} else if defer_ {
@@ -2119,12 +2100,9 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 	}
 }
 
-// shouldDeferBlockmaxFlip returns true if any loaded shard on this node still
-// has a searchable bucket on the source (map) strategy. The cluster-wide
-// UsingBlockMaxWAND flip is deferred until every per-property ChangeAlgorithm
-// migration has drained — restoring the invariant the strategy file's godoc
-// states ("the class-level flag must stay off until [all properties on all
-// shards] are migrated too").
+// shouldDeferBlockmaxFlip is true while any local searchable bucket is still
+// on the source (map) strategy — defers the cluster-wide flip until every
+// per-property ChangeAlgorithm has drained (weaviate/0-weaviate-issues#254).
 func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) (bool, error) {
@@ -2161,18 +2139,9 @@ func (p *ReindexProvider) shouldDeferBlockmaxFlip(
 }
 
 // IsSemanticMigration returns true for migration types that change query
-// behavior and therefore require the cross-replica swap barrier: every
-// shard must finish reindexing before any shard swaps, and the cluster-wide
-// schema flip fires only after every node has acknowledged.
-//
-// change-algorithm is semantic because the class-level UsingBlockMaxWAND
-// flag flip cascades into Shard.UpdateVectorIndexConfig → SetStatusReadonly
-// on every loaded shard; without the barrier the first-finishing shard's
-// flip would put still-iterating sidecar buckets into read-only state on
-// other shards (weaviate/0-weaviate-issues#254 finding 3).
-//
-// enable-rangeable is intentionally NOT semantic — it predates the barrier
-// family and promoting it would change existing operator behavior.
+// behavior and therefore require the cross-replica swap barrier + cluster-
+// wide schema flip after every node has acknowledged. enable-rangeable is
+// intentionally NOT semantic — predates the barrier family.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||

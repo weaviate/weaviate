@@ -97,12 +97,7 @@ func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_MultipleProperties(t
 func TestLogOperatorRepairGuidanceOnFailedSemanticMigration_FormatOnlyMigrationIsNoOp(t *testing.T) {
 	logger, hook := logrustest.NewNullLogger()
 
-	// Format-only migrations (repair-filterable, repair-rangeable) don't
-	// go through the per-shard ack barrier that produces the
-	// bucket↔schema inversion family, so this helper should NOT emit
-	// operator guidance for them. change-algorithm was promoted to
-	// semantic in weaviate/0-weaviate-issues#254 so it is no longer
-	// part of this exclusion set.
+	// Format-only migrations must not emit operator guidance.
 	for _, mt := range []ReindexMigrationType{
 		ReindexTypeRepairFilterable,
 		ReindexTypeRepairRangeable,

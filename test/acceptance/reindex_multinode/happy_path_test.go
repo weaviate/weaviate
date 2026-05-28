@@ -96,12 +96,9 @@ func TestMultiNode_HappyPath(t *testing.T) {
 	})
 }
 
-// testMapToBlockmaxMultiPropertyDefersFlip pins the deferral path inside
-// flipSemanticMigrationSchema for ChangeAlgorithm: with two searchable
-// properties on the same class, the per-property reindex task for the
-// first must NOT flip UsingBlockMaxWAND while the second is still on
-// map. Single-property tests don't exercise this branch — the regression
-// QA Claude flagged on weaviate/0-weaviate-issues#254 review.
+// testMapToBlockmaxMultiPropertyDefersFlip: first property's reindex must
+// not flip UsingBlockMaxWAND while a second searchable property is still
+// on map (weaviate/0-weaviate-issues#254).
 func testMapToBlockmaxMultiPropertyDefersFlip(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeBlockmaxMultiProp"
 	restURI := compose.GetWeaviateNode(1).URI()
@@ -112,15 +109,14 @@ func testMapToBlockmaxMultiPropertyDefersFlip(t *testing.T, compose *docker.Dock
 	})
 	defer deleteCollection(t, restURI, className)
 
-	// Sanity: starting state has the class flag off.
+	// Baseline: flag off pre-migration.
 	for i := 1; i <= 3; i++ {
 		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
 		require.False(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
 			"pre-migration: UsingBlockMaxWAND must start false on node %d", i)
 	}
 
-	// First per-property migration: "title" only. The cluster-wide flip
-	// must NOT fire because "body" is still on the map strategy.
+	// Migrate "title" only — flip must defer ("body" still on map).
 	taskID1 := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title", `{"searchable":{"algorithm":"blockmax"}}`)
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "title", "searchable", reindexhelpers.WithTimeout(180*time.Second))
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1, reindexhelpers.WithTimeout(180*time.Second))
@@ -131,9 +127,7 @@ func testMapToBlockmaxMultiPropertyDefersFlip(t *testing.T, compose *docker.Dock
 			"after single-property reindex of 'title': UsingBlockMaxWAND must still be false on node %d (body still on map)", i)
 	}
 
-	// Second per-property migration: "body". Once this lands, every
-	// searchable bucket on every shard on every node is blockmax → the
-	// deferral guard releases and the cluster-wide flip fires.
+	// Migrate "body" — last property on map → guard releases, flip fires.
 	taskID2 := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body", `{"searchable":{"algorithm":"blockmax"}}`)
 	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable", reindexhelpers.WithTimeout(180*time.Second))
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2, reindexhelpers.WithTimeout(180*time.Second))

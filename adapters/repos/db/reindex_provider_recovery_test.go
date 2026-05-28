@@ -158,10 +158,8 @@ func TestHasUntidiedTracker(t *testing.T) {
 	}
 }
 
-// TestIsSemanticMigration pins the semantic/format-only classification.
-// change-algorithm was promoted to semantic in
-// weaviate/0-weaviate-issues#254 to close the read-only + wrong-query-path
-// races caused by the per-shard class-flag flip.
+// TestIsSemanticMigration pins the semantic/format-only classification
+// (weaviate/0-weaviate-issues#254 promoted change-algorithm to semantic).
 func TestIsSemanticMigration(t *testing.T) {
 	semantic := []ReindexMigrationType{
 		ReindexTypeChangeTokenization,

@@ -169,11 +169,6 @@ func migrationDirsForPropertyIndex(propName, indexType string) []string {
 			migrationDirWithProps(MigrationDirPrefixEnableSearchable, []string{propName}),
 			migrationDirWithProps(MigrationDirPrefixRebuildSearchable, []string{propName}),
 			MigrationDirPrefixSearchableRetokenize + "_" + propName,
-			// MapToBlockmax writes a class-level tracker dir (not per-property),
-			// but we include it on every searchable lookup so LocalCallbacksDone
-			// can detect interrupted blockmax swaps now that change-algorithm is
-			// a semantic migration (weaviate/0-weaviate-issues#254).
-			MigrationDirSearchableMapToBlockmax,
 		}
 	case "rangeable":
 		return []string{
