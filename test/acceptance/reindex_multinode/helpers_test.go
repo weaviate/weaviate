@@ -541,6 +541,25 @@ func restartCluster(ctx context.Context, t *testing.T, compose *docker.DockerCom
 	rollingRestartCluster(ctx, t, compose)
 }
 
+// cycleNodeFast restarts a node via `docker restart` and waits for
+// /v1/.well-known/ready. Use compose.StopAt + StartAt instead when the
+// test needs cluster membership to converge on "node X unhealthy" first
+// (e.g. consistency_level=ALL writes mid-restart). See weaviate/0-weaviate-issues#254.
+func cycleNodeFast(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int) {
+	t.Helper()
+	require.NoErrorf(t, compose.RestartAt(ctx, nodeIdx, nil),
+		"cycleNodeFast: restart node at index %d", nodeIdx)
+}
+
+// cycleNodeFastKill is cycleNodeFast with SIGKILL (`docker restart -t 0`).
+// For crash-path tests that need to bypass the on-shutdown bucket flush.
+func cycleNodeFastKill(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int) {
+	t.Helper()
+	zero := 0 * time.Second
+	require.NoErrorf(t, compose.RestartAt(ctx, nodeIdx, &zero),
+		"cycleNodeFastKill: restart (SIGKILL) node at index %d", nodeIdx)
+}
+
 // rollingRestartCluster stops + restarts each node ONE AT A TIME,
 // waiting for the node to be ready (and for RAFT to accept writes
 // again) before moving on. Mimics a Kubernetes StatefulSet rolling
@@ -558,8 +577,7 @@ func rollingRestartCluster(ctx context.Context, t *testing.T, compose *docker.Do
 	t.Helper()
 	for i := 1; i <= 3; i++ {
 		t.Logf("rolling restart: cycling node %d", i)
-		require.NoErrorf(t, compose.StopAt(ctx, i-1, nil), "stop node %d", i)
-		require.NoErrorf(t, compose.StartAt(ctx, i-1), "start node %d", i)
+		cycleNodeFast(ctx, t, compose, i-1)
 
 		// Wait for this node's HTTP endpoint to respond before moving
 		// on. tryGetSchema is cheap and exercises the same routing

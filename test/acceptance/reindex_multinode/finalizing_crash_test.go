@@ -270,18 +270,9 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 			"Consider increasing totalObjects to widen the window.")
 	}
 
-	// Kill node 3 ungracefully — 0s timeout means Docker SIGKILLs
-	// immediately, skipping the on-shutdown bucket flush. This is the
-	// k8s OOM / node-hardware-failure shape.
-	killTimeout := 0 * time.Second
-	t.Log("SIGKILL on node 3 (timeout=0)")
-	require.NoError(t, compose.StopAt(ctx, 2, &killTimeout))
-
-	// Restart node 3. The post-restart path must reconcile its
-	// half-finalized .migrations/ directory and re-emit the ack via
-	// the rehydrate path if its pre-kill ack hadn't landed in RAFT.
-	t.Log("restarting node 3")
-	require.NoError(t, compose.StartAt(ctx, 2))
+	// SIGKILL + restart node 3 — k8s OOM / node-hardware-failure shape.
+	t.Log("SIGKILL + restart node 3")
+	cycleNodeFastKill(ctx, t, compose, 2)
 
 	// Wait for FINISHED. Without the ack barrier, the schema flip
 	// could already have committed before the kill, leaving node 3
