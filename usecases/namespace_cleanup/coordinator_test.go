@@ -46,6 +46,11 @@ func (s stubSchema) ClassesInNamespace(ns string) ([]string, error) {
 }
 func (s stubSchema) AliasesInNamespace(ns string) []string { return s.aliases[ns] }
 
+// stubUsers returns the configured per-namespace user IDs.
+type stubUsers struct{ users map[string][]string }
+
+func (s stubUsers) UsersInNamespace(ns string) []string { return s.users[ns] }
+
 // recordedCall captures a single RAFT call for ordering assertions.
 type recordedCall struct {
 	op   string
@@ -118,7 +123,15 @@ func newTestCoordinator(t *testing.T,
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	return NewCoordinator(nsLister, schema, raft, isLeader, logger)
+	// Default: one user per deleting namespace so the skip-on-empty branch
+	// stays inert. Skip-path tests build the Coordinator directly.
+	users := stubUsers{users: map[string][]string{}}
+	if listing, ok := nsLister.(stubNamespaces); ok {
+		for _, ns := range listing.deleting {
+			users.users[ns] = []string{ns + ":default-user"}
+		}
+	}
+	return NewCoordinator(nsLister, schema, users, raft, isLeader, logger)
 }
 
 func alwaysLeader() bool { return true }
@@ -127,24 +140,27 @@ func TestCoordinator_NewCoordinator_PanicsOnNilArgs(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	nsLister := stubNamespaces{}
 	schema := stubSchema{}
+	users := stubUsers{}
 	raft := newStubRaft()
 
 	tests := []struct {
 		name     string
 		ns       namespaceLister
 		schema   schemaLister
+		users    userLister
 		raft     raftExecutor
 		isLeader func() bool
 	}{
-		{name: "nil namespace lister", ns: nil, schema: schema, raft: raft, isLeader: alwaysLeader},
-		{name: "nil schema lister", ns: nsLister, schema: nil, raft: raft, isLeader: alwaysLeader},
-		{name: "nil raft executor", ns: nsLister, schema: schema, raft: nil, isLeader: alwaysLeader},
-		{name: "nil isLeader", ns: nsLister, schema: schema, raft: raft, isLeader: nil},
+		{name: "nil namespace lister", ns: nil, schema: schema, users: users, raft: raft, isLeader: alwaysLeader},
+		{name: "nil schema lister", ns: nsLister, schema: nil, users: users, raft: raft, isLeader: alwaysLeader},
+		{name: "nil user lister", ns: nsLister, schema: schema, users: nil, raft: raft, isLeader: alwaysLeader},
+		{name: "nil raft executor", ns: nsLister, schema: schema, users: users, raft: nil, isLeader: alwaysLeader},
+		{name: "nil isLeader", ns: nsLister, schema: schema, users: users, raft: raft, isLeader: nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Panics(t, func() {
-				NewCoordinator(tc.ns, tc.schema, tc.raft, tc.isLeader, logger)
+				NewCoordinator(tc.ns, tc.schema, tc.users, tc.raft, tc.isLeader, logger)
 			})
 		})
 	}
@@ -163,6 +179,45 @@ func TestCoordinator_Tick_NotLeaderReturnsBeforeAnyCall(t *testing.T) {
 	c := newTestCoordinator(t, ns, stubSchema{}, raft, func() bool { return false })
 	c.Tick(context.Background())
 	assert.Empty(t, raft.calls)
+}
+
+// Safety-net redrain fires only when leftover users remain.
+func TestCoordinator_Tick_RedrainOnlyWhenUsersRemain(t *testing.T) {
+	cases := []struct {
+		name             string
+		users            map[string][]string
+		wantUsersOpFired bool
+	}{
+		{
+			name:             "empty user set skips safety-net redrain",
+			users:            map[string][]string{},
+			wantUsersOpFired: false,
+		},
+		{
+			name:             "leftover users trigger safety-net redrain",
+			users:            map[string][]string{"alpha": {"alpha:leftover"}},
+			wantUsersOpFired: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raft := newStubRaft()
+			ns := stubNamespaces{deleting: []string{"alpha"}}
+			logger, _ := test.NewNullLogger()
+			c := NewCoordinator(ns, stubSchema{}, stubUsers{users: tc.users}, raft, alwaysLeader, logger)
+
+			c.Tick(context.Background())
+
+			fired := false
+			for _, call := range raft.calls {
+				if call.op == "users" {
+					fired = true
+					break
+				}
+			}
+			assert.Equal(t, tc.wantUsersOpFired, fired)
+		})
+	}
 }
 
 func TestCoordinator_Tick_OrderingAcrossPhases(t *testing.T) {

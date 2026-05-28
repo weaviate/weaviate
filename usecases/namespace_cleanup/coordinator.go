@@ -27,8 +27,8 @@
 // path exists, routing the bulk of the work through it is cheaper
 // than duplicating the logic in the request handler.
 //
-// The user delete is re-run on every tick as a safety net in case the
-// handler crashed between marking and the eager drain.
+// The user delete is re-run as a safety net whenever leftover users remain,
+// in case the handler crashed between marking and the eager drain.
 //
 // Every step is a separate replicated command, so any failure is
 // retried on the next tick. Because the coordinator's view of what
@@ -60,6 +60,11 @@ type schemaLister interface {
 	AliasesInNamespace(namespace string) []string
 }
 
+// userLister returns the DB users bound to a namespace.
+type userLister interface {
+	UsersInNamespace(namespace string) []string
+}
+
 // raftExecutor is the subset of cluster.Raft used here.
 type raftExecutor interface {
 	DeleteUsersInNamespace(ctx context.Context, name string) error
@@ -74,6 +79,7 @@ type raftExecutor interface {
 type Coordinator struct {
 	namespaces namespaceLister
 	schema     schemaLister
+	users      userLister
 	raft       raftExecutor
 	isLeader   func() bool
 	logger     logrus.FieldLogger
@@ -83,6 +89,7 @@ type Coordinator struct {
 func NewCoordinator(
 	nsLister namespaceLister,
 	schema schemaLister,
+	users userLister,
 	raft raftExecutor,
 	isLeader func() bool,
 	logger logrus.FieldLogger,
@@ -93,6 +100,9 @@ func NewCoordinator(
 	if schema == nil {
 		panic("namespacecleanup: schema lister must not be nil")
 	}
+	if users == nil {
+		panic("namespacecleanup: user lister must not be nil")
+	}
 	if raft == nil {
 		panic("namespacecleanup: raft executor must not be nil")
 	}
@@ -102,6 +112,7 @@ func NewCoordinator(
 	return &Coordinator{
 		namespaces: nsLister,
 		schema:     schema,
+		users:      users,
 		raft:       raft,
 		isLeader:   isLeader,
 		logger:     logger,
@@ -150,8 +161,11 @@ func (c *Coordinator) cleanupSingleNamespace(ctx context.Context, ns string) err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := c.raft.DeleteUsersInNamespace(ctx, ns); err != nil {
-		return err
+	// Skip the no-op RAFT entry when no users remain to redrain.
+	if len(c.users.UsersInNamespace(ns)) > 0 {
+		if err := c.raft.DeleteUsersInNamespace(ctx, ns); err != nil {
+			return err
+		}
 	}
 	for _, alias := range c.schema.AliasesInNamespace(ns) {
 		if !c.isLeader() {

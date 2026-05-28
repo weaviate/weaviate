@@ -902,6 +902,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	namespaceCleanupCoordinator := namespacecleanup.NewCoordinator(
 		appState.NamespacesController,
 		rCluster.NewSchemaNamespaceLister(appState.ClusterService.SchemaReader()),
+		appState.APIKey.Dynamic,
 		appState.ClusterService.Raft,
 		appState.ClusterService.IsLeader,
 		appState.Logger,
