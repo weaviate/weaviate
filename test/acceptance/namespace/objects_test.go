@@ -519,9 +519,11 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 		// Reference-path filters are no longer rejected upfront on NS-enabled
 		// clusters: filterext.Parse qualifies each inner class segment against
 		// the source's namespace and then the filter is validated like any
-		// other. This fixture has no "hasOther" ref property, so the request is
-		// rejected by the downstream schema lookup ("no such prop") rather than
-		// the removed path-len > 1 guard.
+		// other. This fixture has no "Other" class, so QualifyRefTarget turns
+		// "Other" into "customer1:Other" and the downstream schema lookup then
+		// rejects it with "could not find class ..." — proving the qualification
+		// path runs and the removed path-len > 1 upfront guard is gone (any
+		// "customer1:" in the message is stripped before reaching this caller).
 		const class = "BatchDeleteRefPath"
 		setupClassInNs1(t, class, user1Key)
 
@@ -548,8 +550,10 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 		require.True(t, errors.As(err, &unproc), "expected 422 UnprocessableEntity, got %T: %v", err, err)
 		require.NotEmpty(t, unproc.Payload.Error)
 		msg := unproc.Payload.Error[0].Message
-		assert.Contains(t, msg, "hasOther",
-			"must fail on the unknown ref property, not the removed upfront rejection")
+		assert.Contains(t, msg, "could not find class",
+			"must fail in the downstream schema lookup, not the removed upfront rejection")
+		assert.Contains(t, msg, "Other",
+			"the leaf class name (qualified to customer1:Other and stripped to Other) must appear in the message")
 		assert.NotContains(t, msg, "reference-path filters",
 			"the upfront path-len > 1 rejection no longer exists")
 	})
