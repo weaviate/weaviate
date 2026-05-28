@@ -648,11 +648,21 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["filterable", "searchable", "rangeable"]
+          "enum": [
+            "filterable",
+            "searchable",
+            "rangeable"
+          ]
         },
         "status": {
           "type": "string",
-          "enum": ["ready", "indexing", "pending", "failed", "cancelled"]
+          "enum": [
+            "ready",
+            "indexing",
+            "pending",
+            "failed",
+            "cancelled"
+          ]
         },
         "progress": {
           "type": "number",
@@ -666,12 +676,18 @@
         },
         "algorithm": {
           "type": "string",
-          "enum": ["wand", "blockmax"],
+          "enum": [
+            "wand",
+            "blockmax"
+          ],
           "description": "BM25 algorithm currently backing this searchable index. 'wand' is the legacy map-based bucket strategy; 'blockmax' is the Block Max WAND inverted strategy. Only populated for `type=searchable` entries. Not populated for filterable or rangeable indexes."
         },
         "targetAlgorithm": {
           "type": "string",
-          "enum": ["wand", "blockmax"],
+          "enum": [
+            "wand",
+            "blockmax"
+          ],
           "description": "BM25 algorithm this searchable index is being rebuilt onto. Populated only while an in-flight rebuild is changing the algorithm; mirrors `targetTokenization` for the change-tokenization verb. Today the only supported transition is wand -> blockmax."
         }
       }
@@ -702,7 +718,9 @@
         },
         "algorithm": {
           "type": "string",
-          "enum": ["blockmax"],
+          "enum": [
+            "blockmax"
+          ],
           "description": "Switch the BM25 algorithm for this property's searchable index. Currently only `blockmax` is accepted. From WAND this triggers the Map → BlockMax migration; on an already-`blockmax` property the request is rejected. WAND is deprecated; downgrade is intentionally not supported."
         },
         "enabled": {
@@ -3779,7 +3797,10 @@
         "state": {
           "description": "Lifecycle state. \"active\" namespaces accept all operations. \"deleting\" namespaces are being removed: new classes, aliases, and users can no longer be created in the namespace, and the namespace itself disappears once removal completes.",
           "type": "string",
-          "enum": ["active", "deleting"]
+          "enum": [
+            "active",
+            "deleting"
+          ]
         }
       }
     },
@@ -3825,7 +3846,7 @@
     },
     "description": "# Introduction<br/> Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. <br/> ### Base Path <br/>The base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. <br/> ### Questions? <br/>If you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). <br/>### Issues? <br/>If you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). <br/>### Need more documentation? <br/>For a quickstart, code examples, concepts and more, please visit our [documentation page](https://docs.weaviate.io/weaviate).",
     "title": "Weaviate REST API",
-    "version": "1.38.0-dev"
+    "version": "1.38.0-rc.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -8554,7 +8575,9 @@
     "/schema/{className}/indexes": {
       "get": {
         "operationId": "schema.objects.indexes.get",
-        "tags": ["schema"],
+        "tags": [
+          "schema"
+        ],
         "summary": "Get index status for all properties of a collection",
         "description": "Returns per-property index state including active reindex progress. This powers the UI to show live migration status.",
         "parameters": [
@@ -8596,7 +8619,9 @@
     "/schema/{className}/indexes/{propertyName}": {
       "put": {
         "operationId": "schema.objects.indexes.update",
-        "tags": ["schema"],
+        "tags": [
+          "schema"
+        ],
         "summary": "Update index configuration for a property (triggers reindex)",
         "description": "Declaratively sets the desired index state for a property. The system computes the diff from the current state and triggers the appropriate reindex task.",
         "parameters": [
@@ -8617,7 +8642,9 @@
             "in": "query",
             "required": false,
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Tenant names to target. Only for non-semantic operations on multi-tenant collections. Omit to target all tenants."
           },
           {
