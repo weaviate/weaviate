@@ -248,19 +248,21 @@ func TestUserPermissions(t *testing.T) {
 		require.True(t, errors.As(err, &errType))
 
 		helper.AssignRoleToUser(t, adminKey, roleNameUpdate, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
 		helper.AssignRoleToUser(t, adminKey, roleNameReadRoles, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
+		// grant otherRoleName up front so the assign guard (caller must
+		// already hold the role's permissions) is satisfied below
+		helper.AssignRoleToUser(t, adminKey, otherRoleName, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, otherRoleName, customUser)
 
 		// assigning works after user has appropriate rights
 		helper.AssignRoleToUser(t, customKey, otherRoleName, customUser)
-
-		// clean up
-		helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
-		helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
-		helper.RevokeRoleFromUser(t, adminKey, otherRoleName, customUser)
 	})
 
 	t.Run("revoke users", func(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, otherRoleName, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, otherRoleName, customUser)
 
 		_, err := helper.Client(t).Authz.RevokeRoleFromUser(
 			authz.NewRevokeRoleFromUserParams().WithID(customUser).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{otherRoleName}}),
@@ -271,7 +273,9 @@ func TestUserPermissions(t *testing.T) {
 		require.True(t, errors.As(err, &errType))
 
 		helper.AssignRoleToUser(t, adminKey, roleNameUpdate, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
 		helper.AssignRoleToUser(t, adminKey, roleNameReadRoles, customUser)
+		defer helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
 
 		// revoking works after user has appropriate rights
 		roles := helper.GetRolesForUser(t, customUser, customKey, true)
@@ -279,9 +283,6 @@ func TestUserPermissions(t *testing.T) {
 		helper.RevokeRoleFromUser(t, customKey, otherRoleName, customUser)
 		roles = helper.GetRolesForUser(t, customUser, customKey, true)
 		require.Len(t, roles, 2)
-
-		helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
-		helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
 	})
 }
 
