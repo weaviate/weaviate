@@ -111,11 +111,12 @@ func validateEnableFilterableProperty(prop *models.Property) error {
 	// keeps the allow-list implicit so newly-added primitive types are
 	// permitted by default; only types we have positively decided cannot
 	// support a filterable index need to be listed.
-	switch dt { //nolint:exhaustive // intentional allow-by-default
+	switch dt {
 	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
 		return fmt.Errorf("property %q type %q does not support a filterable index", prop.Name, dt)
+	default:
+		return nil
 	}
-	return nil
 }
 
 // validateRebuildFilterableDataType guards repair-filterable against
@@ -141,11 +142,12 @@ func validateRebuildFilterableDataType(prop *models.Property) error {
 	if !ok {
 		return fmt.Errorf("property %q type %v does not support a filterable inverted index; nothing to rebuild", prop.Name, prop.DataType)
 	}
-	switch dt { //nolint:exhaustive // intentional allow-by-default
+	switch dt {
 	case entschema.DataTypeBlob, entschema.DataTypeGeoCoordinates, entschema.DataTypePhoneNumber:
 		return fmt.Errorf("property %q type %q does not support a filterable inverted index; nothing to rebuild", prop.Name, dt)
+	default:
+		return nil
 	}
-	return nil
 }
 
 // validateEnableSearchableProperty validates that the property is a

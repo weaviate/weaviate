@@ -411,4 +411,44 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 			})
 		}
 	})
+
+	// Regression: dangling-alias writes used to fall into auto-schema and silently re-create the deleted target.
+	t.Run("batch insert through alias with deleted target fails", func(t *testing.T) {
+		danglingClass := "GRPCBatchAliasDanglingTarget"
+		danglingAlias := "GRPCBatchAliasDangling"
+
+		helper.CreateClass(t, &models.Class{
+			Class:      danglingClass,
+			Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+		})
+		helper.CreateAlias(t, &models.Alias{Alias: danglingAlias, Class: danglingClass})
+		defer helper.DeleteAlias(t, danglingAlias)
+		helper.DeleteClass(t, danglingClass)
+
+		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{
+				{
+					Collection: danglingAlias,
+					Uuid:       uuid.NewString(),
+					Properties: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"title": structpb.NewStringValue("should not be inserted"),
+							},
+						},
+					},
+				},
+			},
+		})
+		// Per-object failure: transport call succeeds, error surfaces in resp.Errors.
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Errors, 1, "expected the dangling-alias insert to fail")
+		assert.Contains(t, resp.Errors[0].Error, danglingAlias)
+		assert.Contains(t, resp.Errors[0].Error, "does not exist")
+
+		got, getErr := helper.GetClassWithoutAssert(t, danglingClass, "")
+		require.Error(t, getErr, "deleted collection should return an error from the schema API")
+		require.Nil(t, got, "alias write must not auto-create the deleted collection")
+	})
 }

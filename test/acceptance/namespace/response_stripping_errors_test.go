@@ -158,14 +158,14 @@ func TestNamespaces_ResponseStripping_Errors_GRPC(t *testing.T) {
 	})
 
 	t.Run("batch reply per-item error: invalid object yields stripped per-item entry", func(t *testing.T) {
-		// Inject a per-item error by referencing an unknown collection so
-		// the classGetter inside BatchObjects fails for that item; the
-		// resulting BatchError must have no "customer1:" prefix.
+		// A number for the text "title" property fails per-object validation
+		// (an unknown collection would instead be auto-created and succeed).
+		// The error names the qualified class, so the BatchError must be stripped.
 		resp, err := grpcClient.BatchObjects(authCtx(user1Key), &pb.BatchObjectsRequest{
 			Objects: []*pb.BatchObject{
-				{Uuid: "11111111-1111-1111-1111-111111111111", Collection: "NoSuchClass", Properties: &pb.BatchObject_Properties{
+				{Uuid: "11111111-1111-1111-1111-111111111111", Collection: class, Properties: &pb.BatchObject_Properties{
 					NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{
-						"title": structpb.NewStringValue("bad"),
+						"title": structpb.NewNumberValue(42),
 					}},
 				}},
 			},
@@ -188,12 +188,14 @@ func TestNamespaces_ResponseStripping_Errors_GRPC(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, started.GetStarted())
 
+		// As above: a number for the text "title" property forces a per-object
+		// validation error naming the qualified class.
 		require.NoError(t, stream.Send(&pb.BatchStreamRequest{
 			Message: &pb.BatchStreamRequest_Data_{Data: &pb.BatchStreamRequest_Data{
 				Objects: &pb.BatchStreamRequest_Data_Objects{Values: []*pb.BatchObject{
-					{Uuid: "22222222-2222-2222-2222-222222222222", Collection: "NoSuchStreamClass", Properties: &pb.BatchObject_Properties{
+					{Uuid: "22222222-2222-2222-2222-222222222222", Collection: class, Properties: &pb.BatchObject_Properties{
 						NonRefProperties: &structpb.Struct{Fields: map[string]*structpb.Value{
-							"title": structpb.NewStringValue("bad"),
+							"title": structpb.NewNumberValue(42),
 						}},
 					}},
 				}},
