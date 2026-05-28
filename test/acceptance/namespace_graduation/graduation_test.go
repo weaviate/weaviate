@@ -52,9 +52,11 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 
 	compose, err := docker.New().
 		WithApiKey().
+		WithRBAC().
 		WithUserApiKey(adminUser, adminKey).
+		WithRbacRoots(adminUser). // admin must be root or every op below 403s
 		WithDbUsers().
-		WithNamespaces().
+		WithNamespaces(). // requires RBAC — Config.Validate rejects NS-without-RBAC
 		WithBackendFilesystem().
 		WithWeaviate(). // single-node — no NodeMapping plumbing needed
 		Start(ctx)
