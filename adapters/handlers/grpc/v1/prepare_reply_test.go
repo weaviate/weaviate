@@ -1436,12 +1436,9 @@ func TestTargetCollectionStripping(t *testing.T) {
 	}
 }
 
-// TestRefTargetCollectionStripping pins the nested-ref strip parity:
-// extractRefPropertiesAnswer (every expanded cross-ref hit) must apply the
-// same StripOwnNamespace as the top-level extractPropertiesAnswer.
-// Pre-fix, the nested branch echoed className verbatim with a comment
-// claiming "ref-shape stripping lives in a later slice" — that later
-// slice never existed, and every NS cross-ref leaked the qualified name.
+// TestRefTargetCollectionStripping pins parity between
+// extractRefPropertiesAnswer and extractPropertiesAnswer: both must apply
+// StripOwnNamespace to the target class.
 func TestRefTargetCollectionStripping(t *testing.T) {
 	namespaced := &models.Principal{Username: "u", Namespace: "customer1"}
 	global := &models.Principal{Username: "admin", IsGlobalOperator: true}

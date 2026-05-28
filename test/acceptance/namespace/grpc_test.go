@@ -372,11 +372,8 @@ func TestNamespaces_GRPC(t *testing.T) {
 		}
 	})
 
-	// Aggregate GroupBy threads the principal through NewAggregateReplier so
-	// parseAggregateGroupedBy can strip class-name bucket values for the
-	// namespaced caller. The unit suite pins the strip itself
-	// (TestGRPCAggregateReply_GroupByStripsNamespace); this guards the wiring
-	// end-to-end. Non-class bucket values (the common case) are unaffected.
+	// End-to-end wire-shape check for parseAggregateGroupedBy strip
+	// (TestGRPCAggregateReply_GroupByStripsNamespace pins the helper).
 	t.Run("Aggregate GroupBy on a string property succeeds on NS cluster", func(t *testing.T) {
 		req := &pb.AggregateRequest{
 			Collection:   class,
@@ -392,11 +389,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 			out := make([]string, 0, len(groups))
 			for _, g := range groups {
 				val := g.GroupedBy.GetText()
-				// Group-by buckets must never carry the caller's own NS
-				// prefix. The strip in parseAggregateGroupedBy is unconditional
-				// (no-op for non-class strings), so this also catches a
-				// regression where ref-target group-by would have leaked a
-				// qualified class name.
+				// Buckets must not leak any "<ns>:" prefix.
 				assert.NotContains(t, val, "customer1:",
 					"group-by bucket must not leak any '<ns>:' prefix: %s", val)
 				assert.NotContains(t, val, "customer2:",
@@ -406,15 +399,13 @@ func TestNamespaces_GRPC(t *testing.T) {
 			return out
 		}
 
-		// Each namespaced caller sees only their own seeded buckets;
-		// namespace isolation holds at the aggregate level.
+		// Per-NS isolation: each caller sees only their own seeded buckets.
 		buckets1 := bucketsFor(t, user1Key)
 		buckets2 := bucketsFor(t, user2Key)
 		assert.NotEqual(t, buckets1, buckets2,
 			"buckets should differ between namespaces; got %v on both", buckets1)
 
-		// Global admin against the qualified class name: must succeed and
-		// return buckets unchanged (Strip is a no-op for globals).
+		// Admin against qualified class: strip is a no-op.
 		respAdmin, err := grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
 			Collection:   "customer1:" + class,
 			ObjectsCount: true,

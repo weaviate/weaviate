@@ -125,9 +125,7 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 			t, helper.DefaultBackupConfig(), qualified, s3Backend, backupID,
 			helper.CreateAuth(adminKey))
 		require.NoError(t, err)
-		// Root sees the qualified storage class in BackupCreateResponse.Classes
-		// because backup endpoints are not reachable by namespaced principals
-		// (they 403 above), so no response-side strip is applied here.
+		// Root sees qualified Classes; backup endpoints are operator-only.
 		require.NotNil(t, okResp.Payload)
 		assert.Contains(t, okResp.Payload.Classes, qualified,
 			"root's backup-create response must echo the qualified class verbatim")

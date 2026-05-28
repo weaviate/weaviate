@@ -362,15 +362,8 @@ func TestWorkerLoop(t *testing.T) {
 		require.Empty(t, processingQueue)
 	})
 
-	// TestWorker_StreamErrorsStripCallerNamespace pins the namespace strip
-	// on every BatchStreamReply_Results_Error.Error string the worker emits.
-	// Pre-fix the per-item, per-fanout, and per-call error messages flowed
-	// through verbatim — internal batch errors mention the qualified storage
-	// class ("customer1:Movies"), so a namespaced caller would see their own
-	// "<ns>:" prefix in the stream errors. Each subtest builds a ctx carrying
-	// a customer1 principal, injects an error containing that qualified name
-	// via the batcher mock, and asserts both that the own-NS prefix is gone
-	// and that a foreign-NS prefix in the same message is preserved.
+	// Pins the NS strip on every BatchStreamReply_Results_Error.Error
+	// string the worker emits (own NS stripped, foreign preserved).
 	t.Run("stream errors strip caller's own namespace prefix", func(t *testing.T) {
 		namespaced := &models.Principal{Username: "u", Namespace: "customer1"}
 

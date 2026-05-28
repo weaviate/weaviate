@@ -144,12 +144,8 @@ func (h *batchObjectHandlers) referencesResponse(principal *models.Principal, in
 			errorResponse = errPayloadFromSingleErr(principal, ref.Err)
 			status = models.BatchReferenceResponseAO1ResultStatusFAILED
 		} else {
-			// Strip the principal's own namespace from the beacons before
-			// they reach the response: the From class is qualified upstream
-			// by resolveNS, and the namespacing contract is that namespaced
-			// callers never see "<ns>:" in their own data. The To helper is
-			// defense in depth — the target class is already short at this
-			// point (QualifyRefTarget normalises it before storage).
+			// From class is qualified by resolveNS upstream; strip before
+			// emitting. To strip is defense in depth.
 			reference.From = namespacing.StripRefSourceBeacon(principal, ref.From)
 			reference.To = namespacing.StripRefBeacon(principal, ref.To)
 		}

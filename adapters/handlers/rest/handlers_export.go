@@ -69,9 +69,7 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 		}
 	}
 
-	// scheduler.Export populates Classes from selector.ListClasses (qualified
-	// storage names); strip the principal's own NS so namespaced callers
-	// don't see "<ns>:" in their export-create response.
+	// Classes comes back qualified from storage; strip caller's own NS.
 	if resp != nil {
 		resp.Classes = namespacing.StripClassNames(principal, resp.Classes)
 	}
@@ -106,8 +104,7 @@ func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 		}
 	}
 
-	// Same reason as createExport — status.Classes echoes the qualified
-	// storage names persisted in the export metadata.
+	// Same as createExport.
 	if status != nil {
 		status.Classes = namespacing.StripClassNames(principal, status.Classes)
 	}

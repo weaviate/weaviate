@@ -540,9 +540,7 @@ func TestNamespaces_CollectionAndAlias(t *testing.T) {
 		require.Equal(t, "AliasShortGet", resp.Payload.Alias)
 		require.Equal(t, "AliasShortGetTarget", resp.Payload.Class)
 
-		// Admin-side symmetric: GET the same alias by its qualified name
-		// must return the qualified Alias/Class verbatim (StripAliasResponse
-		// is a no-op for global principals).
+		// Admin sees qualified Alias/Class verbatim (strip is a no-op).
 		respAdmin, err := helper.GetAliasAuthWithReturn(t, "customer1:AliasShortGet", adminKey)
 		require.NoError(t, err)
 		assert.Equal(t, "customer1:AliasShortGet", respAdmin.Payload.Alias,

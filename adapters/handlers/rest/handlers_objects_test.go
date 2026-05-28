@@ -1159,10 +1159,8 @@ func (f *fakeManager) DeleteObjectReference(context.Context, *models.Principal,
 }
 
 // TestExtendReferenceWithAPILink_StripsNamespacePrefix pins the
-// defense-in-depth strip on the GET-object response path: beacons are
-// persisted short on every write path today, but the Href builder should
-// not silently subscribe to that invariant. A hypothetical qualified
-// beacon must not leak the namespaced caller's own "<ns>:" prefix.
+// defense-in-depth strip on the Href builder against a hypothetical
+// qualified beacon.
 func TestExtendReferenceWithAPILink_StripsNamespacePrefix(t *testing.T) {
 	h := &objectHandlers{config: config.Config{Origin: "https://weaviate.local"}}
 	const uuid = "85f78e29-5937-4390-a121-5379f262b4e5"

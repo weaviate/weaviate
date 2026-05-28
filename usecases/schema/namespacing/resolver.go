@@ -316,14 +316,9 @@ func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
 }
 
 // StripRefSourceBeacon returns the RefSource as a beacon URI with the
-// principal's own namespace prefix stripped from the class. The REST batch
-// reference response writer is the only place that serializes a RefSource
-// back to the user; without this strip, namespaced callers see qualified
-// "<ns>:Class" embedded in their own From beacons (they never typed it on
-// the way in — usecases/objects/batch_references_add.go:52-57 qualifies it
-// via resolveNS before the response is built). Returns the unmodified URI
-// for nil RefSource, global principals, or NS-disabled clusters. The input
-// is not mutated.
+// caller's own namespace stripped from the class. resolveNS qualifies the
+// From class before the response is built, so without this the From beacon
+// echoes the prefix back. Input is not mutated.
 func StripRefSourceBeacon(principal *models.Principal, src *crossref.RefSource) strfmt.URI {
 	if src == nil {
 		return ""
@@ -336,13 +331,10 @@ func StripRefSourceBeacon(principal *models.Principal, src *crossref.RefSource) 
 	return strfmt.URI(out.String())
 }
 
-// StripRefBeacon is the symmetric helper for cross-ref targets (the To side).
-// At the response-writer call site the target class is already short — the
-// batch_references_add path normalises it via QualifyRefTarget before reaching
-// the handler — but this helper exists as defense in depth: a future change
-// that forgets to short-form the target won't leak the prefix through the
-// response writer. Returns the unmodified URI for nil Ref, global principals,
-// or NS-disabled clusters. The input is not mutated.
+// StripRefBeacon is the To-side counterpart of StripRefSourceBeacon.
+// Defense in depth: the target class is already short at the call site
+// (QualifyRefTarget normalises it on the write path), but a future change
+// that forgets to short-form it won't leak through here. Input is not mutated.
 func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 	if r == nil {
 		return ""
@@ -356,12 +348,9 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 }
 
 // StripClassNames returns a new slice with each class name stripped of the
-// principal's own namespace prefix. Used by REST response writers whose
-// payloads carry plain `[]string` class lists (backup/restore/list, export
-// create/status) — these are populated from storage-shape qualified names and
-// would otherwise leak "<ns>:" back to the namespaced caller. Returns the
-// input unchanged for nil principal / NS-disabled / global principals so the
-// admin's raw qualified view is preserved. The input slice is not mutated.
+// caller's own namespace prefix. Used by response writers carrying plain
+// []string class lists populated from qualified storage names. Input is
+// not mutated.
 func StripClassNames(principal *models.Principal, classes []string) []string {
 	if len(classes) == 0 || principal == nil || principal.Namespace == "" {
 		return classes

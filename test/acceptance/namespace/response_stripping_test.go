@@ -310,9 +310,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		assert.Equal(t, class, resp.Payload[0].Class)
 		assert.Equal(t, class, resp.Payload[1].Class)
 
-		// Admin-side symmetric: posting against the qualified class name
-		// returns the qualified Class verbatim (StripObjectResponseClass is
-		// a no-op for global principals).
+		// Admin sees qualified Class verbatim (strip is a no-op for globals).
 		respAdmin, err := helper.Client(t).Batch.BatchObjectsCreate(
 			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
 				Objects: []*models.Object{
@@ -354,9 +352,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		require.NotNil(t, resp.Payload.Match)
 		assert.Equal(t, class, resp.Payload.Match.Class)
 
-		// Admin-side symmetric: seed a fresh row in customer1's class and
-		// delete it via the qualified class name; the echoed Match.Class
-		// must remain qualified (StripOwnNamespace is a no-op for globals).
+		// Admin sees qualified Match.Class verbatim (strip is a no-op for globals).
 		idAdmin := strfmt.UUID("cccc3333-4444-5555-6666-cccc33335555")
 		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
 			ID: idAdmin, Class: class, Properties: map[string]any{"title": "admin-kill"},
@@ -382,16 +378,7 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 			"global admin must see the qualified Match.Class in the batch-delete response")
 	})
 
-	// Regression: BatchReferencesCreate used to echo the From beacon back
-	// with the qualified source class because resolveNS rewrites
-	// BatchReference.From.Class to "<ns>:Class" before the response writer
-	// runs (usecases/objects/batch_references_add.go:52-57), and
-	// RefSource.String() embeds Class directly into the URI path. Without
-	// StripRefSourceBeacon, a namespaced caller would see
-	// "weaviate://localhost/customer1:Zoo/<uuid>/hasAnimals" — leaking their
-	// own namespace through the response. The unit-level coverage lives at
-	// usecases/schema/namespacing/resolver_test.go (TestStripRefSourceBeacon,
-	// TestStripRefBeacon); this guards the end-to-end wire shape.
+	// Wire-shape regression for StripRefSourceBeacon / StripRefBeacon.
 	t.Run("BatchReferencesCreate response strips own-namespace prefix from From/To beacons", func(t *testing.T) {
 		const zoo, animal = "BatchRefStripZoo", "BatchRefStripAnimal"
 		helper.CreateClassAuth(t, &models.Class{

@@ -162,11 +162,7 @@ func (w *worker) sendObjects(
 	usesVectorisationByCollection map[string]bool,
 	retries int,
 ) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
-	// Strip the caller's own "<ns>:" from every Error string we emit to the
-	// stream. Internal batch errors mention the qualified storage class
-	// (e.g. "shard ... of class customer1:Movies"); without this strip the
-	// namespaced caller sees their own namespace in BatchStreamReply errors.
-	// Logs above stay raw — operators want the qualified name.
+	// Strip caller's own NS from emitted Error strings. Logs stay raw.
 	principal := restCtx.GetPrincipalFromContext(ctx)
 	if ctx.Err() != nil {
 		w.logger.WithField("streamId", streamId).Warnf("context error before sending objects: %s", ctx.Err())
@@ -264,8 +260,7 @@ func toBeacon(ref *pb.BatchReference) string {
 }
 
 func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
-	// See sendObjects: namespaced callers must not see "<ns>:" in any error
-	// they receive over the stream. Strip every Error string we emit.
+	// See sendObjects — strip caller's own NS from emitted errors.
 	principal := restCtx.GetPrincipalFromContext(ctx)
 	if ctx.Err() != nil {
 		w.logger.WithField("streamId", streamId).Warnf("context error before sending references: %s", ctx.Err())

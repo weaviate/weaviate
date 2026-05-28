@@ -21,11 +21,9 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-// TestGRPCAggregateReply_GroupByStripsNamespace pins the strip on the narrow
-// vector where a group-by bucket value is itself a class name (ref-target
-// grouping). The Replier had no principal before this fix, so the qualified
-// "<ns>:Class" value leaked verbatim. Non-class string values (the common
-// case) are unaffected — StripOwnNamespace is a no-op without the separator.
+// TestGRPCAggregateReply_GroupByStripsNamespace pins the NS strip on
+// group-by bucket values (string + []string) that carry a ref-target
+// class name. Non-class strings are unaffected (no separator).
 func TestGRPCAggregateReply_GroupByStripsNamespace(t *testing.T) {
 	nsCaller := &models.Principal{Username: "u", Namespace: "customer1"}
 	cases := []struct {

@@ -188,13 +188,7 @@ func TestNamespaces_References(t *testing.T) {
 		assert.Nil(t, resp.Payload[0].Result.Errors,
 			"expected no batch errors, got %+v", resp.Payload[0].Result.Errors)
 
-		// Beacons echoed back must be namespace-free for the namespaced
-		// caller: usecases/objects/batch_references_add.go qualifies the
-		// From class via resolveNS before the response is built, so without
-		// StripRefSourceBeacon the namespaced caller would see
-		// "weaviate://localhost/customer1:Zoo/<uuid>/hasAnimals" — exactly
-		// the leak that violated the response-stripping contract before
-		// the helper landed.
+		// Beacons must be short for the namespaced caller.
 		gotFrom := string(resp.Payload[0].From)
 		gotTo := string(resp.Payload[0].To)
 		assert.NotContains(t, gotFrom, "customer1:",
@@ -469,16 +463,10 @@ func TestNamespaces_References(t *testing.T) {
 		}
 		assert.True(t, foundResolved,
 			"gRPC ref-resolve should inline the customer1:Animal target via the source namespace; got name=%q", resolvedName)
-		// Every expanded cross-ref hit must apply the same strip as the
-		// top-level result — pre-fix the nested branch echoed the qualified
-		// "customer1:Animal" verbatim, leaking the caller's own namespace.
 		assert.Equal(t, "Animal", resolvedTargetCollection,
 			"nested-ref TargetCollection must be stripped of the caller's own namespace prefix")
 
-		// Admin-side symmetric check: the same query as adminKey against the
-		// qualified collection must return the QUALIFIED nested
-		// TargetCollection, proving Strip is a no-op for global principals
-		// and the qualified shape is preserved end-to-end.
+		// Admin sees the qualified form (Strip is a no-op for globals).
 		adminReq := searchReq("customer1:Zoo", 100)
 		adminReq.Properties = &pb.PropertiesRequest{
 			NonRefProperties: []string{"name"},
@@ -564,9 +552,7 @@ func TestNamespaces_References(t *testing.T) {
 			if name == "zoo-with-lion" {
 				sawLion = true
 			}
-			// Filter-driven search results must still emit the short-form
-			// TargetCollection for the namespaced caller — a regression that
-			// bypassed StripOwnNamespace on the filter path would land here.
+			// Filter-driven results must also emit short-form TargetCollection.
 			assert.Equal(t, "Zoo", r.Properties.TargetCollection,
 				"filter-by-ref result TargetCollection must be stripped for namespaced caller")
 		}

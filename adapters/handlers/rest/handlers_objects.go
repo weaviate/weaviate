@@ -856,11 +856,8 @@ func (h *objectHandlers) extendReferenceWithAPILink(principal *models.Principal,
 		// ignore return unchanged
 		return ref
 	}
-	// Defense in depth: beacons are persisted short (StripQualification runs
-	// on every write path today), so parsed.Class should be unqualified. But
-	// the response writer should not silently subscribe to that invariant —
-	// strip the caller's own NS prefix so a future change that ever stores a
-	// qualified beacon doesn't leak it through every GET object response.
+	// Defense in depth: beacons are stored short on every write path today,
+	// but the response writer shouldn't silently rely on that.
 	class := namespacing.StripOwnNamespace(principal, parsed.Class)
 	href := fmt.Sprintf("%s/v1/objects/%s/%s", h.config.Origin, class, parsed.TargetID)
 	if class == "" {

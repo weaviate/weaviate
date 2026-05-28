@@ -23,10 +23,8 @@ import (
 
 type AggregateReplier struct {
 	authorizedGetDataTypeOfProp func(string) (string, error)
-	// principal carries the caller identity into parseAggregateGroupedBy so
-	// group-by values that happen to be class names (ref-target grouping on
-	// NS clusters) get the caller's own "<ns>:" stripped before reaching the
-	// wire. nil principal is treated as no-strip (NS-disabled / unauth contexts).
+	// principal drives the namespace strip on ref-target group-by values
+	// in parseAggregateGroupedBy. nil = no strip.
 	principal *models.Principal
 }
 
@@ -100,11 +98,8 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*
 	if in != nil {
 		switch val := in.Value.(type) {
 		case string:
-			// Group-by on a ref-target ends up with the linked class name as
-			// the bucket value. On NS clusters that name is qualified in
-			// storage, so strip the caller's own "<ns>:" before emitting. For
-			// non-class string values (the common case) StripOwnNamespace is
-			// a no-op since there's no separator to match.
+			// Ref-target group-by buckets are qualified class names; strip
+			// the caller's own NS. No-op for non-class strings.
 			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
 				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: namespacing.StripOwnNamespace(r.principal, val)},
@@ -125,8 +120,7 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*
 				Value: &pb.AggregateReply_Group_GroupedBy_Int{Int: val},
 			}, nil
 		case []string:
-			// Same rationale as the string case — strip every entry so a
-			// list-shaped ref-target group-by doesn't leak qualified names.
+			// Same as the string case for list-shaped ref-target buckets.
 			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
 				Value: &pb.AggregateReply_Group_GroupedBy_Texts{Texts: &pb.TextArray{Values: namespacing.StripClassNames(r.principal, val)}},

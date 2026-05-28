@@ -130,10 +130,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 		return fmt.Errorf("authenticate: %w", err)
 	}
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
-	// Make the principal reachable to downstream workers via the stream
-	// context. Worker error emissions (BatchStreamReply_Results_Error.Error)
-	// run outside Handle's lexical scope, so they can't close over the local
-	// `principal`; they read it back out of ctx and strip per-item errors.
+	// Workers strip per-item errors by reading principal off streamCtx.
 	streamCtx = restCtx.AddPrincipalToContext(streamCtx, principal)
 
 	// If the server is shutting down, we reject new streams
