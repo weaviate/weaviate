@@ -12,14 +12,18 @@
 package namespace
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/namespaces"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -236,6 +240,104 @@ func TestNamespaces_ConcurrentDeleteAndAddClass(t *testing.T) {
 	// Post-condition: no class with the qualified name survives.
 	_, err := helper.GetClassWithoutAssert(t, qualifiedClass, adminKey)
 	require.Error(t, err, "class %q must not survive namespace removal", qualifiedClass)
+}
+
+// TestNamespaces_DeleteWhileBatchInsertInFlight runs a sustained batch
+// insert against a namespaced class, issues DELETE on the namespace, and
+// asserts: the race is actually exercised (writes succeed before DELETE
+// and fail after), the namespace is fully gone, and a fresh namespace +
+// class can be created cleanly — the latter is the proxy for "no torn
+// state was left behind".
+func TestNamespaces_DeleteWhileBatchInsertInFlight(t *testing.T) {
+	const (
+		ns        = "delbatch"
+		userID    = "dave"
+		className = "Tickets"
+	)
+	qualifiedClass := ns + ":" + className
+
+	helper.CreateNamespace(t, ns, adminKey)
+	userKey := createNamespacedUser(t, userID, ns, adminKey)
+	helper.CreateClassAuth(t, &models.Class{
+		Class:      className,
+		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+	}, userKey)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		batchOK, batchFailed atomic.Int64
+		lastErrMu            sync.Mutex
+		lastErr              error
+	)
+
+	var wg sync.WaitGroup
+	for w := 0; w < 2; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for i := 0; ctx.Err() == nil; i++ {
+				_, err := helper.Client(t).Batch.BatchObjectsCreate(
+					batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
+						Objects: []*models.Object{{
+							Class:      className,
+							Properties: map[string]any{"title": fmt.Sprintf("w%d-%d", workerID, i)},
+						}},
+					}),
+					helper.CreateAuth(userKey),
+				)
+				if err != nil {
+					batchFailed.Add(1)
+					lastErrMu.Lock()
+					lastErr = err
+					lastErrMu.Unlock()
+				} else {
+					batchOK.Add(1)
+				}
+			}
+		}(w)
+	}
+
+	// Pre-condition: let a few batches commit so the test actually
+	// exercises the race instead of issuing DELETE before any data lands.
+	require.Eventually(t, func() bool { return batchOK.Load() >= 4 },
+		10*time.Second, 50*time.Millisecond,
+		"batch loop should commit some objects before DELETE")
+
+	helper.DeleteNamespace(t, ns, adminKey)
+	cancel()
+	wg.Wait()
+
+	// (a) The batch loop must have seen failures once the class was deleted
+	// — otherwise the test never actually overlapped DELETE with writes.
+	require.Greater(t, batchFailed.Load(), int64(0),
+		"expected at least one batch failure after class delete; ok=%d failed=%d",
+		batchOK.Load(), batchFailed.Load())
+
+	// The last failure must be a typed REST error (any 4xx is fine), not
+	// a 500 from torn state.
+	lastErrMu.Lock()
+	le := lastErr
+	lastErrMu.Unlock()
+	require.Error(t, le)
+	var internal *batch.BatchObjectsCreateInternalServerError
+	require.False(t, errors.As(le, &internal),
+		"post-delete batch failure must not be a 500; got %T: %v", le, le)
+
+	// (b) Post-condition: class is gone.
+	_, err := helper.GetClassWithoutAssert(t, qualifiedClass, adminKey)
+	require.Error(t, err, "class %q must not survive namespace removal", qualifiedClass)
+
+	// (c) Namespace can be recreated cleanly with the same class name —
+	// a torn cleanup would surface here as a create failure or stale state.
+	helper.CreateNamespace(t, ns, adminKey)
+	t.Cleanup(func() { helper.DeleteNamespace(t, ns, adminKey) })
+	userKey2 := createNamespacedUser(t, userID, ns, adminKey)
+	helper.CreateClassAuth(t, &models.Class{
+		Class:      className,
+		Properties: []*models.Property{{Name: "title", DataType: []string{"text"}}},
+	}, userKey2)
 }
 
 // TestNamespaces_DeleteMissingReturns404FromEveryReplica drives DELETE
