@@ -148,15 +148,14 @@ type Bucket struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	// pauseCompactionMu ref-counts reindex pause/resume so parallel reindex
-	// tasks on one shard share a single pause (weaviate/0-weaviate-issues#251).
+	// pauseCompactionMu ref-counts reindex pause/resume (weaviate/0-weaviate-issues#251).
 	pauseCompactionMu    sync.Mutex
 	pauseCompactionCount int
 
-	// pauseTimerMu guards pauseTimer; backup and reindex pause paths both flow
-	// through doStartPauseTimer/doStopPauseTimer and would otherwise race.
-	pauseTimerMu sync.Mutex
-	pauseTimer   *prometheus.Timer
+	// pauseTimerMu ref-counts the timer across backup + reindex pause paths.
+	pauseTimerMu    sync.Mutex
+	pauseTimerCount int
+	pauseTimer      *prometheus.Timer
 
 	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
 	// should be kept in root segment during compaction process.

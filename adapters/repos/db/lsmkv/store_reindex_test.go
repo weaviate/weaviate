@@ -90,6 +90,45 @@ func TestPauseResumeObjectBucketCompaction_NoRecursiveRLock(t *testing.T) {
 	}
 }
 
+// TestDoStartStopPauseTimer_RefCount pins ref-counted timer behavior:
+// overlapping pause sources (backup + reindex) must not overwrite a live
+// timer (weaviate/weaviate#11486 Copilot review).
+func TestDoStartStopPauseTimer_RefCount(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	logger, _ := test.NewNullLogger()
+
+	store, err := New(dir, dir, logger, nil, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.NoError(t, err)
+	defer store.Shutdown(ctx)
+
+	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM,
+		WithStrategy(StrategyReplace)))
+
+	b := store.bucketsByName[helpers.ObjectsBucketLSM]
+	require.NotNil(t, b)
+
+	b.doStartPauseTimer()
+	outer := b.pauseTimer
+	require.NotNil(t, outer, "outer Start must allocate a timer")
+
+	b.doStartPauseTimer()
+	require.Same(t, outer, b.pauseTimer, "inner Start must not overwrite the outer timer")
+
+	b.doStopPauseTimer()
+	require.NotNil(t, b.pauseTimer, "inner Stop must not clear timer while outer holds")
+
+	b.doStopPauseTimer()
+	require.Nil(t, b.pauseTimer, "outer Stop must clear the timer")
+
+	// Extra Stop must be a no-op (ref-count guard).
+	b.doStopPauseTimer()
+	require.Nil(t, b.pauseTimer)
+}
+
 // TestDoStartStopPauseTimer_RaceFree pins the race surfaced on
 // weaviate/weaviate#11486: b.pauseTimer is touched by both the backup path
 // (Store.Pause/ResumeCompaction) and the reindex path

@@ -18,8 +18,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// pauseCompactionForReindex ref-counts the pause so parallel reindex tasks on
-// one shard share a single pause (weaviate/0-weaviate-issues#251).
 func (b *Bucket) pauseCompactionForReindex(ctx context.Context) error {
 	b.pauseCompactionMu.Lock()
 	defer b.pauseCompactionMu.Unlock()
@@ -36,7 +34,6 @@ func (b *Bucket) pauseCompactionForReindex(ctx context.Context) error {
 	return nil
 }
 
-// resumeCompactionForReindex reactivates compaction once the last pauser resumes.
 func (b *Bucket) resumeCompactionForReindex(ctx context.Context) error {
 	b.pauseCompactionMu.Lock()
 	defer b.pauseCompactionMu.Unlock()
@@ -56,25 +53,34 @@ func (b *Bucket) resumeCompactionForReindex(ctx context.Context) error {
 	return nil
 }
 
-// doStartPauseTimer + doStopPauseTimer are shared between the backup and reindex
-// pause paths; pauseTimerMu serializes them against the per-bucket pauseTimer.
 func (b *Bucket) doStartPauseTimer() {
 	label := b.GetDir()
 	if monitoring.GetMetrics().Group {
 		label = "n/a"
 	}
+	b.pauseTimerMu.Lock()
+	defer b.pauseTimerMu.Unlock()
+	b.pauseTimerCount++
+	if b.pauseTimerCount > 1 {
+		return
+	}
 	metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(label)
 	if err != nil {
 		return
 	}
-	b.pauseTimerMu.Lock()
-	defer b.pauseTimerMu.Unlock()
 	b.pauseTimer = prometheus.NewTimer(metric)
 }
 
 func (b *Bucket) doStopPauseTimer() {
 	b.pauseTimerMu.Lock()
 	defer b.pauseTimerMu.Unlock()
+	if b.pauseTimerCount == 0 {
+		return
+	}
+	b.pauseTimerCount--
+	if b.pauseTimerCount > 0 {
+		return
+	}
 	if b.pauseTimer != nil {
 		b.pauseTimer.ObserveDuration()
 		b.pauseTimer = nil
