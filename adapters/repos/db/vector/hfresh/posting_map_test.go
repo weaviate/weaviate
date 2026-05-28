@@ -568,15 +568,23 @@ func TestPostingMetadataStore(t *testing.T) {
 }
 
 // TestPostingMapRestoreAfterFastAdd pins the second half of the recall-after-
-// restart bug: FastAddVectorID updates only the in-memory xsync.Map, with
-// LSMKV persistence deferred to a later analyze/split/merge task. If the
-// node shuts down between FastAddVectorID and that follow-up task, the
-// entry is lost — Restore() then sees fewer postings than were live
-// in-memory pre-shutdown, which surfaces as vector_index_postings dropping
-// across a graceful restart in e2e.
+// restart bug. FastAddVectorID is the only path that creates a new posting
+// entry in-memory; if an unexpected shutdown (SIGKILL — i.e. ungraceful e2e
+// restart) lands before an analyze/split/merge task persists the entry,
+// the posting count drops across the restart and the recall-after-restart
+// e2e test fails with "vector_index_postings changed after reboot".
 //
-// HFresh.Flush() (called during Shutdown) must call PostingMap.Flush() to
-// persist every in-memory entry; this test asserts the round-trip survives.
+// The fix: the new-entry branch of FastAddVectorID persists synchronously
+// to LSMKV, so PostingMap.Size() is durable even without a clean shutdown.
+// Per-vector updates to an existing posting stay in-memory — they don't
+// change Size() and Flush+analyze will catch up the packed vector list.
+//
+// This test asserts:
+//   1. A new FastAddVectorID is immediately visible to a fresh PostingMap
+//      reading from the same bucket — simulates an ungraceful restart
+//      without a Flush.
+//   2. PostingMap.Flush() still works for the broader pre-shutdown
+//      persistence guarantee that the graceful path relies on.
 func TestPostingMapRestoreAfterFastAdd(t *testing.T) {
 	ctx := t.Context()
 
@@ -593,21 +601,23 @@ func TestPostingMapRestoreAfterFastAdd(t *testing.T) {
 	}
 	require.Equal(t, numPostings, pm.Size())
 
-	// Before Flush: a fresh PostingMap reading from the same bucket finds
-	// nothing, because FastAddVectorID only touches the in-memory xsync.Map.
-	pmBefore := NewPostingMap(bucket, makeTestMetrics())
-	require.NoError(t, pmBefore.Restore(ctx))
-	require.Equal(t, 0, pmBefore.Size(), "FastAddVectorID entries must not appear in LSMKV before Flush")
+	// Without any Flush call, a fresh PostingMap reading from the same
+	// bucket recovers every entry — the new-posting branch of
+	// FastAddVectorID persisted synchronously. This is what makes the
+	// posting count survive an ungraceful (SIGKILL) shutdown.
+	pmUngraceful := NewPostingMap(bucket, makeTestMetrics())
+	require.NoError(t, pmUngraceful.Restore(ctx))
+	require.Equal(t, numPostings, pmUngraceful.Size(),
+		"FastAddVectorID new-posting writes must be durable without Flush")
 
-	// Flush writes all in-memory entries to LSMKV.
+	// PostingMap.Flush still works for the graceful path (defense in depth:
+	// it also covers any future in-memory-only mutation we might add).
 	require.NoError(t, pm.Flush(ctx))
 
-	// After Flush: a fresh PostingMap reading from the same bucket recovers
-	// all entries, matching the pre-shutdown PostingMap.Size().
 	pmAfter := NewPostingMap(bucket, makeTestMetrics())
 	require.NoError(t, pmAfter.Restore(ctx))
 	require.Equal(t, numPostings, pmAfter.Size(),
-		"all FastAddVectorID entries must be visible after Flush+Restore")
+		"all entries must remain visible after Flush+Restore")
 }
 
 func TestOncePer(t *testing.T) {

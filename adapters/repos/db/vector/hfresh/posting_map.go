@@ -193,6 +193,22 @@ func (v *PostingMap) FastAddVectorID(ctx context.Context, postingID uint64, vect
 		}
 		count = m.Count()
 		v.data.Store(postingID, m)
+
+		// New posting: persist the metadata synchronously so the count is
+		// durable across an ungraceful (SIGKILL) shutdown. Per-vector updates
+		// to existing postings stay in-memory — they don't change
+		// PostingMap.Size(), and an analyze task will catch up the packed
+		// vector list. But a brand-new postingID lives only here until the
+		// next analyze runs, and the recall-after-restart e2e test
+		// SIGKILLs the process between insert and analyze.
+		//
+		// The bytes for the new entry can never be racing here (the entry
+		// is being created and no other goroutine has a reference to m yet),
+		// so we hand the slice directly to bucket.Set — Set itself does the
+		// copy-into-bufferPool.
+		if err := v.bucket.Set(ctx, postingID, m.PackedPostingMetadata); err != nil {
+			return 0, errors.Wrapf(err, "failed to persist new posting %d", postingID)
+		}
 	}
 
 	v.metrics.ObservePostingSize(float64(count))
