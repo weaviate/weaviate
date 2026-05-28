@@ -952,6 +952,112 @@ func TestStripRefBeacon(t *testing.T) {
 	}
 }
 
+func TestStripClassNames(t *testing.T) {
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        []string
+		want      []string
+	}{
+		{
+			name:      "namespaced caller: own prefix stripped from each entry",
+			principal: namespacedPrincipal,
+			in:        []string{"customer1:Movies", "customer1:Books"},
+			want:      []string{"Movies", "Books"},
+		},
+		{
+			name:      "namespaced caller: foreign-NS and short entries pass through",
+			principal: namespacedPrincipal,
+			in:        []string{"customer1:Movies", "customer2:Films", "Global"},
+			want:      []string{"Movies", "customer2:Films", "Global"},
+		},
+		{
+			name:      "global principal: pass-through preserves qualified view",
+			principal: globalPrincipal,
+			in:        []string{"customer1:Movies", "customer2:Films"},
+			want:      []string{"customer1:Movies", "customer2:Films"},
+		},
+		{
+			name:      "nil principal: pass-through (NS-disabled cluster)",
+			principal: nil,
+			in:        []string{"customer1:Movies"},
+			want:      []string{"customer1:Movies"},
+		},
+		{
+			name:      "empty slice: returned as-is",
+			principal: namespacedPrincipal,
+			in:        []string{},
+			want:      []string{},
+		},
+		{
+			name:      "nil slice: returned as-is",
+			principal: namespacedPrincipal,
+			in:        nil,
+			want:      nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Snapshot only when there is content (append-to-nil loses the
+			// nil-vs-empty distinction the assert library cares about).
+			var before []string
+			if len(tc.in) > 0 {
+				before = make([]string, len(tc.in))
+				copy(before, tc.in)
+			}
+			got := StripClassNames(tc.principal, tc.in)
+			assert.Equal(t, tc.want, got)
+			if len(tc.in) > 0 {
+				assert.Equal(t, before, tc.in, "input slice must not be mutated")
+			}
+		})
+	}
+}
+
+func TestStripNodesStatusResponse(t *testing.T) {
+	mkResp := func() *models.NodesStatusResponse {
+		return &models.NodesStatusResponse{
+			Nodes: []*models.NodeStatus{
+				{
+					Name: "node-1",
+					Shards: []*models.NodeShardStatus{
+						{Name: "s1", Class: "customer1:Movies"},
+						{Name: "s2", Class: "customer2:Films"},
+						{Name: "s3", Class: "Global"},
+					},
+				},
+				nil, // nil node tolerated
+				{
+					Name:   "node-2",
+					Shards: []*models.NodeShardStatus{nil, {Name: "s4", Class: "customer1:Books"}},
+				},
+			},
+		}
+	}
+	t.Run("namespaced caller: own prefix stripped on every shard", func(t *testing.T) {
+		resp := mkResp()
+		StripNodesStatusResponse(namespacedPrincipal, resp)
+		assert.Equal(t, "Movies", resp.Nodes[0].Shards[0].Class)
+		assert.Equal(t, "customer2:Films", resp.Nodes[0].Shards[1].Class, "foreign NS preserved")
+		assert.Equal(t, "Global", resp.Nodes[0].Shards[2].Class, "unprefixed unchanged")
+		assert.Equal(t, "Books", resp.Nodes[2].Shards[1].Class)
+	})
+	t.Run("global principal: no mutation", func(t *testing.T) {
+		resp := mkResp()
+		StripNodesStatusResponse(globalPrincipal, resp)
+		assert.Equal(t, "customer1:Movies", resp.Nodes[0].Shards[0].Class)
+		assert.Equal(t, "customer1:Books", resp.Nodes[2].Shards[1].Class)
+	})
+	t.Run("nil principal: no mutation", func(t *testing.T) {
+		resp := mkResp()
+		StripNodesStatusResponse(nil, resp)
+		assert.Equal(t, "customer1:Movies", resp.Nodes[0].Shards[0].Class)
+	})
+	t.Run("nil response: no panic", func(t *testing.T) {
+		StripNodesStatusResponse(namespacedPrincipal, nil)
+	})
+}
+
 func TestStripErrorMessage(t *testing.T) {
 	cases := []struct {
 		name      string

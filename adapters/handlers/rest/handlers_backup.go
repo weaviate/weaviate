@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type backupHandlers struct {
@@ -149,6 +150,12 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		}
 	}
 
+	// Strip the principal's own namespace from echoed class names so
+	// namespaced callers never see "<ns>:" in their own backup response
+	// (scheduler populates Classes from storage-shape qualified names).
+	if meta != nil {
+		meta.Classes = namespacing.StripClassNames(principal, meta.Classes)
+	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsCreateOK().WithPayload(meta)
 }
@@ -252,6 +259,11 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		}
 	}
 
+	// Same reason as create — Classes echoed in the restore response are
+	// the qualified storage names from the backup metadata.
+	if meta != nil {
+		meta.Classes = namespacing.StripClassNames(principal, meta.Classes)
+	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsRestoreOK().WithPayload(meta)
 }
@@ -383,6 +395,16 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 		}
 	}
 
+	// Same reason as create/restore — each item's Classes carries qualified
+	// storage names from the backup metadata.
+	if payload != nil {
+		for _, item := range *payload {
+			if item == nil {
+				continue
+			}
+			item.Classes = namespacing.StripClassNames(principal, item.Classes)
+		}
+	}
 	s.metricRequestsTotal.logOk("")
 	return backups.NewBackupsListOK().WithPayload(*payload)
 }

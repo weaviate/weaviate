@@ -355,6 +355,47 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 	return strfmt.URI(out.String())
 }
 
+// StripClassNames returns a new slice with each class name stripped of the
+// principal's own namespace prefix. Used by REST response writers whose
+// payloads carry plain `[]string` class lists (backup/restore/list, export
+// create/status) — these are populated from storage-shape qualified names and
+// would otherwise leak "<ns>:" back to the namespaced caller. Returns the
+// input unchanged for nil principal / NS-disabled / global principals so the
+// admin's raw qualified view is preserved. The input slice is not mutated.
+func StripClassNames(principal *models.Principal, classes []string) []string {
+	if len(classes) == 0 || principal == nil || principal.Namespace == "" {
+		return classes
+	}
+	out := make([]string, len(classes))
+	for i, c := range classes {
+		out[i] = StripOwnNamespace(principal, c)
+	}
+	return out
+}
+
+// StripNodesStatusResponse mutates resp in place to remove the principal's
+// own namespace prefix from every NodeShardStatus.Class. The REST nodes
+// endpoint populates these from i.Config.ClassName.String() (the qualified
+// storage name) — without stripping, namespaced callers see their own
+// "<ns>:" in /v1/nodes and /v1/nodes/{className} responses. No-op for nil
+// resp / nil principal / global principals.
+func StripNodesStatusResponse(principal *models.Principal, resp *models.NodesStatusResponse) {
+	if resp == nil || principal == nil || principal.Namespace == "" {
+		return
+	}
+	for _, node := range resp.Nodes {
+		if node == nil {
+			continue
+		}
+		for _, shard := range node.Shards {
+			if shard == nil {
+				continue
+			}
+			shard.Class = StripOwnNamespace(principal, shard.Class)
+		}
+	}
+}
+
 // StripErrorMessage removes every occurrence of the principal's own
 // "<namespace>:" prefix from msg. Returns msg unchanged when principal is
 // nil or has no namespace.
