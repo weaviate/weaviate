@@ -255,34 +255,18 @@ func testTornResumeEnableFilterable(t *testing.T, restURI string, compose *docke
 		tornResumeObjectCount, hits)
 }
 
-// plantTornSentinelsAcrossRestart plants the on-disk sentinel files that
-// simulate a prior reindex run which reached markReindexed() and then
-// crashed before any of the swap-phase sentinels were written, then restarts
-// the weaviate container. Specifically the layout written is:
+// plantTornSentinelsAcrossRestart plants the on-disk sentinel files for a
+// run that reached markReindexed() and then crashed before any swap-phase
+// sentinel was written, then restarts the container. Layout:
 //
 //	.migrations/<migDir>/started.mig    — RFC3339Nano timestamp
 //	.migrations/<migDir>/reindexed.mig  — RFC3339Nano timestamp
 //	.migrations/<migDir>/properties.mig — comma-joined prop names
 //
-// This is the shape a real failure-mid-runtimeSwap would leave behind.
-// We do NOT plant __reindex / __ingest sidecar dirs; the legitimate
-// resume path should create or load them via CreateOrLoadBucket and
-// re-iterate.
-//
-// The function follows a strict stop → plant → start sequence because the
-// naive plant-while-running approach raced with the server's async
-// cleanStaleMigrationDirs(prop, indexType) call from
-// adapters/repos/db/shard_init_properties.go (lines 134-152, 336): the
-// cleaner walks every property × indexType pair during shard init and
-// deletes .migrations/<dir> for the pairs that don't match the freshly-
-// created class's current shape. The test's printf could then land in a
-// now-disappeared directory and exit 1, triggering a Zero-exit-code
-// assertion failure inside the per-file loop. Stopping the server first
-// closes the only writer to the .migrations tree, so the plant happens on
-// an at-rest filesystem with no concurrent mutator.
-//
-// Returns the new REST URI (the host port mapping changes across container
-// restart). The global helper.SetupClient is also refreshed.
+// Stop → plant → start avoids racing the server's async
+// cleanStaleMigrationDirs (shard_init_properties.go:134-152, 336); see
+// weaviate/0-weaviate-issues#254. Returns the new REST URI; host port
+// mapping changes across restart.
 func plantTornSentinelsAcrossRestart(
 	t *testing.T,
 	compose *docker.DockerCompose,
@@ -294,28 +278,16 @@ func plantTornSentinelsAcrossRestart(
 
 	container := compose.GetWeaviate().Container()
 
-	// Locate the shard while the server is up — the lookup needs the LSM
-	// layout to be visible, and we want a fast fail if it isn't. The path
-	// is stable across the restart because the data dir lives inside the
-	// container's writable layer (not a fresh tmpfs on restart).
+	// Locate the shard while the server is up — path is stable across restart.
 	shardPath := findShardPathInContainer(t, container, class)
 	containerMigDir := fmt.Sprintf("%s/lsm/.migrations/%s", shardPath, migDir)
 	lsmPath := fmt.Sprintf("%s/lsm", shardPath)
 
-	// Stop the weaviate container gracefully. nil timeout uses Docker's
-	// default (10s) SIGTERM grace period — long enough for in-flight RAFT
-	// barriers and LSM flushes to drain so the filesystem is quiescent
-	// before we touch it.
 	require.NoError(t, compose.StopAt(ctx, 0, nil),
 		"plantTornSentinelsAcrossRestart: graceful stop before planting must succeed")
 
-	// Build a host-side staging dir matching the in-container target layout
-	// (<lsm>/.migrations/<migDir>/{started,reindexed,properties}.mig) and
-	// ship it across via CopyDirToContainer. docker exec is not an option
-	// against a stopped container; CopyDirToContainer uses Docker's archive
-	// API, which works on stopped containers and includes parent directory
-	// entries in the tar so the intermediate ".migrations" and "<migDir>"
-	// dirs are created if absent.
+	// CopyDirToContainer works against stopped containers via Docker's archive
+	// API; docker exec does not.
 	stagingRoot := t.TempDir()
 	stagedDotMigrations := filepath.Join(stagingRoot, ".migrations")
 	stagedMigDir := filepath.Join(stagedDotMigrations, migDir)
@@ -334,35 +306,21 @@ func plantTornSentinelsAcrossRestart(
 			"plantTornSentinelsAcrossRestart: staging %s on host must succeed", fname)
 	}
 
-	// CopyDirToContainer extracts the contents of stagedDotMigrations into
-	// filepath.Dir(containerParentPath). Pointing containerParentPath at
-	// <lsm>/.migrations therefore extracts at <lsm>/, materialising
-	// .migrations/<migDir>/*.mig. <lsm>/ exists because the shard has been
-	// fully initialised, including LSM root creation, before this call.
-	//
-	// Mode is 0o755: testcontainers applies the same mode to every entry in
-	// the tarball (files + directories), so we need the execute bit set on
-	// the directory entries (".migrations", "<migDir>") to let the server
-	// stat files inside them on the next start. The execute bit on .mig
-	// payload files is harmless — they are read-only payload, never exec'd.
+	// containerParentPath = <lsm>/.migrations → extracts at <lsm>/ (testcontainers
+	// extracts into filepath.Dir of the target). Mode 0o755 applies to every
+	// tar entry; directories need the execute bit so the server can stat
+	// payload files on next start.
 	require.NoError(t,
 		container.CopyDirToContainer(ctx, stagedDotMigrations,
 			fmt.Sprintf("%s/.migrations", lsmPath), 0o755),
 		"plantTornSentinelsAcrossRestart: CopyDirToContainer must succeed against the stopped container")
 
-	// Restart and re-point the global helper client at the new host port
-	// mapping (testcontainers re-allocates the host-side mapping on
-	// container start). StartAt blocks on /v1/.well-known/ready, so on
-	// return the server is up and accepting requests.
 	require.NoError(t, compose.StartAt(ctx, 0),
 		"plantTornSentinelsAcrossRestart: restart after planting must succeed")
 	newRestURI := compose.GetWeaviate().URI()
 	helper.SetupClient(newRestURI)
 
-	// Diagnostic: print the post-restart layout. ls runs against the now-
-	// running container, so the planted dir may already have been cleaned
-	// by the shard init's cleanStaleMigrationDirs pass — that is expected
-	// for this test family and orthogonal to the race we're fixing here.
+	// Diagnostic only: may already be cleaned by shard init.
 	if _, lsReader, lsErr := container.Exec(ctx, []string{"ls", "-la", containerMigDir}); lsErr == nil && lsReader != nil {
 		out, _ := io.ReadAll(lsReader)
 		t.Logf("plantTornSentinelsAcrossRestart: %s post-restart contents:\n%s", containerMigDir, string(out))
