@@ -17,11 +17,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func makePostingMetadataStore(t *testing.T) *PostingMap {
@@ -568,56 +570,67 @@ func TestPostingMetadataStore(t *testing.T) {
 }
 
 // TestPostingMapRestoreAfterFastAdd pins the second half of the recall-after-
-// restart bug. FastAddVectorID is the only path that creates a new posting
-// entry in-memory; if an unexpected shutdown (SIGKILL — i.e. ungraceful e2e
-// restart) lands before an analyze/split/merge task persists the entry,
+// restart bug. FastAddVectorID is the only path that creates a brand-new
+// posting entry in memory; if an unexpected shutdown (SIGKILL / ungraceful
+// e2e restart) lands before an analyze/split/merge task persists the entry,
 // the posting count drops across the restart and the recall-after-restart
 // e2e test fails with "vector_index_postings changed after reboot".
 //
-// The fix: the new-entry branch of FastAddVectorID persists synchronously
-// to LSMKV, so PostingMap.Size() is durable even without a clean shutdown.
-// Per-vector updates to an existing posting stay in-memory — they don't
-// change Size() and Flush+analyze will catch up the packed vector list.
+// The fix: the new-posting branch of FastAddVectorID writes the entry to
+// the shared LSMKV bucket synchronously, so PostingMap.Size() survives
+// even without a Flush() call at shutdown. Per-vector updates to an
+// existing posting stay in-memory — they don't change Size() and the
+// next analyze task catches up the packed vector list.
 //
-// This test asserts:
-//   1. A new FastAddVectorID is immediately visible to a fresh PostingMap
-//      reading from the same bucket — simulates an ungraceful restart
-//      without a Flush.
-//   2. PostingMap.Flush() still works for the broader pre-shutdown
-//      persistence guarantee that the graceful path relies on.
+// This test exercises a real close-and-reopen of the underlying lsmkv
+// store from disk, so what it's actually validating is "FastAddVectorID
+// writes survive a process restart against the on-disk store" — not just
+// "a second PostingMap on the same in-memory bucket can read them."
 func TestPostingMapRestoreAfterFastAdd(t *testing.T) {
 	ctx := t.Context()
+	storeDir := t.TempDir()
 
-	store := testinghelpers.NewDummyStore(t)
-	bucket, err := NewSharedBucket(store, "flush-test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	openStore := func() *lsmkv.Store {
+		logger, _ := test.NewNullLogger()
+		s, err := lsmkv.New(storeDir, storeDir, logger, nil, nil,
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop())
+		require.NoError(t, err)
+		return s
+	}
+
+	// Phase 1: write via FastAddVectorID. No PostingMap.Flush call.
+	store1 := openStore()
+	bucket1, err := NewSharedBucket(store1, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
 	require.NoError(t, err)
-
-	pm := NewPostingMap(bucket, makeTestMetrics())
+	pm1 := NewPostingMap(bucket1, makeTestMetrics())
 
 	const numPostings = 10
 	for i := uint64(0); i < numPostings; i++ {
-		_, err := pm.FastAddVectorID(ctx, i, i*10+1, 1)
+		_, err := pm1.FastAddVectorID(ctx, i, i*10+1, 1)
 		require.NoError(t, err)
 	}
-	require.Equal(t, numPostings, pm.Size())
+	require.Equal(t, numPostings, pm1.Size())
 
-	// Without any Flush call, a fresh PostingMap reading from the same
-	// bucket recovers every entry — the new-posting branch of
-	// FastAddVectorID persisted synchronously. This is what makes the
-	// posting count survive an ungraceful (SIGKILL) shutdown.
-	pmUngraceful := NewPostingMap(bucket, makeTestMetrics())
-	require.NoError(t, pmUngraceful.Restore(ctx))
-	require.Equal(t, numPostings, pmUngraceful.Size(),
-		"FastAddVectorID new-posting writes must be durable without Flush")
+	// Shut the store down — must release the on-disk locks before we can
+	// reopen. PostingMap.Flush is NOT called; the only thing standing
+	// between the in-memory state and the on-disk state is the synchronous
+	// bucket.Set inside FastAddVectorID. Without that, the new PostingMap
+	// in phase 2 would Restore from an empty bucket.
+	require.NoError(t, store1.Shutdown(ctx))
 
-	// PostingMap.Flush still works for the graceful path (defense in depth:
-	// it also covers any future in-memory-only mutation we might add).
-	require.NoError(t, pm.Flush(ctx))
+	// Phase 2: reopen the on-disk store from the same dir and restore
+	// PostingMap. This is the unit-test analog of a process restart.
+	store2 := openStore()
+	t.Cleanup(func() { _ = store2.Shutdown(ctx) })
 
-	pmAfter := NewPostingMap(bucket, makeTestMetrics())
-	require.NoError(t, pmAfter.Restore(ctx))
-	require.Equal(t, numPostings, pmAfter.Size(),
-		"all entries must remain visible after Flush+Restore")
+	bucket2, err := NewSharedBucket(store2, "test", StoreConfig{MakeBucketOptions: lsmkv.MakeNoopBucketOptions})
+	require.NoError(t, err)
+	pm2 := NewPostingMap(bucket2, makeTestMetrics())
+	require.NoError(t, pm2.Restore(ctx))
+	require.Equal(t, numPostings, pm2.Size(),
+		"FastAddVectorID new-posting writes must survive a store close+reopen")
 }
 
 func TestOncePer(t *testing.T) {
