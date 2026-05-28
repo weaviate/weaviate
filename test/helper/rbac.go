@@ -242,15 +242,15 @@ func CreateRoleAndAssign(t *testing.T, adminKey, userName, roleName string, perm
 	})
 }
 
-// WaitForOwnRole polls GetOwnInfo with the caller's own apikey until roleName
-// appears in its roles. AssignRoleToUser returns once the RAFT leader applies
-// the binding, but the follower the test client talks to may still be
-// replicating it. The caller's next authorized request reads that follower's
-// local RBAC state, and GetOwnInfo reads the same state — so gating on it
-// prevents a request issued immediately after AssignRoleToUser from racing
-// replication and getting a spurious 403.
+// WaitForOwnRole waits for the role binding to be visible both on the
+// leader (GetOwnInfo, Raft-routed) and on the local follower (self
+// GetUserInfo, runs Authorize locally). The follower probe pins the
+// RAFT-apply lag that would otherwise 403 the next authz-checked
+// request. It needs read_users so it only runs for built-in
+// admin/viewer; custom roles get only the leader-side guarantee.
 func WaitForOwnRole(t *testing.T, apikey, roleName string) {
 	t.Helper()
+	var selfID string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(apikey))
 		if !assert.NoError(c, err) {
@@ -258,11 +258,24 @@ func WaitForOwnRole(t *testing.T, apikey, roleName string) {
 		}
 		for _, role := range resp.Payload.Roles {
 			if role != nil && role.Name != nil && *role.Name == roleName {
+				if resp.Payload.Username != nil {
+					selfID = *resp.Payload.Username
+				}
 				return
 			}
 		}
-		assert.Fail(c, "role not yet locally visible", "role %q not in own-info roles", roleName)
-	}, 10*time.Second, 50*time.Millisecond, "role %q binding did not become locally visible via GetOwnInfo", roleName)
+		assert.Fail(c, "role not yet leader-visible", "role %q not in own-info roles", roleName)
+	}, 10*time.Second, 50*time.Millisecond, "role %q binding did not become leader-visible via GetOwnInfo", roleName)
+
+	if roleName != authorization.Admin && roleName != authorization.Viewer {
+		return
+	}
+	require.NotEmpty(t, selfID, "GetOwnInfo returned an empty username; cannot run local-Enforce probe")
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := Client(t).Users.GetUserInfo(
+			users.NewGetUserInfoParams().WithUserID(selfID), CreateAuth(apikey))
+		assert.NoError(c, err, "self GetUserInfo still 403s — role %q not yet locally applied", roleName)
+	}, 10*time.Second, 50*time.Millisecond, "role %q grouping not visible to local Authorize for caller %q", roleName, selfID)
 }
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {
