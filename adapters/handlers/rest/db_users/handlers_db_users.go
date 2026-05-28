@@ -387,7 +387,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 
 	if params.Body.Import != nil && *params.Body.Import {
 		if !h.principalIsRootUser(principal.Username) {
-			return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import static api keys")))
+			return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import static api keys")))
 		}
 
 		if !h.staticUserExists(params.UserID) {
