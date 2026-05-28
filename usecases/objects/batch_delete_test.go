@@ -183,6 +183,17 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 			assert.Equal(t, test.expectedError, err.Error())
 		}
 	})
+
+	t.Run("class-not-found classifies as ErrInvalidUserInput", func(t *testing.T) {
+		match := &models.BatchDeleteMatch{
+			Class: "SomeMissingClass",
+			Where: &models.WhereFilter{Path: []string{"name"}, Operator: "Equal", ValueText: ptString("value")},
+		}
+		_, err := manager.DeleteObjects(ctx, nil, match, nil, nil, nil, nil, "")
+		require.Error(t, err)
+		var invalid ErrInvalidUserInput
+		require.True(t, errors.As(err, &invalid), "expected ErrInvalidUserInput, got %T: %v", err, err)
+	})
 }
 
 // Test_BatchDelete_NamespaceResolution proves DeleteObjects routes the
