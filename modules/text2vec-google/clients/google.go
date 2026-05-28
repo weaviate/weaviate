@@ -17,9 +17,9 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
