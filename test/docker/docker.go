@@ -203,7 +203,17 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 
 	args := []string{"restart"}
 	if timeout != nil {
-		args = append(args, "-t", fmt.Sprintf("%d", int(timeout.Seconds())))
+		if *timeout < 0 {
+			return fmt.Errorf("RestartAt[%s]: negative timeout %s", c.name, *timeout)
+		}
+		// docker -t is integer seconds. Round a non-zero sub-second
+		// timeout up to 1s — truncating e.g. 500ms to 0 would force an
+		// unintended SIGKILL. An explicit 0 stays 0 (intentional SIGKILL).
+		secs := int(timeout.Seconds())
+		if *timeout > 0 && secs == 0 {
+			secs = 1
+		}
+		args = append(args, "-t", fmt.Sprintf("%d", secs))
 	}
 	args = append(args, containerID)
 	cmd := exec.CommandContext(ctx, "docker", args...)
