@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/searchparams"
 
@@ -245,6 +246,75 @@ func TestBackwardCompatibilitySearch(t *testing.T) {
 				assert.Equal(t, tt.Targets, targets)
 
 			}
+		})
+	}
+}
+
+func Test_payloads_consistencyLevelRoundTrip(t *testing.T) {
+	cases := []struct {
+		name string
+		// marshal serializes a payload carrying the given consistency level.
+		marshal func(cl string) ([]byte, error)
+		// unmarshalCL decodes a payload and returns the consistency level it carries.
+		unmarshalCL func(in []byte) (string, error)
+		// noFieldJSON is a valid payload that omits the consistency level field.
+		noFieldJSON string
+	}{
+		{
+			name: "search params",
+			marshal: func(cl string) ([]byte, error) {
+				return searchParamsPayload{}.Marshal([]models.Vector{[]float32{1, 2, 3}}, []string{"t"}, 0, 10,
+					nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, cl)
+			},
+			unmarshalCL: func(in []byte) (string, error) {
+				_, _, _, _, _, _, _, _, _, _, _, _, cl, err := searchParamsPayload{}.Unmarshal(in)
+				return cl, err
+			},
+			noFieldJSON: `{"limit":10}`,
+		},
+		{
+			name: "findUUIDs params",
+			marshal: func(cl string) ([]byte, error) {
+				return findUUIDsParamsPayload{}.Marshal(nil, 25, cl)
+			},
+			unmarshalCL: func(in []byte) (string, error) {
+				_, _, cl, err := findUUIDsParamsPayload{}.Unmarshal(in)
+				return cl, err
+			},
+			noFieldJSON: `{"limit":25}`,
+		},
+		{
+			// aggregation.Params has a custom UnmarshalJSON; this guards that it
+			// neither drops the field nor errors when the field is absent.
+			name: "aggregation params",
+			marshal: func(cl string) ([]byte, error) {
+				return aggregationParamsPayload{}.Marshal(aggregation.Params{ClassName: "Foo", ConsistencyLevel: cl})
+			},
+			unmarshalCL: func(in []byte) (string, error) {
+				p, err := aggregationParamsPayload{}.Unmarshal(in)
+				return p.ConsistencyLevel, err
+			},
+			noFieldJSON: `{"className":"Foo"}`,
+		},
+	}
+
+	levels := []string{"", "ONE", "QUORUM", "ALL"}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, cl := range levels {
+				b, err := tc.marshal(cl)
+				require.NoError(t, err)
+
+				got, err := tc.unmarshalCL(b)
+				require.NoError(t, err)
+				assert.Equal(t, cl, got)
+			}
+
+			// a payload without the field decodes to an empty level (mixed-version compatibility)
+			got, err := tc.unmarshalCL([]byte(tc.noFieldJSON))
+			require.NoError(t, err)
+			assert.Empty(t, got)
 		})
 	}
 }
