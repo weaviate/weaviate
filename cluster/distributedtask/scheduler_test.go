@@ -44,7 +44,7 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -92,7 +92,7 @@ func TestHappyPathTaskLifecycleWithMultipleNode(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -149,7 +149,7 @@ func TestTaskCancellation(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -195,7 +195,7 @@ func TestTaskFailureInAnotherNode(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -239,7 +239,7 @@ func TestTaskFailureInLocalNode(t *testing.T) {
 	)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -295,7 +295,7 @@ func TestTaskRecovery(t *testing.T) {
 	}
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// tasksIDs should be launched right away
 	launchedTasks := map[string]*testTask{}
@@ -350,7 +350,7 @@ func TestRemoveCleanedUpTaskLocalStateOnStartup(t *testing.T) {
 	require.NoError(t, err)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// make sure only tasks are not running cleaned up
 	cleanedUpTasks := collectChToSet(t, 2, provider.cleanedUpCh)
@@ -372,7 +372,7 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 	h := newTestHarness(t).init(t)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -422,7 +422,7 @@ func TestMultiNamespaceMultiTasks(t *testing.T) {
 	h = h.init(t)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// cleanup tasks for one of the providers
 	cleanedUpTasks := collectChToSet(t, 2, provider1.cleanedUpCh)
@@ -498,7 +498,7 @@ func TestOverrideExistingFinishedTask(t *testing.T) {
 	h := newTestHarness(t).init(t)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	err := h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -570,6 +570,7 @@ type testHarness struct {
 	cleaner               *MockTaskCleaner
 	provider              *testTaskProvider
 	registeredProviders   map[string]Provider
+	testProviders         []*testTaskProvider
 
 	manager   *Manager
 	scheduler *Scheduler
@@ -602,6 +603,18 @@ func newTestHarness(t *testing.T) *testHarness {
 }
 
 func (h *testHarness) init(t *testing.T) *testHarness {
+	// Collect every underlying testTaskProvider so h.Close() can drain
+	// their run goroutines before leaktest checks for leaks.
+	h.testProviders = nil
+	for _, p := range h.registeredProviders {
+		switch tp := p.(type) {
+		case *testTaskProvider:
+			h.testProviders = append(h.testProviders, tp)
+		case *unitAwareTestProvider:
+			h.testProviders = append(h.testProviders, tp.testTaskProvider)
+		}
+	}
+
 	h.manager = NewManager(ManagerParameters{
 		Clock:            h.clock,
 		CompletedTaskTTL: h.completedTaskTTL,
@@ -622,6 +635,17 @@ func (h *testHarness) init(t *testing.T) *testHarness {
 		TickInterval:       h.schedulerTickInterval,
 	})
 	return h
+}
+
+// Close shuts down the scheduler and then drains every test provider's
+// in-flight run goroutines. drain must run before the deferred
+// leaktest.Check, so this is wired via a test-body defer (defer h.Close()),
+// never via t.Cleanup which runs after the leaktest deferred check.
+func (h *testHarness) Close() {
+	h.scheduler.Close()
+	for _, p := range h.testProviders {
+		p.drain()
+	}
 }
 
 // directFinalizer is a unit-test TaskFinalizer that calls
@@ -707,27 +731,36 @@ func newTestTask(task *Task, p *testTaskProvider) *testTask {
 		cancelCh:   make(chan struct{}),
 	}
 
+	p.wg.Add(1)
 	go t.run()
 
 	return t
 }
 
 func (t *testTask) run() {
+	defer t.provider.wg.Done()
 	t.provider.startedCh <- t
 
 	select {
+	case <-t.provider.stopCh:
+		return
 	case <-t.completeCh:
 		// Unit-level completion is handled by the mock set up via expectRecordUnitCompletion.
 		// The mock calls RecordDistributedTaskUnitCompletion → completeUnit → manager.RecordUnitCompletion.
 		// Here we just signal the provider that the task reported completion.
 		t.provider.completedCh <- t
-		return
 	case <-t.failCh:
 		// Same as above — failure recording is handled by expectRecordUnitFailure mock.
 		t.provider.failedCh <- t
 	case <-t.cancelCh:
-		t.provider.cancelledCh <- t
-		return
+		// A completion that raced the scheduler's post-completion
+		// Terminate must still report completion, not cancellation.
+		select {
+		case <-t.completeCh:
+			t.provider.completedCh <- t
+		default:
+			t.provider.cancelledCh <- t
+		}
 	}
 }
 
@@ -763,6 +796,10 @@ type testTaskProvider struct {
 	cleanedUpCh chan TaskDescriptor
 
 	recorder TaskCompletionRecorder
+
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+	stopOnce sync.Once
 }
 
 func newTestTaskProvider(t *testing.T, initialLocalTaskIds []TaskDescriptor) *testTaskProvider {
@@ -777,7 +814,17 @@ func newTestTaskProvider(t *testing.T, initialLocalTaskIds []TaskDescriptor) *te
 		failedCh:    make(chan *testTask, 100),
 		cancelledCh: make(chan *testTask, 100),
 		cleanedUpCh: make(chan TaskDescriptor, 100),
+
+		stopCh: make(chan struct{}),
 	}
+}
+
+// drain stops all in-flight testTask.run goroutines and waits for them
+// to exit, so leaktest sees a clean goroutine set regardless of whether
+// the scheduler happened to terminate every task.
+func (p *testTaskProvider) drain() {
+	p.stopOnce.Do(func() { close(p.stopCh) })
+	p.wg.Wait()
 }
 
 func (p *testTaskProvider) SetCompletionRecorder(recorder TaskCompletionRecorder) {
@@ -831,7 +878,7 @@ func TestReactiveFiring_AddTaskWakesSchedulerBeforeTick(t *testing.T) {
 	h.manager.SetSchedulerNotifier(h.scheduler)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// Submit a task. With reactive firing this should cause the scheduler
 	// to start it immediately; without it, the start would be deferred to
@@ -862,7 +909,7 @@ func TestReactiveFiring_TerminalUnitWakesScheduler(t *testing.T) {
 	h.manager.SetSchedulerNotifier(h.scheduler)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// Add a task and let reactive firing start it.
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -923,7 +970,7 @@ func TestReactiveFiring_NilNotifierIsSafe(t *testing.T) {
 	// Explicitly do NOT call SetSchedulerNotifier.
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// Add a task. Without reactive firing, the scheduler will pick it up
 	// on the next tick. Advance the clock to confirm tick-only path still
@@ -952,7 +999,7 @@ func TestReactiveFiring_PeriodicTickFallback(t *testing.T) {
 	h.manager.SetSchedulerNotifier(h.scheduler)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// AddTask wakes the scheduler reactively; consume the started signal.
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -1117,7 +1164,7 @@ func TestDeferredBootstrap_SuppressesReplayedCallbacksWhenStartTimeListFails(t *
 	})
 
 	require.NoError(t, h.scheduler.Start(context.Background()))
-	defer h.scheduler.Close()
+	defer h.Close()
 	// Wait until the loop goroutine has registered its ticker with the
 	// FakeClock so a subsequent Advance() actually delivers a tick.
 	require.NoError(t, h.clock.BlockUntilContext(context.Background(), 1))
@@ -1182,7 +1229,7 @@ func TestFinalizingRace_OnTaskCompletedFiresOnFinishedNotJustFinalizing(t *testi
 	h = h.init(t)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
 		Namespace:             h.tasksNamespace,
@@ -1620,7 +1667,7 @@ func TestSchedulerBackupRequestValidation_InFlightReindex(t *testing.T) {
 	h := newTestHarness(t).init(t)
 
 	h.startScheduler(t)
-	defer h.scheduler.Close()
+	defer h.Close()
 
 	// Stage a STARTED task that simulates a runtime-reindex in flight.
 	// The Backupable precheck would refuse a backup that intersects
