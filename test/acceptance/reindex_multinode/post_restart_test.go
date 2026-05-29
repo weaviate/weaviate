@@ -135,6 +135,8 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 		finalTaskStatus string
 	)
 
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 	for time.Since(startedAt) < overallBudget {
 		status, progress, ok := tryFetchTaskStatusAndProgress(restURI, taskID)
 		if ok {
@@ -165,7 +167,7 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 				)
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
+		<-ticker.C
 	}
 
 	if !taskFinished {
@@ -385,24 +387,27 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		reindexhelpers.AwaitReindexFinished(t, uri1, tc, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second))
 	}
-	time.Sleep(3 * time.Second)
 
-	// Pre-restart sanity: every replica returns baseline.
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		uri := restURIOf(compose, nodeIdx)
-		gotPrice, err := rangeCount(uri, className, "price", priceLo, priceHi)
-		require.NoError(t, err)
-		require.Equal(t, expectedPriceCount, gotPrice,
-			"pre-restart node %d price = %d (expected %d)", nodeIdx, gotPrice, expectedPriceCount)
-		gotCat, err := equalCount(uri, className, "category", categories[0])
-		require.NoError(t, err)
-		require.Equal(t, expectedCatCount, gotCat,
-			"pre-restart node %d category = %d (expected %d)", nodeIdx, gotCat, expectedCatCount)
-		gotPath, err := equalCount(uri, className, "path", paths[0])
-		require.NoError(t, err)
-		require.Equal(t, expectedPathCount, gotPath,
-			"pre-restart node %d path = %d (expected %d)", nodeIdx, gotPath, expectedPathCount)
-	}
+	// Pre-restart sanity: poll every replica until each returns baseline.
+	// AwaitReindexFinished only confirms node-1; a replica's swap can lag,
+	// so poll (50ms) instead of a fixed settle.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			uri := restURIOf(compose, nodeIdx)
+			gotPrice, err := rangeCount(uri, className, "price", priceLo, priceHi)
+			assert.NoError(c, err)
+			assert.Equalf(c, expectedPriceCount, gotPrice,
+				"pre-restart node %d price = %d (expected %d)", nodeIdx, gotPrice, expectedPriceCount)
+			gotCat, err := equalCount(uri, className, "category", categories[0])
+			assert.NoError(c, err)
+			assert.Equalf(c, expectedCatCount, gotCat,
+				"pre-restart node %d category = %d (expected %d)", nodeIdx, gotCat, expectedCatCount)
+			gotPath, err := equalCount(uri, className, "path", paths[0])
+			assert.NoError(c, err)
+			assert.Equalf(c, expectedPathCount, gotPath,
+				"pre-restart node %d path = %d (expected %d)", nodeIdx, gotPath, expectedPathCount)
+		}
+	}, 30*time.Second, 50*time.Millisecond)
 
 	// === Phase 7 equivalent: rolling restart.
 	t.Log("rolling restart")
@@ -468,30 +473,34 @@ func TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas(t *tes
 		reindexhelpers.AwaitReindexFinished(t, uri1, tc, reindexhelpers.WithTimeout(180*time.Second))
 		reindexhelpers.AwaitReindexFinished(t, uri1, tk, reindexhelpers.WithTimeout(180*time.Second))
 	}
-	time.Sleep(3 * time.Second)
 
-	// Final per-replica counts. The path query is the headline check
-	// for Issue G (Frontend Claude saw `0 / 0 / 0` here).
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		uri := restURIOf(compose, nodeIdx)
-		gotPrice, err := rangeCount(uri, className, "price", priceLo, priceHi)
-		assert.NoError(t, err, "post-reapply price query node %d", nodeIdx)
-		assert.Equalf(t, expectedPriceCount, gotPrice,
-			"GH #212 Issue G regression: post-restart re-apply node %d price = %d (expected %d) — rangeable rebuild lost data after restart",
-			nodeIdx, gotPrice, expectedPriceCount)
+	// Final per-replica counts. The path query is the headline check for
+	// Issue G (Frontend Claude saw `0 / 0 / 0` here). AwaitReindexFinished
+	// only confirms node-1; poll all replicas (50ms) until convergence
+	// instead of a fixed settle — a node stuck at the 0/0/0 shape never
+	// converges and fails here loudly.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			uri := restURIOf(compose, nodeIdx)
+			gotPrice, err := rangeCount(uri, className, "price", priceLo, priceHi)
+			assert.NoError(c, err, "post-reapply price query node %d", nodeIdx)
+			assert.Equalf(c, expectedPriceCount, gotPrice,
+				"GH #212 Issue G regression: post-restart re-apply node %d price = %d (expected %d) — rangeable rebuild lost data after restart",
+				nodeIdx, gotPrice, expectedPriceCount)
 
-		gotCat, err := equalCount(uri, className, "category", categories[0])
-		assert.NoError(t, err, "post-reapply category query node %d", nodeIdx)
-		assert.Equalf(t, expectedCatCount, gotCat,
-			"GH #212 Issue G regression: post-restart re-apply node %d category = %d (expected %d) — filterable rebuild lost data after restart",
-			nodeIdx, gotCat, expectedCatCount)
+			gotCat, err := equalCount(uri, className, "category", categories[0])
+			assert.NoError(c, err, "post-reapply category query node %d", nodeIdx)
+			assert.Equalf(c, expectedCatCount, gotCat,
+				"GH #212 Issue G regression: post-restart re-apply node %d category = %d (expected %d) — filterable rebuild lost data after restart",
+				nodeIdx, gotCat, expectedCatCount)
 
-		gotPath, err := equalCount(uri, className, "path", paths[0])
-		assert.NoError(t, err, "post-reapply path query node %d", nodeIdx)
-		assert.Equalf(t, expectedPathCount, gotPath,
-			"GH #212 Issue G regression: post-restart re-apply node %d path = %d (expected %d) — change-tokenization lost data after restart (Phase-8-final shape)",
-			nodeIdx, gotPath, expectedPathCount)
-	}
+			gotPath, err := equalCount(uri, className, "path", paths[0])
+			assert.NoError(c, err, "post-reapply path query node %d", nodeIdx)
+			assert.Equalf(c, expectedPathCount, gotPath,
+				"GH #212 Issue G regression: post-restart re-apply node %d path = %d (expected %d) — change-tokenization lost data after restart (Phase-8-final shape)",
+				nodeIdx, gotPath, expectedPathCount)
+		}
+	}, 30*time.Second, 50*time.Millisecond)
 
 	// LB-side 3-call stability spot check.
 	for i := 0; i < 3; i++ {

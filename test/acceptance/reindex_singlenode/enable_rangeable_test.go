@@ -93,11 +93,13 @@ func testEnableRangeable(t *testing.T, restURI string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-stopCh:
 				return
-			default:
+			case <-ticker.C:
 			}
 			for i, bl := range rangeableBaselines {
 				ids, err := rangeableQuerySafe(t, rangeableFilterQueries[i].where)
@@ -108,7 +110,6 @@ func testEnableRangeable(t *testing.T, restURI string) {
 					queryFailures.Add(1)
 				}
 			}
-			time.Sleep(200 * time.Millisecond)
 		}
 	}()
 

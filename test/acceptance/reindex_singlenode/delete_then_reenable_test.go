@@ -206,7 +206,7 @@ func requireSearchableEnabled(t *testing.T, class, prop string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 250*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"IndexSearchable on %s.%s must be true after reindex finishes", class, prop)
 }
 
@@ -223,7 +223,7 @@ func requireFilterableEnabled(t *testing.T, class, prop string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 250*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"IndexFilterable on %s.%s must be true after reindex finishes", class, prop)
 }
 
@@ -240,7 +240,7 @@ func requireRangeableEnabled(t *testing.T, class, prop string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 250*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"IndexRangeFilters on %s.%s must be true after reindex finishes", class, prop)
 }
 

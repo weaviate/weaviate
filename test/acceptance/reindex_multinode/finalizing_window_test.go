@@ -240,7 +240,7 @@ func runLiveQueryDuringChangeTokenizationCase(
 			require.Eventually(t, func() bool {
 				return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
 					className, "text") == targetTok
-			}, 60*time.Second, 200*time.Millisecond,
+			}, 60*time.Second, 50*time.Millisecond,
 				"tokenization should change to %s after swap phase", targetTok)
 		})
 	t.Logf("migration completed in %v, collected %d probe samples",
@@ -444,7 +444,7 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 		baselineCount = mustQueryBM25Count(t,
 			compose.GetWeaviateNode(1).URI(), className, alphaQuery, queryLimit)
 		return baselineCount == objectCount
-	}, 10*time.Second, 200*time.Millisecond,
+	}, 10*time.Second, 50*time.Millisecond,
 		"baseline BM25 'alpha' under WORD tokenization should match all %d docs (last seen=%d)",
 		objectCount, baselineCount)
 	t.Logf("baseline 'alpha' result count: %d", baselineCount)
@@ -463,7 +463,7 @@ func TestPartialResultsDuringChangeTokenization(t *testing.T) {
 			require.Eventually(t, func() bool {
 				return tryGetPropertyTokenization(compose.GetWeaviateNode(1).URI(),
 					className, "text") == "field"
-			}, 60*time.Second, 200*time.Millisecond,
+			}, 60*time.Second, 50*time.Millisecond,
 				"tokenization should change to field after swap phase")
 		})
 	t.Logf("migration completed in %v, collected %d probe samples",

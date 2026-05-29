@@ -208,7 +208,7 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 			}
 		}
 		return true
-	}, 30*time.Second, 500*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"tokenization should change to field on all 3 nodes after barrier completion")
 
 	// Final consistency: under FIELD tokenization, "alpha" no longer
@@ -229,7 +229,7 @@ func TestMultiNode_CrossReplicaPrepBarrier(t *testing.T) {
 			}
 		}
 		return true
-	}, 30*time.Second, 500*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"post-FIELD-tokenization, 'alpha' as a partial token should match no docs "+
 			"on any node — if any node still returns hits, the per-shard bucket "+
 			"swap or the cluster-wide schema flip did not propagate")
@@ -322,21 +322,36 @@ func scanForBarrierPhaseLogs(ctx context.Context, t *testing.T, compose *docker.
 // "at least one of PREPARING or SWAPPING observed".
 func collectTaskStatusTransitions(t *testing.T, restURI, taskID string, timeout time.Duration) []string {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	// Explicit sampling cadence: tick every 50ms and shut down promptly
+	// when the timeout elapses. The tick interval (not a bare sleep)
+	// makes the status-transition sampling rate visible; cadence and the
+	// "stop on FINISHED / fatal on FAILED" semantics are unchanged.
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 	var transitions []string
 	var lastSeen string
-	for time.Now().Before(deadline) {
+	for {
 		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 		if err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
+			select {
+			case <-ctx.Done():
+				return transitions
+			case <-ticker.C:
+				continue
+			}
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		var tasks models.DistributedTasks
 		if err := json.Unmarshal(body, &tasks); err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
+			select {
+			case <-ctx.Done():
+				return transitions
+			case <-ticker.C:
+				continue
+			}
 		}
 		for _, task := range tasks["reindex"] {
 			if task.ID != taskID {
@@ -353,7 +368,10 @@ func collectTaskStatusTransitions(t *testing.T, restURI, taskID string, timeout 
 				}
 			}
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return transitions
+		case <-ticker.C:
+		}
 	}
-	return transitions
 }

@@ -192,7 +192,7 @@ func testChangeTokFilterableThenDeleteFilterable(t *testing.T, restURI string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 250*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"IndexFilterable on %s.name must be false after DELETE", class)
 
 	// Filter must return zero — the bucket is gone. Note: GraphQL may
@@ -607,7 +607,7 @@ func requireTokenizationEquals(t *testing.T, class, prop, expected string) {
 			}
 		}
 		return false
-	}, 30*time.Second, 250*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"tokenization on %s.%s must be %q", class, prop, expected)
 }
 
@@ -638,7 +638,7 @@ func awaitTerminal(t *testing.T, restURI, taskID string) {
 			}
 		}
 		return false
-	}, 120*time.Second, 1*time.Second, "task %s should reach a terminal state", taskID)
+	}, 120*time.Second, 50*time.Millisecond, "task %s should reach a terminal state", taskID)
 }
 
 // bm25HitsForProp runs a bm25 query against a specific property.
