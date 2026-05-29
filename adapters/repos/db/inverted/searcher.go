@@ -520,7 +520,7 @@ func (s *Searcher) buildPropValuePair(
 	}
 
 	if s.onRefProp(property) && len(props) != 1 {
-		return s.extractReferenceFilter(property, filter, class)
+		return s.extractReferenceFilter(ctx, property, filter, class)
 	}
 
 	if s.onRefProp(property) && filter.Value.Type == schema.DataTypeInt {
@@ -614,12 +614,12 @@ func (s *Searcher) extractPropValuePairs(ctx context.Context,
 	return children, nil
 }
 
-func (s *Searcher) extractReferenceFilter(prop *models.Property,
+func (s *Searcher) extractReferenceFilter(ctx context.Context, prop *models.Property,
 	filter *filters.Clause, class *models.Class,
 ) (*propValuePair, error) {
-	ctx := context.TODO()
-	return newRefFilterExtractor(s.logger, s.classSearcher, filter, class, prop, s.tenant, s.nestedCrossRefLimit).
-		Do(ctx)
+	consistencyLevel := additional.ConsistencyLevelFromCtx(ctx)
+	return newRefFilterExtractor(s.logger, s.classSearcher, filter, class, prop, s.tenant, s.nestedCrossRefLimit, consistencyLevel).
+		Do(context.TODO())
 }
 
 func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.DataType,

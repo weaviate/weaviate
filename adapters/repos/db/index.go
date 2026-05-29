@@ -1973,6 +1973,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
+	ctx = additional.CtxWithConsistencyLevel(ctx, string(cl))
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -2370,6 +2371,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, error) {
 	cl := i.consistencyLevel(replProps, routerTypes.ConsistencyLevelOne)
+	ctx = additional.CtxWithConsistencyLevel(ctx, string(cl))
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -3018,6 +3020,8 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
+	cl := i.consistencyLevel(replProps)
+	ctx = additional.CtxWithConsistencyLevel(ctx, string(cl))
 	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, params.Tenant)
 	if err != nil {
 		return nil, err
@@ -3476,6 +3480,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 	cl := i.consistencyLevel(repl)
+	ctx = additional.CtxWithConsistencyLevel(ctx, string(cl))
 	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
 	if err != nil {
 		return nil, err

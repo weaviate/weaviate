@@ -29,13 +29,14 @@ import (
 
 // a helper tool to extract the uuid beacon for any matching reference
 type refFilterExtractor struct {
-	logger        logrus.FieldLogger
-	classSearcher ClassSearcher
-	filter        *filters.Clause
-	class         *models.Class
-	property      *models.Property
-	tenant        string
-	limit         int64
+	logger           logrus.FieldLogger
+	classSearcher    ClassSearcher
+	filter           *filters.Clause
+	class            *models.Class
+	property         *models.Property
+	tenant           string
+	limit            int64
+	consistencyLevel string
 }
 
 // ClassSearcher is anything that allows a root-level ClassSearch
@@ -47,15 +48,17 @@ type ClassSearcher interface {
 
 func newRefFilterExtractor(logger logrus.FieldLogger, classSearcher ClassSearcher,
 	filter *filters.Clause, class *models.Class, property *models.Property, tenant string, limit int64,
+	consistencyLevel string,
 ) *refFilterExtractor {
 	return &refFilterExtractor{
-		logger:        logger,
-		classSearcher: classSearcher,
-		filter:        filter,
-		class:         class,
-		property:      property,
-		tenant:        tenant,
-		limit:         limit,
+		logger:           logger,
+		classSearcher:    classSearcher,
+		filter:           filter,
+		class:            class,
+		property:         property,
+		tenant:           tenant,
+		limit:            limit,
+		consistencyLevel: consistencyLevel,
 	}
 }
 
@@ -81,7 +84,7 @@ func (r *refFilterExtractor) Do(ctx context.Context) (*propValuePair, error) {
 }
 
 func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
-	return dto.GetParams{
+	params := dto.GetParams{
 		Filters:   r.innerFilter(),
 		ClassName: r.filter.On.Child.Class.String(),
 		Pagination: &filters.Pagination{
@@ -95,7 +98,15 @@ func (r *refFilterExtractor) paramsForNestedRequest() (dto.GetParams, error) {
 		AdditionalProperties: additional.Properties{ReferenceQuery: true},
 		Tenant:               r.tenant,
 		IsRefOrigin:          true,
-	}, nil
+	}
+	// honor the parent query's consistency level so the nested lookup does not
+	// silently fall back to ONE and resolve refs against a stale replica
+	if r.consistencyLevel != "" {
+		params.ReplicationProperties = &additional.ReplicationProperties{
+			ConsistencyLevel: r.consistencyLevel,
+		}
+	}
+	return params, nil
 }
 
 func (r *refFilterExtractor) innerFilter() *filters.LocalFilter {
