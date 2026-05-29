@@ -164,8 +164,7 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
 
-	// Arm the gate on the same DTM surface the server reads (see
-	// reindexhelpers.AwaitReindexLive); the index-status surface races it.
+	// Backup must land while the migration is live.
 	reindexhelpers.AwaitReindexLive(t, restURI, taskID,
 		reindexhelpers.WithTimeout(30*time.Second))
 
@@ -191,10 +190,9 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step")
 
-	// The refusal must not leave a staging dir behind, or a same-id retry
-	// hits checkIfBackupExists's "Status != Cancelled" rejection. The 422
-	// gates all fire before the coordinator's first write, so no staging
-	// dir is created; Eventually is just a defensive settle guard.
+	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
+	// "Status != Cancelled"). The 422 fires before any write so none exists;
+	// Eventually is just a defensive settle.
 	container := compose.GetWeaviate().Container()
 	stagingPath := "/tmp/backups/" + backupID
 	require.Eventually(t, func() bool {
