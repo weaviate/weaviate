@@ -17,8 +17,53 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
+
+// Pins the defense-in-depth strip on Reference.PointingTo: a stray
+// qualified beacon must be rewritten short for namespaced callers,
+// admin/nil keep the qualified view, foreign-NS preserved.
+func TestGRPCAggregateReply_ReferenceAggregationStripsPointingTo(t *testing.T) {
+	const uuid = "11111111-2222-3333-4444-555555555555"
+	mk := func(class string) string {
+		return "weaviate://localhost/" + class + "/" + uuid
+	}
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        []string
+		want      []string
+	}{
+		{
+			name:      "namespaced caller: own-NS stripped, foreign preserved",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			in:        []string{mk("customer1:Animal"), mk("customer2:Plant"), mk("Global")},
+			want:      []string{mk("Animal"), mk("customer2:Plant"), mk("Global")},
+		},
+		{
+			name:      "global principal: qualified beacons preserved",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			in:        []string{mk("customer1:Animal")},
+			want:      []string{mk("customer1:Animal")},
+		},
+		{
+			name:      "nil principal: pass-through (NS-disabled cluster)",
+			principal: nil,
+			in:        []string{mk("customer1:Animal")},
+			want:      []string{mk("customer1:Animal")},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			replier := NewAggregateReplier(tc.principal, nil, nil)
+			got := replier.parseReferenceAggregation("cref",
+				aggregation.Reference{PointingTo: tc.in})
+			require.NotNil(t, got)
+			assert.Equal(t, tc.want, got.PointingTo)
+		})
+	}
+}
 
 // TestGRPCAggregateReply_GroupByPassesValuesThrough pins that bucket
 // values flow unchanged for string / []string. Group-by values can be
@@ -49,7 +94,7 @@ func TestGRPCAggregateReply_GroupByPassesValuesThrough(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			replier := NewAggregateReplier(nil, nil)
+			replier := NewAggregateReplier(nil, nil, nil)
 			got, err := replier.parseAggregateGroupedBy(&tc.in)
 			require.NoError(t, err)
 			require.NotNil(t, got)
@@ -90,7 +135,7 @@ func TestGRPCAggregateReply(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			replier := NewAggregateReplier(nil, nil)
+			replier := NewAggregateReplier(nil, nil, nil)
 			result, err := replier.Aggregate(tt.res, true)
 			if tt.wantError != nil {
 				require.Error(t, err)

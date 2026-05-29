@@ -1030,6 +1030,70 @@ func TestStripRefBeacon(t *testing.T) {
 	}
 }
 
+func TestStripBeaconURIs(t *testing.T) {
+	const beaconUUID = "11111111-2222-3333-4444-555555555555"
+	mkURI := func(class string) string {
+		return "weaviate://localhost/" + class + "/" + beaconUUID
+	}
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        []string
+		want      []string
+	}{
+		{
+			name:      "namespaced caller: own-NS stripped, foreign + short preserved",
+			principal: namespacedPrincipal,
+			in:        []string{mkURI("customer1:Animal"), mkURI("customer2:Animal"), mkURI("Global")},
+			want:      []string{mkURI("Animal"), mkURI("customer2:Animal"), mkURI("Global")},
+		},
+		{
+			name:      "global principal: pass-through preserves qualified view",
+			principal: globalPrincipal,
+			in:        []string{mkURI("customer1:Animal")},
+			want:      []string{mkURI("customer1:Animal")},
+		},
+		{
+			name:      "IsGlobalOperator with own-NS namespace set still skips strip",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
+			in:        []string{mkURI("customer1:Animal")},
+			want:      []string{mkURI("customer1:Animal")},
+		},
+		{
+			name:      "nil principal: pass-through (NS-disabled cluster)",
+			principal: nil,
+			in:        []string{mkURI("customer1:Animal")},
+			want:      []string{mkURI("customer1:Animal")},
+		},
+		{
+			name:      "empty slice returned as-is",
+			principal: namespacedPrincipal,
+			in:        []string{},
+			want:      []string{},
+		},
+		{
+			name:      "unparseable entries pass through unchanged",
+			principal: namespacedPrincipal,
+			in:        []string{"not-a-uri", mkURI("customer1:Animal")},
+			want:      []string{"not-a-uri", mkURI("Animal")},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var before []string
+			if len(tc.in) > 0 {
+				before = make([]string, len(tc.in))
+				copy(before, tc.in)
+			}
+			got := StripBeaconURIs(tc.principal, tc.in)
+			assert.Equal(t, tc.want, got)
+			if len(tc.in) > 0 {
+				assert.Equal(t, before, tc.in, "input slice must not be mutated")
+			}
+		})
+	}
+}
+
 func TestStripErrorMessage(t *testing.T) {
 	cases := []struct {
 		name      string

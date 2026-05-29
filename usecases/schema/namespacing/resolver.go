@@ -357,6 +357,28 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 	return strfmt.URI(out.String())
 }
 
+// StripBeaconURIs returns a new slice with each beacon URI's class component
+// stripped of the caller's own NS. Defense in depth for aggregation paths
+// emitting []string of beacons (Reference.PointingTo): writes normalize to
+// short, but a stray qualified beacon must not leak. Parse failures pass
+// through unchanged. Input is not mutated.
+func StripBeaconURIs(principal *models.Principal, uris []string) []string {
+	if len(uris) == 0 || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+		return uris
+	}
+	out := make([]string, len(uris))
+	for i, uri := range uris {
+		ref, err := crossref.Parse(uri)
+		if err != nil {
+			out[i] = uri
+			continue
+		}
+		ref.Class = StripOwnNamespace(principal, ref.Class)
+		out[i] = ref.String()
+	}
+	return out
+}
+
 // StripErrorMessage removes every occurrence of the principal's own
 // "<namespace>:" prefix from msg. Returns msg unchanged when principal is
 // nil or has no namespace.
