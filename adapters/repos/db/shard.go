@@ -417,15 +417,10 @@ type Shard struct {
 	//
 	// Lifecycle (see reindex_provider.go's OnGroupCompleted +
 	// OnTaskCompleted):
-	//   1. SET: per property, ATOMICALLY with that property's
-	//      bucket-pointer flip, inside the swap's Phase 2a tight loop,
-	//      immediately after store.SwapBucketPointer, via the task's
-	//      onPropSwapped hook wired by reindex_provider's
-	//      maybeWirePerPropOverlaySet. Co-locating the set with the flip
-	//      bounds the overlay≠bucket window (in both directions,
-	//      word→field and field→word) to a single in-memory map write.
-	//      See maybeWirePerPropOverlaySet for why setting it once up
-	//      front was a correctness bug.
+	//   1. SET: per prop, atomic with each bucket-pointer flip (onPropSwapped
+	//      hook), so the overlay≠bucket window is one in-memory map write.
+	//      See maybeWirePerPropOverlaySet for why setting it once up front
+	//      was a correctness bug.
 	//   2. CLEAR (defensive, all-failed path): if every per-task swap on
 	//      this shard fails before flipping its bucket pointer (e.g.
 	//      ctx.Canceled during graceful shutdown), the post-loop branch

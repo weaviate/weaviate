@@ -1162,12 +1162,9 @@ func (p *ReindexProvider) runShardPrepPhase(
 	return ok, out
 }
 
-// runShardSwapPhase wires the per-prop OVERLAY SET hook + runs the
-// atomic per-task SWAP (which fires that hook per prop, co-located with
-// each bucket-pointer flip) + the defensive overlay clear. Assumes PREP
-// succeeded (merged.mig on disk per task). Partial-success leaves the
-// overlay in place for the flipped props only; un-swapped buckets keep
-// the live (old) tokenization and need operator rebuild.
+// runShardSwapPhase. Partial success leaves the overlay set for the
+// flipped props only; un-swapped buckets keep the old tokenization and
+// need operator rebuild.
 func (p *ReindexProvider) runShardSwapPhase(
 	ctx context.Context,
 	payload *ReindexTaskPayload,
@@ -1180,12 +1177,8 @@ func (p *ReindexProvider) runShardSwapPhase(
 	allSwapped := true
 	anySwapped := false
 
-	// Queries observing the SWAPPING window need the new analyzer
-	// alignment for buckets that flip. Wire a per-prop hook so each
-	// prop's overlay set lands atomically with that prop's bucket-pointer
-	// flip inside the swap's Phase 2a tight loop. See
-	// [maybeWirePerPropOverlaySet] for why setting it once up front was a
-	// correctness bug.
+	// Wire a per-prop hook rather than setting the overlay once up front;
+	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
 	if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
 		logger.WithField("unit", unitID).WithField("shard", shardName).
@@ -2165,22 +2158,13 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 // migration with a non-empty target), so the caller can match
 // [maybeClearTokenizationOverlayOnAllFailed]'s clear decision.
 //
-// Why per-prop-atomic and not once-up-front: RunSwapOnShard has a
-// disk-I/O preamble (newReindexTracker os.MkdirAll, sentinel stats,
-// readPropsToReindex) between the start of the loop and the in-memory
-// bucket-pointer flip. Setting the overlay before that loop reports NEW
-// while the bucket is still OLD for the whole preamble, so a BM25 query
-// tokenizes input with the new analyzer against the old bucket and
-// returns a transiently wrong count (0 for the reverse field→word
-// case). Pairing the set with the flip per prop collapses the window to
-// a single in-memory map write, symmetric in both directions.
-//
-// The target shard is captured by the closure so the task-side hook
-// signature stays shard-free. Wiring (not invoking) here is safe under
-// the partial-failure contract: a task whose swap fails before any flip
-// never invokes the hook, so the overlay is never set for an un-flipped
-// prop, which is what [maybeClearTokenizationOverlayOnAllFailed]'s
-// all-failed branch relies on.
+// Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble
+// (MkdirAll, sentinel stats, prop read) runs between the loop start and
+// the flip. Setting the overlay before the loop exposes overlay=NEW /
+// bucket=OLD for that whole window, so a BM25 query returns a wrong
+// count (0 for reverse field→word). Per-flip wiring collapses it to one
+// map write; a swap that fails before any flip never sets it, keeping
+// the all-failed path clean.
 func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) bool {
 	if shard == nil || payload == nil {
 		return false
@@ -2211,15 +2195,10 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 // (b) every per-task swap failed before flipping its bucket pointer
 // (the `anySwapped` argument is false).
 //
-// Under the per-prop-atomic set, a fully-failed swap loop never invokes
-// the onPropSwapped hook (no flip, no overlay set), so this clear is an
-// idempotent backstop rather than load-bearing. It still guards the case
-// where a hook fired (anySwapped true) yet the migration transitions to
-// FAILED: the overlay would otherwise stay set while the FAILED
-// transition skips the cluster-wide schema flip, so neither
-// [OnTaskCompleted]'s explicit clear nor [Shard.TokenizationFor]'s
-// self-clear-on-catchup would fire (live schema stays OLD, never matches
-// the overlay's NEW value).
+// Idempotent backstop: with per-prop wiring a fully-failed swap never
+// sets the overlay. It still matters if a flip succeeded but the
+// migration then went FAILED, since the skipped cluster-wide schema flip
+// means nothing else would ever clear the overlay.
 //
 // Partial success (≥ 1 per-task swap returned nil → ≥ 1 bucket
 // pointer flipped) is intentionally left intact: the overlay aligns

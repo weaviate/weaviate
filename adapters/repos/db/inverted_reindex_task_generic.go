@@ -40,19 +40,10 @@
 // ------------------------------------------------------------
 // Implemented by [ShardReindexTaskGeneric.runtimeSwap].
 //
-// 2a — tight loop, microseconds: per property, call
-// store.SwapBucketPointer(mainName, ingestName), then
-// rt.markSwappedProp(propName), then the [onPropSwapped] hook (which
-// sets the per-shard tokenization overlay for tokenization-changing
-// migrations). The tight loop bounds the per-shard "mixed-state"
-// subwindow (some props swapped, others not) to microseconds. Queries
-// hitting a not-yet-swapped prop would tokenize input with the new
-// value against an old-tokenized bucket, so the subwindow MUST stay
-// microseconds.
-//
-// The overlay set is co-located with this prop's pointer flip so the
-// only residual overlay≠bucket exposure is a single in-memory map
-// write, in both directions (word→field and field→word).
+// 2a — tight loop, MUST stay microseconds: a query hitting a
+// not-yet-swapped prop tokenizes new-analyzer input against the old
+// bucket. The [onPropSwapped] overlay hook fires per-flip (not once up
+// front) so the overlay≠bucket exposure stays one in-memory map write.
 //
 // 2b — post-atomic inline tidy (slow but correctness-safe):
 // oldMainBucket.Shutdown(ctx) + os.Rename(oldMainDir, backupDir) per
@@ -206,22 +197,11 @@ type ShardReindexTaskGeneric struct {
 	// method; tests substitute a wrapper.
 	processOneTidyPropFn func(propIdx int, propName, lsmPath string) error
 
-	// onPropSwapped, when non-nil, is invoked per property immediately
-	// after that property's bucket pointer is flipped, on both the
-	// in-process happy path ([runtimeSwap] Phase 2a) and the post-restart
-	// dir-rename recovery path ([recoverRuntimeSwapBuckets]). It runs
-	// inside the Phase 2a tight loop, adjacent to the flip, so the only
-	// work between flip and callback is a single in-memory map write.
-	//
-	// [reindex_provider.runShardSwapPhase] wires this to the per-shard
-	// tokenization-overlay setter for tokenization-changing migrations,
-	// so a query can never observe overlay≠bucket for more than the
-	// in-memory swap latency; nil (skipped) for every other migration.
-	//
-	// Read on the same goroutine that runs the swap, so no extra
-	// synchronization is needed beyond SetTokenizationOverlay's own lock.
-	// The target shard is captured by the closure, so the callback takes
-	// only the prop name.
+	// onPropSwapped runs inside the Phase 2a tight loop right after each
+	// bucket-pointer flip, so a query never observes overlay≠bucket for
+	// longer than one in-memory map write. Runs on the swap goroutine, so
+	// SetTokenizationOverlay's own lock is enough. Wired only for
+	// tokenization-changing migrations.
 	onPropSwapped func(propName string)
 }
 
@@ -1790,12 +1770,8 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		if oldMainBucket != nil {
 			oldMainBuckets[propName] = oldMainBucket
 		}
-		// Set the overlay co-located with this prop's flip, bounding the
-		// overlay≠bucket window to a single in-memory map write.
-		// processOneSwapPropFn returns (nil, nil) for props whose
-		// sentinel was already on disk (recovery idempotency); fire the
-		// hook regardless so a resumed swap re-establishes the overlay
-		// for already-flipped props.
+		// Fire even when processOneSwapPropFn no-ops an already-swapped prop
+		// (sentinel on disk), so a resumed swap re-establishes the overlay.
 		if t.onPropSwapped != nil {
 			t.onPropSwapped(propName)
 		}
@@ -2224,10 +2200,7 @@ func (t *ShardReindexTaskGeneric) recoverRuntimeSwapBuckets(ctx context.Context,
 		if err := rt.markSwappedProp(propName); err != nil {
 			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
 		}
-		// Re-establish the overlay for this prop after its swap converges,
-		// matching the in-process happy path. Same hook wired by
-		// [reindex_provider.runShardSwapPhase] (nil for non-tokenization
-		// migrations).
+		// Recovery re-establishes the overlay for the same reason as the happy path.
 		if t.onPropSwapped != nil {
 			t.onPropSwapped(propName)
 		}
