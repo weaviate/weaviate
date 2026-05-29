@@ -170,6 +170,11 @@ func buildAdditionalProperties(metadata []string) additional.Properties {
 	return props
 }
 
+// maxStripDepth caps recursion in stripResultValue as belt-and-suspenders
+// against pathological inputs (cyclic references via shared maps/slices,
+// extreme nesting). Realistic schemas nest a handful of levels at most.
+const maxStripDepth = 64
+
 // stripResultsOwnNamespace deep-copies results with every nested
 // search.LocalRef.Class stripped of the caller's own NS. Recurses into
 // Fields so deeper cross-refs are stripped too. No-op for global /
@@ -180,25 +185,29 @@ func stripResultsOwnNamespace(principal *models.Principal, results []any) []any 
 	}
 	out := make([]any, len(results))
 	for i, r := range results {
-		out[i] = stripResultValue(principal, r)
+		out[i] = stripResultValue(principal, r, 0)
 	}
 	return out
 }
 
 // stripResultValue handles LocalRef / map / slice; other types pass through.
-func stripResultValue(principal *models.Principal, val any) any {
+// Beyond maxStripDepth the value is returned untouched (defensive cap).
+func stripResultValue(principal *models.Principal, val any, depth int) any {
+	if depth >= maxStripDepth {
+		return val
+	}
 	switch v := val.(type) {
 	case search.LocalRef:
 		return search.LocalRef{
 			Class:  namespacing.StripOwnNamespace(principal, v.Class),
-			Fields: stripResultMap(principal, v.Fields),
+			Fields: stripResultMap(principal, v.Fields, depth+1),
 		}
 	case map[string]any:
-		return stripResultMap(principal, v)
+		return stripResultMap(principal, v, depth+1)
 	case []any:
 		out := make([]any, len(v))
 		for i, vv := range v {
-			out[i] = stripResultValue(principal, vv)
+			out[i] = stripResultValue(principal, vv, depth+1)
 		}
 		return out
 	default:
@@ -206,13 +215,13 @@ func stripResultValue(principal *models.Principal, val any) any {
 	}
 }
 
-func stripResultMap(principal *models.Principal, m map[string]any) map[string]any {
+func stripResultMap(principal *models.Principal, m map[string]any, depth int) map[string]any {
 	if m == nil {
 		return nil
 	}
 	out := make(map[string]any, len(m))
 	for k, v := range m {
-		out[k] = stripResultValue(principal, v)
+		out[k] = stripResultValue(principal, v, depth)
 	}
 	return out
 }
