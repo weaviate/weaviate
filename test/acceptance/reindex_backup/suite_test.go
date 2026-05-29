@@ -164,16 +164,8 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
 
-	// Arm the gate on the SAME surface the server reads. The backup
-	// admission gate consults DTM task liveness
-	// ([DB.AnyLiveReindexForShard] / IsLiveReindexTaskStatus), not the
-	// GET /v1/schema/<class>/indexes status surface. Waiting on the
-	// index-status surface here (the prior awaitIndexingState approach)
-	// raced the gate: with DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_
-	// SECONDS=1 the two surfaces can disagree by ~1s, so a backup fired
-	// while index-status read "indexing" could still slip past a DTM gate
-	// that had not yet seen the task as live — and the expected 422 would
-	// never arrive. Polling /v1/tasks for a live status closes that TOCTOU.
+	// Arm the gate on the same DTM surface the server reads (see
+	// reindexhelpers.AwaitReindexLive); the index-status surface races it.
 	reindexhelpers.AwaitReindexLive(t, restURI, taskID,
 		reindexhelpers.WithTimeout(30*time.Second))
 
@@ -199,17 +191,10 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step")
 
-	// The refusal must not leave a staging dir behind; otherwise a
-	// same-id retry hits checkIfBackupExists's "Status != Cancelled"
-	// rejection.
-	//
-	// On the refused (422) path the server creates no staging dir: every
-	// gate that yields this 422 (validateBackupRequest's Backupable, then
-	// OnCanCommit's Backupable) fires before the coordinator's first
-	// PutMeta, and the filesystem backend's Initialize is a no-op. The
-	// check is wrapped in Eventually purely as a defensive guard against
-	// any incidental async filesystem settling — it is not expected to
-	// need more than the first probe.
+	// The refusal must not leave a staging dir behind, or a same-id retry
+	// hits checkIfBackupExists's "Status != Cancelled" rejection. The 422
+	// gates all fire before the coordinator's first write, so no staging
+	// dir is created; Eventually is just a defensive settle guard.
 	container := compose.GetWeaviate().Container()
 	stagingPath := "/tmp/backups/" + backupID
 	require.Eventually(t, func() bool {

@@ -150,22 +150,13 @@ func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 	return &result
 }
 
-// AwaitReindexLive polls /v1/tasks until the named reindex task is
-// reported in a LIVE (non-terminal) status — STARTED, PREPARING, or
-// SWAPPING — i.e. exactly the states the server-side backup gate
-// ([DB.AnyLiveReindexForShard] via IsLiveReindexTaskStatus) treats as
-// "a reindex is in flight on this shard".
+// AwaitReindexLive polls /v1/tasks until the named reindex task reaches a
+// live (non-terminal) status: STARTED, PREPARING, or SWAPPING.
 //
-// Why this and not the index-status surface: the backup admission gate
-// reads DTM task liveness, NOT GET /v1/schema/<class>/indexes. Those are
-// two different surfaces with no ordering guarantee and, with
-// DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS=1, up to ~1s of skew
-// between them. A test that arms "expect the backup to be refused" by
-// waiting on the index-status surface can fire the backup in a window
-// where index-status already reads "indexing" but DTM has not yet
-// registered the task as live (or has already flipped it terminal) — the
-// gate then admits the backup and the expected 422 never arrives. Syncing
-// on the same DTM surface the gate consults removes that TOCTOU.
+// Tests needing a reindex in flight must sync on this DTM surface, not the
+// GET /v1/schema/<class>/indexes status: the backup admission gate reads
+// DTM task liveness ([DB.AnyLiveReindexForShard]), and the two surfaces
+// can disagree by ~1s, so waiting on index-status races the gate.
 //
 // Fails on FAILED/CANCELLED or on timeout (default 120s).
 func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
@@ -196,10 +187,7 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 				t.Fatalf("reindex task %s reached terminal status %s before going live: %s",
 					taskID, task.Status, task.Error)
 			case "FINISHED":
-				// Drained before we could observe a live status. Treat as a
-				// fixture sizing problem rather than a gate regression: the
-				// caller's "expect refusal" assertion can no longer be
-				// satisfied, so fail loudly with an actionable message.
+				// Drained before a live status was observed (fixture too small).
 				t.Fatalf("reindex task %s reached FINISHED before a live status was observed; "+
 					"increase the import corpus so the migration outlives the gate-arming poll",
 					taskID)
