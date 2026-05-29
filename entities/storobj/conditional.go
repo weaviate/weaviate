@@ -27,18 +27,26 @@ type Predicate struct {
 
 // Conditional carries the precondition for a conditional write operation.
 // All fields are optional (zero-value = condition kind not active). A caller
-// that only uses Phase-1 existence-check fills InsertIfNotExists and leaves
-// IfVersion and UpdateIf nil; Phase-2 callers fill IfVersion; Phase-3 callers
-// fill UpdateIf. Multiple non-zero fields are evaluated conjunctively.
+// that only uses Phase-1 existence-check fills OnlyIfNotExists or OnlyIfExists
+// and leaves IfVersion and UpdateIf nil; Phase-2 callers fill IfVersion;
+// Phase-3 callers fill UpdateIf. Multiple non-zero fields are evaluated
+// conjunctively.
 //
 // The three phases correspond to the three CAS primitives in the synthesis:
-//   - Phase 1: insert_if_not_exists (existence check)
+//   - Phase 1: insert_if_not_exists / OnlyIfNotExists (existence check)
+//   - Phase 1b: update_if_exists / OnlyIfExists (existence check, inverse)
 //   - Phase 2: _version / if_version=N  (server-managed version CAS)
 //   - Phase 3: update_if <field> = <value> (field-predicate update)
 type Conditional struct {
-	// InsertIfNotExists requests Phase-1 existence-check semantics: the write
+	// OnlyIfNotExists requests Phase-1 existence-check semantics: the write
 	// succeeds only if no object with the given UUID currently exists.
-	InsertIfNotExists bool
+	// Corresponds to the insert_if_not_exists API primitive.
+	OnlyIfNotExists bool
+
+	// OnlyIfExists requests Phase-1b existence-check semantics: the write
+	// succeeds only if an object with the given UUID already exists.
+	// Corresponds to the update_if_exists API primitive.
+	OnlyIfExists bool
 
 	// IfVersion requests Phase-2 version-CAS semantics: the write succeeds only
 	// if the stored object's server-managed version equals this value. A nil
@@ -54,5 +62,5 @@ type Conditional struct {
 // IsZero reports whether c carries no active condition (all fields at their
 // zero value). An IsZero Conditional is equivalent to an unconditional write.
 func (c Conditional) IsZero() bool {
-	return !c.InsertIfNotExists && c.IfVersion == nil && c.UpdateIf == nil
+	return !c.OnlyIfNotExists && !c.OnlyIfExists && c.IfVersion == nil && c.UpdateIf == nil
 }

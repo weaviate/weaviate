@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
@@ -269,6 +270,23 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
 			return err
+		}
+
+		// Phase-1 existence-check conditionals (Plan A — single-shard-authoritative).
+		// Evaluated inside the per-UUID lock so exactly one goroutine wins.
+		// OnlyIfNotExists: succeed only when no object with this UUID exists yet.
+		// OnlyIfExists: succeed only when an object with this UUID already exists.
+		if obj.Conditional.OnlyIfNotExists && prevObj != nil {
+			return &objects.ErrPreconditionFailed{
+				ObjectID: obj.ID().String(),
+				Reason:   "object already exists (OnlyIfNotExists condition failed)",
+			}
+		}
+		if obj.Conditional.OnlyIfExists && prevObj == nil {
+			return &objects.ErrPreconditionFailed{
+				ObjectID: obj.ID().String(),
+				Reason:   "object does not exist (OnlyIfExists condition failed)",
+			}
 		}
 
 		status, err = s.determineInsertStatus(prevObj, obj)

@@ -56,6 +56,10 @@ type Object struct {
 	DocID             uint64
 	Vectors           map[string][]float32   `json:"vectors"`
 	MultiVectors      map[string][][]float32 `json:"multivectors"`
+	// Conditional holds the per-request precondition for a conditional write.
+	// It is never serialised to disk and is cleared before WAL commit. Zero
+	// value (IsZero() == true) means unconditional write.
+	Conditional Conditional `json:"-"`
 }
 
 func New(docID uint64) *Object {
