@@ -105,7 +105,7 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 			return nil, fmt.Errorf("failed to unmarshal filters: %w", err)
 		}
 
-		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, s.namespacesEnabled, principal)
+		localFilter, err = filterext.Parse(&whereFilter, args.CollectionName, s.namespacesEnabled)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse filters: %w", err)
 		}

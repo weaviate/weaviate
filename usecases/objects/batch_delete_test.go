@@ -13,7 +13,6 @@ package objects
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -299,67 +298,6 @@ func Test_BatchDelete_NamespaceResolution(t *testing.T) {
 		require.NotContains(t, authorizer.Calls()[0].Resources[0], ":Foo")
 
 		vectorRepo.AssertExpectations(t)
-	})
-}
-
-// Test_BatchDelete_ValidationErrorsAreUserInput pins that a malformed where
-// filter is classified as ErrInvalidUserInput so the REST handler returns a
-// 422 — not a bare error, which the handler maps to a 500. Covers both filter
-// stages: parse (foreign-namespace inner class) and schema validation (unknown
-// property).
-func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
-	nameProp := &models.Property{
-		Name:         "name",
-		DataType:     schema.DataTypeText.PropString(),
-		Tokenization: models.PropertyTokenizationWhitespace,
-	}
-	mkClass := func(name string) *models.Class {
-		return &models.Class{
-			Class:             name,
-			Properties:        []*models.Property{nameProp},
-			VectorIndexConfig: hnsw.UserConfig{},
-			Vectorizer:        config.VectorizerModuleNone,
-		}
-	}
-	makeManager := func(t *testing.T, nsEnabled bool, classes []*models.Class) *BatchManager {
-		t.Helper()
-		sch := schema.Schema{Objects: &models.Schema{Classes: classes}}
-		cfg := &config.WeaviateConfig{Config: config.Config{
-			AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(false)},
-			Namespaces: config.Namespaces{Enabled: nsEnabled},
-		}}
-		schemaManager := &fakeSchemaManager{GetSchemaResponse: sch}
-		logger, _ := test.NewNullLogger()
-		vectorRepo := &fakeVectorRepo{}
-		return NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, mocks.NewMockAuthorizer(), nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
-	}
-
-	t.Run("unknown property fails validation as user input", func(t *testing.T) {
-		mgr := makeManager(t, false, []*models.Class{mkClass("Foo")})
-		match := &models.BatchDeleteMatch{
-			Class: "Foo",
-			Where: &models.WhereFilter{Path: []string{"doesNotExist"}, Operator: "Equal", ValueText: ptString("v")},
-		}
-		_, err := mgr.DeleteObjects(context.Background(), &models.Principal{Username: "admin"},
-			match, nil, ptBool(true), ptString(verbosity.OutputMinimal), nil, "")
-		require.Error(t, err)
-		assert.True(t, errors.As(err, &ErrInvalidUserInput{}),
-			"unknown-property filter must be ErrInvalidUserInput, got %T: %v", err, err)
-	})
-
-	t.Run("foreign-namespace inner class in ref-path fails parse as user input", func(t *testing.T) {
-		mgr := makeManager(t, true, []*models.Class{mkClass("customer1:Foo")})
-		match := &models.BatchDeleteMatch{
-			Class: "Foo",
-			Where: &models.WhereFilter{Path: []string{"ref", "customer2:Other", "name"}, Operator: "Equal", ValueText: ptString("v")},
-		}
-		_, err := mgr.DeleteObjects(context.Background(), &models.Principal{Username: "u", Namespace: "customer1"},
-			match, nil, ptBool(true), ptString(verbosity.OutputMinimal), nil, "")
-		require.Error(t, err)
-		assert.True(t, errors.As(err, &ErrInvalidUserInput{}),
-			"foreign-NS inner class must be ErrInvalidUserInput, got %T: %v", err, err)
-		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
 }
 

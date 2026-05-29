@@ -515,15 +515,11 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 		assert.Equal(t, "keep", got.Properties.(map[string]any)["title"])
 	})
 
-	t.Run("batch delete by reference-path filter is validated against the schema", func(t *testing.T) {
-		// Reference-path filters are no longer rejected upfront on NS-enabled
-		// clusters: filterext.Parse qualifies each inner class segment against
-		// the source's namespace and then the filter is validated like any
-		// other. This fixture has no "Other" class, so QualifyRefTarget turns
-		// "Other" into "customer1:Other" and the downstream schema lookup then
-		// rejects it with "could not find class ..." — proving the qualification
-		// path runs and the removed path-len > 1 upfront guard is gone (any
-		// "customer1:" in the message is stripped before reaching this caller).
+	t.Run("batch delete by reference-path filter is rejected", func(t *testing.T) {
+		// Inner class segments in reference-path filters are caller-supplied
+		// and not auto-qualified. The REST handler rejects path-len > 1
+		// upfront on namespace-enabled clusters; this guards against silent
+		// "class not found" failures downstream.
 		const class = "BatchDeleteRefPath"
 		setupClassInNs1(t, class, user1Key)
 
@@ -543,18 +539,5 @@ func TestNamespaces_BatchOperations(t *testing.T) {
 			helper.CreateAuth(user1Key),
 		)
 		require.Error(t, err)
-		// A malformed where filter is caller input, so the handler returns a 422
-		// (not a 500). The swagger client hides the message behind a pointer in
-		// err.Error(), so read it from the typed payload.
-		var unproc *batch.BatchObjectsDeleteUnprocessableEntity
-		require.True(t, errors.As(err, &unproc), "expected 422 UnprocessableEntity, got %T: %v", err, err)
-		require.NotEmpty(t, unproc.Payload.Error)
-		msg := unproc.Payload.Error[0].Message
-		assert.Contains(t, msg, "could not find class",
-			"must fail in the downstream schema lookup, not the removed upfront rejection")
-		assert.Contains(t, msg, "Other",
-			"the leaf class name (qualified to customer1:Other and stripped to Other) must appear in the message")
-		assert.NotContains(t, msg, "reference-path filters",
-			"the upfront path-len > 1 rejection no longer exists")
 	})
 }
