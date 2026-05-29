@@ -13,6 +13,7 @@ package search
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -271,4 +272,42 @@ func TestHybrid_NestedRefClassStripped(t *testing.T) {
 			assert.Equal(t, tc.want.deep, deepInner[0].(search.LocalRef).Class)
 		})
 	}
+}
+
+// Defensive canary: the JSON response a customer1 caller sees must not
+// contain "customer1:" anywhere — catches any future carrier beyond LocalRef.
+func TestHybrid_ResponseHasNoOwnNamespaceLeak(t *testing.T) {
+	const uuid = "11111111-2222-3333-4444-555555555555"
+	results := []any{
+		map[string]any{
+			"title": "Zoo",
+			"hasAnimals": []any{
+				search.LocalRef{
+					Class:  "customer1:Animal",
+					Fields: map[string]any{"name": "tigger", "id": uuid},
+				},
+				search.LocalRef{
+					Class: "customer1:Animal",
+					Fields: map[string]any{
+						"hasHabitat": []any{
+							search.LocalRef{Class: "customer1:Habitat", Fields: map[string]any{"name": "savanna"}},
+						},
+					},
+				},
+			},
+			"_additional": map[string]any{"id": uuid, "distance": 0.42},
+		},
+	}
+
+	principal := &models.Principal{Namespace: "customer1"}
+	s := newSearcherWithResults(t, principal, results)
+	resp, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
+		CollectionName: "Zoo", Query: "x",
+	})
+	require.NoError(t, err)
+
+	blob, err := json.Marshal(resp)
+	require.NoError(t, err)
+	assert.NotContains(t, string(blob), "customer1:",
+		"namespaced response must not echo the caller's own \"<ns>:\" anywhere: %s", string(blob))
 }
