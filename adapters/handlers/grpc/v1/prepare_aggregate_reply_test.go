@@ -14,6 +14,7 @@ package v1
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -72,11 +73,79 @@ func TestGRPCAggregateReply_ReferenceAggregationStripsPointingTo(t *testing.T) {
 	}
 }
 
+// Pins the ref-target group-by case (in.Value is strfmt.URI from
+// MultipleRef.Beacon). Pre-fix the type switch's `case string` didn't
+// match the named strfmt.URI type → 500. Fix adds the case and strips
+// the caller's own NS from the embedded class.
+func TestGRPCAggregateReply_GroupByOnRefTargetStripsOwnNamespace(t *testing.T) {
+	const uuid = "11111111-2222-3333-4444-555555555555"
+	mkURI := func(class string) strfmt.URI {
+		return strfmt.URI("weaviate://localhost/" + class + "/" + uuid)
+	}
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        strfmt.URI
+		wantText  string
+	}{
+		{
+			name:      "namespaced caller: own-NS stripped from embedded class",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			in:        mkURI("customer1:Animal"),
+			wantText:  "weaviate://localhost/Animal/" + uuid,
+		},
+		{
+			name:      "namespaced caller: foreign-NS preserved",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			in:        mkURI("customer2:Animal"),
+			wantText:  "weaviate://localhost/customer2:Animal/" + uuid,
+		},
+		{
+			name:      "namespaced caller: already-short beacon unchanged",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			in:        mkURI("Animal"),
+			wantText:  "weaviate://localhost/Animal/" + uuid,
+		},
+		{
+			name:      "global principal: qualified beacon preserved",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			in:        mkURI("customer1:Animal"),
+			wantText:  "weaviate://localhost/customer1:Animal/" + uuid,
+		},
+		{
+			name:      "nil principal: pass-through (NS-disabled cluster)",
+			principal: nil,
+			in:        mkURI("customer1:Animal"),
+			wantText:  "weaviate://localhost/customer1:Animal/" + uuid,
+		},
+		{
+			name:      "unparseable URI: passed through unchanged",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			in:        strfmt.URI("not-a-real-beacon"),
+			wantText:  "not-a-real-beacon",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			replier := NewAggregateReplier(tc.principal, nil, nil)
+			got, err := replier.parseAggregateGroupedBy(&aggregation.GroupedBy{
+				Path:  []string{"hasAnimals"},
+				Value: tc.in,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			textVal, ok := got.Value.(*pb.AggregateReply_Group_GroupedBy_Text)
+			require.True(t, ok, "expected Text value, got %T", got.Value)
+			assert.Equal(t, tc.wantText, textVal.Text)
+		})
+	}
+}
+
 // TestGRPCAggregateReply_GroupByPassesValuesThrough pins that bucket
 // values flow unchanged for string / []string. Group-by values can be
 // arbitrary user text (e.g. "customer1:foo"), so we must not rewrite
-// them — ref-target buckets, the one case where a class name could
-// appear, surface as beacon URIs ("weaviate://.../") not bare names.
+// them — ref-target buckets carry a strfmt.URI value (not plain string)
+// and go through TestGRPCAggregateReply_GroupByOnRefTargetStripsOwnNamespace.
 func TestGRPCAggregateReply_GroupByPassesValuesThrough(t *testing.T) {
 	cases := []struct {
 		name      string

@@ -14,9 +14,11 @@ package v1
 import (
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -103,6 +105,20 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy) (*
 			return &pb.AggregateReply_Group_GroupedBy{
 				Path:  in.Path,
 				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: val},
+			}, nil
+		case strfmt.URI:
+			// Ref-target group-by: bucket value is the beacon URI from
+			// MultipleRef.Beacon. Parse + strip embedded class so the
+			// caller's "<ns>:" doesn't ride along; unparseable URIs pass
+			// through unchanged.
+			s := string(val)
+			if ref, err := crossref.Parse(s); err == nil {
+				ref.Class = namespacing.StripOwnNamespace(r.principal, ref.Class)
+				s = ref.String()
+			}
+			return &pb.AggregateReply_Group_GroupedBy{
+				Path:  in.Path,
+				Value: &pb.AggregateReply_Group_GroupedBy_Text{Text: s},
 			}, nil
 		case bool:
 			return &pb.AggregateReply_Group_GroupedBy{

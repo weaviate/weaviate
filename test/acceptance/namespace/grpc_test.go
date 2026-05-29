@@ -410,12 +410,10 @@ func TestNamespaces_GRPC(t *testing.T) {
 			"admin's aggregate over the qualified class must return the same shape")
 	})
 
-	// Pins a pre-existing gRPC bug: parseAggregateGroupedBy's `case string`
-	// doesn't match strfmt.URI, so ref-target buckets (MultipleRef.Beacon)
-	// never reach the strip path — confirming the aggregate-replier revert
-	// is safe. Swap the error check for the URI assertion below once the
-	// type switch is fixed.
-	t.Run("Aggregate GroupBy on a ref property: pins broken gRPC type switch", func(t *testing.T) {
+	// End-to-end check: ref-target group-by reaches the strfmt.URI case in
+	// parseAggregateGroupedBy, strips the embedded class of the caller's
+	// own NS, and emits a short bucket URI.
+	t.Run("Aggregate GroupBy on a ref property: short bucket URI for namespaced caller", func(t *testing.T) {
 		const (
 			zoo    = "ZooGroupByRef"
 			animal = "AnimalGroupByRef"
@@ -451,36 +449,29 @@ func TestNamespaces_GRPC(t *testing.T) {
 		require.NoError(t, err)
 
 		// Poll: on multi-node clusters the ref may not be visible to the
-		// aggregator immediately after AddReference returns. The bug only
-		// fires when the grouper produces a bucket, so retry until either
-		// the strfmt.URI error surfaces (bug present) or the call returns
-		// non-empty groups (bug fixed) — never trust a "no groups, no error"
-		// snapshot, which just means the ref isn't replicated yet.
+		// aggregator immediately after AddReference returns. Retry until
+		// non-empty groups come back, then validate the bucket URI is short.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			resp, err := grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
 				Collection:   zoo,
 				ObjectsCount: true,
 				GroupBy:      &pb.AggregateRequest_GroupBy{Collection: zoo, Property: "hasAnimals"},
 			})
-			if err != nil {
-				// Bug present (current state): pin that the type switch is
-				// the source. Loose substring match tolerates small wording
-				// changes around the same bug.
-				assert.Contains(c, err.Error(), "strfmt.URI",
-					"error must come from the prepare-reply type switch")
+			if !assert.NoError(c, err, "ref-target group-by must not error") {
 				return
 			}
-			// Bug fixed: validate the short-form bucket URI premise.
 			groups := resp.GetGroupedResults().GetGroups()
-			assert.NotEmpty(c, groups, "ref not replicated to aggregate node yet")
+			if !assert.NotEmpty(c, groups, "ref not replicated to aggregate node yet") {
+				return
+			}
 			const qualified = "customer1:" + animal
 			for _, g := range groups {
 				val := g.GroupedBy.GetText()
 				assert.NotContains(c, val, qualified,
-					"ref-target bucket URI must be short-form, got %q", val)
+					"bucket URI must be short-form, got %q", val)
 			}
 		}, 30*time.Second, 200*time.Millisecond,
-			"ref-target group-by must either error with the strfmt.URI bug or return short-form bucket URIs once the ref replicates")
+			"ref-target group-by must return short-form bucket URIs once the ref replicates")
 	})
 
 	t.Run("Search and Aggregate via alias resolve per namespace", func(t *testing.T) {
