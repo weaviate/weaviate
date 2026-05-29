@@ -152,6 +152,38 @@ func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 
 // AwaitReindexLive blocks until the task reaches a live status.
 //
+// fetchReindexTask does one GET /v1/tasks poll and returns the reindex task
+// with the given ID. ok is false when the request, status, decode, or lookup
+// hasn't yielded that task yet, so pollers keep retrying. A non-200 is logged
+// rather than decoded as JSON, so a flake surfaces the actual status instead
+// of a generic decode/timeout failure.
+func fetchReindexTask(t *testing.T, restURI, taskID string) (models.DistributedTask, bool) {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+	if err != nil {
+		return models.DistributedTask{}, false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return models.DistributedTask{}, false
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Logf("GET /v1/tasks returned status %d: %s", resp.StatusCode, string(body))
+		return models.DistributedTask{}, false
+	}
+	var tasks models.DistributedTasks
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		return models.DistributedTask{}, false
+	}
+	for _, task := range tasks["reindex"] {
+		if task.ID == taskID {
+			return task, true
+		}
+	}
+	return models.DistributedTask{}, false
+}
+
 // Sync here, not on GET /v1/schema/<class>/indexes: the backup gate reads
 // DTM liveness, and the two can lag ~1s, so index-status races the gate.
 func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
@@ -159,36 +191,22 @@ func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	o := applyOptions(opts)
 
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
+		task, ok := fetchReindexTask(t, restURI, taskID)
+		if !ok {
 			return false
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
-		}
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			return false
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID != taskID {
-				continue
-			}
-			t.Logf("task %s status: %s", taskID, task.Status)
-			switch task.Status {
-			case "FAILED", "CANCELLED":
-				t.Fatalf("reindex task %s reached terminal status %s before going live: %s",
-					taskID, task.Status, task.Error)
-			case "FINISHED":
-				// Drained before a live status was observed (fixture too small).
-				t.Fatalf("reindex task %s reached FINISHED before a live status was observed; "+
-					"increase the import corpus so the migration outlives the gate-arming poll",
-					taskID)
-			case "STARTED", "PREPARING", "SWAPPING":
-				return true
-			}
+		t.Logf("task %s status: %s", taskID, task.Status)
+		switch task.Status {
+		case "FAILED", "CANCELLED":
+			t.Fatalf("reindex task %s reached terminal status %s before going live: %s",
+				taskID, task.Status, task.Error)
+		case "FINISHED":
+			// Drained before a live status was observed (fixture too small).
+			t.Fatalf("reindex task %s reached FINISHED before a live status was observed; "+
+				"increase the import corpus so the migration outlives the gate-arming poll",
+				taskID)
+		case "STARTED", "PREPARING", "SWAPPING":
+			return true
 		}
 		return false
 	}, o.timeout, 200*time.Millisecond,
@@ -202,29 +220,15 @@ func AwaitReindexFinished(t *testing.T, restURI, taskID string, opts ...Option) 
 	o := applyOptions(opts)
 
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
+		task, ok := fetchReindexTask(t, restURI, taskID)
+		if !ok {
 			return false
 		}
-		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return false
+		t.Logf("task %s status: %s", taskID, task.Status)
+		if task.Status == "FAILED" {
+			t.Fatalf("reindex task failed: %s", task.Error)
 		}
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			return false
-		}
-		for _, task := range tasks["reindex"] {
-			if task.ID == taskID {
-				t.Logf("task %s status: %s", taskID, task.Status)
-				if task.Status == "FAILED" {
-					t.Fatalf("reindex task failed: %s", task.Error)
-				}
-				return task.Status == "FINISHED"
-			}
-		}
-		return false
+		return task.Status == "FINISHED"
 	}, o.timeout, 1*time.Second, "reindex task %s should reach FINISHED status", taskID)
 }
 

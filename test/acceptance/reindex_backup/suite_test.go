@@ -196,7 +196,13 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	container := compose.GetWeaviate().Container()
 	stagingPath := "/tmp/backups/" + backupID
 	require.Eventually(t, func() bool {
-		code, _, _ := container.Exec(ctx, []string{"test", "-d", stagingPath})
+		code, _, err := container.Exec(ctx, []string{"test", "-d", stagingPath})
+		if err != nil {
+			// A transient exec error tells us nothing about the dir; log it and
+			// keep polling so a persistent failure surfaces in the timeout.
+			t.Logf("exec test -d %s failed: %v", stagingPath, err)
+			return false
+		}
 		return code != 0
 	}, 10*time.Second, 200*time.Millisecond,
 		"refused backup must not leave a staging dir at %s", stagingPath)
