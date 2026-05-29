@@ -119,7 +119,22 @@ func (r *Replicator) PutObject(ctx context.Context,
 	if err := firstError(rs); err != nil {
 		r.log.WithField("op", "put").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", obj.ID()).Error(err)
+		if precondErr := asPreconditionFailed(err); precondErr != nil {
+			return precondErr
+		}
 		return err
+	}
+	return nil
+}
+
+// asPreconditionFailed inspects err for a replicaerrors.Error carrying
+// StatusPreconditionFailed and, if found, synthesises an
+// *objects.ErrPreconditionFailed so the caller receives the domain-typed error
+// rather than the wire-level replica error.
+func asPreconditionFailed(err error) *objects.ErrPreconditionFailed {
+	var re *replicaerrors.Error
+	if errors.As(err, &re) && re.IsStatusCode(replicaerrors.StatusPreconditionFailed) {
+		return &objects.ErrPreconditionFailed{Reason: re.Msg}
 	}
 	return nil
 }
