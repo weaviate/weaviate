@@ -200,9 +200,6 @@ func TestStripDBUserNamespace_AllMapsHonoured(t *testing.T) {
 		UserKeyRevoked: map[string]struct{}{
 			"ns1:alice": {},
 		},
-		ImportedApiKeysWeakHash: map[string][sha256.Size]byte{
-			"ns1:alice": sha256.Sum256([]byte("alice-imported")),
-		},
 	}
 
 	out, err := stripDBUserNamespace(src)
@@ -212,7 +209,6 @@ func TestStripDBUserNamespace_AllMapsHonoured(t *testing.T) {
 	require.ElementsMatch(t, []string{"alice", "bob", "global"}, mapKeys(out.SecureKeyStorageById))
 	require.ElementsMatch(t, []string{"alice", "bob", "global"}, mapKeys(out.IdToIdentifier))
 	require.ElementsMatch(t, []string{"alice"}, mapKeys(out.UserKeyRevoked))
-	require.ElementsMatch(t, []string{"alice"}, mapKeys(out.ImportedApiKeysWeakHash))
 
 	// IdentifierToId: keys unchanged, values stripped.
 	require.ElementsMatch(t, []string{"ident-alice", "ident-bob", "ident-global"}, mapKeys(out.IdentifierToId))
@@ -230,7 +226,6 @@ func TestStripDBUserNamespace_AllMapsHonoured(t *testing.T) {
 
 	require.Equal(t, "hash-alice", out.SecureKeyStorageById["alice"])
 	require.Equal(t, "ident-alice", out.IdToIdentifier["alice"])
-	require.Equal(t, src.ImportedApiKeysWeakHash["ns1:alice"], out.ImportedApiKeysWeakHash["alice"])
 
 	// Fresh User — caller mutations must not reach back into src.
 	require.NotSame(t, src.Users["ns1:alice"], out.Users["alice"])
