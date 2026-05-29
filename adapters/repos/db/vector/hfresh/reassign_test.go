@@ -176,58 +176,41 @@ func TestReassignTaskQueueOperations(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestReassignMuveraVector verifies that reassign uses the MUVERA-encoded vector
-// when MUVERA is enabled, rather than the single-vector thunk which would fail
-// for pure multi-vector objects.
 func TestReassignMuveraVector(t *testing.T) {
 	tf := createMuveraHFreshIndex(t)
 
-	// Create multi-vector document (simulating ColBERT-style multi-token embeddings)
-	// Each "token" is a 4-dimensional vector for testing
 	multiVectors := [][]float32{
 		{1.0, 0.0, 0.0, 0.0},
 		{0.0, 1.0, 0.0, 0.0},
 		{0.0, 0.0, 1.0, 0.0},
 	}
 	docID := uint64(1000)
-
-	// Insert the multi-vector document
 	addMultiVectorToIndex(t, &tf, docID, multiVectors)
 
-	// Configure VectorForIDThunk to fail - this simulates the case where the
-	// single-vector slot is empty (as it would be for pure multi-vector objects)
 	tf.Index.config.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
-		return nil, errors.New("vector length is 0: single-vector slot is empty for multi-vector object")
+		return nil, errors.New("single-vector slot is empty")
 	}
 
-	// Get the current version
 	version, err := tf.Index.VersionMap.Get(t.Context(), docID)
 	require.NoError(t, err)
 	require.False(t, version.Deleted())
 
-	// Perform reassign - this should NOT use VectorForIDThunk for MUVERA mode
-	// Instead it should fetch from the MUVERA vector bucket
 	op := reassignOperation{
 		PostingID: 1,
 		VectorID:  docID,
 	}
 
 	err = tf.Index.doReassign(t.Context(), op)
-	// Should succeed because it uses the MUVERA bucket, not VectorForIDThunk
-	require.NoError(t, err, "reassign should succeed for MUVERA mode using MUVERA-encoded vector")
+	require.NoError(t, err)
 
-	// Verify the document is still searchable
 	results, _, err := tf.Index.SearchByMultiVector(t.Context(), multiVectors, 10, nil)
 	require.NoError(t, err)
-	require.Contains(t, results, docID, "document should still be findable after reassign")
+	require.Contains(t, results, docID)
 }
 
-// TestReassignMuveraVectorNotFound verifies that reassign properly reports errors
-// when the MUVERA vector is not found in the bucket
 func TestReassignMuveraVectorNotFound(t *testing.T) {
 	tf := createMuveraHFreshIndex(t)
 
-	// Insert a document first to initialize dimensions
 	multiVectors := [][]float32{
 		{1.0, 0.0, 0.0, 0.0},
 		{0.0, 1.0, 0.0, 0.0},
@@ -235,9 +218,7 @@ func TestReassignMuveraVectorNotFound(t *testing.T) {
 	docID := uint64(1000)
 	addMultiVectorToIndex(t, &tf, docID, multiVectors)
 
-	// Try to reassign a non-existent vector
 	nonExistentID := uint64(9999)
-	// Create a version entry so the reassign doesn't short-circuit
 	err := tf.Index.VersionMap.store.Set(t.Context(), nonExistentID, VectorVersion(1))
 	require.NoError(t, err)
 

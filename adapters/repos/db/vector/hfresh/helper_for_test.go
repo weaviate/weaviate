@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// muveraTestStore stores multi-vectors for testing MUVERA operations
 type muveraTestStore struct {
 	multiVectors map[uint64][][]float32
 }
@@ -58,13 +57,12 @@ func (s *muveraTestStore) getMultiVector(id uint64) ([][]float32, error) {
 type TestHFresh struct {
 	Index   *HFresh
 	Logs    *test.Hook
-	mvStore *muveraTestStore // For MUVERA tests, stores multi-vectors
+	mvStore *muveraTestStore
 }
 
 func createHFreshIndex(t *testing.T) TestHFresh {
 	t.Helper()
 
-	// Create logger + hook
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
@@ -180,17 +178,13 @@ func createPostingWithVectors(t *testing.T, tf *TestHFresh, vectors [][]float32,
 	return postingID, posting
 }
 
-// createMuveraHFreshIndex creates a MUVERA-enabled HFresh index for testing multi-vector operations
 func createMuveraHFreshIndex(t *testing.T) TestHFresh {
 	t.Helper()
 
-	// Create logger + hook
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
 
 	cfg := DefaultConfig()
-
-	// Create a test store for multi-vectors (simulates the shard's object store)
 	mvStore := newMuveraTestStore()
 
 	scheduler := queue.NewScheduler(
@@ -213,8 +207,6 @@ func createMuveraHFreshIndex(t *testing.T) TestHFresh {
 
 	cfg.TombstoneCallbacks = cyclemanager.NewCallbackGroupNoop()
 	cfg.Logger = logger
-
-	// Set up MultiVectorForIDThunk to use our test store
 	cfg.MultiVectorForIDThunk = func(ctx context.Context, id uint64) ([][]float32, error) {
 		return mvStore.getMultiVector(id)
 	}
@@ -224,7 +216,6 @@ func createMuveraHFreshIndex(t *testing.T) TestHFresh {
 		scheduler.Close(t.Context())
 	})
 
-	// Create MUVERA-enabled user config
 	uc := ent.NewDefaultUserConfig()
 	uc.Multivector.Enabled = true
 	uc.Multivector.MuveraConfig.Enabled = true
@@ -236,8 +227,6 @@ func createMuveraHFreshIndex(t *testing.T) TestHFresh {
 
 	index, err := New(cfg, uc, store)
 	require.NoError(t, err)
-
-	// Store reference to mvStore in index for use by addMultiVectorToIndex
 	index.multivectorForIdThunk = cfg.MultiVectorForIDThunk
 
 	return TestHFresh{
@@ -247,10 +236,8 @@ func createMuveraHFreshIndex(t *testing.T) TestHFresh {
 	}
 }
 
-// addMultiVectorToIndex adds a multi-vector document to a MUVERA-enabled index
 func addMultiVectorToIndex(t *testing.T, tf *TestHFresh, docID uint64, vectors [][]float32) {
 	t.Helper()
-	// Store the multi-vectors in our test store (simulates the shard's object store)
 	if tf.mvStore != nil {
 		tf.mvStore.storeMultiVector(docID, vectors)
 	}
