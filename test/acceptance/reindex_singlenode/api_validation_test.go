@@ -92,9 +92,8 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		if cancelResp, err := http.DefaultClient.Do(cancelReq); err == nil {
 			cancelResp.Body.Close()
 		}
-		// The best-effort cancel may not terminalize a task already past
-		// STARTED (e.g. SWAPPING), so poll the delete until the MutationGuard
-		// clears rather than racing it with one shot.
+		// A best-effort cancel may not terminalize a task already in
+		// SWAPPING, so poll the delete until the MutationGuard clears.
 		require.Eventuallyf(t, func() bool {
 			delReq, _ := http.NewRequest(http.MethodDelete,
 				fmt.Sprintf("http://%s/v1/schema/%s", restURI, mtClass), nil)
