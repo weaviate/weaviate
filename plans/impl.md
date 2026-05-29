@@ -143,56 +143,64 @@ All checks use the node-independent Part-1 methods. All reject with `ErrBadReque
 actionable messages, e.g.:
 `"<op> blocked: replica movement in progress for collection %q (shard %q); retry after it completes"`.
 
-### 2a. UpdateClass — compression enablement + new named vector
-**File:** `cluster/schema/manager.go:347-423`, inside the `update` closure right after
-`u, err := s.parser.ParseClassUpdate(&meta.Class, req.Class)` (line 361). The closure already
-returns `ErrBadRequest`-wrapped errors (line 363), so this is the established pattern; both
-old (`meta.Class`) and new (`u`) configs are in scope here.
+### 2a. UpdateClass — block ALL on-disk vector restructures (implemented)
+**File:** `cluster/schema/manager.go`, inside the `update` closure right after
+`u, err := s.parser.ParseClassUpdate(&meta.Class, req.Class)`. The closure already returns
+`ErrBadRequest`-wrapped errors (e.g. the replication-factor check), so returning here is the
+established, RAFT-deterministic pattern; both old (`meta.Class`) and new (`u`) are in scope.
+Helpers live in new file `cluster/schema/movement_guard.go`.
 
 ```go
-if s.replicationFSM != nil && s.replicationFSM.HasActiveReplicationForCollection(req.Class.Class) {
+if s.replicationFSM != nil && s.replicationFSM.HasActiveReplicationForCollection(meta.Class.Class) {
     if reason := dangerousVectorConfigChange(&meta.Class, u); reason != "" {
-        return fmt.Errorf("%w: %s blocked: replica movement in progress for collection %q; retry after it completes",
-            ErrBadRequest, reason, req.Class.Class)
+        return fmt.Errorf("%w: %w: %s on collection %q; retry after it completes",
+            ErrBadRequest, ErrReplicaMovementInProgress, reason, meta.Class.Class)
     }
 }
 ```
 
-New pure helper (schema package):
+`ParseClassUpdate` returns `*models.Class` (there is no `parsedUpdate` type). Per the
+stakeholder decision, detection blocks **every** on-disk restructure, not just enable+add:
 ```go
-// dangerousVectorConfigChange returns a non-empty reason when the update would change
-// on-disk vector structure: (a) compression newly enabled on a target vector, or
-// (b) a new named vector added. Returns "" for in-memory-only changes (ef, etc.).
-func dangerousVectorConfigChange(old *models.Class, u parsedUpdate) string
+func dangerousVectorConfigChange(old, u *models.Class) string
 ```
-- **Compression newly enabled:** for the legacy `VectorIndexConfig` and each entry in
-  `VectorConfig`, compare `compressionEnabled(oldCfg)` vs `compressionEnabled(newCfg)`;
-  dangerous when `false → true`.
-- **New named vector:** any key in `u.VectorConfig` absent from `old.VectorConfig`.
-- `compressionEnabled(cfg schemaConfig.VectorIndexConfig) bool` type-asserts to
-  `hnswent.UserConfig` and returns `PQ.Enabled || BQ.Enabled || SQ.Enabled || RQ.Enabled`.
-  (Mirror the disjunction used in `hnsw/compress.go:25`; can lift the dead
-  `ShouldCompressFromConfig` logic.)
+Per vector (legacy `VectorIndexConfig` + each `VectorConfig` entry), `vecDelta` flags:
+- **named vector add/remove:** key present on one side only.
+- **index-type / distance change:** via the `schemaConfig.VectorIndexConfig` interface methods
+  `IndexType()` / `DistanceName()` (hnsw/flat/dynamic all implement them).
+- **compression toggled:** `compressionEnabled(old) != compressionEnabled(new)`.
+- **compression re-parametrized:** `compressionParamsChanged(old, new)` — structural quant params
+  only (PQ segments/centroids/encoder, SQ trainingLimit, RQ bits); query-only knobs
+  (RescoreLimit, Cache, ef, flatSearchCutoff) are ignored.
+
+`compressionEnabled`/`compressionParamsChanged` type-switch over `hnswent.UserConfig`,
+`flatent.UserConfig`, and `dynamicent.UserConfig` (recursing into `HnswUC`/`FlatUC`) — compression
+is not hnsw-only, so the impl.md's hnsw-only sketch was widened.
 
 ### 2b. UpdateProperty — disabling a property index
 **File:** `cluster/schema/manager.go:520-550`, alongside the existing reindex guard
 (lines 532-536). Disabling an index deletes LSM buckets via
 `updatePropertyBuckets`→`removeBucket`→`os.RemoveAll` (`shard_init_properties.go:123,451`).
 
-Detection needs old vs new index flags. Read the current property under the schema lock
-(e.g. via `s.schema.ReadOnlyClass(cmd.Class)` → find `req.Property.Name`), then:
+Detection needs old vs new index flags. Read the current property via
+`s.schema.ReadOnlyClass(cmd.Class)` → `findProp(cls, req.Property.Name)`, then:
 ```go
 if s.replicationFSM != nil && !req.FromInFlightMigration &&
-   disablesAnyIndex(oldProp, req.Property) &&
-   s.replicationFSM.HasActiveReplicationForCollection(cmd.Class) {
-    return fmt.Errorf("%w: property index removal blocked: replica movement in progress for collection %q; retry after it completes",
-        ErrBadRequest, cmd.Class)
+    s.replicationFSM.HasActiveReplicationForCollection(cmd.Class) {
+    if cls, _ := s.schema.ReadOnlyClass(cmd.Class); cls != nil {
+        if old := findProp(cls, req.Property.Name); old != nil && disablesAnyIndex(old, req.Property) {
+            return fmt.Errorf("%w: %w: property %q index removal blocked on collection %q; retry after it completes",
+                ErrBadRequest, ErrReplicaMovementInProgress, req.Property.Name, cmd.Class)
+        }
+    }
 }
 ```
-`disablesAnyIndex` compares `inverted.HasFilterableIndex/HasSearchableIndex/HasRangeableIndex`
-old vs new; dangerous when any goes `true → false`. (Adding indexes/properties stays safe —
-target reconciles via `updateIndexAddMissingProperties`.) Respect `FromInFlightMigration` for
-parity with the reindex guard.
+`disablesAnyIndex` (in `movement_guard.go`) compares
+`inverted.HasFilterableIndex/HasSearchableIndex/HasRangeableIndex` old vs new; dangerous when any
+goes `true → false`. (Adding indexes/properties stays safe — target reconciles via
+`updateIndexAddMissingProperties`.) Respect `FromInFlightMigration` for parity with the reindex
+guard. Nested-property index disable removes no buckets (`updatePropertyBuckets` does not recurse
+into `NestedProperties`), so guarding the top-level property is sufficient.
 
 ### 2c. UpdateTenants — freeze / unfreeze / HOT→COLD
 **File:** `cluster/schema/meta_class.go:449-565`, per-tenant loop. Generalize the (now fixed)
@@ -200,20 +208,25 @@ COLD check at 507 into a single guard covering all three dangerous transitions, 
 **partial error** instead of a silent `continue` — consistent with the FREEZING/UNFREEZING
 handling at 476-505 and the "reject with clear error" decision.
 
+The freeze vars (`existedSharedFrozen`/`requestedToFrozen`) move up above the guard so the
+combined condition and the existing freeze/unfreeze dispatch both reuse them. Per the
+stakeholder decision, the rejection uses a **new dedicated sentinel** `ErrReplicaMovementInProgress`
+(not `ErrTenantTransitionalState` — the tenant is HOT, not mid-freeze):
 ```go
-movementActive := replicationFSM.HasActiveReplicationForShard(m.Class.Class, requestTenant.Name)
-toCold   := requestTenant.Status == models.TenantActivityStatusCOLD
-toFrozen := requestTenant.Status == models.TenantActivityStatusFROZEN  // freeze
-unfreeze := existedSharedFrozen && !requestedToFrozen                  // GetPartitions reassigns nodes
-if movementActive && (toCold || toFrozen || unfreeze) {
+toCold   := requestTenant.Status == models.TenantActivityStatusCOLD // shuts shard down
+toFrozen := requestedToFrozen && !existedSharedFrozen               // freeze offloads shard
+unfreeze := existedSharedFrozen && !requestedToFrozen               // GetPartitions reassigns nodes
+if (toCold || toFrozen || unfreeze) &&
+    replicationFSM.HasActiveReplicationForShard(m.Class.Class, requestTenant.Name) {
     partialErrs = append(partialErrs, fmt.Errorf(
-        "%w: tenant %q status change to %s blocked: replica movement in progress; retry after it completes",
-        ErrTenantTransitionalState, requestTenant.Name, requestTenant.Status))
+        "%w: tenant %q status change to %s blocked; retry after movement completes",
+        ErrReplicaMovementInProgress, requestTenant.Name, requestTenant.Status))
     continue
 }
 ```
-Transitions *toward available* (→HOT/ACTIVE) remain unguarded (safe). Place this after the
-FREEZING/UNFREEZING transitional checks and before the freeze/unfreeze dispatch (511-527).
+Transitions *toward available* (→HOT/ACTIVE) remain unguarded (safe). Placed after the
+FREEZING/UNFREEZING transitional checks and before the freeze/unfreeze dispatch. `oldTenant` is
+never FREEZING/UNFREEZING here (those `continue` earlier), so `existedSharedFrozen` means FROZEN.
 
 ---
 
