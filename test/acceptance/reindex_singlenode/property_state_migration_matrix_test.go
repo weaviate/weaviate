@@ -76,6 +76,7 @@ package reindex_singlenode
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -678,18 +679,26 @@ func tryCreateClass(t *testing.T, class *models.Class) error {
 // reaches a terminal state within the timeout, returns ("TIMEOUT", "").
 func awaitTaskTerminal(t *testing.T, restURI, taskID string, timeout time.Duration) (string, string) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return "TIMEOUT", ""
+		case <-ticker.C:
+		}
 		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 		if err != nil {
-			time.Sleep(250 * time.Millisecond)
+			// transient error — retry on next tick.
 			continue
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		var tasks models.DistributedTasks
 		if err := json.Unmarshal(body, &tasks); err != nil {
-			time.Sleep(250 * time.Millisecond)
+			// transient error — retry on next tick.
 			continue
 		}
 		for _, task := range tasks["reindex"] {
@@ -705,17 +714,14 @@ func awaitTaskTerminal(t *testing.T, restURI, taskID string, timeout time.Durati
 				return "CANCELLED", task.Error
 			}
 		}
-		time.Sleep(250 * time.Millisecond)
 	}
-	return "TIMEOUT", ""
 }
 
 // verifySchemaPostMigration polls the class schema until the targeted index
 // flag is in the expected post-state.
 func verifySchemaPostMigration(t *testing.T, class, propName string, mb matrixBody) bool {
 	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
+	return assert.Eventually(t, func() bool {
 		c := helper.GetClass(t, class)
 		if c != nil {
 			for _, p := range c.Properties {
@@ -744,9 +750,8 @@ func verifySchemaPostMigration(t *testing.T, class, propName string, mb matrixBo
 				}
 			}
 		}
-		time.Sleep(250 * time.Millisecond)
-	}
-	return false
+		return false
+	}, 20*time.Second, 50*time.Millisecond)
 }
 
 // queryIndexForBody returns which index type should be queried after a

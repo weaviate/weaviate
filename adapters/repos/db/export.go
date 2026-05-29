@@ -126,29 +126,17 @@ func (db *DB) IsMultiTenant(_ context.Context, className string) bool {
 	return class != nil && class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 }
 
-// IsAsyncReplicationEnabled returns true if async replication is either
-// enabled or not required for correctness. Classes with a replication
-// factor ≤ 1 have no replicas, so async replication is irrelevant and
-// the method returns true. For RF > 1 the class must have async
-// replication enabled and it must not be globally disabled at the
-// cluster level.
+// IsAsyncReplicationEnabled reports whether a class is safe to export: its
+// replicas are kept consistent by async replication, or it has no replicas.
+// It returns true for RF ≤ 1 (irrelevant), false for a missing local index,
+// and for RF > 1 delegates to Index.IsAsyncReplicationEnabledOrIrrelevant —
+// true unless async replication is globally disabled.
 func (db *DB) IsAsyncReplicationEnabled(_ context.Context, className string) bool {
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		return false
 	}
-	class := idx.getClass()
-	if class == nil {
-		return false
-	}
-	// No replicas → async replication is not needed for correctness.
-	if class.ReplicationConfig == nil || class.ReplicationConfig.Factor <= 1 {
-		return true
-	}
-	if db.config.Replication.AsyncReplicationDisabled.Get() {
-		return false
-	}
-	return class.ReplicationConfig.AsyncEnabled
+	return idx.IsAsyncReplicationEnabledOrIrrelevant()
 }
 
 // SnapshotShards creates point-in-time snapshots of the objects buckets for

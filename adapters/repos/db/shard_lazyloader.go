@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"sync"
 	"time"
 
@@ -471,10 +470,17 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 			}
 		}
 
-		// remove shard dir
+		// rename sync (must complete even if ctx is expired); RemoveAll async.
+		// Mirrors Shard.drop so the unloaded path doesn't reintroduce the
+		// blocking RemoveAll the loaded path was changed to avoid.
 		if !keepFiles {
-			if err := os.RemoveAll(shardPath(idx.path(), shardName)); err != nil {
-				return fmt.Errorf("delete shard dir: %w", err)
+			path := shardPath(idx.path(), shardName)
+			deleted, err := renameForAsyncDelete(path, idx.logger)
+			if err != nil {
+				return fmt.Errorf("rename shard for async delete: %w", err)
+			}
+			if deleted != "" {
+				spawnAsyncDelete(deleted, idx.logger)
 			}
 		}
 

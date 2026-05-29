@@ -124,7 +124,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 		})
 
 		t.Run("1st compaction", func(t *testing.T) {
-			compacted, err := bucket.disk.compactOnce()
+			compacted, err := bucket.disk.compactOnce(context.Background())
 			require.NoError(t, err)
 			require.True(t, compacted)
 
@@ -144,7 +144,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 		})
 
 		t.Run("2nd compaction", func(t *testing.T) {
-			compacted, err := bucket.disk.compactOnce()
+			compacted, err := bucket.disk.compactOnce(context.Background())
 			require.NoError(t, err)
 			require.True(t, compacted)
 
@@ -173,7 +173,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 		})
 
 		t.Run("3rd compaction", func(t *testing.T) {
-			compacted, err := bucket.disk.compactOnce()
+			compacted, err := bucket.disk.compactOnce(context.Background())
 			require.NoError(t, err)
 			require.True(t, compacted)
 
@@ -224,7 +224,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 		t.Run("deleteme files are created after compaction", func(t *testing.T) {
 			compactions := 0
 			for {
-				compacted, err := bucket.disk.compactOnce()
+				compacted, err := bucket.disk.compactOnce(context.Background())
 				require.NoError(t, err)
 
 				if !compacted {
@@ -270,7 +270,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 		t.Run("compact", func(t *testing.T) {
 			compactions := 0
 			for {
-				compacted, err := bucket.disk.compactOnce()
+				compacted, err := bucket.disk.compactOnce(context.Background())
 				require.NoError(t, err)
 
 				if !compacted {
@@ -317,7 +317,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 		cur_1_2_3_4 := bucket.Cursor()
 
 		t.Run("deleteme files are not dropped due to active cursor", func(t *testing.T) {
-			compacted, err := bucket.disk.compactOnce()
+			compacted, err := bucket.disk.compactOnce(context.Background())
 			require.NoError(t, err)
 			require.True(t, compacted)
 
@@ -340,7 +340,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 		cur_12_3_4 := bucket.Cursor()
 
 		t.Run("deleteme files are not dropped due to active cursor", func(t *testing.T) {
-			compacted, err := bucket.disk.compactOnce()
+			compacted, err := bucket.disk.compactOnce(context.Background())
 			require.NoError(t, err)
 			require.True(t, compacted)
 
@@ -365,7 +365,7 @@ func TestSegmentGroup_DropAwaiting(t *testing.T) {
 		cur_1_2_3_4.Close()
 
 		t.Run("deleteme files are not dropped due to active cursor", func(t *testing.T) {
-			compacted, err := bucket.disk.compactOnce()
+			compacted, err := bucket.disk.compactOnce(context.Background())
 			require.NoError(t, err)
 			require.True(t, compacted)
 

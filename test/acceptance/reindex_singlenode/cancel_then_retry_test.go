@@ -225,7 +225,7 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 			}
 		}
 		return false
-	}, 30*time.Second, 100*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"task did not appear as indexing/pending before cancel")
 
 	// Issue cancel.
@@ -268,7 +268,7 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 				}
 			}
 			return false
-		}, 60*time.Second, 250*time.Millisecond,
+		}, 60*time.Second, 50*time.Millisecond,
 			"first task did not reach a terminal state after cancel")
 		t.Logf("first task %s reached terminal state after cancel", taskID)
 		return true
@@ -294,7 +294,7 @@ func cancelInFlightOrSkip(t *testing.T, restURI, class, prop, indexType, request
 				}
 			}
 			return false
-		}, 60*time.Second, 250*time.Millisecond, "race-completed first task not terminal")
+		}, 60*time.Second, 50*time.Millisecond, "race-completed first task not terminal")
 		return false
 
 	default:

@@ -133,11 +133,13 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 		idx := nodeIdx
 		go func() {
 			defer wg.Done()
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
 			for {
 				select {
 				case <-stopCh:
 					return
-				default:
+				case <-ticker.C:
 				}
 				count, err := rangeCount(uri, className, "score", rangeLo, rangeHi)
 				queryRuns.Add(1)
@@ -153,7 +155,6 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 					t.Logf("ISSUE C REPRO: node %d returned partial count %d (expected %d)",
 						idx, count, expectedBaseline)
 				}
-				time.Sleep(50 * time.Millisecond)
 			}
 		}()
 	}
@@ -169,10 +170,21 @@ func TestMultiNode_EnableRangeable_NoPartialCountsInFlight(t *testing.T) {
 	// other nodes a moment after FINISHED.
 	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
 
-	// Settle window: keep polling for 3 s after FINISHED. This catches
-	// the late-window race where one node's schema flip arrived but
-	// another node's swap hasn't run yet.
-	time.Sleep(3 * time.Second)
+	// Keep the in-flight probes running until every replica serves the full
+	// rangeable count, then stop. AwaitReindexFinished only confirms node-1;
+	// polling the real cross-replica condition (50ms) instead of a fixed
+	// settle means the probes sample the entire convergence window and a
+	// node that never converges fails loudly here.
+	require.Eventually(t, func() bool {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			count, err := rangeCount(restURIOf(compose, nodeIdx), className, "score", rangeLo, rangeHi)
+			if err != nil || count != expectedBaseline {
+				return false
+			}
+		}
+		return true
+	}, 60*time.Second, 50*time.Millisecond,
+		"all replicas should converge to the full rangeable count %d after enable-rangeable", expectedBaseline)
 	close(stopCh)
 	wg.Wait()
 

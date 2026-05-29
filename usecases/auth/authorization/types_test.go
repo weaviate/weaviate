@@ -314,10 +314,12 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 		CreateAliases: {}, ReadAliases: {}, UpdateAliases: {}, DeleteAliases: {},
 		// MCP tools self-scope to principal.Namespace, so they are namespace-safe.
 		CreateMcp: {}, ReadMcp: {}, UpdateMcp: {},
+		CreateUsers: {}, ReadUsers: {}, UpdateUsers: {}, DeleteUsers: {},
 	}
 	allowedViewerActions := map[string]struct{}{
 		ReadCollections: {}, ReadData: {}, ReadTenants: {}, ReadAliases: {},
-		ReadMcp: {},
+		ReadMcp:   {},
+		ReadUsers: {},
 	}
 
 	collectActions := func(perms []*models.Permission) map[string]struct{} {
@@ -339,12 +341,13 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 	assert.Equal(t, allowedAdminActions, gotAdmin, "Admin (NS-enabled) must contain only CRUD over namespace-bearing domains")
 	assert.Equal(t, allowedViewerActions, gotViewer, "Viewer (NS-enabled) must contain only READ over namespace-bearing domains")
 
-	// Disallowed domains for narrowed admin/viewer. MCP is intentionally absent
-	// here — it is namespace-safe and covered by the allowed maps above.
+	// Disallowed domains for narrowed admin/viewer. MCP and user CRUD are
+	// intentionally absent — they are namespace-safe and covered by the
+	// allowed maps above. AssignAndRevokeUsers remains excluded.
 	for _, action := range []string{
 		ManageBackups, ManageNamespaces,
 		ReadNodes, ReadCluster,
-		AssignAndRevokeUsers, CreateUsers, ReadUsers, UpdateUsers, DeleteUsers,
+		AssignAndRevokeUsers,
 		AssignAndRevokeGroups, ReadGroups,
 		ReadRoles, CreateRoles, UpdateRoles, DeleteRoles,
 		CreateReplicate, ReadReplicate, UpdateReplicate, DeleteReplicate,

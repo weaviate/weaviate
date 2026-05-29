@@ -146,7 +146,7 @@ func awaitTokenizationOnAllNodes(
 		uri := compose.GetWeaviateNode(i + 1).URI()
 		require.Eventuallyf(t, func() bool {
 			return tryGetPropertyTokenization(uri, className, propName) == target
-		}, 30*time.Second, 200*time.Millisecond,
+		}, 30*time.Second, 50*time.Millisecond,
 			"node %d: property %q tokenization should be %q", i+1, propName, target)
 	}
 }

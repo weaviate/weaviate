@@ -187,6 +187,16 @@ func TestNamespaces_References(t *testing.T) {
 		require.Len(t, resp.Payload, 1)
 		assert.Nil(t, resp.Payload[0].Result.Errors,
 			"expected no batch errors, got %+v", resp.Payload[0].Result.Errors)
+
+		// Beacons must be short for the namespaced caller.
+		gotFrom := string(resp.Payload[0].From)
+		gotTo := string(resp.Payload[0].To)
+		assert.NotContains(t, gotFrom, "customer1:",
+			"From beacon must not leak the caller's own namespace prefix: %s", gotFrom)
+		assert.NotContains(t, gotTo, "customer1:",
+			"To beacon must stay short for the caller's own namespace: %s", gotTo)
+		assert.Equal(t, "weaviate://localhost/Zoo/"+string(zooID)+"/hasAnimals", gotFrom)
+		assert.Equal(t, "weaviate://localhost/Animal/"+string(animalID), gotTo)
 	})
 
 	t.Run("batch references against cross-namespace target fail that ref", func(t *testing.T) {
@@ -430,7 +440,7 @@ func TestNamespaces_References(t *testing.T) {
 		require.NotEmpty(t, resp.Results)
 
 		var foundResolved bool
-		var resolvedName string
+		var resolvedName, resolvedTargetCollection string
 		for _, result := range resp.Results {
 			// Find our Zoo by name.
 			zooName := result.Properties.NonRefProps.Fields["name"]
@@ -442,6 +452,7 @@ func TestNamespaces_References(t *testing.T) {
 					continue
 				}
 				require.NotEmpty(t, np.Properties)
+				resolvedTargetCollection = np.Properties[0].TargetCollection
 				if v, ok := np.Properties[0].NonRefProps.Fields["name"]; ok {
 					resolvedName = v.GetTextValue()
 					if resolvedName == "habitat-lion" {
@@ -452,6 +463,34 @@ func TestNamespaces_References(t *testing.T) {
 		}
 		assert.True(t, foundResolved,
 			"gRPC ref-resolve should inline the customer1:Animal target via the source namespace; got name=%q", resolvedName)
+		assert.Equal(t, "Animal", resolvedTargetCollection,
+			"nested-ref TargetCollection must be stripped of the caller's own namespace prefix")
+
+		// Admin sees the qualified form (Strip is a no-op for globals).
+		adminReq := searchReq("customer1:Zoo", 100)
+		adminReq.Properties = &pb.PropertiesRequest{
+			NonRefProperties: []string{"name"},
+			RefProperties: []*pb.RefPropertiesRequest{{
+				ReferenceProperty: "hasAnimals",
+				Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"name"}},
+			}},
+		}
+		adminResp, err := grpcClient.Search(authCtx(adminKey), adminReq)
+		require.NoError(t, err)
+		var adminResolvedTargetCollection string
+		for _, result := range adminResp.Results {
+			zooName := result.Properties.NonRefProps.Fields["name"]
+			if zooName == nil || zooName.GetTextValue() != "z-grpc" {
+				continue
+			}
+			for _, np := range result.Properties.RefProps {
+				if np.PropName == "hasAnimals" && len(np.Properties) > 0 {
+					adminResolvedTargetCollection = np.Properties[0].TargetCollection
+				}
+			}
+		}
+		assert.Equal(t, "customer1:Animal", adminResolvedTargetCollection,
+			"admin must see the qualified nested-ref TargetCollection unchanged")
 	})
 
 	t.Run("gRPC filter-by-ref via SingleTarget returns the right row on NS cluster", func(t *testing.T) {
@@ -513,9 +552,93 @@ func TestNamespaces_References(t *testing.T) {
 			if name == "zoo-with-lion" {
 				sawLion = true
 			}
+			// Filter-driven results must also emit short-form TargetCollection.
+			assert.Equal(t, "Zoo", r.Properties.TargetCollection,
+				"filter-by-ref result TargetCollection must be stripped for namespaced caller")
 		}
 		assert.True(t, sawTiger, "by-ref filter on hasAnimals.name=='filter-tiger' should return zoo-with-tiger")
 		assert.False(t, sawLion, "by-ref filter must not return zoos whose ref points to a different animal")
+	})
+
+	t.Run("REST ref-path where filter resolves target via source namespace", func(t *testing.T) {
+		// REST ingress (batch-delete → filterext.Parse), independent of the
+		// gRPC path above. The short inner class "Animal" must qualify to
+		// "customer1:Animal" or the ref sub-search matches nothing. dryRun
+		// keeps the shared Zoo class intact.
+		tigerID, lionID := newID(), newID()
+		zooTigerID, zooLionID := newID(), newID()
+		createIn(t, user1Key, "Animal", tigerID, map[string]any{"name": "bd-tiger"})
+		createIn(t, user1Key, "Animal", lionID, map[string]any{"name": "bd-lion"})
+		createIn(t, user1Key, "Zoo", zooTigerID, map[string]any{"name": "zoo-bd-tiger"})
+		createIn(t, user1Key, "Zoo", zooLionID, map[string]any{"name": "zoo-bd-lion"})
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(tigerID))},
+			zooTigerID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(lionID))},
+			zooLionID, "Zoo", "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		dryRun := true
+		verbose := "verbose"
+		wantName := "bd-tiger"
+		resp, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(&models.BatchDelete{
+				DryRun: &dryRun,
+				Output: &verbose,
+				Match: &models.BatchDeleteMatch{
+					Class: "Zoo",
+					Where: &models.WhereFilter{
+						Operator:  models.WhereFilterOperatorEqual,
+						Path:      []string{"hasAnimals", "Animal", "name"},
+						ValueText: &wantName,
+					},
+				},
+			}),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err, "ref-path where filter must qualify the inner class and resolve on NS clusters")
+		require.NotNil(t, resp.Payload.Results)
+		assert.Equal(t, int64(1), resp.Payload.Results.Matches,
+			"only the zoo whose hasAnimals.name=='bd-tiger' should match")
+
+		var matchedIDs []strfmt.UUID
+		for _, o := range resp.Payload.Results.Objects {
+			matchedIDs = append(matchedIDs, o.ID)
+		}
+		assert.Contains(t, matchedIDs, zooTigerID, "the tiger zoo must match the ref-path filter")
+		assert.NotContains(t, matchedIDs, zooLionID, "the lion zoo must not match")
+	})
+
+	t.Run("REST ref-path where filter rejects prefixed inner class", func(t *testing.T) {
+		// user1Key is a namespaced caller, so QualifyRefTarget rejects ANY
+		// prefix it types on the inner class (here a foreign one). The check
+		// runs before any schema lookup, so it fails regardless of the schema.
+		dryRun := true
+		anyName := "x"
+		_, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(&models.BatchDelete{
+				DryRun: &dryRun,
+				Match: &models.BatchDeleteMatch{
+					Class: "Zoo",
+					Where: &models.WhereFilter{
+						Operator:  models.WhereFilterOperatorEqual,
+						Path:      []string{"hasAnimals", "customer2:Animal", "name"},
+						ValueText: &anyName,
+					},
+				},
+			}),
+			helper.CreateAuth(user1Key),
+		)
+		require.Error(t, err)
+		// A bad inner class name is caller input, so the handler returns a 422
+		// (not a 500). The swagger client hides the message behind a pointer in
+		// err.Error(), so read it from the typed payload.
+		var unproc *batch.BatchObjectsDeleteUnprocessableEntity
+		require.True(t, errors.As(err, &unproc), "expected 422 UnprocessableEntity, got %T: %v", err, err)
+		require.NotEmpty(t, unproc.Payload.Error)
+		assert.Contains(t, unproc.Payload.Error[0].Message, "is not a valid class name")
 	})
 
 	t.Run("create object with ref property in Properties payload (NS happy path)", func(t *testing.T) {

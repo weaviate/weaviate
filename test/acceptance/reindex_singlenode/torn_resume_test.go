@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -94,15 +96,18 @@ import (
 //   - enable-filterable (semantic): OnGroupCompleted DOES run swap, but
 //     against an empty reindex bucket → schema flag flips to true on an
 //     empty bucket. Silent data loss in a different shape.
-func testTornResumeReindexedNotTidied(t *testing.T, restURI string, container testcontainers.Container) {
+//
+// restURI is re-derived inside each subtest from plantTornSentinelsAcrossRestart
+// (the host port changes across the restart), so no URI is threaded in here.
+func testTornResumeReindexedNotTidied(t *testing.T, compose *docker.DockerCompose) {
 	t.Run("enable_rangeable_nonSemantic", func(t *testing.T) {
-		testTornResumeEnableRangeable(t, restURI, container)
+		testTornResumeEnableRangeable(t, compose)
 	})
 	t.Run("repair_filterable_nonSemantic", func(t *testing.T) {
-		testTornResumeRepairFilterable(t, restURI, container)
+		testTornResumeRepairFilterable(t, compose)
 	})
 	t.Run("enable_filterable_semantic", func(t *testing.T) {
-		testTornResumeEnableFilterable(t, restURI, container)
+		testTornResumeEnableFilterable(t, compose)
 	})
 }
 
@@ -115,7 +120,7 @@ func testTornResumeReindexedNotTidied(t *testing.T, restURI string, container te
 // a slow CI runner.
 const tornResumeObjectCount = 30
 
-func testTornResumeEnableRangeable(t *testing.T, restURI string, container testcontainers.Container) {
+func testTornResumeEnableRangeable(t *testing.T, compose *docker.DockerCompose) {
 	const class = "TornResumeRangeable"
 	trueVal, falseVal := true, false
 	helper.CreateClass(t, &models.Class{
@@ -140,7 +145,7 @@ func testTornResumeEnableRangeable(t *testing.T, restURI string, container testc
 	// migrationDirName for enable-rangeable on a single property:
 	// MigrationDirPrefixFilterableToRangeable + "_" + propName.
 	migDir := "filterable_to_rangeable_score"
-	plantTornSentinels(t, container, class, migDir, []string{"score"})
+	restURI := plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"score"})
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "score",
 		`{"rangeable":{"enabled":true}}`)
@@ -173,7 +178,7 @@ func testTornResumeEnableRangeable(t *testing.T, restURI string, container testc
 		expected, hits)
 }
 
-func testTornResumeRepairFilterable(t *testing.T, restURI string, container testcontainers.Container) {
+func testTornResumeRepairFilterable(t *testing.T, compose *docker.DockerCompose) {
 	const class = "TornResumeRepairFilterable"
 	trueVal := true
 	helper.CreateClass(t, &models.Class{
@@ -195,7 +200,7 @@ func testTornResumeRepairFilterable(t *testing.T, restURI string, container test
 	// migrationDirName for repair-filterable: the fixed
 	// MigrationDirFilterableRoaringsetRefresh constant.
 	migDir := "filterable_roaringset_refresh"
-	plantTornSentinels(t, container, class, migDir, []string{"name"})
+	restURI := plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"name"})
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 		`{"filterable":{"rebuild":true}}`)
@@ -211,7 +216,7 @@ func testTornResumeRepairFilterable(t *testing.T, restURI string, container test
 		tornResumeObjectCount, hits)
 }
 
-func testTornResumeEnableFilterable(t *testing.T, restURI string, container testcontainers.Container) {
+func testTornResumeEnableFilterable(t *testing.T, compose *docker.DockerCompose) {
 	const class = "TornResumeEnableFilterable"
 	trueVal, falseVal := true, false
 	helper.CreateClass(t, &models.Class{
@@ -233,7 +238,7 @@ func testTornResumeEnableFilterable(t *testing.T, restURI string, container test
 	// migrationDirName for enable-filterable: MigrationDirPrefixEnableFilterable
 	// + "_" + sorted propNames.
 	migDir := "enable_filterable_name"
-	plantTornSentinels(t, container, class, migDir, []string{"name"})
+	restURI := plantTornSentinelsAcrossRestart(t, compose, class, migDir, []string{"name"})
 
 	taskID := reindexhelpers.SubmitIndexUpdate(t, restURI, class, "name",
 		`{"filterable":{"enabled":true}}`)
@@ -253,65 +258,78 @@ func testTornResumeEnableFilterable(t *testing.T, restURI string, container test
 		tornResumeObjectCount, hits)
 }
 
-// plantTornSentinels writes the on-disk sentinel files that simulate a
-// prior reindex run which reached markReindexed() and then crashed before
-// any of the swap-phase sentinels were written. Specifically:
+// plantTornSentinelsAcrossRestart plants the on-disk sentinel files for a
+// run that reached markReindexed() and then crashed before any swap-phase
+// sentinel was written, then restarts the container. Layout:
 //
 //	.migrations/<migDir>/started.mig    — RFC3339Nano timestamp
 //	.migrations/<migDir>/reindexed.mig  — RFC3339Nano timestamp
 //	.migrations/<migDir>/properties.mig — comma-joined prop names
 //
-// This is the shape a real failure-mid-runtimeSwap would leave behind.
-// We do NOT plant __reindex / __ingest sidecar dirs; the legitimate
-// resume path should create or load them via CreateOrLoadBucket and
-// re-iterate.
-//
-// Uses docker exec because the .migrations dir lives inside the
-// container at /data/<class-lowercase>/<shard>/lsm/.migrations/<migDir>/.
-func plantTornSentinels(
+// Stop → plant → start avoids racing the server's async
+// cleanStaleMigrationDirs (shard_init_properties.go:134-152, 336); see
+// weaviate/0-weaviate-issues#254. Returns the new REST URI; host port
+// mapping changes across restart.
+func plantTornSentinelsAcrossRestart(
 	t *testing.T,
-	container testcontainers.Container,
+	compose *docker.DockerCompose,
 	class, migDir string,
 	props []string,
-) {
+) string {
 	t.Helper()
 	ctx := context.Background()
 
-	// Locate the shard. We don't go via the REST API here because the
-	// shard names follow a deterministic UUID pattern and we just need
-	// any one of them — the cluster is single-node so there is exactly
-	// one shard per class.
-	shardPath := findShardPathInContainer(t, container, class)
-	migPath := fmt.Sprintf("%s/lsm/.migrations/%s", shardPath, migDir)
+	container := compose.GetWeaviate().Container()
 
-	// mkdir -p the migration dir.
-	code, _, err := container.Exec(ctx, []string{"mkdir", "-p", migPath})
-	require.NoError(t, err)
-	require.Zero(t, code, "mkdir -p %s must succeed", migPath)
+	// Locate the shard while the server is up — path is stable across restart.
+	shardPath := findShardPathInContainer(t, container, class)
+	containerMigDir := fmt.Sprintf("%s/lsm/.migrations/%s", shardPath, migDir)
+	lsmPath := fmt.Sprintf("%s/lsm", shardPath)
+
+	require.NoError(t, compose.StopAt(ctx, 0, nil),
+		"plantTornSentinelsAcrossRestart: graceful stop before planting must succeed")
+
+	// CopyDirToContainer works against stopped containers via Docker's archive
+	// API; docker exec does not.
+	stagingRoot := t.TempDir()
+	stagedDotMigrations := filepath.Join(stagingRoot, ".migrations")
+	stagedMigDir := filepath.Join(stagedDotMigrations, migDir)
+	require.NoError(t, os.MkdirAll(stagedMigDir, 0o755))
 
 	nowRFC := time.Now().UTC().Format(time.RFC3339Nano)
 	propsCSV := strings.Join(props, ",")
-
-	// Write started.mig, reindexed.mig, properties.mig.
 	for _, pair := range [][2]string{
 		{"started.mig", nowRFC},
 		{"reindexed.mig", nowRFC},
 		{"properties.mig", propsCSV},
 	} {
 		fname, content := pair[0], pair[1]
-		cmd := fmt.Sprintf("printf %%s '%s' > %s/%s && chmod 0666 %s/%s",
-			content, migPath, fname, migPath, fname)
-		code, _, err := container.Exec(ctx, []string{"sh", "-c", cmd})
-		require.NoError(t, err)
-		require.Zero(t, code, "writing %s must succeed", fname)
+		require.NoError(t,
+			os.WriteFile(filepath.Join(stagedMigDir, fname), []byte(content), 0o666),
+			"plantTornSentinelsAcrossRestart: staging %s on host must succeed", fname)
 	}
 
-	// Diagnostic: print final layout.
-	_, lsReader, _ := container.Exec(ctx, []string{"ls", "-la", migPath})
-	if lsReader != nil {
+	// containerParentPath = <lsm>/.migrations → extracts at <lsm>/ (testcontainers
+	// extracts into filepath.Dir of the target). Mode 0o755 applies to every
+	// tar entry; directories need the execute bit so the server can stat
+	// payload files on next start.
+	require.NoError(t,
+		container.CopyDirToContainer(ctx, stagedDotMigrations,
+			fmt.Sprintf("%s/.migrations", lsmPath), 0o755),
+		"plantTornSentinelsAcrossRestart: CopyDirToContainer must succeed against the stopped container")
+
+	require.NoError(t, compose.StartAt(ctx, 0),
+		"plantTornSentinelsAcrossRestart: restart after planting must succeed")
+	newRestURI := compose.GetWeaviate().URI()
+	helper.SetupClient(newRestURI)
+
+	// Diagnostic only: may already be cleaned by shard init.
+	if _, lsReader, lsErr := container.Exec(ctx, []string{"ls", "-la", containerMigDir}); lsErr == nil && lsReader != nil {
 		out, _ := io.ReadAll(lsReader)
-		t.Logf("plantTornSentinels: %s contents:\n%s", migPath, string(out))
+		t.Logf("plantTornSentinelsAcrossRestart: %s post-restart contents:\n%s", containerMigDir, string(out))
 	}
+
+	return newRestURI
 }
 
 // findShardPathInContainer locates the on-disk path for the first shard
@@ -379,7 +397,6 @@ func TestTornResume_StandaloneSmoke(t *testing.T) {
 	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
-	restURI := compose.GetWeaviate().URI()
 	container := compose.GetWeaviate().Container()
 
 	defer func() {
@@ -400,7 +417,7 @@ func TestTornResume_StandaloneSmoke(t *testing.T) {
 		}
 	}()
 
-	testTornResumeReindexedNotTidied(t, restURI, container)
+	testTornResumeReindexedNotTidied(t, compose)
 }
 
 // TestSuppress ensures this file compiles in isolation. The suite-driven

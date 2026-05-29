@@ -76,7 +76,7 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		if maxDist > pruningMinMaxDistance && centroids.data[i].Distance > maxDist {
 			continue
 		}
-		count, err := h.PostingMap.CountVectors(ctx, centroids.data[i].ID)
+		count, err := h.PostingSizes.Get(ctx, centroids.data[i].ID)
 		if err != nil {
 			return nil, nil, err
 		}

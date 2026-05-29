@@ -56,6 +56,7 @@ func nonNilCoordinator(t *testing.T) *namespacecleanup.Coordinator {
 		stubLister{},
 		stubLister{},
 		stubLister{},
+		stubLister{},
 		func() bool { return true },
 		logger,
 	)
@@ -68,6 +69,7 @@ type stubLister struct{}
 func (stubLister) ListDeleting() []string                               { return nil }
 func (stubLister) ClassesInNamespace(string) ([]string, error)          { return nil, nil }
 func (stubLister) AliasesInNamespace(string) []string                   { return nil }
+func (stubLister) UsersInNamespace(string) []string                     { return nil }
 func (stubLister) DeleteUsersInNamespace(context.Context, string) error { return nil }
 func (stubLister) DeleteAlias(context.Context, string) (uint64, error) {
 	return 0, nil

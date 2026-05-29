@@ -189,8 +189,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 
 	t.Run("create schema with async replication enabled", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       3,
-			AsyncEnabled: true,
+			Factor: 3,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
@@ -360,7 +359,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 
 	helper.SetupClient(node1REST)
 	paragraphClass := articles.ParagraphsClass()
-	paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3, AsyncEnabled: true}
+	paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 	paragraphClass.Vectorizer = "text2vec-contextionary"
 	helper.CreateClass(t, paragraphClass)
 

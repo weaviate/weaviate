@@ -123,6 +123,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (repl
 	}
 
 	replier := NewAggregateReplier(
+		principal,
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
 		params,
 	)
@@ -204,7 +205,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, fmt.Errorf("batch delete: %w", err)
 	}
 
-	result, err := batchDeleteReplyFromObjects(response, req.Verbose)
+	result, err := batchDeleteReplyFromObjects(response, req.Verbose, principal)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete reply: %w", err)
 	}

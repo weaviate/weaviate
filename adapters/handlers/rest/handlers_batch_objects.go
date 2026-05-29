@@ -15,7 +15,6 @@ import (
 	"errors"
 
 	middleware "github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -145,8 +144,10 @@ func (h *batchObjectHandlers) referencesResponse(principal *models.Principal, in
 			errorResponse = errPayloadFromSingleErr(principal, ref.Err)
 			status = models.BatchReferenceResponseAO1ResultStatusFAILED
 		} else {
-			reference.From = strfmt.URI(ref.From.String())
-			reference.To = strfmt.URI(ref.To.String())
+			// From class is qualified by resolveNS upstream; strip before
+			// emitting. To strip is defense in depth.
+			reference.From = namespacing.StripRefSourceBeacon(principal, ref.From)
+			reference.To = namespacing.StripRefBeacon(principal, ref.To)
 		}
 
 		response[i] = &models.BatchReferenceResponse{

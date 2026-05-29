@@ -220,6 +220,9 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		return nil, err
 	}
 
+	// resume any .deleteme cleanup that didn't finish before the last shutdown
+	scanAndAsyncDeletePending(config.RootPath, logger)
+
 	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
 		context.Background(),
 		config.Replication,

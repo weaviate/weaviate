@@ -110,7 +110,7 @@ func testCancelReindex(t *testing.T, restURI string) {
 				}
 			}
 			return false
-		}, 30*time.Second, 100*time.Millisecond, "task did not appear as indexing/pending before cancel")
+		}, 30*time.Second, 50*time.Millisecond, "task did not appear as indexing/pending before cancel")
 
 		// Issue the cancel.
 		url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, className, "score")
@@ -159,7 +159,7 @@ func testCancelReindex(t *testing.T, restURI string) {
 					}
 				}
 				return false
-			}, 30*time.Second, 200*time.Millisecond,
+			}, 30*time.Second, 50*time.Millisecond,
 				"task should reach CANCELLED status")
 		case "NO_OP":
 			t.Logf("cancel raced with task completion; no STARTED task to cancel (acceptable)")

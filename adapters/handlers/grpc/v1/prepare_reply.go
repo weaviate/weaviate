@@ -543,14 +543,14 @@ func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[stri
 }
 
 // extractRefPropertiesAnswer fills the result for a nested reference hit.
-// The ref's qualified class name is echoed verbatim — ref-shape stripping
-// lives in a later slice.
+// Strips the caller's own NS from the ref target class — symmetric with
+// extractPropertiesAnswer above.
 func (r *Replier) extractRefPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
 	props, err := r.buildPropertiesResult(scheme, results, properties, className, additionalPropsParams)
 	if err != nil {
 		return nil, err
 	}
-	props.TargetCollection = className
+	props.TargetCollection = namespacing.StripOwnNamespace(r.principal, className)
 	return props, nil
 }
 
