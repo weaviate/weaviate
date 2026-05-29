@@ -410,13 +410,17 @@ func TestNamespaces_GRPC(t *testing.T) {
 			"admin's aggregate over the qualified class must return the same shape")
 	})
 
-	// End-to-end check: ref-target group-by reaches the strfmt.URI case in
-	// parseAggregateGroupedBy, strips the embedded class of the caller's
-	// own NS, and emits a short bucket URI.
-	t.Run("Aggregate GroupBy on a ref property: short bucket URI for namespaced caller", func(t *testing.T) {
+	// End-to-end check: ref-target group-by emits a short bucket URI (own-NS
+	// stripped) and merges all source objects pointing at the same target
+	// into one bucket. Several zoo objects reference the same animal so, on a
+	// multi-node cluster, sources spread across shards: the grouper must emit
+	// the beacon as a plain string on every shard (local and remote) or the
+	// combiner splits the target into multiple buckets with divided counts.
+	t.Run("Aggregate GroupBy on a ref property: short, merged bucket for namespaced caller", func(t *testing.T) {
 		const (
-			zoo    = "ZooGroupByRef"
-			animal = "AnimalGroupByRef"
+			zoo     = "ZooGroupByRef"
+			animal  = "AnimalGroupByRef"
+			numZoos = 5
 		)
 		helper.CreateClassAuth(t, &models.Class{
 			Class:      animal,
@@ -434,23 +438,28 @@ func TestNamespaces_GRPC(t *testing.T) {
 			helper.DeleteClassAuth(t, "customer1:"+animal, adminKey)
 		})
 
-		zooID := strfmt.UUID(uuid.New().String())
 		animalID := strfmt.UUID(uuid.New().String())
 		_, err := helper.CreateObjectWithResponseAuth(t,
 			&models.Object{ID: animalID, Class: animal, Properties: map[string]any{"name": "tigger"}}, user1Key)
 		require.NoError(t, err)
-		_, err = helper.CreateObjectWithResponseAuth(t,
-			&models.Object{ID: zooID, Class: zoo, Properties: map[string]any{"name": "z1"}}, user1Key)
-		require.NoError(t, err)
 
-		_, err = helper.AddReferenceReturn(t,
-			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + animal + "/" + string(animalID))},
-			zooID, zoo, "hasAnimals", "", helper.CreateAuth(user1Key))
-		require.NoError(t, err)
+		for i := 0; i < numZoos; i++ {
+			zooID := strfmt.UUID(uuid.New().String())
+			_, err = helper.CreateObjectWithResponseAuth(t,
+				&models.Object{ID: zooID, Class: zoo, Properties: map[string]any{"name": "z"}}, user1Key)
+			require.NoError(t, err)
+			_, err = helper.AddReferenceReturn(t,
+				&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + animal + "/" + string(animalID))},
+				zooID, zoo, "hasAnimals", "", helper.CreateAuth(user1Key))
+			require.NoError(t, err)
+		}
 
-		// Poll: on multi-node clusters the ref may not be visible to the
-		// aggregator immediately after AddReference returns. Retry until
-		// non-empty groups come back, then validate the bucket URI is short.
+		// short, namespace-free target beacon all sources point at
+		shortBeacon := "weaviate://localhost/" + animal + "/" + string(animalID)
+
+		// Poll: on multi-node clusters the refs may not all be visible to the
+		// aggregator immediately after AddReference returns. Retry until the
+		// counts add up to every source object.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			resp, err := grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
 				Collection:   zoo,
@@ -461,17 +470,22 @@ func TestNamespaces_GRPC(t *testing.T) {
 				return
 			}
 			groups := resp.GetGroupedResults().GetGroups()
-			if !assert.NotEmpty(c, groups, "ref not replicated to aggregate node yet") {
+			if !assert.NotEmpty(c, groups, "refs not replicated to aggregate node yet") {
 				return
 			}
-			const qualified = "customer1:" + animal
-			for _, g := range groups {
-				val := g.GroupedBy.GetText()
-				assert.NotContains(c, val, qualified,
-					"bucket URI must be short-form, got %q", val)
+			// One target referenced by every zoo → exactly one merged bucket,
+			// short-form, holding all sources. More than one bucket means the
+			// combiner split a single target across shards (strfmt.URI vs
+			// string keys).
+			if !assert.Len(c, groups, 1, "single ref target must yield one bucket, not a per-shard split") {
+				return
 			}
+			assert.Equal(c, shortBeacon, groups[0].GroupedBy.GetText(),
+				"bucket URI must be short-form")
+			assert.Equal(c, int64(numZoos), groups[0].GetObjectsCount(),
+				"merged bucket must hold every source object")
 		}, 30*time.Second, 200*time.Millisecond,
-			"ref-target group-by must return short-form bucket URIs once the ref replicates")
+			"ref-target group-by must return one short-form, fully-merged bucket once the refs replicate")
 	})
 
 	t.Run("Search and Aggregate via alias resolve per namespace", func(t *testing.T) {

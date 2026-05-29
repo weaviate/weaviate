@@ -73,79 +73,85 @@ func TestGRPCAggregateReply_ReferenceAggregationStripsPointingTo(t *testing.T) {
 	}
 }
 
-// Pins the ref-target group-by case (in.Value is strfmt.URI from
-// MultipleRef.Beacon). Pre-fix the type switch's `case string` didn't
-// match the named strfmt.URI type → 500. Fix adds the case and strips
-// the caller's own NS from the embedded class.
+// Pins the ref-target group-by strip (isRef=true). The bucket value is a
+// beacon URI from MultipleRef.Beacon. The grouper normalizes it to a plain
+// string (`in`), but a stray strfmt.URI (local shard that skipped JSON) must
+// strip identically, so each case is run through both dynamic types. The
+// caller's own "<ns>:" is stripped from the embedded class; foreign prefixes
+// and short beacons are left intact.
 func TestGRPCAggregateReply_GroupByOnRefTargetStripsOwnNamespace(t *testing.T) {
 	const uuid = "11111111-2222-3333-4444-555555555555"
-	mkURI := func(class string) strfmt.URI {
-		return strfmt.URI("weaviate://localhost/" + class + "/" + uuid)
+	mk := func(class string) string {
+		return "weaviate://localhost/" + class + "/" + uuid
 	}
 	cases := []struct {
 		name      string
 		principal *models.Principal
-		in        strfmt.URI
+		in        string
 		wantText  string
 	}{
 		{
 			name:      "namespaced caller: own-NS stripped from embedded class",
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			in:        mkURI("customer1:Animal"),
-			wantText:  "weaviate://localhost/Animal/" + uuid,
+			in:        mk("customer1:Animal"),
+			wantText:  mk("Animal"),
 		},
 		{
 			name:      "namespaced caller: foreign-NS preserved",
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			in:        mkURI("customer2:Animal"),
-			wantText:  "weaviate://localhost/customer2:Animal/" + uuid,
+			in:        mk("customer2:Animal"),
+			wantText:  mk("customer2:Animal"),
 		},
 		{
 			name:      "namespaced caller: already-short beacon unchanged",
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			in:        mkURI("Animal"),
-			wantText:  "weaviate://localhost/Animal/" + uuid,
+			in:        mk("Animal"),
+			wantText:  mk("Animal"),
 		},
 		{
 			name:      "global principal: qualified beacon preserved",
 			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			in:        mkURI("customer1:Animal"),
-			wantText:  "weaviate://localhost/customer1:Animal/" + uuid,
+			in:        mk("customer1:Animal"),
+			wantText:  mk("customer1:Animal"),
 		},
 		{
 			name:      "nil principal: pass-through (NS-disabled cluster)",
 			principal: nil,
-			in:        mkURI("customer1:Animal"),
-			wantText:  "weaviate://localhost/customer1:Animal/" + uuid,
+			in:        mk("customer1:Animal"),
+			wantText:  mk("customer1:Animal"),
 		},
 		{
 			name:      "unparseable URI: passed through unchanged",
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			in:        strfmt.URI("not-a-real-beacon"),
+			in:        "not-a-real-beacon",
 			wantText:  "not-a-real-beacon",
 		},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			replier := NewAggregateReplier(tc.principal, nil, nil)
-			got, err := replier.parseAggregateGroupedBy(&aggregation.GroupedBy{
-				Path:  []string{"hasAnimals"},
-				Value: tc.in,
+		// string is the grouper's normalized output (and the remote-shard
+		// JSON shape); strfmt.URI is the defensive local-shard path.
+		for _, val := range []interface{}{tc.in, strfmt.URI(tc.in)} {
+			t.Run(tc.name, func(t *testing.T) {
+				replier := NewAggregateReplier(tc.principal, nil, nil)
+				got, err := replier.parseAggregateGroupedBy(&aggregation.GroupedBy{
+					Path:  []string{"hasAnimals"},
+					Value: val,
+				}, true)
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				textVal, ok := got.Value.(*pb.AggregateReply_Group_GroupedBy_Text)
+				require.True(t, ok, "expected Text value, got %T", got.Value)
+				assert.Equal(t, tc.wantText, textVal.Text)
 			})
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			textVal, ok := got.Value.(*pb.AggregateReply_Group_GroupedBy_Text)
-			require.True(t, ok, "expected Text value, got %T", got.Value)
-			assert.Equal(t, tc.wantText, textVal.Text)
-		})
+		}
 	}
 }
 
-// TestGRPCAggregateReply_GroupByPassesValuesThrough pins that bucket
-// values flow unchanged for string / []string. Group-by values can be
-// arbitrary user text (e.g. "customer1:foo"), so we must not rewrite
-// them — ref-target buckets carry a strfmt.URI value (not plain string)
-// and go through TestGRPCAggregateReply_GroupByOnRefTargetStripsOwnNamespace.
+// TestGRPCAggregateReply_GroupByPassesValuesThrough pins that non-ref bucket
+// values flow unchanged (isRef=false). Group-by values can be arbitrary user
+// text (e.g. "customer1:foo"), so we must not rewrite them — including a
+// value that merely looks like a beacon, which proves the strip keys off
+// schema ref-ness, not value shape.
 func TestGRPCAggregateReply_GroupByPassesValuesThrough(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -163,6 +169,11 @@ func TestGRPCAggregateReply_GroupByPassesValuesThrough(t *testing.T) {
 			wantValue: &pb.AggregateReply_Group_GroupedBy_Text{Text: "Tigger"},
 		},
 		{
+			name:      "beacon-shaped user text is NOT stripped when prop is non-ref",
+			in:        aggregation.GroupedBy{Path: []string{"title"}, Value: "weaviate://localhost/customer1:Foo/11111111-2222-3333-4444-555555555555"},
+			wantValue: &pb.AggregateReply_Group_GroupedBy_Text{Text: "weaviate://localhost/customer1:Foo/11111111-2222-3333-4444-555555555555"},
+		},
+		{
 			name:      "[]string preserves every entry verbatim",
 			in:        aggregation.GroupedBy{Path: []string{"tags"}, Value: []string{"customer1:tag", "Global", "customer2:tag"}},
 			wantValue: &pb.AggregateReply_Group_GroupedBy_Texts{Texts: &pb.TextArray{Values: []string{"customer1:tag", "Global", "customer2:tag"}}},
@@ -170,14 +181,34 @@ func TestGRPCAggregateReply_GroupByPassesValuesThrough(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			replier := NewAggregateReplier(nil, nil, nil)
-			got, err := replier.parseAggregateGroupedBy(&tc.in)
+			replier := NewAggregateReplier(&models.Principal{Username: "u", Namespace: "customer1"}, nil, nil)
+			got, err := replier.parseAggregateGroupedBy(&tc.in, false)
 			require.NoError(t, err)
 			require.NotNil(t, got)
 			assert.Equal(t, tc.wantValue, got.Value)
 			assert.Equal(t, tc.in.Path, got.Path)
 		})
 	}
+}
+
+// Pins that ref-ness is resolved from the schema (so it survives the
+// remote-shard JSON round-trip that collapses strfmt.URI → string), not from
+// the bucket value's dynamic type.
+func TestGRPCAggregateReply_GroupByIsRef(t *testing.T) {
+	class := &models.Class{
+		Class: "Zoo",
+		Properties: []*models.Property{
+			{Name: "hasAnimals", DataType: []string{"Animal"}},
+			{Name: "name", DataType: []string{"text"}},
+		},
+	}
+	getClass := func(string) (*models.Class, error) { return class, nil }
+	replier := NewAggregateReplier(nil, getClass, &aggregation.Params{ClassName: "Zoo"})
+
+	assert.True(t, replier.groupByIsRef([]string{"hasAnimals"}), "ref prop")
+	assert.False(t, replier.groupByIsRef([]string{"name"}), "text prop")
+	assert.False(t, replier.groupByIsRef([]string{"missing"}), "unknown prop fails closed")
+	assert.False(t, replier.groupByIsRef(nil), "empty path fails closed")
 }
 
 func TestGRPCAggregateReply(t *testing.T) {
