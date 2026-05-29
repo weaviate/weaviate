@@ -81,6 +81,31 @@ func TestValidateAnalyzerConfig(t *testing.T) {
 	}
 }
 
+// assertTokenizeErr checks that err is a *TokenizeError of the expected kind
+// and that its message contains errSubstr (if non-empty).
+func assertTokenizeErr(t *testing.T, err error, wantKind TokenizeErrorKind, errSubstr string) {
+	t.Helper()
+	require.Error(t, err)
+	var te *TokenizeError
+	require.ErrorAs(t, err, &te)
+	assert.Equal(t, wantKind, te.Kind)
+	if errSubstr != "" {
+		assert.Contains(t, err.Error(), errSubstr)
+	}
+}
+
+// assertTokenizeResult checks the indexed and query slices of a successful result.
+func assertTokenizeResult(t *testing.T, res *TokenizeResult, wantIndexed, wantQuery []string) {
+	t.Helper()
+	require.NotNil(t, res)
+	if wantIndexed != nil {
+		assert.Equal(t, wantIndexed, res.Indexed)
+	}
+	if wantQuery != nil {
+		assert.Equal(t, wantQuery, res.Query)
+	}
+}
+
 func TestGenericTokenize(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -155,23 +180,11 @@ func TestGenericTokenize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			res, err := GenericTokenize(tt.text, tt.tokenization, tt.analyzerCfg, tt.stopwordsCfg, tt.presets)
 			if tt.wantErr {
-				require.Error(t, err)
-				var te *TokenizeError
-				require.ErrorAs(t, err, &te)
-				assert.Equal(t, tt.wantErrKind, te.Kind)
-				if tt.errSubstr != "" {
-					assert.Contains(t, err.Error(), tt.errSubstr)
-				}
+				assertTokenizeErr(t, err, tt.wantErrKind, tt.errSubstr)
 				return
 			}
 			require.NoError(t, err)
-			require.NotNil(t, res)
-			if tt.wantIndexed != nil {
-				assert.Equal(t, tt.wantIndexed, res.Indexed)
-			}
-			if tt.wantQuery != nil {
-				assert.Equal(t, tt.wantQuery, res.Query)
-			}
+			assertTokenizeResult(t, res, tt.wantIndexed, tt.wantQuery)
 		})
 	}
 }
@@ -255,23 +268,11 @@ func TestPropertyTokenize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			res, err := PropertyTokenize(tt.class, tt.propertyName, tt.text)
 			if tt.wantErr {
-				require.Error(t, err)
-				var te *TokenizeError
-				require.ErrorAs(t, err, &te)
-				assert.Equal(t, tt.wantErrKind, te.Kind)
-				if tt.errSubstr != "" {
-					assert.Contains(t, err.Error(), tt.errSubstr)
-				}
+				assertTokenizeErr(t, err, tt.wantErrKind, tt.errSubstr)
 				return
 			}
 			require.NoError(t, err)
-			require.NotNil(t, res)
-			if tt.wantIndexed != nil {
-				assert.Equal(t, tt.wantIndexed, res.Indexed)
-			}
-			if tt.wantQuery != nil {
-				assert.Equal(t, tt.wantQuery, res.Query)
-			}
+			assertTokenizeResult(t, res, tt.wantIndexed, tt.wantQuery)
 		})
 	}
 }
