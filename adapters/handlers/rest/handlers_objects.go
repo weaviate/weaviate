@@ -13,10 +13,13 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
+	"github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -78,6 +81,55 @@ type objectsManager interface {
 	GetObjectClassFromName(ctx context.Context, principal *models.Principal, className string) (*models.Class, error)
 }
 
+// conditionalWriteResult is the JSON body returned on conditional write outcomes.
+// It carries the outcome label and an optional human-readable message. The
+// body shape matches the §6.4/§6.7 contract from the synthesis.
+type conditionalWriteResult struct {
+	Outcome string `json:"outcome"`
+	Message string `json:"message,omitempty"`
+}
+
+// conditionalWriteResponse wraps conditionalWriteResult as the top-level JSON
+// envelope: {"conditional_result": {...}}.
+type conditionalWriteResponse struct {
+	ConditionalResult conditionalWriteResult `json:"conditional_result"`
+}
+
+// conditionalWriteConflictResponse is the 409 Conflict body per §6.7.
+type conditionalWriteConflictResponse struct {
+	Error  string                         `json:"error"`
+	Code   string                         `json:"code"`
+	Detail conditionalWriteConflictDetail `json:"detail"`
+}
+
+type conditionalWriteConflictDetail struct {
+	Message string `json:"message"`
+}
+
+// newConditionalWriteResponder builds a middleware.Responder that writes a JSON
+// body with the given HTTP status code. authorizer.Authorize is called by the
+// manager layer on every path (conditional and unconditional alike); this
+// helper only handles serialization.
+func newConditionalWriteResponder(status int, body interface{}) middleware.Responder {
+	return middleware.ResponderFunc(func(w http.ResponseWriter, _ runtime.Producer) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		if err := json.NewEncoder(w).Encode(body); err != nil {
+			// Encoding failure after WriteHeader cannot change the status; log
+			// would be preferred here but the handler has no logger reference in
+			// scope. The response is already partially committed.
+			_ = err
+		}
+	})
+}
+
+// isInsertIfNotExistsSkip reports whether a precondition failure represents the
+// idempotent no-op path for insert_if_not_exists (UUID already taken). Per the
+// synthesis §6.4.1 this maps to 200 OK + outcome=skipped, not 409 Conflict.
+func isInsertIfNotExistsSkip(pf *uco.ErrPreconditionFailed) bool {
+	return strings.Contains(pf.Reason, "OnlyIfNotExists condition failed")
+}
+
 func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
@@ -89,13 +141,53 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	}
 	className := getClassName(params.Body)
 
+	// Detect whether the caller indicated a conditional write via the
+	// ?condition=insert_if_not_exists query parameter. The swagger spec does
+	// not yet carry this field (it is a Phase-1 addition to the OpenAPI spec
+	// being handled in a parallel child task), so we read it directly from the
+	// raw query string.
+	conditionalOp := params.HTTPRequest.URL.Query().Get("condition")
+	isConditional := conditionalOp != ""
+
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
+	// authorizer.Authorize is called inside h.manager.AddObject with the same
+	// (CREATE, class+tenant) verb+resource as the unconditional path. The
+	// conditional check runs AFTER authorization, preserving INV-RBAC-1.
 	object, err := h.manager.AddObject(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
 			return objects.NewObjectsCreateTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
+		}
+		// Handle conditional write precondition failures before generic error
+		// mapping so they surface the correct HTTP status and body.
+		var pf *uco.ErrPreconditionFailed
+		if errors.As(err, &pf) {
+			if isInsertIfNotExistsSkip(pf) {
+				// insert_if_not_exists on an existing UUID: idempotent no-op.
+				// Per synthesis §6.4.1: 200 OK + outcome=skipped (NOT 409).
+				h.metricRequestsTotal.logOk(className)
+				return newConditionalWriteResponder(http.StatusOK,
+					conditionalWriteResponse{
+						ConditionalResult: conditionalWriteResult{
+							Outcome: "skipped",
+							Message: pf.Reason,
+						},
+					})
+			}
+			// Genuine precondition conflict (version mismatch, field predicate,
+			// OnlyIfExists on a non-existent object, etc.) → 409 Conflict.
+			// Per synthesis §6.7: body includes error, code, detail.message.
+			h.metricRequestsTotal.logUserError(className)
+			return newConditionalWriteResponder(http.StatusConflict,
+				conditionalWriteConflictResponse{
+					Error: "conditional_check_failed",
+					Code:  "condition_not_met",
+					Detail: conditionalWriteConflictDetail{
+						Message: pf.Reason,
+					},
+				})
 		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsCreateUnprocessableEntity().
@@ -119,6 +211,17 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 
 	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(className)
+
+	if isConditional {
+		// A conditional write that succeeded (object was newly created).
+		// Return 201 Created + outcome=inserted per synthesis §6.4.
+		return newConditionalWriteResponder(http.StatusCreated,
+			conditionalWriteResponse{
+				ConditionalResult: conditionalWriteResult{
+					Outcome: "inserted",
+				},
+			})
+	}
 	return objects.NewObjectsCreateOK().WithPayload(object)
 }
 
