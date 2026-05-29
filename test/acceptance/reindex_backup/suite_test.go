@@ -164,9 +164,9 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
 
-	// Without this wait, a small corpus can finish the migration before
-	// the backup HTTP call lands, producing a spurious "backup succeeded".
-	awaitIndexingState(t, restURI, className, "body")
+	// Backup must land while the migration is live.
+	reindexhelpers.AwaitReindexLive(t, restURI, taskID,
+		reindexhelpers.WithTimeout(30*time.Second))
 
 	backupID := "reindex-backup-refuse"
 
@@ -190,13 +190,21 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step")
 
-	// The refusal must not leave a staging dir behind; otherwise a
-	// same-id retry hits checkIfBackupExists's "Status != Cancelled"
-	// rejection.
+	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
+	// "Status != Cancelled"). The 422 fires before any write so none exists;
+	// Eventually is just a defensive settle.
 	container := compose.GetWeaviate().Container()
 	stagingPath := "/tmp/backups/" + backupID
-	code, _, _ := container.Exec(ctx, []string{"test", "-d", stagingPath})
-	assert.NotEqual(t, 0, code,
+	require.Eventually(t, func() bool {
+		code, _, err := container.Exec(ctx, []string{"test", "-d", stagingPath})
+		if err != nil {
+			// A transient exec error tells us nothing about the dir; log it and
+			// keep polling so a persistent failure surfaces in the timeout.
+			t.Logf("exec test -d %s failed: %v", stagingPath, err)
+			return false
+		}
+		return code != 0
+	}, 10*time.Second, 200*time.Millisecond,
 		"refused backup must not leave a staging dir at %s", stagingPath)
 
 	// Wait via the index-status surface (status:"ready") rather than DTM
