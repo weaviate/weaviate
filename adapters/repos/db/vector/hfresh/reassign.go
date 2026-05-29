@@ -42,7 +42,15 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 
 	// perform a RNG selection to determine the postings where the vector should be
 	// reassigned to.
-	q, err := h.config.VectorForIDThunk(ctx, op.VectorID)
+	// For MUVERA mode, we need to fetch the MUVERA-encoded vector from the dedicated bucket,
+	// since that's what's actually indexed in HFresh. The normal VectorForIDThunk would
+	// return the original single-vector (which may be empty for pure multi-vector objects).
+	var q []float32
+	if h.muvera.Load() {
+		q, err = h.muveraEncoder.GetMuveraVectorForID(op.VectorID, h.id+"_muvera_vectors")
+	} else {
+		q, err = h.config.VectorForIDThunk(ctx, op.VectorID)
+	}
 	if err != nil {
 		return errors.Wrap(err, "failed to get vector by index ID")
 	}
