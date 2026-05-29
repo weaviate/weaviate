@@ -36,7 +36,7 @@ const (
 
 func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
-	extraEnvSettings map[string]string, networkName string,
+	extraEnvSettings map[string]string, networkName string, netOctet int,
 	weaviateImage, hostname string,
 	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
@@ -172,7 +172,7 @@ func startWeaviate(ctx context.Context,
 			},
 		},
 	}
-	if ip := StaticIPForHostname(containerName); ip != "" && networkName != "" {
+	if ip := staticIPForHostname(netOctet, containerName); ip != "" && networkName != "" {
 		req.EndpointSettingsModifier = func(settings map[string]*dockernetwork.EndpointSettings) {
 			s := settings[networkName]
 			s.IPAMConfig = &dockernetwork.EndpointIPAMConfig{
