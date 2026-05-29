@@ -1030,7 +1030,7 @@ func TestStripRefBeacon(t *testing.T) {
 	}
 }
 
-func TestStripBeaconURIs(t *testing.T) {
+func TestStripPointingTo(t *testing.T) {
 	const beaconUUID = "11111111-2222-3333-4444-555555555555"
 	mkURI := func(class string) string {
 		return "weaviate://localhost/" + class + "/" + beaconUUID
@@ -1042,40 +1042,48 @@ func TestStripBeaconURIs(t *testing.T) {
 		want      []string
 	}{
 		{
-			name:      "namespaced caller: own-NS stripped, foreign + short preserved",
+			name:      "URI shape: own-NS stripped, foreign + short preserved",
 			principal: namespacedPrincipal,
 			in:        []string{mkURI("customer1:Animal"), mkURI("customer2:Animal"), mkURI("Global")},
 			want:      []string{mkURI("Animal"), mkURI("customer2:Animal"), mkURI("Global")},
 		},
 		{
+			// TypeAggregator path: traverser_aggregate.go sets
+			// PointingTo = property.DataType, which is qualified on NS clusters.
+			name:      "bare class shape (DataType): own-NS stripped, foreign + short preserved",
+			principal: namespacedPrincipal,
+			in:        []string{"customer1:Animal", "customer2:Plant", "Global"},
+			want:      []string{"Animal", "customer2:Plant", "Global"},
+		},
+		{
+			name:      "mixed URI + bare class shapes both stripped",
+			principal: namespacedPrincipal,
+			in:        []string{mkURI("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mkURI("Animal"), "Plant"},
+		},
+		{
 			name:      "global principal: pass-through preserves qualified view",
 			principal: globalPrincipal,
-			in:        []string{mkURI("customer1:Animal")},
-			want:      []string{mkURI("customer1:Animal")},
+			in:        []string{mkURI("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mkURI("customer1:Animal"), "customer1:Plant"},
 		},
 		{
 			name:      "IsGlobalOperator with own-NS namespace set still skips strip",
 			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
-			in:        []string{mkURI("customer1:Animal")},
-			want:      []string{mkURI("customer1:Animal")},
+			in:        []string{mkURI("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mkURI("customer1:Animal"), "customer1:Plant"},
 		},
 		{
 			name:      "nil principal: pass-through (NS-disabled cluster)",
 			principal: nil,
-			in:        []string{mkURI("customer1:Animal")},
-			want:      []string{mkURI("customer1:Animal")},
+			in:        []string{mkURI("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mkURI("customer1:Animal"), "customer1:Plant"},
 		},
 		{
 			name:      "empty slice returned as-is",
 			principal: namespacedPrincipal,
 			in:        []string{},
 			want:      []string{},
-		},
-		{
-			name:      "unparseable entries pass through unchanged",
-			principal: namespacedPrincipal,
-			in:        []string{"not-a-uri", mkURI("customer1:Animal")},
-			want:      []string{"not-a-uri", mkURI("Animal")},
 		},
 	}
 	for _, tc := range cases {
@@ -1085,7 +1093,7 @@ func TestStripBeaconURIs(t *testing.T) {
 				before = make([]string, len(tc.in))
 				copy(before, tc.in)
 			}
-			got := StripBeaconURIs(tc.principal, tc.in)
+			got := StripPointingTo(tc.principal, tc.in)
 			assert.Equal(t, tc.want, got)
 			if len(tc.in) > 0 {
 				assert.Equal(t, before, tc.in, "input slice must not be mutated")

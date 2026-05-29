@@ -21,9 +21,10 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-// Pins the defense-in-depth strip on Reference.PointingTo: a stray
-// qualified beacon must be rewritten short for namespaced callers,
-// admin/nil keep the qualified view, foreign-NS preserved.
+// Pins the defense-in-depth strip on Reference.PointingTo for both shapes
+// PointingTo can take: stored beacon URIs (PointingToAggregator path) and
+// bare property.DataType class names (TypeAggregator path — the real leak
+// vector on NS clusters since DataType stays qualified in storage).
 func TestGRPCAggregateReply_ReferenceAggregationStripsPointingTo(t *testing.T) {
 	const uuid = "11111111-2222-3333-4444-555555555555"
 	mk := func(class string) string {
@@ -36,22 +37,28 @@ func TestGRPCAggregateReply_ReferenceAggregationStripsPointingTo(t *testing.T) {
 		want      []string
 	}{
 		{
-			name:      "namespaced caller: own-NS stripped, foreign preserved",
+			name:      "namespaced caller, beacon URIs: own-NS stripped, foreign preserved",
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
 			in:        []string{mk("customer1:Animal"), mk("customer2:Plant"), mk("Global")},
 			want:      []string{mk("Animal"), mk("customer2:Plant"), mk("Global")},
 		},
 		{
-			name:      "global principal: qualified beacons preserved",
+			name:      "namespaced caller, bare class (TypeAggregator path): own-NS stripped",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			in:        []string{"customer1:Animal", "customer2:Plant", "Global"},
+			want:      []string{"Animal", "customer2:Plant", "Global"},
+		},
+		{
+			name:      "global principal: qualified preserved (both shapes)",
 			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			in:        []string{mk("customer1:Animal")},
-			want:      []string{mk("customer1:Animal")},
+			in:        []string{mk("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mk("customer1:Animal"), "customer1:Plant"},
 		},
 		{
 			name:      "nil principal: pass-through (NS-disabled cluster)",
 			principal: nil,
-			in:        []string{mk("customer1:Animal")},
-			want:      []string{mk("customer1:Animal")},
+			in:        []string{mk("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mk("customer1:Animal"), "customer1:Plant"},
 		},
 	}
 	for _, tc := range cases {

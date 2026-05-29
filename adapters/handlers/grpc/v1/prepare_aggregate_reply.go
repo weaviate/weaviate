@@ -355,14 +355,13 @@ func parseDateAggregation(schemaType string, in map[string]interface{}) (*pb.Agg
 }
 
 // parseReferenceAggregation builds the gRPC reference aggregation reply.
-// in.PointingTo is a []string of stored beacons; per the write-path
-// invariant they're short, but a stray qualified beacon would otherwise
-// leak the caller's "<ns>:" — strip is parse-then-rewrite, so non-URI
-// entries pass through unchanged.
+// PointingTo is populated two ways: stored beacons (already short via
+// write-path normalization) or bare property.DataType entries (qualified
+// on NS clusters — the real leak vector). StripPointingTo handles both.
 func (r *AggregateReplier) parseReferenceAggregation(schemaType string, in aggregation.Reference) *pb.AggregateReply_Aggregations_Aggregation_Reference {
 	return &pb.AggregateReply_Aggregations_Aggregation_Reference{
 		Type:       &schemaType,
-		PointingTo: namespacing.StripBeaconURIs(r.principal, in.PointingTo),
+		PointingTo: namespacing.StripPointingTo(r.principal, in.PointingTo),
 	}
 }
 

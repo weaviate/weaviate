@@ -357,24 +357,31 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 	return strfmt.URI(out.String())
 }
 
-// StripBeaconURIs returns a new slice with each beacon URI's class component
-// stripped of the caller's own NS. Defense in depth for aggregation paths
-// emitting []string of beacons (Reference.PointingTo): writes normalize to
-// short, but a stray qualified beacon must not leak. Parse failures pass
-// through unchanged. Input is not mutated.
-func StripBeaconURIs(principal *models.Principal, uris []string) []string {
-	if len(uris) == 0 || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
-		return uris
+// StripPointingTo strips the caller's own NS from each entry of the gRPC
+// Reference.PointingTo field. Entries come in two shapes:
+//   - Beacon URI ("weaviate://localhost/<class>/<uuid>") — populated by
+//     refAggregator from MultipleRef.Beacon for the PointingTo aggregator.
+//     Writes normalize beacons short, but a stray qualified one is stripped
+//     here as defense in depth.
+//   - Bare class name ("customer1:Animal") — populated from property.DataType
+//     by the TypeAggregator path in traverser_aggregate.go. DataType is stored
+//     qualified on NS clusters, so this entry IS a live leak vector.
+//
+// Tries crossref.Parse first; on parse failure, falls back to treating the
+// entry as a bare class name and stripping own NS as a string prefix. Input
+// is not mutated.
+func StripPointingTo(principal *models.Principal, entries []string) []string {
+	if len(entries) == 0 || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+		return entries
 	}
-	out := make([]string, len(uris))
-	for i, uri := range uris {
-		ref, err := crossref.Parse(uri)
-		if err != nil {
-			out[i] = uri
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		if ref, err := crossref.Parse(e); err == nil {
+			ref.Class = StripOwnNamespace(principal, ref.Class)
+			out[i] = ref.String()
 			continue
 		}
-		ref.Class = StripOwnNamespace(principal, ref.Class)
-		out[i] = ref.String()
+		out[i] = StripOwnNamespace(principal, e)
 	}
 	return out
 }
