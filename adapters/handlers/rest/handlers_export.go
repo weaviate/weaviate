@@ -22,7 +22,6 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	ucexport "github.com/weaviate/weaviate/usecases/export"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type exportHandlers struct {
@@ -69,10 +68,6 @@ func (h *exportHandlers) createExport(params export.ExportCreateParams,
 		}
 	}
 
-	// Classes comes back qualified from storage; strip caller's own NS.
-	if resp != nil {
-		resp.Classes = namespacing.StripClassNames(principal, resp.Classes)
-	}
 	h.metricRequestsTotal.logOk("")
 	return export.NewExportCreateOK().WithPayload(resp)
 }
@@ -104,10 +99,6 @@ func (h *exportHandlers) exportStatus(params export.ExportStatusParams,
 		}
 	}
 
-	// Same as createExport.
-	if status != nil {
-		status.Classes = namespacing.StripClassNames(principal, status.Classes)
-	}
 	h.metricRequestsTotal.logOk("")
 	return export.NewExportStatusOK().WithPayload(status)
 }

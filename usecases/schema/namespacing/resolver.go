@@ -347,21 +347,6 @@ func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
 	return strfmt.URI(out.String())
 }
 
-// StripClassNames returns a new slice with each class name stripped of the
-// caller's own namespace prefix. Used by response writers carrying plain
-// []string class lists populated from qualified storage names. Input is
-// not mutated.
-func StripClassNames(principal *models.Principal, classes []string) []string {
-	if len(classes) == 0 || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
-		return classes
-	}
-	out := make([]string, len(classes))
-	for i, c := range classes {
-		out[i] = StripOwnNamespace(principal, c)
-	}
-	return out
-}
-
 // StripErrorMessage removes every occurrence of the principal's own
 // "<namespace>:" prefix from msg. Returns msg unchanged when principal is
 // nil or has no namespace.
