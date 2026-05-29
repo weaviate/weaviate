@@ -50,3 +50,37 @@ func TestQuantizationDataSurvivesRestart(t *testing.T) {
 	require.Equal(t, dataBefore.Rotation.Swaps, dataAfter.Rotation.Swaps)
 	require.Equal(t, dataBefore.Rotation.Signs, dataAfter.Rotation.Signs)
 }
+
+func TestRestoreMetadataMigratesPostingMapV1ToV2(t *testing.T) {
+	ctx := t.Context()
+	store := testinghelpers.NewDummyStore(t)
+	cfg, uc := makeHFreshConfig(t)
+
+	bucket, err := NewSharedBucket(store, cfg.ID, cfg.Store)
+	require.NoError(t, err)
+
+	err = NewIndexMetadataStore(bucket).SetDimensions(64)
+	require.NoError(t, err)
+
+	err = bucket.Put(postingMapKey(postingMapBucketPrefixV1, 42), legacyPackedPostingMetadata(10, 20, 30))
+	require.NoError(t, err)
+
+	index := makeHFreshWithConfig(t, store, cfg, uc)
+
+	metadata, err := index.PostingMap.Get(ctx, 42)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{10, 20, 30}, decodePacked(metadata.PackedPostingMetadata))
+
+	size, err := index.PostingSizes.Get(ctx, 42)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, size)
+
+	persisted, err := NewPostingMapStore(bucket, postingMapBucketPrefixV2).Get(ctx, 42)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{10, 20, 30}, decodePacked(persisted))
+
+	persistedSize, err := NewPostingSizesStore(bucket, postingSizesBucketPrefix).Get(ctx, 42)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, persistedSize)
+	require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
+}
