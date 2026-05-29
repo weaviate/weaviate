@@ -71,8 +71,13 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 	if filterOutput {
 		resourceFilter := filter.New[*models.NodeShardStatus](m.authorizer, m.rbacconfig)
 
+		// Node-wide Stats and BatchStats are operator-only. Gate on the minimal
+		// grant, not on "shards trimmed?": an empty node has nothing to trim, yet
+		// its node-wide signal still isn't a scoped caller's to see.
+		keepNodeWide := m.authorizer.AuthorizeSilent(ctx, principal, authorization.READ,
+			authorization.Nodes(verbosity.OutputMinimal)...) == nil
+
 		for i, nodeS := range status {
-			before := len(nodeS.Shards)
 			status[i].Shards = resourceFilter.Filter(
 				ctx,
 				principal,
@@ -82,11 +87,10 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 					return authorization.Nodes(verbosityString, shard.Class)[0]
 				},
 			)
-			if len(status[i].Shards) == before {
-				continue // authorized for every shard; the node-wide aggregate is theirs
+			if keepNodeWide {
+				continue
 			}
-			// Shards trimmed: recompute the aggregate from retained shards and drop
-			// node-wide BatchStats, which would otherwise leak cross-collection signal.
+			// Scoped caller: recompute Stats from retained shards, drop BatchStats.
 			if status[i].Stats != nil {
 				var objects int64
 				for _, shard := range status[i].Shards {

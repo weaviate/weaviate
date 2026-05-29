@@ -121,6 +121,21 @@ func assertScopedTo(t *testing.T, nodeStatuses []*models.NodeStatus, wantNS stri
 	}
 }
 
+// assertNoNodeWideLeak: a caller that sees no shards must see no node-wide
+// aggregate either — BatchStats dropped and Stats zeroed on every node. Pins the
+// empty-node leak (a node with no shards for the caller still withholds its
+// node-wide ingest signal).
+func assertNoNodeWideLeak(t *testing.T, nodeStatuses []*models.NodeStatus) {
+	t.Helper()
+	for _, n := range nodeStatuses {
+		assert.Nil(t, n.BatchStats, "node %s leaked node-wide BatchStats to a caller with no shards", n.Name)
+		if n.Stats != nil {
+			assert.Equal(t, int64(0), n.Stats.ShardCount, "node %s ShardCount must be 0 for a caller with no shards", n.Name)
+			assert.Equal(t, int64(0), n.Stats.ObjectCount, "node %s ObjectCount must be 0 for a caller with no shards", n.Name)
+		}
+	}
+}
+
 // TestNamespaces_NodesEndpoint pins the namespace-aware contract of /v1/nodes:
 // a namespaced admin (and the new nodes-viewer role) see verbose node/shard
 // info for their own collections only, regular namespace viewers see none, the
@@ -174,8 +189,10 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 		viewerKey := createNamespacedViewerUser(t, "nodesview", "customer1", adminKey)
 		t.Cleanup(func() { helper.DeleteUser(t, "customer1:nodesview", adminKey) })
 
-		_, total := shardClassPrefixes(nodesGetVerbose(t, viewerKey).Nodes)
+		viewerNodes := nodesGetVerbose(t, viewerKey).Nodes
+		_, total := shardClassPrefixes(viewerNodes)
 		assert.Zero(t, total, "viewer without a nodes grant must see no shards")
+		assertNoNodeWideLeak(t, viewerNodes)
 		requireMinimalForbidden(t, viewerKey)
 	})
 
@@ -185,8 +202,10 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 		waitKeyRecognized(t, key)
 
 		// No role yet: verbose returns 200 with no shards, minimal is forbidden.
-		_, total := shardClassPrefixes(nodesGetVerbose(t, key).Nodes)
+		bareNodes := nodesGetVerbose(t, key).Nodes
+		_, total := shardClassPrefixes(bareNodes)
 		assert.Zero(t, total, "bare namespace user must see no shards before the role is granted")
+		assertNoNodeWideLeak(t, bareNodes)
 		requireMinimalForbidden(t, key)
 
 		helper.AssignRoleToUser(t, adminKey, authorization.NodesViewer, "customer1:vn")

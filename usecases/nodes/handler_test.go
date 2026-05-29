@@ -103,6 +103,18 @@ func twoShardNode() *models.NodeStatus {
 	}
 }
 
+func emptyNode() *models.NodeStatus {
+	healthy := models.NodeStatusStatusHEALTHY
+	ql := int64(7)
+	return &models.NodeStatus{
+		Name:       "node-empty",
+		Status:     &healthy,
+		Shards:     nil,
+		Stats:      &models.NodeStats{ObjectCount: 0, ShardCount: 0},
+		BatchStats: &models.BatchStats{RatePerSecond: 5, QueueLength: &ql},
+	}
+}
+
 // TestGetNodeStatus_VerboseFilteredAggregate locks the cross-namespace leak fix:
 // when the per-shard filter trims shards, Stats is recomputed from the retained
 // shards and BatchStats dropped; a fully-authorized caller keeps both (no
@@ -187,5 +199,44 @@ func TestGetNodeStatus_ByClassDropsNodeWideBatchStats(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].BatchStats, "operator with the node-wide grant must keep BatchStats on by-class")
+	})
+}
+
+// TestGetNodeStatus_VerboseZeroShardNode pins the empty-node case: a node with no
+// shards to trim must still withhold node-wide BatchStats from a scoped caller.
+func TestGetNodeStatus_VerboseZeroShardNode(t *testing.T) {
+	t.Run("scoped caller: node-wide BatchStats dropped on an empty node", func(t *testing.T) {
+		m := &Manager{
+			logger:                 logrus.New(),
+			authorizer:             classScopedAuthorizer{allowedClass: "ClassA"},
+			db:                     stubNodesDB{status: []*models.NodeStatus{emptyNode()}},
+			rbacconfig:             rbacconf.Config{Enabled: true},
+			minimumInternalTimeout: time.Second,
+		}
+
+		got, err := m.GetNodeStatus(context.Background(), &models.Principal{}, "", "", verbosity.OutputVerbose)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+
+		assert.Empty(t, got[0].Shards, "an empty node exposes no shards to a scoped caller")
+		assert.Nil(t, got[0].BatchStats, "node-wide BatchStats must not leak on a node with zero shards for the caller")
+		require.NotNil(t, got[0].Stats)
+		assert.Equal(t, int64(0), got[0].Stats.ShardCount)
+		assert.Equal(t, int64(0), got[0].Stats.ObjectCount)
+	})
+
+	t.Run("operator: node-wide BatchStats preserved on an empty node", func(t *testing.T) {
+		m := &Manager{
+			logger:                 logrus.New(),
+			authorizer:             allowAllAuthorizer{},
+			db:                     stubNodesDB{status: []*models.NodeStatus{emptyNode()}},
+			rbacconfig:             rbacconf.Config{Enabled: true},
+			minimumInternalTimeout: time.Second,
+		}
+
+		got, err := m.GetNodeStatus(context.Background(), &models.Principal{}, "", "", verbosity.OutputVerbose)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].BatchStats, "operator with the node-wide grant keeps BatchStats even on an empty node")
 	})
 }
