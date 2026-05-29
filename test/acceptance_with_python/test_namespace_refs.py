@@ -203,7 +203,7 @@ def _assign_admin_role(http_port: int, qualified_user: str) -> None:
 
 
 def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str:
-    """POST /users/db/{user}, then grant the admin role. Returns the apikey.
+    """POST /users/db/{namespace:user}, then grant the admin role. Returns the apikey.
 
     Mirrors createNamespacedUser in test/acceptance/namespace/collection_alias_test.go.
     On 409 (user already exists from a prior run) we delete and recreate so
@@ -216,9 +216,9 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
     for _ in range(2):
         r = _http(
             "POST",
-            f"{_rest_base(http_port)}/users/db/{user_id}",
+            f"{_rest_base(http_port)}/users/db/{qualified}",
             headers=_admin_headers(),
-            json_body={"namespace": namespace},
+            json_body={},
         )
         if r.status_code == 201:
             apikey = r.json().get("apikey")

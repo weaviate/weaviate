@@ -26,7 +26,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -289,78 +288,128 @@ func TestCreateNoDynamic(t *testing.T) {
 }
 
 func TestCreateUser_Namespaces(t *testing.T) {
-	const userID = "user"
-	tp := true
-
 	tests := []struct {
 		name              string
 		namespacesEnabled bool
-		known             []string
-		body              users.CreateUserBody
+		known             []string // namespaces the Exister reports as existing + active
+		deleting          []string // namespaces that exist but are inactive (being deleted)
+		userID            string   // raw id as the client sends it
+		principalNS       string   // principal.Namespace ("" = global)
 		isGlobalOperator  bool
+		importUser        bool
+		authzKey          string // resolved users/ key the authorizer is asked for; "" if resolution 422s before authz
 		wantStatus        any
 	}{
 		{
-			name:              "ns-disabled + namespace set rejects",
+			name:              "ns-disabled bare name succeeds",
 			namespacesEnabled: false,
-			body:              users.CreateUserBody{Namespace: "ns1"},
-			isGlobalOperator:  true,
-			wantStatus:        &users.CreateUserUnprocessableEntity{},
-		},
-		{
-			name:              "ns-enabled + missing namespace rejects",
-			namespacesEnabled: true,
-			known:             []string{"ns1"},
-			body:              users.CreateUserBody{},
-			isGlobalOperator:  true,
-			wantStatus:        &users.CreateUserUnprocessableEntity{},
-		},
-		{
-			name:              "ns-enabled + unknown namespace rejects",
-			namespacesEnabled: true,
-			known:             []string{"ns1"},
-			body:              users.CreateUserBody{Namespace: "ns404"},
-			isGlobalOperator:  true,
-			wantStatus:        &users.CreateUserUnprocessableEntity{},
-		},
-		{
-			name:              "ns-enabled + import rejects",
-			namespacesEnabled: true,
-			known:             []string{"ns1"},
-			body:              users.CreateUserBody{Import: &tp, Namespace: "ns1"},
-			isGlobalOperator:  true,
-			wantStatus:        &users.CreateUserUnprocessableEntity{},
-		},
-		{
-			name:              "namespace set by non-operator forbidden",
-			namespacesEnabled: true,
-			known:             []string{"ns1"},
-			body:              users.CreateUserBody{Namespace: "ns1"},
-			isGlobalOperator:  false,
-			wantStatus:        &users.CreateUserForbidden{},
-		},
-		{
-			name:              "ns-enabled + valid namespace + operator succeeds",
-			namespacesEnabled: true,
-			known:             []string{"ns1"},
-			body:              users.CreateUserBody{Namespace: "ns1"},
-			isGlobalOperator:  true,
+			userID:            "user",
+			authzKey:          "user",
 			wantStatus:        &users.CreateUserCreated{},
+		},
+		{
+			// Pins resolve-then-authorize: authz is mocked on the qualified key
+			// only — a call on the raw "bob" would be an unexpected mock call.
+			name:              "namespaced principal short name succeeds",
+			namespacesEnabled: true,
+			known:             []string{"customer1"},
+			userID:            "bob",
+			principalNS:       "customer1",
+			authzKey:          "customer1:bob",
+			wantStatus:        &users.CreateUserCreated{},
+		},
+		{
+			name:              "namespaced principal rejects ':' in name",
+			namespacesEnabled: true,
+			userID:            "a:b",
+			principalNS:       "customer1",
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "global operator qualified name succeeds",
+			namespacesEnabled: true,
+			known:             []string{"customer1"},
+			userID:            "customer1:bob",
+			isGlobalOperator:  true,
+			authzKey:          "customer1:bob",
+			wantStatus:        &users.CreateUserCreated{},
+		},
+		{
+			name:              "global operator bare name rejected",
+			namespacesEnabled: true,
+			userID:            "bob",
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "malformed empty namespace rejected",
+			namespacesEnabled: true,
+			userID:            ":bob",
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "malformed empty user rejected",
+			namespacesEnabled: true,
+			userID:            "bob:",
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "malformed multi-colon rejected",
+			namespacesEnabled: true,
+			userID:            "a:b:c",
+			isGlobalOperator:  true,
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "unknown namespace rejected",
+			namespacesEnabled: true,
+			userID:            "ns404:bob",
+			isGlobalOperator:  true,
+			authzKey:          "ns404:bob",
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			// No CreateUser mock: a call here would fail the test, pinning the
+			// IsActive fast-path before apply.
+			name:              "namespace being deleted short-circuits before apply",
+			namespacesEnabled: true,
+			deleting:          []string{"ns1"},
+			userID:            "ns1:user",
+			isGlobalOperator:  true,
+			authzKey:          "ns1:user",
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
+		},
+		{
+			name:              "import on NS-enabled rejected",
+			namespacesEnabled: true,
+			userID:            "customer1:bob",
+			isGlobalOperator:  true,
+			importUser:        true,
+			authzKey:          "customer1:bob",
+			wantStatus:        &users.CreateUserUnprocessableEntity{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			principal := &models.Principal{IsGlobalOperator: tt.isGlobalOperator}
+			principal := &models.Principal{IsGlobalOperator: tt.isGlobalOperator, Namespace: tt.principalNS}
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
+			if tt.authzKey != "" {
+				authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(tt.authzKey)[0]).Return(nil)
+			}
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			if _, ok := tt.wantStatus.(*users.CreateUserCreated); ok {
-				expectedKey := apikey.MakeUserKey(userID, tt.body.Namespace)
-				dynUser.On("GetUsers", expectedKey).Return(map[string]*apikey.User{}, nil)
+				// Expected namespace = authzKey prefix (or "" if no ':').
+				expectedNS := ""
+				if i := strings.Index(tt.authzKey, ":"); i >= 0 {
+					expectedNS = tt.authzKey[:i]
+				}
+				dynUser.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{}, nil)
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-				dynUser.On("CreateUser", mock.Anything, expectedKey, mock.Anything, mock.Anything, mock.Anything, tt.body.Namespace, mock.Anything).Return(nil)
+				dynUser.On("CreateUser", mock.Anything, tt.authzKey, mock.Anything, mock.Anything, mock.Anything, expectedNS, mock.Anything).Return(nil)
 			}
 
 			ns := namespaces.NewMockExister(t)
@@ -368,14 +417,26 @@ func TestCreateUser_Namespaces(t *testing.T) {
 			for _, n := range tt.known {
 				known[n] = struct{}{}
 			}
-			ns.On("Exists", mock.AnythingOfType("string")).Return(func(name string) bool {
-				_, ok := known[name]
+			deleting := map[string]struct{}{}
+			for _, n := range tt.deleting {
+				deleting[n] = struct{}{}
+			}
+			isActive := func(name string) bool { _, ok := known[name]; return ok }
+			exists := func(name string) bool {
+				if _, ok := known[name]; ok {
+					return true
+				}
+				_, ok := deleting[name]
 				return ok
-			}).Maybe()
-			ns.On("IsActive", mock.AnythingOfType("string")).Return(func(name string) bool {
-				_, ok := known[name]
-				return ok
-			}).Maybe()
+			}
+			ns.On("Exists", mock.AnythingOfType("string")).Return(exists).Maybe()
+			ns.On("IsActive", mock.AnythingOfType("string")).Return(isActive).Maybe()
+
+			body := users.CreateUserBody{}
+			if tt.importUser {
+				tp := true
+				body.Import = &tp
+			}
 
 			h := dynUserHandler{
 				dbUsers:           dynUser,
@@ -385,47 +446,10 @@ func TestCreateUser_Namespaces(t *testing.T) {
 				namespaces:        ns,
 			}
 
-			res := h.createUser(users.CreateUserParams{UserID: userID, HTTPRequest: req, Body: tt.body}, principal)
+			res := h.createUser(users.CreateUserParams{UserID: tt.userID, HTTPRequest: req, Body: body}, principal)
 			assert.IsType(t, tt.wantStatus, res)
 		})
 	}
-}
-
-// TestCreateUser_DeletingNamespaceFastPath asserts the handler returns
-// 422 without dispatching to RAFT when the namespace exists but is
-// being deleted. The apply path would catch this too, but the local
-// IsActive check avoids the round-trip on a guaranteed-failed request.
-func TestCreateUser_DeletingNamespaceFastPath(t *testing.T) {
-	const userID = "user"
-	principal := &models.Principal{IsGlobalOperator: true}
-	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
-
-	// dynUser must not be called: the local check has to short-circuit.
-	dynUser := NewMockDbUserAndRolesGetter(t)
-
-	ns := namespaces.NewMockExister(t)
-	ns.On("Exists", "ns1").Return(true)
-	ns.On("IsActive", "ns1").Return(false)
-
-	h := dynUserHandler{
-		dbUsers:           dynUser,
-		authorizer:        authorizer,
-		dbUserEnabled:     true,
-		namespacesEnabled: true,
-		namespaces:        ns,
-	}
-
-	res := h.createUser(users.CreateUserParams{
-		UserID:      userID,
-		HTTPRequest: req,
-		Body:        users.CreateUserBody{Namespace: "ns1"},
-	}, principal)
-	parsed, ok := res.(*users.CreateUserUnprocessableEntity)
-	assert.True(t, ok, "expected 422, got %T", res)
-	require.NotNil(t, parsed.Payload)
-	require.Len(t, parsed.Payload.Error, 1)
-	assert.Contains(t, parsed.Payload.Error[0].Message, "being deleted")
 }
 
 // TestCreateUser_MapsApplyNamespaceErrorsTo422 asserts the createUser
@@ -435,7 +459,7 @@ func TestCreateUser_DeletingNamespaceFastPath(t *testing.T) {
 // would be misleading: the request is well-formed, the namespace just
 // vanished underneath it.
 func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
-	const userID = "user"
+	const userID = "ns1:user"
 
 	tests := []struct {
 		name     string
@@ -466,10 +490,9 @@ func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(userID)[0]).Return(nil)
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			expectedKey := apikey.MakeUserKey(userID, "ns1")
-			dynUser.On("GetUsers", expectedKey).Return(map[string]*apikey.User{}, nil)
+			dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{}, nil)
 			dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
-			dynUser.On("CreateUser", mock.Anything, expectedKey, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
+			dynUser.On("CreateUser", mock.Anything, userID, mock.Anything, mock.Anything, mock.Anything, "ns1", mock.Anything).Return(tt.applyErr)
 
 			ns := namespaces.NewMockExister(t)
 			ns.On("Exists", mock.AnythingOfType("string")).Return(true).Maybe()
@@ -486,7 +509,6 @@ func TestCreateUser_MapsApplyNamespaceErrorsTo422(t *testing.T) {
 			res := h.createUser(users.CreateUserParams{
 				UserID:      userID,
 				HTTPRequest: req,
-				Body:        users.CreateUserBody{Namespace: "ns1"},
 			}, principal)
 			assert.IsType(t, tt.expect, res)
 		})

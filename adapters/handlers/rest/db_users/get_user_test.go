@@ -282,3 +282,99 @@ func TestGetUserWithNoPrincipal(t *testing.T) {
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
 }
+
+// TestGetUser_Namespaces — resolved-key flow + response stripping for a
+// namespaced caller; qualified passthrough + namespace field for a global op.
+func TestGetUser_Namespaces(t *testing.T) {
+	tests := []struct {
+		name             string
+		userID           string // raw id as the client sends it
+		principalNS      string // principal.Namespace ("" = global)
+		isGlobalOperator bool
+		authzKey         string                  // resolved users/ key authz is asked for
+		storedUser       map[string]*apikey.User // GetUsers return; key by internal key
+		wantStatus       any
+		wantUserID       string // expected response.UserID
+		wantNamespace    string // expected response.Namespace
+	}{
+		{
+			name:          "namespaced principal own short name succeeds and strips",
+			userID:        "bob",
+			principalNS:   "customer1",
+			authzKey:      "customer1:bob",
+			storedUser:    map[string]*apikey.User{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
+			wantStatus:    &users.GetUserInfoOK{},
+			wantUserID:    "bob",
+			wantNamespace: "",
+		},
+		{
+			name:        "namespaced principal foreign short returns 404",
+			userID:      "bob",
+			principalNS: "customer2",
+			authzKey:    "customer2:bob",
+			storedUser:  map[string]*apikey.User{},
+			wantStatus:  &users.GetUserInfoNotFound{},
+		},
+		{
+			name:             "global operator qualified passes through and sees namespace",
+			userID:           "customer1:bob",
+			isGlobalOperator: true,
+			authzKey:         "customer1:bob",
+			storedUser:       map[string]*apikey.User{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}},
+			wantStatus:       &users.GetUserInfoOK{},
+			wantUserID:       "customer1:bob",
+			wantNamespace:    "customer1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{IsGlobalOperator: tt.isGlobalOperator, Namespace: tt.principalNS}
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(tt.authzKey)[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers", tt.authzKey).Return(tt.storedUser, nil)
+			if _, ok := tt.wantStatus.(*users.GetUserInfoOK); ok {
+				dynUser.On("GetRolesForUserOrGroup", tt.authzKey, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+			}
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				dbUserEnabled:     true,
+				namespacesEnabled: true,
+			}
+
+			res := h.getUser(users.GetUserInfoParams{UserID: tt.userID, HTTPRequest: req}, principal)
+			assert.IsType(t, tt.wantStatus, res)
+			if ok, _ := res.(*users.GetUserInfoOK); ok != nil {
+				require.Equal(t, tt.wantUserID, *ok.Payload.UserID)
+				require.Equal(t, tt.wantNamespace, ok.Payload.Namespace)
+			}
+		})
+	}
+}
+
+// TestGetUser_ResolveThenAuthorize — authz mocked only on the qualified key;
+// a pre-resolution call on the raw short name would fail as an unexpected mock invocation.
+func TestGetUser_ResolveThenAuthorize(t *testing.T) {
+	principal := &models.Principal{Namespace: "customer1"}
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("customer1:bob")[0]).Return(nil)
+
+	dynUser := NewMockDbUserAndRolesGetter(t)
+	dynUser.On("GetUsers", "customer1:bob").Return(map[string]*apikey.User{"customer1:bob": {Id: "customer1:bob", Namespace: "customer1", Active: true}}, nil)
+	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+
+	h := dynUserHandler{
+		dbUsers:           dynUser,
+		authorizer:        authorizer,
+		dbUserEnabled:     true,
+		namespacesEnabled: true,
+	}
+
+	res := h.getUser(users.GetUserInfoParams{UserID: "bob", HTTPRequest: req}, principal)
+	_, ok := res.(*users.GetUserInfoOK)
+	require.True(t, ok, "expected 200, got %T", res)
+}

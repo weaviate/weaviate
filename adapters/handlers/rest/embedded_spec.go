@@ -1298,6 +1298,12 @@ func init() {
           "404": {
             "description": "No role found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -1500,6 +1506,12 @@ func init() {
           },
           "404": {
             "description": "No roles found for specified user."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
@@ -6701,10 +6713,6 @@ func init() {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
                   "default": false
-                },
-                "namespace": {
-                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.",
-                  "type": "string"
                 }
               }
             }
@@ -12234,6 +12242,12 @@ func init() {
           "404": {
             "description": "No role found."
           },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -12436,6 +12450,12 @@ func init() {
           },
           "404": {
             "description": "No roles found for specified user."
+          },
+          "410": {
+            "description": "Endpoint not available in the current cluster configuration.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "The request syntax is correct, but the server couldn't process it due to semantic issues. Please check the values in your request.",
@@ -17759,10 +17779,6 @@ func init() {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
                   "default": false
-                },
-                "namespace": {
-                  "description": "Namespace to bind the new user to. Required on namespace-enabled clusters. Must be set by a global operator only.",
-                  "type": "string"
                 }
               }
             }

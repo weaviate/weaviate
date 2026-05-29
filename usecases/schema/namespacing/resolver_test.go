@@ -162,6 +162,72 @@ func TestStripQualification(t *testing.T) {
 	}
 }
 
+func TestQualifyUserIDForLookup(t *testing.T) {
+	tests := []struct {
+		name              string
+		namespacesEnabled bool
+		principal         *models.Principal
+		raw               string
+		want              string
+	}{
+		{
+			name:              "ns-disabled passes through bare",
+			namespacesEnabled: false,
+			principal:         &models.Principal{Namespace: ""},
+			raw:               "alice",
+			want:              "alice",
+		},
+		{
+			name:              "ns-disabled passes through even with namespaced principal",
+			namespacesEnabled: false,
+			principal:         &models.Principal{Namespace: "ns1"},
+			raw:               "alice",
+			want:              "alice",
+		},
+		{
+			name:              "ns-enabled global principal passes through bare",
+			namespacesEnabled: true,
+			principal:         &models.Principal{Namespace: ""},
+			raw:               "alice",
+			want:              "alice",
+		},
+		{
+			name:              "ns-enabled global principal passes through qualified",
+			namespacesEnabled: true,
+			principal:         &models.Principal{Namespace: ""},
+			raw:               "ns1:alice",
+			want:              "ns1:alice",
+		},
+		{
+			name:              "ns-enabled namespaced principal qualifies short name",
+			namespacesEnabled: true,
+			principal:         &models.Principal{Namespace: "ns1"},
+			raw:               "alice",
+			want:              "ns1:alice",
+		},
+		{
+			// Lookups never reject — double-qualify just misses downstream.
+			name:              "ns-enabled namespaced principal double-qualifies an already-qualified name",
+			namespacesEnabled: true,
+			principal:         &models.Principal{Namespace: "ns1"},
+			raw:               "ns1:alice",
+			want:              "ns1:ns1:alice",
+		},
+		{
+			name:              "ns-enabled nil principal passes through",
+			namespacesEnabled: true,
+			principal:         nil,
+			raw:               "alice",
+			want:              "alice",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, QualifyUserIDForLookup(tc.principal, tc.namespacesEnabled, tc.raw))
+		})
+	}
+}
+
 func TestQualifyClass(t *testing.T) {
 	cases := []struct {
 		testName          string

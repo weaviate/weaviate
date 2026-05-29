@@ -185,7 +185,7 @@ func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
 	require.True(t, errors.As(err, &nf), "expected GetNamespaceNotFound for %q, got %T: %v", ghost, err, err)
 
 	_, err = helper.Client(t).Users.CreateUser(
-		users.NewCreateUserParams().WithUserID("orphan").WithBody(users.CreateUserBody{Namespace: ghost}),
+		users.NewCreateUserParams().WithUserID(ghost+":orphan").WithBody(users.CreateUserBody{}),
 		helper.CreateAuth(adminKey),
 	)
 	require.Error(t, err)
