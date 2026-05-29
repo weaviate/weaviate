@@ -375,9 +375,8 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 	}, 60*time.Second, 500*time.Millisecond,
 		"orphan tracker dir was not cleaned up by the post-bootstrap audit")
 
-	// The sidecar dir is removed by the same async audit, after the tracker
-	// dir above. Poll for it rather than asserting once, so the check can't
-	// fire in the window between the two removals.
+	// The audit removes the sidecar dir after the tracker dir; poll so the
+	// check can't fire in the gap between the two.
 	require.Eventually(t, func() bool {
 		code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
 		return code != 0
