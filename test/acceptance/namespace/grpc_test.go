@@ -419,7 +419,7 @@ func TestNamespaces_GRPC(t *testing.T) {
 		const (
 			zoo     = "ZooGroupByRef"
 			animal  = "AnimalGroupByRef"
-			numZoos = 5
+			numZoos = 30
 		)
 		helper.CreateClassAuth(t, &models.Class{
 			Class:      animal,
