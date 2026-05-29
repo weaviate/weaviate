@@ -28,6 +28,7 @@ import (
 
 type DockerCompose struct {
 	network    *testcontainers.DockerNetwork
+	netOctet   int // second octet of this cluster's subnet (10.<netOctet>.0.0/16)
 	containers []*DockerContainer
 }
 
@@ -376,7 +377,7 @@ func (d *DockerCompose) ConnectToNetwork(ctx context.Context, containerName stri
 	// pass --ip to preserve it — otherwise Docker assigns a new IP and Raft/memberlist
 	// can't resolve the rejoining node.
 	args := []string{"network", "connect"}
-	if ip := container.StaticIP(); ip != "" {
+	if ip := staticIPForHostname(d.netOctet, container.name); ip != "" {
 		args = append(args, "--ip", ip)
 	}
 	args = append(args, networkName, containerID)
