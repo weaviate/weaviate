@@ -3022,7 +3022,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 ) (*aggregation.Result, error) {
 	cl := i.consistencyLevel(replProps)
 	ctx = additional.CtxWithConsistencyLevel(ctx, string(cl))
-	readPlan, err := i.buildReadRoutingPlan(routerTypes.ConsistencyLevelOne, params.Tenant)
+	readPlan, err := i.buildReadRoutingPlan(cl, params.Tenant)
 	if err != nil {
 		return nil, err
 	}
