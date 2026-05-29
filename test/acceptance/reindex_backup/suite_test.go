@@ -380,7 +380,7 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 	require.Eventually(t, func() bool {
 		code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
 		return code != 0
-	}, 60*time.Second, 500*time.Millisecond,
+	}, 60*time.Second, 50*time.Millisecond,
 		"orphan sidecar bucket dir was not cleaned up by the post-bootstrap audit")
 
 	assert.EqualValues(t, preCount, moduleshelper.GetClassCount(t, className, ""),
