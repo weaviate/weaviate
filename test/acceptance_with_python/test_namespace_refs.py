@@ -237,6 +237,7 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
                 d.raise_for_status()
             _wait_for_user_gone(http_port, qualified)
             deleted = True
+            deadline = time.time() + 10.0
             continue
         if r.status_code == 422 and "does not exist" in r.text:
             last = r
