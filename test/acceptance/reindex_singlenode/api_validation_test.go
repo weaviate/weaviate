@@ -35,6 +35,7 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,7 +92,23 @@ func testReindexAPIValidation(t *testing.T, restURI string) {
 		if cancelResp, err := http.DefaultClient.Do(cancelReq); err == nil {
 			cancelResp.Body.Close()
 		}
-		helper.DeleteClass(t, mtClass)
+		// The cancel above is best-effort and may land while the task is
+		// past STARTED (e.g. SWAPPING), where it does not terminalize the
+		// task synchronously. Poll the delete until the MutationGuard
+		// clears — i.e. until the task reaches a terminal state (cancelled
+		// or completed) — rather than a single delete that races the
+		// in-flight migration and fails with a 400.
+		require.Eventuallyf(t, func() bool {
+			delReq, _ := http.NewRequest(http.MethodDelete,
+				fmt.Sprintf("http://%s/v1/schema/%s", restURI, mtClass), nil)
+			delResp, err := http.DefaultClient.Do(delReq)
+			if err != nil {
+				return false
+			}
+			delResp.Body.Close()
+			return delResp.StatusCode == http.StatusOK
+		}, 60*time.Second, 500*time.Millisecond,
+			"DeleteClass(%s) kept being rejected by the MutationGuard — reindex task never left in-flight", mtClass)
 	}()
 	helper.CreateTenants(t, mtClass, []*models.Tenant{
 		{Name: "tenant-a"}, {Name: "tenant-b"},
