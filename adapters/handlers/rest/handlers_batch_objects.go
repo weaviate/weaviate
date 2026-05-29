@@ -139,15 +139,18 @@ func (h *batchObjectHandlers) referencesResponse(principal *models.Principal, in
 		var errorResponse *models.ErrorResponse
 		var reference models.BatchReference
 
+		// Echo beacons on every row so clients can correlate failures back
+		// to the input. Strip helpers tolerate nil inputs (return ""), so
+		// unconditional invocation is safe when the upstream rejected the
+		// row before populating From/To. resolveNS qualifies the From class
+		// upstream; To strip is defense in depth.
+		reference.From = namespacing.StripRefSourceBeacon(principal, ref.From)
+		reference.To = namespacing.StripRefBeacon(principal, ref.To)
+
 		status := models.BatchReferenceResponseAO1ResultStatusSUCCESS
 		if ref.Err != nil {
 			errorResponse = errPayloadFromSingleErr(principal, ref.Err)
 			status = models.BatchReferenceResponseAO1ResultStatusFAILED
-		} else {
-			// From class is qualified by resolveNS upstream; strip before
-			// emitting. To strip is defense in depth.
-			reference.From = namespacing.StripRefSourceBeacon(principal, ref.From)
-			reference.To = namespacing.StripRefBeacon(principal, ref.To)
 		}
 
 		response[i] = &models.BatchReferenceResponse{
