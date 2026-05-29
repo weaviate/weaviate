@@ -84,8 +84,13 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.putOne(ctx, uuid, object); err != nil {
+			code := replicaerrors.StatusConflict
+			var precondErr *objects.ErrPreconditionFailed
+			if errors.As(err, &precondErr) {
+				code = replicaerrors.StatusPreconditionFailed
+			}
 			resp.Errors = []replicaerrors.Error{
-				{Code: replicaerrors.StatusConflict, Msg: err.Error()},
+				{Code: code, Msg: err.Error()},
 			}
 		}
 		return resp
