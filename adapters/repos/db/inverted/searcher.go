@@ -619,7 +619,7 @@ func (s *Searcher) extractReferenceFilter(ctx context.Context, prop *models.Prop
 ) (*propValuePair, error) {
 	consistencyLevel := additional.ConsistencyLevelFromCtx(ctx)
 	return newRefFilterExtractor(s.logger, s.classSearcher, filter, class, prop, s.tenant, s.nestedCrossRefLimit, consistencyLevel).
-		Do(context.TODO())
+		Do(ctx)
 }
 
 func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.DataType,
