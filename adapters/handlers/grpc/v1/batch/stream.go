@@ -23,7 +23,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -130,8 +129,6 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 		return fmt.Errorf("authenticate: %w", err)
 	}
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
-	// Workers strip per-item errors by reading principal off streamCtx.
-	streamCtx = restCtx.AddPrincipalToContext(streamCtx, principal)
 
 	// If the server is shutting down, we reject new streams
 	// This prevents new streams from being added to the system while we are shutting down

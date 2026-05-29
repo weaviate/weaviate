@@ -13,7 +13,6 @@ package batch
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -23,8 +22,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
-	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
-	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
@@ -360,155 +357,6 @@ func TestWorkerLoop(t *testing.T) {
 		close(processingQueue)
 		wg.Wait()
 		require.Empty(t, processingQueue)
-	})
-
-	// Pins the NS strip on every BatchStreamReply_Results_Error.Error
-	// string the worker emits (own NS stripped, foreign preserved).
-	t.Run("stream errors strip caller's own namespace prefix", func(t *testing.T) {
-		namespaced := &models.Principal{Username: "u", Namespace: "customer1"}
-
-		runObjs := func(t *testing.T, principal *models.Principal, batcher func(*mocks.Mockbatcher), wantErr, wantUuid string) {
-			t.Helper()
-			mockBatcher := mocks.NewMockbatcher(t)
-			batcher(mockBatcher)
-
-			reportingQueues := NewReportingQueues()
-			reportingQueues.Make(StreamId)
-			processingQueue := NewProcessingQueue()
-
-			var wg sync.WaitGroup
-			StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
-
-			collection := "TestCollection"
-			obj := &pb.BatchObject{Collection: collection, Uuid: wantUuid}
-
-			reqCtx := ctx
-			if principal != nil {
-				reqCtx = restCtx.AddPrincipalToContext(reqCtx, principal)
-			}
-			wg.Add(1)
-			go func() {
-				processingQueue <- &processRequest{
-					objects:                       []*pb.BatchObject{obj},
-					streamId:                      StreamId,
-					streamCtx:                     reqCtx,
-					usesVectorisationByCollection: map[string]bool{collection: false},
-					onComplete:                    func() { wg.Done() },
-					onStart:                       func() {},
-				}
-			}()
-
-			rq, ok := reportingQueues.Get(StreamId)
-			require.True(t, ok)
-			report := <-rq
-			require.Len(t, report.Errors, 1)
-			require.Equal(t, wantErr, report.Errors[0].GetError())
-			require.Equal(t, wantUuid, report.Errors[0].GetUuid())
-
-			close(processingQueue)
-			wg.Wait()
-		}
-
-		runRefs := func(t *testing.T, principal *models.Principal, batcher func(*mocks.Mockbatcher), wantErr string, ref *pb.BatchReference) {
-			t.Helper()
-			mockBatcher := mocks.NewMockbatcher(t)
-			batcher(mockBatcher)
-
-			reportingQueues := NewReportingQueues()
-			reportingQueues.Make(StreamId)
-			processingQueue := NewProcessingQueue()
-
-			var wg sync.WaitGroup
-			StartBatchWorkers(&wg, 1, processingQueue, reportingQueues, mockBatcher, logger)
-
-			reqCtx := ctx
-			if principal != nil {
-				reqCtx = restCtx.AddPrincipalToContext(reqCtx, principal)
-			}
-			wg.Add(1)
-			go func() {
-				processingQueue <- &processRequest{
-					references: []*pb.BatchReference{ref},
-					streamId:   StreamId,
-					streamCtx:  reqCtx,
-					onComplete: func() { wg.Done() },
-					onStart:    func() {},
-				}
-			}()
-
-			rq, ok := reportingQueues.Get(StreamId)
-			require.True(t, ok)
-			report := <-rq
-			require.Len(t, report.Errors, 1)
-			require.Equal(t, wantErr, report.Errors[0].GetError())
-			require.Equal(t, toBeacon(ref), report.Errors[0].GetBeacon())
-
-			close(processingQueue)
-			wg.Wait()
-		}
-
-		t.Run("objects: fanout-level error strips own NS, preserves foreign", func(t *testing.T) {
-			runObjs(t, namespaced, func(b *mocks.Mockbatcher) {
-				b.EXPECT().BatchObjects(mock.Anything, mock.Anything).
-					Return(nil, errors.New("write to customer1:Movies failed; tenant for customer2:Books also affected")).Once()
-			}, "write to Movies failed; tenant for customer2:Books also affected", uuid.New().String())
-		})
-
-		t.Run("objects: per-item error strips own NS", func(t *testing.T) {
-			runObjs(t, namespaced, func(b *mocks.Mockbatcher) {
-				b.EXPECT().BatchObjects(mock.Anything, mock.Anything).Return(&pb.BatchObjectsReply{
-					Errors: []*pb.BatchObjectsReply_BatchError{
-						{Error: "validation: class customer1:Movies has no property foo", Index: 0},
-					},
-				}, nil).Once()
-			}, "validation: class Movies has no property foo", uuid.New().String())
-		})
-
-		t.Run("objects: global principal passes qualified error through", func(t *testing.T) {
-			global := &models.Principal{Username: "admin", IsGlobalOperator: true}
-			runObjs(t, global, func(b *mocks.Mockbatcher) {
-				b.EXPECT().BatchObjects(mock.Anything, mock.Anything).Return(&pb.BatchObjectsReply{
-					Errors: []*pb.BatchObjectsReply_BatchError{
-						{Error: "validation: class customer1:Movies has no property foo", Index: 0},
-					},
-				}, nil).Once()
-			}, "validation: class customer1:Movies has no property foo", uuid.New().String())
-		})
-
-		t.Run("objects: nil principal passes qualified error through (NS-disabled)", func(t *testing.T) {
-			runObjs(t, nil, func(b *mocks.Mockbatcher) {
-				b.EXPECT().BatchObjects(mock.Anything, mock.Anything).Return(&pb.BatchObjectsReply{
-					Errors: []*pb.BatchObjectsReply_BatchError{
-						{Error: "validation: class customer1:Movies has no property foo", Index: 0},
-					},
-				}, nil).Once()
-			}, "validation: class customer1:Movies has no property foo", uuid.New().String())
-		})
-
-		t.Run("references: call-level error strips own NS", func(t *testing.T) {
-			ref := &pb.BatchReference{
-				FromUuid: uuid.New().String(), ToUuid: uuid.New().String(),
-				Name: "ref", FromCollection: "Zoo",
-			}
-			runRefs(t, namespaced, func(b *mocks.Mockbatcher) {
-				b.EXPECT().BatchReferences(mock.Anything, mock.Anything).
-					Return(nil, errors.New("source customer1:Zoo refers to customer2:Animal: shard unavailable")).Once()
-			}, "source Zoo refers to customer2:Animal: shard unavailable", ref)
-		})
-
-		t.Run("references: per-item error strips own NS", func(t *testing.T) {
-			ref := &pb.BatchReference{
-				FromUuid: uuid.New().String(), ToUuid: uuid.New().String(),
-				Name: "ref", FromCollection: "Zoo",
-			}
-			runRefs(t, namespaced, func(b *mocks.Mockbatcher) {
-				b.EXPECT().BatchReferences(mock.Anything, mock.Anything).Return(&pb.BatchReferencesReply{
-					Errors: []*pb.BatchReferencesReply_BatchError{
-						{Error: "cross-NS ref rejected: customer1:Zoo cannot reach customer2:Animal", Index: 0},
-					},
-				}, nil).Once()
-			}, "cross-NS ref rejected: Zoo cannot reach customer2:Animal", ref)
-		})
 	})
 
 	t.Run("should fanout if request uses vectorisation returning errors correctly", func(t *testing.T) {

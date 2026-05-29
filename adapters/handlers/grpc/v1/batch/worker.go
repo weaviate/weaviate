@@ -20,11 +20,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 const (
@@ -162,14 +160,12 @@ func (w *worker) sendObjects(
 	usesVectorisationByCollection map[string]bool,
 	retries int,
 ) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
-	// Strip caller's own NS from emitted Error strings. Logs stay raw.
-	principal := restCtx.GetPrincipalFromContext(ctx)
 	if ctx.Err() != nil {
 		w.logger.WithField("streamId", streamId).Warnf("context error before sending objects: %s", ctx.Err())
 		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(objs))
 		for _, obj := range objs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  namespacing.StripErrorMessage(principal, ctx.Err().Error()),
+				Error:  ctx.Err().Error(),
 				Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
 			})
 		}
@@ -205,7 +201,7 @@ func (w *worker) sendObjects(
 					w.logger.WithField("streamId", streamId).Errorf("failed to batch objects: %s", resp.err)
 					for _, obj := range objs {
 						errors = append(errors, &pb.BatchStreamReply_Results_Error{
-							Error:  namespacing.StripErrorMessage(principal, resp.err.Error()),
+							Error:  resp.err.Error(),
 							Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: obj.Uuid},
 						})
 					}
@@ -224,7 +220,7 @@ func (w *worker) sendObjects(
 							continue
 						}
 						errors = append(errors, &pb.BatchStreamReply_Results_Error{
-							Error:  namespacing.StripErrorMessage(principal, err.Error),
+							Error:  err.Error,
 							Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[index].Uuid},
 						})
 					}
@@ -260,14 +256,12 @@ func toBeacon(ref *pb.BatchReference) string {
 }
 
 func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb.BatchReference, cl *pb.ConsistencyLevel, retries int) ([]*pb.BatchStreamReply_Results_Success, []*pb.BatchStreamReply_Results_Error) {
-	// See sendObjects — strip caller's own NS from emitted errors.
-	principal := restCtx.GetPrincipalFromContext(ctx)
 	if ctx.Err() != nil {
 		w.logger.WithField("streamId", streamId).Warnf("context error before sending references: %s", ctx.Err())
 		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(refs))
 		for _, ref := range refs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  namespacing.StripErrorMessage(principal, ctx.Err().Error()),
+				Error:  ctx.Err().Error(),
 				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
 			})
 		}
@@ -282,7 +276,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(refs))
 		for _, ref := range refs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  namespacing.StripErrorMessage(principal, err.Error()),
+				Error:  err.Error(),
 				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
 			})
 		}
@@ -307,7 +301,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 				continue
 			}
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  namespacing.StripErrorMessage(principal, err.Error),
+				Error:  err.Error,
 				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(refs[err.Index])},
 			})
 		}
