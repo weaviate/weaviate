@@ -161,10 +161,11 @@ func TestHAPreservationDefaultCL(t *testing.T) {
 		setupHAClass(t)
 	})
 
-	// Stop replica 3: now cluster is at N-1 = 2/3 replicas.
+	// Stop the third node (0-based index 2): cluster is at N-1 = 2/3 replicas.
 	// QUORUM for RF=3 is ceil((3+1)/2)=2 replicas, so writes must still succeed.
-	t.Run("KillReplica3", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 3)
+	// StopAt is 0-based; valid indices for a 3-node cluster are 0, 1, 2.
+	t.Run("KillThirdNode", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 2)
 	})
 
 	// --- AC 2: insert_if_not_exists at default CL with 1 replica down returns 2xx ---
@@ -224,10 +225,11 @@ func TestHAPreservationAllCL(t *testing.T) {
 		setupHAClass(t)
 	})
 
-	// Stop replica 3: cluster is at N-1 = 2/3 replicas.
+	// Stop the third node (0-based index 2): cluster is at N-1 = 2/3 replicas.
 	// CL=ALL requires all 3 replicas; with only 2 up the write must be rejected.
-	t.Run("KillReplica3", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 3)
+	// StopAt is 0-based; valid indices for a 3-node cluster are 0, 1, 2.
+	t.Run("KillThirdNode", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 2)
 	})
 
 	// --- AC 3: insert_if_not_exists at explicit CL=ALL with 1 replica down returns 4xx ---
