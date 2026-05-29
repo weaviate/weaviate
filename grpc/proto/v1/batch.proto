@@ -90,6 +90,101 @@ message BatchStreamReply {
   reserved "shutdown";
 }
 
+// ConditionalWriteRequest carries the precondition for a conditional write.
+// Exactly one of the oneof condition_type fields must be set per write.
+// Phase 1 (insert_if_not_exists) is implemented; Phase 2 (version_match) and
+// Phase 3 (field_predicate) are forward-declared so the wire contract is stable
+// and old clients remain compatible (unknown fields are silently ignored).
+message ConditionalWriteRequest {
+  oneof condition_type {
+    InsertIfNotExists insert_if_not_exists = 1;
+    VersionMatch version_match = 2;
+    FieldPredicate field_predicate = 3;
+  }
+  // return_current, when true, requests that the server populate
+  // ConditionalWriteReply.current_object_blob on condition failure. Omit or
+  // set false when bandwidth is a concern.
+  bool return_current = 8;
+}
+
+// InsertIfNotExists is the Phase-1 condition: the write succeeds only if no
+// object with the given UUID currently exists.
+message InsertIfNotExists {}
+
+// VersionMatch is the Phase-2 condition: the write succeeds only if the stored
+// object's server-managed version equals expected_version.
+message VersionMatch {
+  int64 expected_version = 1;
+}
+
+// FieldPredicate is the Phase-3 condition: the write succeeds only if the
+// stored object's field at `field` satisfies the predicate.
+message FieldPredicate {
+  string field = 1;
+  FieldOperator operator = 2;
+  oneof value {
+    string string_value = 3;
+    int64 int_value = 4;
+    double double_value = 5;
+    bool bool_value = 6;
+  }
+}
+
+// FieldOperator enumerates the comparison operators supported by FieldPredicate.
+enum FieldOperator {
+  FIELD_OPERATOR_UNSPECIFIED = 0;
+  FIELD_OPERATOR_EQ = 1;
+  FIELD_OPERATOR_NE = 2;
+  FIELD_OPERATOR_LT = 3;
+  FIELD_OPERATOR_LTE = 4;
+  FIELD_OPERATOR_GT = 5;
+  FIELD_OPERATOR_GTE = 6;
+  FIELD_OPERATOR_EXISTS = 7;
+  FIELD_OPERATOR_NOT_EXISTS = 8;
+}
+
+// ConditionalWriteOutcome is the per-object result of a conditional write.
+enum ConditionalWriteOutcome {
+  CONDITIONAL_WRITE_OUTCOME_UNSPECIFIED = 0;
+  // Object was newly created.
+  CONDITIONAL_WRITE_OUTCOME_INSERTED = 1;
+  // Object was skipped because it already exists (insert_if_not_exists).
+  CONDITIONAL_WRITE_OUTCOME_SKIPPED = 2;
+  // Object was updated successfully.
+  CONDITIONAL_WRITE_OUTCOME_UPDATED = 3;
+  // Condition failed (field predicate not satisfied).
+  CONDITIONAL_WRITE_OUTCOME_CONDITION_FAILED = 4;
+  // Version mismatch (stored version != expected_version).
+  CONDITIONAL_WRITE_OUTCOME_VERSION_MISMATCH = 5;
+  // Object not found when a version-CAS or field-predicate update was attempted.
+  CONDITIONAL_WRITE_OUTCOME_NOT_FOUND = 6;
+}
+
+// ConditionalWriteReply carries the per-object outcome of a conditional write.
+// It is embedded in BatchObjectsReply.ObjectResult alongside the object UUID.
+message ConditionalWriteReply {
+  // outcome is the canonical "what happened" field.
+  ConditionalWriteOutcome outcome = 1;
+  // new_version is the server-assigned version after a successful write.
+  // Populated when outcome is INSERTED or UPDATED.
+  optional int64 new_version = 2;
+  // current_version is the version observed on the server when the condition
+  // failed. Populated when outcome is VERSION_MISMATCH.
+  optional int64 current_version = 3;
+  // field_value is the actual field value observed when a FieldPredicate
+  // condition failed.
+  optional string field_value = 4;
+  // predicate_path echoes the field path from the FieldPredicate that failed.
+  optional string predicate_path = 5;
+  // current_object_blob is the existing object serialized in
+  // weaviate.proto.v1.Object format. Populated only when
+  // ConditionalWriteRequest.return_current was true and outcome is SKIPPED
+  // (existence-check failure) or VERSION_MISMATCH / CONDITION_FAILED.
+  optional bytes current_object_blob = 6;
+  // error_message carries a human-readable diagnostic for the condition failure.
+  optional string error_message = 7;
+}
+
 message BatchObject {
   message Properties {
     google.protobuf.Struct non_ref_properties = 1;
@@ -126,6 +221,9 @@ message BatchObject {
   bytes vector_bytes = 6;
   // protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
   repeated Vectors vectors = 23;
+  // conditional carries the optional precondition for this object's write.
+  // Absent (nil) means unconditional write (existing behavior).
+  optional ConditionalWriteRequest conditional = 24;
 }
 
 message BatchReference {
@@ -143,8 +241,18 @@ message BatchObjectsReply {
     string error = 2;
   }
 
+  // ObjectResult carries the per-object outcome for conditional writes.
+  // Non-conditional objects do not produce an ObjectResult entry.
+  message ObjectResult {
+    string uuid = 1;
+    ConditionalWriteReply conditional_result = 2;
+  }
+
   float took = 1;
   repeated BatchError errors = 2;
+  // object_results holds per-object conditional write outcomes. Absent when
+  // the batch contained no conditional writes.
+  repeated ObjectResult object_results = 3;
 }
 
 message BatchReferencesReply {
