@@ -126,6 +126,15 @@ func TestGRPCAggregateReply_GroupByOnRefTargetStripsOwnNamespace(t *testing.T) {
 			in:        "not-a-real-beacon",
 			wantText:  "not-a-real-beacon",
 		},
+		{
+			// crossref.Parse accepts this shape (path + UUID) but it isn't a
+			// weaviate:// beacon, so the scheme guard must leave it verbatim
+			// rather than re-serialize it as weaviate:// (dropping the query).
+			name:      "non-beacon URI with beacon-shaped path: not rewritten",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			in:        "http://example.com/customer1:Animal/" + uuid + "?q=1",
+			wantText:  "http://example.com/customer1:Animal/" + uuid + "?q=1",
+		},
 	}
 	for _, tc := range cases {
 		// string is the grouper's normalized output (and the remote-shard
