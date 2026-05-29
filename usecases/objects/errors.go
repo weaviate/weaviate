@@ -12,6 +12,7 @@
 package objects
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -185,4 +186,46 @@ func (e ErrDirtyWriteOfDeletedObject) Unwrap() error {
 
 func NewErrDirtyWriteOfDeletedObject(err error) ErrDirtyWriteOfDeletedObject {
 	return ErrDirtyWriteOfDeletedObject{err}
+}
+
+// ErrConditionalCheckFailed is the sentinel value for errors.Is matching on any
+// conditional-write precondition failure. Callers that only need to test whether
+// an error is a precondition failure use errors.Is(err, ErrConditionalCheckFailed).
+// Callers that need the structured detail (ObjectID, Reason, …) use errors.As.
+var ErrConditionalCheckFailed = errors.New("conditional check failed")
+
+// ErrPreconditionFailed is returned when a conditional write operation fails
+// because its precondition was not satisfied (object already exists, version
+// mismatch, or field-predicate mismatch). It wraps ErrConditionalCheckFailed so
+// that errors.Is(err, ErrConditionalCheckFailed) returns true through any
+// fmt.Errorf("%w", …) wrap chain.
+type ErrPreconditionFailed struct {
+	// ObjectID is the UUID of the object that failed the precondition check.
+	ObjectID string
+
+	// Reason is a human-readable description of why the precondition failed.
+	Reason string
+
+	// ExpectedVersion is the version the caller expected (Phase 2, version-CAS).
+	// Zero means "not applicable for this condition kind."
+	ExpectedVersion uint64
+
+	// ActualVersion is the version the server observed (Phase 2).
+	// Zero means "not applicable for this condition kind."
+	ActualVersion uint64
+
+	// PredicatePath is the dotted field path that was evaluated (Phase 3,
+	// field-predicate update_if). Empty means "not applicable for this condition kind."
+	PredicatePath string
+}
+
+// Error implements the error interface.
+func (e *ErrPreconditionFailed) Error() string {
+	return fmt.Sprintf("precondition failed for object %q: %s", e.ObjectID, e.Reason)
+}
+
+// Unwrap returns ErrConditionalCheckFailed so that errors.Is checks on the
+// sentinel propagate through any fmt.Errorf("%w", err) wrap chain.
+func (e *ErrPreconditionFailed) Unwrap() error {
+	return ErrConditionalCheckFailed
 }
