@@ -116,7 +116,7 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 		if !allowed {
 			if !skipAudit {
 				logger.WithFields(logrus.Fields{
-					"resource":    prettyPermissionsResources(perm),
+					"resource":    prettyPermissionsResources(principal, perm),
 					"perm":        prettyPermissionsActions(perm),
 					"permissions": permResults,
 				}).Error("authorization denied")
