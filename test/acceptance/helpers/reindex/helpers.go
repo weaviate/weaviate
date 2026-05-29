@@ -150,15 +150,11 @@ func GetIndexes(t *testing.T, restURI, collection string) *IndexesResponse {
 	return &result
 }
 
-// AwaitReindexLive polls /v1/tasks until the named reindex task reaches a
-// live (non-terminal) status: STARTED, PREPARING, or SWAPPING.
+// AwaitReindexLive blocks until the task is live (STARTED/PREPARING/SWAPPING).
 //
-// Tests needing a reindex in flight must sync on this DTM surface, not the
-// GET /v1/schema/<class>/indexes status: the backup admission gate reads
-// DTM task liveness ([DB.AnyLiveReindexForShard]), and the two surfaces
-// can disagree by ~1s, so waiting on index-status races the gate.
-//
-// Fails on FAILED/CANCELLED or on timeout (default 120s).
+// Sync on this DTM surface, not GET /v1/schema/<class>/indexes: the backup
+// gate reads DTM liveness, and the two can disagree by ~1s, so waiting on
+// index-status races the gate.
 func AwaitReindexLive(t *testing.T, restURI, taskID string, opts ...Option) {
 	t.Helper()
 	o := applyOptions(opts)
