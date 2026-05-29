@@ -154,7 +154,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 // applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
 // local config
 func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool) error {
-	// Wipe all four built-in role policies before re-registering. The
+	// Wipe all five built-in role policies before re-registering. The
 	// canonical shape lives in code; rebuilding from scratch on every boot
 	// keeps the on-disk policy CSV honest.
 	for _, role := range authorization.BuiltInRoles {
