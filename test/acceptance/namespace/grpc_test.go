@@ -18,6 +18,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -449,27 +450,37 @@ func TestNamespaces_GRPC(t *testing.T) {
 			zooID, zoo, "hasAnimals", "", helper.CreateAuth(user1Key))
 		require.NoError(t, err)
 
-		_, err = grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
-			Collection:   zoo,
-			ObjectsCount: true,
-			GroupBy:      &pb.AggregateRequest_GroupBy{Collection: zoo, Property: "hasAnimals"},
-		})
-		require.Error(t, err, "until the type-switch bug is fixed, ref-target group-by errors out")
-		assert.Contains(t, err.Error(), "unrecognized grouped by value type: strfmt.URI",
-			"error must come from the prepare-reply type switch; if this changes, update the test to assert the short-form bucket URI")
-
-		// Once the bug is fixed and the call succeeds, replace the above
-		// assertions with:
-		//
-		//   require.NoError(t, err, "ref-target group-by must not error out")
-		//   groups := resp.GetGroupedResults().GetGroups()
-		//   require.NotEmpty(t, groups, "expected at least one bucket")
-		//   const qualified = "customer1:" + animal
-		//   for _, g := range groups {
-		//       val := g.GroupedBy.GetText()
-		//       assert.NotContains(t, val, qualified,
-		//           "ref-target bucket URI must be short-form, got %q", val)
-		//   }
+		// Poll: on multi-node clusters the ref may not be visible to the
+		// aggregator immediately after AddReference returns. The bug only
+		// fires when the grouper produces a bucket, so retry until either
+		// the strfmt.URI error surfaces (bug present) or the call returns
+		// non-empty groups (bug fixed) — never trust a "no groups, no error"
+		// snapshot, which just means the ref isn't replicated yet.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			resp, err := grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
+				Collection:   zoo,
+				ObjectsCount: true,
+				GroupBy:      &pb.AggregateRequest_GroupBy{Collection: zoo, Property: "hasAnimals"},
+			})
+			if err != nil {
+				// Bug present (current state): pin that the type switch is
+				// the source. Loose substring match tolerates small wording
+				// changes around the same bug.
+				assert.Contains(c, err.Error(), "strfmt.URI",
+					"error must come from the prepare-reply type switch")
+				return
+			}
+			// Bug fixed: validate the short-form bucket URI premise.
+			groups := resp.GetGroupedResults().GetGroups()
+			assert.NotEmpty(c, groups, "ref not replicated to aggregate node yet")
+			const qualified = "customer1:" + animal
+			for _, g := range groups {
+				val := g.GroupedBy.GetText()
+				assert.NotContains(c, val, qualified,
+					"ref-target bucket URI must be short-form, got %q", val)
+			}
+		}, 30*time.Second, 200*time.Millisecond,
+			"ref-target group-by must either error with the strfmt.URI bug or return short-form bucket URIs once the ref replicates")
 	})
 
 	t.Run("Search and Aggregate via alias resolve per namespace", func(t *testing.T) {
