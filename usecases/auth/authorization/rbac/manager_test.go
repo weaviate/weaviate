@@ -209,9 +209,11 @@ func TestRestoreEmptyData(t *testing.T) {
 	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
 	require.NoError(t, err)
 
+	// 4 built-in wildcard roles + the per-permission nodes-viewer role + the
+	// extra admin policy added just above.
 	policies, err := m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 5)
+	require.Len(t, policies, 6)
 
 	err = m.Restore([]byte{})
 	require.NoError(t, err)
@@ -219,7 +221,7 @@ func TestRestoreEmptyData(t *testing.T) {
 	// nothing overwritten
 	policies, err = m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 5)
+	require.Len(t, policies, 6)
 }
 
 // TestRestoreInvalidatesEnforceCache verifies that Restore() properly
@@ -439,6 +441,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 				{"role:read-only", "*", authorization.READ, "*"},
 				{"role:admin", "*", conv.VALID_VERBS, "*"},
 				{"role:root", "*", conv.VALID_VERBS, "*"},
+				{"role:nodes-viewer", "nodes/verbosity/verbose/collections/.*", authorization.READ, authorization.NodesDomain},
 			},
 		},
 		{
@@ -453,6 +456,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 				{"role:admin", "*", conv.VALID_VERBS, "*"},
 				// build-in roles are added after restore
 				{"role:root", "*", conv.VALID_VERBS, "*"},
+				{"role:nodes-viewer", "nodes/verbosity/verbose/collections/.*", authorization.READ, authorization.NodesDomain},
 			},
 		},
 		{
@@ -466,6 +470,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 				{"role:viewer", "*", authorization.READ, "*"},
 				{"role:read-only", "*", authorization.READ, "*"},
 				{"role:root", "*", conv.VALID_VERBS, "*"},
+				{"role:nodes-viewer", "nodes/verbosity/verbose/collections/.*", authorization.READ, authorization.NodesDomain},
 			},
 			groupingsInput: [][]string{
 				{"user:test-user", "role:admin"},

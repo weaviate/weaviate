@@ -72,6 +72,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 		resourceFilter := filter.New[*models.NodeShardStatus](m.authorizer, m.rbacconfig)
 
 		for i, nodeS := range status {
+			before := len(nodeS.Shards)
 			status[i].Shards = resourceFilter.Filter(
 				ctx,
 				principal,
@@ -81,6 +82,20 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 					return authorization.Nodes(verbosityString, shard.Class)[0]
 				},
 			)
+			if len(status[i].Shards) == before {
+				continue // authorized for every shard; the node-wide aggregate is theirs
+			}
+			// Shards trimmed: recompute the aggregate from retained shards and drop
+			// node-wide BatchStats, which would otherwise leak cross-collection signal.
+			if status[i].Stats != nil {
+				var objects int64
+				for _, shard := range status[i].Shards {
+					objects += shard.ObjectCount
+				}
+				status[i].Stats.ObjectCount = objects
+				status[i].Stats.ShardCount = int64(len(status[i].Shards))
+			}
+			status[i].BatchStats = nil
 		}
 	}
 

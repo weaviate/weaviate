@@ -20,7 +20,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
 )
 
 func TestUsers(t *testing.T) {
@@ -315,6 +317,10 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 		// MCP tools self-scope to principal.Namespace, so they are namespace-safe.
 		CreateMcp: {}, ReadMcp: {}, UpdateMcp: {},
 		CreateUsers: {}, ReadUsers: {}, UpdateUsers: {}, DeleteUsers: {},
+		// Verbose read_nodes is namespace-safe: the matcher scopes the
+		// nodes/verbosity/verbose/collections/<class> resource to the caller's
+		// namespace. The node-wide minimal view stays operator-only.
+		ReadNodes: {},
 	}
 	allowedViewerActions := map[string]struct{}{
 		ReadCollections: {}, ReadData: {}, ReadTenants: {}, ReadAliases: {},
@@ -346,7 +352,7 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 	// allowed maps above. AssignAndRevokeUsers remains excluded.
 	for _, action := range []string{
 		ManageBackups, ManageNamespaces,
-		ReadNodes, ReadCluster,
+		ReadCluster,
 		AssignAndRevokeUsers,
 		AssignAndRevokeGroups, ReadGroups,
 		ReadRoles, CreateRoles, UpdateRoles, DeleteRoles,
@@ -358,6 +364,14 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 		assert.False(t, hasViewer, "Viewer (NS-enabled) must not include %s", action)
 	}
 
+	// Verbose read_nodes is the only nodes grant for narrowed admin; the
+	// node-wide minimal view and read_cluster stay operator-only, and viewer
+	// gets no nodes access at all.
+	_, adminHasNodes := gotAdmin[ReadNodes]
+	assert.True(t, adminHasNodes, "Admin (NS-enabled) must include read_nodes (verbose, scoped)")
+	_, viewerHasNodes := gotViewer[ReadNodes]
+	assert.False(t, viewerHasNodes, "Viewer (NS-enabled) must not include read_nodes")
+
 	// Operator roles keep wildcard shape regardless of NAMESPACES_ENABLED.
 	_, ok := gotRoot[ManageNamespaces]
 	assert.True(t, ok, "Root must include manage_namespaces on NS-enabled")
@@ -365,6 +379,24 @@ func TestBuiltInPermissions_NamespacesEnabled(t *testing.T) {
 	assert.True(t, ok, "Root must include manage_backups on NS-enabled")
 	_, ok = gotReadOnly[ReadNodes]
 	assert.True(t, ok, "ReadOnly must include read_nodes on NS-enabled")
+}
+
+// TestBuiltInPermissions_NodesViewer asserts the new nodes-viewer built-in
+// role holds exactly one verbose read_nodes permission (Collection=*) on both
+// NS modes; the matcher scopes the wildcard collection to the caller's namespace.
+func TestBuiltInPermissions_NodesViewer(t *testing.T) {
+	for _, nsEnabled := range []bool{false, true} {
+		perms := BuiltInPermissionsFor(nsEnabled)[NodesViewer]
+		require.Len(t, perms, 1, "nodes-viewer must hold exactly one permission (nsEnabled=%v)", nsEnabled)
+		p := perms[0]
+		require.NotNil(t, p.Action)
+		assert.Equal(t, ReadNodes, *p.Action)
+		require.NotNil(t, p.Nodes)
+		require.NotNil(t, p.Nodes.Verbosity)
+		assert.Equal(t, verbosity.OutputVerbose, *p.Nodes.Verbosity)
+		require.NotNil(t, p.Nodes.Collection)
+		assert.Equal(t, "*", *p.Nodes.Collection)
+	}
 }
 
 func TestGetWildcardPath(t *testing.T) {

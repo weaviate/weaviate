@@ -228,33 +228,52 @@ var (
 	// build-in roles that can be assigned via API
 	Viewer = "viewer"
 	Admin  = "admin"
+	// NodesViewer grants verbose read_nodes, scoped by the matcher to the caller's
+	// namespace — nodes access for a non-admin namespace user, with no other grant.
+	NodesViewer = "nodes-viewer"
 	// build-in roles that can be assigned via env vars and cannot be changed via APIS
 	Root         = "root"
 	ReadOnly     = "read-only"
-	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
+	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly, NodesViewer}
 
 	EnvVarRoles = []string{ReadOnly, Root}
+
+	// PerPermissionBuiltInRoles are registered from their explicit policy set
+	// (never wildcard) so the matcher can scope them. No BuiltInWildcardVerb entry.
+	PerPermissionBuiltInRoles = []string{NodesViewer}
 )
 
-// BuiltInPermissionsFor returns the canonical permission shape of the four
-// built-in roles. On namespace-enabled clusters admin/viewer are narrowed
-// to collections/schema, data, multi-tenancy, aliases, and MCP; root/read-only
-// keep wildcard CRUD/READ across all domains.
+// BuiltInPermissionsFor returns the canonical permission shape of the built-in
+// roles. On namespace-enabled clusters admin/viewer are narrowed to
+// collections/schema, data, multi-tenancy, aliases, MCP, and verbose nodes;
+// root/read-only keep wildcard CRUD/READ. nodes-viewer is always verbose read_nodes.
 func BuiltInPermissionsFor(namespacesEnabled bool) map[string][]*models.Permission {
 	if !namespacesEnabled {
 		return map[string][]*models.Permission{
-			Viewer:   viewerPermissions(),
-			Admin:    adminPermissions(),
-			Root:     adminPermissions(),
-			ReadOnly: viewerPermissions(),
+			Viewer:      viewerPermissions(),
+			Admin:       adminPermissions(),
+			Root:        adminPermissions(),
+			ReadOnly:    viewerPermissions(),
+			NodesViewer: nodesViewerPermissions(),
 		}
 	}
 	return map[string][]*models.Permission{
-		Viewer:   tenantSafeViewerPermissions(),
-		Admin:    tenantSafeAdminPermissions(),
-		Root:     adminPermissions(),
-		ReadOnly: viewerPermissions(),
+		Viewer:      tenantSafeViewerPermissions(),
+		Admin:       tenantSafeAdminPermissions(),
+		Root:        adminPermissions(),
+		ReadOnly:    viewerPermissions(),
+		NodesViewer: nodesViewerPermissions(),
 	}
+}
+
+// nodesViewerPermissions backs the nodes-viewer role: verbose read_nodes over
+// all collections, scoped to the caller's namespace by the matcher.
+func nodesViewerPermissions() []*models.Permission {
+	action := ReadNodes
+	return []*models.Permission{{
+		Action: &action,
+		Nodes:  AllNodes,
+	}}
 }
 
 type Policy struct {
@@ -702,6 +721,13 @@ func tenantSafeAdminPermissions() []*models.Permission {
 			Users:  AllUsers,
 		})
 	}
+	// Verbose read_nodes is namespace-safe: the matcher scopes it to the admin's
+	// own collections. Minimal stays operator-only; viewer gets no nodes access.
+	nodesAction := ReadNodes
+	perms = append(perms, &models.Permission{
+		Action: &nodesAction,
+		Nodes:  AllNodes,
+	})
 	return perms
 }
 

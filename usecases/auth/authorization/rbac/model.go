@@ -180,6 +180,10 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		wildcardRoles = authorization.EnvVarRoles
 	}
 	for _, role := range wildcardRoles {
+		// per-permission roles (nodes-viewer) are registered below, never as wildcards
+		if slices.Contains(authorization.PerPermissionBuiltInRoles, role) {
+			continue
+		}
 		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), "*", conv.BuiltInWildcardVerb[role], "*"); err != nil {
 			return fmt.Errorf("add policy: %w", err)
 		}
@@ -196,6 +200,20 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 				if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), p.Resource, p.Verb, p.Domain); err != nil {
 					return fmt.Errorf("add tenant-safe policy: %w", err)
 				}
+			}
+		}
+	}
+
+	// Per-permission built-in roles (nodes-viewer): narrowed, never wildcard, so
+	// the matcher can scope them to the caller's namespace. On every cluster.
+	for _, role := range authorization.PerPermissionBuiltInRoles {
+		policies, err := conv.PermissionToPolicies(authorization.BuiltInPermissionsFor(namespacesEnabled)[role]...)
+		if err != nil {
+			return fmt.Errorf("%s policies: %w", role, err)
+		}
+		for _, p := range policies {
+			if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(role), p.Resource, p.Verb, p.Domain); err != nil {
+				return fmt.Errorf("add %s policy: %w", role, err)
 			}
 		}
 	}
@@ -285,6 +303,8 @@ var (
 	dataCollectionsPrefix    = authorization.DataDomain + "/collections/"
 	aliasesCollectionsPrefix = authorization.AliasesDomain + "/collections/"
 	usersPrefix              = authorization.UsersDomain + "/"
+	// minimal nodes resource has no collection segment; only verbose is namespaceable.
+	nodesVerboseCollectionsPrefix = authorization.NodesDomain + "/verbosity/verbose/collections/"
 )
 
 const (
@@ -329,6 +349,10 @@ func findNamespaceSegments(path string) (start, end int, hasAlias bool) {
 	// /aliases/ delimiter like the collection shapes above).
 	if _, ok := strings.CutPrefix(path, usersPrefix); ok {
 		return len(usersPrefix), len(path), false
+	}
+	// verbose nodes: class runs to end of string (terminal, like users/<id>).
+	if _, ok := strings.CutPrefix(path, nodesVerboseCollectionsPrefix); ok {
+		return len(nodesVerboseCollectionsPrefix), len(path), false
 	}
 	return 0, 0, false
 }
