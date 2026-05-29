@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/namespaces"
+	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -168,6 +169,32 @@ func TestNamespaces_UpdateHomeNode(t *testing.T) {
 			}
 		})
 	})
+}
+
+// TestNamespaces_CreateUserInMissingNamespace pins that CreateUser rejects
+// with 422 when the target namespace does not exist.
+func TestNamespaces_CreateUserInMissingNamespace(t *testing.T) {
+	const ghost = "ghostns"
+
+	_, err := helper.Client(t).Namespaces.GetNamespace(
+		namespaces.NewGetNamespaceParams().WithNamespaceID(ghost),
+		helper.CreateAuth(adminKey),
+	)
+	require.Error(t, err)
+	var nf *namespaces.GetNamespaceNotFound
+	require.True(t, errors.As(err, &nf), "expected GetNamespaceNotFound for %q, got %T: %v", ghost, err, err)
+
+	_, err = helper.Client(t).Users.CreateUser(
+		users.NewCreateUserParams().WithUserID(ghost+":orphan").WithBody(users.CreateUserBody{}),
+		helper.CreateAuth(adminKey),
+	)
+	require.Error(t, err)
+	var unproc *users.CreateUserUnprocessableEntity
+	require.True(t, errors.As(err, &unproc), "expected CreateUserUnprocessableEntity, got %T: %v", err, err)
+	require.NotNil(t, unproc.Payload)
+	require.NotEmpty(t, unproc.Payload.Error)
+	assert.Contains(t, unproc.Payload.Error[0].Message, "namespace",
+		"422 message must explain the namespace existence failure; got %q", unproc.Payload.Error[0].Message)
 }
 
 // TestNamespaces_UpdateHomeNode_Invalid rejects an unknown home_node with 422.

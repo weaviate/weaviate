@@ -1051,3 +1051,70 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 		})
 	}
 }
+
+// TestAssignRoleToUser_Namespaces — namespaced short → 403-at-authz on
+// the qualified resource (no AssignAndRevokeUsers grant); global op
+// qualified → 200.
+func TestAssignRoleToUser_Namespaces(t *testing.T) {
+	userType := models.UserTypeInputDb
+	roles := []string{"testRole"}
+
+	tests := []struct {
+		name             string
+		userID           string
+		principalNS      string
+		isGlobalOperator bool
+		authzKey         string
+		wantStatus       any
+	}{
+		{
+			name:        "namespaced caller short name no grant returns 403",
+			userID:      "bob",
+			principalNS: "customer1",
+			authzKey:    "customer1:bob",
+			wantStatus:  &authz.AssignRoleToUserForbidden{},
+		},
+		{
+			name:             "global operator qualified passthrough succeeds",
+			userID:           "customer1:bob",
+			isGlobalOperator: true,
+			authzKey:         "customer1:bob",
+			wantStatus:       &authz.AssignRoleToUserOK{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{
+				Namespace:        tt.principalNS,
+				IsGlobalOperator: tt.isGlobalOperator,
+			}
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
+			logger, _ := test.NewNullLogger()
+
+			switch tt.wantStatus.(type) {
+			case *authz.AssignRoleToUserForbidden:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.authzKey)[0]).Return(fmt.Errorf("not allowed"))
+			case *authz.AssignRoleToUserOK:
+				authorizer.On("Authorize", mock.Anything, principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Users(tt.authzKey)[0]).Return(nil)
+				controller.On("GetRoles", roles[0]).Return(map[string][]authorization.Policy{roles[0]: {}}, nil)
+				controller.On("GetUsers", tt.authzKey).Return(map[string]*apikey.User{tt.authzKey: {}}, nil)
+				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.authzKey, authentication.AuthType(userType)), roles).Return(nil)
+			}
+
+			h := &authZHandlers{
+				authorizer:        authorizer,
+				controller:        controller,
+				logger:            logger,
+				namespacesEnabled: true,
+			}
+			res := h.assignRoleToUser(authz.AssignRoleToUserParams{
+				ID:          tt.userID,
+				HTTPRequest: req,
+				Body:        authz.AssignRoleToUserBody{Roles: roles, UserType: userType},
+			}, principal)
+			assert.IsType(t, tt.wantStatus, res)
+		})
+	}
+}

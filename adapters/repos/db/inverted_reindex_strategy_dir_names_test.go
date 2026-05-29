@@ -128,3 +128,18 @@ func TestFinalizeMigrationSuffixesUnknown(t *testing.T) {
 		t.Fatalf("migrationSuffixes(unknown) = %+v, want nil", got)
 	}
 }
+
+// TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax pins the
+// per-property contract: the class-level MapToBlockmax tracker must NOT be
+// returned here (cleanStaleMigrationDirsAt + CleanStalePartialReindexState
+// would corrupt the class-level dir on single-property cleanup). The
+// blockmax tracker is matched directly in LocalCallbacksDone instead.
+func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T) {
+	got := migrationDirsForPropertyIndex("text", "searchable")
+	for _, p := range got {
+		if p == MigrationDirSearchableMapToBlockmax {
+			t.Fatalf("migrationDirsForPropertyIndex(text, searchable) = %v, must NOT include class-level %q",
+				got, MigrationDirSearchableMapToBlockmax)
+		}
+	}
+}

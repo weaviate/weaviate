@@ -142,16 +142,28 @@ func TestMultiNode_RollingRestartDuringFinalizing_PerReplicaConsistency(t *testi
 	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
 	t.Log("task FINISHED post-rolling-restart")
 
-	// Settle: testcontainers reallocates ports on stop+start, so
-	// re-resolve URIs on every use. A short settle pause lets shard
-	// init complete (FinalizeCompletedMigrations + bucket load) before
-	// we sample.
-	time.Sleep(3 * time.Second)
+	// Poll until every replica converges to expectedPathCount, then sample
+	// stability below. AwaitReindexFinished only confirms node-1; a
+	// just-restarted node may still be loading buckets
+	// (FinalizeCompletedMigrations). A node that never converges fails here
+	// loudly instead of being slept past. testcontainers reallocates ports
+	// on stop+start, so restURIOf re-resolves on every call.
+	require.Eventually(t, func() bool {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", paths[0])
+			if err != nil || got != expectedPathCount {
+				return false
+			}
+		}
+		return true
+	}, 60*time.Second, 50*time.Millisecond,
+		"per-replica path count never converged to %d on all 3 replicas after rolling restart during FINALIZING",
+		expectedPathCount)
 
-	// Per-replica histogram: hit each replica directly 30 times for
-	// the migrated property (90 total). A pass requires every poll on
-	// every replica to return expectedPathCount; any non-zero
-	// non-expected value in the histogram is a per-replica divergence.
+	// Per-replica histogram: having converged above, hit each replica
+	// directly 30 times (90 total) to verify post-convergence stability.
+	// Every poll on every replica must return expectedPathCount; any other
+	// value is a per-replica divergence (flap after convergence).
 	const pollsPerReplica = 30
 	histogram := make(map[string]map[int]int) // nodeID -> count -> N
 	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
@@ -270,18 +282,9 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 			"Consider increasing totalObjects to widen the window.")
 	}
 
-	// Kill node 3 ungracefully — 0s timeout means Docker SIGKILLs
-	// immediately, skipping the on-shutdown bucket flush. This is the
-	// k8s OOM / node-hardware-failure shape.
-	killTimeout := 0 * time.Second
-	t.Log("SIGKILL on node 3 (timeout=0)")
-	require.NoError(t, compose.StopAt(ctx, 2, &killTimeout))
-
-	// Restart node 3. The post-restart path must reconcile its
-	// half-finalized .migrations/ directory and re-emit the ack via
-	// the rehydrate path if its pre-kill ack hadn't landed in RAFT.
-	t.Log("restarting node 3")
-	require.NoError(t, compose.StartAt(ctx, 2))
+	// SIGKILL + restart node 3 — k8s OOM / node-hardware-failure shape.
+	t.Log("SIGKILL + restart node 3")
+	cycleNodeFastKill(ctx, t, compose, 2)
 
 	// Wait for FINISHED. Without the ack barrier, the schema flip
 	// could already have committed before the kill, leaving node 3
@@ -290,9 +293,22 @@ func TestMultiNode_UngracefulStopDuringFinalizing_PerReplicaConsistency(t *testi
 	reindexhelpers.AwaitReindexFinished(t, restURIOf(compose, 1), taskID, reindexhelpers.WithTimeout(180*time.Second))
 	t.Log("task FINISHED post-kill-and-restart")
 
-	// Settle for shard init + FinalizeCompletedMigrations on the
-	// restarted node.
-	time.Sleep(3 * time.Second)
+	// Poll until every replica converges to expectedPathCount, then sample
+	// stability below. AwaitReindexFinished only confirms node-1; the
+	// SIGKILL'd-and-restarted node may still be loading buckets
+	// (FinalizeCompletedMigrations). A node that never converges fails here
+	// loudly instead of being slept past.
+	require.Eventually(t, func() bool {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			got, err := equalCount(restURIOf(compose, nodeIdx), className, "path", paths[0])
+			if err != nil || got != expectedPathCount {
+				return false
+			}
+		}
+		return true
+	}, 60*time.Second, 50*time.Millisecond,
+		"per-replica path count never converged to %d on all 3 replicas after SIGKILL during FINALIZING",
+		expectedPathCount)
 
 	const pollsPerReplica = 30
 	histogram := make(map[string]map[int]int)

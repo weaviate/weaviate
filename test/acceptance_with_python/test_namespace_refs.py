@@ -203,29 +203,31 @@ def _assign_admin_role(http_port: int, qualified_user: str) -> None:
 
 
 def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str:
-    """POST /users/db/{user}, then grant the admin role. Returns the apikey.
+    """POST /users/db/{namespace:user}, grant admin, return apikey.
 
-    Mirrors createNamespacedUser in test/acceptance/namespace/collection_alias_test.go.
-    On 409 (user already exists from a prior run) we delete and recreate so
-    the fixture is re-runnable against a long-lived cluster — the api key
-    isn't readable after creation, so reuse isn't an option. The DELETE is
-    RAFT-forwarded, so we poll until it's applied before re-POSTing — else
-    createUser's local existence check races it and 409s again.
+    Absorbs two transients:
+      - 409 (stale user from prior run): delete once + retry.
+      - 422 "namespace does not exist": local FSM hasn't applied the
+        create-namespace entry yet even though _wait_for_namespace got 200
+        from the RAFT-served GET; poll until local apply catches up.
     """
     qualified = f"{namespace}:{user_id}"
-    for _ in range(2):
+    deleted = False
+    deadline = time.time() + 10.0
+    last: Optional[_RestResponse] = None
+    while time.time() < deadline:
         r = _http(
             "POST",
-            f"{_rest_base(http_port)}/users/db/{user_id}",
+            f"{_rest_base(http_port)}/users/db/{qualified}",
             headers=_admin_headers(),
-            json_body={"namespace": namespace},
+            json_body={},
         )
         if r.status_code == 201:
             apikey = r.json().get("apikey")
             assert apikey, f"createUser returned no apikey: {r.text}"
             _assign_admin_role(http_port, qualified)
             return apikey
-        if r.status_code == 409:
+        if r.status_code == 409 and not deleted:
             d = _http(
                 "DELETE",
                 f"{_rest_base(http_port)}/users/db/{qualified}",
@@ -234,9 +236,18 @@ def _create_namespaced_user(http_port: int, user_id: str, namespace: str) -> str
             if d.status_code not in (200, 204, 404):
                 d.raise_for_status()
             _wait_for_user_gone(http_port, qualified)
+            deleted = True
+            deadline = time.time() + 10.0
+            continue
+        if r.status_code == 422 and "does not exist" in r.text:
+            last = r
+            time.sleep(0.05)
             continue
         r.raise_for_status()
-    raise AssertionError(f"could not create user {qualified} after delete+retry")
+    raise AssertionError(
+        f"could not create user {qualified} within 10s: "
+        f"{last.status_code if last else 'no response'}: {last.text if last else ''}"
+    )
 
 
 def _wait_for_user_gone(http_port: int, qualified: str) -> None:

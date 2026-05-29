@@ -40,14 +40,10 @@
 // ------------------------------------------------------------
 // Implemented by [ShardReindexTaskGeneric.runtimeSwap].
 //
-// 2a — tight loop, microseconds: per property, call
-// store.SwapBucketPointer(mainName, ingestName) followed by
-// rt.markSwappedProp(propName). The tight loop bounds the per-shard
-// "mixed-state" subwindow (some props swapped, others not) to a few
-// microseconds total. Queries during this subwindow that hit
-// not-yet-swapped props would tokenize input with the new value
-// against an old-tokenized bucket — wrong — so the subwindow MUST
-// stay microseconds.
+// 2a — tight loop, MUST stay microseconds: a query hitting a
+// not-yet-swapped prop tokenizes new-analyzer input against the old
+// bucket. The [onPropSwapped] overlay hook fires per-flip (not once up
+// front) so the overlay≠bucket exposure stays one in-memory map write.
 //
 // 2b — post-atomic inline tidy (slow but correctness-safe):
 // oldMainBucket.Shutdown(ctx) + os.Rename(oldMainDir, backupDir) per
@@ -200,6 +196,13 @@ type ShardReindexTaskGeneric struct {
 	// [processOneSwapPropFn] — defaults to the [processOneTidyProp]
 	// method; tests substitute a wrapper.
 	processOneTidyPropFn func(propIdx int, propName, lsmPath string) error
+
+	// onPropSwapped runs inside the Phase 2a tight loop right after each
+	// bucket-pointer flip, so a query never observes overlay≠bucket for
+	// longer than one in-memory map write. Runs on the swap goroutine, so
+	// SetTokenizationOverlay's own lock is enough. Wired only for
+	// tokenization-changing migrations.
+	onPropSwapped func(propName string)
 }
 
 // NewShardReindexTaskGeneric creates a new generic reindex task.
@@ -1767,6 +1770,11 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 		if oldMainBucket != nil {
 			oldMainBuckets[propName] = oldMainBucket
 		}
+		// Fire even when processOneSwapPropFn no-ops an already-swapped prop
+		// (sentinel on disk), so a resumed swap re-establishes the overlay.
+		if t.onPropSwapped != nil {
+			t.onPropSwapped(propName)
+		}
 	}
 	logger.Debug("runtime swap: all props in-memory swapped")
 
@@ -2191,6 +2199,10 @@ func (t *ShardReindexTaskGeneric) recoverRuntimeSwapBuckets(ctx context.Context,
 
 		if err := rt.markSwappedProp(propName); err != nil {
 			return fmt.Errorf("marking swapped prop %q: %w", propName, err)
+		}
+		// Recovery re-establishes the overlay for the same reason as the happy path.
+		if t.onPropSwapped != nil {
+			t.onPropSwapped(propName)
 		}
 	}
 

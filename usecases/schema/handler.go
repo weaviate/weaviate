@@ -306,7 +306,6 @@ func (h *Handler) GetConsistentSchema(ctx context.Context, principal *models.Pri
 
 	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config.Authorization.Rbac).Filter(
 		ctx,
-		h.logger,
 		principal,
 		fullSchema.Objects.Classes,
 		authorization.READ,

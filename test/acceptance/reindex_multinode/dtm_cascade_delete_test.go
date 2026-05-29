@@ -150,7 +150,7 @@ func assertTaskGone(t *testing.T, restURI, taskID, label string) {
 	// race after a rolling restart but not behavioural divergence.
 	require.Eventuallyf(t, func() bool {
 		return !taskExists(t, restURI, taskID)
-	}, 20*time.Second, 200*time.Millisecond,
+	}, 20*time.Second, 50*time.Millisecond,
 		"%s: reindex task %s must NOT be in /v1/tasks (cascade deleted on DELETE_CLASS)",
 		label, taskID)
 }
@@ -172,7 +172,7 @@ func assertIndexesReady(t *testing.T, restURI, className, label string) {
 			}
 		}
 		return true
-	}, 30*time.Second, 500*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"%s: every index on the recreated class %s must report status=ready",
 		label, className)
 

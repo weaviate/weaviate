@@ -189,39 +189,40 @@ func TestMultiNode_ConcurrentDifferentMigrations_ExactCountsPostSettle(t *testin
 	reindexhelpers.AwaitReindexFinished(t, uri1, catTaskID, reindexhelpers.WithTimeout(180*time.Second))
 	reindexhelpers.AwaitReindexFinished(t, uri1, pathTaskID, reindexhelpers.WithTimeout(180*time.Second))
 
-	// Brief settle so schema flips propagate to every node.
-	time.Sleep(3 * time.Second)
-
 	// Phase-3 equivalent: every replica, every prop, must return the
-	// baseline. A wrong count on any (node, prop) pair is the bug.
-	for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
-		uri := restURIOf(compose, nodeIdx)
+	// baseline. AwaitReindexFinished only confirms node-1; poll all replicas
+	// (50ms) until each converges instead of a fixed settle. A wrong count on
+	// any (node, prop) pair that never resolves is the bug.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		for nodeIdx := 1; nodeIdx <= 3; nodeIdx++ {
+			uri := restURIOf(compose, nodeIdx)
 
-		gotPrice, err := rangeCount(uri, className, "price", priceLo, priceHi)
-		assert.NoError(t, err, "post-mig price query node %d", nodeIdx)
-		assert.Equal(t, expectedPriceCount, gotPrice,
-			"GH #212 Issue D regression: node %d post-mig price = %d, expected %d "+
-				"(after concurrent enable-rangeable + enable-filterable + "+
-				"change-tokenization, the rangeable bucket on this shard is "+
-				"missing records)",
-			nodeIdx, gotPrice, expectedPriceCount)
+			gotPrice, err := rangeCount(uri, className, "price", priceLo, priceHi)
+			assert.NoError(c, err, "post-mig price query node %d", nodeIdx)
+			assert.Equalf(c, expectedPriceCount, gotPrice,
+				"GH #212 Issue D regression: node %d post-mig price = %d, expected %d "+
+					"(after concurrent enable-rangeable + enable-filterable + "+
+					"change-tokenization, the rangeable bucket on this shard is "+
+					"missing records)",
+				nodeIdx, gotPrice, expectedPriceCount)
 
-		gotCat, err := equalCount(uri, className, "category", categories[0])
-		assert.NoError(t, err, "post-mig category query node %d", nodeIdx)
-		assert.Equal(t, expectedCatCount, gotCat,
-			"GH #212 Issue D regression: node %d post-mig category = %d, expected %d "+
-				"(after concurrent migrations, the newly-created filterable "+
-				"bucket on this shard is missing records)",
-			nodeIdx, gotCat, expectedCatCount)
+			gotCat, err := equalCount(uri, className, "category", categories[0])
+			assert.NoError(c, err, "post-mig category query node %d", nodeIdx)
+			assert.Equalf(c, expectedCatCount, gotCat,
+				"GH #212 Issue D regression: node %d post-mig category = %d, expected %d "+
+					"(after concurrent migrations, the newly-created filterable "+
+					"bucket on this shard is missing records)",
+				nodeIdx, gotCat, expectedCatCount)
 
-		gotPath, err := equalCount(uri, className, "path", paths[0])
-		assert.NoError(t, err, "post-mig path query node %d", nodeIdx)
-		assert.Equal(t, expectedPathCount, gotPath,
-			"GH #212 Issue D regression: node %d post-mig path = %d, expected %d "+
-				"(after concurrent migrations, the change-tokenization'd "+
-				"searchable bucket on this shard is missing records)",
-			nodeIdx, gotPath, expectedPathCount)
-	}
+			gotPath, err := equalCount(uri, className, "path", paths[0])
+			assert.NoError(c, err, "post-mig path query node %d", nodeIdx)
+			assert.Equalf(c, expectedPathCount, gotPath,
+				"GH #212 Issue D regression: node %d post-mig path = %d, expected %d "+
+					"(after concurrent migrations, the change-tokenization'd "+
+					"searchable bucket on this shard is missing records)",
+				nodeIdx, gotPath, expectedPathCount)
+		}
+	}, 30*time.Second, 50*time.Millisecond)
 
 	// LB-side spot-check: 3 sequential calls to the same node should all
 	// return baseline. Mirrors Frontend Claude's Phase-3 LB calls.

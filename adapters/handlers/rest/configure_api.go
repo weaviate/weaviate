@@ -59,6 +59,7 @@ import (
 	rest_namespaces "github.com/weaviate/weaviate/adapters/handlers/rest/namespaces"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/restcompat"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -570,6 +571,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 
 	appState.DB = repo
+	// Seed the REST asyncEnabled shim; the runtime-config hook below keeps it live.
+	restcompat.SetAsyncReplicationGloballyDisabled(appState.ServerConfig.Config.Replication.AsyncReplicationDisabled.Get())
 	// Construct the usage-limits Manager now that its ObjectCounter (the
 	// DB) exists, then install it on the DB so each Index inherits it
 	// when loaded (init.go) or created at runtime (migrator.go). Both
@@ -902,6 +905,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	namespaceCleanupCoordinator := namespacecleanup.NewCoordinator(
 		appState.NamespacesController,
 		rCluster.NewSchemaNamespaceLister(appState.ClusterService.SchemaReader()),
+		appState.APIKey.Dynamic,
 		appState.ClusterService.Raft,
 		appState.ClusterService.IsLeader,
 		appState.Logger,
@@ -1314,6 +1318,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServeError = openapierrors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
+	// REST-only asyncEnabled shim — see adapters/handlers/rest/restcompat.
+	api.JSONProducer = restcompat.NewJSONProducer()
 
 	api.OidcAuth = composer.New(
 		appState.ServerConfig.Config.Authentication,
@@ -1671,7 +1677,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	}
 
 	// Initialize runtime config hooks and start runtime config background process
-	postInitRuntimeOverrides(appState, runtimeConfigManager)
+	postInitRuntimeOverrides(appState, serverShutdownCtx, runtimeConfigManager)
 
 	return appState
 }
@@ -2613,7 +2619,7 @@ func initRuntimeOverrides(appState *state.State) *configRuntime.ConfigManager[co
 }
 
 // postInitRuntimeOverrides registers hooks and starts runtime config background process
-func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigManager[config.WeaviateRuntimeConfig]) {
+func postInitRuntimeOverrides(appState *state.State, serverShutdownCtx context.Context, cm *configRuntime.ConfigManager[config.WeaviateRuntimeConfig]) {
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled && cm != nil {
 		// register any additional runtime configs
 		if appState.Modules.UsageEnabled() {
@@ -2636,6 +2642,20 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		if appState.ServerConfig.Config.Authentication.OIDC.Enabled {
 			hooks["OIDC"] = appState.OIDC.Init
 		}
+		// Reconcile loaded shards when the async-replication kill-switch is
+		// toggled at runtime. Run in the background: ReconcileAsyncReplication
+		// does per-shard hashtree disk I/O, which must not block the runtime-
+		// config reload loop. serverShutdownCtx makes it cancellable on shutdown;
+		// errors are logged here and surfaced via the reconcileFailures metric.
+		hooks["AsyncReplicationDisabled"] = func() error {
+			restcompat.SetAsyncReplicationGloballyDisabled(appState.ServerConfig.Config.Replication.AsyncReplicationDisabled.Get())
+			enterrors.GoWrapper(func() {
+				if err := appState.DB.ReconcileAsyncReplication(serverShutdownCtx); err != nil {
+					appState.Logger.WithField("action", "reconcile_async_replication").Error(err)
+				}
+			}, appState.Logger)
+			return nil
+		}
 		maps.Copy(hooks, appState.Crons.RuntimeConfigHooks())
 
 		// Re-run cross-field restriction validation on runtime YAML pushes
@@ -2650,7 +2670,7 @@ func postInitRuntimeOverrides(appState *state.State, cm *configRuntime.ConfigMan
 		hooks["DefaultVectorIndexType"] = restrictionHook
 		hooks["DefaultQuantization"] = restrictionHook
 
-		appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+		appState.Logger.Log(logrus.InfoLevel, "registering runtime overrides hooks")
 		cm.RegisterHooks(hooks)
 		// reload current overrides file to take into account additional settings
 		if err := cm.ReloadConfig(); err != nil {

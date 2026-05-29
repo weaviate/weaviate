@@ -157,7 +157,7 @@ func TestConcurrentReindex(t *testing.T) {
 				}
 			}
 			return true
-		}, 60*time.Second, 1*time.Second, "schema changes should propagate within 60s")
+		}, 60*time.Second, 50*time.Millisecond, "schema changes should propagate within 60s")
 	})
 
 	// 6. Verify queries still work correctly.
@@ -181,8 +181,22 @@ func TestConcurrentReindex(t *testing.T) {
 		t.Logf("submitted retokenize for text_0: %s", taskID)
 
 		// While it's running, try to submit another for the same property.
-		// This should be rejected as a conflict.
-		time.Sleep(100 * time.Millisecond) // brief delay to let it start
+		// This should be rejected as a conflict. Deterministically wait until
+		// the first task is registered and non-terminal before submitting the
+		// conflict, instead of a fixed sleep.
+		require.Eventually(t, func() bool {
+			tasks := getTasks(t, restURI)
+			for _, task := range tasks["reindex"] {
+				if task.ID == taskID {
+					// In-flight = registered but not yet terminal.
+					return task.Status != "FINISHED" &&
+						task.Status != "FAILED" &&
+						task.Status != "CANCELLED"
+				}
+			}
+			return false
+		}, 5*time.Second, 50*time.Millisecond, "first task must be in-flight before conflict")
+
 		url := fmt.Sprintf("http://%s/v1/schema/%s/indexes/%s", restURI, collection, "text_0")
 		req, err := http.NewRequest(http.MethodPut, url,
 			bytes.NewReader([]byte(`{"searchable":{"tokenization":"field"}}`)))
@@ -281,37 +295,47 @@ func importData(t *testing.T, restURI, collection string) {
 
 func awaitTask(t *testing.T, restURI, taskID string, timeout time.Duration) error {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
-		if err != nil {
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		var tasks models.DistributedTasks
-		if err := json.Unmarshal(body, &tasks); err != nil {
-			time.Sleep(1 * time.Second)
-			continue
-		}
+	// failErr captures a FAILED terminal state so we can fast-exit the poll
+	// and surface it to the caller as an error (preserving the original
+	// FAILED-fast-exit behavior). FINISHED satisfies the condition; any
+	// transient error (request/unmarshal) returns false and retries on the
+	// next tick.
+	var failErr error
+	require.Eventually(t, func() bool {
+		tasks := getTasks(t, restURI)
 		for _, task := range tasks["reindex"] {
 			if task.ID == taskID {
 				switch task.Status {
 				case "FINISHED":
 					t.Logf("task %s: FINISHED", taskID)
-					return nil
+					return true
 				case "FAILED":
-					return fmt.Errorf("task %s FAILED: %s", taskID, task.Error)
-				default:
-					// Still running.
+					failErr = fmt.Errorf("task %s FAILED: %s", taskID, task.Error)
+					return true
 				}
 			}
 		}
-		time.Sleep(1 * time.Second)
+		return false
+	}, timeout, 50*time.Millisecond, "task %s should finish", taskID)
+	return failErr
+}
+
+// getTasks fetches GET /v1/tasks and unmarshals it. Returns an empty map on
+// any transient request/unmarshal error so callers (poll loops) simply retry
+// on the next tick rather than failing.
+func getTasks(t *testing.T, restURI string) models.DistributedTasks {
+	t.Helper()
+	resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+	if err != nil {
+		return models.DistributedTasks{}
 	}
-	return fmt.Errorf("task %s did not finish within %v", taskID, timeout)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	var tasks models.DistributedTasks
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		return models.DistributedTasks{}
+	}
+	return tasks
 }
 
 func countWithEqualFilter(t *testing.T, restURI, collection, propName string, value int) int {

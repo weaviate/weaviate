@@ -780,17 +780,45 @@ func testParallel_EnableFilterableCancelSame(t *testing.T, restURI string) {
 	rSubmit := newPR("enable-filterable", `{"filterable":{"enabled":true}}`)
 	rCancel := newPR("cancel-filterable", `{"filterable":{"cancel":true}}`)
 
+	// submitted is closed once the submit PUT has returned, which publishes
+	// rSubmit.taskID to the cancel goroutine (channel close provides the
+	// happens-before edge, avoiding a data race on rSubmit.taskID).
+	submitted := make(chan struct{})
+
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
 		executePR(restURI, class, "score", rSubmit)
+		close(submitted)
 	}, logger)
 
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
-		// Brief stagger so submit has a chance to register before cancel
-		// arrives — without this, cancel arrives first and always 404s,
-		// making the scenario trivially green.
-		time.Sleep(10 * time.Millisecond)
+		// Deterministically wait until the submit's task is registered in
+		// GET /v1/tasks before issuing the cancel, so "cancel targets a live
+		// task" is no longer timing-dependent (a fixed stagger could race the
+		// cancel ahead of registration, making the scenario trivially green).
+		<-submitted
+		if rSubmit.taskID != "" {
+			require.Eventually(t, func() bool {
+				resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
+				if err != nil {
+					return false
+				}
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				var tasks models.DistributedTasks
+				if err := json.Unmarshal(body, &tasks); err != nil {
+					return false
+				}
+				for _, task := range tasks["reindex"] {
+					if task.ID == rSubmit.taskID {
+						return true
+					}
+				}
+				return false
+			}, 5*time.Second, 50*time.Millisecond,
+				"submit task %s must be registered before cancel", rSubmit.taskID)
+		}
 		executePR(restURI, class, "score", rCancel)
 	}, logger)
 
@@ -965,19 +993,16 @@ func awaitTerminalP(t *testing.T, restURI string, r *parallelResult) {
 	if !r.accepted || r.taskID == "" {
 		return
 	}
-	deadline := time.Now().Add(3 * time.Minute)
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		resp, err := http.Get(fmt.Sprintf("http://%s/v1/tasks", restURI))
 		if err != nil {
-			time.Sleep(500 * time.Millisecond)
-			continue
+			return false
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		var tasks models.DistributedTasks
 		if err := json.Unmarshal(body, &tasks); err != nil {
-			time.Sleep(500 * time.Millisecond)
-			continue
+			return false
 		}
 		for _, task := range tasks["reindex"] {
 			if task.ID == r.taskID {
@@ -985,13 +1010,13 @@ func awaitTerminalP(t *testing.T, restURI string, r *parallelResult) {
 				case "FINISHED", "FAILED", "CANCELLED":
 					r.terminal = task.Status
 					t.Logf("task %s reached terminal=%s", r.taskID, task.Status)
-					return
+					return true
 				}
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	t.Logf("task %s did NOT reach terminal within 3m", r.taskID)
+		return false
+	}, 3*time.Minute, 50*time.Millisecond,
+		"task %s must reach a terminal state", r.taskID)
 }
 
 // =============================================================================
@@ -1161,7 +1186,7 @@ func eventualBothFlags(t *testing.T, class, prop string, wantFilt, wantRange boo
 			return gotFilt == wantFilt && gotRange == wantRange
 		}
 		return false
-	}, 60*time.Second, 250*time.Millisecond,
+	}, 60*time.Second, 50*time.Millisecond,
 		"flags on %s.%s must reach filt=%v range=%v", class, prop, wantFilt, wantRange)
 }
 
@@ -1187,6 +1212,6 @@ func eventualSingleFlag(t *testing.T, class, prop, flag string, want bool) {
 			}
 		}
 		return false
-	}, 60*time.Second, 250*time.Millisecond,
+	}, 60*time.Second, 50*time.Millisecond,
 		"flag %s on %s.%s must reach %v", flag, class, prop, want)
 }

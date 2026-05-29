@@ -164,9 +164,9 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	taskID := submitChangeTokenization(t, restURI, className, "body", "lowercase")
 	t.Logf("change-tokenization task submitted: %s", taskID)
 
-	// Without this wait, a small corpus can finish the migration before
-	// the backup HTTP call lands, producing a spurious "backup succeeded".
-	awaitIndexingState(t, restURI, className, "body")
+	// Backup must land while the migration is live.
+	reindexhelpers.AwaitReindexLive(t, restURI, taskID,
+		reindexhelpers.WithTimeout(30*time.Second))
 
 	backupID := "reindex-backup-refuse"
 
@@ -190,13 +190,21 @@ func testBackupRefusedDuringInFlightMigration(t *testing.T, ctx context.Context,
 	require.Contains(t, errMsg, "retry after the migration finishes",
 		"error body must include an actionable next step")
 
-	// The refusal must not leave a staging dir behind; otherwise a
-	// same-id retry hits checkIfBackupExists's "Status != Cancelled"
-	// rejection.
+	// A leaked staging dir would block a same-id retry (checkIfBackupExists,
+	// "Status != Cancelled"). The 422 fires before any write so none exists;
+	// Eventually is just a defensive settle.
 	container := compose.GetWeaviate().Container()
 	stagingPath := "/tmp/backups/" + backupID
-	code, _, _ := container.Exec(ctx, []string{"test", "-d", stagingPath})
-	assert.NotEqual(t, 0, code,
+	require.Eventually(t, func() bool {
+		code, _, err := container.Exec(ctx, []string{"test", "-d", stagingPath})
+		if err != nil {
+			// A transient exec error tells us nothing about the dir; log it and
+			// keep polling so a persistent failure surfaces in the timeout.
+			t.Logf("exec test -d %s failed: %v", stagingPath, err)
+			return false
+		}
+		return code != 0
+	}, 10*time.Second, 200*time.Millisecond,
 		"refused backup must not leave a staging dir at %s", stagingPath)
 
 	// Wait via the index-status surface (status:"ready") rather than DTM
@@ -372,12 +380,16 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 			filepath.Join(lsmPath, ".migrations", orphanDir),
 		})
 		return code != 0
-	}, 60*time.Second, 500*time.Millisecond,
+	}, 60*time.Second, 50*time.Millisecond,
 		"orphan tracker dir was not cleaned up by the post-bootstrap audit")
 
-	code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
-	assert.NotEqual(t, 0, code,
-		"orphan sidecar bucket dir was not cleaned up; got test -d exit %d", code)
+	// The sidecar dir is removed just after the tracker, so poll instead of
+	// asserting once.
+	require.Eventually(t, func() bool {
+		code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
+		return code != 0
+	}, 60*time.Second, 50*time.Millisecond,
+		"orphan sidecar bucket dir was not cleaned up by the post-bootstrap audit")
 
 	assert.EqualValues(t, preCount, moduleshelper.GetClassCount(t, className, ""),
 		"canonical data must survive the audit")
@@ -629,9 +641,12 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 	classPath := fmt.Sprintf("/data/%s", strings.ToLower(className))
 
 	// Poll .migrations/ until every body-related dir is gone (cleanup
-	// runs async on the scheduler tick).
-	deadline := time.Now().Add(30 * time.Second)
-	for {
+	// runs async on the scheduler tick). assert.Eventually drives the poll;
+	// on timeout we t.Fatalf with the last observed survivors so the
+	// diagnostic matches the original (the message args of require.Eventually
+	// are captured up-front, before any survivors are known).
+	var lastMatches string
+	drained := assert.Eventually(t, func() bool {
 		code, reader, execErr := container.Exec(ctx, []string{
 			"sh", "-c",
 			fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -10`, migsPath, propName),
@@ -641,16 +656,13 @@ func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Con
 		if reader != nil {
 			_, _ = io.Copy(out, reader)
 		}
-		matches := strings.TrimSpace(out.String())
+		lastMatches = strings.TrimSpace(out.String())
 		// grep exit 1 (no match) or empty stdout means cleanup is done.
-		if code != 0 || matches == "" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("cancel-cleanup did not remove %s/.migrations/*_%s_* within 30s; survivors:\n%s",
-				lsmPath, propName, matches)
-		}
-		time.Sleep(500 * time.Millisecond)
+		return code != 0 || lastMatches == ""
+	}, 30*time.Second, 50*time.Millisecond)
+	if !drained {
+		t.Fatalf("cancel-cleanup did not remove %s/.migrations/*_%s_* within 30s; survivors:\n%s",
+			lsmPath, propName, lastMatches)
 	}
 
 	// MutationGuard's IsActive() gate (STARTED/PREPARING/SWAPPING only)
@@ -756,12 +768,18 @@ func execInContainer(t *testing.T, ctx context.Context, c testcontainers.Contain
 // regression).
 func awaitIndexingState(t *testing.T, restURI, collection, property string) {
 	t.Helper()
+	// BEST-EFFORT: the transient "indexing" state legitimately may not be
+	// observable on a too-small fixture, so missing it must NOT fail the
+	// test (we only warn on the deadline). A ticker drives the poll at a
+	// 50ms interval; require.Eventually is deliberately NOT used here because
+	// it would turn a tolerable miss into a hard failure.
 	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	observe := func() bool {
 		resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s/indexes", restURI, collection))
 		if err != nil {
-			time.Sleep(20 * time.Millisecond)
-			continue
+			return false
 		}
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -774,20 +792,31 @@ func awaitIndexingState(t *testing.T, restURI, collection, property string) {
 				} `json:"indexes"`
 			} `json:"properties"`
 		}
-		if err := json.Unmarshal(body, &parsed); err == nil {
-			for _, p := range parsed.Properties {
-				if p.Name != property {
-					continue
-				}
-				for _, idx := range p.Indexes {
-					if idx.Status == "indexing" {
-						t.Logf("observed indexing state for %s/%s (type=%s)", collection, property, idx.Type)
-						return
-					}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return false
+		}
+		for _, p := range parsed.Properties {
+			if p.Name != property {
+				continue
+			}
+			for _, idx := range p.Indexes {
+				if idx.Status == "indexing" {
+					t.Logf("observed indexing state for %s/%s (type=%s)", collection, property, idx.Type)
+					return true
 				}
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
+		return false
+	}
+	// Check once immediately, then on every tick until the deadline.
+	if observe() {
+		return
+	}
+	for time.Now().Before(deadline) {
+		<-ticker.C
+		if observe() {
+			return
+		}
 	}
 	t.Logf("warning: did not observe indexing state for %s/%s within deadline; migration may have completed too fast for the test fixture", collection, property)
 }

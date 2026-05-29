@@ -47,7 +47,6 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 
 	filteredAliases := filter.New[*models.Alias](h.Authorizer, h.config.Authorization.Rbac).Filter(
 		ctx,
-		h.logger,
 		principal,
 		aliases,
 		authorization.READ,

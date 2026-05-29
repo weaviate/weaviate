@@ -137,7 +137,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		}
 	}
 	// docs: https://casbin.org/docs/function/
-	enforcer.AddFunction("namespaceAwareMatcher", namespaceAwareMatcherFunc)
+	enforcer.AddFunction("namespaceAwareMatcher", makeNamespaceAwareMatcherFunc(namespacesEnabled))
 
 	if err := applyPredefinedRoles(enforcer, conf, authNconf, namespacesEnabled); err != nil {
 		return nil, errors.Wrapf(err, "apply env config")
@@ -284,6 +284,7 @@ var (
 	schemaCollectionsPrefix  = authorization.SchemaDomain + "/collections/"
 	dataCollectionsPrefix    = authorization.DataDomain + "/collections/"
 	aliasesCollectionsPrefix = authorization.AliasesDomain + "/collections/"
+	usersPrefix              = authorization.UsersDomain + "/"
 )
 
 const (
@@ -323,6 +324,11 @@ func findNamespaceSegments(path string) (start, end int, hasAlias bool) {
 		}
 		s := len(aliasesCollectionsPrefix)
 		return s, s + idx, true
+	}
+	// users/<id> is terminal — the id runs to end of string (no /shards/ or
+	// /aliases/ delimiter like the collection shapes above).
+	if _, ok := strings.CutPrefix(path, usersPrefix); ok {
+		return len(usersPrefix), len(path), false
 	}
 	return 0, 0, false
 }
@@ -474,11 +480,17 @@ func namespaceAwareMatcher(reqObj, polObj, ns string) bool {
 	return weaviateKeyMatch(reqObj, rewritten)
 }
 
-func namespaceAwareMatcherFunc(args ...any) (any, error) {
-	reqObj := args[0].(string)
-	polObj := args[1].(string)
-	ns := args[2].(string)
-	return namespaceAwareMatcher(reqObj, polObj, ns), nil
+func makeNamespaceAwareMatcherFunc(namespacesEnabled bool) func(args ...any) (any, error) {
+	return func(args ...any) (any, error) {
+		reqObj := args[0].(string)
+		polObj := args[1].(string)
+		ns := args[2].(string)
+		// NS-disabled empty-ns path: a ':' here is an OIDC username char, not a namespace prefix, so match plainly.
+		if !namespacesEnabled && ns == "" {
+			return weaviateKeyMatch(reqObj, polObj), nil
+		}
+		return namespaceAwareMatcher(reqObj, polObj, ns), nil
+	}
 }
 
 func getVersion(path string) (string, error) {

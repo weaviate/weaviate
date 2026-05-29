@@ -156,7 +156,7 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 			return filtFalse && rangeFalse
 		}
 		return false
-	}, 30*time.Second, 250*time.Millisecond,
+	}, 30*time.Second, 50*time.Millisecond,
 		"both IndexFilterable and IndexRangeFilters must be false after DELETE")
 
 	// Step 3: fire both PUTs in parallel.
@@ -271,7 +271,7 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 				return p.IndexRangeFilters != nil && *p.IndexRangeFilters
 			}
 			return false
-		}, 60*time.Second, 250*time.Millisecond,
+		}, 60*time.Second, 50*time.Millisecond,
 			"schema flag for the accepted %s migration must flip before retrying the rejected one — "+
 				"FINISHED status alone is not sufficient", acceptedLabel)
 	}
@@ -288,7 +288,7 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 		require.Eventually(t, func() bool {
 			retryStatus, retryTaskID, retryBody = submitIndexUpdateRaw(t, restURI, collection, propName, body)
 			return retryStatus == http.StatusAccepted
-		}, 60*time.Second, 1*time.Second,
+		}, 60*time.Second, 50*time.Millisecond,
 			"retry of %s after the in-flight task finished must eventually be accepted; "+
 				"last response was status=%d body=%s", r.label, retryStatus, retryBody)
 		require.NoError(t, awaitTask(t, restURI, retryTaskID, 3*time.Minute),
@@ -310,7 +310,7 @@ func TestParallelEnableFilterableAndRangeable(t *testing.T) {
 			return filtOn && rangeOn
 		}
 		return false
-	}, 60*time.Second, 500*time.Millisecond,
+	}, 60*time.Second, 50*time.Millisecond,
 		"both IndexFilterable and IndexRangeFilters must be true after both migrations finish")
 
 	// Step 8: queries against both buckets must return data. The filterable

@@ -702,12 +702,18 @@ var tenantSafeActions = []string{
 // non-self-scoping MCP tool would require revisiting this.
 var tenantSafeMcpActions = []string{CreateMcp, ReadMcp, UpdateMcp}
 
+// tenantSafeUserActions is the user-CRUD subset granted alongside the
+// namespace-bearing actions. AssignAndRevokeUsers is excluded.
+var tenantSafeUserActions = []string{
+	CreateUsers, ReadUsers, UpdateUsers, DeleteUsers,
+}
+
 // tenantSafeAdminPermissions returns the narrowed admin shape for
-// namespace-enabled clusters: CRUD over the namespace-bearing domains plus MCP.
-// Cluster-only domains (backups, replicate, nodes, cluster, users, roles,
-// groups, namespaces) are excluded.
+// namespace-enabled clusters: CRUD over the namespace-bearing domains plus
+// MCP and user CRUD. Cluster-only domains (backups, replicate, nodes,
+// cluster, roles, groups, namespaces) and AssignAndRevokeUsers are excluded.
 func tenantSafeAdminPermissions() []*models.Permission {
-	perms := make([]*models.Permission, 0, len(tenantSafeActions)+len(tenantSafeMcpActions))
+	perms := make([]*models.Permission, 0, len(tenantSafeActions)+len(tenantSafeMcpActions)+len(tenantSafeUserActions))
 	for _, action := range tenantSafeActions {
 		perms = append(perms, &models.Permission{
 			Action:      &action,
@@ -719,6 +725,12 @@ func tenantSafeAdminPermissions() []*models.Permission {
 	}
 	for _, action := range tenantSafeMcpActions {
 		perms = append(perms, &models.Permission{Action: &action})
+	}
+	for _, action := range tenantSafeUserActions {
+		perms = append(perms, &models.Permission{
+			Action: &action,
+			Users:  AllUsers,
+		})
 	}
 	return perms
 }
@@ -744,6 +756,12 @@ func tenantSafeViewerPermissions() []*models.Permission {
 			continue
 		}
 		perms = append(perms, &models.Permission{Action: &action})
+	}
+	for _, action := range tenantSafeUserActions {
+		if strings.ToUpper(action)[0] != READ[0] {
+			continue
+		}
+		perms = append(perms, &models.Permission{Action: &action, Users: AllUsers})
 	}
 	return perms
 }

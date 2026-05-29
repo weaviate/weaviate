@@ -158,6 +158,11 @@ type asyncReplicationSchedulerMetrics struct {
 	queueDepth prometheus.Gauge
 	// workerPoolSize is the current target worker pool size.
 	workerPoolSize prometheus.Gauge
+	// reconcileFailures counts indices that failed to reconcile their async
+	// replication state with the global flag (see DB.ReconcileAsyncReplication).
+	// A non-zero rate means a cluster may be stuck partially reconciled until
+	// the next flag toggle or schema update.
+	reconcileFailures prometheus.Counter
 }
 
 func newAsyncReplicationSchedulerMetrics(prom *monitoring.PrometheusMetrics) (asyncReplicationSchedulerMetrics, error) {
@@ -215,6 +220,18 @@ func newAsyncReplicationSchedulerMetrics(prom *monitoring.PrometheusMetrics) (as
 		return m, err
 	}
 
+	m.reconcileFailures, _, err = monitoring.EnsureRegisteredMetric(
+		prom.Registerer,
+		prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "weaviate",
+			Name:      "async_replication_reconcile_failures_total",
+			Help:      "Number of indices that failed to reconcile async replication with the global AsyncReplicationDisabled flag.",
+		}),
+	)
+	if err != nil {
+		return m, err
+	}
+
 	return m, err
 }
 
@@ -245,6 +262,12 @@ func (m *asyncReplicationSchedulerMetrics) decShardsRegistered() {
 func (m *asyncReplicationSchedulerMetrics) setQueueDepth(n int) {
 	if m.monitoring {
 		m.queueDepth.Set(float64(n))
+	}
+}
+
+func (m *asyncReplicationSchedulerMetrics) addReconcileFailures(n int) {
+	if m.monitoring {
+		m.reconcileFailures.Add(float64(n))
 	}
 }
 
@@ -1145,7 +1168,8 @@ func (sched *AsyncReplicationScheduler) rebuildHashtree(s *Shard) {
 	// If Close() fired during enableAsyncReplication, or performShutdown set
 	// s.shut between the entry-time check and now, the enable touched a store
 	// being torn down or registered against a cancelled scheduler. Disable to
-	// clean up; disableAsyncReplication's fsync is bounded by hashtreeDumpTimeout.
+	// clean up; disableAsyncReplication does no disk I/O so this is bounded
+	// by the Deregister round-trip.
 	if sched.ctx.Err() != nil || s.shut.Load() {
 		s.disableAsyncReplication(sched.ctx)
 	}

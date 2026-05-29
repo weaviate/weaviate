@@ -305,6 +305,64 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 			"",
 			false,
 		},
+		// users/<id> — terminal namespace-bearing shape.
+		{
+			"ns=customer1, in-ns user, users/.* policy → match (specialize)",
+			"users/customer1:bob",
+			"users/.*",
+			"customer1",
+			true,
+		},
+		{
+			"ns=customer1, cross-ns user, users/.* policy → mismatch (cross-ns deny)",
+			"users/customer2:bob",
+			"users/.*",
+			"customer1",
+			false,
+		},
+		{
+			"ns=customer1, exact qualified user policy → match",
+			"users/customer1:bob",
+			"users/customer1:bob",
+			"customer1",
+			true,
+		},
+		{
+			"empty ns, qualified user, wildcard policy → match (any-ns widen)",
+			"users/customer1:bob",
+			"*",
+			"",
+			true,
+		},
+		{
+			"empty ns, qualified user, users/.* policy → match (any-ns widen)",
+			"users/customer1:bob",
+			"users/.*",
+			"",
+			true,
+		},
+		{
+			"empty ns, qualified user, literal users/* policy → match (/* normalized)",
+			"users/customer1:bob",
+			"users/*",
+			"",
+			true,
+		},
+		{
+			"empty ns, unqualified user, users/.* policy → passthrough match",
+			"users/bob",
+			"users/.*",
+			"",
+			true,
+		},
+		// no bleed: roles/ is not namespace-bearing, so it stays global.
+		{
+			"ns=customer1, roles/ path → not specialized (still global)",
+			"roles/editor",
+			"roles/.*",
+			"customer1",
+			true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -312,6 +370,38 @@ func TestNamespaceAwareMatcher(t *testing.T) {
 			testNamespaceAwareMatcher(t, tt.reqObj, tt.polObj, tt.ns, tt.expected)
 		})
 	}
+}
+
+// TestNamespaceAwareMatcherGate locks the namespacesEnabled gate: on
+// namespace-disabled clusters the matcher must not parse ':' as a namespace
+// prefix, because an OIDC username may legitimately contain ':' there
+// (oidc/middleware.go rejects ':' only when namespaces are enabled).
+func TestNamespaceAwareMatcherGate(t *testing.T) {
+	call := func(namespacesEnabled bool, reqObj, polObj, ns string) bool {
+		t.Helper()
+		got, err := makeNamespaceAwareMatcherFunc(namespacesEnabled)(reqObj, polObj, ns)
+		require.NoError(t, err)
+		return got.(bool)
+	}
+
+	// NS-disabled: a grant to user "a" must NOT broaden to OIDC user "x:a".
+	assert.False(t, call(false, "users/x:a", "users/a", ""),
+		"NS-disabled: grant to user 'a' must not match OIDC user 'x:a'")
+	assert.True(t, call(false, "users/bob", "users/.*", ""),
+		"NS-disabled: plain wildcard match still works")
+	assert.True(t, call(false, "schema/collections/Movies/shards/#", conv.CasbinSchema("Movies", "#"), ""),
+		"NS-disabled: collection matching unchanged")
+
+	// The gate is load-bearing: the raw namespace-aware core would wrongly match
+	// "x:a" against a grant to "a" via any-ns widening.
+	assert.True(t, namespaceAwareMatcher("users/x:a", "users/a", ""),
+		"documents the bug the gate prevents")
+
+	// NS-enabled: the gate delegates to the namespace-aware core.
+	assert.True(t, call(true, "users/customer1:bob", "users/.*", "customer1"),
+		"NS-enabled: users/.* specializes to the caller's namespace")
+	assert.False(t, call(true, "users/customer2:bob", "users/.*", "customer1"),
+		"NS-enabled: cross-namespace user access denied")
 }
 
 // TestRewriteSegment locks the contract of the per-segment rewriter directly,
@@ -519,7 +609,7 @@ func roleHasResourceVerb(rows [][]string, resourceContains, verb string) bool {
 
 // TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed asserts
 // admin/viewer on NS-enabled clusters cover only collections/data/tenants/
-// aliases plus MCP.
+// aliases plus MCP and user CRUD.
 func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T) {
 	dir := freshPolicyDir(t)
 	conf := rbacconf.Config{Enabled: true}
@@ -534,9 +624,9 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	rootRows := rolePolicies(t, m, authorization.Root)
 	readOnlyRows := rolePolicies(t, m, authorization.ReadOnly)
 
-	// admin: must contain CRUD over schema/data/aliases plus MCP; tenant rows
-	// share the schema domain. No backups/replicate/cluster/nodes/users/
-	// roles/groups/namespaces.
+	// admin: must contain CRUD over schema/data/aliases plus MCP and user
+	// CRUD; tenant rows share the schema domain. No backups/replicate/
+	// cluster/nodes/roles/groups/namespaces.
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.CREATE))
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(adminRows, "schema/collections/", authorization.UPDATE))
@@ -546,22 +636,30 @@ func TestApplyPredefinedRoles_NamespacesEnabled_AdminViewerNarrowed(t *testing.T
 	assert.True(t, roleHasResourceVerb(adminRows, conv.CasbinMcp(), authorization.CREATE))
 	assert.True(t, roleHasResourceVerb(adminRows, conv.CasbinMcp(), authorization.READ))
 	assert.True(t, roleHasResourceVerb(adminRows, conv.CasbinMcp(), authorization.UPDATE))
+	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.CREATE))
+	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.READ))
+	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.UPDATE))
+	assert.True(t, roleHasResourceVerb(adminRows, "users/", authorization.DELETE))
 	for _, prohibited := range []string{
-		"backups/", "cluster/", "nodes/", "users/", "roles/", "groups/", "namespaces/", "replicate/",
+		"backups/", "cluster/", "nodes/", "roles/", "groups/", "namespaces/", "replicate/",
 	} {
 		for _, row := range adminRows {
 			assert.NotContains(t, row[1], prohibited, "admin (NS-enabled) must not have policy on %s domain", prohibited)
 		}
 	}
+	// AssignAndRevokeUsers (verb "A" on users/) remains excluded.
+	assert.False(t, roleHasResourceVerb(adminRows, "users/", authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE),
+		"admin (NS-enabled) must not have assign_and_revoke_users")
 
 	// viewer: read-only over the same domains, no other verbs, no other
-	// domains. MCP is included as READ only.
+	// domains. MCP and users are included as READ only.
 	for _, row := range viewerRows {
 		assert.Equal(t, authorization.READ, row[2], "viewer (NS-enabled) must only have READ verb")
 	}
 	assert.True(t, roleHasResourceVerb(viewerRows, "schema/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, "data/collections/", authorization.READ))
 	assert.True(t, roleHasResourceVerb(viewerRows, conv.CasbinMcp(), authorization.READ))
+	assert.True(t, roleHasResourceVerb(viewerRows, "users/", authorization.READ))
 
 	// root and read-only keep wildcard cluster-wide policies.
 	require.Len(t, rootRows, 1)

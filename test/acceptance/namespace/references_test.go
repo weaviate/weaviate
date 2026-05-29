@@ -187,6 +187,16 @@ func TestNamespaces_References(t *testing.T) {
 		require.Len(t, resp.Payload, 1)
 		assert.Nil(t, resp.Payload[0].Result.Errors,
 			"expected no batch errors, got %+v", resp.Payload[0].Result.Errors)
+
+		// Beacons must be short for the namespaced caller.
+		gotFrom := string(resp.Payload[0].From)
+		gotTo := string(resp.Payload[0].To)
+		assert.NotContains(t, gotFrom, "customer1:",
+			"From beacon must not leak the caller's own namespace prefix: %s", gotFrom)
+		assert.NotContains(t, gotTo, "customer1:",
+			"To beacon must stay short for the caller's own namespace: %s", gotTo)
+		assert.Equal(t, "weaviate://localhost/Zoo/"+string(zooID)+"/hasAnimals", gotFrom)
+		assert.Equal(t, "weaviate://localhost/Animal/"+string(animalID), gotTo)
 	})
 
 	t.Run("batch references against cross-namespace target fail that ref", func(t *testing.T) {
@@ -430,7 +440,7 @@ func TestNamespaces_References(t *testing.T) {
 		require.NotEmpty(t, resp.Results)
 
 		var foundResolved bool
-		var resolvedName string
+		var resolvedName, resolvedTargetCollection string
 		for _, result := range resp.Results {
 			// Find our Zoo by name.
 			zooName := result.Properties.NonRefProps.Fields["name"]
@@ -442,6 +452,7 @@ func TestNamespaces_References(t *testing.T) {
 					continue
 				}
 				require.NotEmpty(t, np.Properties)
+				resolvedTargetCollection = np.Properties[0].TargetCollection
 				if v, ok := np.Properties[0].NonRefProps.Fields["name"]; ok {
 					resolvedName = v.GetTextValue()
 					if resolvedName == "habitat-lion" {
@@ -452,6 +463,34 @@ func TestNamespaces_References(t *testing.T) {
 		}
 		assert.True(t, foundResolved,
 			"gRPC ref-resolve should inline the customer1:Animal target via the source namespace; got name=%q", resolvedName)
+		assert.Equal(t, "Animal", resolvedTargetCollection,
+			"nested-ref TargetCollection must be stripped of the caller's own namespace prefix")
+
+		// Admin sees the qualified form (Strip is a no-op for globals).
+		adminReq := searchReq("customer1:Zoo", 100)
+		adminReq.Properties = &pb.PropertiesRequest{
+			NonRefProperties: []string{"name"},
+			RefProperties: []*pb.RefPropertiesRequest{{
+				ReferenceProperty: "hasAnimals",
+				Properties:        &pb.PropertiesRequest{NonRefProperties: []string{"name"}},
+			}},
+		}
+		adminResp, err := grpcClient.Search(authCtx(adminKey), adminReq)
+		require.NoError(t, err)
+		var adminResolvedTargetCollection string
+		for _, result := range adminResp.Results {
+			zooName := result.Properties.NonRefProps.Fields["name"]
+			if zooName == nil || zooName.GetTextValue() != "z-grpc" {
+				continue
+			}
+			for _, np := range result.Properties.RefProps {
+				if np.PropName == "hasAnimals" && len(np.Properties) > 0 {
+					adminResolvedTargetCollection = np.Properties[0].TargetCollection
+				}
+			}
+		}
+		assert.Equal(t, "customer1:Animal", adminResolvedTargetCollection,
+			"admin must see the qualified nested-ref TargetCollection unchanged")
 	})
 
 	t.Run("gRPC filter-by-ref via SingleTarget returns the right row on NS cluster", func(t *testing.T) {
@@ -513,6 +552,9 @@ func TestNamespaces_References(t *testing.T) {
 			if name == "zoo-with-lion" {
 				sawLion = true
 			}
+			// Filter-driven results must also emit short-form TargetCollection.
+			assert.Equal(t, "Zoo", r.Properties.TargetCollection,
+				"filter-by-ref result TargetCollection must be stripped for namespaced caller")
 		}
 		assert.True(t, sawTiger, "by-ref filter on hasAnimals.name=='filter-tiger' should return zoo-with-tiger")
 		assert.False(t, sawLion, "by-ref filter must not return zoos whose ref points to a different animal")
