@@ -18,8 +18,10 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	schemaCli "github.com/weaviate/weaviate/client/schema"
@@ -370,6 +372,115 @@ func TestNamespaces_GRPC(t *testing.T) {
 			require.NotNil(t, resp.GetSingleResult())
 			assert.Equal(t, int64(2), resp.GetSingleResult().GetObjectsCount())
 		}
+	})
+
+	// Namespace isolation for Aggregate GroupBy: each namespace sees only
+	// its own seeded buckets, and admin can still hit the qualified class.
+	t.Run("Aggregate GroupBy on a string property succeeds on NS cluster", func(t *testing.T) {
+		req := &pb.AggregateRequest{
+			Collection:   class,
+			ObjectsCount: true,
+			GroupBy:      &pb.AggregateRequest_GroupBy{Collection: class, Property: "title"},
+		}
+		bucketsFor := func(t *testing.T, key string) []string {
+			t.Helper()
+			resp, err := grpcClient.Aggregate(authCtx(key), req)
+			require.NoError(t, err)
+			groups := resp.GetGroupedResults().GetGroups()
+			require.NotEmpty(t, groups, "expected groupedResults for caller %q", key)
+			out := make([]string, 0, len(groups))
+			for _, g := range groups {
+				out = append(out, g.GroupedBy.GetText())
+			}
+			return out
+		}
+
+		buckets1 := bucketsFor(t, user1Key)
+		buckets2 := bucketsFor(t, user2Key)
+		assert.NotEqual(t, buckets1, buckets2,
+			"buckets should differ between namespaces; got %v on both", buckets1)
+
+		respAdmin, err := grpcClient.Aggregate(authCtx(adminKey), &pb.AggregateRequest{
+			Collection:   "customer1:" + class,
+			ObjectsCount: true,
+			GroupBy:      &pb.AggregateRequest_GroupBy{Collection: "customer1:" + class, Property: "title"},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, respAdmin.GetGroupedResults().GetGroups(),
+			"admin's aggregate over the qualified class must return the same shape")
+	})
+
+	// Pins a pre-existing gRPC bug: parseAggregateGroupedBy's `case string`
+	// doesn't match strfmt.URI, so ref-target buckets (MultipleRef.Beacon)
+	// never reach the strip path — confirming the aggregate-replier revert
+	// is safe. Swap the error check for the URI assertion below once the
+	// type switch is fixed.
+	t.Run("Aggregate GroupBy on a ref property: pins broken gRPC type switch", func(t *testing.T) {
+		const (
+			zoo    = "ZooGroupByRef"
+			animal = "AnimalGroupByRef"
+		)
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      animal,
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class: zoo,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "hasAnimals", DataType: []string{animal}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+zoo, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+animal, adminKey)
+		})
+
+		zooID := strfmt.UUID(uuid.New().String())
+		animalID := strfmt.UUID(uuid.New().String())
+		_, err := helper.CreateObjectWithResponseAuth(t,
+			&models.Object{ID: animalID, Class: animal, Properties: map[string]any{"name": "tigger"}}, user1Key)
+		require.NoError(t, err)
+		_, err = helper.CreateObjectWithResponseAuth(t,
+			&models.Object{ID: zooID, Class: zoo, Properties: map[string]any{"name": "z1"}}, user1Key)
+		require.NoError(t, err)
+
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + animal + "/" + string(animalID))},
+			zooID, zoo, "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		// Poll: on multi-node clusters the ref may not be visible to the
+		// aggregator immediately after AddReference returns. The bug only
+		// fires when the grouper produces a bucket, so retry until either
+		// the strfmt.URI error surfaces (bug present) or the call returns
+		// non-empty groups (bug fixed) — never trust a "no groups, no error"
+		// snapshot, which just means the ref isn't replicated yet.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			resp, err := grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
+				Collection:   zoo,
+				ObjectsCount: true,
+				GroupBy:      &pb.AggregateRequest_GroupBy{Collection: zoo, Property: "hasAnimals"},
+			})
+			if err != nil {
+				// Bug present (current state): pin that the type switch is
+				// the source. Loose substring match tolerates small wording
+				// changes around the same bug.
+				assert.Contains(c, err.Error(), "strfmt.URI",
+					"error must come from the prepare-reply type switch")
+				return
+			}
+			// Bug fixed: validate the short-form bucket URI premise.
+			groups := resp.GetGroupedResults().GetGroups()
+			assert.NotEmpty(c, groups, "ref not replicated to aggregate node yet")
+			const qualified = "customer1:" + animal
+			for _, g := range groups {
+				val := g.GroupedBy.GetText()
+				assert.NotContains(c, val, qualified,
+					"ref-target bucket URI must be short-form, got %q", val)
+			}
+		}, 30*time.Second, 200*time.Millisecond,
+			"ref-target group-by must either error with the strfmt.URI bug or return short-form bucket URIs once the ref replicates")
 	})
 
 	t.Run("Search and Aggregate via alias resolve per namespace", func(t *testing.T) {

@@ -122,10 +122,14 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 		// Root backs up the same namespaced class by qualified name and the backup
 		// reaches SUCCESS — a real, completed operator action.
 		const backupID = "ns-root-backup"
-		_, err = helper.CreateBackupWithAuthz(
+		okResp, err := helper.CreateBackupWithAuthz(
 			t, helper.DefaultBackupConfig(), qualified, s3Backend, backupID,
 			helper.CreateAuth(adminKey))
 		require.NoError(t, err)
+		// Root sees qualified Classes; backup endpoints are operator-only.
+		require.NotNil(t, okResp.Payload)
+		assert.Contains(t, okResp.Payload.Classes, qualified,
+			"root's backup-create response must echo the qualified class verbatim")
 		helper.ExpectBackupEventuallyCreated(t, backupID, s3Backend, helper.CreateAuth(adminKey))
 	})
 

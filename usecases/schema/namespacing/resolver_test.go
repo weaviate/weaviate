@@ -17,10 +17,13 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
@@ -881,6 +884,219 @@ func TestStripObjectResponseClass(t *testing.T) {
 			StripObjectResponseClass(tc.principal, tc.in)
 			if tc.in != nil {
 				assert.Equal(t, tc.want, tc.in.Class)
+			}
+		})
+	}
+}
+
+// uuid used for the beacon path component in the table-driven tests.
+const refBeaconUUID = "11111111-2222-3333-4444-555555555555"
+
+func TestStripRefSourceBeacon(t *testing.T) {
+	mkSrc := func(class string) *crossref.RefSource {
+		return crossref.NewSource(schema.ClassName(class), "hasAnimals", strfmt.UUID(refBeaconUUID))
+	}
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        *crossref.RefSource
+		want      strfmt.URI
+	}{
+		{
+			name:      "namespaced caller: own prefix stripped from From beacon",
+			principal: namespacedPrincipal,
+			in:        mkSrc("customer1:Zoo"),
+			want:      strfmt.URI("weaviate://localhost/Zoo/" + refBeaconUUID + "/hasAnimals"),
+		},
+		{
+			name:      "namespaced caller: foreign prefix left intact",
+			principal: namespacedPrincipal,
+			in:        mkSrc("customer2:Zoo"),
+			want:      strfmt.URI("weaviate://localhost/customer2:Zoo/" + refBeaconUUID + "/hasAnimals"),
+		},
+		{
+			name:      "namespaced caller: already-short class unchanged",
+			principal: namespacedPrincipal,
+			in:        mkSrc("Zoo"),
+			want:      strfmt.URI("weaviate://localhost/Zoo/" + refBeaconUUID + "/hasAnimals"),
+		},
+		{
+			name:      "global principal: qualified class preserved as-is",
+			principal: globalPrincipal,
+			in:        mkSrc("customer1:Zoo"),
+			want:      strfmt.URI("weaviate://localhost/customer1:Zoo/" + refBeaconUUID + "/hasAnimals"),
+		},
+		{
+			name:      "IsGlobalOperator with own-NS namespace set still skips strip",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
+			in:        mkSrc("customer1:Zoo"),
+			want:      strfmt.URI("weaviate://localhost/customer1:Zoo/" + refBeaconUUID + "/hasAnimals"),
+		},
+		{
+			name:      "nil principal: pass-through (NS-disabled cluster)",
+			principal: nil,
+			in:        mkSrc("customer1:Zoo"),
+			want:      strfmt.URI("weaviate://localhost/customer1:Zoo/" + refBeaconUUID + "/hasAnimals"),
+		},
+		{
+			name:      "nil RefSource yields empty URI",
+			principal: namespacedPrincipal,
+			in:        nil,
+			want:      "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := ""
+			if tc.in != nil {
+				before = string(tc.in.Class)
+			}
+			got := StripRefSourceBeacon(tc.principal, tc.in)
+			assert.Equal(t, tc.want, got)
+			if tc.in != nil {
+				assert.Equal(t, before, string(tc.in.Class),
+					"input RefSource must not be mutated")
+			}
+		})
+	}
+}
+
+func TestStripRefBeacon(t *testing.T) {
+	mkRef := func(class string) *crossref.Ref {
+		return &crossref.Ref{Local: true, PeerName: "localhost", Class: class, TargetID: strfmt.UUID(refBeaconUUID)}
+	}
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        *crossref.Ref
+		want      strfmt.URI
+	}{
+		{
+			name:      "namespaced caller: own prefix stripped from To beacon",
+			principal: namespacedPrincipal,
+			in:        mkRef("customer1:Animal"),
+			want:      strfmt.URI("weaviate://localhost/Animal/" + refBeaconUUID),
+		},
+		{
+			name:      "namespaced caller: short target unchanged (production path)",
+			principal: namespacedPrincipal,
+			in:        mkRef("Animal"),
+			want:      strfmt.URI("weaviate://localhost/Animal/" + refBeaconUUID),
+		},
+		{
+			name:      "namespaced caller: foreign prefix left intact",
+			principal: namespacedPrincipal,
+			in:        mkRef("customer2:Animal"),
+			want:      strfmt.URI("weaviate://localhost/customer2:Animal/" + refBeaconUUID),
+		},
+		{
+			name:      "global principal: qualified class preserved as-is",
+			principal: globalPrincipal,
+			in:        mkRef("customer1:Animal"),
+			want:      strfmt.URI("weaviate://localhost/customer1:Animal/" + refBeaconUUID),
+		},
+		{
+			name:      "IsGlobalOperator with own-NS namespace set still skips strip",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
+			in:        mkRef("customer1:Animal"),
+			want:      strfmt.URI("weaviate://localhost/customer1:Animal/" + refBeaconUUID),
+		},
+		{
+			name:      "nil principal: pass-through (NS-disabled cluster)",
+			principal: nil,
+			in:        mkRef("customer1:Animal"),
+			want:      strfmt.URI("weaviate://localhost/customer1:Animal/" + refBeaconUUID),
+		},
+		{
+			name:      "nil Ref yields empty URI",
+			principal: namespacedPrincipal,
+			in:        nil,
+			want:      "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := ""
+			if tc.in != nil {
+				before = tc.in.Class
+			}
+			got := StripRefBeacon(tc.principal, tc.in)
+			assert.Equal(t, tc.want, got)
+			if tc.in != nil {
+				assert.Equal(t, before, tc.in.Class,
+					"input Ref must not be mutated")
+			}
+		})
+	}
+}
+
+func TestStripPointingTo(t *testing.T) {
+	const beaconUUID = "11111111-2222-3333-4444-555555555555"
+	mkURI := func(class string) string {
+		return "weaviate://localhost/" + class + "/" + beaconUUID
+	}
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		in        []string
+		want      []string
+	}{
+		{
+			name:      "URI shape: own-NS stripped, foreign + short preserved",
+			principal: namespacedPrincipal,
+			in:        []string{mkURI("customer1:Animal"), mkURI("customer2:Animal"), mkURI("Global")},
+			want:      []string{mkURI("Animal"), mkURI("customer2:Animal"), mkURI("Global")},
+		},
+		{
+			// TypeAggregator path: traverser_aggregate.go sets
+			// PointingTo = property.DataType, which is qualified on NS clusters.
+			name:      "bare class shape (DataType): own-NS stripped, foreign + short preserved",
+			principal: namespacedPrincipal,
+			in:        []string{"customer1:Animal", "customer2:Plant", "Global"},
+			want:      []string{"Animal", "customer2:Plant", "Global"},
+		},
+		{
+			name:      "mixed URI + bare class shapes both stripped",
+			principal: namespacedPrincipal,
+			in:        []string{mkURI("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mkURI("Animal"), "Plant"},
+		},
+		{
+			name:      "global principal: pass-through preserves qualified view",
+			principal: globalPrincipal,
+			in:        []string{mkURI("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mkURI("customer1:Animal"), "customer1:Plant"},
+		},
+		{
+			name:      "IsGlobalOperator with own-NS namespace set still skips strip",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
+			in:        []string{mkURI("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mkURI("customer1:Animal"), "customer1:Plant"},
+		},
+		{
+			name:      "nil principal: pass-through (NS-disabled cluster)",
+			principal: nil,
+			in:        []string{mkURI("customer1:Animal"), "customer1:Plant"},
+			want:      []string{mkURI("customer1:Animal"), "customer1:Plant"},
+		},
+		{
+			name:      "empty slice returned as-is",
+			principal: namespacedPrincipal,
+			in:        []string{},
+			want:      []string{},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var before []string
+			if len(tc.in) > 0 {
+				before = make([]string, len(tc.in))
+				copy(before, tc.in)
+			}
+			got := StripPointingTo(tc.principal, tc.in)
+			assert.Equal(t, tc.want, got)
+			if len(tc.in) > 0 {
+				assert.Equal(t, before, tc.in, "input slice must not be mutated")
 			}
 		})
 	}

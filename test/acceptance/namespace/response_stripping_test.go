@@ -309,6 +309,20 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		require.Len(t, resp.Payload, 2)
 		assert.Equal(t, class, resp.Payload[0].Class)
 		assert.Equal(t, class, resp.Payload[1].Class)
+
+		// Admin sees qualified Class verbatim (strip is a no-op for globals).
+		respAdmin, err := helper.Client(t).Batch.BatchObjectsCreate(
+			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
+				Objects: []*models.Object{
+					{Class: "customer1:" + class, Properties: map[string]any{"title": "admin-a"}},
+				},
+			}),
+			helper.CreateAuth(adminKey),
+		)
+		require.NoError(t, err)
+		require.Len(t, respAdmin.Payload, 1)
+		assert.Equal(t, "customer1:"+class, respAdmin.Payload[0].Class,
+			"global admin must see the qualified Class in the batch-create response")
 	})
 
 	t.Run("batch delete response strips Match.Class", func(t *testing.T) {
@@ -337,6 +351,80 @@ func TestNamespaces_ResponseStripping_REST(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp.Payload.Match)
 		assert.Equal(t, class, resp.Payload.Match.Class)
+
+		// Admin sees qualified Match.Class verbatim (strip is a no-op for globals).
+		idAdmin := strfmt.UUID("cccc3333-4444-5555-6666-cccc33335555")
+		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID: idAdmin, Class: class, Properties: map[string]any{"title": "admin-kill"},
+		}, user1Key)
+		require.NoError(t, err)
+		killTextAdmin := "admin-kill"
+		respAdmin, err := helper.Client(t).Batch.BatchObjectsDelete(
+			batch.NewBatchObjectsDeleteParams().WithBody(&models.BatchDelete{
+				Match: &models.BatchDeleteMatch{
+					Class: "customer1:" + class,
+					Where: &models.WhereFilter{
+						Operator:  "Equal",
+						Path:      []string{"title"},
+						ValueText: &killTextAdmin,
+					},
+				},
+			}),
+			helper.CreateAuth(adminKey),
+		)
+		require.NoError(t, err)
+		require.NotNil(t, respAdmin.Payload.Match)
+		assert.Equal(t, "customer1:"+class, respAdmin.Payload.Match.Class,
+			"global admin must see the qualified Match.Class in the batch-delete response")
+	})
+
+	// Wire-shape regression for StripRefSourceBeacon / StripRefBeacon.
+	t.Run("BatchReferencesCreate response strips own-namespace prefix from From/To beacons", func(t *testing.T) {
+		const zoo, animal = "BatchRefStripZoo", "BatchRefStripAnimal"
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      animal,
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+animal, adminKey) })
+		helper.CreateClassAuth(t, &models.Class{
+			Class: zoo,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "hasAnimals", DataType: []string{animal}},
+			},
+		}, user1Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, "customer1:"+zoo, adminKey) })
+
+		zooID := strfmt.UUID("bbbb1111-2222-3333-4444-bbbb11112222")
+		animalID := strfmt.UUID("bbbb3333-4444-5555-6666-bbbb33334444")
+		_, err := helper.CreateObjectWithResponseAuth(t,
+			&models.Object{ID: zooID, Class: zoo, Properties: map[string]any{"name": "z"}}, user1Key)
+		require.NoError(t, err)
+		_, err = helper.CreateObjectWithResponseAuth(t,
+			&models.Object{ID: animalID, Class: animal, Properties: map[string]any{"name": "a"}}, user1Key)
+		require.NoError(t, err)
+
+		refs := []*models.BatchReference{{
+			From: strfmt.URI("weaviate://localhost/" + zoo + "/" + string(zooID) + "/hasAnimals"),
+			To:   strfmt.URI("weaviate://localhost/" + animal + "/" + string(animalID)),
+		}}
+		resp, err := helper.Client(t).Batch.BatchReferencesCreate(
+			batch.NewBatchReferencesCreateParams().WithBody(refs),
+			helper.CreateAuth(user1Key),
+		)
+		require.NoError(t, err)
+		require.Len(t, resp.Payload, 1)
+		require.Nil(t, resp.Payload[0].Result.Errors,
+			"expected no batch errors, got %+v", resp.Payload[0].Result.Errors)
+
+		gotFrom := string(resp.Payload[0].From)
+		gotTo := string(resp.Payload[0].To)
+		assert.NotContains(t, gotFrom, "customer1:",
+			"namespaced caller must see short From beacon: %s", gotFrom)
+		assert.NotContains(t, gotTo, "customer1:",
+			"namespaced caller must see short To beacon: %s", gotTo)
+		assert.Equal(t, "weaviate://localhost/"+zoo+"/"+string(zooID)+"/hasAnimals", gotFrom)
+		assert.Equal(t, "weaviate://localhost/"+animal+"/"+string(animalID), gotTo)
 	})
 
 	t.Run("cross-NS isolation: same short class name in both namespaces, each sees only own", func(t *testing.T) {

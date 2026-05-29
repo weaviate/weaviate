@@ -15,8 +15,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
 // SchemaManager is a single-method interface exposing alias resolution.
@@ -320,6 +323,67 @@ func StripObjectResponseClass(principal *models.Principal, obj *models.Object) {
 		return
 	}
 	obj.Class = StripOwnNamespace(principal, obj.Class)
+}
+
+// StripRefSourceBeacon returns the RefSource as a beacon URI with the
+// caller's own namespace stripped from the class. resolveNS qualifies the
+// From class before the response is built, so without this the From beacon
+// echoes the prefix back. Input is not mutated.
+func StripRefSourceBeacon(principal *models.Principal, src *crossref.RefSource) strfmt.URI {
+	if src == nil {
+		return ""
+	}
+	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+		return strfmt.URI(src.String())
+	}
+	out := *src
+	out.Class = schema.ClassName(StripOwnNamespace(principal, string(src.Class)))
+	return strfmt.URI(out.String())
+}
+
+// StripRefBeacon is the To-side counterpart of StripRefSourceBeacon.
+// Defense in depth: the target class is already short at the call site
+// (QualifyRefTarget normalises it on the write path), but a future change
+// that forgets to short-form it won't leak through here. Input is not mutated.
+func StripRefBeacon(principal *models.Principal, r *crossref.Ref) strfmt.URI {
+	if r == nil {
+		return ""
+	}
+	if principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+		return strfmt.URI(r.String())
+	}
+	out := *r
+	out.Class = StripOwnNamespace(principal, r.Class)
+	return strfmt.URI(out.String())
+}
+
+// StripPointingTo strips the caller's own NS from each entry of the gRPC
+// Reference.PointingTo field. Entries come in two shapes:
+//   - Beacon URI ("weaviate://localhost/<class>/<uuid>") — populated by
+//     refAggregator from MultipleRef.Beacon for the PointingTo aggregator.
+//     Writes normalize beacons short, but a stray qualified one is stripped
+//     here as defense in depth.
+//   - Bare class name ("customer1:Animal") — populated from property.DataType
+//     by the TypeAggregator path in traverser_aggregate.go. DataType is stored
+//     qualified on NS clusters, so this entry IS a live leak vector.
+//
+// Tries crossref.Parse first; on parse failure, falls back to treating the
+// entry as a bare class name and stripping own NS as a string prefix. Input
+// is not mutated.
+func StripPointingTo(principal *models.Principal, entries []string) []string {
+	if len(entries) == 0 || principal == nil || principal.IsGlobalOperator || principal.Namespace == "" {
+		return entries
+	}
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		if ref, err := crossref.Parse(e); err == nil {
+			ref.Class = StripOwnNamespace(principal, ref.Class)
+			out[i] = ref.String()
+			continue
+		}
+		out[i] = StripOwnNamespace(principal, e)
+	}
+	return out
 }
 
 // StripErrorMessage removes every occurrence of the principal's own

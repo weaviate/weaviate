@@ -15,16 +15,24 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type AggregateReplier struct {
 	authorizedGetDataTypeOfProp func(string) (string, error)
+	// principal drives the defense-in-depth strip on Reference.PointingTo —
+	// the only ref-shaped field the replier emits — so a stray qualified
+	// beacon doesn't leak the caller's "<ns>:" through aggregation. nil =
+	// no strip (NS-disabled / unauth contexts).
+	principal *models.Principal
 }
 
-func NewAggregateReplier(authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
+func NewAggregateReplier(principal *models.Principal, authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
 	return &AggregateReplier{
+		principal: principal,
 		authorizedGetDataTypeOfProp: func(propName string) (string, error) {
 			class, err := authorizedGetClass(string(params.ClassName))
 			if err != nil {
@@ -205,7 +213,7 @@ func (r *AggregateReplier) parseAggregationResult(propertyName string, property 
 			Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Date_{Date: dateAggregation},
 		}, nil
 	case aggregation.PropertyTypeReference:
-		referenceAggregation := parseReferenceAggregation(property.SchemaType, property.ReferenceAggregation)
+		referenceAggregation := r.parseReferenceAggregation(property.SchemaType, property.ReferenceAggregation)
 		return &pb.AggregateReply_Aggregations_Aggregation{
 			Property:    propertyName,
 			Aggregation: &pb.AggregateReply_Aggregations_Aggregation_Reference_{Reference: referenceAggregation},
@@ -346,10 +354,14 @@ func parseDateAggregation(schemaType string, in map[string]interface{}) (*pb.Agg
 	return date, nil
 }
 
-func parseReferenceAggregation(schemaType string, in aggregation.Reference) *pb.AggregateReply_Aggregations_Aggregation_Reference {
+// parseReferenceAggregation builds the gRPC reference aggregation reply.
+// PointingTo is populated two ways: stored beacons (already short via
+// write-path normalization) or bare property.DataType entries (qualified
+// on NS clusters — the real leak vector). StripPointingTo handles both.
+func (r *AggregateReplier) parseReferenceAggregation(schemaType string, in aggregation.Reference) *pb.AggregateReply_Aggregations_Aggregation_Reference {
 	return &pb.AggregateReply_Aggregations_Aggregation_Reference{
 		Type:       &schemaType,
-		PointingTo: in.PointingTo,
+		PointingTo: namespacing.StripPointingTo(r.principal, in.PointingTo),
 	}
 }
 
