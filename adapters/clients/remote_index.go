@@ -391,14 +391,14 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	sort []filters.Sort,
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
-	additional additional.Properties,
+	addProps additional.Properties,
 	targetCombination *dto.TargetCombination,
 	properties []string,
 	selection *searchparams.Selection,
 ) ([]*storobj.Object, []float32, []helpers.ShardQueryProfile, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties, selection)
+		Marshal(vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, addProps, targetCombination, properties, selection, additional.ConsistencyLevelFromCtx(ctx))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
@@ -440,6 +440,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	shard string, params aggregation.Params,
 ) (*aggregation.Result, error) {
 	// create new request
+	params.ConsistencyLevel = additional.ConsistencyLevelFromCtx(ctx)
 	body, err := clusterapi.IndicesPayloads.AggregationParams.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request payload: %w", err)
@@ -461,7 +462,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 	shardName string, filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters, limit)
+	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters, limit, additional.ConsistencyLevelFromCtx(ctx))
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal request payload")
 	}

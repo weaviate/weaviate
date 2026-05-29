@@ -822,7 +822,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, selection, err := shared.IndicesPayloads.SearchParams.
+		vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, addProps, targetCombination, props, selection, consistencyLevel, err := shared.IndicesPayloads.SearchParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -835,8 +835,9 @@ func (i *indices) postSearchObjects() http.Handler {
 			"action": "Search",
 		}).Debug("searching ...")
 
-		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
-			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props, selection)
+		ctx := additional.CtxWithConsistencyLevel(r.Context(), consistencyLevel)
+		results, dists, queryProfiles, err := i.shards.Search(ctx, index, shard,
+			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, addProps, targetCombination, props, selection)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
@@ -846,7 +847,7 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
-		resBytes, err := shared.IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, additional, queryProfiles)
+		resBytes, err := shared.IndicesPayloads.SearchResults.MarshalWithAdditional(results, dists, addProps, queryProfiles)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -944,7 +945,8 @@ func (i *indices) postAggregateObjects() http.Handler {
 			"action": "Aggregate",
 		}).Debug("aggregate ...")
 
-		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
+		ctx := additional.CtxWithConsistencyLevel(r.Context(), params.ConsistencyLevel)
+		aggRes, err := i.shards.Aggregate(ctx, index, shard, params)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
@@ -990,7 +992,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 			return
 		}
 
-		filters, limit, err := shared.IndicesPayloads.FindUUIDsParams.
+		filters, limit, consistencyLevel, err := shared.IndicesPayloads.FindUUIDsParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
@@ -1003,7 +1005,8 @@ func (i *indices) postFindUUIDs() http.Handler {
 			"action": "FindUUIDs",
 		}).Debug("find UUIDs ...")
 
-		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
+		ctx := additional.CtxWithConsistencyLevel(r.Context(), consistencyLevel)
+		results, err := i.shards.FindUUIDs(ctx, index, shard, filters, limit)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)

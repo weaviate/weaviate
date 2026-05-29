@@ -715,6 +715,7 @@ type searchParametersPayload struct {
 	TargetCombination *dto.TargetCombination       `json:"targetCombination"`
 	Properties        []string                     `json:"properties"`
 	Selection         *searchparams.Selection      `json:"selection,omitempty"`
+	ConsistencyLevel  string                       `json:"consistencyLevel"`
 }
 
 func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
@@ -771,6 +772,7 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 	selection *searchparams.Selection,
+	consistencyLevel string,
 ) ([]byte, error) {
 	var vector []float32
 	var targetVector string
@@ -783,13 +785,13 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 		}
 	}
 
-	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, selection}
+	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, selection, consistencyLevel}
 	return json.Marshal(par)
 }
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
-	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.Selection, error,
+	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, *searchparams.Selection, string, error,
 ) {
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
@@ -800,7 +802,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]models.Vector, []string, fl
 	}
 
 	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
-		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.Selection, err
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, par.TargetCombination, par.Properties, par.Selection, par.ConsistencyLevel, err
 }
 
 func (p searchParamsPayload) MIME() string {
@@ -1023,24 +1025,26 @@ func (p aggregationResultPayload) Unmarshal(in []byte) (*aggregation.Result, err
 
 type findUUIDsParamsPayload struct{}
 
-func (p findUUIDsParamsPayload) Marshal(filter *filters.LocalFilter, limit int) ([]byte, error) {
+func (p findUUIDsParamsPayload) Marshal(filter *filters.LocalFilter, limit int, consistencyLevel string) ([]byte, error) {
 	type params struct {
-		Filters *filters.LocalFilter `json:"filters"`
-		Limit   int                  `json:"limit"`
+		Filters          *filters.LocalFilter `json:"filters"`
+		Limit            int                  `json:"limit"`
+		ConsistencyLevel string               `json:"consistencyLevel"`
 	}
 
-	par := params{filter, limit}
+	par := params{filter, limit, consistencyLevel}
 	return json.Marshal(par)
 }
 
-func (p findUUIDsParamsPayload) Unmarshal(in []byte) (*filters.LocalFilter, int, error) {
+func (p findUUIDsParamsPayload) Unmarshal(in []byte) (*filters.LocalFilter, int, string, error) {
 	type findUUIDsParametersPayload struct {
-		Filters *filters.LocalFilter `json:"filters"`
-		Limit   int
+		Filters          *filters.LocalFilter `json:"filters"`
+		Limit            int
+		ConsistencyLevel string `json:"consistencyLevel"`
 	}
 	var par findUUIDsParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.Filters, par.Limit, err
+	return par.Filters, par.Limit, par.ConsistencyLevel, err
 }
 
 func (p findUUIDsParamsPayload) MIME() string {

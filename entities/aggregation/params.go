@@ -39,6 +39,9 @@ type Params struct {
 	NearObject       *searchparams.NearObject   `json:"nearObject"`
 	Hybrid           *searchparams.HybridSearch `json:"hybrid"`
 	Selection        *searchparams.Selection    `json:"selection"`
+	// ConsistencyLevel lets a remote-executed aggregation resolve nested
+	// reference filters at the parent query's consistency level.
+	ConsistencyLevel string `json:"consistencyLevel"`
 }
 
 func (p *Params) UnmarshalJSON(data []byte) error {
