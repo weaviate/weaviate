@@ -264,10 +264,10 @@ func Test_payloads_consistencyLevelRoundTrip(t *testing.T) {
 			name: "search params",
 			marshal: func(cl string) ([]byte, error) {
 				return searchParamsPayload{}.Marshal([]models.Vector{[]float32{1, 2, 3}}, []string{"t"}, 0, 10,
-					nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, cl)
+					nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil, cl)
 			},
 			unmarshalCL: func(in []byte) (string, error) {
-				_, _, _, _, _, _, _, _, _, _, _, _, cl, err := searchParamsPayload{}.Unmarshal(in)
+				_, _, _, _, _, _, _, _, _, _, _, _, _, cl, err := searchParamsPayload{}.Unmarshal(in)
 				return cl, err
 			},
 			noFieldJSON: `{"limit":10}`,
