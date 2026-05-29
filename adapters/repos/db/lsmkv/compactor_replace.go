@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -98,7 +99,7 @@ func newCompactorReplace(w io.WriteSeeker,
 	}
 }
 
-func (c *compactorReplace) do() error {
+func (c *compactorReplace) do(ctx context.Context) error {
 	if err := c.init(); err != nil {
 		return fmt.Errorf("init: %w", err)
 	}
@@ -108,7 +109,7 @@ func (c *compactorReplace) do() error {
 		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
 	)
 
-	kis, err := c.writeKeys(segmentFile)
+	kis, err := c.writeKeys(ctx, segmentFile)
 	if err != nil {
 		return fmt.Errorf("write keys: %w", err)
 	}
@@ -154,7 +155,7 @@ func (c *compactorReplace) init() error {
 	return nil
 }
 
-func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (c *compactorReplace) writeKeys(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
 	res1, err1 := c.c1.first()
 	res2, err2 := c.c2.first()
 
@@ -163,7 +164,13 @@ func (c *compactorReplace) writeKeys(f *segmentindex.SegmentFile) ([]segmentinde
 
 	kis := make([]segmentindex.Key, 0, c.c1.keyCount()+c.c2.keyCount())
 
-	for {
+	for i := 0; ; i++ {
+		if i%compactor.AbortCheckEveryN == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, fmt.Errorf("merge keys: %w", err)
+			}
+		}
+
 		var key1, key2 []byte
 		if res1 != nil {
 			key1 = res1.primaryKey

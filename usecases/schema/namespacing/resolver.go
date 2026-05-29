@@ -104,6 +104,16 @@ func QualifyRefTarget(principal *models.Principal, namespacesEnabled bool, sourc
 	return qualified, short, nil
 }
 
+// QualifyUserIDForLookup returns the storage key for a user lookup —
+// raw passthrough for NS-disabled / global principals, prepended with
+// principal.Namespace for a namespaced principal.
+func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool, raw string) string {
+	if !namespacesEnabled || principal == nil || principal.Namespace == "" {
+		return raw
+	}
+	return QualifiedName(principal.Namespace, raw)
+}
+
 // Resolve is the read-side entry point used everywhere a user-supplied
 // class/alias name needs to become an internal class name:
 //

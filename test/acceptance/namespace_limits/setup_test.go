@@ -81,7 +81,7 @@ func createNamespacedUser(t *testing.T, userID, ns string) string {
 	var apikey string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp, err := helper.Client(t).Users.CreateUser(
-			users.NewCreateUserParams().WithUserID(userID).WithBody(users.CreateUserBody{Namespace: ns}),
+			users.NewCreateUserParams().WithUserID(ns+":"+userID).WithBody(users.CreateUserBody{}),
 			helper.CreateAuth(adminKey),
 		)
 		if !assert.NoError(c, err) {

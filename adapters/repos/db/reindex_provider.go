@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -1901,6 +1902,12 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 			continue
 		}
 		lsmPath := concrete.pathLSM()
+		// ChangeAlgorithm uses a class-level tracker dir; per-property
+		// migrationDirsForPropertyIndex deliberately omits it.
+		if payload.MigrationType == ReindexTypeChangeAlgorithm &&
+			hasUntidiedTracker(lsmPath, []string{MigrationDirSearchableMapToBlockmax}) {
+			return false
+		}
 		for _, indexType := range indexTypes {
 			for _, propName := range payload.Properties {
 				prefixes := migrationDirsForPropertyIndex(propName, indexType)
@@ -1927,7 +1934,9 @@ func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {
 		return []string{"searchable"}
 	case ReindexTypeEnableFilterable:
 		return []string{"filterable"}
-	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable,
+	case ReindexTypeChangeAlgorithm:
+		return []string{"searchable"}
+	case ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
 		ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
 		// Format-only migrations. Returning nil short-circuits
@@ -2061,22 +2070,74 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 			Info("reindex provider: enable-searchable cutover committed")
 		return nil
 
+	case ReindexTypeChangeAlgorithm:
+		// Defer until every local searchable bucket is blockmax — submit is
+		// per-property, so the class may still have map buckets.
+		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
+			return err
+		} else if defer_ {
+			return nil
+		}
+		if err := updateToBlockMaxInvertedIndexConfig(ctx, p.schemaManager, payload.Collection); err != nil {
+			return fmt.Errorf("flip UsingBlockMaxWAND: %w", err)
+		}
+		logger.Info("reindex provider: change-algorithm cutover committed")
+		return nil
+
 	default:
 		// IsSemanticMigration above gates this; reaching here is a programming error.
 		return fmt.Errorf("unexpected semantic migration type %q in task-completion", payload.MigrationType)
 	}
 }
 
+// shouldDeferBlockmaxFlip is true while any local searchable bucket is still
+// on the source (map) strategy — defers the cluster-wide flip until every
+// per-property ChangeAlgorithm has drained (weaviate/0-weaviate-issues#254).
+func (p *ReindexProvider) shouldDeferBlockmaxFlip(
+	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
+) (bool, error) {
+	if p.db == nil {
+		return false, nil
+	}
+	idx := p.db.GetIndex(entschema.ClassName(payload.Collection))
+	if idx == nil {
+		return false, fmt.Errorf("collection %q not found on this node", payload.Collection)
+	}
+	var stillMap bool
+	idx.ForEachLoadedShard(func(_ string, sh ShardLike) error {
+		concrete, err := unwrapShard(ctx, sh)
+		if err != nil {
+			return nil
+		}
+		for name, bucket := range concrete.Store().GetBucketsByName() {
+			_, indexType := GetPropNameAndIndexTypeFromBucketName(name)
+			if indexType != IndexTypePropSearchableValue {
+				continue
+			}
+			if bucket.Strategy() == lsmkv.StrategyMapCollection {
+				stillMap = true
+				return nil
+			}
+		}
+		return nil
+	})
+	if stillMap {
+		logger.Info("reindex provider: change-algorithm cutover deferred — some searchable buckets still on map (subsequent per-property migration will complete the flip)")
+		return true, nil
+	}
+	return false, nil
+}
+
 // IsSemanticMigration returns true for migration types that change query
-// behavior and therefore require the cross-replica swap barrier: every
-// shard must finish reindexing before any shard swaps. enable-rangeable
-// is intentionally NOT semantic — it predates the barrier family and
-// promoting it would change existing operator behavior.
+// behavior and therefore require the cross-replica swap barrier + cluster-
+// wide schema flip after every node has acknowledged. enable-rangeable is
+// intentionally NOT semantic — predates the barrier family.
 func IsSemanticMigration(mt ReindexMigrationType) bool {
 	return mt == ReindexTypeChangeTokenization ||
 		mt == ReindexTypeChangeTokenizationFilterable ||
 		mt == ReindexTypeEnableFilterable ||
-		mt == ReindexTypeEnableSearchable
+		mt == ReindexTypeEnableSearchable ||
+		mt == ReindexTypeChangeAlgorithm
 }
 
 // IsTokenizationChangingMigration is true for migrations that flip a

@@ -265,9 +265,8 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 	// Restart every node, one at a time, so FinalizeCompletedMigrations
 	// runs on each node's shard init.
 	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
-		t.Logf("restarting node %d between rounds", nodeIdx+1)
-		require.NoError(t, compose.StopAt(ctx, nodeIdx, nil))
-		require.NoError(t, compose.StartAt(ctx, nodeIdx))
+		t.Logf("cycling node %d between rounds", nodeIdx+1)
+		cycleNodeFast(ctx, t, compose, nodeIdx)
 
 		restartedURI := compose.GetWeaviateNode(nodeIdx + 1).URI()
 		require.Eventually(t, func() bool {

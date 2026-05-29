@@ -375,9 +375,13 @@ func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, 
 	}, 60*time.Second, 500*time.Millisecond,
 		"orphan tracker dir was not cleaned up by the post-bootstrap audit")
 
-	code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
-	assert.NotEqual(t, 0, code,
-		"orphan sidecar bucket dir was not cleaned up; got test -d exit %d", code)
+	// The sidecar dir is removed just after the tracker, so poll instead of
+	// asserting once.
+	require.Eventually(t, func() bool {
+		code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
+		return code != 0
+	}, 60*time.Second, 50*time.Millisecond,
+		"orphan sidecar bucket dir was not cleaned up by the post-bootstrap audit")
 
 	assert.EqualValues(t, preCount, moduleshelper.GetClassCount(t, className, ""),
 		"canonical data must survive the audit")

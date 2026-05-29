@@ -87,8 +87,7 @@ func assertReindexCompleteAndConsistent(
 // timeout=nil → graceful SIGTERM; non-nil → SIGKILL after expiry.
 func stopStart(ctx context.Context, t *testing.T, compose *docker.DockerCompose, nodeIdx int, timeout *time.Duration) {
 	t.Helper()
-	require.NoError(t, compose.StopAt(ctx, nodeIdx, timeout))
-	require.NoError(t, compose.StartAt(ctx, nodeIdx))
+	require.NoError(t, compose.RestartAt(ctx, nodeIdx, timeout))
 }
 
 func runRestartDuringReindex(
@@ -144,6 +143,8 @@ func TestMultiNode_CrashDuringReindex(t *testing.T) {
 func TestMultiNode_MajorityCrashDuringReindex(t *testing.T) {
 	runRestartDuringReindex(t, "MajorityCrash", 360*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
+			// StopAt+StartAt (not RestartAt) — needs both nodes down at
+			// the same time to lose RAFT quorum.
 			require.NoError(t, compose.StopAt(ctx, 2, &sigkillFast))
 			require.NoError(t, compose.StopAt(ctx, 1, &sigkillFast))
 			// Node 2 first → restores quorum with node 1 before node 3.
@@ -188,10 +189,8 @@ func TestMultiNode_RollingRestartAfterComplete(t *testing.T) {
 
 	// Rolling restart all 3 nodes one at a time.
 	for nodeIdx := 0; nodeIdx < 3; nodeIdx++ {
-		t.Logf("rolling restart: stopping node %d", nodeIdx+1)
-		require.NoError(t, compose.StopAt(ctx, nodeIdx, nil))
-		t.Logf("rolling restart: starting node %d", nodeIdx+1)
-		require.NoError(t, compose.StartAt(ctx, nodeIdx))
+		t.Logf("rolling restart: cycling node %d", nodeIdx+1)
+		cycleNodeFast(ctx, t, compose, nodeIdx)
 
 		// After restart, verify queries on the restarted node.
 		// Re-fetch URI since port mapping may change after restart.

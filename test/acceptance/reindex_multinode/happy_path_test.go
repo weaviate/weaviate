@@ -82,6 +82,9 @@ func TestMultiNode_HappyPath(t *testing.T) {
 	t.Run("MapToBlockmax", func(t *testing.T) {
 		testMapToBlockmax(t, compose)
 	})
+	t.Run("MapToBlockmaxMultiPropertyDefersFlip", func(t *testing.T) {
+		testMapToBlockmaxMultiPropertyDefersFlip(t, compose)
+	})
 	t.Run("RoaringSetRefresh", func(t *testing.T) {
 		testRoaringSetRefresh(t, compose)
 	})
@@ -91,6 +94,49 @@ func TestMultiNode_HappyPath(t *testing.T) {
 	t.Run("ChangeTokenization", func(t *testing.T) {
 		testChangeTokenization(t, compose)
 	})
+}
+
+// testMapToBlockmaxMultiPropertyDefersFlip: first property's reindex must
+// not flip UsingBlockMaxWAND while a second searchable property is still
+// on map (weaviate/0-weaviate-issues#254).
+func testMapToBlockmaxMultiPropertyDefersFlip(t *testing.T, compose *docker.DockerCompose) {
+	className := "MultiNodeBlockmaxMultiProp"
+	restURI := compose.GetWeaviateNode(1).URI()
+
+	createCollection(t, restURI, className, 3, 3, []*models.Property{
+		{Name: "title", DataType: []string{"text"}, Tokenization: "word"},
+		{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
+	})
+	defer deleteCollection(t, restURI, className)
+
+	// Baseline: flag off pre-migration.
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		require.False(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"pre-migration: UsingBlockMaxWAND must start false on node %d", i)
+	}
+
+	// Migrate "title" only — flip must defer ("body" still on map).
+	taskID1 := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "title", `{"searchable":{"algorithm":"blockmax"}}`)
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "title", "searchable", reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID1, reindexhelpers.WithTimeout(180*time.Second))
+
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		assert.False(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"after single-property reindex of 'title': UsingBlockMaxWAND must still be false on node %d (body still on map)", i)
+	}
+
+	// Migrate "body" — last property on map → guard releases, flip fires.
+	taskID2 := reindexhelpers.SubmitIndexUpdate(t, restURI, className, "body", `{"searchable":{"algorithm":"blockmax"}}`)
+	reindexhelpers.AwaitReindexViaIndexes(t, restURI, className, "body", "searchable", reindexhelpers.WithTimeout(180*time.Second))
+	reindexhelpers.AwaitReindexFinished(t, restURI, taskID2, reindexhelpers.WithTimeout(180*time.Second))
+
+	for i := 1; i <= 3; i++ {
+		cls := getClassFromNode(t, compose.GetWeaviateNode(i).URI(), className)
+		assert.True(t, cls.InvertedIndexConfig.UsingBlockMaxWAND,
+			"after last-property reindex of 'body': UsingBlockMaxWAND must now be true on node %d", i)
+	}
 }
 
 // TestMultiNode_QueryConsistencyDuringReindex pulls the query-consistency
