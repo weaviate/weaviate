@@ -26,6 +26,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -159,6 +160,16 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Prin
 	// like filtering are not affected.
 	// See: https://github.com/weaviate/weaviate/issues/2647
 	validatedID := strfmt.UUID(strings.ToLower(id.String()))
+
+	// For conditional writes (insert_if_not_exists / update_if_exists), skip
+	// the early existence check here. The shard-level check in
+	// shard_write_put.go runs inside the per-UUID lock, making it the
+	// race-safe authoritative gate. The early check would return
+	// ErrInvalidUserInput before the conditional outcome (ErrPreconditionFailed)
+	// is evaluated — masking the semantic result the caller expects.
+	if cond := storobj.ConditionalFromContext(ctx); !cond.IsZero() {
+		return validatedID, nil
+	}
 
 	exists, err := m.vectorRepo.Exists(ctx, className, validatedID, repl, tenant)
 	if exists {

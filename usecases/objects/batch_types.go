@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // BatchObject is a helper type that groups all the info about one object in a
@@ -35,6 +36,11 @@ type BatchObject struct {
 	Err           error
 	Object        *models.Object
 	UUID          strfmt.UUID
+	// Conditional carries the per-object precondition for a conditional write
+	// (Phase-1: insert_if_not_exists / update_if_exists). Zero value (IsZero()
+	// == true) means unconditional write. Set by the gRPC batch handler from
+	// BatchObject.conditional in the proto request.
+	Conditional storobj.Conditional
 }
 
 // BatchObjects groups many Object items together. The order matches the

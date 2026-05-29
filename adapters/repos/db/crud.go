@@ -38,6 +38,16 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	schemaVersion uint64,
 ) error {
 	object := storobj.FromObject(obj, vector, vectors, multivectors)
+
+	// Apply any per-request conditional write precondition stored in context by
+	// the wire handler (REST ?condition= / gRPC BatchObject.conditional). The
+	// Conditional field is zero by default (IsZero() == true = unconditional),
+	// so the hot path is zero-allocation: ConditionalFromContext returns a zero
+	// struct if no conditional was set, and the shard skips the check.
+	if cond := storobj.ConditionalFromContext(ctx); !cond.IsZero() {
+		object.Conditional = cond
+	}
+
 	idx := db.GetIndex(object.Class())
 	if idx == nil {
 		return fmt.Errorf("import into non-existing index for %s", object.Class())

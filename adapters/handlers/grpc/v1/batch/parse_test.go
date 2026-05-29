@@ -471,7 +471,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, origIndex, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass)
+			out, origIndex, batchErrors, _ := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass)
 			if len(tt.outError) > 0 {
 				require.NotNil(t, batchErrors)
 				if len(tt.out) > 0 {

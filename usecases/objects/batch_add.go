@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
@@ -67,18 +68,22 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 	}
 
-	return b.addObjects(ctx, principal, objects, repl, knownClasses)
+	return b.addObjects(ctx, principal, objects, repl, knownClasses, nil)
 }
 
-// AddObjectsGRPCAfterAuth bypasses the authentication in the REST endpoint as GRPC has its own checking
+// AddObjectsGRPCAfterAuth bypasses the authentication in the REST endpoint as GRPC has its own checking.
+// conditionals carries the per-object conditional precondition indexed by position in objects. A nil or
+// zero-length slice means all objects are unconditional writes.
 func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
+	conditionals []storobj.Conditional,
 ) (BatchObjects, error) {
-	return b.addObjects(ctx, principal, objects, repl, fetchedClasses)
+	return b.addObjects(ctx, principal, objects, repl, fetchedClasses, conditionals)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
+	conditionals []storobj.Conditional,
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
@@ -99,6 +104,15 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 
 	batchObjects, schemaVersion := b.validateAndGetVector(ctx, principal, objects, repl, fetchedClasses)
 	maxSchemaVersion = max(maxSchemaVersion, schemaVersion)
+
+	// Apply per-object conditionals. The conditionals slice is indexed by position
+	// in the incoming objects slice (matching batchObjects[i].OriginalIndex). Zero
+	// value conditionals (IsZero() == true) are skipped to keep the hot path clean.
+	for i := range batchObjects {
+		if i < len(conditionals) && !conditionals[i].IsZero() {
+			batchObjects[i].Conditional = conditionals[i]
+		}
+	}
 
 	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects, fetchedClasses)
 	if err != nil {

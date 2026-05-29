@@ -13,6 +13,7 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -97,7 +99,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
 		return vClass[classname].Class, nil
 	}
-	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter)
+	objs, objOriginalIndex, objectParsingErrors, conditionals := BatchObjectsFromProto(req, classGetter)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {
@@ -115,22 +117,64 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
-	response, err := h.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, replicationProperties, knownClasses)
+	response, err := h.batchManager.AddObjectsGRPCAfterAuth(ctx, principal, objs, replicationProperties, knownClasses, conditionals)
 	if err != nil {
 		return nil, err
 	}
 
+	var objectResults []*pb.BatchObjectsReply_ObjectResult
 	for i, obj := range response {
 		if obj.Err != nil {
-			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: namespacing.StripErrorMessage(principal, obj.Err.Error())})
+			var pf *objects.ErrPreconditionFailed
+			if errors.As(obj.Err, &pf) {
+				// Conditional precondition not met: surface as a per-object
+				// ConditionalWriteOutcome rather than a top-level batch error,
+				// so clients can inspect individual outcomes without treating the
+				// whole batch as failed.
+				outcome := conditionalOutcomeFromErr(pf, conditionals, i)
+				msg := pf.Reason
+				objectResults = append(objectResults, &pb.BatchObjectsReply_ObjectResult{
+					Uuid: obj.UUID.String(),
+					ConditionalResult: &pb.ConditionalWriteReply{
+						Outcome:      outcome,
+						ErrorMessage: &msg,
+					},
+				})
+			} else {
+				objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{
+					Index: int32(objOriginalIndex[i]),
+					Error: namespacing.StripErrorMessage(principal, obj.Err.Error()),
+				})
+			}
+		} else if i < len(conditionals) && !conditionals[i].IsZero() {
+			// Conditional write that succeeded: surface the INSERTED outcome.
+			objectResults = append(objectResults, &pb.BatchObjectsReply_ObjectResult{
+				Uuid: obj.UUID.String(),
+				ConditionalResult: &pb.ConditionalWriteReply{
+					Outcome: pb.ConditionalWriteOutcome_CONDITIONAL_WRITE_OUTCOME_INSERTED,
+				},
+			})
 		}
 	}
 
 	result := &pb.BatchObjectsReply{
-		Took:   float32(time.Since(before).Seconds()),
-		Errors: objErrors,
+		Took:          float32(time.Since(before).Seconds()),
+		Errors:        objErrors,
+		ObjectResults: objectResults,
 	}
 	return result, nil
+}
+
+// conditionalOutcomeFromErr maps an ErrPreconditionFailed to the proto
+// ConditionalWriteOutcome enum. It inspects the Reason string set by the shard
+// to determine whether the insert_if_not_exists condition fired (SKIPPED) or
+// another condition failed (CONDITION_FAILED).
+func conditionalOutcomeFromErr(pf *objects.ErrPreconditionFailed, conditionals []storobj.Conditional, idx int) pb.ConditionalWriteOutcome {
+	if idx < len(conditionals) && conditionals[idx].OnlyIfNotExists {
+		// insert_if_not_exists: object already existed — idempotent skip.
+		return pb.ConditionalWriteOutcome_CONDITIONAL_WRITE_OUTCOME_SKIPPED
+	}
+	return pb.ConditionalWriteOutcome_CONDITIONAL_WRITE_OUTCOME_CONDITION_FAILED
 }
 
 func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (reply *pb.BatchReferencesReply, retErr error) {

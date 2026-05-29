@@ -60,7 +60,14 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 		if err != nil {
 			return nil, fmt.Errorf("cannot process batch: cannot get vectors: %w", err)
 		}
-		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, vectors, multiVectors))
+		so := storobj.FromObject(item.Object, item.Object.Vector, vectors, multiVectors)
+		// Apply the per-object conditional precondition from the gRPC request
+		// (BatchObject.Conditional). Zero value = unconditional; the shard skips
+		// the conditional check when IsZero() is true, keeping the hot path clean.
+		if !item.Conditional.IsZero() {
+			so.Conditional = item.Conditional
+		}
+		queue.objects = append(queue.objects, so)
 		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 		objectByClass[item.Object.Class] = queue
 	}

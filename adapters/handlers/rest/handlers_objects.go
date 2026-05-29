@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/entities/storobj"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -141,18 +142,34 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	}
 	className := getClassName(params.Body)
 
-	// Detect whether the caller indicated a conditional write via the
-	// ?condition=insert_if_not_exists query parameter. The swagger spec does
-	// not yet carry this field (it is a Phase-1 addition to the OpenAPI spec
-	// being handled in a parallel child task), so we read it directly from the
-	// raw query string.
+	// Parse ?condition= query parameter and build the per-request Conditional.
+	// The swagger spec does not yet carry this field (it is a Phase-1 addition
+	// to the OpenAPI spec handled in a parallel child task), so we read it
+	// directly from the raw query string.
+	//
+	// Supported values:
+	//   insert_if_not_exists → OnlyIfNotExists = true (idempotent insert)
+	//   update_if_exists     → OnlyIfExists    = true (update-only)
+	//   (absent or empty)    → unconditional write
 	conditionalOp := params.HTTPRequest.URL.Query().Get("condition")
 	isConditional := conditionalOp != ""
 
+	var cond storobj.Conditional
+	switch conditionalOp {
+	case "insert_if_not_exists":
+		cond = storobj.Conditional{OnlyIfNotExists: true}
+	case "update_if_exists":
+		cond = storobj.Conditional{OnlyIfExists: true}
+	}
+
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	// authorizer.Authorize is called inside h.manager.AddObject with the same
-	// (CREATE, class+tenant) verb+resource as the unconditional path. The
-	// conditional check runs AFTER authorization, preserving INV-RBAC-1.
+	// Store the conditional in context so the db adapter (crud.go:PutObject) can
+	// apply it to the storobj.Object after FromObject() without changing the
+	// VectorRepo.PutObject signature. Authorization runs inside AddObject before
+	// the conditional check reaches the shard, preserving INV-RBAC-1.
+	if !cond.IsZero() {
+		ctx = storobj.ContextWithConditional(ctx, cond)
+	}
 	object, err := h.manager.AddObject(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)

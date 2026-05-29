@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -33,9 +34,15 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
+// BatchObjectsFromProto converts a gRPC BatchObjectsRequest into a slice of
+// models.Object values, an index map, a per-object error map, and a per-object
+// Conditional slice. The Conditional slice is indexed by position in the returned
+// objs slice (not by the original proto index). Callers must apply the
+// Conditional to the matching BatchObject before the batch reaches the shard.
+func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error, []storobj.Conditional) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
+	conditionals := make([]storobj.Conditional, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
 	objectErrors := make(map[int]error, len(objectsBatch))
 
@@ -130,9 +137,27 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 			ID:         strfmt.UUID(obj.Uuid),
 			Vectors:    vectors,
 		})
+		conditionals = append(conditionals, conditionalFromProto(obj.GetConditional()))
 		insertCounter += 1
 	}
-	return objs[:insertCounter], objOriginalIndex, objectErrors
+	return objs[:insertCounter], objOriginalIndex, objectErrors, conditionals[:insertCounter]
+}
+
+// conditionalFromProto maps a proto ConditionalWriteRequest (oneof condition_type)
+// to the internal storobj.Conditional. Only Phase-1 existence-check kinds are
+// handled here; Phase-2 (VersionMatch) and Phase-3 (FieldPredicate) are
+// forward-compatible stubs that remain at their zero value until their design
+// passes land.
+func conditionalFromProto(req *pb.ConditionalWriteRequest) storobj.Conditional {
+	if req == nil {
+		return storobj.Conditional{}
+	}
+	switch req.GetConditionType().(type) {
+	case *pb.ConditionalWriteRequest_InsertIfNotExists:
+		return storobj.Conditional{OnlyIfNotExists: true}
+	default:
+		return storobj.Conditional{}
+	}
 }
 
 func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_SingleTargetRefProps, props map[string]interface{}) error {
