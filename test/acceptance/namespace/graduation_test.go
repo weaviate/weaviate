@@ -26,18 +26,15 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestNamespaceGraduationE2E pins the full Stage-1 graduation journey: a
-// single Weaviate cluster hosts two namespaces, backup picks one via
-// includeUsers/include, the cluster is reset, and restore lands the
-// selected slice bare. The strip path is gated by ShouldStripNamespaces,
-// not by the target cluster's NAMESPACES_ENABLED, so a single container
-// is sufficient — bare class names survive ValidateClassName and admin
-// resolves them unchanged for an empty principal.Namespace.
+// TestNamespaceGraduationE2E pins the full Stage-1 graduation journey: back
+// up one of two namespaces, reset the cluster, restore the slice bare. A
+// single container suffices because the strip is gated by
+// ShouldStripNamespaces, not the target's NAMESPACES_ENABLED — bare names
+// survive ValidateClassName and resolve unchanged for an empty namespace.
 //
-// The negative assertions (no ns2:bob, no qualified ids surviving) pin
-// the coordinator.canCommit propagation contract: without Users wired
-// through, the participant ships a whole-cluster snapshot and these
-// assertions surface the leak loudly.
+// The negative assertions (no ns2 user, no qualified ids surviving) pin the
+// canCommit user-propagation contract: drop it and the participant snapshots
+// the whole cluster, leaking foreign-namespace users into the restore.
 func TestNamespaceGraduationE2E(t *testing.T) {
 	const (
 		ns1      = "ns1"
@@ -119,9 +116,8 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, createResp.Payload)
 	require.Equal(t, "", createResp.Payload.Error)
-	// Response surfaces what the scheduler resolved — these two assertions
-	// pass at the scheduler regardless of bug #1; the artefact's actual
-	// contents are exercised below via the user-restore assertions.
+	// The response reflects what the scheduler resolved, not the artefact's
+	// contents — those are exercised by the restore assertions below.
 	assert.ElementsMatch(t, []string{ns1 + ":Movies"}, createResp.Payload.Classes)
 	assert.ElementsMatch(t, []string{ns1 + ":alice"}, createResp.Payload.Users)
 
@@ -200,9 +196,9 @@ func TestNamespaceGraduationE2E(t *testing.T) {
 	assert.Empty(t, gotUser.Namespace, "User.Namespace must be cleared post-strip")
 	assertUserNotFound(t, ns1+":alice", adminKey)
 
-	// Foreign-namespace user absent. This is the pair audit bug #1 hides
-	// behind: without `Users: req.Users` in coordinator.canCommit, the
-	// uploader takes a whole-cluster snapshot and bob lands here too.
+	// Foreign-namespace user absent. Without Users propagated through
+	// coordinator.canCommit the participant snapshots the whole cluster and
+	// bob would land here too.
 	assertUserNotFound(t, "bob", adminKey)
 	assertUserNotFound(t, ns2+":bob", adminKey)
 

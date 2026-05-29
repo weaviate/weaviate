@@ -819,9 +819,8 @@ func TestFileWriter_Write_StripRenamesInnerIndexDir(t *testing.T) {
 	tempDir := t.TempDir()
 	shardPayload := []byte("shard-bytes")
 
-	// Build an in-memory tar carrying a single regular file under the
-	// source class's lowercased indexID. The tar reader inside
-	// readAndUnzipChunk expects the chunk to end on a clean tar EOF.
+	// Tar entry is keyed under the source class's lowercased indexID; the
+	// reader in readAndUnzipChunk needs the chunk to end on a clean tar EOF.
 	var tarBuf bytes.Buffer
 	tw := tar.NewWriter(&tarBuf)
 	require.NoError(t, tw.WriteHeader(&tar.Header{
@@ -856,7 +855,6 @@ func TestFileWriter_Write_StripRenamesInnerIndexDir(t *testing.T) {
 
 	require.NoError(t, fw.Write(context.Background(), desc, "Foo", "", "", backup.CompressionNone))
 
-	// The renamed dir holds the shard files at the new index ID.
 	renamed := filepath.Join(tempDir, TempDirectory, "Foo", "foo", "shard1", "segment.db")
 	got, err := os.ReadFile(renamed)
 	require.NoError(t, err, "shard file must be reachable under the materialized indexID")

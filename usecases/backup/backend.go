@@ -332,7 +332,6 @@ Loop:
 		return contextChecker(ctx)
 	} else if u.dynUserSourcer != nil {
 		u.log.Info("start uploading dynamic user backups")
-		// Empty u.users → zero-arg variadic → whole-cluster snapshot.
 		descrp, err := u.dynUserSourcer.Snapshot(u.users...)
 		if err != nil {
 			return err
