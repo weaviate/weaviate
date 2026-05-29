@@ -662,12 +662,13 @@ func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 // to inspect both returns — silent overwrite would corrupt credentials.
 func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	out := dbUserdata{
-		SecureKeyStorageById:    make(map[string]string, len(src.SecureKeyStorageById)),
-		IdentifierToId:          make(map[string]string, len(src.IdentifierToId)),
-		IdToIdentifier:          make(map[string]string, len(src.IdToIdentifier)),
-		Users:                   make(map[string]*User, len(src.Users)),
-		UserKeyRevoked:          make(map[string]struct{}, len(src.UserKeyRevoked)),
-		ImportedApiKeysWeakHash: make(map[string][sha256.Size]byte, len(src.ImportedApiKeysWeakHash)),
+		SecureKeyStorageById: make(map[string]string, len(src.SecureKeyStorageById)),
+		IdentifierToId:       make(map[string]string, len(src.IdentifierToId)),
+		IdToIdentifier:       make(map[string]string, len(src.IdToIdentifier)),
+		Users:                make(map[string]*User, len(src.Users)),
+		UserKeyRevoked:       make(map[string]struct{}, len(src.UserKeyRevoked)),
+		// Imported keys are never namespaced so don't need stripping
+		ImportedApiKeysWeakHash: src.ImportedApiKeysWeakHash,
 	}
 
 	for id, user := range src.Users {
@@ -713,13 +714,6 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 			return dbUserdata{}, fmt.Errorf("namespace strip would alias UserKeyRevoked under %q", newID)
 		}
 		out.UserKeyRevoked[newID] = struct{}{}
-	}
-	for id, v := range src.ImportedApiKeysWeakHash {
-		newID := namespacing.StripNamespacePrefix(id)
-		if _, exists := out.ImportedApiKeysWeakHash[newID]; exists {
-			return dbUserdata{}, fmt.Errorf("namespace strip would alias ImportedApiKeysWeakHash under %q", newID)
-		}
-		out.ImportedApiKeysWeakHash[newID] = v
 	}
 	// IdentifierToId is value-keyed by user id; rewrite the value.
 	for identifier, id := range src.IdentifierToId {
