@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	schemaCli "github.com/weaviate/weaviate/client/schema"
@@ -406,6 +407,69 @@ func TestNamespaces_GRPC(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, respAdmin.GetGroupedResults().GetGroups(),
 			"admin's aggregate over the qualified class must return the same shape")
+	})
+
+	// Pins a pre-existing gRPC bug: parseAggregateGroupedBy's `case string`
+	// doesn't match strfmt.URI, so ref-target buckets (MultipleRef.Beacon)
+	// never reach the strip path — confirming the aggregate-replier revert
+	// is safe. Swap the error check for the URI assertion below once the
+	// type switch is fixed.
+	t.Run("Aggregate GroupBy on a ref property: pins broken gRPC type switch", func(t *testing.T) {
+		const (
+			zoo    = "ZooGroupByRef"
+			animal = "AnimalGroupByRef"
+		)
+		helper.CreateClassAuth(t, &models.Class{
+			Class:      animal,
+			Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+		}, user1Key)
+		helper.CreateClassAuth(t, &models.Class{
+			Class: zoo,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "hasAnimals", DataType: []string{animal}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, "customer1:"+zoo, adminKey)
+			helper.DeleteClassAuth(t, "customer1:"+animal, adminKey)
+		})
+
+		zooID := strfmt.UUID(uuid.New().String())
+		animalID := strfmt.UUID(uuid.New().String())
+		_, err := helper.CreateObjectWithResponseAuth(t,
+			&models.Object{ID: animalID, Class: animal, Properties: map[string]any{"name": "tigger"}}, user1Key)
+		require.NoError(t, err)
+		_, err = helper.CreateObjectWithResponseAuth(t,
+			&models.Object{ID: zooID, Class: zoo, Properties: map[string]any{"name": "z1"}}, user1Key)
+		require.NoError(t, err)
+
+		_, err = helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + animal + "/" + string(animalID))},
+			zooID, zoo, "hasAnimals", "", helper.CreateAuth(user1Key))
+		require.NoError(t, err)
+
+		_, err = grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
+			Collection:   zoo,
+			ObjectsCount: true,
+			GroupBy:      &pb.AggregateRequest_GroupBy{Collection: zoo, Property: "hasAnimals"},
+		})
+		require.Error(t, err, "until the type-switch bug is fixed, ref-target group-by errors out")
+		assert.Contains(t, err.Error(), "unrecognized grouped by value type: strfmt.URI",
+			"error must come from the prepare-reply type switch; if this changes, update the test to assert the short-form bucket URI")
+
+		// Once the bug is fixed and the call succeeds, replace the above
+		// assertions with:
+		//
+		//   require.NoError(t, err, "ref-target group-by must not error out")
+		//   groups := resp.GetGroupedResults().GetGroups()
+		//   require.NotEmpty(t, groups, "expected at least one bucket")
+		//   const qualified = "customer1:" + animal
+		//   for _, g := range groups {
+		//       val := g.GroupedBy.GetText()
+		//       assert.NotContains(t, val, qualified,
+		//           "ref-target bucket URI must be short-form, got %q", val)
+		//   }
 	})
 
 	t.Run("Search and Aggregate via alias resolve per namespace", func(t *testing.T) {
