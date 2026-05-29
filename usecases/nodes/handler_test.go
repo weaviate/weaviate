@@ -150,3 +150,42 @@ func TestGetNodeStatus_VerboseFilteredAggregate(t *testing.T) {
 		require.NotNil(t, got[0].BatchStats, "BatchStats must be preserved for a fully-authorized caller")
 	})
 }
+
+// TestGetNodeStatus_ByClassDropsNodeWideBatchStats: by-class BatchStats is
+// node-wide, so a class-scoped caller must not receive it; an operator does.
+func TestGetNodeStatus_ByClassDropsNodeWideBatchStats(t *testing.T) {
+	t.Run("class-scoped caller: node-wide BatchStats dropped, class Stats untouched", func(t *testing.T) {
+		m := &Manager{
+			logger:                 logrus.New(),
+			authorizer:             classScopedAuthorizer{allowedClass: "ClassA"},
+			db:                     stubNodesDB{status: []*models.NodeStatus{twoShardNode()}},
+			rbacconfig:             rbacconf.Config{Enabled: true},
+			minimumInternalTimeout: time.Second,
+		}
+
+		got, err := m.GetNodeStatus(context.Background(), &models.Principal{}, "ClassA", "", verbosity.OutputVerbose)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+
+		assert.Nil(t, got[0].BatchStats, "node-wide BatchStats must be dropped for a class-scoped caller")
+		// Stats stays as the DB returned it — class-scoped, no recompute here.
+		require.NotNil(t, got[0].Stats)
+		assert.Equal(t, int64(30), got[0].Stats.ObjectCount)
+		assert.Equal(t, int64(2), got[0].Stats.ShardCount)
+	})
+
+	t.Run("global operator: node-wide BatchStats preserved on by-class", func(t *testing.T) {
+		m := &Manager{
+			logger:                 logrus.New(),
+			authorizer:             allowAllAuthorizer{},
+			db:                     stubNodesDB{status: []*models.NodeStatus{twoShardNode()}},
+			rbacconfig:             rbacconf.Config{Enabled: true},
+			minimumInternalTimeout: time.Second,
+		}
+
+		got, err := m.GetNodeStatus(context.Background(), &models.Principal{}, "ClassA", "", verbosity.OutputVerbose)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		require.NotNil(t, got[0].BatchStats, "operator with the node-wide grant must keep BatchStats on by-class")
+	})
+}

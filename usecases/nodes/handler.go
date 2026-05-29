@@ -97,6 +97,15 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 			}
 			status[i].BatchStats = nil
 		}
+	} else if className != "" && verbosityString == verbosity.OutputVerbose && m.rbacconfig.Enabled {
+		// The DB scopes Shards/Stats to the class, but BatchStats stays node-wide
+		// (global ingest rate/queue). Drop it for a class-scoped caller, keeping
+		// it only for an operator who also holds the node-wide minimal view.
+		if err := m.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Nodes(verbosity.OutputMinimal)...); err != nil {
+			for i := range status {
+				status[i].BatchStats = nil
+			}
+		}
 	}
 
 	return status, nil

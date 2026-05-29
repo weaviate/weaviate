@@ -56,6 +56,19 @@ func nodesGetVerbose(t *testing.T, key string) *models.NodesStatusResponse {
 	return resp.Payload
 }
 
+// nodesGetClassVerbose issues a verbose by-class query; the server resolves the
+// unqualified class to the caller's namespace.
+func nodesGetClassVerbose(t *testing.T, key, class string) *models.NodesStatusResponse {
+	t.Helper()
+	resp, err := helper.Client(t).Nodes.NodesGetClass(
+		nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(strPtr(verbosity.OutputVerbose)),
+		helper.CreateAuth(key),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Payload)
+	return resp.Payload
+}
+
 // requireMinimalForbidden asserts the node-wide minimal view (default output)
 // is denied — that path runs the upfront authorize, unlike verbose.
 func requireMinimalForbidden(t *testing.T, key string) {
@@ -140,6 +153,21 @@ func TestNamespaces_NodesEndpoint(t *testing.T) {
 
 	t.Run("namespaced admin denied node-wide minimal view", func(t *testing.T) {
 		requireMinimalForbidden(t, user1Key)
+	})
+
+	t.Run("namespaced admin by-class verbose is scoped and leaks no node-wide batch stats", func(t *testing.T) {
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			_, total := shardClassPrefixes(nodesGetClassVerbose(t, user1Key, class).Nodes)
+			assert.Positive(c, total, "ns admin should eventually see its own class shards")
+		}, 20*time.Second, 200*time.Millisecond, "ns admin by-class verbose nodes never populated")
+
+		payload := nodesGetClassVerbose(t, user1Key, class)
+		assertScopedTo(t, payload.Nodes, "customer1:")
+		// BatchStats is node-wide; a class-scoped caller must not receive it.
+		for _, n := range payload.Nodes {
+			assert.Nil(t, n.BatchStats,
+				"node %s leaked node-wide BatchStats to a class-scoped caller via by-class", n.Name)
+		}
 	})
 
 	t.Run("regular namespace viewer sees no shards and is denied minimal", func(t *testing.T) {
