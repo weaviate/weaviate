@@ -28,16 +28,10 @@ import (
 // the Gap B failure modes can be regression-tested without standing up a
 // full provider + DB + index.
 //
-// The per-prop-atomic wiring is itself a correctness fix: the previous
-// design set the overlay once-for-the-whole-shard BEFORE the per-task
-// RunSwapOnShard loop, opening a disk-I/O-sized window (across
-// RunSwapOnShard's tracker/sentinel/prop preamble) where overlay=NEW
-// while the bucket was still OLD. A BM25 query in that window tokenized
-// input with the new analyzer and looked it up in the still-old bucket,
-// returning a transiently wrong count (0 for the reverse field→word
-// case). These tests pin that the overlay is now established only when
-// the per-prop hook fires — which production invokes immediately after
-// each store.SwapBucketPointer.
+// The per-prop-atomic wiring is itself a correctness fix: these tests
+// pin that the overlay is established only when the per-prop hook fires
+// (production invokes it immediately after each store.SwapBucketPointer),
+// not eagerly at wiring time.
 //
 // The most important regression to guard against is the original
 // Copilot-review finding (PR https://github.com/weaviate/weaviate/pull/11322 review comment 3254170106):
@@ -47,9 +41,8 @@ import (
 // never runs, and TokenizationFor's self-clear-on-catchup never
 // fires (because the live schema stays at the pre-migration value
 // and never matches the overlay's target). Under per-prop-atomic
-// wiring the all-failed path never invokes the hook (no flip → no
-// set), so the overlay is never written in the first place; the
-// defensive clear remains as an idempotent backstop.
+// wiring the all-failed path never invokes the hook (no flip, no
+// set), so the defensive clear is an idempotent backstop.
 
 // fireAllPropHooks invokes the wired onPropSwapped hook for every prop
 // on every task, simulating a swap loop where every prop's bucket
@@ -79,9 +72,8 @@ func TestMaybeWirePerPropOverlaySet_TokenizationChange_WiresAndSets(t *testing.T
 	require.True(t, maybeWirePerPropOverlaySet(s, payload, tasks),
 		"change-tokenization migration with non-empty target must wire the per-prop hook")
 
-	// Wiring alone must NOT set the overlay — the disk-I/O-sized window
-	// the fix closes only exists when the overlay is set BEFORE the
-	// flip. The overlay is established only when the hook fires.
+	// Wiring alone must NOT set the overlay; it is established only when
+	// the hook fires. Setting it before the flip is the bug being fixed.
 	assert.Equal(t, "word", s.TokenizationFor("name", "word"),
 		"wiring must not pre-set the overlay; that's the bug being fixed")
 
@@ -259,7 +251,7 @@ func TestTokenizationOverlay_AllFailedSwap_EndToEndLifecycle(t *testing.T) {
 	require.True(t, wasSet)
 
 	// Step 2: simulate every per-task RunSwapOnShard returning an error
-	// BEFORE flipping any bucket pointer — the hook never fires.
+	// BEFORE flipping any bucket pointer, so the hook never fires.
 	const anySwapped = false
 
 	// Step 3: runShardSwapPhase's post-loop defensive CLEAR.

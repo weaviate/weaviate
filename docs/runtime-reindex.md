@@ -1100,12 +1100,10 @@ Lifecycle:
    `OnGroupCompleted`, between PREP and ATOMIC SWAP, installing a
    per-prop `onPropSwapped` hook on each task. The overlay for a prop
    is then SET inside the swap's Phase 2a tight loop, ATOMICALLY with
-   that prop's `store.SwapBucketPointer` flip — not once-for-the-whole-
-   shard up front. (Setting it up front opened a disk-I/O-sized window
-   across `RunSwapOnShard`'s tracker/sentinel/prop preamble where
-   overlay=NEW while the bucket was still OLD, so a query returned a
-   transiently wrong count, e.g. 0 for the reverse field→word case.)
-   Only for tokenization-changing migrations (`change-tokenization`,
+   that prop's `store.SwapBucketPointer` flip, not once-for-the-whole-
+   shard up front (which opens a disk-I/O-sized `overlay=NEW`,
+   `bucket=OLD` window across `RunSwapOnShard`'s preamble). Only for
+   tokenization-changing migrations (`change-tokenization`,
    `change-tokenization-filterable`).
 2. **Cover** — the entire Phase 2 (atomic swap + post-atomic tidy +
    `OnMigrationComplete`) runs with the overlay active. Queries see
