@@ -73,12 +73,10 @@ func TestGRPCAggregateReply_ReferenceAggregationStripsPointingTo(t *testing.T) {
 	}
 }
 
-// Pins the ref-target group-by strip (isRef=true). The bucket value is a
-// beacon URI from MultipleRef.Beacon. The grouper normalizes it to a plain
-// string (`in`), but a stray strfmt.URI (local shard that skipped JSON) must
-// strip identically, so each case is run through both dynamic types. The
-// caller's own "<ns>:" is stripped from the embedded class; foreign prefixes
-// and short beacons are left intact.
+// Pins the ref-target group-by strip (isRef=true): own "<ns>:" stripped from
+// the embedded class, foreign prefixes and short beacons left intact. Each
+// case runs through both string (grouper/remote shape) and strfmt.URI (the
+// defensive local-shard path) so they strip identically.
 func TestGRPCAggregateReply_GroupByOnRefTargetStripsOwnNamespace(t *testing.T) {
 	const uuid = "11111111-2222-3333-4444-555555555555"
 	mk := func(class string) string {
@@ -137,8 +135,6 @@ func TestGRPCAggregateReply_GroupByOnRefTargetStripsOwnNamespace(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		// string is the grouper's normalized output (and the remote-shard
-		// JSON shape); strfmt.URI is the defensive local-shard path.
 		for _, val := range []interface{}{tc.in, strfmt.URI(tc.in)} {
 			t.Run(tc.name, func(t *testing.T) {
 				replier := NewAggregateReplier(tc.principal, nil, nil)
@@ -156,11 +152,9 @@ func TestGRPCAggregateReply_GroupByOnRefTargetStripsOwnNamespace(t *testing.T) {
 	}
 }
 
-// TestGRPCAggregateReply_GroupByPassesValuesThrough pins that non-ref bucket
-// values flow unchanged (isRef=false). Group-by values can be arbitrary user
-// text (e.g. "customer1:foo"), so we must not rewrite them — including a
-// value that merely looks like a beacon, which proves the strip keys off
-// schema ref-ness, not value shape.
+// Pins that non-ref buckets (isRef=false) flow through unchanged — including
+// user text that looks like a beacon, proving the strip keys off schema
+// ref-ness, not value shape.
 func TestGRPCAggregateReply_GroupByPassesValuesThrough(t *testing.T) {
 	cases := []struct {
 		name      string

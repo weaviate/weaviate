@@ -77,11 +77,7 @@ func (r *AggregateReplier) Aggregate(res interface{}, isGroupby bool) (*pb.Aggre
 
 		if len(result.Groups) > 0 {
 			groups = make([]*pb.AggregateReply_Group, len(result.Groups))
-			// All groups share the same group-by property, so resolve its
-			// ref-ness once. Keyed on the schema rather than the bucket
-			// value's dynamic type: remote-shard results arrive with the
-			// beacon as a plain string (JSON-collapsed from strfmt.URI), so a
-			// type check would miss them and skip the NS strip.
+			// All groups share one group-by property; resolve ref-ness once.
 			var groupByIsRef bool
 			if gb := result.Groups[0].GroupedBy; gb != nil {
 				groupByIsRef = r.groupByIsRef(gb.Path)
@@ -108,11 +104,11 @@ func (r *AggregateReplier) Aggregate(res interface{}, isGroupby bool) (*pb.Aggre
 	return &pb.AggregateReply{}, nil
 }
 
-// groupByIsRef reports whether the group-by property at path is a
-// cross-reference, i.e. its bucket values are beacon URIs (from
-// MultipleRef.Beacon) rather than user text. Resolved from the schema, not
-// the value's dynamic type, so it holds for remote-shard buckets that arrive
-// as plain strings after the shard→coordinator JSON round-trip.
+// groupByIsRef reports whether the group-by property is a cross-reference
+// (its buckets are beacon URIs, not user text). Keyed on the schema, not the
+// value's type: remote-shard buckets arrive as plain strings after the
+// shard→coordinator JSON round-trip collapses strfmt.URI, so a type check
+// would miss them.
 func (r *AggregateReplier) groupByIsRef(path []string) bool {
 	if r.authorizedGetDataTypeOfProp == nil || len(path) == 0 {
 		return false
@@ -124,18 +120,14 @@ func (r *AggregateReplier) groupByIsRef(path []string) bool {
 	return schema.IsRefDataType([]string{dataType})
 }
 
-// beaconScheme is the URI scheme of a Weaviate cross-ref beacon. crossref.Parse
-// validates only the path shape + UUID, not the scheme, and Ref.String()
-// re-serializes as weaviate:// dropping any query/fragment — so we gate on the
-// scheme before rewriting to avoid mangling a non-beacon "/Class/<uuid>" URI.
 const beaconScheme = "weaviate://"
 
-// groupedByText builds a text bucket. For ref group-by (isRef) the value is a
-// beacon URI: strip the embedded class of the caller's own "<ns>:" so it
-// doesn't ride along, leaving foreign prefixes intact. Anything that isn't a
-// weaviate:// beacon passes through untouched. Non-ref values are arbitrary
-// user text and are never rewritten. Defense in depth — the write path already
-// stores beacons short, so the strip only fires if a qualified one slips through.
+// groupedByText builds a text bucket. For a ref beacon it strips the caller's
+// own "<ns>:" from the embedded class (foreign prefixes stay). The scheme
+// guard matters: crossref.Parse ignores the scheme and Ref.String() rewrites
+// to weaviate:// dropping any query/fragment, so without it a non-beacon
+// "/Class/<uuid>" URI would be mangled. Defense in depth — writes already
+// store beacons short.
 func (r *AggregateReplier) groupedByText(path []string, val string, isRef bool) *pb.AggregateReply_Group_GroupedBy {
 	if isRef && strings.HasPrefix(val, beaconScheme) {
 		if ref, err := crossref.Parse(val); err == nil {
@@ -155,10 +147,8 @@ func (r *AggregateReplier) parseAggregateGroupedBy(in *aggregation.GroupedBy, is
 		case string:
 			return r.groupedByText(in.Path, val, isRef), nil
 		case strfmt.URI:
-			// Defensive: the grouper normalizes ref beacons to plain string,
-			// so this fires only if some path still hands us the named type
-			// (e.g. a local shard whose value skipped JSON). Normalize so a
-			// stray strfmt.URI can't fall through to the default 500.
+			// Defensive: the grouper emits beacons as plain string; this only
+			// catches a stray named type so it can't fall through to the 500.
 			return r.groupedByText(in.Path, string(val), isRef), nil
 		case bool:
 			return &pb.AggregateReply_Group_GroupedBy{

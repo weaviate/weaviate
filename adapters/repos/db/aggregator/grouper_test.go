@@ -22,12 +22,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// Pins that a ref group-by emits its beacon as a plain string. The grouped
-// value is an interface{} that JSON-collapses strfmt.URI → string when it
-// crosses shard→coordinator on multi-node clusters. If the grouper emitted
-// the named strfmt.URI type instead, a local shard's bucket and a remote
-// shard's bucket for the same target would be unequal interface keys in
-// ShardCombiner.getPosOfGroup and split into two groups with halved counts.
+// Pins that a ref group-by emits its beacon as a plain string. Remote shards
+// JSON-collapse strfmt.URI → string; if the grouper kept the named type,
+// local and remote buckets for the same target would be unequal interface
+// keys in ShardCombiner and split into two groups with halved counts.
 func TestGrouper_RefBeaconEmittedAsString(t *testing.T) {
 	const beacon = "weaviate://localhost/Animal/11111111-2222-3333-4444-555555555555"
 	g := newGrouper(&Aggregator{

@@ -198,14 +198,10 @@ func (g *grouper) addElementById(s *models.PropertySchema, docID uint64) error {
 		}
 	case models.MultipleRef:
 		for i := range val {
-			// Emit the beacon as a plain string, not strfmt.URI. The grouped
-			// value is an interface{} that crosses the shard→coordinator
-			// boundary as JSON for remote shards, which decodes a strfmt.URI
-			// back into a plain string; local shards keep the named type.
-			// Different dynamic types for the same beacon are unequal
-			// interface keys, so ShardCombiner.getPosOfGroup would split one
-			// ref target into two buckets with halved counts. Normalizing to
-			// string here keeps the key identical on both paths.
+			// Emit a plain string, not strfmt.URI: remote shards JSON-decode
+			// the beacon back to string while local shards keep the named
+			// type, and the two are unequal interface keys — so ShardCombiner
+			// would split one ref target into two buckets with halved counts.
 			g.addItem(string(val[i].Beacon), docID)
 		}
 	default:

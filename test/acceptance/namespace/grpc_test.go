@@ -410,12 +410,11 @@ func TestNamespaces_GRPC(t *testing.T) {
 			"admin's aggregate over the qualified class must return the same shape")
 	})
 
-	// End-to-end check: ref-target group-by emits a short bucket URI (own-NS
-	// stripped) and merges all source objects pointing at the same target
-	// into one bucket. Several zoo objects reference the same animal so, on a
-	// multi-node cluster, sources spread across shards: the grouper must emit
-	// the beacon as a plain string on every shard (local and remote) or the
-	// combiner splits the target into multiple buckets with divided counts.
+	// End-to-end: ref-target group-by emits a short bucket URI (own-NS
+	// stripped) and merges every source into one bucket. Many zoos reference
+	// one animal so sources spread across shards on a multi-node cluster — if
+	// the beacon type differs per shard the combiner splits the target into
+	// multiple buckets with divided counts.
 	t.Run("Aggregate GroupBy on a ref property: short, merged bucket for namespaced caller", func(t *testing.T) {
 		const (
 			zoo     = "ZooGroupByRef"
@@ -454,12 +453,10 @@ func TestNamespaces_GRPC(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// short, namespace-free target beacon all sources point at
 		shortBeacon := "weaviate://localhost/" + animal + "/" + string(animalID)
 
-		// Poll: on multi-node clusters the refs may not all be visible to the
-		// aggregator immediately after AddReference returns. Retry until the
-		// counts add up to every source object.
+		// Poll: refs may not be visible to the aggregator immediately after
+		// AddReference returns on multi-node clusters.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			resp, err := grpcClient.Aggregate(authCtx(user1Key), &pb.AggregateRequest{
 				Collection:   zoo,
@@ -473,10 +470,8 @@ func TestNamespaces_GRPC(t *testing.T) {
 			if !assert.NotEmpty(c, groups, "refs not replicated to aggregate node yet") {
 				return
 			}
-			// One target referenced by every zoo → exactly one merged bucket,
-			// short-form, holding all sources. More than one bucket means the
-			// combiner split a single target across shards (strfmt.URI vs
-			// string keys).
+			// One target referenced by every zoo → one merged bucket. More
+			// than one means the combiner split it across shards.
 			if !assert.Len(c, groups, 1, "single ref target must yield one bucket, not a per-shard split") {
 				return
 			}
