@@ -234,10 +234,9 @@ func StripOwnNamespace(principal *models.Principal, name string) string {
 	return strings.TrimPrefix(name, principal.Namespace+schema.NamespaceSeparator)
 }
 
-// StripNamespacePrefix drops the leading "<namespace>:" from name. Unlike
-// [StripOwnNamespace], not principal-bound — used by graduation restore
-// where each identifier self-describes its namespace. Cuts on the first
-// separator only; bare names pass through.
+// StripNamespacePrefix drops the leading "<namespace>:" from name, cutting on
+// the first separator only; bare names pass through. Unlike [StripOwnNamespace]
+// it is not principal-bound — graduation restore strips each id by itself.
 func StripNamespacePrefix(name string) string {
 	_, after, found := strings.Cut(name, schema.NamespaceSeparator)
 	if !found {

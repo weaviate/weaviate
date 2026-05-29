@@ -547,9 +547,8 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 }
 
 // Snapshot serialises the dynamic-user state to JSON. Zero userIDs captures
-// the whole cluster (RAFT FSM snapshot and ordinary backups). A non-empty
-// userIDs is the graduation path: any id missing from c.data.Users errors,
-// so an incomplete snapshot can never reach the artefact.
+// the whole cluster (RAFT FSM, ordinary backups); a non-empty set is the
+// graduation path, where a missing id errors rather than ship incomplete.
 func (c *DBUser) Snapshot(userIDs ...string) ([]byte, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -570,9 +569,8 @@ func (c *DBUser) Snapshot(userIDs ...string) ([]byte, error) {
 	return marshal, nil
 }
 
-// filterDBUserData returns src restricted to ids. An id missing from
-// src.Users errors rather than silently dropping — the backup contract is
-// that the resolved set materialises exactly.
+// filterDBUserData returns src restricted to ids. A missing id errors rather
+// than silently dropping — the resolved set must materialise exactly.
 func filterDBUserData(src dbUserdata, ids []string) (dbUserdata, error) {
 	keep := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
@@ -619,10 +617,9 @@ func filterDBUserData(src dbUserdata, ids []string) (dbUserdata, error) {
 	return out, nil
 }
 
-// Restore replaces in-memory state with snapshot. stripNamespaces=true is
-// graduation materialization: qualified ids drop the "<namespace>:" prefix
-// and User.Namespace is cleared. A pre-strip collision (e.g. "ns1:alice"
-// alongside bare "alice") errors rather than silently overwrite credentials.
+// Restore replaces in-memory state with snapshot. stripNamespaces=true is the
+// graduation path: ids drop the "<namespace>:" prefix and User.Namespace is
+// cleared, with a collision erroring rather than overwriting credentials.
 func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -656,10 +653,9 @@ func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 	return nil
 }
 
-// stripDBUserNamespace rewrites every id-bearing field in src to drop the
-// "<namespace>:" prefix. Foreign-prefix-or-bare ids pass through. A
-// post-strip collision errors with an empty result so callers don't have
-// to inspect both returns — silent overwrite would corrupt credentials.
+// stripDBUserNamespace drops the "<namespace>:" prefix from every id-bearing
+// field; foreign-prefix or bare ids pass through. A post-strip collision
+// errors with an empty result — silent overwrite would corrupt credentials.
 func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	out := dbUserdata{
 		SecureKeyStorageById: make(map[string]string, len(src.SecureKeyStorageById)),

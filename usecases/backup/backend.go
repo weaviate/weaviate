@@ -751,12 +751,10 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
-// Write downloads files into the staging directory.
-//
-// materializedName keys the local staging dir; it differs from desc.Name
-// only under namespace-graduation restore, where the post-strip name has to
-// match the RAFT-applied RestoreClassDir lookup. chunkKey(desc.Name, ...)
-// keeps the source name — object-storage paths are immutable from upload.
+// Write downloads files into the staging directory. materializedName keys the
+// staging dir; it differs from desc.Name only under namespace-graduation
+// restore, where it must match the RAFT-applied RestoreClassDir lookup. Chunk
+// keys keep desc.Name — object-storage paths are immutable from upload.
 func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, materializedName, overrideBucket, overridePath string, compressionType backup.CompressionType) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil

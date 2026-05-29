@@ -566,9 +566,9 @@ func Backups(classes ...string) []string {
 	return resources
 }
 
-// BackupUsers is the user-scoped counterpart of [Backups]: yields
-// "backups/users/<id>". Ids are passed through verbatim (case-sensitive,
-// may be namespace-qualified). Empty/no ids default to "backups/users/*".
+// BackupUsers is the user-scoped counterpart of [Backups], yielding
+// "backups/users/<id>". Ids pass through verbatim (case-sensitive); empty
+// defaults to "backups/users/*".
 func BackupUsers(users ...string) []string {
 	if len(users) == 0 || (len(users) == 1 && (users[0] == "" || users[0] == "*")) {
 		return []string{fmt.Sprintf("%s/users/*", BackupsDomain)}

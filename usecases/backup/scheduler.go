@@ -589,9 +589,8 @@ func (s *Scheduler) resolveUsers(includeUsers []string) ([]string, error) {
 }
 
 // resolveUserSelectors mirrors class-selector semantics: '*'/'?' wildcards,
-// duplicates rejected, exact selectors must name an existing user, and a
-// non-empty selector list that matches nothing errors. Absent includeUsers
-// is handled by the caller — it is not equivalent to "all users".
+// dedup, exact selectors must exist, and a non-empty list matching nothing
+// errors. Absent includeUsers is the caller's job — not equivalent to "all".
 func resolveUserSelectors(includeUsers, allUsers []string) ([]string, error) {
 	if dup := findDuplicate(includeUsers); dup != "" {
 		return nil, fmt.Errorf("user list 'includeUsers' contains duplicate: %s", dup)

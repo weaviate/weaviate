@@ -76,10 +76,9 @@ type Selector interface {
 	Backupable(_ context.Context, classes []string) error
 }
 
-// UserLister is the user-side counterpart of Selector.ListClasses, used to
-// resolve includeUsers selectors. Returns qualified "namespace:userId" ids
-// (see apikey.MakeUserKey) — the form selectors match against. Nil means
-// dynamic DB users are not enabled.
+// UserLister resolves includeUsers selectors. ListAllUsers returns qualified
+// "namespace:userId" ids (apikey.MakeUserKey) — the form selectors match
+// against. Nil when dynamic DB users are disabled.
 type UserLister interface {
 	ListAllUsers() []string
 }
