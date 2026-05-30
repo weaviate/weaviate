@@ -25,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -292,11 +293,11 @@ func TestVersionMonotonicIncrement(t *testing.T) {
 			"write %d must succeed", expectedVersion)
 
 		// Read back and verify the version via SearchResult.
-		fetched, err := shard.ObjectByID(ctx, id, nil, nil)
+		fetched, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 		require.NoError(t, err, "fetch after write %d must succeed", expectedVersion)
 		require.NotNil(t, fetched, "object must exist after write %d", expectedVersion)
 
-		result := fetched.SearchResult(nil, "")
+		result := fetched.SearchResult(additional.Properties{}, "")
 		require.NotNil(t, result)
 		gotVersion, ok := result.AdditionalProperties["version"]
 		require.True(t, ok, "version must be in AdditionalProperties after write %d", expectedVersion)
@@ -342,10 +343,10 @@ func TestVersionCASMismatchPath(t *testing.T) {
 		"ErrPreconditionFailed.ActualVersion must reflect the stored version")
 
 	// The object must still be at version 2 (failed write must not mutate state).
-	fetched, fetchErr := shard.ObjectByID(ctx, id, nil, nil)
+	fetched, fetchErr := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 	require.NoError(t, fetchErr)
 	require.NotNil(t, fetched)
-	result := fetched.SearchResult(nil, "")
+	result := fetched.SearchResult(additional.Properties{}, "")
 	gotVersion, ok := result.AdditionalProperties["version"]
 	require.True(t, ok, "version must be in AdditionalProperties")
 	require.Equal(t, uint64(2), gotVersion,
@@ -372,11 +373,11 @@ func TestVersionCASFirstWriteSentinel(t *testing.T) {
 	// First write (unconditional). Version must be 1.
 	require.NoError(t, shard.PutObject(ctx, buildUnconditionalObject(className, id)))
 
-	fetched, err := shard.ObjectByID(ctx, id, nil, nil)
+	fetched, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 	require.NoError(t, err)
 	require.NotNil(t, fetched)
 
-	result := fetched.SearchResult(nil, "")
+	result := fetched.SearchResult(additional.Properties{}, "")
 	gotVersion, ok := result.AdditionalProperties["version"]
 	require.True(t, ok, "version must be present after first write")
 	require.Equal(t, uint64(1), gotVersion, "first write must produce Version 1")
@@ -398,10 +399,10 @@ func TestVersionCASFirstWriteSentinel(t *testing.T) {
 	require.NoError(t, shard.PutObject(ctx, obj2),
 		"if_version=0 on a new UUID must succeed (0 == stored sentinel 0)")
 
-	fetched2, err2 := shard.ObjectByID(ctx, id2, nil, nil)
+	fetched2, err2 := shard.ObjectByID(ctx, id2, nil, additional.Properties{})
 	require.NoError(t, err2)
 	require.NotNil(t, fetched2)
-	result2 := fetched2.SearchResult(nil, "")
+	result2 := fetched2.SearchResult(additional.Properties{}, "")
 	gotVersion2, ok2 := result2.AdditionalProperties["version"]
 	require.True(t, ok2)
 	require.Equal(t, uint64(1), gotVersion2, "first conditional write with if_version=0 must produce Version 1")
