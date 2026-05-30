@@ -135,5 +135,25 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, fmt.Errorf("put object: %w", err)
 	}
 
+	// Populate the server-computed new version into Additional so the REST
+	// handler can set ETag: "<newVersion>" without a follow-up GET.
+	// The new version is prevVersion + 1, matching the logic in putObjectLSM.
+	// The prev version is in obj.AdditionalProperties["version"] (set by
+	// storobj.SearchResult unconditionally). Legacy v1 objects have version 0,
+	// so their first write also produces version 1.
+	var prevVersion uint64
+	if v, ok := obj.AdditionalProperties["version"]; ok {
+		switch vt := v.(type) {
+		case uint64:
+			prevVersion = vt
+		case float64:
+			prevVersion = uint64(vt)
+		}
+	}
+	if updates.Additional == nil {
+		updates.Additional = models.AdditionalProperties{}
+	}
+	updates.Additional["version"] = prevVersion + 1
+
 	return updates, nil
 }

@@ -140,6 +140,13 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		return nil, fmt.Errorf("put object: %w", err)
 	}
 
+	// New objects always receive version 1 from putObjectLSM (prevObj == nil).
+	// Populate Additional so the REST handler can set ETag: "1" without a GET.
+	if object.Additional == nil {
+		object.Additional = models.AdditionalProperties{}
+	}
+	object.Additional["version"] = uint64(1)
+
 	return object, nil
 }
 

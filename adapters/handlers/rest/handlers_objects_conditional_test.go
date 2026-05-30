@@ -525,6 +525,91 @@ func TestIfMatchOnPutObjectSuccess(t *testing.T) {
 		"ETag on successful PUT must be the new version N+1")
 }
 
+// TestConditionalInsertCarriesETag verifies that a successful conditional POST
+// (insert_if_not_exists) returns a 201 Created with ETag set to "1" (the
+// server-minted version for a brand-new object).
+//
+// Causal link: this test catches a missing etagResponder wrap in the
+// isConditional branch of addObject. Without the wrap, the custom
+// newConditionalWriteResponder never calls rw.Header().Set("ETag", ...), so
+// the assertion on rr.Header().Get("ETag") fails with an empty string.
+func TestConditionalInsertCarriesETag(t *testing.T) {
+	newUUID := strfmt.UUID("00000000-0000-0000-0000-000000000003")
+
+	// The manager simulates a successful insert: it returns the object with
+	// additional.version = 1, which is what the fixed addObjectToConnectorAndSchema
+	// now populates before returning.
+	mgr := &conditionalFakeManager{
+		addObjectReturn: &models.Object{
+			Class: "Venue",
+			ID:    newUUID,
+			Additional: models.AdditionalProperties{
+				"version": uint64(1),
+			},
+		},
+	}
+	h := &objectHandlers{
+		manager:             mgr,
+		metricRequestsTotal: &fakeMetricRequestsTotal{},
+	}
+	req := httptest.NewRequest(http.MethodPost,
+		"/v1/objects?condition=insert_if_not_exists", nil)
+	rr := httptest.NewRecorder()
+
+	resp := h.addObject(objects.ObjectsCreateParams{
+		HTTPRequest: req,
+		Body:        &models.Object{Class: "Venue", ID: newUUID},
+	}, nil)
+	resp.WriteResponse(rr, nil)
+
+	require.Equal(t, http.StatusCreated, rr.Code,
+		"successful conditional insert must return 201 Created")
+
+	assert.Equal(t, `"1"`, rr.Header().Get("ETag"),
+		"successful conditional insert must carry ETag: \"1\" (new object version)")
+
+	var body conditionalWriteResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.Equal(t, "inserted", body.ConditionalResult.Outcome)
+}
+
+// TestUnconditionalInsertCarriesETag verifies that a plain POST (no condition
+// query param) returns 200 OK with ETag set to the object's version when the
+// manager returns a version in Additional.
+//
+// Causal link: without the etagResponder wrap on the unconditional POST return
+// path, the ETag header is absent; the assertion on rr.Header().Get("ETag")
+// catches the regression.
+func TestUnconditionalInsertCarriesETag(t *testing.T) {
+	newUUID := strfmt.UUID("00000000-0000-0000-0000-000000000004")
+
+	mgr := &conditionalFakeManager{
+		addObjectReturn: &models.Object{
+			Class: "Venue",
+			ID:    newUUID,
+			Additional: models.AdditionalProperties{
+				"version": uint64(1),
+			},
+		},
+	}
+	h := &objectHandlers{
+		manager:             mgr,
+		metricRequestsTotal: &fakeMetricRequestsTotal{},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/objects", nil)
+	rr := httptest.NewRecorder()
+
+	resp := h.addObject(objects.ObjectsCreateParams{
+		HTTPRequest: req,
+		Body:        &models.Object{Class: "Venue", ID: newUUID},
+	}, nil)
+	resp.WriteResponse(rr, runtime.JSONProducer())
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, `"1"`, rr.Header().Get("ETag"),
+		"unconditional POST must carry ETag when manager returns version in Additional")
+}
+
 // logrusHook captures log entries at or above a threshold level so tests can
 // assert that specific log levels were (or were not) emitted.
 type logrusHook struct {

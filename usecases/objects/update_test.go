@@ -179,6 +179,10 @@ func Test_UpdateObject(t *testing.T) {
 		Properties:       map[string]interface{}{"foo": "baz"},
 		CreationTimeUnix: beforeUpdate,
 		Vector:           vec,
+		// UpdateObject now populates additional.version with the new version
+		// (prevVersion + 1) so the REST handler can set ETag without a re-GET.
+		// The mock returns a prevObj with no version (= 0), so new version = 1.
+		Additional: models.AdditionalProperties{"version": uint64(1)},
 	}
 	res, err := m.UpdateObject(context.Background(), &models.Principal{}, cls, id, payload, nil)
 	require.Nil(t, err)

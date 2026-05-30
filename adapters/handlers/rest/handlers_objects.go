@@ -299,17 +299,26 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(className)
 
+	version := objectVersionFromAdditional(object)
 	if isConditional {
 		// A conditional write that succeeded (object was newly created).
 		// Return 201 Created + outcome=inserted per synthesis §6.4.
-		return newConditionalWriteResponder(http.StatusCreated,
-			conditionalWriteResponse{
-				ConditionalResult: conditionalWriteResult{
-					Outcome: "inserted",
-				},
-			})
+		// RFC 7232: a successful conditional insert SHOULD carry ETag with the
+		// new object's version (always 1 for a freshly created object).
+		return &etagResponder{
+			inner: newConditionalWriteResponder(http.StatusCreated,
+				conditionalWriteResponse{
+					ConditionalResult: conditionalWriteResult{
+						Outcome: "inserted",
+					},
+				}),
+			version: version,
+		}
 	}
-	return objects.NewObjectsCreateOK().WithPayload(object)
+	return &etagResponder{
+		inner:   objects.NewObjectsCreateOK().WithPayload(object),
+		version: version,
+	}
 }
 
 func (h *objectHandlers) validateObject(params objects.ObjectsValidateParams,
