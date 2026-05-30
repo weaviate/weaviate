@@ -996,6 +996,13 @@ func (e *objectsRequestsTotal) logError(className string, err error) {
 	var customError *uco.Error
 	switch {
 
+	case errors.Is(err, uco.ErrConditionalCheckFailed):
+		// A conditional-write precondition failure (ErrPreconditionFailed wraps
+		// ErrConditionalCheckFailed) is an expected, client-driven outcome — not a
+		// server error. Both the idempotent-skip (200 OK) and the conflict (409)
+		// paths are user-controlled; neither should surface as "unexpected error"
+		// in metrics or logs.
+		e.logUserError(className)
 	case errors.As(err, &uco.ErrMultiTenancy{}):
 		e.logUserError(className)
 	case errors.As(err, &errReplication{}), errors.As(err, &errUnregonizedProperty{}):

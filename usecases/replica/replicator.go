@@ -117,11 +117,16 @@ func (r *Replicator) PutObject(ctx context.Context,
 		return fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, replicaerrors.NewNotEnoughReplicasError(err))
 	}
 	if err := firstError(rs); err != nil {
-		r.log.WithField("op", "put").WithField("class", r.class).
-			WithField("shard", shard).WithField("uuid", obj.ID()).Error(err)
 		if precondErr := asPreconditionFailed(err); precondErr != nil {
+			// Precondition failures are expected, client-driven outcomes (e.g.
+			// insert_if_not_exists on an already-existing UUID). Log at debug so
+			// hot-key conditional workloads do not flood error dashboards.
+			r.log.WithField("op", "put").WithField("class", r.class).
+				WithField("shard", shard).WithField("uuid", obj.ID()).Debugf("precondition not met: %v", precondErr)
 			return precondErr
 		}
+		r.log.WithField("op", "put").WithField("class", r.class).
+			WithField("shard", shard).WithField("uuid", obj.ID()).Errorf("put object: %v", err)
 		return err
 	}
 	return nil

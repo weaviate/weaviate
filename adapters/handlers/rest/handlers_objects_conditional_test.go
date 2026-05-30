@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -277,4 +278,73 @@ func TestConditionalWriteRESTHandlerMessageText(t *testing.T) {
 		"detail.message must be present per §6.7 error-message-text contract")
 	assert.True(t, strings.Contains(body.Detail.Message, reason),
 		"detail.message must contain the diagnostic reason from ErrPreconditionFailed")
+}
+
+// logrusHook captures log entries at or above a threshold level so tests can
+// assert that specific log levels were (or were not) emitted.
+type logrusHook struct {
+	entries []*logrus.Entry
+}
+
+func (h *logrusHook) Levels() []logrus.Level { return logrus.AllLevels }
+func (h *logrusHook) Fire(e *logrus.Entry) error {
+	h.entries = append(h.entries, e)
+	return nil
+}
+
+// TestObjectsRequestsTotalLogErrorClassifiesPreconditionAsUserError verifies
+// that objectsRequestsTotal.logError treats ErrPreconditionFailed as a
+// user-driven outcome and does NOT emit an ERROR-level log line.
+//
+// This test catches the production log-noise bug: under a hot-key
+// insert_if_not_exists workload the old classifier fell through to the
+// default branch (logServerError) which called .Error("unexpected error"),
+// flooding error dashboards with false positives on every conditional skip.
+func TestObjectsRequestsTotalLogErrorClassifiesPreconditionAsUserError(t *testing.T) {
+	hook := &logrusHook{}
+	logger := logrus.New()
+	logger.AddHook(hook)
+	logger.SetLevel(logrus.DebugLevel)
+
+	rt := &objectsRequestsTotal{
+		restApiRequestsTotalImpl: &restApiRequestsTotalImpl{
+			metrics:   nil, // no prometheus metrics needed
+			api:       "rest",
+			queryType: "objects",
+			logger:    logger,
+		},
+	}
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "insert_if_not_exists skip (OnlyIfNotExists condition failed)",
+			err: &uco.ErrPreconditionFailed{
+				ObjectID: "00000000-0000-0000-0000-000000000001",
+				Reason:   "object already exists (OnlyIfNotExists condition failed)",
+			},
+		},
+		{
+			name: "update_if_exists conflict (OnlyIfExists condition failed)",
+			err: &uco.ErrPreconditionFailed{
+				ObjectID: "00000000-0000-0000-0000-000000000002",
+				Reason:   "object does not exist (OnlyIfExists condition failed)",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			hook.entries = nil
+			rt.logError("TestClass", tc.err)
+
+			for _, e := range hook.entries {
+				if e.Level <= logrus.ErrorLevel {
+					t.Errorf("logError emitted %s-level log for ErrPreconditionFailed; want no error log. Message: %q",
+						e.Level, e.Message)
+				}
+			}
+		})
+	}
 }
