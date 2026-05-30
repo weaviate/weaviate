@@ -2064,6 +2064,11 @@ func (s *Shard) propagateObjects(ctx context.Context, config AsyncReplicationCon
 						Vectors:                 vectors,
 						MultiVectors:            multiVectors,
 						StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
+						// Carry the locally stored Version so the target shard can
+						// preserve it rather than re-minting from its own stale
+						// prevObj. Without this, async-replication heals would reset
+						// the version to 1 on nodes that missed coordinator writes.
+						Version: obj.Version,
 					}
 
 					batch = append(batch, obj)

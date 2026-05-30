@@ -2774,6 +2774,55 @@ func (_c *MockShardLike_PutObjectBatch_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
+// PutObjectBatchPreserveVersion provides a mock function with given fields: _a0, _a1
+func (_m *MockShardLike) PutObjectBatchPreserveVersion(_a0 context.Context, _a1 []*storobj.Object) []error {
+	ret := _m.Called(_a0, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutObjectBatchPreserveVersion")
+	}
+
+	var r0 []error
+	if rf, ok := ret.Get(0).(func(context.Context, []*storobj.Object) []error); ok {
+		r0 = rf(_a0, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]error)
+		}
+	}
+
+	return r0
+}
+
+// MockShardLike_PutObjectBatchPreserveVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutObjectBatchPreserveVersion'
+type MockShardLike_PutObjectBatchPreserveVersion_Call struct {
+	*mock.Call
+}
+
+// PutObjectBatchPreserveVersion is a helper method to define mock.On call
+//   - _a0 context.Context
+//   - _a1 []*storobj.Object
+func (_e *MockShardLike_Expecter) PutObjectBatchPreserveVersion(_a0 interface{}, _a1 interface{}) *MockShardLike_PutObjectBatchPreserveVersion_Call {
+	return &MockShardLike_PutObjectBatchPreserveVersion_Call{Call: _e.mock.On("PutObjectBatchPreserveVersion", _a0, _a1)}
+}
+
+func (_c *MockShardLike_PutObjectBatchPreserveVersion_Call) Run(run func(_a0 context.Context, _a1 []*storobj.Object)) *MockShardLike_PutObjectBatchPreserveVersion_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]*storobj.Object))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_PutObjectBatchPreserveVersion_Call) Return(_a0 []error) *MockShardLike_PutObjectBatchPreserveVersion_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_PutObjectBatchPreserveVersion_Call) RunAndReturn(run func(context.Context, []*storobj.Object) []error) *MockShardLike_PutObjectBatchPreserveVersion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // QuantizedDimensions provides a mock function with given fields: ctx, targetVector, segments
 func (_m *MockShardLike) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
 	ret := _m.Called(ctx, targetVector, segments)
@@ -4823,9 +4872,9 @@ func (_c *MockShardLike_preventShutdown_Call) RunAndReturn(run func() (func(), e
 	return _c
 }
 
-// putObjectLSM provides a mock function with given fields: ctx, object, idBytes
-func (_m *MockShardLike) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
-	ret := _m.Called(ctx, object, idBytes)
+// putObjectLSM provides a mock function with given fields: ctx, object, idBytes, mintVersion
+func (_m *MockShardLike) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte, mintVersion bool) (objectInsertStatus, error) {
+	ret := _m.Called(ctx, object, idBytes, mintVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for putObjectLSM")
@@ -4833,17 +4882,17 @@ func (_m *MockShardLike) putObjectLSM(ctx context.Context, object *storobj.Objec
 
 	var r0 objectInsertStatus
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *storobj.Object, []byte) (objectInsertStatus, error)); ok {
-		return rf(ctx, object, idBytes)
+	if rf, ok := ret.Get(0).(func(context.Context, *storobj.Object, []byte, bool) (objectInsertStatus, error)); ok {
+		return rf(ctx, object, idBytes, mintVersion)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *storobj.Object, []byte) objectInsertStatus); ok {
-		r0 = rf(ctx, object, idBytes)
+	if rf, ok := ret.Get(0).(func(context.Context, *storobj.Object, []byte, bool) objectInsertStatus); ok {
+		r0 = rf(ctx, object, idBytes, mintVersion)
 	} else {
 		r0 = ret.Get(0).(objectInsertStatus)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *storobj.Object, []byte) error); ok {
-		r1 = rf(ctx, object, idBytes)
+	if rf, ok := ret.Get(1).(func(context.Context, *storobj.Object, []byte, bool) error); ok {
+		r1 = rf(ctx, object, idBytes, mintVersion)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -4860,13 +4909,14 @@ type MockShardLike_putObjectLSM_Call struct {
 //   - ctx context.Context
 //   - object *storobj.Object
 //   - idBytes []byte
-func (_e *MockShardLike_Expecter) putObjectLSM(ctx interface{}, object interface{}, idBytes interface{}) *MockShardLike_putObjectLSM_Call {
-	return &MockShardLike_putObjectLSM_Call{Call: _e.mock.On("putObjectLSM", ctx, object, idBytes)}
+//   - mintVersion bool
+func (_e *MockShardLike_Expecter) putObjectLSM(ctx interface{}, object interface{}, idBytes interface{}, mintVersion interface{}) *MockShardLike_putObjectLSM_Call {
+	return &MockShardLike_putObjectLSM_Call{Call: _e.mock.On("putObjectLSM", ctx, object, idBytes, mintVersion)}
 }
 
-func (_c *MockShardLike_putObjectLSM_Call) Run(run func(ctx context.Context, object *storobj.Object, idBytes []byte)) *MockShardLike_putObjectLSM_Call {
+func (_c *MockShardLike_putObjectLSM_Call) Run(run func(ctx context.Context, object *storobj.Object, idBytes []byte, mintVersion bool)) *MockShardLike_putObjectLSM_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*storobj.Object), args[2].([]byte))
+		run(args[0].(context.Context), args[1].(*storobj.Object), args[2].([]byte), args[3].(bool))
 	})
 	return _c
 }
@@ -4876,7 +4926,7 @@ func (_c *MockShardLike_putObjectLSM_Call) Return(_a0 objectInsertStatus, _a1 er
 	return _c
 }
 
-func (_c *MockShardLike_putObjectLSM_Call) RunAndReturn(run func(context.Context, *storobj.Object, []byte) (objectInsertStatus, error)) *MockShardLike_putObjectLSM_Call {
+func (_c *MockShardLike_putObjectLSM_Call) RunAndReturn(run func(context.Context, *storobj.Object, []byte, bool) (objectInsertStatus, error)) *MockShardLike_putObjectLSM_Call {
 	_c.Call.Return(run)
 	return _c
 }

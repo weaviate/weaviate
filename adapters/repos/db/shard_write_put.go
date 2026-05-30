@@ -43,11 +43,16 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err != nil {
 		return err
 	}
-	return s.putOne(ctx, uid, object)
+	return s.putOne(ctx, uid, object, true)
 }
 
-func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
-	status, err := s.putObjectLSM(ctx, object, uuid)
+// putOne stores a single object, updating the LSM store, vector index, and
+// inverted index. mintVersion controls whether the server-managed Version field
+// is incremented (true = originating coordinator write) or preserved as-is
+// (false = replica apply; the incoming object already carries the
+// coordinator-assigned version and must not be re-minted from the local state).
+func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object, mintVersion bool) error {
+	status, err := s.putObjectLSM(ctx, object, uuid, mintVersion)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
 	}
@@ -211,7 +216,14 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 	return obj, nil
 }
 
-func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte,
+// putObjectLSM stores the object in the LSM bucket under the per-UUID lock.
+// mintVersion=true: originating coordinator write; increment obj.Version from
+// the local prevObj (or set to 1 for a new object). The resulting version is
+// what gets serialised to disk and replicated to other nodes.
+// mintVersion=false: replica apply or async-replication heal; preserve the
+// incoming obj.Version verbatim; only ensure MarshallerVersion is upgraded to
+// 2 so the version byte is persisted on disk.
+func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes []byte, mintVersion bool,
 ) (status objectInsertStatus, err error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
@@ -320,18 +332,30 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
-		// Increment server-managed Version under the per-UUID lock so that
-		// concurrent writers see a strictly monotonic sequence. prevObj.Version
-		// is 0 for legacy v1 objects (decoded with the v1 default), making the
-		// first write to any existing object produce Version = 1.
+		// Version management under the per-UUID lock:
+		//
+		// mintVersion=true (originating coordinator write): increment from the
+		// local prevObj so concurrent writers on this node see a strictly
+		// monotonic sequence. prevObj.Version is 0 for legacy v1 objects,
+		// making the first write produce Version=1. The minted version is
+		// included in the serialised binary and propagated to all replicas, so
+		// every replica stores the same version for this write.
+		//
+		// mintVersion=false (replica apply or async-replication heal): the
+		// incoming object already carries the coordinator-minted version.
+		// Preserve obj.Version as-is; do not re-increment from the local state.
+		// Re-incrementing here is the root cause of version divergence: each
+		// replica would mint from its own stale prevObj and never converge.
+		if mintVersion {
+			if prevObj != nil {
+				obj.Version = prevObj.Version + 1
+			} else {
+				obj.Version = 1
+			}
+		}
 		// Upgrade to MarshallerVersion 2 so the Version field is included in the
 		// on-disk binary. Without this, the version is set in memory but silently
 		// dropped by MarshalBinaryDisk when MarshallerVersion == 1.
-		if prevObj != nil {
-			obj.Version = prevObj.Version + 1
-		} else {
-			obj.Version = 1
-		}
 		obj.MarshallerVersion = storobj.CurrentMarshallerVersion
 
 		objBinary, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)

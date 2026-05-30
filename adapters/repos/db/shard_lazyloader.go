@@ -262,6 +262,13 @@ func (l *LazyLoadShard) PutObjectBatch(ctx context.Context, objects []*storobj.O
 	return l.shard.PutObjectBatch(ctx, objects)
 }
 
+func (l *LazyLoadShard) PutObjectBatchPreserveVersion(ctx context.Context, objects []*storobj.Object) []error {
+	if err := l.Load(ctx); err != nil {
+		return []error{err}
+	}
+	return l.shard.PutObjectBatchPreserveVersion(ctx, objects)
+}
+
 func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
@@ -867,9 +874,9 @@ func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, d
 	return l.shard.batchDeleteObject(ctx, id, deletionTime)
 }
 
-func (l *LazyLoadShard) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
+func (l *LazyLoadShard) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte, mintVersion bool) (objectInsertStatus, error) {
 	l.mustLoad()
-	return l.shard.putObjectLSM(ctx, object, idBytes)
+	return l.shard.putObjectLSM(ctx, object, idBytes, mintVersion)
 }
 
 func (l *LazyLoadShard) mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error {

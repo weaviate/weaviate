@@ -842,11 +842,23 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 			continue
 		}
 
-		updateBatch = append(updateBatch, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+		soObj := storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors)
+		// Restore the coordinator-assigned Version carried in the VObject wire
+		// envelope. storobj.FromObject builds a new storobj from the models.Object
+		// (which has no Version field), so without this assignment the version
+		// would be zero and putObjectLSM would either mint from local prevObj or
+		// store 0 (both wrong). The VObject.Version is populated by the
+		// propagateObjects caller with the source node's stored Version so that
+		// all replicas converge to the same value after async-replication healing.
+		soObj.Version = u.Version
+		updateBatch = append(updateBatch, soObj)
 	}
 
 	if len(updateBatch) > 0 {
-		errs := s.PutObjectBatch(ctx, updateBatch)
+		// PutObjectBatchPreserveVersion preserves the incoming Version on each
+		// object instead of re-minting from local state, so this healing write
+		// does not diverge from the coordinator-assigned version.
+		errs := s.PutObjectBatchPreserveVersion(ctx, updateBatch)
 		if len(errs) != 0 {
 			for i := range errs {
 				id := updateBatch[i].ID()

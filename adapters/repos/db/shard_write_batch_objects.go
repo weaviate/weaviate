@@ -48,6 +48,28 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 	return s.putBatch(ctx, objects)
 }
 
+// PutObjectBatchPreserveVersion stores a batch of objects without re-minting
+// obj.Version. Used by async-replication healing (OverwriteObjects) so that
+// the receiving shard adopts the coordinator-assigned version rather than
+// incrementing from its own stale local prevObj.
+func (s *Shard) PutObjectBatchPreserveVersion(ctx context.Context,
+	objects []*storobj.Object,
+) []error {
+	if err := s.isReadOnly(); err != nil {
+		return []error{err}
+	}
+
+	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
+		errs := make([]error, len(objects))
+		for i := range errs {
+			errs[i] = err
+		}
+		return errs
+	}
+
+	return s.putBatchReplicaApply(ctx, objects)
+}
+
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
 // adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 // When the last batch finishes, all workers receive a shutdown signal and exit
@@ -68,6 +90,19 @@ func (s *Shard) putBatch(ctx context.Context,
 	batcher.wg.Wait()
 	s.metrics.VectorIndex(batcher.batchStartTime)
 
+	return err
+}
+
+// putBatchReplicaApply stores a batch of objects received from the coordinator
+// via the 2PC synchronous replication path. Unlike putBatch, it preserves the
+// incoming object Version (mintVersion=false) rather than re-incrementing from
+// the local prevObj, so all replicas converge to the coordinator-assigned version.
+func (s *Shard) putBatchReplicaApply(ctx context.Context, objects []*storobj.Object) []error {
+	s.activityTrackerWrite.Add(1)
+	batcher := newObjectsBatcherReplicaApply(s, s.index.logger)
+	err := batcher.Objects(ctx, objects)
+	batcher.wg.Wait()
+	s.metrics.VectorIndex(batcher.batchStartTime)
 	return err
 }
 
@@ -99,10 +134,21 @@ type objectsBatcher struct {
 	wg             sync.WaitGroup
 	batchStartTime time.Time
 	logger         logrus.FieldLogger
+	// mintVersion controls whether putObjectLSM increments obj.Version (true
+	// for originating writes) or preserves the incoming version (false for
+	// replica-apply batch and async-replication heals).
+	mintVersion bool
 }
 
 func newObjectsBatcher(s ShardLike, logger logrus.FieldLogger) *objectsBatcher {
-	return &objectsBatcher{shard: s, logger: logger}
+	return &objectsBatcher{shard: s, logger: logger, mintVersion: true}
+}
+
+// newObjectsBatcherReplicaApply returns a batcher that preserves the incoming
+// object Version rather than re-minting it. Used by preparePutObjects on
+// replica shards so all replicas store the coordinator-assigned version.
+func newObjectsBatcherReplicaApply(s ShardLike, logger logrus.FieldLogger) *objectsBatcher {
+	return &objectsBatcher{shard: s, logger: logger, mintVersion: false}
 }
 
 // Objects imports the specified objects in parallel in a batch-fashion
@@ -195,7 +241,7 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return err
 	}
 
-	status, err := ob.shard.putObjectLSM(ctx, object, idBytes)
+	status, err := ob.shard.putObjectLSM(ctx, object, idBytes, ob.mintVersion)
 	if err != nil {
 		return err
 	}

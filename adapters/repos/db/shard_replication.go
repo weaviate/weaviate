@@ -83,7 +83,12 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
-		if err := s.putOne(ctx, uuid, object); err != nil {
+		// mintVersion=false: the coordinator already minted the version on the
+		// originating node and serialised it into the object binary. Preserve
+		// the incoming obj.Version as-is; re-incrementing from the local
+		// prevObj would diverge from the coordinator-assigned version and
+		// break version convergence after node recovery.
+		if err := s.putOne(ctx, uuid, object, false); err != nil {
 			code := replicaerrors.StatusConflict
 			var precondErr *objects.ErrPreconditionFailed
 			if errors.As(err, &precondErr) {
@@ -141,7 +146,10 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 
 func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects []*storobj.Object) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
-		rawErrs := s.putBatch(ctx, objects)
+		// putBatchReplicaApply preserves the coordinator-assigned Version on each
+		// incoming object instead of re-minting from the local prevObj. See
+		// putObjectLSM (shard_write_put.go) for the full version-invariant contract.
+		rawErrs := s.putBatchReplicaApply(ctx, objects)
 		resp := replica.SimpleResponse{Errors: make([]replicaerrors.Error, len(rawErrs))}
 		for i, err := range rawErrs {
 			if err != nil {

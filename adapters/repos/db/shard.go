@@ -84,6 +84,10 @@ type ShardLike interface {
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
+	// PutObjectBatchPreserveVersion stores a batch of objects without
+	// re-minting obj.Version; used by async-replication healing so the
+	// receiving shard adopts the coordinator-assigned version.
+	PutObjectBatchPreserveVersion(context.Context, []*storobj.Object) []error
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
@@ -165,7 +169,10 @@ type ShardLike interface {
 	addJobToQueue(job job)
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
-	putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
+	// putObjectLSM stores the object in the LSM bucket. mintVersion=true for
+	// originating writes (version is incremented from local prevObj); false for
+	// replica applies and async-replication heals (incoming version preserved).
+	putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte, mintVersion bool) (objectInsertStatus, error)
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error

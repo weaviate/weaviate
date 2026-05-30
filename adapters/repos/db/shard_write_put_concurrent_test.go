@@ -408,6 +408,68 @@ func TestVersionCASFirstWriteSentinel(t *testing.T) {
 	require.Equal(t, uint64(1), gotVersion2, "first conditional write with if_version=0 must produce Version 1")
 }
 
+// TestReplicaApplyPreservesVersion verifies that a replica-apply (putOne with
+// mintVersion=false) stores exactly the Version carried by the incoming object
+// rather than re-minting from the local prevObj.
+//
+// This is the core regression test for the version-divergence bug: before the
+// fix, putObjectLSM always incremented from local prevObj (e.g. prevObj.Version=0
+// -> stored=1, ignoring the coordinator-assigned Version=7 on the wire). Each
+// replica would thus produce a different version from the same coordinator write,
+// preventing convergence after node recovery.
+//
+// Causal link: the test calls putOne(ctx, uuid, obj, false) with obj.Version=7
+// on a shard whose local prevObj has Version=0 (new object). Without the fix,
+// putObjectLSM mints Version=1 and the stored version is 1, causing
+// require.Equal(t, uint64(7), gotVersion) to fail. With the fix,
+// mintVersion=false skips the mint block and the stored version is 7.
+func TestReplicaApplyPreservesVersion(t *testing.T) {
+	ctx := context.Background()
+	className := "ReplicaApplyPreservesVersion"
+	class := &models.Class{Class: className}
+
+	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	defer func() { _ = idx.drop() }()
+
+	id := strfmt.UUID(uuid.NewString())
+	uid, err := uuid.Parse(string(id))
+	require.NoError(t, err)
+	idBytes, err := uid.MarshalBinary()
+	require.NoError(t, err)
+
+	// Build an object as if the coordinator minted Version=7.
+	const coordinatorVersion = uint64(7)
+	incomingObj := &storobj.Object{
+		MarshallerVersion: 2,
+		Version:           coordinatorVersion,
+		Object: models.Object{
+			ID:                 id,
+			Class:              className,
+			LastUpdateTimeUnix: time.Now().UnixMilli(),
+		},
+	}
+
+	// Apply as a replica (mintVersion=false). The shard has no prior object
+	// for this UUID (prevObj=nil), so without the fix putObjectLSM would mint
+	// Version=1 instead of preserving 7.
+	concrShard, ok := shard.(*Shard)
+	require.True(t, ok, "testShardWithSettings must return a *Shard for this test")
+	require.NoError(t, concrShard.putOne(ctx, idBytes, incomingObj, false),
+		"replica apply must succeed")
+
+	// Read back and verify the stored version.
+	fetched, fetchErr := shard.ObjectByID(ctx, id, nil, additional.Properties{})
+	require.NoError(t, fetchErr)
+	require.NotNil(t, fetched, "object must be stored after replica apply")
+
+	result := fetched.SearchResult(additional.Properties{}, "")
+	gotVersion, ok2 := result.AdditionalProperties["version"]
+	require.True(t, ok2, "version must be present in AdditionalProperties")
+	require.Equal(t, coordinatorVersion, gotVersion,
+		"replica-apply must store the incoming Version (%d), not re-mint from local prevObj",
+		coordinatorVersion)
+}
+
 // TestVersionCASKnownWeakTwoShards documents the Plan-A KNOWN-WEAK boundary at
 // the shard layer: two independent shard instances (simulating two coordinator
 // nodes during async-replication lag) can both observe Version=N and both pass
