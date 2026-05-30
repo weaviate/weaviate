@@ -146,23 +146,18 @@ func waitForSchemaOnAllNodes(t *testing.T, compose *docker.DockerCompose, classN
 		for time.Now().Before(deadline) {
 			helper.SetupClient(nodeURI)
 			cls, err := helper.GetClassWithoutAssert(t, className, "")
-			if err == nil && cls != nil {
-				hasField := false
-				for _, p := range cls.Properties {
-					if p.Name == "testfield" {
-						hasField = true
-						break
-					}
-				}
-				if hasField {
-					ready = true
-					break
-				}
+			// Schema (class + its properties) has propagated to this node once the
+			// class is visible with at least one property. Keyed on property
+			// presence rather than a specific name so this works for every class
+			// shape in the suite (testfield, status/counter, etc.).
+			if err == nil && cls != nil && len(cls.Properties) > 0 {
+				ready = true
+				break
 			}
 			time.Sleep(interval)
 		}
 		require.True(t, ready,
-			"schema for class %q (with testfield property) did not propagate to node %d within %s",
+			"schema for class %q (with its properties) did not propagate to node %d within %s",
 			className, nodeIdx, timeout)
 	}
 }
