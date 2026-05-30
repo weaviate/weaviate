@@ -144,17 +144,22 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 }
 
 // conditionalFromProto maps a proto ConditionalWriteRequest (oneof condition_type)
-// to the internal storobj.Conditional. Only Phase-1 existence-check kinds are
-// handled here; Phase-2 (VersionMatch) and Phase-3 (FieldPredicate) are
-// forward-compatible stubs that remain at their zero value until their design
-// passes land.
+// to the internal storobj.Conditional.
+// Phase-1 (InsertIfNotExists) and Phase-2 (VersionMatch) are implemented here.
+// Phase-3 (FieldPredicate) remains a forward-compatible stub at zero value.
 func conditionalFromProto(req *pb.ConditionalWriteRequest) storobj.Conditional {
 	if req == nil {
 		return storobj.Conditional{}
 	}
-	switch req.GetConditionType().(type) {
+	switch ct := req.GetConditionType().(type) {
 	case *pb.ConditionalWriteRequest_InsertIfNotExists:
 		return storobj.Conditional{OnlyIfNotExists: true}
+	case *pb.ConditionalWriteRequest_VersionMatch:
+		if ct.VersionMatch != nil {
+			v := uint64(ct.VersionMatch.GetExpectedVersion())
+			return storobj.Conditional{IfVersion: &v}
+		}
+		return storobj.Conditional{}
 	default:
 		return storobj.Conditional{}
 	}

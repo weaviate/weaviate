@@ -199,6 +199,7 @@ func (x *RepairResponse) GetDeleted() bool {
 // PutObject replicates a single object (binary-encoded via storobj.MarshalBinary).
 //
 // Backward-compat: fields 6 and 7 (conditional flags) default to false when absent.
+// Field 8 (if_version) defaults to absent (no version precondition) when not set.
 // An old replica receiving this message silently treats it as unconditional during
 // a rolling upgrade window (KNOWN-WEAK-ROLLING-UPGRADE).
 type PutObjectRequest struct {
@@ -213,8 +214,12 @@ type PutObjectRequest struct {
 	// (it is a per-request, not a storage attribute).
 	OnlyIfNotExists bool `protobuf:"varint,6,opt,name=only_if_not_exists,json=onlyIfNotExists,proto3" json:"only_if_not_exists,omitempty"` // insert_if_not_exists: write only when UUID absent
 	OnlyIfExists    bool `protobuf:"varint,7,opt,name=only_if_exists,json=onlyIfExists,proto3" json:"only_if_exists,omitempty"`            // update_if_exists: write only when UUID present
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Phase-2 version-CAS precondition.  Optional: absent means no version check.
+	// When set, the write succeeds only if the stored object's Version equals
+	// if_version.  Mismatch returns StatusPreconditionFailed to the coordinator.
+	IfVersion     *uint64 `protobuf:"varint,8,opt,name=if_version,json=ifVersion,proto3,oneof" json:"if_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PutObjectRequest) Reset() {
@@ -294,6 +299,13 @@ func (x *PutObjectRequest) GetOnlyIfExists() bool {
 		return x.OnlyIfExists
 	}
 	return false
+}
+
+func (x *PutObjectRequest) GetIfVersion() uint64 {
+	if x != nil && x.IfVersion != nil {
+		return *x.IfVersion
+	}
+	return 0
 }
 
 type PutObjectResponse struct {
@@ -2525,7 +2537,7 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\vupdate_time\x18\x03 \x01(\x03R\n" +
 	"updateTime\x12\x10\n" +
 	"\x03err\x18\x04 \x01(\tR\x03err\x12\x18\n" +
-	"\adeleted\x18\x05 \x01(\bR\adeleted\"\xf8\x01\n" +
+	"\adeleted\x18\x05 \x01(\bR\adeleted\"\xab\x02\n" +
 	"\x10PutObjectRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\x12\x1d\n" +
@@ -2535,7 +2547,10 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\vobject_data\x18\x05 \x01(\fR\n" +
 	"objectData\x12+\n" +
 	"\x12only_if_not_exists\x18\x06 \x01(\bR\x0fonlyIfNotExists\x12$\n" +
-	"\x0eonly_if_exists\x18\a \x01(\bR\fonlyIfExists\"R\n" +
+	"\x0eonly_if_exists\x18\a \x01(\bR\fonlyIfExists\x12\"\n" +
+	"\n" +
+	"if_version\x18\b \x01(\x04H\x00R\tifVersion\x88\x01\x01B\r\n" +
+	"\v_if_version\"R\n" +
 	"\x11PutObjectResponse\x12=\n" +
 	"\bresponse\x18\x01 \x01(\v2!.clusterapi.SimpleReplicaResponseR\bresponse\"\xa8\x01\n" +
 	"\x11PutObjectsRequest\x12\x14\n" +
@@ -2838,6 +2853,7 @@ func file_protocol_replication_proto_init() {
 	if File_protocol_replication_proto != nil {
 		return
 	}
+	file_protocol_replication_proto_msgTypes[3].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

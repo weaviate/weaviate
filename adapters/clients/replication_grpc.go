@@ -73,13 +73,14 @@ func (c *grpcReplicationClient) PutObject(ctx context.Context, host, index, shar
 	defer cancel()
 
 	resp, err := client.PutObject(ctx, &protocol.PutObjectRequest{
-		Index:            index,
-		Shard:            shard,
-		RequestId:        requestID,
-		SchemaVersion:    schemaVersion,
-		ObjectData:       objData,
-		OnlyIfNotExists:  obj.Conditional.OnlyIfNotExists,
-		OnlyIfExists:     obj.Conditional.OnlyIfExists,
+		Index:           index,
+		Shard:           shard,
+		RequestId:       requestID,
+		SchemaVersion:   schemaVersion,
+		ObjectData:      objData,
+		OnlyIfNotExists: obj.Conditional.OnlyIfNotExists,
+		OnlyIfExists:    obj.Conditional.OnlyIfExists,
+		IfVersion:       obj.Conditional.IfVersion,
 	})
 	if err != nil {
 		return replica.SimpleResponse{}, fmt.Errorf("gRPC PutObject: %w", err)

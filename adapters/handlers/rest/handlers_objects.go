@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-openapi/runtime"
@@ -131,6 +132,63 @@ func isInsertIfNotExistsSkip(pf *uco.ErrPreconditionFailed) bool {
 	return strings.Contains(pf.Reason, "OnlyIfNotExists condition failed")
 }
 
+// parseVersionMatchCondition builds a Conditional with IfVersion set from the
+// expected-version string (from ?expected_version=N or If-Match: "N" header).
+// RFC 7232 allows ETags to be quoted; we strip surrounding quotes before parsing.
+// Returns an error if the value is non-numeric (but NOT if it is empty, which is
+// treated as "no version condition").
+func parseVersionMatchCondition(expectedVersion, ifMatchHeader string) (storobj.Conditional, error) {
+	raw := expectedVersion
+	if raw == "" {
+		// Fall back to If-Match header value (strip RFC-7232 surrounding quotes).
+		raw = strings.Trim(ifMatchHeader, `"`)
+	}
+	if raw == "" {
+		return storobj.Conditional{}, fmt.Errorf("version_match condition requires an expected version via ?expected_version=N or If-Match header")
+	}
+	v, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return storobj.Conditional{}, fmt.Errorf("invalid expected_version %q: must be a non-negative integer", raw)
+	}
+	return storobj.Conditional{IfVersion: &v}, nil
+}
+
+// objectVersionFromAdditional extracts the server-managed Version from an object's
+// AdditionalProperties map, where it is placed by storobj.SearchResult. Returns 0
+// when absent (legacy object, no version tracked).
+func objectVersionFromAdditional(obj *models.Object) uint64 {
+	if obj == nil || obj.Additional == nil {
+		return 0
+	}
+	v, ok := obj.Additional["version"]
+	if !ok {
+		return 0
+	}
+	switch vt := v.(type) {
+	case uint64:
+		return vt
+	case float64:
+		return uint64(vt)
+	case int64:
+		return uint64(vt)
+	}
+	return 0
+}
+
+// etagResponder wraps a middleware.Responder and adds an ETag header derived
+// from the object's server-managed Version.
+type etagResponder struct {
+	inner   middleware.Responder
+	version uint64
+}
+
+func (r *etagResponder) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+	if r.version > 0 {
+		rw.Header().Set("ETag", fmt.Sprintf(`"%d"`, r.version))
+	}
+	r.inner.WriteResponse(rw, producer)
+}
+
 func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
@@ -148,10 +206,12 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	// directly from the raw query string.
 	//
 	// Supported values:
-	//   insert_if_not_exists → OnlyIfNotExists = true (idempotent insert)
-	//   update_if_exists     → OnlyIfExists    = true (update-only)
-	//   (absent or empty)    → unconditional write
-	conditionalOp := params.HTTPRequest.URL.Query().Get("condition")
+	//   insert_if_not_exists            → OnlyIfNotExists = true (idempotent insert)
+	//   update_if_exists                → OnlyIfExists    = true (update-only)
+	//   version_match&expected_version=N → IfVersion = &N  (Phase-2 version-CAS)
+	//   (absent or empty)               → unconditional write
+	q := params.HTTPRequest.URL.Query()
+	conditionalOp := q.Get("condition")
 	isConditional := conditionalOp != ""
 
 	var cond storobj.Conditional
@@ -160,6 +220,16 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 		cond = storobj.Conditional{OnlyIfNotExists: true}
 	case "update_if_exists":
 		cond = storobj.Conditional{OnlyIfExists: true}
+	case "version_match":
+		if cond, err = parseVersionMatchCondition(q.Get("expected_version"), params.HTTPRequest.Header.Get("If-Match")); err != nil {
+			h.metricRequestsTotal.logUserError(className)
+			return newConditionalWriteResponder(http.StatusBadRequest,
+				conditionalWriteConflictResponse{
+					Error:  "bad_request",
+					Code:   "invalid_version",
+					Detail: conditionalWriteConflictDetail{Message: err.Error()},
+				})
+		}
 	}
 
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
@@ -343,7 +413,11 @@ func (h *objectHandlers) getObject(params objects.ObjectsClassGetParams,
 
 	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(getClassName(object))
-	return objects.NewObjectsClassGetOK().WithPayload(object)
+	version := objectVersionFromAdditional(object)
+	return &etagResponder{
+		inner:   objects.NewObjectsClassGetOK().WithPayload(object),
+		version: version,
+	}
 }
 
 func (h *objectHandlers) getObjects(params objects.ObjectsListParams,
@@ -507,6 +581,25 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
+	// Phase-2: If-Match header or ?expected_version=N triggers version-CAS.
+	// The conditional is threaded through context so crud.go restores it on
+	// the storobj.Object before putObjectLSM runs the check (INV-RBAC-1 preserved:
+	// auth runs in UpdateObject before the conditional check reaches the shard).
+	ifMatch := params.HTTPRequest.Header.Get("If-Match")
+	if ifMatch != "" {
+		cond, parseErr := parseVersionMatchCondition("", ifMatch)
+		if parseErr != nil {
+			h.metricRequestsTotal.logUserError(className)
+			return newConditionalWriteResponder(http.StatusBadRequest,
+				conditionalWriteConflictResponse{
+					Error:  "bad_request",
+					Code:   "invalid_version",
+					Detail: conditionalWriteConflictDetail{Message: parseErr.Error()},
+				})
+		}
+		ctx = storobj.ContextWithConditional(ctx, cond)
+	}
+
 	object, err := h.manager.UpdateObject(ctx,
 		principal, params.ClassName, params.ID, params.Body, repl)
 	if err != nil {
@@ -514,6 +607,21 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
 			return objects.NewObjectsClassPutTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
+		}
+		// Phase-2: version-CAS mismatch on PUT → 412 Precondition Failed.
+		// Per RFC 7232: condition on a resource's state failed.
+		// 412 is used here (not 409) because this is a header-precondition failure,
+		// not a state-conflict; see synthesis §2.2 for the 409/412 split.
+		var pf *uco.ErrPreconditionFailed
+		if errors.As(err, &pf) {
+			h.metricRequestsTotal.logUserError(className)
+			body := map[string]interface{}{
+				"error":           "precondition_failed",
+				"expected_version": pf.ExpectedVersion,
+				"current_version":  pf.ActualVersion,
+				"message":         pf.Reason,
+			}
+			return newConditionalWriteResponder(http.StatusPreconditionFailed, body)
 		}
 		if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
@@ -537,7 +645,11 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 
 	namespacing.StripObjectResponseClass(principal, object)
 	h.metricRequestsTotal.logOk(className)
-	return objects.NewObjectsClassPutOK().WithPayload(object)
+	version := objectVersionFromAdditional(object)
+	return &etagResponder{
+		inner:   objects.NewObjectsClassPutOK().WithPayload(object),
+		version: version,
+	}
 }
 
 func (h *objectHandlers) headObject(params objects.ObjectsClassHeadParams,

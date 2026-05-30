@@ -714,6 +714,14 @@ func (ko *Object) SearchResult(additional additional.Properties, tenant string) 
 		additionalProperties["explainScore"] = ko.ExplainScore()
 	}
 
+	// Always expose the server-managed Version in the AdditionalProperties map so
+	// REST handlers can use it for the ETag: "N" response header without a
+	// separate DB round-trip or deep deserialization. Version 0 means untracked
+	// (legacy v1 record) - omit it to avoid misleading clients.
+	if ko.Version > 0 {
+		additionalProperties["version"] = ko.Version
+	}
+
 	return &search.Result{
 		ID:        ko.ID(),
 		DocID:     &ko.DocID,

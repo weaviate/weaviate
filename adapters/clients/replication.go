@@ -570,13 +570,16 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	// dedicated query parameters.  The receiving handler restores them into obj.Conditional
 	// before passing to ReplicateObject.  Old replicas missing these params treat the
 	// request as unconditional (KNOWN-WEAK-ROLLING-UPGRADE).
-	if obj.Conditional.OnlyIfNotExists || obj.Conditional.OnlyIfExists {
+	if obj.Conditional.OnlyIfNotExists || obj.Conditional.OnlyIfExists || obj.Conditional.IfVersion != nil {
 		q := req.URL.Query()
 		if obj.Conditional.OnlyIfNotExists {
 			q.Set(replica.ConditionalOnlyIfNotExistsKey, "true")
 		}
 		if obj.Conditional.OnlyIfExists {
 			q.Set(replica.ConditionalOnlyIfExistsKey, "true")
+		}
+		if obj.Conditional.IfVersion != nil {
+			q.Set(replica.ConditionalIfVersionKey, fmt.Sprintf("%d", *obj.Conditional.IfVersion))
 		}
 		req.URL.RawQuery = q.Encode()
 	}

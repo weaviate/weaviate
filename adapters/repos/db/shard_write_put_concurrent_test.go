@@ -172,3 +172,237 @@ func TestInsertIfNotExistsConcurrencyThreeNode(t *testing.T) {
 		require.Equal(t, concurrencyCount-1, precondFailCount, "expected %d precondition failures per replica shard", concurrencyCount-1)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase-2 version-CAS tests
+// ---------------------------------------------------------------------------
+
+// buildVersionCASObject builds a storobj.Object with an IfVersion precondition
+// set to expectedVersion.
+func buildVersionCASObject(className string, id strfmt.UUID, expectedVersion uint64) *storobj.Object {
+	v := expectedVersion
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:                 id,
+			Class:              className,
+			LastUpdateTimeUnix: time.Now().UnixMilli(),
+		},
+		Conditional: storobj.Conditional{
+			IfVersion: &v,
+		},
+	}
+}
+
+// buildUnconditionalObject builds a storobj.Object with no precondition for
+// initial seeding.
+func buildUnconditionalObject(className string, id strfmt.UUID) *storobj.Object {
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:                 id,
+			Class:              className,
+			LastUpdateTimeUnix: time.Now().UnixMilli(),
+		},
+	}
+}
+
+// TestVersionCASConcurrencyExactlyOnce is the Phase-2 exactly-once CAS test.
+//
+// 100 goroutines all race to update_if_version=1 on the same object (which
+// was written unconditionally at Version 1). The per-UUID docIdLock serialises
+// all writes on one shard, so exactly ONE goroutine must succeed (and bump the
+// version to 2). All others must receive ErrPreconditionFailed (version mismatch).
+//
+// Causal link: this test catches a missing or incorrectly-placed IfVersion check
+// in putObjectLSM. Without the check, all 100 goroutines return nil; with it
+// correctly inside the per-UUID lock, only the first goroutine sees version=1;
+// subsequent goroutines see version=2 and get ErrPreconditionFailed.
+func TestVersionCASConcurrencyExactlyOnce(t *testing.T) {
+	ctx := context.Background()
+	className := "VersionCASExactlyOnce"
+	class := &models.Class{Class: className}
+
+	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	defer func() { _ = idx.drop() }()
+
+	logger, _ := test.NewNullLogger()
+	id := strfmt.UUID(uuid.NewString())
+
+	// Seed: write the object unconditionally so it has Version 1.
+	seedObj := buildUnconditionalObject(className, id)
+	require.NoError(t, shard.PutObject(ctx, seedObj), "seed write must succeed")
+
+	// Now launch 100 goroutines all trying to update_if_version=1.
+	var wg sync.WaitGroup
+	var successes atomic.Int64
+	var precondFails atomic.Int64
+
+	start := make(chan struct{})
+
+	for i := 0; i < concurrencyCount; i++ {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			<-start
+			obj := buildVersionCASObject(className, id, 1) // IfVersion = 1
+			err := shard.PutObject(ctx, obj)
+			if err == nil {
+				successes.Add(1)
+				return
+			}
+			var precondErr *objects.ErrPreconditionFailed
+			if errors.As(err, &precondErr) {
+				precondFails.Add(1)
+				return
+			}
+			t.Errorf("unexpected error from version-CAS PutObject: %v", err)
+		}, logger)
+	}
+
+	close(start)
+	wg.Wait()
+
+	require.Equal(t, 1, int(successes.Load()),
+		"exactly 1 goroutine must win the version-CAS race (per-UUID lock serialises)")
+	require.Equal(t, concurrencyCount-1, int(precondFails.Load()),
+		"the remaining %d goroutines must receive ErrPreconditionFailed (version mismatch)", concurrencyCount-1)
+}
+
+// TestVersionMonotonicIncrement verifies that sequential unconditional writes
+// produce a strictly monotonically increasing Version: 1, 2, 3, ...
+//
+// Causal link: this test catches a bug where putObjectLSM mints the version
+// with the wrong initial value or fails to increment (e.g. always returns 1).
+// If the version is not monotonic, at least one of the require.Equal assertions
+// will fail because the stored object's Additional["version"] will not match.
+func TestVersionMonotonicIncrement(t *testing.T) {
+	ctx := context.Background()
+	className := "VersionMonotonic"
+	class := &models.Class{Class: className}
+
+	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	defer func() { _ = idx.drop() }()
+
+	id := strfmt.UUID(uuid.NewString())
+
+	for expectedVersion := uint64(1); expectedVersion <= 5; expectedVersion++ {
+		obj := buildUnconditionalObject(className, id)
+		require.NoError(t, shard.PutObject(ctx, obj),
+			"write %d must succeed", expectedVersion)
+
+		// Read back and verify the version via SearchResult.
+		fetched, err := shard.ObjectByID(ctx, id, nil, nil)
+		require.NoError(t, err, "fetch after write %d must succeed", expectedVersion)
+		require.NotNil(t, fetched, "object must exist after write %d", expectedVersion)
+
+		result := fetched.SearchResult(nil, "")
+		require.NotNil(t, result)
+		gotVersion, ok := result.AdditionalProperties["version"]
+		require.True(t, ok, "version must be in AdditionalProperties after write %d", expectedVersion)
+		require.Equal(t, expectedVersion, gotVersion,
+			"version must be %d after write %d", expectedVersion, expectedVersion)
+	}
+}
+
+// TestVersionCASMismatchPath verifies that update_if_version with a STALE expected
+// version returns ErrPreconditionFailed with the correct expected/actual fields,
+// and that the object is NOT modified by the failed write.
+//
+// Causal link: this test catches a bug where the IfVersion check is missing or
+// inverted (allowing the write to proceed despite version mismatch). If the check
+// is absent, err == nil and require.Error(t, err) fails immediately.
+func TestVersionCASMismatchPath(t *testing.T) {
+	ctx := context.Background()
+	className := "VersionMismatch"
+	class := &models.Class{Class: className}
+
+	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	defer func() { _ = idx.drop() }()
+
+	id := strfmt.UUID(uuid.NewString())
+
+	// Seed at version 1.
+	require.NoError(t, shard.PutObject(ctx, buildUnconditionalObject(className, id)))
+
+	// Advance to version 2 unconditionally.
+	require.NoError(t, shard.PutObject(ctx, buildUnconditionalObject(className, id)))
+
+	// Now attempt update_if_version=1 (stale). Must fail.
+	staleCAS := buildVersionCASObject(className, id, 1)
+	err := shard.PutObject(ctx, staleCAS)
+	require.Error(t, err, "stale version-CAS must return an error")
+
+	var pf *objects.ErrPreconditionFailed
+	require.True(t, errors.As(err, &pf),
+		"error must be *ErrPreconditionFailed, got %T: %v", err, err)
+	require.Equal(t, uint64(1), pf.ExpectedVersion,
+		"ErrPreconditionFailed.ExpectedVersion must echo the caller's expected version")
+	require.Equal(t, uint64(2), pf.ActualVersion,
+		"ErrPreconditionFailed.ActualVersion must reflect the stored version")
+
+	// The object must still be at version 2 (failed write must not mutate state).
+	fetched, fetchErr := shard.ObjectByID(ctx, id, nil, nil)
+	require.NoError(t, fetchErr)
+	require.NotNil(t, fetched)
+	result := fetched.SearchResult(nil, "")
+	gotVersion, ok := result.AdditionalProperties["version"]
+	require.True(t, ok, "version must be in AdditionalProperties")
+	require.Equal(t, uint64(2), gotVersion,
+		"object version must remain 2 after a failed version-CAS write")
+}
+
+// TestVersionCASFirstWriteSentinel verifies that the first write to a new UUID
+// produces Version 1 and that if_version=0 (the sentinel for "untracked")
+// matches a non-existent object's legacy version.
+//
+// Causal link: this test catches a bug where the first-write version is not 1
+// (e.g. remains 0 because the mint logic is absent). It also verifies the design
+// decision that Version 0 is the sentinel for "never written by a v2 node".
+func TestVersionCASFirstWriteSentinel(t *testing.T) {
+	ctx := context.Background()
+	className := "VersionFirstWrite"
+	class := &models.Class{Class: className}
+
+	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	defer func() { _ = idx.drop() }()
+
+	id := strfmt.UUID(uuid.NewString())
+
+	// First write (unconditional). Version must be 1.
+	require.NoError(t, shard.PutObject(ctx, buildUnconditionalObject(className, id)))
+
+	fetched, err := shard.ObjectByID(ctx, id, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, fetched)
+
+	result := fetched.SearchResult(nil, "")
+	gotVersion, ok := result.AdditionalProperties["version"]
+	require.True(t, ok, "version must be present after first write")
+	require.Equal(t, uint64(1), gotVersion, "first write must produce Version 1")
+
+	// if_version=0 on a NEW UUID (object absent) must be treated as "no stored
+	// version" (prevObj == nil → storedVersion = 0 == IfVersion) and succeed,
+	// producing Version 1.
+	id2 := strfmt.UUID(uuid.NewString())
+	zeroVersion := uint64(0)
+	obj2 := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:                 id2,
+			Class:              className,
+			LastUpdateTimeUnix: time.Now().UnixMilli(),
+		},
+		Conditional: storobj.Conditional{IfVersion: &zeroVersion},
+	}
+	require.NoError(t, shard.PutObject(ctx, obj2),
+		"if_version=0 on a new UUID must succeed (0 == stored sentinel 0)")
+
+	fetched2, err2 := shard.ObjectByID(ctx, id2, nil, nil)
+	require.NoError(t, err2)
+	require.NotNil(t, fetched2)
+	result2 := fetched2.SearchResult(nil, "")
+	gotVersion2, ok2 := result2.AdditionalProperties["version"]
+	require.True(t, ok2)
+	require.Equal(t, uint64(1), gotVersion2, "first conditional write with if_version=0 must produce Version 1")
+}

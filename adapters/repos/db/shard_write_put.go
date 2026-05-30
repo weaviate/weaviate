@@ -289,6 +289,26 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			}
 		}
 
+		// Phase-2 version-CAS conditional (Plan A - per-node-monotonic).
+		// Evaluated inside the per-UUID lock so the compare-and-swap is atomic with
+		// the subsequent version increment and bucket Put on this coordinator.
+		// Cross-coordinator races are the documented Plan-A honest boundary (two
+		// coordinators can both observe Version=N and both pass; they resolve by LWW).
+		if obj.Conditional.IfVersion != nil {
+			var storedVersion uint64
+			if prevObj != nil {
+				storedVersion = prevObj.Version
+			}
+			if storedVersion != *obj.Conditional.IfVersion {
+				return &objects.ErrPreconditionFailed{
+					ObjectID:        obj.ID().String(),
+					Reason:          fmt.Sprintf("object version mismatch: expected %d, actual %d", *obj.Conditional.IfVersion, storedVersion),
+					ExpectedVersion: *obj.Conditional.IfVersion,
+					ActualVersion:   storedVersion,
+				}
+			}
+		}
+
 		status, err = s.determineInsertStatus(prevObj, obj)
 		if err != nil {
 			return err

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
@@ -257,8 +258,9 @@ func TestConditionalWriteRESTHandlerMessageText(t *testing.T) {
 		manager:             mgr,
 		metricRequestsTotal: &fakeMetricRequestsTotal{},
 	}
+	// Provide expected_version=3 so the version_match switch case can parse it.
 	req := httptest.NewRequest(http.MethodPost,
-		"/v1/objects?condition=version_match", nil)
+		"/v1/objects?condition=version_match&expected_version=3", nil)
 	rr := httptest.NewRecorder()
 
 	resp := h.addObject(objects.ObjectsCreateParams{
@@ -278,6 +280,249 @@ func TestConditionalWriteRESTHandlerMessageText(t *testing.T) {
 		"detail.message must be present per §6.7 error-message-text contract")
 	assert.True(t, strings.Contains(body.Detail.Message, reason),
 		"detail.message must contain the diagnostic reason from ErrPreconditionFailed")
+}
+
+// ---------------------------------------------------------------------------
+// ETag / If-Match (Phase-2) REST handler tests
+// ---------------------------------------------------------------------------
+
+// etagFakeManager supports GetObject (for ETag) and UpdateObject (for If-Match).
+// Other methods panic as in conditionalFakeManager.
+type etagFakeManager struct {
+	getObjectReturn *models.Object
+	getObjectErr    error
+	updateObjectReturn *models.Object
+	updateObjectErr    error
+	// capturedCtx captures the context passed to UpdateObject so tests can
+	// inspect the Conditional that the handler injected.
+	capturedCtx context.Context
+}
+
+func (f *etagFakeManager) AddObject(_ context.Context, _ *models.Principal,
+	obj *models.Object, _ *additional.ReplicationProperties,
+) (*models.Object, error) {
+	panic("not implemented")
+}
+func (f *etagFakeManager) ValidateObject(context.Context, *models.Principal,
+	*models.Object, *additional.ReplicationProperties,
+) error {
+	panic("not implemented")
+}
+func (f *etagFakeManager) GetObject(_ context.Context, _ *models.Principal,
+	_ string, _ strfmt.UUID, _ additional.Properties, _ *additional.ReplicationProperties, _ string,
+) (*models.Object, error) {
+	return f.getObjectReturn, f.getObjectErr
+}
+func (f *etagFakeManager) DeleteObject(context.Context, *models.Principal,
+	string, strfmt.UUID, *additional.ReplicationProperties, string,
+) error {
+	panic("not implemented")
+}
+func (f *etagFakeManager) UpdateObject(ctx context.Context, _ *models.Principal,
+	_ string, _ strfmt.UUID, _ *models.Object, _ *additional.ReplicationProperties,
+) (*models.Object, error) {
+	f.capturedCtx = ctx
+	return f.updateObjectReturn, f.updateObjectErr
+}
+func (f *etagFakeManager) HeadObject(context.Context, *models.Principal,
+	string, strfmt.UUID, *additional.ReplicationProperties, string,
+) (bool, *uco.Error) {
+	panic("not implemented")
+}
+func (f *etagFakeManager) GetObjects(context.Context, *models.Principal,
+	*int64, *int64, *string, *string, *string, additional.Properties, string,
+) ([]*models.Object, error) {
+	panic("not implemented")
+}
+func (f *etagFakeManager) Query(context.Context, *models.Principal,
+	*uco.QueryParams,
+) ([]*models.Object, *uco.Error) {
+	panic("not implemented")
+}
+func (f *etagFakeManager) MergeObject(context.Context, *models.Principal,
+	*models.Object, *additional.ReplicationProperties,
+) *uco.Error {
+	panic("not implemented")
+}
+func (f *etagFakeManager) AddObjectReference(context.Context, *models.Principal,
+	*uco.AddReferenceInput, *additional.ReplicationProperties, string,
+) *uco.Error {
+	panic("not implemented")
+}
+func (f *etagFakeManager) UpdateObjectReferences(context.Context, *models.Principal,
+	*uco.PutReferenceInput, *additional.ReplicationProperties, string,
+) *uco.Error {
+	panic("not implemented")
+}
+func (f *etagFakeManager) DeleteObjectReference(context.Context, *models.Principal,
+	*uco.DeleteReferenceInput, *additional.ReplicationProperties, string,
+) *uco.Error {
+	panic("not implemented")
+}
+func (f *etagFakeManager) GetObjectsClass(context.Context, *models.Principal,
+	strfmt.UUID,
+) (*models.Class, error) {
+	panic("not implemented")
+}
+func (f *etagFakeManager) GetObjectClassFromName(context.Context, *models.Principal,
+	string,
+) (*models.Class, error) {
+	panic("not implemented")
+}
+
+// TestETagOnGetObject verifies that the getObject REST handler returns an
+// etagResponder with the correct version when the object has a version in
+// Additional.
+//
+// The test exercises the handler and verifies the ETag header is set before
+// WriteResponse writes the body - the header is set during WriteResponse
+// via etagResponder. We use a JSON producer to avoid the swagger nil-producer
+// panic.
+//
+// Causal link: this test catches a missing etagResponder wrapper. Without it,
+// etagResponder.version is 0 and rr.Header().Get("ETag") is empty.
+func TestETagOnGetObject(t *testing.T) {
+	objectVersion := uint64(5)
+	obj := &models.Object{
+		Class: "ResearchItem",
+		ID:    "00000000-0000-0000-0000-000000000001",
+		Additional: models.AdditionalProperties{
+			"version": objectVersion,
+		},
+	}
+	mgr := &etagFakeManager{getObjectReturn: obj}
+	h := &objectHandlers{
+		manager:             mgr,
+		metricRequestsTotal: &fakeMetricRequestsTotal{},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/objects/ResearchItem/00000000-0000-0000-0000-000000000001", nil)
+	rr := httptest.NewRecorder()
+
+	resp := h.getObject(objects.ObjectsClassGetParams{
+		HTTPRequest: req,
+		ClassName:   "ResearchItem",
+		ID:          "00000000-0000-0000-0000-000000000001",
+	}, nil)
+
+	// Use a JSON producer so that ObjectsClassGetOK.WriteResponse can serialize
+	// the payload. The test asserts only on the ETag header, not the body.
+	resp.WriteResponse(rr, runtime.JSONProducer())
+
+	assert.Equal(t, `"5"`, rr.Header().Get("ETag"),
+		"ETag header must be set to the quoted version")
+}
+
+// TestIfMatchOnPutObjectVersionMismatch verifies that the updateObject handler
+// parses the If-Match header, injects IfVersion into the Conditional context,
+// and maps ErrPreconditionFailed to HTTP 412 Precondition Failed.
+//
+// Causal link: this test catches a missing If-Match parse or a missing 412
+// mapping. Without the parse, IfVersion is never set; without the 412 mapping,
+// the handler returns 500. Either failure causes the status-code assertion to fail.
+func TestIfMatchOnPutObjectVersionMismatch(t *testing.T) {
+	mismatchErr := &uco.ErrPreconditionFailed{
+		ObjectID:        "00000000-0000-0000-0000-000000000001",
+		Reason:          "object version mismatch: expected 3, actual 7",
+		ExpectedVersion: 3,
+		ActualVersion:   7,
+	}
+	mgr := &etagFakeManager{updateObjectErr: mismatchErr}
+	h := &objectHandlers{
+		manager:             mgr,
+		metricRequestsTotal: &fakeMetricRequestsTotal{},
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/objects/ResearchItem/00000000-0000-0000-0000-000000000001", nil)
+	req.Header.Set("If-Match", `"3"`)
+	rr := httptest.NewRecorder()
+
+	resp := h.updateObject(objects.ObjectsClassPutParams{
+		HTTPRequest: req,
+		ClassName:   "ResearchItem",
+		ID:          "00000000-0000-0000-0000-000000000001",
+		Body:        &models.Object{Class: "ResearchItem"},
+	}, nil)
+	resp.WriteResponse(rr, nil)
+
+	require.Equal(t, http.StatusPreconditionFailed, rr.Code,
+		"version mismatch on PUT with If-Match must return 412 Precondition Failed")
+
+	var body map[string]interface{}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.Equal(t, "precondition_failed", body["error"],
+		"error field must be precondition_failed")
+}
+
+// TestVersionMatchConditionQueryParam verifies that ?condition=version_match&
+// expected_version=N in addObject parses correctly and maps a version-mismatch
+// ErrPreconditionFailed to 409 Conflict (not 200 OK nor 500 ISE).
+//
+// Causal link: without the version_match switch case, the conditional is never
+// set; without the 409 mapping, the handler would return 500 for mismatch.
+func TestVersionMatchConditionQueryParam(t *testing.T) {
+	reason := "object version mismatch: expected 2, actual 5"
+	mgr := &conditionalFakeManager{
+		addObjectErr: &uco.ErrPreconditionFailed{
+			ObjectID:        "00000000-0000-0000-0000-000000000002",
+			Reason:          reason,
+			ExpectedVersion: 2,
+			ActualVersion:   5,
+		},
+	}
+	h := &objectHandlers{
+		manager:             mgr,
+		metricRequestsTotal: &fakeMetricRequestsTotal{},
+	}
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/v1/objects?condition=version_match&expected_version=2", nil)
+	rr := httptest.NewRecorder()
+
+	resp := h.addObject(objects.ObjectsCreateParams{
+		HTTPRequest: req,
+		Body:        &models.Object{Class: "ResearchItem"},
+	}, nil)
+	resp.WriteResponse(rr, nil)
+
+	require.Equal(t, http.StatusConflict, rr.Code,
+		"version mismatch via ?condition=version_match must return 409 Conflict")
+}
+
+// TestIfMatchOnPutObjectSuccess verifies that a successful PUT with If-Match
+// returns 200 OK with an ETag: "N+1" header reflecting the new version.
+//
+// Causal link: without the ETag on success path in updateObject, the header
+// is absent and require.Equal(t, `"6"`, ...) fails.
+func TestIfMatchOnPutObjectSuccess(t *testing.T) {
+	updatedObj := &models.Object{
+		Class: "ResearchItem",
+		ID:    "00000000-0000-0000-0000-000000000001",
+		Additional: models.AdditionalProperties{
+			"version": uint64(6), // N+1 after write
+		},
+	}
+	mgr := &etagFakeManager{updateObjectReturn: updatedObj}
+	h := &objectHandlers{
+		manager:             mgr,
+		metricRequestsTotal: &fakeMetricRequestsTotal{},
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/objects/ResearchItem/00000000-0000-0000-0000-000000000001", nil)
+	req.Header.Set("If-Match", `"5"`)
+	rr := httptest.NewRecorder()
+
+	resp := h.updateObject(objects.ObjectsClassPutParams{
+		HTTPRequest: req,
+		ClassName:   "ResearchItem",
+		ID:          "00000000-0000-0000-0000-000000000001",
+		Body:        &models.Object{Class: "ResearchItem"},
+	}, nil)
+	resp.WriteResponse(rr, runtime.JSONProducer())
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, `"6"`, rr.Header().Get("ETag"),
+		"ETag on successful PUT must be the new version N+1")
 }
 
 // logrusHook captures log entries at or above a threshold level so tests can

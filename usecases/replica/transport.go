@@ -39,6 +39,12 @@ const (
 	// only_if_not_exists / only_if_exists in PutObjectRequest.
 	ConditionalOnlyIfNotExistsKey = "conditional_not_exists"
 	ConditionalOnlyIfExistsKey    = "conditional_exists"
+
+	// ConditionalIfVersionKey carries the Phase-2 version-CAS expected version on
+	// the HTTP replication wire. Value is a decimal uint64 string. Absent or empty
+	// means "no version precondition" (KNOWN-WEAK-ROLLING-UPGRADE: old replicas that
+	// do not parse this param treat the write as unconditional during rolling upgrade).
+	ConditionalIfVersionKey = "conditional_if_version"
 )
 
 // Client is used to read and write objects on replicas

@@ -965,7 +965,7 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Restore the Phase-1 conditional-write precondition from dedicated query params.
+	// Restore the conditional-write precondition from dedicated query params.
 	// storobj.MarshalBinary intentionally excludes Conditional (it is a per-request
 	// attribute), so the HTTP replication client carries them as separate query
 	// parameters.  Old clients that do not send these params send nothing, which
@@ -977,6 +977,11 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 	}
 	if q.Get(replica.ConditionalOnlyIfExistsKey) == "true" {
 		obj.Conditional.OnlyIfExists = true
+	}
+	if vStr := q.Get(replica.ConditionalIfVersionKey); vStr != "" {
+		if v, parseErr := strconv.ParseUint(vStr, 10, 64); parseErr == nil {
+			obj.Conditional.IfVersion = &v
+		}
 	}
 
 	resp := i.replicator.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)

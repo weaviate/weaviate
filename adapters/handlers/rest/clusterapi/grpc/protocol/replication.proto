@@ -59,6 +59,7 @@ message RepairResponse {
 // PutObject replicates a single object (binary-encoded via storobj.MarshalBinary).
 //
 // Backward-compat: fields 6 and 7 (conditional flags) default to false when absent.
+// Field 8 (if_version) defaults to absent (no version precondition) when not set.
 // An old replica receiving this message silently treats it as unconditional during
 // a rolling upgrade window (KNOWN-WEAK-ROLLING-UPGRADE).
 message PutObjectRequest {
@@ -73,6 +74,11 @@ message PutObjectRequest {
   // (it is a per-request, not a storage attribute).
   bool only_if_not_exists = 6; // insert_if_not_exists: write only when UUID absent
   bool only_if_exists = 7;     // update_if_exists: write only when UUID present
+
+  // Phase-2 version-CAS precondition.  Optional: absent means no version check.
+  // When set, the write succeeds only if the stored object's Version equals
+  // if_version.  Mismatch returns StatusPreconditionFailed to the coordinator.
+  optional uint64 if_version = 8;
 }
 
 message PutObjectResponse {
