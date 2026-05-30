@@ -39,7 +39,9 @@ package conditional_writes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -56,11 +58,82 @@ const (
 	asyncConvPollInterval     = 2 * time.Second
 )
 
-// waitVersionConvergenceAllNodes polls each node at CL=ONE until all nodes
-// return wantVersion, or until deadline elapses.  Returns true on convergence.
-func waitVersionConvergenceAllNodes(
+// versionCASGetVersionFromNode reads the object's version from a specific named
+// node's LOCAL replica storage via GET /v1/objects/{class}/{id}?node_name={nodeName}.
+//
+// The request is sent to coordinatorHost (any live node), which forwards it
+// internally to nodeName's shard via the clusterapi FullRead path
+// (adapters/repos/db/index.go:1641 → usecases/replica/finder.go:NodeObject).
+// This bypasses consensus and reads exactly what nodeName has stored locally,
+// making convergence assertions deterministic: each call observes the target
+// node's own on-disk version, not a quorum result.
+//
+// Returns 0 if the object is absent on nodeName or has no version.
+func versionCASGetVersionFromNode(t *testing.T, coordinatorHost, className, id, nodeName string) uint64 {
+	t.Helper()
+
+	url := fmt.Sprintf("http://%s/v1/objects/%s/%s?node_name=%s",
+		coordinatorHost, className, id, nodeName)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	require.NoError(t, err, "build GET request for node-local version read")
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Logf("versionCASGetVersionFromNode: network error (coord=%s node=%s id=%s): %v",
+			coordinatorHost, nodeName, id, err)
+		return 0
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return 0
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Logf("versionCASGetVersionFromNode: read body error (coord=%s node=%s id=%s): %v",
+			coordinatorHost, nodeName, id, err)
+		return 0
+	}
+
+	var obj struct {
+		Additional map[string]json.Number `json:"additional"`
+	}
+	if err := json.Unmarshal(body, &obj); err != nil {
+		t.Logf("versionCASGetVersionFromNode: unmarshal error (coord=%s node=%s id=%s): %v; body=%s",
+			coordinatorHost, nodeName, id, err, string(body))
+		return 0
+	}
+	if obj.Additional == nil {
+		return 0
+	}
+	versionNum, ok := obj.Additional["version"]
+	if !ok {
+		return 0
+	}
+	v, err := versionNum.Int64()
+	if err != nil {
+		return 0
+	}
+	return uint64(v)
+}
+
+// waitVersionConvergenceAllNodesLocal polls each node's LOCAL replica storage
+// via the node_name query parameter until all nodes report wantVersion, or
+// until the deadline elapses.
+//
+// coordinatorHost is any live node used as the HTTP entry point; the actual
+// read for each nodeNames[i] is forwarded internally to that node's shard,
+// bypassing quorum coordination.  This makes per-node convergence assertions
+// deterministic: a stale node 2 returns its own stale version, not a
+// quorum-picked healthy replica's version.
+func waitVersionConvergenceAllNodesLocal(
 	t *testing.T,
-	hosts []string,
+	coordinatorHost string,
+	nodeNames []string,
 	className string,
 	objectID string,
 	wantVersion uint64,
@@ -70,10 +143,10 @@ func waitVersionConvergenceAllNodes(
 	deadline := time.Now().Add(maxWait)
 	for time.Now().Before(deadline) {
 		allMatch := true
-		for i, h := range hosts {
-			v := versionCASGetVersionDirect(t, h, className, objectID)
+		for i, name := range nodeNames {
+			v := versionCASGetVersionFromNode(t, coordinatorHost, className, objectID, name)
 			if v != wantVersion {
-				t.Logf("node %d (%s): version=%d want=%d; still converging...", i, h, v, wantVersion)
+				t.Logf("node %d (%s): local version=%d want=%d; still converging...", i, name, v, wantVersion)
 				allMatch = false
 				break
 			}
@@ -162,25 +235,31 @@ func TestVersionCAS_AsyncConv_DeltaConvergence(t *testing.T) {
 	})
 
 	// All three nodes must converge to finalVersion via async repair.
+	// Node names match CLUSTER_HOSTNAME values set in docker.compose: weaviate-0/1/2.
+	// waitVersionConvergenceAllNodesLocal uses ?node_name=<name> on a live coordinator
+	// so each poll reads the target node's OWN local replica (not a quorum result).
 	t.Run("WaitConvergence", func(t *testing.T) {
-		hosts := []string{
-			compose.ContainerURI(0),
-			compose.ContainerURI(1),
-			compose.ContainerURI(2),
-		}
-		converged := waitVersionConvergenceAllNodes(t, hosts, className, objectID,
-			finalVersion, asyncConvMaxConverge)
+		coordinator := compose.ContainerURI(1) // any live node acts as coordinator
+		nodeNames := []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2}
+		converged := waitVersionConvergenceAllNodesLocal(t, coordinator, nodeNames,
+			className, objectID, finalVersion, asyncConvMaxConverge)
 		require.True(t, converged,
 			"cluster did not converge to version=%d within %s after node 2 restart; "+
-				"async repair must propagate the %d missed version-CAS updates",
+				"async repair must propagate the %d missed version-CAS updates to each "+
+				"node's local replica (per-node read via ?node_name=weaviate-N)",
 			finalVersion, asyncConvMaxConverge, deltaUpdates)
 
-		for i, h := range hosts {
-			v := versionCASGetVersionDirect(t, h, className, objectID)
+		// Strict per-node final assertion using node-local reads.
+		start := time.Now()
+		for i, name := range nodeNames {
+			v := versionCASGetVersionFromNode(t, coordinator, className, objectID, name)
 			require.Equal(t, finalVersion, v,
-				"node %d: final version mismatch: got %d want %d", i, v, finalVersion)
+				"node %d (%s): local version mismatch: got %d want %d "+
+					"(converged=%v, elapsed=%s)",
+				i, name, v, finalVersion, converged, time.Since(start))
 		}
-		t.Logf("all 3 nodes report version=%d", finalVersion)
+		t.Logf("all 3 nodes report local version=%d (convergence took ≤%s)",
+			finalVersion, asyncConvMaxConverge)
 	})
 }
 
@@ -249,25 +328,28 @@ func TestVersionCAS_AsyncConv_InitialInsertConvergence(t *testing.T) {
 
 	// Node 2 missed the entire insert, so it starts at version 0.
 	// Async repair must propagate the object (with its version) to node 2.
+	// Use node-local reads (?node_name=weaviate-N) so each assertion reflects
+	// the target node's own stored version, not a quorum-picked replica's value.
 	t.Run("WaitConvergence_AllThreeNodes", func(t *testing.T) {
-		hosts := []string{
-			compose.ContainerURI(0),
-			compose.ContainerURI(1),
-			compose.ContainerURI(2),
-		}
-		converged := waitVersionConvergenceAllNodes(t, hosts, className, objectID,
-			insertedVersion, asyncConvMaxConverge)
+		coordinator := compose.ContainerURI(1) // any live node acts as coordinator
+		nodeNames := []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2}
+		converged := waitVersionConvergenceAllNodesLocal(t, coordinator, nodeNames,
+			className, objectID, insertedVersion, asyncConvMaxConverge)
 		require.True(t, converged,
 			"node 2 did not receive the initial insert via async repair within %s; "+
-				"all 3 nodes must report version=%d at CL=ONE",
+				"all 3 nodes must report local version=%d "+
+				"(per-node read via ?node_name=weaviate-N)",
 			asyncConvMaxConverge, insertedVersion)
 
-		for i, h := range hosts {
-			v := versionCASGetVersionDirect(t, h, className, objectID)
+		start := time.Now()
+		for i, name := range nodeNames {
+			v := versionCASGetVersionFromNode(t, coordinator, className, objectID, name)
 			require.Equal(t, insertedVersion, v,
-				"node %d: version mismatch after convergence: got %d want %d", i, v, insertedVersion)
+				"node %d (%s): local version mismatch after convergence: got %d want %d "+
+					"(elapsed=%s)",
+				i, name, v, insertedVersion, time.Since(start))
 		}
-		t.Logf("all 3 nodes report version=%d after initial-insert convergence", insertedVersion)
+		t.Logf("all 3 nodes report local version=%d after initial-insert convergence", insertedVersion)
 	})
 }
 
@@ -347,31 +429,36 @@ func TestVersionCAS_AsyncConv_PostConvergenceIfMatch(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, 2)
 	})
 
-	// Wait for node 2 to converge.
+	// Wait for node 2 to converge using node-local reads.
+	// Each poll reads each node's OWN stored version via ?node_name=weaviate-N,
+	// so a stale node 2 returns its local stale value, not a healthy replica's.
 	t.Run("WaitConvergence", func(t *testing.T) {
-		hosts := []string{
-			compose.ContainerURI(0),
-			compose.ContainerURI(1),
-			compose.ContainerURI(2),
-		}
-		converged := waitVersionConvergenceAllNodes(t, hosts, className, objectID,
-			finalVersion, asyncConvMaxConverge)
+		coordinator := host1 // any live node acts as coordinator
+		nodeNames := []string{docker.Weaviate0, docker.Weaviate1, docker.Weaviate2}
+		converged := waitVersionConvergenceAllNodesLocal(t, coordinator, nodeNames,
+			className, objectID, finalVersion, asyncConvMaxConverge)
 		require.True(t, converged,
-			"cluster did not converge to version=%d within %s", finalVersion, asyncConvMaxConverge)
-		t.Logf("convergence confirmed: all nodes at version=%d", finalVersion)
+			"cluster did not converge to local version=%d within %s "+
+				"(per-node read via ?node_name=weaviate-N)",
+			finalVersion, asyncConvMaxConverge)
+		t.Logf("convergence confirmed: all nodes report local version=%d", finalVersion)
 	})
 
 	// Now issue a version-CAS update through node 0 (which may route the shard
 	// operation to the formerly-down node 2 depending on shard assignment).
 	// The update must succeed with the converged version.
 	t.Run("IfMatchSucceeds_PostConvergence", func(t *testing.T) {
-		// Re-read the current version from all nodes to confirm convergence.
-		v0 := versionCASGetVersionDirect(t, host0, className, objectID)
-		v1 := versionCASGetVersionDirect(t, host1, className, objectID)
-		v2 := versionCASGetVersionDirect(t, compose.ContainerURI(2), className, objectID)
-		require.Equal(t, finalVersion, v0, "node 0 version must equal finalVersion")
-		require.Equal(t, finalVersion, v1, "node 1 version must equal finalVersion")
-		require.Equal(t, finalVersion, v2, "node 2 version must equal finalVersion")
+		// Re-read each node's LOCAL version via ?node_name to confirm convergence
+		// before issuing the If-Match update.  Using node-local reads means
+		// v2 reflects what node 2 actually has on disk, not a quorum result.
+		coordinator := host1
+		v0 := versionCASGetVersionFromNode(t, coordinator, className, objectID, docker.Weaviate0)
+		v1 := versionCASGetVersionFromNode(t, coordinator, className, objectID, docker.Weaviate1)
+		v2 := versionCASGetVersionFromNode(t, coordinator, className, objectID, docker.Weaviate2)
+		require.Equal(t, finalVersion, v0, "node 0 local version must equal finalVersion")
+		require.Equal(t, finalVersion, v1, "node 1 local version must equal finalVersion")
+		require.Equal(t, finalVersion, v2, "node 2 local version must equal finalVersion "+
+			"(formerly-down node must have converged via async repair)")
 
 		// Issue a version-CAS PUT through node 0 (the coordinator for this call).
 		// If node 2's shard holds the object and its version is correctly repaired,

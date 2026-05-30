@@ -521,52 +521,61 @@ func TestProdReadyVersion_RecoveryConvergence(t *testing.T) {
 	})
 
 	t.Run("WaitForVersionConvergence_AllThreeNodes", func(t *testing.T) {
-		// Re-fetch URIs after restart; testcontainers assigns a new mapped port.
-		hosts := []string{
-			compose.ContainerURI(0),
-			compose.ContainerURI(1),
-			compose.ContainerURI(2),
+		// Re-fetch the coordinator URI after restart; testcontainers may remap ports.
+		// Any live node can act as coordinator for the node_name-pinned reads.
+		coordinator := compose.ContainerURI(1)
+		// Node names match CLUSTER_HOSTNAME set in compose: weaviate-0/1/2.
+		// ?node_name=weaviate-N routes the read to that node's LOCAL replica storage
+		// (adapters/repos/db/index.go:1641 → usecases/replica/finder.go:NodeObject),
+		// bypassing quorum.  A stale node 2 returns its own stale version, not a
+		// healthy replica's, making per-node convergence assertions deterministic.
+		nodeNames := []string{
+			docker.Weaviate0,
+			docker.Weaviate1,
+			docker.Weaviate2,
 		}
 
 		var converged bool
+		var convergenceTime time.Duration
+		start := time.Now()
 		deadline := time.Now().Add(maxConverge)
 		for time.Now().Before(deadline) {
 			allMatch := true
-			for i, h := range hosts {
-				v := versionCASGetVersionDirect(t, h, className, objectID)
+			for i, name := range nodeNames {
+				v := versionCASGetVersionFromNode(t, coordinator, className, objectID, name)
 				if v != finalVersion {
-					t.Logf("node %d: version=%d (want %d); waiting for convergence...", i, v, finalVersion)
+					t.Logf("node %d (%s): local version=%d (want %d); waiting for convergence...",
+						i, name, v, finalVersion)
 					allMatch = false
 					break
 				}
 			}
 			if allMatch {
 				converged = true
+				convergenceTime = time.Since(start)
 				break
 			}
 			time.Sleep(pollInterval)
 		}
 
 		require.True(t, converged,
-			"cluster did not converge within %s: all 3 nodes must report version=%d "+
-				"at CL=ONE after node 2 restart (async replication must repair the "+
-				"%d missed version-CAS updates on node 2)",
+			"cluster did not converge within %s: all 3 nodes must report local version=%d "+
+				"after node 2 restart (async replication must repair the "+
+				"%d missed version-CAS updates on node 2's own replica); "+
+				"read via ?node_name=weaviate-N ensures per-node storage is checked",
 			maxConverge, finalVersion, deltaUpdates)
+		t.Logf("Version convergence achieved in %s", convergenceTime)
 
-		// Strict per-node final assertion.
-		finalHosts := []string{
-			compose.ContainerURI(0),
-			compose.ContainerURI(1),
-			compose.ContainerURI(2),
-		}
-		for i, h := range finalHosts {
-			v := versionCASGetVersionDirect(t, h, className, objectID)
+		// Strict per-node final assertion using node-local reads.
+		for i, name := range nodeNames {
+			v := versionCASGetVersionFromNode(t, coordinator, className, objectID, name)
 			require.Equal(t, finalVersion, v,
-				"node %d final version mismatch: got %d want %d; "+
-					"node 2 did not converge after restart",
-				i, v, finalVersion)
+				"node %d (%s) local version mismatch: got %d want %d; "+
+					"node 2 local replica did not converge after restart",
+				i, name, v, finalVersion)
 		}
-		t.Logf("Version convergence confirmed: all 3 nodes report version=%d", finalVersion)
+		t.Logf("Version convergence confirmed: all 3 nodes report local version=%d (took %s)",
+			finalVersion, convergenceTime)
 	})
 }
 
