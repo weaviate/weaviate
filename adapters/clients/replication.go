@@ -583,7 +583,11 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 		}
 		if obj.Conditional.UpdateIf != nil {
 			prop, val, vtype := storobj.SerializePredicateToQueryParams(obj.Conditional.UpdateIf)
-			if prop != "" {
+			// Emit all three params whenever a predicate is present. Property and
+			// value_type are always non-empty for a valid Predicate; value MAY be ""
+			// (empty string is a valid text value). The receiver uses property+value_type
+			// presence as the discriminator, not the value string.
+			if prop != "" && vtype != "" {
 				q.Set(replica.ConditionalFieldPropertyKey, prop)
 				q.Set(replica.ConditionalFieldValueKey, val)
 				q.Set(replica.ConditionalFieldValueTypeKey, vtype)

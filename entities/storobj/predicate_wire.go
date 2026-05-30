@@ -42,19 +42,25 @@ var PredicateValueTypeByName = func() map[string]PredicateValueType {
 // when all three are absent (no field-predicate condition). Returns an error if
 // any are present but invalid or incomplete.
 //
+// Presence is signalled by property+value_type both being non-empty; value MAY be
+// the empty string (a valid text value, e.g. a cleared status field). A non-empty
+// value combined with absent property or value_type is a partial-presence error.
+//
 // The value string is decoded per the value type:
-//   - text: raw string
+//   - text: raw string (empty string is a valid text value)
 //   - int:  decimal int64
 //   - number: decimal float64
 //   - bool: "true" or "false" (case-insensitive)
 //   - date: RFC 3339 string (stored as-is; EvalPredicate parses it)
 func ParsePredicateFromQueryParams(property, valueStr, valueTypeName string) (*Predicate, error) {
-	// All three absent = no condition.
+	// All three absent = no condition (unconditional write).
 	if property == "" && valueStr == "" && valueTypeName == "" {
 		return nil, nil
 	}
-	// Partial presence is a protocol error.
-	if property == "" || valueStr == "" || valueTypeName == "" {
+	// Presence is determined by property and value_type (not value, which may be "").
+	// Partial presence: value is non-empty but property or value_type is missing, OR
+	// property/value_type is present but the other is missing.
+	if property == "" || valueTypeName == "" {
 		return nil, fmt.Errorf("field_match condition requires all three params: conditional_field_property, conditional_field_value, conditional_field_value_type (got property=%q value=%q value_type=%q)", property, valueStr, valueTypeName)
 	}
 

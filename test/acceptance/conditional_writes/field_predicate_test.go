@@ -188,6 +188,39 @@ func fpGetStatus(t *testing.T, hostURI, className, id string) (string, bool) {
 	return s, ok
 }
 
+// fpUpdatePropsHTTP sends a PUT to update an object's arbitrary properties with a
+// condition query string. Returns the HTTP status code.
+func fpUpdatePropsHTTP(t *testing.T, hostURI, className, id string, props map[string]interface{}, condition string) int {
+	t.Helper()
+	type body struct {
+		Class      string                 `json:"class"`
+		ID         string                 `json:"id"`
+		Properties map[string]interface{} `json:"properties"`
+	}
+	payload := body{Class: className, ID: id, Properties: props}
+	jsonData, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("http://%s/v1/objects/%s/%s", hostURI, className, id)
+	if condition != "" {
+		url += "?" + condition
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, url, bytes.NewBuffer(jsonData))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		t.Logf("fpUpdatePropsHTTP: network error (host=%s id=%s): %v", hostURI, id, err)
+		return 0
+	}
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
+	return resp.StatusCode
+}
+
 // --------------------------------------------------------------------------
 // Test 1: Predicate-true commits (POST + PUT)
 // --------------------------------------------------------------------------
@@ -595,5 +628,182 @@ func TestFieldPredicate_NoRegression_Phase1(t *testing.T) {
 			return finalCount == int64(numUUIDs)
 		}, 30*time.Second, 500*time.Millisecond,
 			"aggregate count must be exactly %d; got %d", numUUIDs, finalCount)
+	})
+}
+
+// --------------------------------------------------------------------------
+// Test 7: Empty-string text predicate survives RF=3 wire round-trip
+// --------------------------------------------------------------------------
+
+// TestFieldPredicate_RF3_EmptyStringPredicateRoundTrip verifies that a field_match
+// predicate where the expected value is the empty string ("") is correctly preserved
+// across the replication wire at RF=3. This is the regression test for the bug where
+// value=="" was used as the "predicate absent" sentinel, causing empty-string predicates
+// to be silently dropped on the coordinator→replica wire, making old replicas apply
+// the write unconditionally (the Phase-1/2 silent-drop failure mode reborn).
+//
+// The test covers:
+//   - True-commit: stored status="" matches predicate value="" → 200.
+//   - False-reject: stored status="nonempty" does not match predicate value="" → 409.
+func TestFieldPredicate_RF3_EmptyStringPredicateRoundTrip(t *testing.T) {
+	const className = "FPEmptyStr"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviateCluster(3).Start(ctx)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
+
+	host := compose.ContainerURI(1)
+	helper.SetupClient(host)
+	setupFPClass(t, className)
+	waitForSchemaOnAllNodes(t, compose, className, 3)
+
+	idTrueCommit := "eeee0000-0000-4000-8000-000000000081"
+	idFalseReject := "eeee0000-0000-4000-8000-000000000082"
+
+	// Insert with empty status (the value we will predicate against).
+	t.Run("InsertWithEmptyStatus", func(t *testing.T) {
+		code := fpInsertFullHTTP(t, host, className, idTrueCommit, "", 0, "")
+		require.True(t, code >= 200 && code < 300,
+			"insert with status='' must succeed: got %d", code)
+	})
+
+	// Insert with non-empty status (predicate against "" should fail).
+	t.Run("InsertWithNonEmptyStatus", func(t *testing.T) {
+		code := fpInsertFullHTTP(t, host, className, idFalseReject, "nonempty", 0, "")
+		require.True(t, code >= 200 && code < 300,
+			"insert with status='nonempty' must succeed: got %d", code)
+	})
+
+	// True-commit: predicate value="" matches stored status="" → must succeed.
+	t.Run("TrueCommit_EmptyStringMatch", func(t *testing.T) {
+		condition := "condition=field_match&property=status&value=&value_type=text"
+		code := fpUpdatePropsHTTP(t, host, className, idTrueCommit,
+			map[string]interface{}{"status": "updated"}, condition)
+		require.True(t, code >= 200 && code < 300,
+			"field_match(value='') where stored=='' must succeed: got %d -- "+
+				"if 400, the codec still rejects empty value; if 500, it was dropped on the wire", code)
+	})
+
+	t.Run("VerifyTrueCommitUpdated", func(t *testing.T) {
+		status, ok := fpGetStatus(t, host, className, idTrueCommit)
+		require.True(t, ok)
+		assert.Equal(t, "updated", status,
+			"status must be 'updated' after empty-string predicate true-commit")
+	})
+
+	// False-reject: predicate value="" does NOT match stored status="nonempty" → must return 409.
+	t.Run("FalseReject_EmptyStringMismatch", func(t *testing.T) {
+		condition := "condition=field_match&property=status&value=&value_type=text"
+		code := fpUpdatePropsHTTP(t, host, className, idFalseReject,
+			map[string]interface{}{"status": "updated"}, condition)
+		require.Equal(t, http.StatusConflict, code,
+			"field_match(value='') where stored='nonempty' must return 409: got %d -- "+
+				"if 200, the predicate was dropped on the wire (silent-drop bug)", code)
+	})
+
+	t.Run("VerifyFalseRejectUnchanged", func(t *testing.T) {
+		status, ok := fpGetStatus(t, host, className, idFalseReject)
+		require.True(t, ok)
+		assert.Equal(t, "nonempty", status,
+			"status must remain 'nonempty' after empty-string predicate false-reject")
+	})
+}
+
+// --------------------------------------------------------------------------
+// Test 8: Int-type predicate at RF=3 (concurrent exactly-one-winner)
+// --------------------------------------------------------------------------
+
+// TestFieldPredicate_RF3_IntType_ConcurrentExactlyOneWinner verifies that a field_match
+// predicate on a numeric (int) property correctly survives the RF=3 replication wire and
+// enforces exactly-one-winner semantics under concurrent load.
+//
+// This closes the coverage gap flagged by the code review: the 6 existing concurrent-winner
+// tests all use value_type=text. The int wire path (strconv.FormatInt / ParseInt) is only
+// proven at the unit level; this test exercises it through a real 3-node cluster.
+//
+// If the int predicate is dropped on the replication wire, replicas apply writes
+// unconditionally and multiple goroutines "win" for the same object - the same
+// silent-drop detection mechanism as TestFieldPredicate_RF3_ConcurrentExactlyOneWinner.
+func TestFieldPredicate_RF3_IntType_ConcurrentExactlyOneWinner(t *testing.T) {
+	const (
+		className  = "FPIntWinner"
+		numWorkers = 16
+		clLevel    = "QUORUM"
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().WithWeaviateCluster(3).Start(ctx)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, compose.Terminate(ctx)) }()
+
+	host := compose.ContainerURI(1)
+	helper.SetupClient(host)
+	setupFPClass(t, className)
+	waitForSchemaOnAllNodes(t, compose, className, 3)
+
+	// Insert 50 objects, each with counter=0.
+	const numObjects = 50
+	uuids := makeUUIDs("9999", numObjects)
+
+	t.Run("InsertCounterZeroObjects", func(t *testing.T) {
+		for _, id := range uuids {
+			code := fpInsertFullHTTP(t, host, className, id, "draft", 0, "")
+			require.True(t, code >= 200 && code < 300, "insert %s: got %d", id, code)
+		}
+	})
+
+	// Each UUID: numWorkers goroutines all try to flip counter from 0→1 using
+	// field_match on the int property. Exactly one per UUID must succeed.
+	logger, _ := logrustest.NewNullLogger()
+	var wg sync.WaitGroup
+	var totalSuccess, totalConflict, totalError int64
+
+	t.Run("ConcurrentIntFlip", func(t *testing.T) {
+		for w := 0; w < numWorkers; w++ {
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
+				localSuccess, localConflict, localErr := int64(0), int64(0), int64(0)
+				for _, id := range uuids {
+					condition := "condition=field_match&property=counter&value=0&value_type=int&consistency_level=" + clLevel
+					code := fpUpdatePropsHTTP(t, host, className, id,
+						map[string]interface{}{"status": "draft", "counter": 1}, condition)
+					switch {
+					case code >= 200 && code < 300:
+						localSuccess++
+					case code == http.StatusConflict:
+						localConflict++
+					default:
+						localErr++
+						t.Logf("unexpected status %d for UUID %s", code, id)
+					}
+				}
+				atomic.AddInt64(&totalSuccess, localSuccess)
+				atomic.AddInt64(&totalConflict, localConflict)
+				atomic.AddInt64(&totalError, localErr)
+			}, logger)
+		}
+		wg.Wait()
+
+		t.Logf("Int concurrent flip: success=%d conflict=%d error=%d",
+			totalSuccess, totalConflict, totalError)
+	})
+
+	t.Run("AssertZeroErrors", func(t *testing.T) {
+		require.Zero(t, totalError,
+			"int field_match writes must not return unexpected error codes; got %d errors", totalError)
+	})
+
+	t.Run("AssertExactlyOneWinnerPerObject", func(t *testing.T) {
+		require.Equal(t, int64(numObjects), totalSuccess,
+			"exactly %d successes expected (one per object); got %d -- "+
+				"if > %d, the int predicate was dropped on the wire (silent-drop bug); "+
+				"if < %d, a predicate-true int update was incorrectly rejected",
+			numObjects, totalSuccess, numObjects, numObjects)
 	})
 }
