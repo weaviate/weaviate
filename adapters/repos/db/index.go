@@ -3175,6 +3175,47 @@ func (i *Index) drop() error {
 	return nil
 }
 
+// withCloseRLockGuard runs fn while holding i.closeLock.RLock(), but only
+// after confirming the index is not closing/closed. If the index is already
+// closing (drop() or Shutdown() has set i.closed), it returns
+// context.Canceled WITHOUT running fn.
+//
+// The point of this helper is to make a filesystem-mutating operation (today:
+// the reindex tracker's os.MkdirAll, which re-materializes a shard's LSM path)
+// mutually exclusive with drop()'s rename-away of the index directory.
+//
+// drop() takes i.closeLock.Lock() across the whole tear-down — it sets
+// i.closed=true AND performs renameForAsyncDelete(i.path()) under the same
+// write lock (see drop() above). Therefore, for any fn run through this guard,
+// exactly one of these holds:
+//
+//   - fn runs entirely before drop() acquires the write lock. drop() then
+//     renames the directory away (carrying anything fn created into the
+//     .deleteme dir, which the async RemoveAll later reaps). Safe.
+//   - drop() already holds (or has passed through) the write lock, so by the
+//     time this guard takes the RLock it observes i.closed==true and bails
+//     with context.Canceled. fn never runs, so it cannot re-materialize the
+//     just-renamed directory. Safe.
+//
+// A lock-free flag/ctx check is deliberately NOT sufficient here: a stale read
+// of i.closed could let fn proceed AFTER the rename, re-creating the path that
+// drop() already moved away. The RLock is what closes that window.
+//
+// fn runs while the RLock is held, so it must be short and must not attempt to
+// acquire i.closeLock for writing, nor any lock that drop() holds inside the
+// write-locked region in an inverting order (backupLock / shardCreateLocks).
+// See the lock-order documentation on the Index struct.
+func (i *Index) withCloseRLockGuard(fn func() error) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return context.Canceled
+	}
+
+	return fn()
+}
+
 func (i *Index) dropShards(names []string) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
