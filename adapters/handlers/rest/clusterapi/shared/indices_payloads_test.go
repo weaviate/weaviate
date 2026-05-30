@@ -703,6 +703,57 @@ func TestErrorListPayload_BackwardsCompat(t *testing.T) {
 	assert.Equal(t, "second error", got[2].Error())
 }
 
+// TestMarshallStorObjPreservesVersion is a regression test for the HTTP replication
+// serialization bug where marshallStorObj (indices_payloads.go) rebuilt a storobj.Object
+// struct literal and omitted the Version field, causing all replicas to receive
+// Version=0 even after the coordinator minted a non-zero version.
+//
+// This test catches the drop: marshallStorObj(obj) -> MarshalBinary -> FromBinaryNetwork
+// must produce the same Version as the input when MarshallerVersion==2.
+func TestMarshallStorObjPreservesVersion(t *testing.T) {
+	id := strfmt.UUID("c6f85bf5-c3b7-4c1d-bd51-e899f9605336")
+	now := time.Now()
+
+	obj := &storobj.Object{
+		MarshallerVersion: storobj.CurrentMarshallerVersion,
+		Version:           7,
+		Object: models.Object{
+			ID:                 id,
+			Class:              "TestClass",
+			CreationTimeUnix:   now.UnixMilli(),
+			LastUpdateTimeUnix: now.UnixMilli(),
+			Properties: map[string]interface{}{
+				"name": "test",
+			},
+		},
+		Vector:    []float32{1, 2, 3},
+		VectorLen: 3,
+	}
+
+	// Single object round-trip (MethodPut path: marshallStorObj -> unmarshallStorObj)
+	t.Run("SingleObject MethodPut preserves Version", func(t *testing.T) {
+		b, err := IndicesPayloads.SingleObject.Marshal(obj, MethodPut)
+		require.NoError(t, err)
+
+		got, err := IndicesPayloads.SingleObject.Unmarshal(b, MethodPut)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(7), got.Version,
+			"Version must survive SingleObject Marshal/Unmarshal (MethodPut): got %d, want 7", got.Version)
+	})
+
+	// Object list round-trip (MethodPut path: marshallStorObj -> unmarshallStorObj)
+	t.Run("ObjectList MethodPut preserves Version", func(t *testing.T) {
+		b, err := IndicesPayloads.ObjectList.Marshal([]*storobj.Object{obj}, MethodPut)
+		require.NoError(t, err)
+
+		got, err := IndicesPayloads.ObjectList.Unmarshal(b, MethodPut)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, uint64(7), got[0].Version,
+			"Version must survive ObjectList Marshal/Unmarshal (MethodPut): got %d, want 7", got[0].Version)
+	})
+}
+
 // TestErrorListPayload_MixedShape: string rows and object rows can
 // coexist in one payload.
 func TestErrorListPayload_MixedShape(t *testing.T) {

@@ -226,6 +226,13 @@ func rowToError(v map[string]interface{}) error {
 func marshallStorObj(in *storobj.Object) ([]byte, error) {
 	obj := storobj.Object{
 		MarshallerVersion: in.MarshallerVersion,
+		// Version is the server-managed CAS version minted by the coordinator before
+		// fan-out. It must be preserved here so that the binary representation sent to
+		// replica nodes carries the coordinator-assigned version. Without this, the
+		// replica receives Version=0 (the zero value) regardless of what the coordinator
+		// minted, breaking version-CAS and making additional.version always absent on
+		// the replicated path.
+		Version: in.Version,
 		Object: models.Object{
 			Additional:         in.Object.Additional,
 			Class:              in.Object.Class,
