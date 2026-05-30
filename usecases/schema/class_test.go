@@ -2906,7 +2906,7 @@ func Test_SetClassDefaults(t *testing.T) {
 			expectedFactor: 2,
 		},
 		{
-			name: "ReplicationConfig factor less than 1",
+			name: "ReplicationConfig factor is zero",
 			class: &models.Class{
 				ReplicationConfig: &models.ReplicationConfig{
 					Factor: 0,
@@ -2914,6 +2914,16 @@ func Test_SetClassDefaults(t *testing.T) {
 			},
 			expectedError:  "",
 			expectedFactor: 3,
+		},
+		{
+			name: "ReplicationConfig factor is negative",
+			class: &models.Class{
+				ReplicationConfig: &models.ReplicationConfig{
+					Factor: -1,
+				},
+			},
+			expectedError:  "replication factor must not be negative, got -1",
+			expectedFactor: -1,
 		},
 		{
 			name: "ReplicationConfig factor greater than or equal to MinimumFactor",
