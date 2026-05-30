@@ -264,12 +264,20 @@ func countObjectsViaGraphQL(t *testing.T, host, className string) int64 {
 }
 
 // makeUUIDs returns n deterministic UUIDs with the given 4-char prefix.
-// All UUIDs are valid RFC 4122 v4 hex strings (36 chars).
+// All UUIDs are valid RFC 4122 hex strings (36 chars, 8-4-4-4-12 groups).
+//
+// Format: <prefix>0000-0000-4000-8000-<12-hex-index>
+//   - Group 1 (8 chars):  <4-char-prefix> + "0000"
+//   - Group 2 (4 chars):  "0000"
+//   - Group 3 (4 chars):  "4000"  (version 4 marker, valid placeholder)
+//   - Group 4 (4 chars):  "8000"  (variant bits set, valid placeholder)
+//   - Group 5 (12 chars): zero-padded hex index
+//
+// UUIDs are deterministic per (prefix, index) and distinct across indices.
 func makeUUIDs(prefix string, n int) []string {
 	uuids := make([]string, n)
 	for i := 0; i < n; i++ {
-		// Format: <4-char-prefix>0000-0000-0000-<12-digit-zero-padded-index>
-		uuids[i] = fmt.Sprintf("%s0000-0000-0000-0000%08d", prefix, i)
+		uuids[i] = fmt.Sprintf("%s0000-0000-4000-8000-%012x", prefix, i)
 	}
 	return uuids
 }
@@ -791,7 +799,7 @@ func TestProdReady_RF3_ThroughputReport(t *testing.T) {
 	})
 
 	condUUIDs := makeUUIDs("ffff", numObjects)
-	uncondUUIDs := makeUUIDs("gggg", numObjects)
+	uncondUUIDs := makeUUIDs("9999", numObjects)
 
 	// Measure conditional throughput.
 	var condErrors int64
