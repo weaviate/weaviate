@@ -17,7 +17,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -30,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -94,21 +92,6 @@ func getDurabilityShard(t *testing.T, repo *DB, className string) ShardLike {
 	require.NoError(t, err)
 	require.NotNil(t, found, "shard for class %q not found", className)
 	return found
-}
-
-// newConditionalInsertObj returns a storobj with OnlyIfNotExists=true.
-func newConditionalInsertObj(className string, id strfmt.UUID) *storobj.Object {
-	return &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 id,
-			Class:              className,
-			LastUpdateTimeUnix: time.Now().UnixMilli(),
-		},
-		Conditional: storobj.Conditional{
-			OnlyIfNotExists: true,
-		},
-	}
 }
 
 // TestConditionalDurabilityRestart validates three durability invariants for
@@ -187,7 +170,7 @@ func TestConditionalDurabilityRestart(t *testing.T) {
 	shard := getDurabilityShard(t, repo, className)
 
 	// First insert: must succeed (object does not exist yet).
-	err := shard.PutObject(ctx, newConditionalInsertObj(className, id))
+	err := shard.PutObject(ctx, buildConditionalObject(className, id))
 	require.NoError(t, err, "first insert_if_not_exists must succeed (object did not exist)")
 
 	// Verify the object is readable before shutdown (sanity check).
@@ -225,7 +208,7 @@ func TestConditionalDurabilityRestart(t *testing.T) {
 	// putObjectLSM must see prevObj!=nil and return ErrPreconditionFailed.
 	// If WAL replay had not run, prevObj would be nil and the insert would
 	// succeed (nil error), breaking the durability guarantee.
-	err = reopenedShard.PutObject(ctx, newConditionalInsertObj(className, id))
+	err = reopenedShard.PutObject(ctx, buildConditionalObject(className, id))
 	require.Error(t, err,
 		"second insert_if_not_exists must fail: object must have survived WAL replay (AC1+AC2)")
 

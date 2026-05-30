@@ -28,18 +28,12 @@
 package conditional_writes
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -48,84 +42,6 @@ import (
 // haTestClassName is the collection used by both HA tests. RF=3 so that
 // floor(3/2)=1 replica can be down and QUORUM (2-of-3) still completes.
 const haTestClassName = "ConditionalWriteHATest"
-
-// conditionalInsertRequest is the minimal JSON body for a
-// POST /v1/objects?condition=insert_if_not_exists.
-// The condition itself travels via the ?condition= query parameter; the
-// JSON body carries only the object payload. This matches the server
-// contract implemented in adapters/handlers/rest/handlers_objects.go.
-type conditionalInsertRequest struct {
-	Class      string                 `json:"class"`
-	ID         string                 `json:"id"`
-	Properties map[string]interface{} `json:"properties"`
-}
-
-// setupHAClass creates a collection with RF=3 and no vectorizer so that
-// the test is independent of module availability.
-func setupHAClass(t *testing.T) {
-	t.Helper()
-	cls := &models.Class{
-		Class:      haTestClassName,
-		Vectorizer: "none",
-		ReplicationConfig: &models.ReplicationConfig{
-			Factor: 3,
-		},
-	}
-	helper.CreateClass(t, cls)
-}
-
-// conditionalInsertHTTP posts a conditional insert to the given host and
-// returns the HTTP status code. It does NOT assert the code; callers
-// choose what to assert based on the test scenario.
-//
-// consistencyLevel is the URL query parameter value to pass (e.g.
-// "QUORUM", "ALL"). Pass "" to omit it, which instructs the server to
-// use its default (QUORUM per v4 § 5.4).
-func conditionalInsertHTTP(
-	t *testing.T,
-	hostURI string,
-	id strfmt.UUID,
-	consistencyLevel string,
-) int {
-	t.Helper()
-
-	body := conditionalInsertRequest{
-		Class: haTestClassName,
-		ID:    string(id),
-		Properties: map[string]interface{}{
-			"testfield": fmt.Sprintf("value-for-%s", id),
-		},
-	}
-
-	jsonData, err := json.Marshal(body)
-	require.NoError(t, err, "marshal conditional insert request")
-
-	// The condition travels via ?condition= query parameter; consistency level
-	// is a separate orthogonal parameter. Both are combined in the URL below.
-	url := fmt.Sprintf("http://%s/v1/objects?condition=insert_if_not_exists", hostURI)
-	if consistencyLevel != "" {
-		url = fmt.Sprintf("%s&consistency_level=%s", url, consistencyLevel)
-	}
-
-	req, err := http.NewRequestWithContext(
-		context.Background(),
-		http.MethodPost,
-		url,
-		bytes.NewBuffer(jsonData),
-	)
-	require.NoError(t, err, "build HTTP request")
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	require.NoError(t, err, "execute HTTP request to %s", url)
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-
-	return resp.StatusCode
-}
 
 // TestHAPreservationDefaultCL encodes INV-HA-1:
 //
@@ -158,7 +74,7 @@ func TestHAPreservationDefaultCL(t *testing.T) {
 	helper.SetupClient(compose.ContainerURI(1))
 
 	t.Run("CreateSchema", func(t *testing.T) {
-		setupHAClass(t)
+		setupRF3Class(t, haTestClassName, 0)
 	})
 
 	// Stop the third node (0-based index 2): cluster is at N-1 = 2/3 replicas.
@@ -180,7 +96,7 @@ func TestHAPreservationDefaultCL(t *testing.T) {
 	//   contacts 2/3 replicas, and returns 201 (created) or 200 (skipped).
 	t.Run("ConditionalInsert_DefaultCL_1ReplicaDown_Expects2xx", func(t *testing.T) {
 		id := strfmt.UUID("aaaaaaaa-0000-0000-0000-000000000001")
-		statusCode := conditionalInsertHTTP(t, compose.ContainerURI(1), id, "")
+		statusCode := condInsertHTTP(t, compose.ContainerURI(1), haTestClassName, string(id), "")
 
 		// 2xx: either 201 (object inserted) or 200 (object already existed, skipped).
 		// Both are valid successful outcomes for insert_if_not_exists at QUORUM
@@ -232,7 +148,7 @@ func TestHAPreservationAllCL(t *testing.T) {
 	helper.SetupClient(compose.ContainerURI(1))
 
 	t.Run("CreateSchema", func(t *testing.T) {
-		setupHAClass(t)
+		setupRF3Class(t, haTestClassName, 0)
 	})
 
 	// Stop the third node (0-based index 2): cluster is at N-1 = 2/3 replicas.
@@ -260,7 +176,7 @@ func TestHAPreservationAllCL(t *testing.T) {
 	// request CL exactly — the core v4 CL-inheritance principle (§ 5.4).
 	t.Run("ConditionalInsert_ExplicitALL_1ReplicaDown_Succeeds_LivePruned", func(t *testing.T) {
 		id := strfmt.UUID("bbbbbbbb-0000-0000-0000-000000000002")
-		statusCode := conditionalInsertHTTP(t, compose.ContainerURI(1), id, "ALL")
+		statusCode := condInsertHTTP(t, compose.ContainerURI(1), haTestClassName, string(id), "ALL")
 
 		// 2xx: either 201 (object inserted) or 200 (object already existed, skipped).
 		// CL=ALL with a dead-detected node resolves to ALL-of-2-live, which
@@ -274,54 +190,6 @@ func TestHAPreservationAllCL(t *testing.T) {
 				"buildReplicas at cluster/router/router.go:159-175). Got %d.",
 			statusCode)
 	})
-}
-
-// unconditionalInsertHTTP posts a plain (non-conditional) object insert to the
-// given host at the specified consistency level and returns the HTTP status
-// code.  Unlike conditionalInsertHTTP, the URL does NOT include the
-// ?condition= parameter, so the server processes this as a normal write.
-func unconditionalInsertHTTP(
-	t *testing.T,
-	hostURI string,
-	id strfmt.UUID,
-	consistencyLevel string,
-) int {
-	t.Helper()
-
-	body := conditionalInsertRequest{
-		Class: haTestClassName,
-		ID:    string(id),
-		Properties: map[string]interface{}{
-			"testfield": fmt.Sprintf("value-for-%s", id),
-		},
-	}
-
-	jsonData, err := json.Marshal(body)
-	require.NoError(t, err, "marshal unconditional insert request")
-
-	url := fmt.Sprintf("http://%s/v1/objects", hostURI)
-	if consistencyLevel != "" {
-		url = fmt.Sprintf("%s?consistency_level=%s", url, consistencyLevel)
-	}
-
-	req, err := http.NewRequestWithContext(
-		context.Background(),
-		http.MethodPost,
-		url,
-		bytes.NewBuffer(jsonData),
-	)
-	require.NoError(t, err, "build HTTP request")
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	require.NoError(t, err, "execute HTTP request to %s", url)
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-
-	return resp.StatusCode
 }
 
 // TestHAPreservationAllCL_UnconditionalParity establishes the unconditional
@@ -359,7 +227,7 @@ func TestHAPreservationAllCL_UnconditionalParity(t *testing.T) {
 	helper.SetupClient(compose.ContainerURI(1))
 
 	t.Run("CreateSchema", func(t *testing.T) {
-		setupHAClass(t)
+		setupRF3Class(t, haTestClassName, 0)
 	})
 
 	// Kill the third node and wait for memberlist to detect it as dead.
@@ -377,7 +245,7 @@ func TestHAPreservationAllCL_UnconditionalParity(t *testing.T) {
 	// path — unrelated to conditional writes.
 	t.Run("UnconditionalInsert_ExplicitALL_1ReplicaDown_Succeeds_LivePruned", func(t *testing.T) {
 		id := strfmt.UUID("cccccccc-0000-0000-0000-000000000003")
-		statusCode := unconditionalInsertHTTP(t, compose.ContainerURI(1), id, "ALL")
+		statusCode := uncondInsertHTTP(t, compose.ContainerURI(1), haTestClassName, string(id), "ALL")
 
 		require.True(t, statusCode >= 200 && statusCode < 300,
 			"unconditional POST /v1/objects at CL=ALL with 1 dead-detected "+

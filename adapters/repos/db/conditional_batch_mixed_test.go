@@ -15,11 +15,9 @@ package db
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -29,58 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/objects"
 )
-
-// newConditionalObj builds a storobj.Object with Conditional.OnlyIfNotExists=true
-// for insert_if_not_exists semantics.
-func newConditionalObj(className string, id strfmt.UUID) *storobj.Object {
-	return &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 id,
-			Class:              className,
-			LastUpdateTimeUnix: time.Now().UnixMilli(),
-		},
-		Conditional: storobj.Conditional{
-			OnlyIfNotExists: true,
-		},
-	}
-}
-
-// newOnlyIfExistsObj builds a storobj.Object with Conditional.OnlyIfExists=true
-// for update_if_exists semantics.
-func newOnlyIfExistsObj(className string, id strfmt.UUID) *storobj.Object {
-	return &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 id,
-			Class:              className,
-			LastUpdateTimeUnix: time.Now().UnixMilli(),
-		},
-		Conditional: storobj.Conditional{
-			OnlyIfExists: true,
-		},
-	}
-}
-
-// newUnconditionalObj builds a plain object with no conditional flags.
-func newUnconditionalObj(className string, id strfmt.UUID) *storobj.Object {
-	return &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 id,
-			Class:              className,
-			LastUpdateTimeUnix: time.Now().UnixMilli(),
-		},
-	}
-}
-
-// isPreconditionFailed returns true when err is or wraps *objects.ErrPreconditionFailed.
-func isPreconditionFailed(err error) bool {
-	var pf *objects.ErrPreconditionFailed
-	return errors.As(err, &pf)
-}
 
 // TestBatchMixedConditionOutcomes is the formal AC test (task 1108).
 //
@@ -118,7 +65,7 @@ func TestBatchMixedConditionOutcomes(t *testing.T) {
 	for i := range existingIDs {
 		id := strfmt.UUID(uuid.NewString())
 		existingIDs[i] = id
-		preInsertBatch[i] = newUnconditionalObj(className, id)
+		preInsertBatch[i] = buildUnconditionalObject(className, id)
 	}
 	preErrs := shard.PutObjectBatch(ctx, preInsertBatch)
 	for i, err := range preErrs {
@@ -136,10 +83,10 @@ func TestBatchMixedConditionOutcomes(t *testing.T) {
 	// All carry OnlyIfNotExists.
 	batch := make([]*storobj.Object, 2*half)
 	for i := 0; i < half; i++ {
-		batch[i] = newConditionalObj(className, existingIDs[i])
+		batch[i] = buildConditionalObject(className, existingIDs[i])
 	}
 	for i := 0; i < half; i++ {
-		batch[half+i] = newConditionalObj(className, newIDs[i])
+		batch[half+i] = buildConditionalObject(className, newIDs[i])
 	}
 
 	// Phase 4: submit the batch.
@@ -190,7 +137,7 @@ func runOnlyIfExistsCASRace(t *testing.T, ctx context.Context, shard ShardLike, 
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			<-start
-			obj := newOnlyIfExistsObj(className, id)
+			obj := buildOnlyIfExistsObject(className, id)
 			err := shard.PutObject(ctx, obj)
 			if err == nil {
 				successes.Add(1)
@@ -234,7 +181,7 @@ func TestOnlyIfExistsConcurrency(t *testing.T) {
 		id := strfmt.UUID(uuid.NewString())
 
 		// Pre-insert unconditionally so the object exists.
-		require.NoError(t, shard.PutObject(ctx, newUnconditionalObj(className, id)))
+		require.NoError(t, shard.PutObject(ctx, buildUnconditionalObject(className, id)))
 
 		successCount, precondFailCount := runOnlyIfExistsCASRace(t, ctx, shard, className, id)
 
@@ -301,7 +248,7 @@ func TestMixedInsertUpdateConcurrentSameUUID(t *testing.T) {
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			<-start
-			obj := newConditionalObj(className, id)
+			obj := buildConditionalObject(className, id)
 			err := shard.PutObject(ctx, obj)
 			if err == nil {
 				insertSuccesses.Add(1)
@@ -321,7 +268,7 @@ func TestMixedInsertUpdateConcurrentSameUUID(t *testing.T) {
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			<-start
-			obj := newOnlyIfExistsObj(className, id)
+			obj := buildOnlyIfExistsObject(className, id)
 			err := shard.PutObject(ctx, obj)
 			if err == nil {
 				updateSuccesses.Add(1)

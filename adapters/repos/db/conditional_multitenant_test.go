@@ -17,7 +17,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -45,23 +44,6 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
-
-// buildMTConditionalObject builds an insert_if_not_exists object for a given
-// MT class, tenant, and UUID.
-func buildMTConditionalObject(className, tenant string, id strfmt.UUID) *storobj.Object {
-	return &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 id,
-			Class:              className,
-			Tenant:             tenant,
-			LastUpdateTimeUnix: time.Now().UnixMilli(),
-		},
-		Conditional: storobj.Conditional{
-			OnlyIfNotExists: true,
-		},
-	}
-}
 
 // TestConditionalMultiTenant verifies per-tenant isolation for insert_if_not_exists:
 //

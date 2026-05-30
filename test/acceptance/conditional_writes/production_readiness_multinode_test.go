@@ -44,12 +44,9 @@
 package conditional_writes
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -61,7 +58,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -71,182 +67,6 @@ import (
 // --------------------------------------------------------------------------
 // Shared helpers for this file
 // --------------------------------------------------------------------------
-
-// setupProdClass creates a collection with RF=3, the given number of shards,
-// and no vectorizer (independent of module availability).
-//
-// The testfield text property is declared explicitly to avoid auto-schema
-// property-add races under RAFT when concurrent workers hit multiple nodes
-// before schema propagation completes (which causes 422 responses).
-func setupProdClass(t *testing.T, className string, numShards int) {
-	t.Helper()
-	shardingConfig := interface{}(nil)
-	if numShards > 0 {
-		shardingConfig = map[string]interface{}{"desiredCount": numShards}
-	}
-	cls := &models.Class{
-		Class:      className,
-		Vectorizer: "none",
-		ReplicationConfig: &models.ReplicationConfig{
-			Factor: 3,
-		},
-		ShardingConfig: shardingConfig,
-		Properties: []*models.Property{
-			{
-				Name:     "testfield",
-				DataType: []string{"text"},
-			},
-		},
-	}
-	helper.CreateClass(t, cls)
-}
-
-// waitForSchemaOnAllNodes polls GET /v1/schema/{className} on every node in
-// the cluster until the class (including its testfield property) is visible on
-// all of them, or until timeout elapses. This guards against schema
-// propagation lag under RAFT: a write routed to a node that has not yet
-// received the schema update returns 422, not 201/200.
-func waitForSchemaOnAllNodes(t *testing.T, compose *docker.DockerCompose, className string, numNodes int) {
-	t.Helper()
-	const (
-		timeout  = 60 * time.Second
-		interval = 500 * time.Millisecond
-	)
-	deadline := time.Now().Add(timeout)
-	for nodeIdx := 0; nodeIdx < numNodes; nodeIdx++ {
-		nodeURI := compose.ContainerURI(nodeIdx)
-		var ready bool
-		for time.Now().Before(deadline) {
-			helper.SetupClient(nodeURI)
-			cls, err := helper.GetClassWithoutAssert(t, className, "")
-			if err == nil && cls != nil {
-				hasField := false
-				for _, p := range cls.Properties {
-					if p.Name == "testfield" {
-						hasField = true
-						break
-					}
-				}
-				if hasField {
-					ready = true
-					break
-				}
-			}
-			time.Sleep(interval)
-		}
-		require.True(t, ready,
-			"schema for class %q (with testfield property) did not propagate to node %d within %s",
-			className, nodeIdx, timeout)
-	}
-}
-
-// prodCondInsertHTTP posts a conditional insert to hostURI for a specific class
-// and returns the HTTP status code. The condition travels via the
-// ?condition=insert_if_not_exists query parameter.
-//
-// consistencyLevel may be "" (omit → server default QUORUM), "QUORUM", or
-// "ALL". The function does NOT assert the status; callers decide.
-func prodCondInsertHTTP(
-	t *testing.T,
-	hostURI string,
-	className string,
-	id string,
-	consistencyLevel string,
-) int {
-	t.Helper()
-
-	type body struct {
-		Class      string                 `json:"class"`
-		ID         string                 `json:"id"`
-		Properties map[string]interface{} `json:"properties"`
-	}
-	payload := body{
-		Class: className,
-		ID:    id,
-		Properties: map[string]interface{}{
-			"testfield": fmt.Sprintf("value-for-%s", id),
-		},
-	}
-	jsonData, err := json.Marshal(payload)
-	require.NoError(t, err, "marshal insert body")
-
-	url := fmt.Sprintf("http://%s/v1/objects?condition=insert_if_not_exists", hostURI)
-	if consistencyLevel != "" {
-		url = fmt.Sprintf("%s&consistency_level=%s", url, consistencyLevel)
-	}
-
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodPost, url,
-		bytes.NewBuffer(jsonData),
-	)
-	require.NoError(t, err, "build HTTP request")
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		// Network error: return a sentinel that callers can treat as a transient
-		// failure. We use 0 so callers see it is clearly not an HTTP status code.
-		t.Logf("prodCondInsertHTTP: network error (host=%s id=%s): %v", hostURI, id, err)
-		return 0
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-	return resp.StatusCode
-}
-
-// prodUncondInsertHTTP posts a plain (non-conditional) object insert.
-// Used for throughput comparison in TestProdReady_RF3_ThroughputReport.
-func prodUncondInsertHTTP(
-	t *testing.T,
-	hostURI string,
-	className string,
-	id string,
-	consistencyLevel string,
-) int {
-	t.Helper()
-
-	type body struct {
-		Class      string                 `json:"class"`
-		ID         string                 `json:"id"`
-		Properties map[string]interface{} `json:"properties"`
-	}
-	payload := body{
-		Class: className,
-		ID:    id,
-		Properties: map[string]interface{}{
-			"testfield": fmt.Sprintf("value-for-%s", id),
-		},
-	}
-	jsonData, err := json.Marshal(payload)
-	require.NoError(t, err, "marshal unconditional insert body")
-
-	url := fmt.Sprintf("http://%s/v1/objects", hostURI)
-	if consistencyLevel != "" {
-		url = fmt.Sprintf("%s?consistency_level=%s", url, consistencyLevel)
-	}
-
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodPost, url,
-		bytes.NewBuffer(jsonData),
-	)
-	require.NoError(t, err, "build HTTP request")
-	req.Header.Set("Content-Type", "application/json")
-
-	cl := &http.Client{Timeout: 30 * time.Second}
-	resp, err := cl.Do(req)
-	if err != nil {
-		t.Logf("prodUncondInsertHTTP: network error (host=%s id=%s): %v", hostURI, id, err)
-		return 0
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-	return resp.StatusCode
-}
 
 // countObjectsViaGraphQL returns the aggregate count for className on host.
 // Uses GraphQL Aggregate meta.count — same pattern as common.CountObjects.
@@ -370,7 +190,7 @@ func TestProdReady_RF3_ExactlyOnce_ConcurrentSameUUIDs(t *testing.T) {
 	helper.SetupClient(host)
 
 	t.Run("CreateSchema", func(t *testing.T) {
-		setupProdClass(t, className, 1)
+		setupRF3Class(t, className, 1)
 		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
@@ -390,7 +210,7 @@ func TestProdReady_RF3_ExactlyOnce_ConcurrentSameUUIDs(t *testing.T) {
 			defer wg.Done()
 			localSuccess, localConflict, localErr := int64(0), int64(0), int64(0)
 			for _, id := range uuids {
-				code := prodCondInsertHTTP(t, host, className, id, clLevel)
+				code := condInsertHTTP(t, host, className, id, clLevel)
 				switch {
 				case code == 201:
 					localSuccess++
@@ -493,7 +313,7 @@ func TestProdReady_RF3_HAUnderNodeFailureDuringLoad(t *testing.T) {
 	helper.SetupClient(host)
 
 	t.Run("CreateSchema", func(t *testing.T) {
-		setupProdClass(t, className, 1)
+		setupRF3Class(t, className, 1)
 		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
@@ -518,7 +338,7 @@ func TestProdReady_RF3_HAUnderNodeFailureDuringLoad(t *testing.T) {
 			t.Logf("[%d/%d] Node 2 stopped; remaining writes at QUORUM (2-of-2-live)", i, numUUIDs)
 		}
 
-		code := prodCondInsertHTTP(t, host, className, id, clLevel)
+		code := condInsertHTTP(t, host, className, id, clLevel)
 		if code >= 200 && code < 300 {
 			atomic.AddInt64(&successCount, 1)
 		} else {
@@ -604,7 +424,7 @@ func TestProdReady_RF3_RecoveryConvergence(t *testing.T) {
 	helper.SetupClient(host1)
 
 	t.Run("CreateSchema", func(t *testing.T) {
-		setupProdClass(t, className, 1)
+		setupRF3Class(t, className, 1)
 		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
@@ -613,7 +433,7 @@ func TestProdReady_RF3_RecoveryConvergence(t *testing.T) {
 
 	t.Run("InsertBaseline_AllNodesUp", func(t *testing.T) {
 		for _, id := range baselineUUIDs {
-			code := prodCondInsertHTTP(t, host1, className, id, clLevel)
+			code := condInsertHTTP(t, host1, className, id, clLevel)
 			require.True(t, code >= 200 && code < 300,
 				"baseline insert must succeed with all nodes up: got %d for UUID %s", code, id)
 		}
@@ -628,7 +448,7 @@ func TestProdReady_RF3_RecoveryConvergence(t *testing.T) {
 	t.Run("InsertDelta_Node2Down", func(t *testing.T) {
 		errors := 0
 		for _, id := range deltaUUIDs {
-			code := prodCondInsertHTTP(t, host1, className, id, clLevel)
+			code := condInsertHTTP(t, host1, className, id, clLevel)
 			if code < 200 || code >= 300 {
 				errors++
 				t.Logf("delta insert error: status=%d UUID=%s", code, id)
@@ -748,7 +568,7 @@ func TestProdReady_MultiShard_RF3_ExactlyOnce(t *testing.T) {
 	helper.SetupClient(host)
 
 	t.Run("CreateSchema", func(t *testing.T) {
-		setupProdClass(t, className, numShards)
+		setupRF3Class(t, className, numShards)
 		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
@@ -768,7 +588,7 @@ func TestProdReady_MultiShard_RF3_ExactlyOnce(t *testing.T) {
 			defer wg.Done()
 			localSuccess, localConflict, localErr := int64(0), int64(0), int64(0)
 			for _, id := range uuids {
-				code := prodCondInsertHTTP(t, host, className, id, clLevel)
+				code := condInsertHTTP(t, host, className, id, clLevel)
 				switch {
 				case code == 201:
 					localSuccess++
@@ -852,8 +672,8 @@ func TestProdReady_RF3_ThroughputReport(t *testing.T) {
 	helper.SetupClient(host)
 
 	t.Run("CreateSchema", func(t *testing.T) {
-		setupProdClass(t, className, 1)
-		setupProdClass(t, uncondClass, 1)
+		setupRF3Class(t, className, 1)
+		setupRF3Class(t, uncondClass, 1)
 		waitForSchemaOnAllNodes(t, compose, className, 3)
 		waitForSchemaOnAllNodes(t, compose, uncondClass, 3)
 	})
@@ -868,7 +688,7 @@ func TestProdReady_RF3_ThroughputReport(t *testing.T) {
 
 	for _, id := range condUUIDs {
 		start := time.Now()
-		code := prodCondInsertHTTP(t, host, className, id, clLevel)
+		code := condInsertHTTP(t, host, className, id, clLevel)
 		latNs := time.Since(start).Nanoseconds()
 		condLatencies = append(condLatencies, latNs)
 		if code < 200 || code >= 300 {
@@ -886,7 +706,7 @@ func TestProdReady_RF3_ThroughputReport(t *testing.T) {
 
 	for _, id := range uncondUUIDs {
 		start := time.Now()
-		code := prodUncondInsertHTTP(t, host, uncondClass, id, clLevel)
+		code := uncondInsertHTTP(t, host, uncondClass, id, clLevel)
 		latNs := time.Since(start).Nanoseconds()
 		uncondLatencies = append(uncondLatencies, latNs)
 		if code < 200 || code >= 300 {

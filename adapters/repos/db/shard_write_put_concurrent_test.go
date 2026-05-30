@@ -19,7 +19,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -27,7 +26,6 @@ import (
 	"github.com/stretchr/testify/require"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
@@ -51,20 +49,6 @@ func TestInsertIfNotExistsConcurrency(t *testing.T) {
 
 // concurrencyCount is the number of goroutines that race on the same UUID.
 const concurrencyCount = 100
-
-func buildConditionalObject(className string, id strfmt.UUID) *storobj.Object {
-	return &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 id,
-			Class:              className,
-			LastUpdateTimeUnix: time.Now().UnixMilli(),
-		},
-		Conditional: storobj.Conditional{
-			OnlyIfNotExists: true,
-		},
-	}
-}
 
 // runCASRace fires concurrencyCount goroutines all attempting PutObject with
 // OnlyIfNotExists on the same UUID against shard. It returns the count of
