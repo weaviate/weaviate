@@ -57,6 +57,16 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 		return fmt.Errorf("import into index %s: %w", idx.ID(), err)
 	}
 
+	// Propagate the authoritative coordinator-minted version back to the models
+	// object so the REST handler can derive the response ETag from the same value
+	// that was committed, rather than recomputing prevVersion+1 from a potentially
+	// stale local read. This eliminates the N1 ETag-vs-mint divergence under
+	// concurrency.
+	if obj.Additional == nil {
+		obj.Additional = models.AdditionalProperties{}
+	}
+	obj.Additional["version"] = object.Version
+
 	return nil
 }
 

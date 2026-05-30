@@ -163,6 +163,23 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 			return nil
 		}
 
+		// Bump the server-managed version so that any outstanding If-Match ETag is
+		// invalidated. PATCH is version-incrementing but not yet version-conditional:
+		// it increments Version so a stale If-Match correctly 412s, but does not
+		// accept an If-Match precondition itself. Conditional-merge is a follow-on.
+		//
+		// When the gate is closed (v1, default) the Version field is not persisted
+		// and the increment is a no-op on the wire; when the gate is open (v2) the
+		// bumped version is included in the 50-byte header. Always use prevObj so
+		// each replica produces the same value (coordinator and all replicas see the
+		// same prevObj at quorum).
+		if prevObj != nil {
+			obj.Version = prevObj.Version + 1
+		} else {
+			obj.Version = 1
+		}
+		obj.MarshallerVersion = storobj.GetWriteMarshallerVersion()
+
 		objBytes, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 		if err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
@@ -254,6 +271,17 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 	out.status = status
 
 	obj.DocID = status.docID // is not changed
+	// Bump the server-managed version so that any outstanding If-Match ETag is
+	// invalidated (same discipline as mergeObjectInStorage). mutableMergeObjectLSM
+	// is used for reference batch updates that reuse the existing docID; the
+	// version bump ensures correctness even on this fast path.
+	if prevObj != nil {
+		obj.Version = prevObj.Version + 1
+	} else {
+		obj.Version = 1
+	}
+	obj.MarshallerVersion = storobj.GetWriteMarshallerVersion()
+
 	objBytes, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 	if err != nil {
 		return out, errors.Wrapf(err, "marshal object %s to binary", obj.ID())

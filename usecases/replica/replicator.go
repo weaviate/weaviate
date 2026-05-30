@@ -132,6 +132,17 @@ func (r *Replicator) PutObject(ctx context.Context,
 ) error {
 	// Coordinator-authoritative version mint + IfVersion CAS (Plan-A, §1-3).
 	//
+	// Gate-closed guard: when PERSISTENCE_OBJECT_VERSION_WRITE != 2 (the
+	// default), version-CAS is not active. A conditional write (IfVersion set)
+	// must be rejected with a clear error rather than silently passing as
+	// unconditional - a silent pass is a lost-update vector and violates the CAS
+	// contract. Phase-1 OnlyIfNotExists/OnlyIfExists are not version-CAS and
+	// continue to work regardless of the gate.
+	if obj != nil && obj.Conditional.IfVersion != nil && storobj.GetWriteMarshallerVersion() != 2 {
+		return fmt.Errorf("version-CAS not active: object versioning disabled; " +
+			"set PERSISTENCE_OBJECT_VERSION_WRITE=2 after full cluster upgrade to activate")
+	}
+
 	// Acquire the per-(shard, UUID) coordinator lock BEFORE the digest read so
 	// that two same-coordinator goroutines cannot interleave their
 	// read → CAS-compare → mint. The lock is held through coord.Push so that
@@ -145,7 +156,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 		mu.Lock()
 		defer mu.Unlock()
 
-		current, err := r.Finder.resolveCurrentVersion(ctx, l, shard, obj.ID())
+		current, err := r.resolveCurrentVersion(ctx, l, shard, obj.ID())
 		if err != nil {
 			return fmt.Errorf("resolve current version for mint: %w", err)
 		}
@@ -164,7 +175,12 @@ func (r *Replicator) PutObject(ctx context.Context,
 		}
 
 		obj.Version = current + 1
-		obj.MarshallerVersion = storobj.CurrentMarshallerVersion
+		// Set the marshaller version from the cluster write-gate. When v1 (gate
+		// closed) the Version field is not persisted on disk; when v2 (gate open,
+		// operator opt-in after full-fleet upgrade) the 50-byte header is used.
+		// Never force v2 here: doing so causes old nodes to hard-fail decoding
+		// during a rolling upgrade.
+		obj.MarshallerVersion = storobj.GetWriteMarshallerVersion()
 		// The coordinator is authoritative for the CAS decision. Clear IfVersion
 		// so that replicas do not re-evaluate the conditional against their local
 		// prevObj state on the replica-apply path (mintVersion=false). A replica
@@ -293,6 +309,39 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
+	// Mint a single-coordinator-local version for each object before fanning out
+	// to replicas. This mirrors the single-PUT mint discipline (coordinator mints
+	// from local prev, replicas preserve the incoming version with mintVersion=false)
+	// without a per-object cross-replica digest quorum.
+	//
+	// Using CL=ONE intentionally: the goal is a monotonic baseline version, not
+	// a quorum-max. A batch write is not version-conditional (no If-Match), so the
+	// only invariant is that each write produces a version > the coordinator's last
+	// known version. CL=ONE satisfies this at the cost of the same Plan-A
+	// KNOWN-WEAK cross-coordinator LWW boundary already accepted for single-PUT.
+	//
+	// When the gate is closed (v1, default) obj.Version stays 0 and obj.MarshallerVersion
+	// stays v1; the bump is a no-op on disk.
+	if storobj.GetWriteMarshallerVersion() == 2 {
+		for _, obj := range objs {
+			if obj == nil || obj.ID() == "" {
+				continue
+			}
+			mu := r.coordVersionLockFor(shard, obj.ID())
+			mu.Lock()
+			current, err := r.resolveCurrentVersion(ctx, types.ConsistencyLevelOne, shard, obj.ID())
+			mu.Unlock()
+			if err != nil {
+				r.log.WithField("op", "put.many.mint").WithField("class", r.class).
+					WithField("shard", shard).WithField("uuid", obj.ID()).
+					Debugf("resolveCurrentVersion for batch mint: %v (treating as 0)", err)
+				current = 0
+			}
+			obj.Version = current + 1
+			obj.MarshallerVersion = storobj.GetWriteMarshallerVersion()
+		}
+	}
+
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)

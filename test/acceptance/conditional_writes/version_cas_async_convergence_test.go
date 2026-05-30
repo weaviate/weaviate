@@ -183,6 +183,7 @@ func TestVersionCAS_AsyncConv_DeltaConvergence(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		WithWeaviateEnv("ASYNC_REPLICATION_PROPAGATION_DELAY", asyncConvPropagationDelay).
 		Start(ctx)
 	require.NoError(t, err, "start 3-node cluster")
@@ -287,6 +288,7 @@ func TestVersionCAS_AsyncConv_InitialInsertConvergence(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		WithWeaviateEnv("ASYNC_REPLICATION_PROPAGATION_DELAY", asyncConvPropagationDelay).
 		Start(ctx)
 	require.NoError(t, err, "start 3-node cluster")
@@ -378,6 +380,7 @@ func TestVersionCAS_AsyncConv_PostConvergenceIfMatch(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		WithWeaviateEnv("ASYNC_REPLICATION_PROPAGATION_DELAY", asyncConvPropagationDelay).
 		Start(ctx)
 	require.NoError(t, err, "start 3-node cluster")

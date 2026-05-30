@@ -146,6 +146,7 @@ func TestHAPreservationDefaultCL(t *testing.T) {
 	// --- AC 1: 3-replica cluster + 1-replica kill infrastructure ---
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node cluster")
 	defer func() {
@@ -221,6 +222,7 @@ func TestHAPreservationAllCL(t *testing.T) {
 	// --- AC 1: 3-replica cluster + 1-replica kill infrastructure ---
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node cluster")
 	defer func() {
@@ -348,6 +350,7 @@ func TestHAPreservationAllCL_UnconditionalParity(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node cluster")
 	defer func() {

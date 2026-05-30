@@ -353,10 +353,12 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 				obj.Version = 1
 			}
 		}
-		// Upgrade to MarshallerVersion 2 so the Version field is included in the
-		// on-disk binary. Without this, the version is set in memory but silently
-		// dropped by MarshalBinaryDisk when MarshallerVersion == 1.
-		obj.MarshallerVersion = storobj.CurrentMarshallerVersion
+		// Set the on-disk marshaller version from the cluster write-gate. When the
+		// gate is closed (v1, default) the Version field is not persisted; when open
+		// (v2, operator opt-in after full-fleet upgrade) the 50-byte header is used
+		// and the Version field is included in the binary. Never force v2 here: doing
+		// so would cause old nodes to hard-fail decoding during a rolling upgrade.
+		obj.MarshallerVersion = storobj.GetWriteMarshallerVersion()
 
 		objBinary, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 		if err != nil {

@@ -235,6 +235,7 @@ func TestProdReadyVersion_ExactlyOnce_ConcurrentCAS(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
 	defer func() {
@@ -347,6 +348,7 @@ func TestProdReadyVersion_HAUnderNodeFailure(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
 	defer func() {
@@ -457,6 +459,7 @@ func TestProdReadyVersion_RecoveryConvergence(t *testing.T) {
 	// 3-minute deadline is achievable in CI without requiring a longer timeout.
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		WithWeaviateEnv("ASYNC_REPLICATION_PROPAGATION_DELAY", "200ms").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
@@ -608,6 +611,7 @@ func TestProdReadyVersion_MonotonicUnderLoad(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
 	defer func() {
@@ -705,6 +709,7 @@ func TestProdReadyVersion_KnownWeakCrossCoordinator(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
 	defer func() {

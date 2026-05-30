@@ -72,6 +72,7 @@ func TestVersionCASDigest_SingleCoordinator_RF3(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
 	defer func() {
@@ -140,6 +141,7 @@ func TestVersionCASDigest_SequentialChain_RF3(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
 	defer func() {
@@ -212,6 +214,7 @@ func TestVersionCASDigest_WrongIfMatch_RF3(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
 	defer func() {
@@ -278,6 +281,7 @@ func TestVersionCASDigest_CrossCoordinatorMakesProgress(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("PERSISTENCE_OBJECT_VERSION_WRITE", "2").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
 	defer func() {

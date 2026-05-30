@@ -135,25 +135,32 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, fmt.Errorf("put object: %w", err)
 	}
 
-	// Populate the server-computed new version into Additional so the REST
-	// handler can set ETag: "<newVersion>" without a follow-up GET.
-	// The new version is prevVersion + 1, matching the logic in putObjectLSM.
-	// The prev version is in obj.AdditionalProperties["version"] (set by
-	// storobj.SearchResult unconditionally). Legacy v1 objects have version 0,
-	// so their first write also produces version 1.
-	var prevVersion uint64
-	if v, ok := obj.AdditionalProperties["version"]; ok {
-		switch vt := v.(type) {
-		case uint64:
-			prevVersion = vt
-		case float64:
-			prevVersion = uint64(vt)
-		}
-	}
+	// Populate the response ETag / version into Additional so the REST handler can
+	// set ETag: "<version>" without a follow-up GET.
+	//
+	// Priority: DB.PutObject writes back the authoritative coordinator-minted version
+	// into updates.Additional["version"] (the N1 fix - avoids stale prevVersion+1
+	// under concurrency). Fall back to prevVersion+1 only when DB.PutObject did not
+	// set it (gate-closed, or mock in tests): in that case prevVersion+1 matches the
+	// value actually written (gate-closed mints nothing; prevVersion IS the version).
 	if updates.Additional == nil {
 		updates.Additional = models.AdditionalProperties{}
 	}
-	updates.Additional["version"] = prevVersion + 1
+	if _, alreadySet := updates.Additional["version"]; !alreadySet {
+		// Fallback: compute prevVersion+1 as before. This is used when the gate is
+		// closed (PERSISTENCE_OBJECT_VERSION_WRITE != 2) or in tests that use a mock
+		// DB. When the gate is open, DB.PutObject already set the authoritative value.
+		var prevVersion uint64
+		if v, ok := obj.AdditionalProperties["version"]; ok {
+			switch vt := v.(type) {
+			case uint64:
+				prevVersion = vt
+			case float64:
+				prevVersion = uint64(vt)
+			}
+		}
+		updates.Additional["version"] = prevVersion + 1
+	}
 
 	return updates, nil
 }

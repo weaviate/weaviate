@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/parser"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
@@ -1377,6 +1378,26 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableDimensionMetrics = configRuntime.NewDynamicValue(disableDimensionMetrics)
+
+	// Wire the object-format write-gate. Default is v1 (gate closed) so that a
+	// rolling upgrade does not cause old nodes to encounter v2 records they cannot
+	// decode. Once the entire cluster is upgraded the operator sets
+	// PERSISTENCE_OBJECT_VERSION_WRITE=2 and restarts each node; from that point
+	// new writes carry the 50-byte v2 header with the server-managed Version field,
+	// and version-CAS (If-Match / update_if_version) becomes active.
+	//
+	// Invalid values (not "1" or "2") are rejected at startup so misconfigurations
+	// are visible immediately rather than silently falling back to v1.
+	if v := os.Getenv("PERSISTENCE_OBJECT_VERSION_WRITE"); v != "" {
+		switch v {
+		case "1":
+			storobj.SetWriteMarshallerVersion(1)
+		case "2":
+			storobj.SetWriteMarshallerVersion(2)
+		default:
+			return fmt.Errorf("invalid PERSISTENCE_OBJECT_VERSION_WRITE %q: must be \"1\" or \"2\"", v)
+		}
+	}
 
 	return nil
 }
