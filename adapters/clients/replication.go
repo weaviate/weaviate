@@ -565,6 +565,22 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
+	// storobj.MarshalBinary intentionally excludes Conditional (it is a per-request
+	// attribute, not a storage attribute), so carry the Phase-1 precondition flags as
+	// dedicated query parameters.  The receiving handler restores them into obj.Conditional
+	// before passing to ReplicateObject.  Old replicas missing these params treat the
+	// request as unconditional (KNOWN-WEAK-ROLLING-UPGRADE).
+	if obj.Conditional.OnlyIfNotExists || obj.Conditional.OnlyIfExists {
+		q := req.URL.Query()
+		if obj.Conditional.OnlyIfNotExists {
+			q.Set(replica.ConditionalOnlyIfNotExistsKey, "true")
+		}
+		if obj.Conditional.OnlyIfExists {
+			q.Set(replica.ConditionalOnlyIfExistsKey, "true")
+		}
+		req.URL.RawQuery = q.Encode()
+	}
+
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
 	err = c.do(c.timeoutUnit*COMMIT_TIMEOUT_VALUE, req, body, &resp, MAX_RETRIES)
 	return resp, err

@@ -965,6 +965,20 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Restore the Phase-1 conditional-write precondition from dedicated query params.
+	// storobj.MarshalBinary intentionally excludes Conditional (it is a per-request
+	// attribute), so the HTTP replication client carries them as separate query
+	// parameters.  Old clients that do not send these params send nothing, which
+	// leaves obj.Conditional at its zero value (unconditional write) — correct
+	// behaviour during a rolling upgrade (KNOWN-WEAK-ROLLING-UPGRADE).
+	q := r.URL.Query()
+	if q.Get(replica.ConditionalOnlyIfNotExistsKey) == "true" {
+		obj.Conditional.OnlyIfNotExists = true
+	}
+	if q.Get(replica.ConditionalOnlyIfExistsKey) == "true" {
+		obj.Conditional.OnlyIfExists = true
+	}
+
 	resp := i.replicator.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)
 	if shared.LocalIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)

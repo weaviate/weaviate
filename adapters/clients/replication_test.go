@@ -168,6 +168,72 @@ func TestReplicationPutObject(t *testing.T) {
 	})
 }
 
+// TestReplicationPutObject_ConditionalQueryParams verifies that the HTTP
+// replication client sets the conditional query parameters when the object
+// carries a non-zero Conditional.  This is the regression test for the RF>1
+// conditional-write bug on the HTTP replication path.
+//
+// The test catches the bug because: if the client omits the query params, the
+// server will not see them and will treat the write as unconditional.
+func TestReplicationPutObject_ConditionalQueryParams(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name            string
+		onlyIfNotExists bool
+		onlyIfExists    bool
+		wantNotExists   string
+		wantExists      string
+	}{
+		{
+			name:            "OnlyIfNotExists sets query param",
+			onlyIfNotExists: true,
+			wantNotExists:   "true",
+			wantExists:      "",
+		},
+		{
+			name:         "OnlyIfExists sets query param",
+			onlyIfExists: true,
+			wantNotExists: "",
+			wantExists:   "true",
+		},
+		{
+			name:            "unconditional: no query params",
+			wantNotExists:   "",
+			wantExists:      "",
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var gotNotExists, gotExists string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotNotExists = r.URL.Query().Get(replica.ConditionalOnlyIfNotExistsKey)
+				gotExists = r.URL.Query().Get(replica.ConditionalOnlyIfExistsKey)
+				resp, _ := json.Marshal(replica.SimpleResponse{})
+				w.Write(resp)
+			}))
+			defer srv.Close()
+
+			client := newReplicationClient(t, srv.Client())
+			obj := &storobj.Object{
+				MarshallerVersion: 1,
+				Object:            anyObject(UUID1),
+				Conditional: storobj.Conditional{
+					OnlyIfNotExists: tc.onlyIfNotExists,
+					OnlyIfExists:    tc.onlyIfExists,
+				},
+			}
+			host := srv.URL[7:]
+			_, err := client.PutObject(ctx, host, "C1", "S1", "RID1", obj, 0)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantNotExists, gotNotExists, "conditional_not_exists query param")
+			assert.Equal(t, tc.wantExists, gotExists, "conditional_exists query param")
+		})
+	}
+}
+
 func TestReplicationDeleteObject(t *testing.T) {
 	t.Parallel()
 

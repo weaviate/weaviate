@@ -31,6 +31,14 @@ const (
 	// RequestKey is used to marshalling request IDs
 	RequestKey       = "request_id"
 	SchemaVersionKey = "schema_version"
+
+	// ConditionalOnlyIfNotExistsKey and ConditionalOnlyIfExistsKey carry Phase-1
+	// conditional-write precondition flags on the HTTP replication wire.
+	// storobj.MarshalBinary intentionally excludes Conditional (it is a per-request
+	// attribute), so these params are the HTTP analogue of the gRPC-proto fields
+	// only_if_not_exists / only_if_exists in PutObjectRequest.
+	ConditionalOnlyIfNotExistsKey = "conditional_not_exists"
+	ConditionalOnlyIfExistsKey    = "conditional_exists"
 )
 
 // Client is used to read and write objects on replicas

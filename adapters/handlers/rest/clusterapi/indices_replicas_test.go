@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -789,5 +790,94 @@ func TestPutOverwriteObjectsZstdConcurrent(t *testing.T) {
 	close(errs)
 	for err := range errs {
 		require.NoError(t, err)
+	}
+}
+
+// TestReplicatedIndices_PostObjectSingle_ConditionalRestored verifies that the
+// HTTP replication server handler correctly restores storobj.Conditional from
+// the dedicated query params before calling ReplicateObject.
+//
+// This is the regression test for the RF>1 conditional-write bug on the HTTP
+// replication path: storobj.MarshalBinary intentionally omits Conditional, so
+// the server must reconstruct it from the query params the HTTP client sends.
+//
+// The test catches the bug because: if the server does not parse the params,
+// obj.Conditional is zero when ReplicateObject is called — the assertion on the
+// captured storobj will fail.
+func TestReplicatedIndices_PostObjectSingle_ConditionalRestored(t *testing.T) {
+	t.Parallel()
+
+	noopAuth := clusterapi.NewNoopAuthHandler()
+	logger, _ := test.NewNullLogger()
+
+	for _, tc := range []struct {
+		name         string
+		queryParam   string
+		wantCond     storobj.Conditional
+	}{
+		{
+			name:       "OnlyIfNotExists restored from conditional_not_exists=true",
+			queryParam: "conditional_not_exists=true",
+			wantCond:   storobj.Conditional{OnlyIfNotExists: true},
+		},
+		{
+			name:       "OnlyIfExists restored from conditional_exists=true",
+			queryParam: "conditional_exists=true",
+			wantCond:   storobj.Conditional{OnlyIfExists: true},
+		},
+		{
+			name:     "unconditional: Conditional stays zero when params absent",
+			wantCond: storobj.Conditional{},
+		},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var receivedObj *storobj.Object
+			fakeReplicator := replicaTypes.NewMockReplicator(t)
+			fakeReplicator.EXPECT().
+				ReplicateObject(mock.Anything, "MyClass", "myshard", mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(_ context.Context, _, _, _ string, obj *storobj.Object, _ uint64) replica.SimpleResponse {
+					receivedObj = obj
+					return replica.SimpleResponse{}
+				})
+
+			indices := clusterapi.NewReplicatedIndices(
+				fakeReplicator, noopAuth, func() bool { return false },
+				cluster.RequestQueueConfig{}, logger, func() bool { return true },
+			)
+			mux := http.NewServeMux()
+			mux.Handle("/replicas/indices/", indices.Indices())
+			server := httptest.NewServer(mux)
+			defer server.Close()
+
+			// Build a valid serialisable object.
+			obj := &storobj.Object{MarshallerVersion: 1}
+			obj.Object.ID = "00000000-0000-0000-0000-000000000001"
+			obj.Object.Class = "MyClass"
+			body, err := shared.IndicesPayloads.SingleObject.Marshal(obj, shared.MethodPut)
+			require.NoError(t, err)
+
+			urlStr := fmt.Sprintf(
+				"%s/replicas/indices/MyClass/shards/myshard/objects?request_id=RID1&schema_version=0",
+				server.URL,
+			)
+			if tc.queryParam != "" {
+				urlStr += "&" + tc.queryParam
+			}
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, urlStr, bytes.NewReader(body))
+			require.NoError(t, err)
+			shared.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
+
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			require.NotNil(t, receivedObj, "ReplicateObject must have been called")
+			assert.Equal(t, tc.wantCond, receivedObj.Conditional,
+				"Conditional must be restored from query params, not from binary payload")
+		})
 	}
 }

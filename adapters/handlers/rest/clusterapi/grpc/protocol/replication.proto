@@ -57,12 +57,22 @@ message RepairResponse {
 // ── Write requests / responses ───────────────────────────────────────────────
 
 // PutObject replicates a single object (binary-encoded via storobj.MarshalBinary).
+//
+// Backward-compat: fields 6 and 7 (conditional flags) default to false when absent.
+// An old replica receiving this message silently treats it as unconditional during
+// a rolling upgrade window (KNOWN-WEAK-ROLLING-UPGRADE).
 message PutObjectRequest {
   string index = 1;
   string shard = 2;
   string request_id = 3;
   uint64 schema_version = 4;
   bytes object_data = 5; // storobj.MarshalBinary output
+
+  // Phase-1 conditional-write precondition flags.  Carried as dedicated proto
+  // fields because storobj.MarshalBinary intentionally excludes Conditional
+  // (it is a per-request, not a storage attribute).
+  bool only_if_not_exists = 6; // insert_if_not_exists: write only when UUID absent
+  bool only_if_exists = 7;     // update_if_exists: write only when UUID present
 }
 
 message PutObjectResponse {

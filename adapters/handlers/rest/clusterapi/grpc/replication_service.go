@@ -55,6 +55,19 @@ func (s *ReplicationService) PutObject(ctx context.Context, req *pb.PutObjectReq
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal object: %v", err)
 	}
 
+	// Restore the Phase-1 conditional precondition from the dedicated proto fields.
+	// storobj.MarshalBinary intentionally excludes Conditional (it is a per-request
+	// attribute, not a storage attribute), so it must be carried separately.
+	// Old replicas missing these fields deliver false/false, which is treated as an
+	// unconditional write (KNOWN-WEAK-ROLLING-UPGRADE: conditional check skipped on
+	// old-replica nodes during a rolling upgrade window).
+	if req.GetOnlyIfNotExists() || req.GetOnlyIfExists() {
+		obj.Conditional = storobj.Conditional{
+			OnlyIfNotExists: req.GetOnlyIfNotExists(),
+			OnlyIfExists:    req.GetOnlyIfExists(),
+		}
+	}
+
 	resp := s.server.ReplicateObject(ctx, req.GetIndex(), req.GetShard(), req.GetRequestId(), obj, req.GetSchemaVersion())
 	if shared.LocalIndexNotReady(resp) {
 		return nil, status.Errorf(codes.Unavailable, "local index not ready: %v", resp.FirstError())
