@@ -250,6 +250,7 @@ func prodUncondInsertHTTP(
 
 // countObjectsViaGraphQL returns the aggregate count for className on host.
 // Uses GraphQL Aggregate meta.count — same pattern as common.CountObjects.
+// Calls t.Fatal on any error; use countObjectsViaGraphQLSoft inside poll loops.
 func countObjectsViaGraphQL(t *testing.T, host, className string) int64 {
 	t.Helper()
 	helper.SetupClient(host)
@@ -261,6 +262,45 @@ func countObjectsViaGraphQL(t *testing.T, host, className string) int64 {
 	count, err := meta["count"].(json.Number).Int64()
 	require.NoError(t, err, "parse aggregate count")
 	return count
+}
+
+// countObjectsViaGraphQLSoft is the non-fatal variant of countObjectsViaGraphQL.
+// It returns (count, error) so callers inside a poll loop can treat transient
+// errors as "not yet converged" rather than fataling the test immediately.
+// Use this inside convergence poll loops; use countObjectsViaGraphQL for final
+// strict post-convergence assertions.
+func countObjectsViaGraphQLSoft(t *testing.T, host, className string) (int64, error) {
+	t.Helper()
+	helper.SetupClient(host)
+	q := fmt.Sprintf(`{Aggregate{%s{meta{count}}}}`, className)
+	resp, err := graphqlhelper.QueryGraphQL(t, helper.RootAuth, "", q, nil)
+	if err != nil {
+		return 0, fmt.Errorf("graphql query to %s: %w", host, err)
+	}
+	if len(resp.Errors) != 0 {
+		return 0, fmt.Errorf("graphql response errors from %s: %v", host, resp.Errors)
+	}
+	data := make(map[string]interface{})
+	for k, v := range resp.Data {
+		data[k] = v
+	}
+	agg, ok := data["Aggregate"].(map[string]interface{})
+	if !ok {
+		return 0, fmt.Errorf("missing Aggregate key in response from %s", host)
+	}
+	classSlice, ok := agg[className].([]interface{})
+	if !ok || len(classSlice) == 0 {
+		return 0, fmt.Errorf("missing or empty %s bucket in Aggregate from %s", className, host)
+	}
+	meta, ok := classSlice[0].(map[string]interface{})["meta"].(map[string]interface{})
+	if !ok {
+		return 0, fmt.Errorf("missing meta in aggregate result from %s", host)
+	}
+	count, err := meta["count"].(json.Number).Int64()
+	if err != nil {
+		return 0, fmt.Errorf("parse aggregate count from %s: %w", host, err)
+	}
+	return count, nil
 }
 
 // makeUUIDs returns n deterministic UUIDs with the given 4-char prefix.
@@ -561,7 +601,6 @@ func TestProdReady_RF3_RecoveryConvergence(t *testing.T) {
 	}()
 
 	host1 := compose.ContainerURI(1)
-	host2 := compose.ContainerURI(2) // node index 2, 0-based
 	helper.SetupClient(host1)
 
 	t.Run("CreateSchema", func(t *testing.T) {
@@ -610,10 +649,16 @@ func TestProdReady_RF3_RecoveryConvergence(t *testing.T) {
 	t.Run("WaitForConvergence_AllThreeNodes", func(t *testing.T) {
 		// Poll all three nodes at CL=ONE until each reports the full count.
 		// CL=ONE reads from any single replica, so a lag on node 2 shows here.
+		//
+		// Re-fetch all ContainerURIs here (AFTER StartNodeAt(2)) because
+		// testcontainers assigns a NEW mapped host port when a stopped container
+		// is restarted. The host2 captured before StopNode2 points to a stale
+		// port and will produce a connection error. Fetching fresh addresses
+		// inside this sub-test guarantees we hit the live ports.
 		hosts := []string{
 			compose.ContainerURI(0),
 			compose.ContainerURI(1),
-			host2,
+			compose.ContainerURI(2),
 		}
 
 		var converged bool
@@ -621,7 +666,15 @@ func TestProdReady_RF3_RecoveryConvergence(t *testing.T) {
 		for time.Now().Before(deadline) {
 			allMatch := true
 			for i, h := range hosts {
-				count := countObjectsViaGraphQL(t, h, className)
+				// Use the non-fatal soft variant so that transient errors
+				// (node 2 still booting, schema not yet propagated) are treated
+				// as "not converged yet" rather than fataling the test.
+				count, err := countObjectsViaGraphQLSoft(t, h, className)
+				if err != nil {
+					t.Logf("node %d: query error (node may still be starting): %v; retrying...", i, err)
+					allMatch = false
+					break
+				}
 				if count != expectedTotal {
 					t.Logf("node %d: count=%d (want %d); waiting for convergence...",
 						i, count, expectedTotal)
@@ -643,7 +696,14 @@ func TestProdReady_RF3_RecoveryConvergence(t *testing.T) {
 			maxConverge, expectedTotal, deltaCount)
 
 		// Final concrete assertion: each node must agree.
-		for i, h := range hosts {
+		// Re-fetch ContainerURIs again for the strict post-convergence check
+		// in case a remap happened during the poll window.
+		finalHosts := []string{
+			compose.ContainerURI(0),
+			compose.ContainerURI(1),
+			compose.ContainerURI(2),
+		}
+		for i, h := range finalHosts {
 			finalCount := countObjectsViaGraphQL(t, h, className)
 			require.Equal(t, expectedTotal, finalCount,
 				"node %d final count mismatch: got %d want %d; "+
