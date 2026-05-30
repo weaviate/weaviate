@@ -906,6 +906,88 @@ func (s *Shard) EffectiveTokenizationAndSearchableBucket(propName, liveTokenizat
 	return overlay, bucket
 }
 
+// PinTokenizationAndSearchableBucket is the pinning sibling of
+// [Shard.EffectiveTokenizationAndSearchableBucket]: it resolves the active
+// query-time tokenization for propName AND pins the property's searchable
+// bucket for the full duration of a query, returning the bucket together
+// with a release function the caller MUST invoke exactly once.
+//
+// Why pin: a field→word searchable retokenization flips the property's
+// searchable-bucket pointer (store.SwapBucketPointer) and then shuts the
+// displaced old bucket down (oldBucket.Shutdown frees its mmap'd segments).
+// A BM25 query touches the searchable bucket twice — once at prop discovery
+// (here) and again at lookup (createTerm/createBlockTerm). Without a pin the
+// lookup re-fetches the bucket by name and can land on the post-swap bucket
+// while having tokenized prop-discovery-way, or worse, read a bucket whose
+// mmap was freed by the concurrent Shutdown. Pinning here and threading the
+// pinned pointer to lookup removes both: the query uses ONE bucket for its
+// whole duration, and Shutdown drains in-flight pins before freeing mmaps.
+//
+// Consistency with the tokenization: the pin is taken UNDER the same
+// tokenizationOverlayMu.RLock as the overlay read, so the returned
+// (tokenization, pinned bucket) pair is a single consistent snapshot — the
+// same guarantee [Shard.EffectiveTokenizationAndSearchableBucket] gives,
+// now extended to cover the whole query rather than just prop discovery.
+// Store.AcquireBucketForRead takes lifetimeLock.RLock under
+// bucketAccessLock.RLock; held under tokenizationOverlayMu.RLock the nesting
+// is tokenizationOverlayMu → bucketAccessLock → lifetimeLock, the same
+// direction as the write side (tokenizationOverlayMu.Lock → flip's
+// bucketAccessLock.Lock) and Shutdown (lifetimeLock.Lock alone, old bucket
+// already out of the map), so no inversion.
+//
+// The returned bucket may be nil (property has no searchable bucket); the
+// release is then a no-op. The caller must handle nil exactly as it would a
+// nil from store.Bucket.
+func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
+) (string, *lsmkv.Bucket, func()) {
+	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+
+	if propName == "" {
+		bucket, release := s.store.AcquireBucketForRead(bucketName)
+		return liveTokenization, bucket, release
+	}
+
+	if tokenizationOverlayNonAtomicForTest {
+		// PRE-FIX BEHAVIOR (test-only): read the bucket pointer and the
+		// overlay under SEPARATE lock acquisitions (the bucket WITHOUT the
+		// overlay lock), reproducing the two-independent-reads race the fix
+		// closes. NEVER set in production. Still pins so the asymmetry proof
+		// exercises the lifetime drain.
+		bucket, release := s.store.AcquireBucketForRead(bucketName)
+		return s.TokenizationFor(propName, liveTokenization), bucket, release
+	}
+
+	s.tokenizationOverlayMu.RLock()
+	overlay, ok := "", false
+	if s.tokenizationOverlay != nil {
+		overlay, ok = s.tokenizationOverlay[propName]
+	}
+	// Pin the bucket pointer under the SAME RLock as the overlay so the
+	// (tokenization, pinned bucket) pair is a single consistent snapshot.
+	bucket, release := s.store.AcquireBucketForRead(bucketName)
+	s.tokenizationOverlayMu.RUnlock()
+
+	if !ok {
+		return liveTokenization, bucket, release
+	}
+	if overlay == liveTokenization {
+		// Live schema has caught up. Self-clear so future calls take the
+		// fast path — same defensive self-clear as TokenizationFor. The
+		// bucket pointer was already pinned under the snapshot above; the
+		// returned tokenization (== liveTokenization == overlay) is
+		// consistent with it regardless of the clear.
+		s.tokenizationOverlayMu.Lock()
+		if s.tokenizationOverlay != nil {
+			if current, ok := s.tokenizationOverlay[propName]; ok && current == liveTokenization {
+				delete(s.tokenizationOverlay, propName)
+			}
+		}
+		s.tokenizationOverlayMu.Unlock()
+		return liveTokenization, bucket, release
+	}
+	return overlay, bucket, release
+}
+
 // ClearTokenizationOverlay removes any tokenization-overlay entry for
 // propName. Idempotent — called by the schema-update callback when the
 // live schema's tokenization for propName matches the overlay's target,
