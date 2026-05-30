@@ -60,6 +60,13 @@ type BM25Searcher struct {
 	// use prop.Tokenization directly (tests and callers with no
 	// in-flight migration).
 	tokResolver TokenizationResolver
+	// bucketTokResolver, when non-nil, supersedes tokResolver + GetBucket
+	// for searchable text props: it returns the effective tokenization AND
+	// the searchable bucket pointer as ONE consistent snapshot (read under
+	// the shard's tokenization-overlay RLock), closing the field→word
+	// FINALIZING-window race at the read side. Nil = fall back to the
+	// independent GetBucket + tokResolver pair.
+	bucketTokResolver SearchableBucketTokenizationResolver
 }
 
 type propLengthRetriever interface {
@@ -105,6 +112,21 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 // Pass nil (the default) to use the schema-stored value directly.
 func (b *BM25Searcher) WithTokenizationResolver(r TokenizationResolver) *BM25Searcher {
 	b.tokResolver = r
+	return b
+}
+
+// WithSearchableBucketTokenizationResolver attaches a
+// [SearchableBucketTokenizationResolver] used by the prop-discovery loop to
+// fetch each searchable text prop's bucket pointer and effective
+// tokenization as one consistent snapshot. When set it supersedes both
+// GetBucket and the plain [TokenizationResolver] for those props, closing
+// the field→word FINALIZING-window race on the read side. Returns the
+// receiver for fluent chaining. Pass nil (the default) to keep the
+// independent GetBucket + TokenizationResolver behavior.
+func (b *BM25Searcher) WithSearchableBucketTokenizationResolver(
+	r SearchableBucketTokenizationResolver,
+) *BM25Searcher {
+	b.bucketTokResolver = r
 	return b
 }
 
@@ -213,7 +235,28 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			return false, 0, nil, nil, nil, nil, 0, err
 		}
 
-		bucket := b.GetBucket(property)
+		prop, err := schema.GetPropertyByName(class, property)
+		if err != nil {
+			return false, 0, nil, nil, nil, nil, 0, err
+		}
+
+		// Fetch the bucket pointer and the effective tokenization for this
+		// property. When bucketTokResolver is wired (a tokenization-changing
+		// migration is in flight), both come from ONE consistent snapshot
+		// under the shard's tokenization-overlay RLock, so a query can never
+		// observe the post-swap bucket with the pre-swap tokenization (or
+		// vice versa) during the FINALIZING window. Otherwise they are read
+		// independently — correct whenever no overlay is active.
+		var (
+			bucket       *lsmkv.Bucket
+			effectiveTok string
+		)
+		if b.bucketTokResolver != nil {
+			effectiveTok, bucket = b.bucketTokResolver(prop.Name, prop.Tokenization)
+		} else {
+			bucket = b.GetBucket(property)
+			effectiveTok = ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
+		}
 		if bucket == nil {
 			return false, 0, nil, nil, nil, nil, 0, fmt.Errorf("could not find bucket for property %v", property)
 		}
@@ -222,21 +265,14 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 			allBucketsAreInverted = false
 		}
 
-		prop, err := schema.GetPropertyByName(class, property)
-		if err != nil {
-			return false, 0, nil, nil, nil, nil, 0, err
-		}
-
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
-			// effectiveTok consults the per-shard tokenization overlay
-			// (set during the FINALIZING window of a change-tokenization
-			// migration) before falling back to the schema-stored value.
-			// The rest of the BM25 pipeline for this property uses
-			// effectiveTok everywhere `prop.Tokenization` would have been
-			// read, so query input gets tokenized against the value that
-			// matches the bucket content on this shard.
-			effectiveTok := ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)
+			// effectiveTok (resolved above) consults the per-shard
+			// tokenization overlay before falling back to the schema-stored
+			// value, so query input gets tokenized against the value that
+			// matches the bucket content on this shard. The rest of the
+			// BM25 pipeline uses effectiveTok everywhere `prop.Tokenization`
+			// would have been read.
 			tokKey := effectiveTok
 			hasCustomStopwords := prop.TextAnalyzer != nil && prop.TextAnalyzer.StopwordPreset != ""
 			if prop.TextAnalyzer != nil && prop.TextAnalyzer.ASCIIFold {
