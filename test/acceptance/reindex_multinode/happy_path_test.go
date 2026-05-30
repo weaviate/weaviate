@@ -238,6 +238,30 @@ func testMapToBlockmax(t *testing.T, compose *docker.DockerCompose) {
 	}
 }
 
+// waitForClassOnAllNodes blocks until className is visible (GET
+// /v1/schema/<class> == 200, a per-node local read) on every node. After
+// createCollection a node still catching up on the RAFT schema log — e.g. one
+// tied up in a slow startup migration — may not yet have the class; a
+// consistency=ALL write then trips that replica's schema-version deadline
+// (got=N want=N+k). Gating writes on convergence avoids that without retrying
+// the write itself (objects get auto-UUIDs, so a retry would duplicate).
+func waitForClassOnAllNodes(t *testing.T, compose *docker.DockerCompose, className string) {
+	t.Helper()
+	for i := 1; i <= 3; i++ {
+		nodeURI := compose.GetWeaviateNode(i).URI()
+		require.Eventuallyf(t, func() bool {
+			resp, err := http.Get(fmt.Sprintf("http://%s/v1/schema/%s", nodeURI, className))
+			if err != nil {
+				return false
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			return resp.StatusCode == http.StatusOK
+		}, 60*time.Second, 100*time.Millisecond,
+			"class %s must be visible on node %d before consistency=ALL writes", className, i)
+	}
+}
+
 func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 	className := "MultiNodeRoaringSet"
 	restURI := compose.GetWeaviateNode(1).URI()
@@ -246,6 +270,9 @@ func testRoaringSetRefresh(t *testing.T, compose *docker.DockerCompose) {
 		{Name: "text", DataType: []string{"text"}, Tokenization: "word"},
 	})
 	defer deleteCollection(t, restURI, className)
+
+	// Gate the first consistency=ALL write on schema convergence across nodes.
+	waitForClassOnAllNodes(t, compose, className)
 
 	importObjects(t, restURI, className, testDocuments)
 
