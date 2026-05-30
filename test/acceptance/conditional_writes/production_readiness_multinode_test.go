@@ -101,6 +101,33 @@ func setupProdClass(t *testing.T, className string, numShards int) {
 	helper.CreateClass(t, cls)
 }
 
+// setupProdClassAsync is identical to setupProdClass but enables async
+// replication (AsyncEnabled=true). Use this for tests that rely on background
+// hashtree-based repair to converge a node that missed writes while down.
+func setupProdClassAsync(t *testing.T, className string, numShards int) {
+	t.Helper()
+	shardingConfig := interface{}(nil)
+	if numShards > 0 {
+		shardingConfig = map[string]interface{}{"desiredCount": numShards}
+	}
+	cls := &models.Class{
+		Class:      className,
+		Vectorizer: "none",
+		ReplicationConfig: &models.ReplicationConfig{
+			Factor:       3,
+			AsyncEnabled: true,
+		},
+		ShardingConfig: shardingConfig,
+		Properties: []*models.Property{
+			{
+				Name:     "testfield",
+				DataType: []string{"text"},
+			},
+		},
+	}
+	helper.CreateClass(t, cls)
+}
+
 // waitForSchemaOnAllNodes polls GET /v1/schema/{className} on every node in
 // the cluster until the class (including its testfield property) is visible on
 // all of them, or until timeout elapses. This guards against schema

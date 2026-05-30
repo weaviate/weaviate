@@ -453,8 +453,11 @@ func TestProdReadyVersion_RecoveryConvergence(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
+	// ASYNC_REPLICATION_PROPAGATION_DELAY=200ms speeds up convergence so the
+	// 3-minute deadline is achievable in CI without requiring a longer timeout.
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("ASYNC_REPLICATION_PROPAGATION_DELAY", "200ms").
 		Start(ctx)
 	require.NoError(t, err, "start 3-node RF3 cluster")
 	defer func() {
@@ -467,7 +470,9 @@ func TestProdReadyVersion_RecoveryConvergence(t *testing.T) {
 	helper.SetupClient(host)
 
 	t.Run("CreateSchema", func(t *testing.T) {
-		setupProdClass(t, className, 1)
+		// AsyncEnabled=true is required: without it the hashtree repair loop is
+		// not started and node 2 never background-syncs the missed writes.
+		setupProdClassAsync(t, className, 1)
 		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
