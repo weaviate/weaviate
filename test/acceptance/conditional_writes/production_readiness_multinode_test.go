@@ -74,6 +74,10 @@ import (
 
 // setupProdClass creates a collection with RF=3, the given number of shards,
 // and no vectorizer (independent of module availability).
+//
+// The testfield text property is declared explicitly to avoid auto-schema
+// property-add races under RAFT when concurrent workers hit multiple nodes
+// before schema propagation completes (which causes 422 responses).
 func setupProdClass(t *testing.T, className string, numShards int) {
 	t.Helper()
 	shardingConfig := interface{}(nil)
@@ -87,8 +91,53 @@ func setupProdClass(t *testing.T, className string, numShards int) {
 			Factor: 3,
 		},
 		ShardingConfig: shardingConfig,
+		Properties: []*models.Property{
+			{
+				Name:     "testfield",
+				DataType: []string{"text"},
+			},
+		},
 	}
 	helper.CreateClass(t, cls)
+}
+
+// waitForSchemaOnAllNodes polls GET /v1/schema/{className} on every node in
+// the cluster until the class (including its testfield property) is visible on
+// all of them, or until timeout elapses. This guards against schema
+// propagation lag under RAFT: a write routed to a node that has not yet
+// received the schema update returns 422, not 201/200.
+func waitForSchemaOnAllNodes(t *testing.T, compose *docker.DockerCompose, className string, numNodes int) {
+	t.Helper()
+	const (
+		timeout  = 60 * time.Second
+		interval = 500 * time.Millisecond
+	)
+	deadline := time.Now().Add(timeout)
+	for nodeIdx := 0; nodeIdx < numNodes; nodeIdx++ {
+		nodeURI := compose.ContainerURI(nodeIdx)
+		var ready bool
+		for time.Now().Before(deadline) {
+			helper.SetupClient(nodeURI)
+			cls, err := helper.GetClassWithoutAssert(t, className, "")
+			if err == nil && cls != nil {
+				hasField := false
+				for _, p := range cls.Properties {
+					if p.Name == "testfield" {
+						hasField = true
+						break
+					}
+				}
+				if hasField {
+					ready = true
+					break
+				}
+			}
+			time.Sleep(interval)
+		}
+		require.True(t, ready,
+			"schema for class %q (with testfield property) did not propagate to node %d within %s",
+			className, nodeIdx, timeout)
+	}
 }
 
 // prodCondInsertHTTP posts a conditional insert to hostURI for a specific class
@@ -274,6 +323,7 @@ func TestProdReady_RF3_ExactlyOnce_ConcurrentSameUUIDs(t *testing.T) {
 
 	t.Run("CreateSchema", func(t *testing.T) {
 		setupProdClass(t, className, 1)
+		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
 	uuids := makeUUIDs("aaaa", numUUIDs)
@@ -396,6 +446,7 @@ func TestProdReady_RF3_HAUnderNodeFailureDuringLoad(t *testing.T) {
 
 	t.Run("CreateSchema", func(t *testing.T) {
 		setupProdClass(t, className, 1)
+		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
 	uuids := makeUUIDs("bbbb", numUUIDs)
@@ -507,6 +558,7 @@ func TestProdReady_RF3_RecoveryConvergence(t *testing.T) {
 
 	t.Run("CreateSchema", func(t *testing.T) {
 		setupProdClass(t, className, 1)
+		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
 	baselineUUIDs := makeUUIDs("cccc", baselineCount)
@@ -629,6 +681,7 @@ func TestProdReady_MultiShard_RF3_ExactlyOnce(t *testing.T) {
 
 	t.Run("CreateSchema", func(t *testing.T) {
 		setupProdClass(t, className, numShards)
+		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
 	uuids := makeUUIDs("eeee", numUUIDs)
@@ -733,6 +786,8 @@ func TestProdReady_RF3_ThroughputReport(t *testing.T) {
 	t.Run("CreateSchema", func(t *testing.T) {
 		setupProdClass(t, className, 1)
 		setupProdClass(t, uncondClass, 1)
+		waitForSchemaOnAllNodes(t, compose, className, 3)
+		waitForSchemaOnAllNodes(t, compose, uncondClass, 3)
 	})
 
 	condUUIDs := makeUUIDs("ffff", numObjects)
