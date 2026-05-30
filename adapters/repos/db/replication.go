@@ -925,12 +925,14 @@ func (i *Index) DigestObjects(ctx context.Context,
 			updateTime = deletionTime.UnixMilli()
 		}
 
+		// Version=0 for absent/deleted objects is intentional: a missing object
+		// has no version, and 0 is the sentinel for "not yet written". The
+		// coordinator treats 0 as the base for a new-object mint (Version=1).
 		objs[j] = types.RepairResponse{
 			ID:         ids[j].String(),
 			Deleted:    deleted,
 			UpdateTime: updateTime,
-			// TODO: use version when supported
-			Version: 0,
+			Version:    0,
 		}
 	}
 

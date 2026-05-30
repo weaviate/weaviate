@@ -166,9 +166,15 @@ func (s *Shard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]
 			return nil, errors.Wrap(err, "cannot extract docID/updateTime from binary header")
 		}
 
+		version, err := storobj.VersionFromBinary(data)
+		if err != nil {
+			return nil, errors.Wrap(err, "cannot extract version from binary header")
+		}
+
 		objects[i] = types.RepairResponse{
 			ID:         q.ID,
 			UpdateTime: updateTime,
+			Version:    int64(version),
 		}
 	}
 

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -512,4 +513,71 @@ func TestVersionCASKnownWeakTwoShards(t *testing.T) {
 	// In a real multi-node write, LWW would resolve which value survives.
 	require.NoError(t, errA, "KNOWN-WEAK: shard A must not crash on version-CAS (Plan-A boundary)")
 	require.NoError(t, errB, "KNOWN-WEAK: shard B must not crash on version-CAS (Plan-A boundary)")
+}
+
+// TestObjectDigestsReturnsVersion verifies that Shard.ObjectDigests populates
+// the Version field of the returned RepairResponse from the on-disk binary
+// record after a v2 write. This is the unit-level proof for the root cause fix:
+// before the fix, ObjectDigests built RepairResponse{ID, UpdateTime} only
+// (Version defaulted to zero). resolveCurrentVersion therefore always returned
+// 0, causing the coordinator CAS check to reject every If-Match update on
+// RF>1 clusters with ErrPreconditionFailed (412).
+//
+// Causal link: this test writes obj with MarshallerVersion=2 and Version=5,
+// then calls ObjectDigests on the shard and asserts Version==5. Without the
+// fix, ObjectDigests returns Version==0 and the assertion fails. With the fix,
+// VersionFromBinary extracts 5 from the v2 header and Version is set correctly.
+func TestObjectDigestsReturnsVersion(t *testing.T) {
+	ctx := context.Background()
+	const className = "ObjectDigestsVersionTest"
+	class := &models.Class{Class: className}
+
+	orig := storobj.GetWriteMarshallerVersion()
+	defer storobj.SetWriteMarshallerVersion(orig)
+	storobj.SetWriteMarshallerVersion(2)
+
+	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	defer func() { _ = idx.drop() }()
+
+	id := strfmt.UUID(uuid.NewString())
+
+	// Write via the shard PutObject (unconditional), which mints Version=1.
+	require.NoError(t, shard.PutObject(ctx, buildUnconditionalObject(className, id)))
+
+	// Retrieve digest and verify Version is non-zero (the shard minted 1).
+	concrShard, ok := shard.(*Shard)
+	require.True(t, ok)
+
+	digests, err := concrShard.ObjectDigests(ctx, []multi.Identifier{{ID: id.String()}})
+	require.NoError(t, err)
+	require.Len(t, digests, 1)
+	require.Equal(t, id.String(), digests[0].ID)
+	require.Equal(t, int64(1), digests[0].Version,
+		"ObjectDigests must return the stored Version from the v2 binary header; "+
+			"got zero (the pre-fix value); this would cause resolveCurrentVersion to always "+
+			"return 0, breaking every If-Match update on RF>1 clusters")
+}
+
+// TestObjectDigestsMissingObjectVersion verifies that ObjectDigests returns
+// Version=0 for a UUID that does not exist on the shard. This is the correct
+// sentinel: a missing object has no version, and 0 is the base for a first mint.
+func TestObjectDigestsMissingObjectVersion(t *testing.T) {
+	ctx := context.Background()
+	const className = "ObjectDigestsMissingTest"
+	class := &models.Class{Class: className}
+
+	shard, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	defer func() { _ = idx.drop() }()
+
+	concrShard, ok := shard.(*Shard)
+	require.True(t, ok)
+
+	id := strfmt.UUID(uuid.NewString())
+	digests, err := concrShard.ObjectDigests(ctx, []multi.Identifier{{ID: id.String()}})
+	require.NoError(t, err)
+	require.Len(t, digests, 1)
+	// Missing object: the loop leaves digests[0] at its zero value (ID==""),
+	// which signals "not found" to the caller. Version must be 0.
+	require.Equal(t, "", digests[0].ID, "missing object must have empty ID in digest")
+	require.Equal(t, int64(0), digests[0].Version, "missing object must have Version=0 sentinel")
 }

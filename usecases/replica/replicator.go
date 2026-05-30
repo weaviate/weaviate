@@ -165,6 +165,14 @@ func (r *Replicator) PutObject(ctx context.Context,
 
 		obj.Version = current + 1
 		obj.MarshallerVersion = storobj.CurrentMarshallerVersion
+		// The coordinator is authoritative for the CAS decision. Clear IfVersion
+		// so that replicas do not re-evaluate the conditional against their local
+		// prevObj state on the replica-apply path (mintVersion=false). A replica
+		// checking IfVersion against its own stale local version would reject a
+		// write the coordinator already authorized, causing lost progress.
+		// OnlyIfNotExists and OnlyIfExists are Phase-1 shard-layer conditionals
+		// evaluated locally on each replica; they are not cleared here.
+		obj.Conditional.IfVersion = nil
 	}
 
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)

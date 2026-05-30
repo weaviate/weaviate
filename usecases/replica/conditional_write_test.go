@@ -936,3 +936,78 @@ func TestConditionalWriteVersionConcurrentSameCoordinator(t *testing.T) {
 			"[iteration %d] exactly one writer must return ErrPreconditionFailed (coordinator lock prevents double-mint)", iteration)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestConditionalWriteVersionCASClearsIfVersionBeforeFanOut
+//
+// After the coordinator passes the CAS check and mints obj.Version = current+1,
+// it must clear obj.Conditional.IfVersion before broadcasting the object to
+// replicas. If IfVersion is NOT cleared, replica-apply (putObjectLSM with
+// mintVersion=false) re-evaluates the condition against the local prevObj.Version,
+// which may differ from the coordinator's view (lag, first-write, etc.) and
+// produces a spurious 412, causing lost progress.
+//
+// Causal link: the test captures the storobj sent to PutObject via the mock's
+// RunFn. Without the fix, obj.Conditional.IfVersion is still set (== currentVersion)
+// when the mock sees it, and the assertion fails. With the fix, the coordinator
+// clears it before coord.Push, so the captured object has IfVersion==nil.
+// ---------------------------------------------------------------------------
+func TestConditionalWriteVersionCASClearsIfVersionBeforeFanOut(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "SH1"
+	)
+	objID := strfmt.UUID("00000000-0000-0000-0000-000000000007")
+	nodes := []string{"A", "B", "C"}
+	f := newFakeFactory(t, cls, shard, nodes, false)
+	rep := f.newReplicator()
+
+	const currentVersion = uint64(3)
+	wireDigestResponse(f.RClient, cls, shard, objID, int64(currentVersion))
+
+	obj := mkObj(objID, ptrUint64(currentVersion))
+
+	okResp := replica.SimpleResponse{}
+	var commitWG sync.WaitGroup
+
+	// Capture the storobj as seen by each replica's PutObject call.
+	var capturedIfVersions []*uint64
+	var captureMu sync.Mutex
+
+	for _, n := range nodes {
+		f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, mock.Anything, uint64(0)).
+			Return(okResp, nil).Maybe().
+			RunFn = func(args mock.Arguments) {
+			sent, _ := args[5].(*storobj.Object)
+			captureMu.Lock()
+			if sent != nil {
+				capturedIfVersions = append(capturedIfVersions, sent.Conditional.IfVersion)
+			}
+			captureMu.Unlock()
+		}
+		commitWG.Add(1)
+		f.WClient.On("Commit", mock.Anything, n, cls, shard, mock.Anything, mock.Anything).
+			Return(nil).Maybe().
+			RunFn = func(args mock.Arguments) {
+			defer commitWG.Done()
+			resp := args[5].(*replica.SimpleResponse)
+			*resp = okResp
+		}
+	}
+
+	ctx := context.Background()
+	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	commitWG.Wait()
+
+	assert.NoError(t, err, "CAS match must succeed")
+	assert.Equal(t, currentVersion+1, obj.Version, "coordinator minted Version")
+
+	// The key assertion: IfVersion must be nil on every object seen by replicas.
+	captureMu.Lock()
+	defer captureMu.Unlock()
+	for i, v := range capturedIfVersions {
+		assert.Nilf(t, v, "replica[%d] must receive IfVersion=nil (coordinator already decided); "+
+			"non-nil IfVersion causes replicas to re-evaluate the CAS against local state, "+
+			"producing spurious 412s on RF>1 clusters", i)
+	}
+}
