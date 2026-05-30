@@ -144,12 +144,18 @@ func TestGateClosed_ConditionalWriteReturnsNotActiveError(t *testing.T) {
 	})
 
 	t.Run("GateClosed_PhaseOneConditionalsStillWork", func(t *testing.T) {
-		// Phase-1 OnlyIfNotExists must still work on a gate-closed cluster.
-		// This verifies the gate guard does not block non-version conditionals.
+		// Phase-1 OnlyIfNotExists must still work on a gate-closed cluster: the
+		// version gate must not block non-version conditionals. Per the API design
+		// (handlers_objects.go §6.4.1) insert_if_not_exists on an EXISTING object is
+		// an idempotent no-op -> 200 OK + outcome=skipped (NOT 409/412, NOT an
+		// overwrite). prodCondInsertHTTP would set testfield="value-for-<id>"; a
+		// correct skip leaves the prior "initial-value" untouched.
 		code := prodCondInsertHTTP(t, host, className, objectID, "QUORUM")
-		// The object already exists, so insert_if_not_exists must return 409 or 412.
-		assert.True(t, code == http.StatusConflict || code == http.StatusPreconditionFailed,
-			"gate-closed: OnlyIfNotExists on existing object must return 409 or 412; got %d", code)
+		assert.Equal(t, http.StatusOK, code,
+			"gate-closed: insert_if_not_exists on an existing object must be an idempotent skip (200 OK); got %d", code)
+		field := gateCASReadFieldHTTP(t, host, className, objectID)
+		assert.Equal(t, "initial-value", field,
+			"gate-closed: insert_if_not_exists must SKIP (not overwrite) an existing object; testfield changed to %q", field)
 	})
 }
 
