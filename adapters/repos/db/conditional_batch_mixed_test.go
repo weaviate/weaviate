@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -119,6 +120,43 @@ func TestBatchMixedConditionOutcomes(t *testing.T) {
 	require.Zero(t, unexpected, "expected zero unexpected errors")
 }
 
+// launchPutGoroutines fires count goroutines that each call shard.PutObject with
+// the object returned by buildObj.  Each goroutine waits on start before running.
+// Successes are counted in successCtr; ErrPreconditionFailed outcomes in failCtr.
+// Any other error is reported via t.Errorf with errLabel.
+// The caller owns wg.Add(count) before calling, and must close(start) after.
+func launchPutGoroutines(
+	t *testing.T,
+	ctx context.Context,
+	shard ShardLike,
+	wg *sync.WaitGroup,
+	start <-chan struct{},
+	count int,
+	buildObj func() *storobj.Object,
+	successCtr, failCtr *atomic.Int64,
+	logger logrus.FieldLogger,
+	errLabel string,
+) {
+	t.Helper()
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			<-start
+			err := shard.PutObject(ctx, buildObj())
+			if err == nil {
+				successCtr.Add(1)
+				return
+			}
+			if isPreconditionFailed(err) {
+				failCtr.Add(1)
+				return
+			}
+			t.Errorf("unexpected error from %s goroutine: %v", errLabel, err)
+		}, logger)
+	}
+}
+
 // runOnlyIfExistsCASRace fires concurrencyCount goroutines all attempting PutObject
 // with OnlyIfExists on the same UUID. Returns success and precondFail counts.
 func runOnlyIfExistsCASRace(t *testing.T, ctx context.Context, shard ShardLike, className string, id strfmt.UUID) (successCount, precondFailCount int) {
@@ -132,24 +170,9 @@ func runOnlyIfExistsCASRace(t *testing.T, ctx context.Context, shard ShardLike, 
 
 	start := make(chan struct{})
 
-	for i := 0; i < concurrencyCount; i++ {
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			<-start
-			obj := buildOnlyIfExistsObject(className, id)
-			err := shard.PutObject(ctx, obj)
-			if err == nil {
-				successes.Add(1)
-				return
-			}
-			if isPreconditionFailed(err) {
-				precondFails.Add(1)
-				return
-			}
-			t.Errorf("unexpected error from PutObject (OnlyIfExists): %v", err)
-		}, logger)
-	}
+	launchPutGoroutines(t, ctx, shard, &wg, start, concurrencyCount,
+		func() *storobj.Object { return buildOnlyIfExistsObject(className, id) },
+		&successes, &precondFails, logger, "PutObject (OnlyIfExists)")
 
 	close(start)
 	wg.Wait()
@@ -242,45 +265,13 @@ func TestMixedInsertUpdateConcurrentSameUUID(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	start := make(chan struct{})
 
-	// half goroutines: OnlyIfNotExists
-	for i := 0; i < half; i++ {
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			<-start
-			obj := buildConditionalObject(className, id)
-			err := shard.PutObject(ctx, obj)
-			if err == nil {
-				insertSuccesses.Add(1)
-				return
-			}
-			if isPreconditionFailed(err) {
-				insertPrecondFails.Add(1)
-				return
-			}
-			t.Errorf("unexpected error from OnlyIfNotExists goroutine: %v", err)
-		}, logger)
-	}
+	launchPutGoroutines(t, ctx, shard, &wg, start, half,
+		func() *storobj.Object { return buildConditionalObject(className, id) },
+		&insertSuccesses, &insertPrecondFails, logger, "OnlyIfNotExists")
 
-	// half goroutines: OnlyIfExists
-	for i := 0; i < half; i++ {
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			<-start
-			obj := buildOnlyIfExistsObject(className, id)
-			err := shard.PutObject(ctx, obj)
-			if err == nil {
-				updateSuccesses.Add(1)
-				return
-			}
-			if isPreconditionFailed(err) {
-				updatePrecondFails.Add(1)
-				return
-			}
-			t.Errorf("unexpected error from OnlyIfExists goroutine: %v", err)
-		}, logger)
-	}
+	launchPutGoroutines(t, ctx, shard, &wg, start, half,
+		func() *storobj.Object { return buildOnlyIfExistsObject(className, id) },
+		&updateSuccesses, &updatePrecondFails, logger, "OnlyIfExists")
 
 	close(start)
 	wg.Wait()

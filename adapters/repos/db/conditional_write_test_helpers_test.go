@@ -23,9 +23,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// buildConditionalObject returns a storobj with OnlyIfNotExists=true
-// (insert_if_not_exists semantics).
-func buildConditionalObject(className string, id strfmt.UUID) *storobj.Object {
+// buildStorObj is the common constructor for conditional storobj test fixtures.
+// cond controls the conditional behaviour; callers set exactly one flag.
+func buildStorObj(className string, id strfmt.UUID, cond storobj.Conditional) *storobj.Object {
 	return &storobj.Object{
 		MarshallerVersion: 1,
 		Object: models.Object{
@@ -33,38 +33,25 @@ func buildConditionalObject(className string, id strfmt.UUID) *storobj.Object {
 			Class:              className,
 			LastUpdateTimeUnix: time.Now().UnixMilli(),
 		},
-		Conditional: storobj.Conditional{
-			OnlyIfNotExists: true,
-		},
+		Conditional: cond,
 	}
+}
+
+// buildConditionalObject returns a storobj with OnlyIfNotExists=true
+// (insert_if_not_exists semantics).
+func buildConditionalObject(className string, id strfmt.UUID) *storobj.Object {
+	return buildStorObj(className, id, storobj.Conditional{OnlyIfNotExists: true})
 }
 
 // buildOnlyIfExistsObject returns a storobj with OnlyIfExists=true
 // (update_if_exists semantics).
 func buildOnlyIfExistsObject(className string, id strfmt.UUID) *storobj.Object {
-	return &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 id,
-			Class:              className,
-			LastUpdateTimeUnix: time.Now().UnixMilli(),
-		},
-		Conditional: storobj.Conditional{
-			OnlyIfExists: true,
-		},
-	}
+	return buildStorObj(className, id, storobj.Conditional{OnlyIfExists: true})
 }
 
 // buildUnconditionalObject returns a plain storobj with no conditional flags.
 func buildUnconditionalObject(className string, id strfmt.UUID) *storobj.Object {
-	return &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:                 id,
-			Class:              className,
-			LastUpdateTimeUnix: time.Now().UnixMilli(),
-		},
-	}
+	return buildStorObj(className, id, storobj.Conditional{})
 }
 
 // buildMTConditionalObject returns an insert_if_not_exists storobj for a

@@ -50,39 +50,56 @@ const haTestClassName = "ConditionalWriteHATest"
 //	this would have been a 4xx (not-enough-replicas). v4 restores the HA
 //	invariant by inheriting the request CL (QUORUM).
 //
-// TEST-FIRST: until Phase-1 endpoint plumbing lands, this test is RED
-// because /v1/objects does not yet support the "condition" field.
-// The cluster harness (3-node up, 1 killed) is expected to work.
-func TestHAPreservationDefaultCL(t *testing.T) {
+// startHA3NodeClusterKillThird boots a 3-node cluster, creates the HA test
+// schema on it, kills node 2, and waits for memberlist failure detection to
+// complete.  It registers all cleanup via t.Cleanup so callers need not track
+// the compose object.  Returns (ctx, compose) ready for write assertions.
+func startHA3NodeClusterKillThird(t *testing.T) (context.Context, *docker.DockerCompose) {
+	t.Helper()
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 
-	// --- AC 1: 3-replica cluster + 1-replica kill infrastructure ---
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		Start(ctx)
 	require.NoError(t, err, "start 3-node cluster")
-	defer func() {
+	t.Cleanup(func() {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Errorf("terminate cluster: %v", err)
 		}
-	}()
+	})
 
-	// Use node 1 as the API target for schema ops and writes.
+	// Use node 1 as the API target for schema ops.
 	helper.SetupClient(compose.ContainerURI(1))
 
 	t.Run("CreateSchema", func(t *testing.T) {
 		setupRF3Class(t, haTestClassName, 0)
 	})
 
-	// Stop the third node (0-based index 2): cluster is at N-1 = 2/3 replicas.
-	// QUORUM for RF=3 is ceil((3+1)/2)=2 replicas, so writes must still succeed.
-	// StopAt is 0-based; valid indices for a 3-node cluster are 0, 1, 2.
+	// Stop node 2 (0-based); cluster is at N-1 = 2/3 replicas.
+	// StopNodeAt polls /v1/nodes until the killed node is no longer reported
+	// HEALTHY so memberlist failure-detection is complete before returning.
 	t.Run("KillThirdNode", func(t *testing.T) {
 		common.StopNodeAt(ctx, t, compose, 2)
 	})
+
+	return ctx, compose
+}
+
+// TestHAPreservationDefaultCL encodes INV-HA-1:
+//
+//	With 1 of 3 replicas down, an insert_if_not_exists at the DEFAULT
+//	ConsistencyLevel (QUORUM) MUST return 2xx. Under v3's CL=ALL default
+//	this would have been a 4xx (not-enough-replicas). v4 restores the HA
+//	invariant by inheriting the request CL (QUORUM).
+//
+// TEST-FIRST: until Phase-1 endpoint plumbing lands, this test is RED
+// because /v1/objects does not yet support the "condition" field.
+// The cluster harness (3-node up, 1 killed) is expected to work.
+func TestHAPreservationDefaultCL(t *testing.T) {
+	_, compose := startHA3NodeClusterKillThird(t)
 
 	// --- AC 2: insert_if_not_exists at default CL with 1 replica down returns 2xx ---
 	//
@@ -110,147 +127,58 @@ func TestHAPreservationDefaultCL(t *testing.T) {
 	})
 }
 
-// TestHAPreservationAllCL verifies the actual CL=ALL semantics in weaviate:
+// TestHAPreservationAllCL verifies CL=ALL semantics with 1 dead-detected replica
+// for both the conditional and unconditional write paths.
 //
-//	CL=ALL means "all currently-live replicas as known by memberlist", NOT
-//	"all RF replicas in the schema."  When a node is detected dead,
-//	buildReplicas (cluster/router/router.go:159-175) skips it because
-//	NodeHostname returns ok==false for memberlist-dead nodes.  StopNodeAt
-//	polls /v1/nodes until the dead node is gone before returning, so by
-//	write-time the dead node is already pruned from the broadcast set.
-//	ToInt(n) then sees n=2 (the two live nodes), CL=ALL resolves to integer
-//	2, both surviving nodes reply, and the write returns 2xx.
+// CL=ALL means "all currently-live replicas as known by memberlist."  When a
+// node is detected dead, buildReplicas (cluster/router/router.go:159-175) prunes
+// it: NodeHostname returns ok==false for memberlist-dead nodes.  StopNodeAt
+// waits for failure-detection to complete before returning, so by write-time the
+// dead node is gone from the replica set.  ToInt(n) receives n=2 (the two live
+// nodes), CL=ALL resolves to 2, and both surviving nodes reply 2xx.
 //
-//	Therefore: conditional insert at CL=ALL with 1 node down correctly
-//	returns 2xx (ALL-of-2-live), identical to QUORUM behaviour and identical
-//	to an unconditional write — because conditional inherits CL exactly
-//	(v4 § 5.4 CL-inheritance principle).
-//
-//	See TestHAPreservationAllCL_UnconditionalParity for the baseline that
-//	proves conditional and unconditional paths stay in lockstep.
+// The conditional sub-test (CL-inheritance principle, v4 § 5.4) and the
+// unconditional parity sub-test (regression guard) share the same cluster
+// harness and are deliberately kept together so any divergence is immediately
+// visible.
 func TestHAPreservationAllCL(t *testing.T) {
-	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+	_, compose := startHA3NodeClusterKillThird(t)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	// --- AC 1: 3-replica cluster + 1-replica kill infrastructure ---
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		Start(ctx)
-	require.NoError(t, err, "start 3-node cluster")
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Errorf("terminate cluster: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.ContainerURI(1))
-
-	t.Run("CreateSchema", func(t *testing.T) {
-		setupRF3Class(t, haTestClassName, 0)
-	})
-
-	// Stop the third node (0-based index 2): cluster is at N-1 = 2/3 replicas.
-	// StopNodeAt polls /v1/nodes until the killed node is no longer reported
-	// HEALTHY, ensuring memberlist failure-detection has completed before the
-	// subsequent write runs.  This makes the pruning deterministic, not a race.
-	// StopAt is 0-based; valid indices for a 3-node cluster are 0, 1, 2.
-	t.Run("KillThirdNode", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 2)
-	})
-
-	// --- AC 3: insert_if_not_exists at explicit CL=ALL with 1 replica down returns 2xx ---
-	//
-	// CL=ALL = all LIVE (memberlist) replicas, not all RF replicas.
-	// After StopNodeAt completes, the dead node is pruned from the write-replica
-	// slice by buildReplicas (cluster/router/router.go:159-175): NodeHostname
-	// returns ok==false for memberlist-dead nodes and they are skipped.
-	// ToInt(n) then receives n=2 (the two surviving live nodes), so CL=ALL
-	// resolves to integer 2.  Both surviving nodes reply successfully and the
-	// write returns 2xx.
-	//
-	// This is identical to unconditional CL=ALL behaviour (see
-	// TestHAPreservationAllCL_UnconditionalParity) and identical to QUORUM
-	// behaviour in this 2-live-of-3 scenario.  Conditional inherits the
-	// request CL exactly — the core v4 CL-inheritance principle (§ 5.4).
-	t.Run("ConditionalInsert_ExplicitALL_1ReplicaDown_Succeeds_LivePruned", func(t *testing.T) {
-		id := strfmt.UUID("bbbbbbbb-0000-0000-0000-000000000002")
-		statusCode := condInsertHTTP(t, compose.ContainerURI(1), haTestClassName, string(id), "ALL")
-
-		// 2xx: either 201 (object inserted) or 200 (object already existed, skipped).
-		// CL=ALL with a dead-detected node resolves to ALL-of-2-live, which
-		// both surviving nodes satisfy.  A >=400 here would mean either (a)
-		// the dead-node pruning did not happen (memberlist bug) or (b) the
-		// conditional path is incorrectly forcing RF=3 for CL resolution
-		// instead of inheriting the router's live-replica count.
-		require.True(t, statusCode >= 200 && statusCode < 300,
-			"insert_if_not_exists at explicit CL=ALL with 1 dead-detected replica "+
-				"must return 2xx (ALL-of-2-live succeeds; dead node pruned by "+
+	insertFns := []struct {
+		name   string
+		id     string
+		doInsert func(t *testing.T, host, className, id, cl string) int
+		wantMsg  string
+	}{
+		{
+			name: "ConditionalInsert_ExplicitALL_1ReplicaDown_Succeeds_LivePruned",
+			id:   "bbbbbbbb-0000-0000-0000-000000000002",
+			doInsert: func(t *testing.T, host, className, id, cl string) int {
+				return condInsertHTTP(t, host, className, id, cl)
+			},
+			wantMsg: "insert_if_not_exists at explicit CL=ALL with 1 dead-detected replica " +
+				"must return 2xx (ALL-of-2-live succeeds; dead node pruned by " +
 				"buildReplicas at cluster/router/router.go:159-175). Got %d.",
-			statusCode)
-	})
-}
-
-// TestHAPreservationAllCL_UnconditionalParity establishes the unconditional
-// baseline: a plain POST /v1/objects at CL=ALL with 1 dead-detected replica
-// also returns 2xx.
-//
-// This is the regression guard that ensures the conditional write path
-// (TestHAPreservationAllCL) stays in lockstep with the unconditional path.
-// If unconditional returns 2xx and conditional returns 4xx/5xx, the
-// conditional path is incorrectly overriding the router's CL resolution —
-// exactly the class of bug the v4 CL-inheritance principle (§ 5.4) prevents.
-//
-// Evidence that unconditional CL=ALL-with-1-down returns 2xx:
-//   - buildReplicas (cluster/router/router.go:159-175) prunes dead nodes
-//   - NodeHostname (usecases/cluster/state.go:419-427) returns ok==false for
-//     nodes absent from memberlist.Members() (which excludes DeadOrLeft nodes)
-//   - StopNodeAt waits for failure-detection before returning, making this
-//     deterministic (not a race)
-func TestHAPreservationAllCL_UnconditionalParity(t *testing.T) {
-	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		Start(ctx)
-	require.NoError(t, err, "start 3-node cluster")
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Errorf("terminate cluster: %v", err)
-		}
-	}()
-
-	helper.SetupClient(compose.ContainerURI(1))
-
-	t.Run("CreateSchema", func(t *testing.T) {
-		setupRF3Class(t, haTestClassName, 0)
-	})
-
-	// Kill the third node and wait for memberlist to detect it as dead.
-	// StopNodeAt polls /v1/nodes until the node is gone; by the time it
-	// returns the dead node is absent from memberlist.Members() and will be
-	// pruned by buildReplicas before CL integer resolution.
-	t.Run("KillThirdNode", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 2)
-	})
-
-	// Unconditional POST /v1/objects?consistency_level=ALL — no ?condition=.
-	// Expected: 2xx.  The dead node is pruned; CL=ALL resolves to 2-of-2-live;
-	// both surviving nodes reply and the write succeeds.
-	// A >=400 here would be a product regression in the unconditional write
-	// path — unrelated to conditional writes.
-	t.Run("UnconditionalInsert_ExplicitALL_1ReplicaDown_Succeeds_LivePruned", func(t *testing.T) {
-		id := strfmt.UUID("cccccccc-0000-0000-0000-000000000003")
-		statusCode := uncondInsertHTTP(t, compose.ContainerURI(1), haTestClassName, string(id), "ALL")
-
-		require.True(t, statusCode >= 200 && statusCode < 300,
-			"unconditional POST /v1/objects at CL=ALL with 1 dead-detected "+
-				"replica must return 2xx (ALL-of-2-live; dead node pruned). "+
+		},
+		{
+			// Unconditional parity: plain POST /v1/objects at CL=ALL with 1 dead
+			// replica also returns 2xx.  If unconditional returns 4xx/5xx this is a
+			// regression in the base write path - unrelated to conditional writes.
+			name: "UnconditionalInsert_ExplicitALL_1ReplicaDown_Succeeds_LivePruned",
+			id:   "cccccccc-0000-0000-0000-000000000003",
+			doInsert: func(t *testing.T, host, className, id, cl string) int {
+				return uncondInsertHTTP(t, host, className, id, cl)
+			},
+			wantMsg: "unconditional POST /v1/objects at CL=ALL with 1 dead-detected " +
+				"replica must return 2xx (ALL-of-2-live; dead node pruned). " +
 				"Got %d. A >=400 is a regression in the unconditional write path.",
-			statusCode)
-	})
+		},
+	}
+
+	for _, tc := range insertFns {
+		t.Run(tc.name, func(t *testing.T) {
+			statusCode := tc.doInsert(t, compose.ContainerURI(1), haTestClassName, tc.id, "ALL")
+			require.True(t, statusCode >= 200 && statusCode < 300, tc.wantMsg, statusCode)
+		})
+	}
 }

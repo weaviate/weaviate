@@ -93,6 +93,31 @@ func NewReplicator(className string,
 	}, nil
 }
 
+// broadcastErrToSlice returns a []error of length n with every slot set to err.
+// Used to broadcast a coordination-level error to the per-object error slice
+// returned by batch operations (PutObjects, AddReferences).
+func broadcastErrToSlice(n int, err error) []error {
+	errs := make([]error, n)
+	for i := range errs {
+		errs[i] = err
+	}
+	return errs
+}
+
+// wrapSimpleResp folds resp.FirstError() into err and wraps the result with the
+// remote host name. It is the canonical op-func body for every write that
+// returns a SimpleResponse: PutObject, MergeObject, DeleteObject, PutObjects,
+// DeleteObjects, AddReferences.
+func wrapSimpleResp(resp SimpleResponse, err error, host string) error {
+	if err == nil {
+		err = resp.FirstError()
+	}
+	if err != nil {
+		return fmt.Errorf("%q: %w", host, err)
+	}
+	return nil
+}
+
 func (r *Replicator) PutObject(ctx context.Context,
 	shard string,
 	obj *storobj.Object,
@@ -102,13 +127,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)
 	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
-		if err == nil {
-			err = resp.FirstError()
-		}
-		if err != nil {
-			return fmt.Errorf("%q: %w", host, err)
-		}
-		return nil
+		return wrapSimpleResp(resp, err, host)
 	}
 	rs, err := coord.Push(ctx, l, isReady, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, 1)
 	if err != nil {
@@ -153,13 +172,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opMergeObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, schemaVersion)
-		if err == nil {
-			err = resp.FirstError()
-		}
-		if err != nil {
-			return fmt.Errorf("%q: %w", host, err)
-		}
-		return nil
+		return wrapSimpleResp(resp, err, host)
 	}
 	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, 1)
 	if err != nil {
@@ -189,13 +202,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, schemaVersion)
-		if err == nil {
-			err = resp.FirstError()
-		}
-		if err != nil {
-			return fmt.Errorf("%q: %w", host, err)
-		}
-		return nil
+		return wrapSimpleResp(resp, err, host)
 	}
 	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, 1)
 	if err != nil {
@@ -220,24 +227,14 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
-		if err == nil {
-			err = resp.FirstError()
-		}
-		if err != nil {
-			return fmt.Errorf("%q: %w", host, err)
-		}
-		return nil
+		return wrapSimpleResp(resp, err, host)
 	}
 	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, len(objs))
 	if err != nil {
 		r.log.WithField("op", "push.many").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
 		err = fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, replicaerrors.NewNotEnoughReplicasError(err))
-		errs := make([]error, len(objs))
-		for i := 0; i < len(objs); i++ {
-			errs[i] = err
-		}
-		return errs
+		return broadcastErrToSlice(len(objs), err)
 	}
 	if err := firstError(rs); err != nil {
 		r.log.WithField("op", "put.many").WithField("class", r.class).
@@ -257,13 +254,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	coord := NewWriteCoordinator[DeleteBatchResponse, objects.BatchSimpleObject](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
-		if err == nil {
-			err = resp.FirstError()
-		}
-		if err != nil {
-			return fmt.Errorf("%q: %w", host, err)
-		}
-		return nil
+		return wrapSimpleResp(resp, err, host)
 	}
 	commit := func(ctx context.Context, host, requestID string) (DeleteBatchResponse, error) {
 		resp := DeleteBatchResponse{}
@@ -303,24 +294,14 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opAddReferences), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs, schemaVersion)
-		if err == nil {
-			err = resp.FirstError()
-		}
-		if err != nil {
-			return fmt.Errorf("%q: %w", host, err)
-		}
-		return nil
+		return wrapSimpleResp(resp, err, host)
 	}
 	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, len(refs))
 	if err != nil {
 		r.log.WithField("op", "push.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
 		err = fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, replicaerrors.NewNotEnoughReplicasError(err))
-		errs := make([]error, len(refs))
-		for i := 0; i < len(refs); i++ {
-			errs[i] = err
-		}
-		return errs
+		return broadcastErrToSlice(len(refs), err)
 	}
 	if err := firstError(rs); err != nil {
 		r.log.WithField("op", "put.refs").WithField("class", r.class).

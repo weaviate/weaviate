@@ -78,6 +78,57 @@ func (g *replicationGate) Resume() {
 	}
 }
 
+// registerPrepareAndCommitMocks registers PutObject (phase-1 prepare) and Commit
+// (phase-2 commit) expectations on client for each node.  Commit expectations
+// share a single waitgroup so callers can synchronise after PutObject returns.
+// commitResp is written into the mock response slot by each commit call.
+// Returns the commitWG pre-loaded with len(nodes) counts.
+func registerPrepareAndCommitMocks(
+	client *replica.MockWClient,
+	ctx context.Context,
+	cls, shard string,
+	nodes []string,
+	obj *storobj.Object,
+	prepareResp, commitResp replica.SimpleResponse,
+) *sync.WaitGroup {
+	var commitWG sync.WaitGroup
+	for _, n := range nodes {
+		client.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
+			Return(prepareResp, nil)
+		commitWG.Add(1)
+		client.On("Commit", ctx, n, cls, shard, mock.Anything, mock.Anything).
+			Return(nil).
+			RunFn = func(args mock.Arguments) {
+			defer commitWG.Done()
+			resp := args[5].(*replica.SimpleResponse)
+			*resp = commitResp
+		}
+	}
+	return &commitWG
+}
+
+// registerGatedCommitMock registers a Commit expectation on client that blocks
+// each invocation on gate.Wait() before writing commitResp into the response
+// slot.  commitWG must have been pre-loaded with the expected number of commits
+// before calling; the RunFn calls commitWG.Done() on each invocation.
+func registerGatedCommitMock(
+	client *replica.MockWClient,
+	ctx context.Context,
+	cls, shard string,
+	commitWG *sync.WaitGroup,
+	gate *replicationGate,
+	commitResp replica.SimpleResponse,
+) {
+	client.On("Commit", ctx, mock.Anything, cls, shard, mock.Anything, mock.Anything).
+		Return(nil).
+		RunFn = func(args mock.Arguments) {
+		defer commitWG.Done()
+		gate.Wait()
+		resp := args[5].(*replica.SimpleResponse)
+		*resp = commitResp
+	}
+}
+
 // ---------------------------------------------------------------------------
 // TestConditionalWriteAbortAtRequestCL verifies that:
 //
@@ -121,19 +172,7 @@ func TestConditionalWriteAbortAtRequestCL(t *testing.T) {
 			}},
 		}
 
-		var commitWG sync.WaitGroup
-		for _, n := range nodes {
-			f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
-				Return(prepareResp, nil)
-			commitWG.Add(1)
-			f.WClient.On("Commit", ctx, n, cls, shard, mock.Anything, mock.Anything).
-				Return(nil).
-				RunFn = func(args mock.Arguments) {
-				defer commitWG.Done()
-				resp := args[5].(*replica.SimpleResponse)
-				*resp = commitResp
-			}
-		}
+		commitWG := registerPrepareAndCommitMocks(f.WClient, ctx, cls, shard, nodes, obj, prepareResp, commitResp)
 
 		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
 		commitWG.Wait()
@@ -161,19 +200,7 @@ func TestConditionalWriteAbortAtRequestCL(t *testing.T) {
 		okCommit := replica.SimpleResponse{}
 
 		// Nodes A and B: prepare and commit succeed.
-		var commitWG sync.WaitGroup
-		for _, n := range []string{"A", "B"} {
-			f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
-				Return(okPrepare, nil)
-			commitWG.Add(1)
-			f.WClient.On("Commit", ctx, n, cls, shard, mock.Anything, mock.Anything).
-				Return(nil).
-				RunFn = func(args mock.Arguments) {
-				defer commitWG.Done()
-				resp := args[5].(*replica.SimpleResponse)
-				*resp = okCommit
-			}
-		}
+		commitWG := registerPrepareAndCommitMocks(f.WClient, ctx, cls, shard, []string{"A", "B"}, obj, okPrepare, okCommit)
 		// Node C is down: phase-1 prepare fails with a connection error.
 		f.WClient.On("PutObject", mock.Anything, "C", cls, shard, mock.Anything, obj, uint64(0)).
 			Return(replica.SimpleResponse{}, errors.New("connection refused"))
@@ -371,19 +398,10 @@ func TestConditionalWriteKnownWeakConcurrentCoordinator(t *testing.T) {
 				Return(okPrepare, nil)
 
 			// Commit: hold until the gate opens, then return success.
-			// Both coordinators will fire commits; the gate releases all of them.
+			// Both coordinators will fire commits; 3 nodes × 2 coordinators = 6 potential commits.
 			var commitWG sync.WaitGroup
-			for i := 0; i < len(nodes)*2; i++ { // 3 nodes × 2 coordinators = 6 potential commits
-				commitWG.Add(1)
-			}
-			f.WClient.On("Commit", ctx, mock.Anything, cls, shard, mock.Anything, mock.Anything).
-				Return(nil).
-				RunFn = func(args mock.Arguments) {
-				defer commitWG.Done()
-				gate.Wait() // blocks until Resume() is called
-				resp := args[5].(*replica.SimpleResponse)
-				*resp = okCommit
-			}
+			commitWG.Add(len(nodes) * 2)
+			registerGatedCommitMock(f.WClient, ctx, cls, shard, &commitWG, gate, okCommit)
 
 			// Launch both coordinators concurrently.
 			var (
@@ -486,17 +504,8 @@ func TestConditionalWriteAsyncDivergenceConvergesLWW(t *testing.T) {
 		Return(okPrepare, nil)
 
 	var coord2CommitWG sync.WaitGroup
-	for i := 0; i < len(nodes); i++ {
-		coord2CommitWG.Add(1)
-	}
-	f2.WClient.On("Commit", ctx, mock.Anything, cls, shard, mock.Anything, mock.Anything).
-		Return(nil).
-		RunFn = func(args mock.Arguments) {
-		defer coord2CommitWG.Done()
-		gate.Wait() // hold until Resume is called
-		resp := args[5].(*replica.SimpleResponse)
-		*resp = okCommit
-	}
+	coord2CommitWG.Add(len(nodes))
+	registerGatedCommitMock(f2.WClient, ctx, cls, shard, &coord2CommitWG, gate, okCommit)
 
 	// coordinator2 issues its write in a background goroutine.
 	var (

@@ -68,6 +68,63 @@ import (
 // Shared helpers for this file
 // --------------------------------------------------------------------------
 
+// workerLoadResult carries the aggregate tallies from runConditionalWorkerLoad.
+type workerLoadResult struct {
+	Success  int64
+	Conflict int64
+	Errors   int64
+}
+
+// runConditionalWorkerLoad fires numWorkers goroutines that each attempt a
+// conditional insert for every id in uuids and aggregates the status-code
+// outcomes. Returns the aggregate totals; does not assert on them so callers
+// can apply test-specific checks (error budget, exact count, etc.).
+func runConditionalWorkerLoad(
+	t *testing.T,
+	host, className, clLevel string,
+	uuids []string,
+	numWorkers int,
+) workerLoadResult {
+	t.Helper()
+
+	logger, _ := logrustest.NewNullLogger()
+	var wg sync.WaitGroup
+	var successTotal, conflictTotal, errorTotal int64
+
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		workerIdx := w
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			localSuccess, localConflict, localErr := int64(0), int64(0), int64(0)
+			for _, id := range uuids {
+				code := condInsertHTTP(t, host, className, id, clLevel)
+				switch {
+				case code == 201:
+					localSuccess++
+				case code == 200 || code == 409:
+					localConflict++
+				case code >= 200 && code < 300:
+					localSuccess++
+				default:
+					localErr++
+					t.Logf("worker %d: unexpected status %d for UUID %s", workerIdx, code, id)
+				}
+			}
+			atomic.AddInt64(&successTotal, localSuccess)
+			atomic.AddInt64(&conflictTotal, localConflict)
+			atomic.AddInt64(&errorTotal, localErr)
+		}, logger)
+	}
+	wg.Wait()
+
+	return workerLoadResult{
+		Success:  successTotal,
+		Conflict: conflictTotal,
+		Errors:   errorTotal,
+	}
+}
+
 // countObjectsViaGraphQL returns the aggregate count for className on host.
 // Uses GraphQL Aggregate meta.count — same pattern as common.CountObjects.
 // Calls t.Fatal on any error; use countObjectsViaGraphQLSoft inside poll loops.
@@ -199,49 +256,18 @@ func TestProdReady_RF3_ExactlyOnce_ConcurrentSameUUIDs(t *testing.T) {
 	t.Logf("Starting concurrent load: %d workers × %d UUIDs = %d total attempts",
 		numWorkers, numUUIDs, numWorkers*numUUIDs)
 
-	logger, _ := logrustest.NewNullLogger()
-	var wg sync.WaitGroup
-	var successTotal, conflictTotal, errorTotal int64
-
-	for w := 0; w < numWorkers; w++ {
-		wg.Add(1)
-		workerIdx := w
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			localSuccess, localConflict, localErr := int64(0), int64(0), int64(0)
-			for _, id := range uuids {
-				code := condInsertHTTP(t, host, className, id, clLevel)
-				switch {
-				case code == 201:
-					localSuccess++
-				case code == 200 || code == 409:
-					// 200 = server-side idempotent skip (already exists)
-					// 409 = server chose to return Conflict instead
-					localConflict++
-				case code >= 200 && code < 300:
-					localSuccess++
-				default:
-					localErr++
-					t.Logf("worker %d: unexpected status %d for UUID %s", workerIdx, code, id)
-				}
-			}
-			atomic.AddInt64(&successTotal, localSuccess)
-			atomic.AddInt64(&conflictTotal, localConflict)
-			atomic.AddInt64(&errorTotal, localErr)
-		}, logger)
-	}
-	wg.Wait()
+	res := runConditionalWorkerLoad(t, host, className, clLevel, uuids, numWorkers)
 
 	t.Logf("Load complete: success=%d conflict/skip=%d errors=%d",
-		successTotal, conflictTotal, errorTotal)
+		res.Success, res.Conflict, res.Errors)
 
 	// Allow a tiny non-zero error budget: the test is about count correctness,
 	// not zero-error rate under concurrency. But sustained errors indicate a
 	// broken endpoint.
-	require.Zero(t, errorTotal,
+	require.Zero(t, res.Errors,
 		"conditional inserts must not return error codes (4xx/5xx) for valid UUIDs; "+
 			"got %d errors out of %d total attempts",
-		errorTotal, numWorkers*numUUIDs)
+		res.Errors, numWorkers*numUUIDs)
 
 	t.Run("AssertExactlyKObjects", func(t *testing.T) {
 		// Poll for up to 30s to allow any async replication to settle.
@@ -577,44 +603,15 @@ func TestProdReady_MultiShard_RF3_ExactlyOnce(t *testing.T) {
 	t.Logf("Starting multi-shard concurrent load: %d workers × %d UUIDs, %d shards",
 		numWorkers, numUUIDs, numShards)
 
-	logger, _ := logrustest.NewNullLogger()
-	var wg sync.WaitGroup
-	var successTotal, conflictTotal, errorTotal int64
-
-	for w := 0; w < numWorkers; w++ {
-		wg.Add(1)
-		workerIdx := w
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			localSuccess, localConflict, localErr := int64(0), int64(0), int64(0)
-			for _, id := range uuids {
-				code := condInsertHTTP(t, host, className, id, clLevel)
-				switch {
-				case code == 201:
-					localSuccess++
-				case code == 200 || code == 409:
-					localConflict++
-				case code >= 200 && code < 300:
-					localSuccess++
-				default:
-					localErr++
-					t.Logf("worker %d: unexpected status %d for UUID %s", workerIdx, code, id)
-				}
-			}
-			atomic.AddInt64(&successTotal, localSuccess)
-			atomic.AddInt64(&conflictTotal, localConflict)
-			atomic.AddInt64(&errorTotal, localErr)
-		}, logger)
-	}
-	wg.Wait()
+	res := runConditionalWorkerLoad(t, host, className, clLevel, uuids, numWorkers)
 
 	t.Logf("Multi-shard load complete: success=%d conflict/skip=%d errors=%d",
-		successTotal, conflictTotal, errorTotal)
+		res.Success, res.Conflict, res.Errors)
 
-	require.Zero(t, errorTotal,
+	require.Zero(t, res.Errors,
 		"multi-shard conditional inserts must not return error codes for valid UUIDs; "+
 			"got %d errors out of %d total attempts",
-		errorTotal, numWorkers*numUUIDs)
+		res.Errors, numWorkers*numUUIDs)
 
 	t.Run("AssertExactlyKObjectsAcrossShards", func(t *testing.T) {
 		var finalCount int64

@@ -45,6 +45,33 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// tenantReplicaFor returns (replica, nil) for an active tenant and
+// (nil, ErrMultiTenancy) for coldTenant.  Used by setupMTAwareMockRouter.
+func tenantReplicaFor(tenant, coldTenant, localNode string) ([]routerTypes.Replica, error) {
+	if tenant == coldTenant {
+		return nil, objects.NewErrMultiTenancy(enterrors.ErrTenantNotActive)
+	}
+	return []routerTypes.Replica{{NodeName: localNode, ShardName: tenant, HostAddr: "127.0.0.1"}}, nil
+}
+
+// setupMTAwareMockRouter registers GetWriteReplicasLocation and GetReadReplicasLocation
+// expectations on mockRouter.  Requests for coldTenant return ErrMultiTenancy
+// (ErrTenantNotActive); all other tenants receive a single-node replica set
+// with localNode as the sole replica.
+func setupMTAwareMockRouter(t *testing.T, mockRouter *routerTypes.MockRouter, className, coldTenant, localNode string) {
+	t.Helper()
+	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, mock.Anything).
+		RunAndReturn(func(cls, tenant, shard string) (routerTypes.WriteReplicaSet, error) {
+			replicas, err := tenantReplicaFor(tenant, coldTenant, localNode)
+			return routerTypes.WriteReplicaSet{Replicas: replicas}, err
+		}).Maybe()
+	mockRouter.EXPECT().GetReadReplicasLocation(className, mock.Anything, mock.Anything).
+		RunAndReturn(func(cls, tenant, shard string) (routerTypes.ReadReplicaSet, error) {
+			replicas, err := tenantReplicaFor(tenant, coldTenant, localNode)
+			return routerTypes.ReadReplicaSet{Replicas: replicas}, err
+		}).Maybe()
+}
+
 // TestConditionalMultiTenant verifies per-tenant isolation for insert_if_not_exists:
 //
 //  1. The same UUID inserted into two different ACTIVE tenants both succeed —
@@ -199,36 +226,11 @@ func TestConditionalMT_InactiveTenant(t *testing.T) {
 	mockNodeSelector.EXPECT().LocalName().Return(localNode).Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(localNode, true).Maybe()
 
-	// Mock router: GetWriteReplicasLocation returns an error for COLD tenant
-	// because the router layer itself also gates on tenant status.
-	// For the HOT tenant it returns a valid write replica set.
+	// Mock router: GetWriteReplicasLocation / GetReadReplicasLocation return an
+	// error for the COLD tenant (router layer gates on tenant status) and a
+	// single-replica set for HOT tenants.
 	mockRouter := routerTypes.NewMockRouter(t)
-	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, mock.Anything).
-		RunAndReturn(func(cls, tenant, shard string) (routerTypes.WriteReplicaSet, error) {
-			if tenant == coldTenant {
-				return routerTypes.WriteReplicaSet{}, objects.NewErrMultiTenancy(
-					enterrors.ErrTenantNotActive,
-				)
-			}
-			return routerTypes.WriteReplicaSet{
-				Replicas: []routerTypes.Replica{
-					{NodeName: localNode, ShardName: tenant, HostAddr: "127.0.0.1"},
-				},
-			}, nil
-		}).Maybe()
-	mockRouter.EXPECT().GetReadReplicasLocation(className, mock.Anything, mock.Anything).
-		RunAndReturn(func(cls, tenant, shard string) (routerTypes.ReadReplicaSet, error) {
-			if tenant == coldTenant {
-				return routerTypes.ReadReplicaSet{}, objects.NewErrMultiTenancy(
-					enterrors.ErrTenantNotActive,
-				)
-			}
-			return routerTypes.ReadReplicaSet{
-				Replicas: []routerTypes.Replica{
-					{NodeName: localNode, ShardName: tenant, HostAddr: "127.0.0.1"},
-				},
-			}, nil
-		}).Maybe()
+	setupMTAwareMockRouter(t, mockRouter, className, coldTenant, localNode)
 
 	mockNodeResolver := cluster.NewMockNodeResolver(t)
 
