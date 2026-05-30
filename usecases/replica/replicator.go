@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -42,6 +44,13 @@ const (
 	opDeleteObjects
 )
 
+// coordVersionLockStripes is the number of stripes in the coordinator-scoped
+// per-(shard, UUID) lock pool. A fixed-width pool bounds memory and avoids
+// map-churn on hot keys. 64 stripes give 1/64 collision probability for a
+// uniform UUID distribution; contention on the same stripe is the documented
+// cross-coordinator KNOWN-WEAK boundary, not a same-coordinator issue.
+const coordVersionLockStripes = 64
+
 type (
 	// Result represents a valid value or an error.
 	Result[T any] struct {
@@ -57,7 +66,29 @@ type Replicator struct {
 	client         Client
 	log            logrus.FieldLogger
 	requestCounter atomic.Uint64
+	// coordVersionLock is a fixed-stripe per-(shard, UUID) mutex pool that
+	// serialises same-coordinator concurrent writes for the same object through
+	// the read → CAS-compare → mint → coord.Push critical section.
+	//
+	// The lock must be held across coord.Push (not just across the mint) because
+	// the second writer's digest read must observe the first writer's committed
+	// version. Holding the lock until coord.Push returns (post-commit at the
+	// request CL) guarantees the quorum intersection property: writer-2 reads
+	// from a quorum that necessarily overlaps writer-1's commit quorum.
+	//
+	// Cross-coordinator contention (two nodes, two lock instances) is the
+	// documented Plan-A KNOWN-WEAK boundary and resolves via LWW. It is NOT
+	// serialised by this lock.
+	coordVersionLock [coordVersionLockStripes]sync.Mutex
 	*Finder
+}
+
+// coordVersionLockFor returns the mutex stripe for the given shard+UUID
+// combination. The stripe index is stable for the lifetime of the Replicator.
+func (r *Replicator) coordVersionLockFor(shard string, id strfmt.UUID) *sync.Mutex {
+	h := fnv.New32a()
+	_, _ = fmt.Fprint(h, shard, "|", id)
+	return &r.coordVersionLock[h.Sum32()%coordVersionLockStripes]
 }
 
 func NewReplicator(className string,
@@ -99,6 +130,43 @@ func (r *Replicator) PutObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
+	// Coordinator-authoritative version mint + IfVersion CAS (Plan-A, §1-3).
+	//
+	// Acquire the per-(shard, UUID) coordinator lock BEFORE the digest read so
+	// that two same-coordinator goroutines cannot interleave their
+	// read → CAS-compare → mint. The lock is held through coord.Push so that
+	// writer-2's subsequent digest read observes writer-1's committed version
+	// (quorum intersection: writer-1 commits at CL l before releasing the lock,
+	// writer-2 reads at CL l and overlaps writer-1's commit quorum).
+	//
+	// INV-HA-1: resolveCurrentVersion uses l (the request CL), never ALL.
+	if obj != nil && obj.ID() != "" {
+		mu := r.coordVersionLockFor(shard, obj.ID())
+		mu.Lock()
+		defer mu.Unlock()
+
+		current, err := r.Finder.resolveCurrentVersion(ctx, l, shard, obj.ID())
+		if err != nil {
+			return fmt.Errorf("resolve current version for mint: %w", err)
+		}
+
+		if obj.Conditional.IfVersion != nil && *obj.Conditional.IfVersion != current {
+			r.log.WithField("op", "put").WithField("class", r.class).
+				WithField("shard", shard).WithField("uuid", obj.ID()).
+				Debugf("coordinator CAS mismatch: expected version %d, actual %d",
+					*obj.Conditional.IfVersion, current)
+			return &objects.ErrPreconditionFailed{
+				ObjectID:        obj.ID().String(),
+				Reason:          fmt.Sprintf("object version mismatch: expected %d, actual %d", *obj.Conditional.IfVersion, current),
+				ExpectedVersion: *obj.Conditional.IfVersion,
+				ActualVersion:   current,
+			}
+		}
+
+		obj.Version = current + 1
+		obj.MarshallerVersion = storobj.CurrentMarshallerVersion
+	}
+
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)
 	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)

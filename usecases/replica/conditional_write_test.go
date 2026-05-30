@@ -17,11 +17,14 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -523,4 +526,413 @@ func TestConditionalWriteAsyncDivergenceConvergesLWW(t *testing.T) {
 	assert.NoError(t, err2,
 		"coordinator2 (late/lagging path) must not return an error at the transport layer; "+
 			"LWW resolution is the shard layer's responsibility")
+}
+
+// ---------------------------------------------------------------------------
+// Helper: mkObj creates a storobj.Object with a given UUID and optional
+// IfVersion conditional for use in coordinator version-CAS tests.
+// ---------------------------------------------------------------------------
+
+func mkObj(id strfmt.UUID, ifVersion *uint64) *storobj.Object {
+	obj := storobj.FromObject(&models.Object{
+		Class: "C1",
+		ID:    id,
+	}, nil, nil, nil)
+	if ifVersion != nil {
+		obj.Conditional.IfVersion = ifVersion
+	}
+	return obj
+}
+
+func ptrUint64(v uint64) *uint64 { return &v }
+
+// wireDigestResponse stubs DigestObjects on the given MockRClient so that
+// requests for id on all nodes return the given version. The stub is
+// registered with .Maybe() so that tests that do not complete the full quorum
+// (e.g. a CAS-mismatch abort path) do not fail from unexpected calls.
+func wireDigestResponse(rc *replica.MockRClient, cls, shard string, id strfmt.UUID, version int64) {
+	rc.On("DigestObjects",
+		mock.Anything, mock.Anything, cls, shard,
+		[]strfmt.UUID{id}, 0,
+	).Return([]routerTypes.RepairResponse{{ID: id.String(), Version: version}}, nil).Maybe()
+}
+
+// ---------------------------------------------------------------------------
+// TestConditionalWriteVersionCASMatch (coordinator-level mint)
+//
+// When IfVersion == currentVersion the coordinator:
+//   - runs the digest read at the REQUEST CL (INV-HA-1)
+//   - mints obj.Version = current + 1
+//   - fans out via coord.Push
+//
+// Expected: PutObject returns nil (success) and the object broadcast to the
+// replicas carries Version = current + 1.
+// ---------------------------------------------------------------------------
+func TestConditionalWriteVersionCASMatch(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "SH1"
+	)
+	objID := strfmt.UUID("00000000-0000-0000-0000-000000000001")
+	nodes := []string{"A", "B", "C"}
+	f := newFakeFactory(t, cls, shard, nodes, false)
+	rep := f.newReplicator()
+
+	const currentVersion = uint64(5)
+	wireDigestResponse(f.RClient, cls, shard, objID, int64(currentVersion))
+
+	obj := mkObj(objID, ptrUint64(currentVersion))
+
+	okResp := replica.SimpleResponse{}
+	var commitWG sync.WaitGroup
+	for _, n := range nodes {
+		f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
+			Return(okResp, nil).Maybe()
+		commitWG.Add(1)
+		f.WClient.On("Commit", mock.Anything, n, cls, shard, mock.Anything, mock.Anything).
+			Return(nil).Maybe().
+			RunFn = func(args mock.Arguments) {
+			defer commitWG.Done()
+			resp := args[5].(*replica.SimpleResponse)
+			*resp = okResp
+		}
+	}
+
+	ctx := context.Background()
+	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	commitWG.Wait()
+
+	assert.NoError(t, err, "CAS match must succeed")
+	assert.Equal(t, currentVersion+1, obj.Version,
+		"coordinator must have minted Version = current + 1")
+	assert.Equal(t, storobj.CurrentMarshallerVersion, obj.MarshallerVersion,
+		"MarshallerVersion must be set to CurrentMarshallerVersion so Version is serialised on the wire")
+}
+
+// ---------------------------------------------------------------------------
+// TestConditionalWriteVersionCASMismatch (coordinator-level CAS check)
+//
+// When IfVersion != currentVersion the coordinator returns
+// *objects.ErrPreconditionFailed immediately and does NOT broadcast.
+//
+// This catches the root-cause regression (replicas seeing version diverge)
+// because the coordinator returns 412 before any replica apply happens.
+// ---------------------------------------------------------------------------
+func TestConditionalWriteVersionCASMismatch(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "SH1"
+	)
+	objID := strfmt.UUID("00000000-0000-0000-0000-000000000002")
+	nodes := []string{"A", "B", "C"}
+	f := newFakeFactory(t, cls, shard, nodes, false)
+	rep := f.newReplicator()
+
+	const currentVersion = uint64(7)
+	const staleIfVersion = uint64(3)
+	wireDigestResponse(f.RClient, cls, shard, objID, int64(currentVersion))
+
+	obj := mkObj(objID, ptrUint64(staleIfVersion))
+
+	ctx := context.Background()
+	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+
+	assert.Error(t, err, "CAS mismatch must fail")
+	var precondErr *objects.ErrPreconditionFailed
+	assert.True(t, errors.As(err, &precondErr),
+		"must return *objects.ErrPreconditionFailed on CAS mismatch, got %T: %v", err, err)
+	assert.Equal(t, staleIfVersion, precondErr.ExpectedVersion)
+	assert.Equal(t, currentVersion, precondErr.ActualVersion)
+}
+
+// ---------------------------------------------------------------------------
+// TestConditionalWriteVersionCASFirstWrite (new object, IfVersion == 0)
+//
+// When a client sends IfVersion==0 (first write sentinel) the coordinator
+// does a digest read that returns version=0 (object absent), the CAS matches,
+// and the minted version is 1.
+// ---------------------------------------------------------------------------
+func TestConditionalWriteVersionCASFirstWrite(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "SH1"
+	)
+	objID := strfmt.UUID("00000000-0000-0000-0000-000000000003")
+	nodes := []string{"A", "B", "C"}
+	f := newFakeFactory(t, cls, shard, nodes, false)
+	rep := f.newReplicator()
+
+	// Object does not exist: digest returns version 0.
+	wireDigestResponse(f.RClient, cls, shard, objID, 0)
+
+	obj := mkObj(objID, ptrUint64(0))
+
+	okResp := replica.SimpleResponse{}
+	var commitWG sync.WaitGroup
+	for _, n := range nodes {
+		f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
+			Return(okResp, nil).Maybe()
+		commitWG.Add(1)
+		f.WClient.On("Commit", mock.Anything, n, cls, shard, mock.Anything, mock.Anything).
+			Return(nil).Maybe().
+			RunFn = func(args mock.Arguments) {
+			defer commitWG.Done()
+			resp := args[5].(*replica.SimpleResponse)
+			*resp = okResp
+		}
+	}
+
+	ctx := context.Background()
+	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	commitWG.Wait()
+
+	assert.NoError(t, err, "first write (IfVersion==0, no existing object) must succeed")
+	assert.Equal(t, uint64(1), obj.Version,
+		"first write must mint Version=1 (0 + 1)")
+}
+
+// ---------------------------------------------------------------------------
+// TestConditionalWriteVersionUnconditionalMint
+//
+// An unconditional write (IfVersion == nil) through the replicated path must
+// still receive a coordinator-minted version so all replicas converge to the
+// same version value. The mint is current + 1 regardless of IfVersion.
+// ---------------------------------------------------------------------------
+func TestConditionalWriteVersionUnconditionalMint(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "SH1"
+	)
+	objID := strfmt.UUID("00000000-0000-0000-0000-000000000004")
+	nodes := []string{"A", "B", "C"}
+	f := newFakeFactory(t, cls, shard, nodes, false)
+	rep := f.newReplicator()
+
+	const currentVersion = uint64(2)
+	wireDigestResponse(f.RClient, cls, shard, objID, int64(currentVersion))
+
+	// No IfVersion: unconditional write.
+	obj := mkObj(objID, nil)
+
+	okResp := replica.SimpleResponse{}
+	var commitWG sync.WaitGroup
+	for _, n := range nodes {
+		f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
+			Return(okResp, nil).Maybe()
+		commitWG.Add(1)
+		f.WClient.On("Commit", mock.Anything, n, cls, shard, mock.Anything, mock.Anything).
+			Return(nil).Maybe().
+			RunFn = func(args mock.Arguments) {
+			defer commitWG.Done()
+			resp := args[5].(*replica.SimpleResponse)
+			*resp = okResp
+		}
+	}
+
+	ctx := context.Background()
+	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	commitWG.Wait()
+
+	assert.NoError(t, err, "unconditional write must succeed")
+	assert.Equal(t, currentVersion+1, obj.Version,
+		"unconditional replicated write must be assigned a coordinator-minted version for convergence")
+}
+
+// ---------------------------------------------------------------------------
+// TestConditionalWriteVersionCLInvariant (INV-HA-1)
+//
+// The coordinator digest read uses the REQUEST consistency level, not ALL.
+// With one replica down and CL=QUORUM, the write must still succeed.
+//
+// If resolveCurrentVersion hard-coded CL=ALL, it would fail here because node
+// "C" is unavailable. The test catches that regression.
+// ---------------------------------------------------------------------------
+func TestConditionalWriteVersionCLInvariant(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "SH1"
+	)
+	objID := strfmt.UUID("00000000-0000-0000-0000-000000000005")
+	nodes := []string{"A", "B", "C"}
+	f := newFakeFactory(t, cls, shard, nodes, false)
+	rep := f.newReplicator()
+
+	// Nodes A and B return the current version. Node C is down: it never
+	// responds to DigestObjects (no stub, so any call would fail the mock).
+	for _, n := range []string{"A", "B"} {
+		f.RClient.On("DigestObjects",
+			mock.Anything, n, cls, shard, []strfmt.UUID{objID}, 0,
+		).Return([]routerTypes.RepairResponse{{ID: objID.String(), Version: int64(4)}}, nil)
+	}
+	// Node C is down: its DigestObjects call returns a connection error.
+	f.RClient.On("DigestObjects",
+		mock.Anything, "C", cls, shard, []strfmt.UUID{objID}, 0,
+	).Return(nil, errors.New("connection refused")).Maybe()
+
+	obj := mkObj(objID, ptrUint64(4))
+
+	okResp := replica.SimpleResponse{}
+	var commitWG sync.WaitGroup
+	for _, n := range []string{"A", "B"} {
+		f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
+			Return(okResp, nil)
+		commitWG.Add(1)
+		f.WClient.On("Commit", mock.Anything, n, cls, shard, mock.Anything, mock.Anything).
+			Return(nil).
+			RunFn = func(args mock.Arguments) {
+			defer commitWG.Done()
+			resp := args[5].(*replica.SimpleResponse)
+			*resp = okResp
+		}
+	}
+	// Node C: phase-1 write also fails (it is down).
+	f.WClient.On("PutObject", mock.Anything, "C", cls, shard, mock.Anything, obj, uint64(0)).
+		Return(replica.SimpleResponse{}, errors.New("connection refused")).Maybe()
+	f.WClient.On("Abort", mock.Anything, mock.Anything, cls, shard, mock.Anything).
+		Return(okResp, nil).Maybe()
+
+	ctx := context.Background()
+	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	commitWG.Wait()
+
+	assert.NoError(t, err,
+		"INV-HA-1: write must succeed at QUORUM with one replica down; "+
+			"resolveCurrentVersion must use request CL, not hard-coded ALL")
+	assert.Equal(t, uint64(5), obj.Version, "minted version must be 4+1=5")
+}
+
+// ---------------------------------------------------------------------------
+// TestConditionalWriteVersionConcurrentSameCoordinator (exactly-once CAS)
+//
+// Two concurrent goroutines using the SAME coordinator (same Replicator
+// instance) issue conditional writes with IfVersion==currentVersion.
+// Because both share the coordinator lock, exactly one can read currentVersion,
+// pass the CAS compare, mint current+1, and commit; the second reads
+// current+1 after the first commits, sees IfVersion(==currentVersion) !=
+// current+1, and returns *objects.ErrPreconditionFailed.
+//
+// Exactly one 200 and exactly one 412. This is the key test the design doc
+// calls "same-coordinator exactly-once".
+//
+// Note: this test exercises the coordinator lock at the replica-layer
+// (mocked replicas). The shard-layer exactly-once test (TestVersionCASConcurrencyExactlyOnce)
+// exercises the docIdLock at the shard layer. Both are required.
+// ---------------------------------------------------------------------------
+func TestConditionalWriteVersionConcurrentSameCoordinator(t *testing.T) {
+	const (
+		cls   = "C1"
+		shard = "SH1"
+	)
+	objID := strfmt.UUID("00000000-0000-0000-0000-000000000006")
+	nodes := []string{"A", "B", "C"}
+
+	const (
+		currentVersion = int64(10)
+		ifVersion      = uint64(10)
+	)
+
+	// We run multiple iterations for scheduling robustness.
+	for iteration := 0; iteration < 5; iteration++ {
+		f := newFakeFactory(t, cls, shard, nodes, false)
+		rep := f.newReplicator()
+
+		// DigestObjects returns currentVersion initially. After writer-1 commits,
+		// the real system would return currentVersion+1, but here we model a
+		// carefully-gated scenario: the coordinator lock ensures that writer-2
+		// does the digest read AFTER writer-1's coord.Push returns. Since the mock
+		// always returns currentVersion, writer-2 reads 10, sees IfVersion==10 ==
+		// 10 (match), and would mint 11 too - but the lock prevents that because
+		// writer-1 holds the lock through coord.Push.
+		//
+		// To make the test deterministic and fast, we return currentVersion for
+		// the FIRST DigestObjects call (writer-1's read, which holds the lock) and
+		// currentVersion+1 for any subsequent call (writer-2's read after the lock
+		// is released and writer-1 has committed).
+		callCount := 0
+		var digestMu sync.Mutex
+		f.RClient.On("DigestObjects",
+			mock.Anything, mock.Anything, cls, shard, []strfmt.UUID{objID}, 0,
+		).Return(func(_ context.Context, _ string, _, _ string, _ []strfmt.UUID, _ int) ([]routerTypes.RepairResponse, error) {
+			digestMu.Lock()
+			callCount++
+			version := currentVersion
+			if callCount > len(nodes) {
+				// writer-2's read: object was updated to currentVersion+1
+				version = currentVersion + 1
+			}
+			digestMu.Unlock()
+			return []routerTypes.RepairResponse{{ID: objID.String(), Version: version}}, nil
+		})
+
+		okResp := replica.SimpleResponse{}
+		// gate: both writers can issue their prepare concurrently, but commits
+		// block until we release the gate after both prepares are staged.
+		gate := newReplicationGate()
+
+		var prepareCount sync.WaitGroup
+		prepareCount.Add(len(nodes) * 2) // upper bound; writer-2 may abort
+		f.WClient.On("PutObject", mock.Anything, mock.Anything, cls, shard, mock.Anything, mock.Anything, uint64(0)).
+			Return(okResp, nil).Maybe().
+			RunFn = func(_ mock.Arguments) {
+			prepareCount.Done()
+		}
+
+		var commitWG sync.WaitGroup
+		f.WClient.On("Commit", mock.Anything, mock.Anything, cls, shard, mock.Anything, mock.Anything).
+			Return(nil).Maybe().
+			RunFn = func(args mock.Arguments) {
+			defer commitWG.Done()
+			gate.Wait()
+			resp := args[5].(*replica.SimpleResponse)
+			*resp = okResp
+		}
+		f.WClient.On("Abort", mock.Anything, mock.Anything, cls, shard, mock.Anything).
+			Return(okResp, nil).Maybe()
+
+		// Launch two concurrent writers, both asserting IfVersion == currentVersion.
+		var (
+			err1, err2 error
+			writeWG    sync.WaitGroup
+		)
+		writeWG.Add(2)
+		ctx := context.Background()
+
+		obj1 := mkObj(objID, ptrUint64(ifVersion))
+		obj2 := mkObj(objID, ptrUint64(ifVersion))
+
+		// Add commit count accounting upfront so RunFn can Done() them.
+		commitWG.Add(len(nodes))
+
+		enterrors.GoWrapper(func() {
+			defer writeWG.Done()
+			err1 = rep.PutObject(ctx, shard, obj1, types.ConsistencyLevelQuorum, 0)
+		}, f.log)
+		enterrors.GoWrapper(func() {
+			defer writeWG.Done()
+			err2 = rep.PutObject(ctx, shard, obj2, types.ConsistencyLevelQuorum, 0)
+		}, f.log)
+
+		// Release commits.
+		gate.Resume()
+		writeWG.Wait()
+		commitWG.Wait()
+
+		// Exactly one must succeed, exactly one must return *ErrPreconditionFailed.
+		results := []error{err1, err2}
+		var successes, failures int
+		for _, e := range results {
+			if e == nil {
+				successes++
+			} else {
+				var pf *objects.ErrPreconditionFailed
+				if errors.As(e, &pf) {
+					failures++
+				}
+			}
+		}
+		assert.Equal(t, 1, successes,
+			"[iteration %d] exactly one writer must succeed (coordinator lock serialises same-coordinator CAS)", iteration)
+		assert.Equal(t, 1, failures,
+			"[iteration %d] exactly one writer must return ErrPreconditionFailed (coordinator lock prevents double-mint)", iteration)
+	}
 }

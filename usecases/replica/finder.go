@@ -104,6 +104,48 @@ func NewFinder(className string,
 	}
 }
 
+// resolveCurrentVersion performs a digest read at the given consistency level
+// and returns the authoritative current version for the specified object. If the
+// object does not exist on any queried replica, it returns 0 (new object). The
+// result is the maximum Version seen across the CL quorum of replies, which is
+// the coordinator-authoritative value that must be used as the base for minting
+// the next version.
+//
+// INV-HA-1: the digest read runs at the caller-supplied consistency level l, never
+// at a hard-coded ALL. The caller is responsible for passing the request-scoped l.
+func (f *Finder) resolveCurrentVersion(ctx context.Context,
+	l types.ConsistencyLevel, shard string, id strfmt.UUID,
+) (uint64, error) {
+	c := NewReadCoordinator[int64](f.router, f.metrics, f.class, shard, f.getDeletionStrategy(), f.log)
+	op := func(ctx context.Context, host string, _ bool) (int64, error) {
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
+		if err != nil {
+			return 0, err
+		}
+		if len(xs) == 0 {
+			return 0, nil
+		}
+		return xs[0].Version, nil
+	}
+	replyCh, _, err := c.Pull(ctx, l, op, "", 20*time.Second)
+	if err != nil {
+		return 0, fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, replicaerrors.NewNotEnoughReplicasError(err))
+	}
+	var maxVersion int64
+	for result := range replyCh {
+		if result.Err != nil {
+			continue
+		}
+		if result.Value > maxVersion {
+			maxVersion = result.Value
+		}
+	}
+	if maxVersion < 0 {
+		maxVersion = 0
+	}
+	return uint64(maxVersion), nil
+}
+
 // GetOne gets object which satisfies the given consistency
 func (f *Finder) GetOne(ctx context.Context,
 	l types.ConsistencyLevel, shard string,
