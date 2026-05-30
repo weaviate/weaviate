@@ -11,6 +11,29 @@
 
 package inverted
 
+import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+
+// SearchableBucketTokenizationResolver returns BOTH the active query-time
+// tokenization AND the searchable bucket pointer for a property, read as
+// one consistent snapshot under the per-shard tokenization-overlay lock.
+//
+// It exists to close the FINALIZING-window race of a field→word searchable
+// retokenization at its root: resolving the tokenization and fetching the
+// bucket separately (TokenizationResolver + a standalone store.Bucket call)
+// lets a query observe the post-swap bucket with the pre-swap tokenization
+// (or vice versa) for the brief gap between the two writes. Pairing the two
+// reads under the shard's overlay RLock — matched by the write side setting
+// both under the overlay write lock — guarantees the query sees a
+// consistent (bucket, tokenization) pair.
+//
+// The returned bucket may be nil (property has no searchable bucket); the
+// caller must treat that exactly as a nil from store.Bucket. When non-nil,
+// production wires this to Shard.EffectiveTokenizationAndSearchableBucket;
+// it is optional — when unset, callers fall back to the independent
+// TokenizationResolver + GetBucket pair (correct for any caller with no
+// in-flight tokenization migration).
+type SearchableBucketTokenizationResolver func(propName, schemaTokenization string) (tokenization string, bucket *lsmkv.Bucket)
+
 // TokenizationResolver returns the active query-time tokenization for a
 // property given the schema-stored value. Used by query paths
 // (BM25Searcher, Searcher, aggregators) to consult a per-shard
