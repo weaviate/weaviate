@@ -88,8 +88,18 @@ func TestGateClosed_ConditionalWriteReturnsNotActiveError(t *testing.T) {
 		waitForSchemaOnAllNodes(t, compose, className, 3)
 	})
 
+	// Insert the object via unconditional POST so it exists for all subsequent
+	// sub-tests. Gate-closed clusters handle plain inserts normally (Phase-1
+	// does not require versioning). Using require so the remaining sub-tests are
+	// skipped if the insert fails.
+	t.Run("InsertObject", func(t *testing.T) {
+		code := prodUncondInsertHTTP(t, host, className, objectID, "")
+		require.True(t, code >= 200 && code < 300,
+			"plain POST insert must succeed on gate-closed cluster; got status %d", code)
+	})
+
 	t.Run("UnconditionalWriteSucceeds", func(t *testing.T) {
-		// Unconditional PUT must succeed on a gate-closed cluster.
+		// Unconditional PUT (update) must succeed on a gate-closed cluster.
 		code := unconditionalPutHTTP(t, host, className, objectID, "initial-value")
 		assert.True(t, code >= 200 && code < 300,
 			"unconditional PUT must succeed on gate-closed cluster; got status %d", code)
@@ -103,8 +113,9 @@ func TestGateClosed_ConditionalWriteReturnsNotActiveError(t *testing.T) {
 	})
 
 	t.Run("GateClosed_IfMatchReturnsNotActiveError", func(t *testing.T) {
-		// Conditional PUT (If-Match: "0") must return a non-200 response with a
-		// clear "version-CAS not active" message.
+		// Conditional PUT (If-Match: "0") against an existing object must return a
+		// non-200 response with a clear "version-CAS not active" message.
+		// The object was inserted above; the not-found path must not fire here.
 		result := versionCASPutHTTP(t, host, className, objectID, 0, "conditional-attempt")
 
 		assert.NotEqual(t, http.StatusOK, result.StatusCode,
@@ -122,6 +133,14 @@ func TestGateClosed_ConditionalWriteReturnsNotActiveError(t *testing.T) {
 				strings.Contains(strings.ToLower(statusBody), "object versioning"),
 			"gate-closed error body must contain a 'version-CAS not active' diagnostic; got: %q",
 			statusBody)
+
+		// Safety property: the rejected If-Match must NOT have silently mutated the
+		// object. Read it back and confirm testfield is still "initial-value" (set
+		// by UnconditionalWriteSucceeds), not "conditional-attempt".
+		body := gateCASReadFieldHTTP(t, host, className, objectID)
+		assert.NotEqual(t, "conditional-attempt", body,
+			"gate-closed: rejected If-Match must not silently update the object; "+
+				"testfield must remain 'initial-value', got %q", body)
 	})
 
 	t.Run("GateClosed_PhaseOneConditionalsStillWork", func(t *testing.T) {
@@ -165,6 +184,47 @@ func unconditionalPutHTTP(t *testing.T, hostURI, className, id, fieldValue strin
 		resp.Body.Close()
 	}()
 	return resp.StatusCode
+}
+
+// gateCASReadFieldHTTP reads an object and returns the value of the "testfield"
+// property. Returns an empty string if the object is absent or unparseable.
+// Used to verify the safety property: a rejected If-Match must not silently
+// mutate the stored value.
+func gateCASReadFieldHTTP(t *testing.T, hostURI, className, id string) string {
+	t.Helper()
+
+	url := fmt.Sprintf("http://%s/v1/objects/%s/%s", hostURI, className, id)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	require.NoError(t, err)
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Logf("gateCASReadFieldHTTP: network error (host=%s id=%s): %v", hostURI, id, err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Logf("gateCASReadFieldHTTP: non-200 status %d body=%s", resp.StatusCode, body)
+		return ""
+	}
+
+	var obj struct {
+		Properties map[string]interface{} `json:"properties"`
+	}
+	if err := json.Unmarshal(body, &obj); err != nil {
+		t.Logf("gateCASReadFieldHTTP: unmarshal error: %v; body=%s", err, body)
+		return ""
+	}
+	if v, ok := obj.Properties["testfield"]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 // gateCASErrorBody issues a conditional PUT and returns the raw response body
