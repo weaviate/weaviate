@@ -154,12 +154,13 @@ func parseETagVersion(etag string) uint64 {
 // versionCASGetVersionDirect reads the object at CL=ONE and returns its current
 // server-managed version from the additional.version field in the JSON body.
 //
-// The version is included in the response body when ?include=additional is
-// specified. Returns 0 if the object is absent or has no version.
+// A plain GET /v1/objects/{class}/{id} already returns additional.version in
+// the response body by default; no extra query parameter is needed.
+// Returns 0 if the object is absent or has no version.
 func versionCASGetVersionDirect(t *testing.T, hostURI string, className string, id string) uint64 {
 	t.Helper()
 
-	url := fmt.Sprintf("http://%s/v1/objects/%s/%s?include=additional", hostURI, className, id)
+	url := fmt.Sprintf("http://%s/v1/objects/%s/%s", hostURI, className, id)
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	require.NoError(t, err, "build GET request for version read")
 	req.Header.Set("Accept", "application/json")
