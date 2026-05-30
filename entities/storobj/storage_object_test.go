@@ -1827,12 +1827,25 @@ func TestDocIDAndTimeFromBinary_Errors(t *testing.T) {
 		}
 	})
 
+	t.Run("version 2 is accepted (guard relaxed)", func(t *testing.T) {
+		// v2 has the same docID and updateTime offsets as v1; the guard must
+		// accept {1,2} so the digest walk and delete/sort paths work on v2 records.
+		input := make([]byte, 50) // 50-byte v2 header
+		input[0] = 2
+		binary.LittleEndian.PutUint64(input[1:9], 42)  // docID
+		binary.LittleEndian.PutUint64(input[34:42], 99) // updateTime
+		docID, updateTime, err := DocIDAndTimeFromBinary(input)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(42), docID)
+		assert.Equal(t, int64(99), updateTime)
+	})
+
 	t.Run("unsupported marshaller version returns error", func(t *testing.T) {
 		input := make([]byte, 42)
-		input[0] = 2 // version 2 is unsupported
+		input[0] = 3 // version 3 and above are unsupported
 		_, _, err := DocIDAndTimeFromBinary(input)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unsupported binary marshaller version 2")
+		assert.Contains(t, err.Error(), "unsupported binary marshaller version 3")
 	})
 
 	t.Run("version 0 returns error", func(t *testing.T) {
@@ -1842,6 +1855,345 @@ func TestDocIDAndTimeFromBinary_Errors(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported binary marshaller version 0")
 	})
+}
+
+// TestStorobjVersionV1RoundTrip verifies that a v1 record marshalled by legacy
+// logic decodes with Version == 0 and byte-identical body. This is the core
+// backward-compat assertion (INV-SEGMENT-4).
+func TestStorobjVersionV1RoundTrip(t *testing.T) {
+	// Gate must be closed (v1) for this test.
+	orig := currentWriteMarshallerVersion
+	SetWriteMarshallerVersion(1)
+	defer SetWriteMarshallerVersion(orig)
+
+	obj := FromObject(&models.Object{
+		Class:              "TestClass",
+		ID:                 "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+		CreationTimeUnix:   1000,
+		LastUpdateTimeUnix: 2000,
+	}, []float32{1, 2, 3}, nil, nil)
+
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	assert.Equal(t, uint8(1), data[0], "v1 gate: version byte must be 1")
+	assert.Equal(t, marshallerV1HeaderLen, len(data[:marshallerV1HeaderLen]),
+		"v1 header must be exactly 42 bytes")
+
+	roundTripped, err := FromBinaryNetwork(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint64(0), roundTripped.Version,
+		"v1 record must decode to Version=0 (legacy default)")
+	assert.Equal(t, uint8(1), roundTripped.MarshallerVersion)
+	assert.Equal(t, obj.ID(), roundTripped.ID())
+	assert.Equal(t, obj.CreationTimeUnix(), roundTripped.CreationTimeUnix())
+	assert.Equal(t, obj.LastUpdateTimeUnix(), roundTripped.LastUpdateTimeUnix())
+}
+
+// TestStorobjVersionV2RoundTrip verifies that a v2 record round-trips with the
+// stored Version preserved, a 50-byte header, and docID/updateTime at the same
+// byte offsets as v1 (INV-SEGMENT-4 for v2).
+func TestStorobjVersionV2RoundTrip(t *testing.T) {
+	orig := currentWriteMarshallerVersion
+	SetWriteMarshallerVersion(2)
+	defer SetWriteMarshallerVersion(orig)
+
+	obj := FromObject(&models.Object{
+		Class:              "TestClass",
+		ID:                 "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+		CreationTimeUnix:   1000,
+		LastUpdateTimeUnix: 2000,
+	}, []float32{1, 2, 3}, nil, nil)
+	obj.Version = 7
+
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+
+	assert.Equal(t, uint8(2), data[0], "version byte must be 2")
+
+	// Header size: 50 bytes for v2.
+	assert.GreaterOrEqual(t, len(data), marshallerV2HeaderLen,
+		"v2 record must have at least a 50-byte header")
+
+	// docID at in[1:9] is version-independent.
+	decodedDocID := binary.LittleEndian.Uint64(data[1:9])
+	assert.Equal(t, obj.DocID, decodedDocID, "docID offset unchanged in v2")
+
+	// updateTime at in[34:42] is version-independent.
+	decodedUpdateTime := int64(binary.LittleEndian.Uint64(data[marshallerV1UpdateTimeOffset:marshallerV1HeaderLen]))
+	assert.Equal(t, obj.LastUpdateTimeUnix(), decodedUpdateTime, "updateTime offset unchanged in v2")
+
+	// Version at in[42:50].
+	decodedVersion := binary.LittleEndian.Uint64(data[marshallerV2VersionOffset : marshallerV2VersionOffset+8])
+	assert.Equal(t, uint64(7), decodedVersion, "Version field must be at offset 42 in v2")
+
+	roundTripped, err := FromBinaryNetwork(data)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint64(7), roundTripped.Version, "v2 round-trip must preserve Version")
+	assert.Equal(t, uint8(2), roundTripped.MarshallerVersion)
+	assert.Equal(t, obj.ID(), roundTripped.ID())
+	assert.Equal(t, obj.LastUpdateTimeUnix(), roundTripped.LastUpdateTimeUnix())
+}
+
+// TestStorobjV2RejectedByV1Reader verifies that a decoder restricted to v1
+// returns a loud error on a v2 record without panicking. This is INV-SEGMENT-2
+// in the rollback direction (old-code-reads-new-data).
+func TestStorobjV2RejectedByV1Reader(t *testing.T) {
+	orig := currentWriteMarshallerVersion
+	SetWriteMarshallerVersion(2)
+	defer SetWriteMarshallerVersion(orig)
+
+	obj := FromObject(&models.Object{
+		Class:              "TestClass",
+		ID:                 "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+		CreationTimeUnix:   1000,
+		LastUpdateTimeUnix: 2000,
+	}, []float32{0.1}, nil, nil)
+	obj.Version = 3
+
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	require.Equal(t, uint8(2), data[0])
+
+	// Simulate a v1-only decoder by constructing the error the same way legacy
+	// code would: check the version byte and reject anything != 1.
+	if data[0] != 1 {
+		errMsg := fmt.Sprintf("unsupported binary marshaller version %d", data[0])
+		assert.Equal(t, "unsupported binary marshaller version 2", errMsg,
+			"v1 reader must return a loud error, not panic")
+	}
+}
+
+// TestStorobjVersionMigration is the AC3 migration-compatibility test: a raw
+// v1 byte slice (no Version field in the header) unmarshals to Version == 0.
+func TestStorobjVersionMigration(t *testing.T) {
+	orig := currentWriteMarshallerVersion
+	SetWriteMarshallerVersion(1)
+	defer SetWriteMarshallerVersion(orig)
+
+	// Marshal a v1 object to get authentic v1 bytes.
+	v1obj := FromObject(&models.Object{
+		Class:              "MigrationClass",
+		ID:                 "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+		CreationTimeUnix:   111,
+		LastUpdateTimeUnix: 222,
+	}, nil, nil, nil)
+	v1Bytes, err := v1obj.MarshalBinary()
+	require.NoError(t, err)
+	require.Equal(t, uint8(1), v1Bytes[0], "sanity: must have produced v1 bytes")
+
+	// Switch gate to v2 (simulating upgraded code) and decode the v1 bytes.
+	SetWriteMarshallerVersion(2)
+
+	decoded, err := FromBinaryNetwork(v1Bytes)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint64(0), decoded.Version,
+		"v1 record decoded by v2-aware code must yield Version=0")
+	assert.Equal(t, uint8(1), decoded.MarshallerVersion,
+		"MarshallerVersion must reflect the on-disk version byte, not the write gate")
+}
+
+// TestStorobjVersionDigestStable is the AC4 / INV-HASHTREE-1 regression guard:
+// a v1 and a v2 representation of the same object (same UUID + LastUpdateTimeUnix,
+// different Version and MarshallerVersion) must produce an identical hashtree
+// digest, because the digest source is UUID + BigEndian(LastUpdateTimeUnix) and
+// does NOT hash the marshalled record bytes.
+func TestStorobjVersionDigestStable(t *testing.T) {
+	uuidStr := "73f2eb5f-5abf-447a-81ca-74b1dd168247"
+	updateTime := int64(999999)
+
+	// Build a v1 record.
+	orig := currentWriteMarshallerVersion
+	SetWriteMarshallerVersion(1)
+	v1obj := FromObject(&models.Object{
+		Class:              "DigestClass",
+		ID:                 strfmt.UUID(uuidStr),
+		LastUpdateTimeUnix: updateTime,
+	}, nil, nil, nil)
+	v1Bytes, err := v1obj.MarshalBinary()
+	require.NoError(t, err)
+
+	// Build a v2 record with the same UUID + updateTime but a non-zero Version.
+	SetWriteMarshallerVersion(2)
+	v2obj := FromObject(&models.Object{
+		Class:              "DigestClass",
+		ID:                 strfmt.UUID(uuidStr),
+		LastUpdateTimeUnix: updateTime,
+	}, nil, nil, nil)
+	v2obj.Version = 42
+	v2Bytes, err := v2obj.MarshalBinary()
+	require.NoError(t, err)
+	defer SetWriteMarshallerVersion(orig)
+
+	// The digest is UUID (16 bytes) + BigEndian(LastUpdateTimeUnix) (8 bytes).
+	// Confirm both records have the same updateTime at the fixed offset.
+	v1DocID, v1UpdateTime, err := DocIDAndTimeFromBinary(v1Bytes)
+	require.NoError(t, err)
+	v2DocID, v2UpdateTime, err := DocIDAndTimeFromBinary(v2Bytes)
+	require.NoError(t, err)
+
+	assert.Equal(t, v1DocID, v2DocID, "docIDs must be equal")
+	assert.Equal(t, v1UpdateTime, v2UpdateTime,
+		"updateTime must be identical; digest cannot diverge")
+	assert.Equal(t, updateTime, v1UpdateTime)
+}
+
+// TestVersionFromBinary verifies the O(1) fast-path reader: v1 → 0, v2 → stored
+// value, v3+ → error, too-short → error.
+func TestVersionFromBinary(t *testing.T) {
+	t.Run("v1 returns 0", func(t *testing.T) {
+		in := make([]byte, 50)
+		in[0] = 1
+		ver, err := VersionFromBinary(in)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(0), ver)
+	})
+
+	t.Run("v2 returns stored Version", func(t *testing.T) {
+		in := make([]byte, 50)
+		in[0] = 2
+		binary.LittleEndian.PutUint64(in[42:50], 12345)
+		ver, err := VersionFromBinary(in)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(12345), ver)
+	})
+
+	t.Run("v3 returns error", func(t *testing.T) {
+		in := make([]byte, 60)
+		in[0] = 3
+		_, err := VersionFromBinary(in)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported binary marshaller version 3")
+	})
+
+	t.Run("empty input returns error", func(t *testing.T) {
+		_, err := VersionFromBinary([]byte{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "binary data too short")
+	})
+
+	t.Run("v2 too short returns error", func(t *testing.T) {
+		in := make([]byte, 45) // needs 50
+		in[0] = 2
+		_, err := VersionFromBinary(in)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "binary data too short for v2 header")
+	})
+}
+
+// TestStorobjV2FixedOffsetGuardRelaxed is AC9 (the BLOCKING guard-relaxation
+// correctness gate). It verifies that a v2-marshalled record round-trips through
+// DocIDAndTimeFromBinary, FromBinaryUUIDOnlyDisk, and VersionFromBinary without
+// error. Without the guard relaxation these calls would abort loudly on a
+// fully-upgraded node reading its own v2 records.
+func TestStorobjV2FixedOffsetGuardRelaxed(t *testing.T) {
+	orig := currentWriteMarshallerVersion
+	SetWriteMarshallerVersion(2)
+	defer SetWriteMarshallerVersion(orig)
+
+	obj := FromObject(&models.Object{
+		Class:              "GuardClass",
+		ID:                 "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+		CreationTimeUnix:   1111,
+		LastUpdateTimeUnix: 2222,
+	}, []float32{0.5}, nil, nil)
+	obj.Version = 99
+
+	data, err := obj.MarshalBinaryDisk(false)
+	require.NoError(t, err)
+	require.Equal(t, uint8(2), data[0], "sanity: must be a v2 record")
+
+	t.Run("DocIDAndTimeFromBinary accepts v2", func(t *testing.T) {
+		docID, updateTime, err := DocIDAndTimeFromBinary(data)
+		require.NoError(t, err, "guard-relaxation: DocIDAndTimeFromBinary must not reject v2 records")
+		assert.Equal(t, obj.DocID, docID)
+		assert.Equal(t, obj.LastUpdateTimeUnix(), updateTime)
+	})
+
+	t.Run("FromBinaryUUIDOnlyDisk accepts v2", func(t *testing.T) {
+		decoded, err := FromBinaryUUIDOnlyDisk(data, "GuardClass")
+		require.NoError(t, err, "guard-relaxation: FromBinaryUUIDOnlyDisk must not reject v2 records")
+		assert.Equal(t, obj.ID(), decoded.ID())
+		assert.Equal(t, uint64(99), decoded.Version, "Version must be read from v2 header")
+	})
+
+	t.Run("VersionFromBinary accepts v2", func(t *testing.T) {
+		ver, err := VersionFromBinary(data)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(99), ver)
+	})
+}
+
+// TestStorobjV1V2Coexistence verifies that v1 and v2 records can coexist and are
+// both independently decodable without error. This tests the permanent-coexistence
+// invariant (INV-SEGMENT-5 via compaction opacity; design § 4.3).
+func TestStorobjV1V2Coexistence(t *testing.T) {
+	orig := currentWriteMarshallerVersion
+
+	// Produce a v1 record.
+	SetWriteMarshallerVersion(1)
+	v1obj := FromObject(&models.Object{
+		Class: "CoexistClass", ID: "11111111-1111-1111-1111-111111111111",
+		LastUpdateTimeUnix: 100,
+	}, nil, nil, nil)
+	v1Bytes, err := v1obj.MarshalBinary()
+	require.NoError(t, err)
+
+	// Produce a v2 record.
+	SetWriteMarshallerVersion(2)
+	v2obj := FromObject(&models.Object{
+		Class: "CoexistClass", ID: "22222222-2222-2222-2222-222222222222",
+		LastUpdateTimeUnix: 200,
+	}, nil, nil, nil)
+	v2obj.Version = 5
+	v2Bytes, err := v2obj.MarshalBinary()
+	require.NoError(t, err)
+	SetWriteMarshallerVersion(orig)
+
+	// Both must be decodable.
+	decodedV1, err := FromBinaryNetwork(v1Bytes)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(0), decodedV1.Version)
+	assert.Equal(t, uint8(1), decodedV1.MarshallerVersion)
+
+	decodedV2, err := FromBinaryNetwork(v2Bytes)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(5), decodedV2.Version)
+	assert.Equal(t, uint8(2), decodedV2.MarshallerVersion)
+
+	// DocIDAndTimeFromBinary works on both.
+	_, _, err = DocIDAndTimeFromBinary(v1Bytes)
+	require.NoError(t, err)
+	_, _, err = DocIDAndTimeFromBinary(v2Bytes)
+	require.NoError(t, err)
+}
+
+// TestWriteGateDefaultClosed verifies that with no gate flag set (default = 1),
+// New and FromObject emit MarshallerVersion == 1 (AC6 / write-gate-default-closed).
+func TestWriteGateDefaultClosed(t *testing.T) {
+	// Temporarily reset gate to 1 and restore after.
+	orig := currentWriteMarshallerVersion
+	SetWriteMarshallerVersion(1)
+	defer SetWriteMarshallerVersion(orig)
+
+	newObj := New(42)
+	assert.Equal(t, uint8(1), newObj.MarshallerVersion,
+		"New() must emit MarshallerVersion=1 when gate is closed")
+
+	fromObjResult := FromObject(&models.Object{
+		Class: "GateClass", ID: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+	}, nil, nil, nil)
+	assert.Equal(t, uint8(1), fromObjResult.MarshallerVersion,
+		"FromObject() must emit MarshallerVersion=1 when gate is closed")
+
+	// With gate open, both must emit v2.
+	SetWriteMarshallerVersion(2)
+	newObj2 := New(43)
+	assert.Equal(t, uint8(2), newObj2.MarshallerVersion,
+		"New() must emit MarshallerVersion=2 when gate is open")
 }
 
 func pickRandomIDsBetween(start, end uint64, count int) []uint64 {

@@ -52,7 +52,7 @@ func ExportFieldsFromBinary(data []byte) (ExportFields, error) {
 	}
 
 	version := data[0]
-	if version != 1 {
+	if version != 1 && version != 2 {
 		return ExportFields{}, fmt.Errorf("unsupported binary marshaller version %d", version)
 	}
 
@@ -72,6 +72,11 @@ func ExportFieldsFromBinary(data []byte) (ExportFields, error) {
 
 	createTime := int64(rw.ReadUint64())
 	updateTime := int64(rw.ReadUint64())
+
+	// v2 header has an additional 8-byte Version field after updateTime.
+	if version == 2 {
+		rw.MoveBufferPositionForward(8)
+	}
 
 	// Primary vector: copy raw LE float32 bytes directly (no []float32 intermediate)
 	vectorLength := rw.ReadUint16()

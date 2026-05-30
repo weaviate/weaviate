@@ -45,6 +45,33 @@ func init() {
 	bufPool = newBufferPool(10 * 1024)
 }
 
+// currentWriteMarshallerVersion controls what version byte is written by New
+// and FromObject. Default is 1 (backward-compatible). Flip to 2 only after the
+// entire cluster has been upgraded to code that can read v2 (i.e. this very
+// change is deployed everywhere). Use SetWriteMarshallerVersion to change it;
+// the zero value is intentionally invalid to catch uninitialised reads.
+//
+// The gate defaults closed (value 1) so that a rolling upgrade does not cause
+// old nodes to encounter v2 records they cannot decode. Once every node is
+// upgraded, an operator sets PERSISTENCE_OBJECT_VERSION_WRITE=2 and restarts
+// each node; from that point new writes carry the 50-byte header with Version.
+var currentWriteMarshallerVersion uint8 = 1
+
+// SetWriteMarshallerVersion sets the package-level write-gate. Acceptable
+// values are 1 and 2; any other value panics. Intended for operator-gated
+// cluster-upgrade flows and test helpers only.
+func SetWriteMarshallerVersion(v uint8) {
+	if v != 1 && v != 2 {
+		panic(fmt.Sprintf("storobj: invalid write marshaller version %d (must be 1 or 2)", v))
+	}
+	currentWriteMarshallerVersion = v
+}
+
+// GetWriteMarshallerVersion returns the currently active write-gate value.
+func GetWriteMarshallerVersion() uint8 {
+	return currentWriteMarshallerVersion
+}
+
 type Object struct {
 	MarshallerVersion uint8
 	Object            models.Object `json:"object"`
@@ -54,8 +81,16 @@ type Object struct {
 	BelongsToShard    string        `json:"-"`
 	IsConsistent      bool          `json:"-"`
 	DocID             uint64
-	Vectors           map[string][]float32   `json:"vectors"`
-	MultiVectors      map[string][][]float32 `json:"multivectors"`
+	// Version is the server-managed, monotonically increasing CAS version for
+	// this object. It is persisted in the binary format (MarshallerVersion 2
+	// only; v1 records decode to Version 0). The first write to a legacy v1
+	// object bumps Version to 1 and re-marshals as v2 once the write-gate is
+	// open. Version is NOT included in the replication hashtree digest (the
+	// digest source is UUID + LastUpdateTimeUnix); adding Version does not
+	// trigger spurious repair storms.
+	Version      uint64
+	Vectors      map[string][]float32   `json:"vectors"`
+	MultiVectors map[string][][]float32 `json:"multivectors"`
 	// Conditional holds the per-request precondition for a conditional write.
 	// It is never serialised to disk and is cleared before WAL commit. Zero
 	// value (IsZero() == true) means unconditional write.
@@ -64,7 +99,7 @@ type Object struct {
 
 func New(docID uint64) *Object {
 	return &Object{
-		MarshallerVersion: 1,
+		MarshallerVersion: currentWriteMarshallerVersion,
 		DocID:             docID,
 	}
 }
@@ -102,7 +137,7 @@ func FromObject(object *models.Object, vector []float32, vectors map[string][]fl
 	return &Object{
 		Object:            *object,
 		Vector:            vector,
-		MarshallerVersion: 1,
+		MarshallerVersion: currentWriteMarshallerVersion,
 		VectorLen:         len(vector),
 		Vectors:           vecs,
 		MultiVectors:      multiVectors,
@@ -151,7 +186,7 @@ func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
 
 	rw := byteops.NewReadWriter(data)
 	version := rw.ReadUint8()
-	if version != 1 {
+	if version != 1 && version != 2 {
 		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
@@ -168,7 +203,12 @@ func FromBinaryUUIDOnlyDisk(data []byte, className string) (*Object, error) {
 	ko.Object.CreationTimeUnix = int64(rw.ReadUint64())
 	ko.Object.LastUpdateTimeUnix = int64(rw.ReadUint64())
 
-	// Vector bytes are ignored, as are all vector bytes, because this is a header-only fast path
+	// v2 header carries an 8-byte Version field immediately after updateTime.
+	if version == 2 {
+		ko.Version = rw.ReadUint64()
+	}
+
+	// Vector bytes are ignored, as are all vector bytes, because this is a header-only fast path.
 	// On-disk class-name bytes are ignored: className is guaranteed non-empty
 	// by the entry guard above, so the caller-supplied value is what we use.
 	ko.Object.Class = className
@@ -209,7 +249,7 @@ func fromBinaryOptionalInternal(data []byte, className string,
 
 	rw := byteops.NewReadWriter(data)
 	ko.MarshallerVersion = rw.ReadUint8()
-	if ko.MarshallerVersion != 1 {
+	if ko.MarshallerVersion != 1 && ko.MarshallerVersion != 2 {
 		return nil, errors.Errorf("unsupported binary marshaller version %d", ko.MarshallerVersion)
 	}
 	ko.DocID = rw.ReadUint64()
@@ -222,6 +262,12 @@ func fromBinaryOptionalInternal(data []byte, className string,
 
 	createTime := int64(rw.ReadUint64())
 	updateTime := int64(rw.ReadUint64())
+
+	// v2 header carries an 8-byte Version field immediately after updateTime.
+	if ko.MarshallerVersion == 2 {
+		ko.Version = rw.ReadUint64()
+	}
+
 	vectorLength := rw.ReadUint16()
 	// The vector length should always be returned (for usage metrics purposes) even if the vector itself is skipped
 	ko.VectorLen = int(vectorLength)
@@ -803,15 +849,39 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 
 func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
 	// Additional fields may follow after the header and are ignored.
+	// Both v1 and v2 have identical byte offsets for docID (1:9) and
+	// updateTime (34:42); the v2 Version field begins at offset 42 which is
+	// AFTER the region this function reads, so no offset adjustment is needed.
 	if len(in) < marshallerV1HeaderLen {
 		return 0, 0, errors.Errorf("binary data too short")
 	}
-	if in[0] != 1 {
+	if in[0] != 1 && in[0] != 2 {
 		return 0, 0, errors.Errorf("unsupported binary marshaller version %d", in[0])
 	}
 	docID := binary.LittleEndian.Uint64(in[1:9])
 	updateTime := int64(binary.LittleEndian.Uint64(in[marshallerV1UpdateTimeOffset:marshallerV1HeaderLen]))
 	return docID, updateTime, nil
+}
+
+// VersionFromBinary is an O(1) fast path that reads the server-managed Version
+// from a marshalled storobj record without full deserialization. For v1 records
+// (all existing on-disk objects) it returns 0; for v2 records it reads the
+// uint64 at byte offset 42. Returns an error for unknown versions.
+func VersionFromBinary(in []byte) (uint64, error) {
+	if len(in) < 1 {
+		return 0, errors.Errorf("binary data too short")
+	}
+	switch in[0] {
+	case 1:
+		return 0, nil
+	case 2:
+		if len(in) < marshallerV2HeaderLen {
+			return 0, errors.Errorf("binary data too short for v2 header")
+		}
+		return binary.LittleEndian.Uint64(in[marshallerV2VersionOffset : marshallerV2VersionOffset+8]), nil
+	default:
+		return 0, errors.Errorf("unsupported binary marshaller version %d", in[0])
+	}
 }
 
 // MarshalBinary creates the binary representation of a kind object. Regardless
@@ -849,9 +919,17 @@ func DocIDAndTimeFromBinary(in []byte) (uint64, int64, error) {
 
 // Binary header layout (version 1):
 // version(1) + docID(8) + kind(1) + uuid(16) + createTime(8) + updateTime(8) = 42 bytes
+//
+// Binary header layout (version 2):
+// version(1) + docID(8) + kind(1) + uuid(16) + createTime(8) + updateTime(8) + Version(8) = 50 bytes
+// The v1 layout is byte-for-byte unchanged; v2 appends 8 bytes to the header.
+// Decoders branch on the version byte; the v1 path is the same as before.
 const (
-	marshallerV1HeaderLen        = 1 + 8 + 1 + 16 + 8 + 8 // 42
-	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8     // 34
+	marshallerV1HeaderLen        = 1 + 8 + 1 + 16 + 8 + 8     // 42
+	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8          // 34
+	marshallerV2HeaderLen        = marshallerV1HeaderLen + 8    // 50: v1 header + 8-byte Version
+	marshallerV2VersionOffset    = marshallerV1HeaderLen        // 42: Version uint64 starts here in v2
+	CurrentMarshallerVersion     = uint8(2)                     // what fresh writes emit when the gate is open
 )
 
 const (
@@ -881,7 +959,7 @@ func (ko *Object) MarshalBinaryOptional(addProps additional.Properties) ([]byte,
 }
 
 func (ko *Object) marshalBinaryInternal(addProps additional.Properties, skipClassName bool) ([]byte, error) {
-	if ko.MarshallerVersion != 1 {
+	if ko.MarshallerVersion != 1 && ko.MarshallerVersion != 2 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
 	}
 
@@ -1056,7 +1134,13 @@ func (ko *Object) marshalBinaryInternal(addProps additional.Properties, skipClas
 		}
 	}
 
-	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 +
+	// v2 header is 8 bytes larger than v1 (the Version uint64 field).
+	versionHeaderExtra := uint32(0)
+	if ko.MarshallerVersion == 2 {
+		versionHeaderExtra = 8
+	}
+
+	totalBufferLength := 1 + 8 + 1 + 16 + 8 + 8 + versionHeaderExtra +
 		2 + vectorLength*4 +
 		2 + classNameLength +
 		4 + schemaLength +
@@ -1077,6 +1161,12 @@ func (ko *Object) marshalBinaryInternal(addProps additional.Properties, skipClas
 
 	rw.WriteUint64(uint64(ko.CreationTimeUnix()))
 	rw.WriteUint64(uint64(ko.LastUpdateTimeUnix()))
+
+	// v2: write the server-managed Version field after updateTime.
+	if ko.MarshallerVersion == 2 {
+		rw.WriteUint64(ko.Version)
+	}
+
 	rw.WriteUint16(uint16(vectorLength))
 
 	if addProps.Vector {
@@ -1177,7 +1267,7 @@ func (ko *Object) MarshalBinaryDisk(skipClassName bool) ([]byte, error) {
 //
 // Check MarshalBinary for the order of elements in the input array
 func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]interface{}, propertyPaths [][]string) error {
-	if data[0] != uint8(1) {
+	if data[0] != uint8(1) && data[0] != uint8(2) {
 		return errors.Errorf("unsupported binary marshaller version %d", data[0])
 	}
 
@@ -1185,7 +1275,11 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 	// are no allocations when adding the resultProperties of the next object again
 	clear(resultProperties)
 
-	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
+	// v1 header: 1+8+1+16+8+8 = 42 bytes; v2 header: 42+8 = 50 bytes (Version uint64).
+	startPos := uint64(marshallerV1HeaderLen)
+	if data[0] == uint8(2) {
+		startPos = uint64(marshallerV2HeaderLen)
+	}
 	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(startPos))
 	// get the length of the vector, each element is a float32 (4 bytes)
 	vectorLength := uint64(rw.ReadUint16())
@@ -1326,7 +1420,7 @@ func (ko *Object) UnmarshalBinaryDisk(data []byte, className string) error {
 // className falls back to the on-disk value.
 func (ko *Object) unmarshalInternal(data []byte, className string) error {
 	version := data[0]
-	if version != 1 {
+	if version != 1 && version != 2 {
 		return errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 	ko.MarshallerVersion = version
@@ -1343,6 +1437,11 @@ func (ko *Object) unmarshalInternal(data []byte, className string) error {
 
 	createTime := int64(rw.ReadUint64())
 	updateTime := int64(rw.ReadUint64())
+
+	// v2 header carries an 8-byte Version field immediately after updateTime.
+	if version == 2 {
+		ko.Version = rw.ReadUint64()
+	}
 
 	vectorLength := rw.ReadUint16()
 	ko.VectorLen = int(vectorLength)
@@ -1535,13 +1634,19 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	}
 
 	version := in[0]
-	if version != 1 {
+	if version != 1 && version != 2 {
 		return nil, errors.Errorf("unsupported marshaller version %d", version)
 	}
 
+	// headerLen is the number of bytes before the vector-length uint16.
+	// v1: 42 bytes; v2: 50 bytes (adds the 8-byte Version field).
+	headerLen := marshallerV1HeaderLen
+	if version == 2 {
+		headerLen = marshallerV2HeaderLen
+	}
+
 	if targetVector != "" {
-		startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(startPos))
+		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(uint64(headerLen)))
 
 		vectorLength := uint64(rw.ReadUint16())
 		rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1565,7 +1670,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	// assume that we can directly access the vector length field. The only
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
+	vecLen := binary.LittleEndian.Uint16(in[headerLen : headerLen+2])
 	if vecLen == 0 {
 		return nil, fmt.Errorf("vector length is 0")
 	}
@@ -1576,7 +1681,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 	} else {
 		out = make([]float32, vecLen)
 	}
-	vecStart := 44
+	vecStart := headerLen + 2
 	vecEnd := vecStart + int(vecLen*4)
 
 	byteops.CopyBytesToSlice(out, in[vecStart:vecEnd])
@@ -1606,18 +1711,25 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	}
 
 	version := in[0]
-	if version != 1 {
+	if version != 1 && version != 2 {
 		return nil, errors.Errorf("unsupported marshaller version %d", version)
+	}
+
+	// headerLen is the number of bytes before the vector-length uint16.
+	// v1: 42 bytes; v2: 50 bytes (adds the 8-byte Version field).
+	headerLen := marshallerV1HeaderLen
+	if version == 2 {
+		headerLen = marshallerV2HeaderLen
 	}
 
 	// since we know the version and know that the blob is not len(0), we can
 	// assume that we can directly access the vector length field. The only
 	// situation where this is not accessible would be on corrupted data - where
 	// it would be acceptable to panic
-	vecLen := binary.LittleEndian.Uint16(in[marshallerV1HeaderLen : marshallerV1HeaderLen+2])
+	vecLen := binary.LittleEndian.Uint16(in[headerLen : headerLen+2])
 
 	var out []float32
-	vecStart := 44
+	vecStart := headerLen + 2
 	vecEnd := vecStart + int(vecLen*4)
 
 	if vecLen > 0 {

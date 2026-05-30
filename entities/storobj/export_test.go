@@ -224,8 +224,8 @@ func TestExportFieldsFromBinary_Errors(t *testing.T) {
 			wantErr: "empty binary data",
 		},
 		{
-			name:    "wrong version",
-			data:    []byte{2, 0, 0, 0},
+			name:    "unsupported version 3",
+			data:    []byte{3, 0, 0, 0},
 			wantErr: "unsupported binary marshaller version",
 		},
 	}

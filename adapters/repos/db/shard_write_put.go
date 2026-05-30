@@ -300,6 +300,16 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
+		// Increment server-managed Version under the per-UUID lock so that
+		// concurrent writers see a strictly monotonic sequence. prevObj.Version
+		// is 0 for legacy v1 objects (decoded with the v1 default), making the
+		// first write to any existing object produce Version = 1.
+		if prevObj != nil {
+			obj.Version = prevObj.Version + 1
+		} else {
+			obj.Version = 1
+		}
+
 		objBinary, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 		if err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())

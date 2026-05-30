@@ -151,13 +151,20 @@ func extractTimeUnix(data []byte, propertyName string) ([]string, bool, error) {
 
 func extractPropsBytes(data []byte) ([]byte, error) {
 	version := uint8(data[0])
-	if version != 1 {
+	if version != 1 && version != 2 {
 		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
-	vecLen := binary.LittleEndian.Uint16(data[discardBytesPreVector : discardBytesPreVector+2])
+	// discardBytesPreVector is the header size before the vector-length uint16.
+	// v1: 42 bytes; v2: 50 bytes (Version uint64 added after updateTime).
+	headerLen := int64(discardBytesPreVector)
+	if version == 2 {
+		headerLen = int64(marshallerV2HeaderLen)
+	}
 
-	classNameStart := int64(discardBytesPreVector) + 2 + int64(vecLen)*4
+	vecLen := binary.LittleEndian.Uint16(data[headerLen : headerLen+2])
+
+	classNameStart := headerLen + 2 + int64(vecLen)*4
 
 	classNameLen := binary.LittleEndian.Uint16(data[classNameStart : classNameStart+2])
 
