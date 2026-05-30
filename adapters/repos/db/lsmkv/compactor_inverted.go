@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -58,7 +57,6 @@ type compactorInverted struct {
 	tombstonesToClean *sroar.Bitmap
 
 	propertyLengthsToWrite map[uint64]uint32
-	propertyLengthsToClean map[uint64]uint32
 
 	invertedHeader *segmentindex.HeaderInverted
 
@@ -132,23 +130,24 @@ func (c *compactorInverted) do(ctx context.Context) error {
 		return errors.Wrap(err, "get tombstones")
 	}
 
-	propertyLengthsToWrite, err := c.c1.segment.getPropertyLengths()
+	// Two-pointer merge of the two segments' resident sorted (docID, length) runs,
+	// replacing the former getPropertyLengths()+maps.Copy path. c1 is the left
+	// (older) segment and c2 the right (newer) one; on an overlapping docID the
+	// newer (c2) value wins, exactly as the previous maps.Copy(write <- clean)
+	// did. The merged result is the map the rest of the compactor already consumes.
+	olderDocIDs, olderValues, err := c.c1.segment.snapshotPropLengthSlices()
+	if err != nil {
+		return errors.Wrap(err, "get property lengths")
+	}
+	newerDocIDs, newerValues, err := c.c2.segment.snapshotPropLengthSlices()
 	if err != nil {
 		return errors.Wrap(err, "get property lengths")
 	}
 
-	propertyLengthsToClean, err := c.c2.segment.getPropertyLengths()
-	if err != nil {
-		return errors.Wrap(err, "get property lengths")
-	}
+	c.propertyLengthsToWrite = mergePropertyLengthRuns(
+		olderDocIDs, olderValues, newerDocIDs, newerValues)
 
-	c.propertyLengthsToWrite = make(map[uint64]uint32, len(propertyLengthsToWrite))
-	c.propertyLengthsToClean = make(map[uint64]uint32, len(propertyLengthsToClean))
-
-	maps.Copy(c.propertyLengthsToWrite, propertyLengthsToWrite)
-	maps.Copy(c.propertyLengthsToClean, propertyLengthsToClean)
-
-	tombstones := c.computeTombstonesAndPropLengths()
+	tombstones := c.computeTombstones()
 
 	keysOffset := segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + len(c.c1.segment.invertedHeader.DataFields)
 
@@ -440,9 +439,9 @@ func (c *compactorInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 	return values[:last], false
 }
 
-func (c *compactorInverted) computeTombstonesAndPropLengths() *sroar.Bitmap {
-	maps.Copy(c.propertyLengthsToWrite, c.propertyLengthsToClean)
-
+func (c *compactorInverted) computeTombstones() *sroar.Bitmap {
+	// Property lengths were already merged via the two-pointer merge in do();
+	// nothing to copy here. This function only resolves the tombstone bitmap.
 	if c.cleanupTombstones { // no tombstones to write
 		return sroar.NewBitmap()
 	}

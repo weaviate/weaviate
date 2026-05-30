@@ -2340,7 +2340,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		DocIds: make([]uint64, 0, len(mem)),
 		Tfs:    make([]uint64, 0, len(mem)),
 	}
-	term.propLengths = make(map[uint64]uint32)
+	term.propLengthsInMem = make(map[uint64]uint32)
 
 	for _, v := range mem {
 		if v.Tombstone {
@@ -2361,7 +2361,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 
 		term.blockDataDecoded.DocIds = append(term.blockDataDecoded.DocIds, d.Id)
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
-		term.propLengths[d.Id] = uint32(d.PropLength)
+		term.propLengthsInMem[d.Id] = uint32(d.PropLength)
 
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {

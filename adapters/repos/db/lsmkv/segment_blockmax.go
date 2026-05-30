@@ -50,7 +50,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]*terms.BlockEntry, 1)
-		propLength := s.invertedData.propertyLengths[data.DocIds[0]]
+		propLength := s.propLengthAt(data.DocIds[0])
 		tf := data.Tfs[0]
 		entries[0] = &terms.BlockEntry{
 			Offset:              0,
@@ -160,8 +160,14 @@ type SegmentBlockMax struct {
 	// at position 0 we have the doc ids decoder, at position 1 is the tfs decoder
 	decoders []varenc.VarEncEncoder[uint64]
 
-	propLengths    map[uint64]uint32
-	blockDatasTest []*terms.BlockData
+	// propLengthsInMem holds per-document property lengths for SegmentBlockMax
+	// instances that have NO backing on-disk segment (segment == nil): the
+	// memtable/active/flushing terms built by NewSegmentBlockMaxDecoded +
+	// addDataToTerm, and the unit-test ctor NewSegmentBlockMaxTest. For on-disk
+	// segments this stays nil and Score reads the compact resident slices via
+	// segment.propLengthAt (no whole-map materialized). See propLengthFor.
+	propLengthsInMem map[uint64]uint32
+	blockDatasTest   []*terms.BlockData
 
 	sectionReader *io.SectionReader
 }
@@ -249,7 +255,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 		propertyBoost:     float64(propertyBoost),
 		filterDocIds:      filterDocIds,
 		tombstones:        tombstones,
-		propLengths:       propLengths,
+		propLengthsInMem:  propLengths,
 		blockDatasTest:    blockDatas,
 		blockEntryIdx:     0,
 		blockDataIdx:      0,
@@ -330,11 +336,12 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 func (s *SegmentBlockMax) reset() error {
 	var err error
 
-	s.propLengths, err = s.segment.getPropertyLengths()
-	if err != nil {
-		return err
-	}
-
+	// Property lengths are read per-document in Score via segment.propLengthAt
+	// (binary search over the compact resident slices). We intentionally do NOT
+	// materialize the whole-segment length map here: doing so would resurrect the
+	// ~45 B/doc resident map this change exists to remove. Eager-load already
+	// populated the slices at segment open, so the first query reads a warm
+	// structure (no slow first query / no heap spike).
 	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node)
 	if err != nil {
 		return err
@@ -497,6 +504,18 @@ func (s *SegmentBlockMax) QueryTerm() string {
 	return string(s.node.Key)
 }
 
+// propLengthFor returns the property length for docID. On the real query path it
+// binary-searches the segment's compact resident slices (segment.propLengthAt).
+// On the unit-test path (NewSegmentBlockMaxTest, nil segment) it reads the
+// injected propLengthsTest map, whose zero value for a missing key matches
+// propLengthAt's miss behavior.
+func (s *SegmentBlockMax) propLengthFor(docID uint64) uint32 {
+	if s.segment != nil {
+		return s.segment.propLengthAt(docID)
+	}
+	return s.propLengthsInMem[docID]
+}
+
 func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation bool) (uint64, float64, *terms.DocPointerWithScore) {
 	if s.exhausted {
 		return 0, 0, nil
@@ -510,7 +529,7 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 	}
 
 	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
-	propLength := s.propLengths[s.idPointer]
+	propLength := s.propLengthFor(s.idPointer)
 	tf := freq / (freq + s.k1*((1-s.b)+s.b*(float64(propLength)/s.averagePropLength)))
 	s.Metrics.DocCountScored++
 	if s.blockEntryIdx != s.Metrics.LastAddedBlock {
