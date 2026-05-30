@@ -145,8 +145,8 @@ func BatchObjectsFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(
 
 // conditionalFromProto maps a proto ConditionalWriteRequest (oneof condition_type)
 // to the internal storobj.Conditional.
-// Phase-1 (InsertIfNotExists) and Phase-2 (VersionMatch) are implemented here.
-// Phase-3 (FieldPredicate) remains a forward-compatible stub at zero value.
+// Phase-1 (InsertIfNotExists), Phase-2 (VersionMatch), and Phase-3 (FieldPredicate)
+// are implemented.
 func conditionalFromProto(req *pb.ConditionalWriteRequest) storobj.Conditional {
 	if req == nil {
 		return storobj.Conditional{}
@@ -160,9 +160,50 @@ func conditionalFromProto(req *pb.ConditionalWriteRequest) storobj.Conditional {
 			return storobj.Conditional{IfVersion: &v}
 		}
 		return storobj.Conditional{}
+	case *pb.ConditionalWriteRequest_FieldPredicate:
+		return conditionalFromFieldPredicate(ct.FieldPredicate)
 	default:
 		return storobj.Conditional{}
 	}
+}
+
+// conditionalFromFieldPredicate converts a proto FieldPredicate to the
+// internal storobj.Predicate. Only EQ operator and scalar value types are
+// supported in Phase-3 v1; unknown operators or value types produce an
+// IsZero conditional (treated as unconditional by the shard, which is
+// safe: the evaluation will reject an unknown operator with a clear error).
+func conditionalFromFieldPredicate(fp *pb.FieldPredicate) storobj.Conditional {
+	if fp == nil || fp.GetField() == "" {
+		return storobj.Conditional{}
+	}
+	// Phase-3 v1 only supports FIELD_OPERATOR_EQ.
+	if fp.GetOperator() != pb.FieldOperator_FIELD_OPERATOR_EQ {
+		return storobj.Conditional{}
+	}
+
+	pred := &storobj.Predicate{
+		PropertyName: fp.GetField(),
+		Operator:     storobj.EqOperator,
+	}
+
+	switch v := fp.GetValue().(type) {
+	case *pb.FieldPredicate_StringValue:
+		pred.ExpectedValue = v.StringValue
+		pred.ValueType = storobj.PredicateValueText
+	case *pb.FieldPredicate_IntValue:
+		pred.ExpectedValue = v.IntValue
+		pred.ValueType = storobj.PredicateValueInt
+	case *pb.FieldPredicate_DoubleValue:
+		pred.ExpectedValue = v.DoubleValue
+		pred.ValueType = storobj.PredicateValueNumber
+	case *pb.FieldPredicate_BoolValue:
+		pred.ExpectedValue = v.BoolValue
+		pred.ValueType = storobj.PredicateValueBool
+	default:
+		return storobj.Conditional{}
+	}
+
+	return storobj.Conditional{UpdateIf: pred}
 }
 
 func extractSingleRefTarget(class *models.Class, properties []*pb.BatchObject_SingleTargetRefProps, props map[string]interface{}) error {

@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -982,6 +983,21 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		if v, parseErr := strconv.ParseUint(vStr, 10, 64); parseErr == nil {
 			obj.Conditional.IfVersion = &v
 		}
+	}
+	// Phase-3 field-predicate: restore UpdateIf from the three wire params.
+	// ParsePredicateFromQueryParams returns nil, nil when all three are absent
+	// (unconditional write from an old client -- KNOWN-WEAK-ROLLING-UPGRADE).
+	if pred, parseErr := storobj.ParsePredicateFromQueryParams(
+		q.Get(replica.ConditionalFieldPropertyKey),
+		q.Get(replica.ConditionalFieldValueKey),
+		q.Get(replica.ConditionalFieldValueTypeKey),
+	); parseErr != nil {
+		// The coordinator already validated the predicate; a parse error here
+		// means a protocol mismatch or a corrupted request. Reject with 400.
+		http.Error(w, fmt.Sprintf("invalid field-predicate params: %v", parseErr), http.StatusBadRequest)
+		return
+	} else if pred != nil {
+		obj.Conditional.UpdateIf = pred
 	}
 
 	resp := i.replicator.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)

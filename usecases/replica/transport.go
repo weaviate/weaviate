@@ -45,6 +45,15 @@ const (
 	// means "no version precondition" (KNOWN-WEAK-ROLLING-UPGRADE: old replicas that
 	// do not parse this param treat the write as unconditional during rolling upgrade).
 	ConditionalIfVersionKey = "conditional_if_version"
+
+	// ConditionalFieldPropertyKey, ConditionalFieldValueKey, and
+	// ConditionalFieldValueTypeKey carry the Phase-3 field-predicate condition on
+	// the HTTP replication wire. All three must be present together or all absent.
+	// Absent means "no field-predicate condition" (KNOWN-WEAK-ROLLING-UPGRADE: old
+	// replicas that do not parse these params treat the write as unconditional).
+	ConditionalFieldPropertyKey  = "conditional_field_property"
+	ConditionalFieldValueKey     = "conditional_field_value"
+	ConditionalFieldValueTypeKey = "conditional_field_value_type"
 )
 
 // Client is used to read and write objects on replicas

@@ -566,11 +566,11 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	}
 
 	// storobj.MarshalBinary intentionally excludes Conditional (it is a per-request
-	// attribute, not a storage attribute), so carry the Phase-1 precondition flags as
-	// dedicated query parameters.  The receiving handler restores them into obj.Conditional
-	// before passing to ReplicateObject.  Old replicas missing these params treat the
-	// request as unconditional (KNOWN-WEAK-ROLLING-UPGRADE).
-	if obj.Conditional.OnlyIfNotExists || obj.Conditional.OnlyIfExists || obj.Conditional.IfVersion != nil {
+	// attribute, not a storage attribute), so carry the precondition flags as dedicated
+	// query parameters. The receiving handler restores them into obj.Conditional before
+	// passing to ReplicateObject. Old replicas missing these params treat the request as
+	// unconditional (KNOWN-WEAK-ROLLING-UPGRADE).
+	if !obj.Conditional.IsZero() {
 		q := req.URL.Query()
 		if obj.Conditional.OnlyIfNotExists {
 			q.Set(replica.ConditionalOnlyIfNotExistsKey, "true")
@@ -580,6 +580,14 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 		}
 		if obj.Conditional.IfVersion != nil {
 			q.Set(replica.ConditionalIfVersionKey, fmt.Sprintf("%d", *obj.Conditional.IfVersion))
+		}
+		if obj.Conditional.UpdateIf != nil {
+			prop, val, vtype := storobj.SerializePredicateToQueryParams(obj.Conditional.UpdateIf)
+			if prop != "" {
+				q.Set(replica.ConditionalFieldPropertyKey, prop)
+				q.Set(replica.ConditionalFieldValueKey, val)
+				q.Set(replica.ConditionalFieldValueTypeKey, vtype)
+			}
 		}
 		req.URL.RawQuery = q.Encode()
 	}

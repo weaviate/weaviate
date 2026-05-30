@@ -321,6 +321,21 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			}
 		}
 
+		// Phase-3 field-predicate conditional (Plan A -- single-shard-authoritative).
+		// Evaluated inside the per-UUID lock so the read-compare-commit is atomic on
+		// this coordinator. Cross-coordinator races resolve via LWW (documented
+		// Plan-A KNOWN-WEAK boundary, same as Phase 1/2).
+		// No version gate required: field-predicate reads prevObj.Properties from the
+		// existing binary format and works on v1 objects without PERSISTENCE_OBJECT_VERSION_WRITE.
+		if obj.Conditional.UpdateIf != nil {
+			if predErr := storobj.EvalPredicate(obj.Conditional.UpdateIf, prevObj); predErr != nil {
+				return &objects.ErrPreconditionFailed{
+					ObjectID: obj.ID().String(),
+					Reason:   predErr.Error(),
+				}
+			}
+		}
+
 		status, err = s.determineInsertStatus(prevObj, obj)
 		if err != nil {
 			return err
