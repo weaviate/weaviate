@@ -20,6 +20,7 @@ excluded_files=(
     "tools/dev/generate_release_notes/main.go" # generate release notes tool
     "test/docker/mockoidchelper/mockoidc_helper.go" # used only for OIDC tests
     "test/docker/mockoidc/mockoidc.go" # standalone OIDC mock binary, separate go.mod inside its Docker context
+    "test/benchmark/conditional_writes/main.go" # standalone benchmark tool; no logrus logger available
 )
 
 # Check if file is in excluded list
