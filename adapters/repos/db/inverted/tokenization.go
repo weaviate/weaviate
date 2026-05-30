@@ -34,6 +34,30 @@ import "github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 // in-flight tokenization migration).
 type SearchableBucketTokenizationResolver func(propName, schemaTokenization string) (tokenization string, bucket *lsmkv.Bucket)
 
+// SearchableBucketPinningResolver is the pinning extension of
+// [SearchableBucketTokenizationResolver]: in addition to resolving the
+// (tokenization, searchable-bucket) pair as one consistent snapshot, it PINS
+// the returned bucket for the full duration of the query and hands back a
+// release function the caller MUST invoke exactly once (typically deferred).
+//
+// The pin keeps the bucket pointer alive across a concurrent field→word
+// searchable retokenization: that migration flips the property's searchable
+// bucket pointer (store.SwapBucketPointer) and then shuts the displaced old
+// bucket down (oldBucket.Shutdown frees its mmap'd segments). A BM25 query
+// reads the searchable bucket at prop discovery AND re-reads it at lookup
+// (createTerm / createBlockTerm); pinning here and threading the pinned
+// pointer to lookup means the query uses ONE bucket for its whole duration,
+// and the migration's Shutdown drains the in-flight pin before freeing the
+// mmap. This closes the lookup-time re-fetch residual left open by the
+// prop-discovery-only [SearchableBucketTokenizationResolver].
+//
+// The returned bucket may be nil (property has no searchable bucket); the
+// release is then a no-op but MUST still be called. Production wires this to
+// Shard.PinTokenizationAndSearchableBucket. When unset, callers fall back to
+// the non-pinning resolvers (correct for any caller with no in-flight
+// retokenization, since no swap+Shutdown can race the lookup).
+type SearchableBucketPinningResolver func(propName, schemaTokenization string) (tokenization string, bucket *lsmkv.Bucket, release func())
+
 // TokenizationResolver returns the active query-time tokenization for a
 // property given the schema-stored value. Used by query paths
 // (BM25Searcher, Searcher, aggregators) to consult a per-shard
