@@ -144,8 +144,10 @@ func newConditionalTestSetup(repo *conditionalFakeRepo) (*Manager, *fakeModulesP
 	return mgr, modulesProvider
 }
 
-const conditionalTestUUID = strfmt.UUID("aaaaaaaa-0000-0000-0000-000000000001")
-const conditionalTestClass = "ConditionalTest"
+const (
+	conditionalTestUUID  = strfmt.UUID("aaaaaaaa-0000-0000-0000-000000000001")
+	conditionalTestClass = "ConditionalTest"
+)
 
 // TestConditionalEndToEndInsertIfNotExists_ExistingUUID verifies that
 // insert_if_not_exists on a UUID that already exists returns ErrPreconditionFailed

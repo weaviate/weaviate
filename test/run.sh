@@ -496,6 +496,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_concurrent' \
     | grep -v 'test/acceptance/reindex_mt' \
     | grep -v 'test/acceptance/distributed_tasks' \
+    | grep -v 'test/acceptance/conditional_writes' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
 }
 
