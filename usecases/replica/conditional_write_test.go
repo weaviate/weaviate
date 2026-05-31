@@ -283,9 +283,13 @@ func TestConditionalWriteCLMatrix(t *testing.T) {
 
 			// Wire down-nodes: phase-1 prepare fails with a connection error.
 			// Commit is never called for these nodes; Abort may be attempted.
+			// PutObject is .Maybe() because the coordinator fans out to all
+			// replicas concurrently; when CL is met before all prepare goroutines
+			// have completed, the down-node PutObject calls may fire after
+			// commitWG.Wait() returns (goroutine scheduler race with -race on CI).
 			for _, n := range r.downNodes {
 				f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
-					Return(replica.SimpleResponse{}, connErr)
+					Return(replica.SimpleResponse{}, connErr).Maybe()
 				f.WClient.On("Abort", mock.Anything, n, cls, shard, mock.Anything).
 					Return(okResp, nil).Maybe()
 			}
