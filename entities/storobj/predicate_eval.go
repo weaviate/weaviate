@@ -102,31 +102,43 @@ func (e *PredicateError) Error() string {
 	return e.Reason
 }
 
+// evalExactEq is a generic helper for types that support == comparison
+// (string, bool). It asserts both stored and expected are of type T, then
+// checks equality.
+//
+// goTypeName is the Go type name used in "expected <type>" error clauses.
+// valueTypeName is the predicate value_type string used in "value_type=<name>" clauses.
+// storedFmt / expectedFmt are format verbs for the mismatch message (%q, %v, etc.).
+func evalExactEq[T comparable](name string, stored, expected interface{}, goTypeName, valueTypeName, storedFmt, expectedFmt string) error {
+	storedV, ok := stored.(T)
+	if !ok {
+		return &PredicateError{
+			PropertyName: name,
+			Reason:       fmt.Sprintf("property %q has type %T, expected %s for value_type=%s (field_match condition failed)", name, stored, goTypeName, valueTypeName),
+		}
+	}
+	expectedV, ok := expected.(T)
+	if !ok {
+		return &PredicateError{
+			PropertyName: name,
+			Reason:       fmt.Sprintf("predicate expected value has type %T, expected %s for value_type=%s", expected, goTypeName, valueTypeName),
+		}
+	}
+	if storedV != expectedV {
+		return &PredicateError{
+			PropertyName: name,
+			Reason: fmt.Sprintf("property %q value mismatch: stored "+storedFmt+" != expected "+expectedFmt+" (field_match condition failed)",
+				name, storedV, expectedV),
+		}
+	}
+	return nil
+}
+
 // evalTextEq checks that stored == expected for text properties.
 // Weaviate stores text properties as plain Go strings. Comparison is
 // exact and case-sensitive (matching Weaviate's text equality semantics).
 func evalTextEq(name string, stored, expected interface{}) error {
-	storedStr, ok := stored.(string)
-	if !ok {
-		return &PredicateError{
-			PropertyName: name,
-			Reason:       fmt.Sprintf("property %q has type %T, expected string for value_type=text (field_match condition failed)", name, stored),
-		}
-	}
-	expectedStr, ok := expected.(string)
-	if !ok {
-		return &PredicateError{
-			PropertyName: name,
-			Reason:       fmt.Sprintf("predicate expected value has type %T, expected string for value_type=text", expected),
-		}
-	}
-	if storedStr != expectedStr {
-		return &PredicateError{
-			PropertyName: name,
-			Reason:       fmt.Sprintf("property %q value mismatch: stored %q != expected %q (field_match condition failed)", name, storedStr, expectedStr),
-		}
-	}
-	return nil
+	return evalExactEq[string](name, stored, expected, "string", "text", "%q", "%q")
 }
 
 // evalIntEq checks integer equality. Weaviate stores numeric properties as
@@ -193,27 +205,7 @@ func evalNumberEq(name string, stored, expected interface{}) error {
 
 // evalBoolEq checks boolean equality. Weaviate stores booleans as Go bool.
 func evalBoolEq(name string, stored, expected interface{}) error {
-	storedBool, ok := stored.(bool)
-	if !ok {
-		return &PredicateError{
-			PropertyName: name,
-			Reason:       fmt.Sprintf("property %q has type %T, expected bool for value_type=bool (field_match condition failed)", name, stored),
-		}
-	}
-	expectedBool, ok := expected.(bool)
-	if !ok {
-		return &PredicateError{
-			PropertyName: name,
-			Reason:       fmt.Sprintf("predicate expected value has type %T, expected bool for value_type=bool", expected),
-		}
-	}
-	if storedBool != expectedBool {
-		return &PredicateError{
-			PropertyName: name,
-			Reason:       fmt.Sprintf("property %q value mismatch: stored %v != expected %v (field_match condition failed)", name, storedBool, expectedBool),
-		}
-	}
-	return nil
+	return evalExactEq[bool](name, stored, expected, "bool", "bool", "%v", "%v")
 }
 
 // evalDateEq checks date equality. Both stored and expected values are parsed

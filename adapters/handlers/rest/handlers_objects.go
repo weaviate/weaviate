@@ -153,6 +153,23 @@ func parseVersionMatchCondition(expectedVersion, ifMatchHeader string) (storobj.
 	return storobj.Conditional{IfVersion: &v}, nil
 }
 
+// parseFieldPredicateCondition builds a Conditional with UpdateIf set from the
+// ?property=, ?value=, and ?value_type= query parameters extracted from r.
+// Returns an error when the parameters are absent or cannot be parsed into a
+// valid Predicate.
+func parseFieldPredicateCondition(r *http.Request) (storobj.Conditional, error) {
+	q := r.URL.Query()
+	pred, err := storobj.ParsePredicateFromQueryParams(
+		q.Get("property"),
+		q.Get("value"),
+		q.Get("value_type"),
+	)
+	if err != nil {
+		return storobj.Conditional{}, err
+	}
+	return storobj.Conditional{UpdateIf: pred}, nil
+}
+
 // objectVersionFromAdditional extracts the server-managed Version from an object's
 // AdditionalProperties map, where it is placed by storobj.SearchResult. Returns 0
 // when absent (legacy object, no version tracked).
@@ -232,11 +249,8 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 				})
 		}
 	case "field_match":
-		pred, predErr := storobj.ParsePredicateFromQueryParams(
-			q.Get("property"),
-			q.Get("value"),
-			q.Get("value_type"),
-		)
+		var predErr error
+		cond, predErr = parseFieldPredicateCondition(params.HTTPRequest)
 		if predErr != nil {
 			h.metricRequestsTotal.logUserError(className)
 			return newConditionalWriteResponder(http.StatusBadRequest,
@@ -246,7 +260,6 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 					Detail: conditionalWriteConflictDetail{Message: predErr.Error()},
 				})
 		}
-		cond = storobj.Conditional{UpdateIf: pred}
 	}
 
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
@@ -613,18 +626,14 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	// The conditional is threaded through context so crud.go restores it on
 	// the storobj.Object before putObjectLSM runs the check (INV-RBAC-1 preserved:
 	// auth runs in UpdateObject before the conditional check reaches the shard).
-	qu := params.HTTPRequest.URL.Query()
-	conditionalPutOp := qu.Get("condition")
+	conditionalPutOp := params.HTTPRequest.URL.Query().Get("condition")
 	ifMatch := params.HTTPRequest.Header.Get("If-Match")
 
 	var putCond storobj.Conditional
 	switch {
 	case conditionalPutOp == "field_match":
-		pred, predErr := storobj.ParsePredicateFromQueryParams(
-			qu.Get("property"),
-			qu.Get("value"),
-			qu.Get("value_type"),
-		)
+		var predErr error
+		putCond, predErr = parseFieldPredicateCondition(params.HTTPRequest)
 		if predErr != nil {
 			h.metricRequestsTotal.logUserError(className)
 			return newConditionalWriteResponder(http.StatusBadRequest,
@@ -634,7 +643,6 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 					Detail: conditionalWriteConflictDetail{Message: predErr.Error()},
 				})
 		}
-		putCond = storobj.Conditional{UpdateIf: pred}
 	case ifMatch != "":
 		var parseErr error
 		putCond, parseErr = parseVersionMatchCondition("", ifMatch)
