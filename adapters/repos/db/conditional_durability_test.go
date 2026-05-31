@@ -53,7 +53,8 @@ func openDurabilityDB(t *testing.T, rootPath string, shardState *sharding.State,
 		func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 			class := &models.Class{Class: className}
 			return readFunc(class, shardState)
-		}).Maybe()
+		},
+	).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
 
@@ -114,18 +115,18 @@ func newConditionalInsertObj(className string, id strfmt.UUID) *storobj.Object {
 // TestConditionalDurabilityRestart validates three durability invariants for
 // conditional writes (insert_if_not_exists) across a simulated node restart:
 //
-// 1. AC1 (existence durable after WAL replay): insert an object via
-//    insert_if_not_exists, stop+reopen the shard (WAL replay), re-issue
-//    insert_if_not_exists on the same UUID -> must get ErrPreconditionFailed.
-//    The object survived the restart and is visible to the condition check.
+//  1. AC1 (existence durable after WAL replay): insert an object via
+//     insert_if_not_exists, stop+reopen the shard (WAL replay), re-issue
+//     insert_if_not_exists on the same UUID -> must get ErrPreconditionFailed.
+//     The object survived the restart and is visible to the condition check.
 //
-// 2. AC2 (INV-DURABILITY-1, WAL-before-ack): the object is written to WAL
-//    only — no explicit flush is called before shutdown. The test proves that
-//    WAL replay on startup makes the pre-flush write durable.
+//  2. AC2 (INV-DURABILITY-1, WAL-before-ack): the object is written to WAL
+//     only - no explicit flush is called before shutdown. The test proves that
+//     WAL replay on startup makes the pre-flush write durable.
 //
-// 3. AC3 (no torn read after reopen): an unconditional ObjectByID returns the
-//    same object that the conditional check detects. Reads and condition checks
-//    agree after WAL replay.
+//  3. AC3 (no torn read after reopen): an unconditional ObjectByID returns the
+//     same object that the conditional check detects. Reads and condition checks
+//     agree after WAL replay.
 //
 // Restart mechanism: repo.Shutdown(ctx) flushes the WAL file descriptor, then
 // a new *DB is opened on the same directory via New(...) + WaitForStartup(...).
@@ -168,7 +169,7 @@ func TestConditionalDurabilityRestart(t *testing.T) {
 	}
 
 	// Phase 1: open DB, register class, write object via insert_if_not_exists
-	// without any explicit flush — the object lives only in the WAL/memtable.
+	// without any explicit flush - the object lives only in the WAL/memtable.
 	repo := openDurabilityDB(t, dirName, shardState, schemaGetter)
 
 	migratorLogger, _ := test.NewNullLogger()
@@ -202,7 +203,7 @@ func TestConditionalDurabilityRestart(t *testing.T) {
 	require.NoError(t, repo.Shutdown(ctx))
 	repo = nil
 
-	// Phase 3: reopen — WAL replay fires inside WaitForStartup.
+	// Phase 3: reopen - WAL replay fires inside WaitForStartup.
 	// New DB instance on the same directory; db.init() -> NewIndex ->
 	// initAndStoreShards -> NewShard -> lsmkv.NewStore -> WAL replay.
 	// This is a real restart, not a fake: the in-memory shard state from the

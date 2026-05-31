@@ -948,7 +948,8 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("with explicit properties", func(t *testing.T) {
-					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{},
+					after, err := FromBinaryOptionalNetwork(
+						asBinary, additional.Properties{},
 						&PropertyExtraction{PropertyPaths: [][]string{{"name"}}},
 					)
 					require.Nil(t, err)
@@ -959,10 +960,11 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("test no props and moduleparams", func(t *testing.T) {
-					after, err := FromBinaryOptionalNetwork(asBinary, additional.Properties{
-						NoProps:      true,
-						ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
-					},
+					after, err := FromBinaryOptionalNetwork(
+						asBinary, additional.Properties{
+							NoProps:      true,
+							ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
+						},
 						&PropertyExtraction{PropertyPaths: nil},
 					)
 					require.Nil(t, err)
@@ -1832,7 +1834,7 @@ func TestDocIDAndTimeFromBinary_Errors(t *testing.T) {
 		// accept {1,2} so the digest walk and delete/sort paths work on v2 records.
 		input := make([]byte, 50) // 50-byte v2 header
 		input[0] = 2
-		binary.LittleEndian.PutUint64(input[1:9], 42)  // docID
+		binary.LittleEndian.PutUint64(input[1:9], 42)   // docID
 		binary.LittleEndian.PutUint64(input[34:42], 99) // updateTime
 		docID, updateTime, err := DocIDAndTimeFromBinary(input)
 		require.NoError(t, err)

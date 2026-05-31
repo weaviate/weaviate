@@ -117,7 +117,8 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	}
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodGet, host, index, shard,
-		"", "_digest", bytes.NewReader(body), 0)
+		"", "_digest", bytes.NewReader(body), 0,
+	)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
@@ -142,7 +143,8 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", "digestsInRange", bytes.NewReader(body), 0)
+		"", "digestsInRange", bytes.NewReader(body), 0,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -236,7 +238,8 @@ func (c *replicationClient) CompareDigests(ctx context.Context,
 	// per-cycle deadline on the incoming context.
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", "compareDigests", bytes.NewReader(body), 0)
+		"", "compareDigests", bytes.NewReader(body), 0,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -323,7 +326,8 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPost, host, index, shard,
-		"", fmt.Sprintf("hashtree/level/%d", level), bytes.NewReader(bodyBytes), 0)
+		"", fmt.Sprintf("hashtree/level/%d", level), bytes.NewReader(bodyBytes), 0,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}
@@ -517,7 +521,8 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 
 	req, err := newHttpReplicaRequest(
 		ctx, http.MethodPut, host, index, shard,
-		"", "_overwrite", bytes.NewReader(bodyCompressed), 0)
+		"", "_overwrite", bytes.NewReader(bodyCompressed), 0,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create http request: %w", err)
 	}

@@ -580,7 +580,8 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 	}
 	docIDBytes := keyBuf.Bytes()
 
-	return bucket.Put(id, data,
+	return bucket.Put(
+		id, data,
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
 	)
 }

@@ -193,15 +193,15 @@ func TestReplicationPutObject_ConditionalQueryParams(t *testing.T) {
 			wantExists:      "",
 		},
 		{
-			name:         "OnlyIfExists sets query param",
-			onlyIfExists: true,
+			name:          "OnlyIfExists sets query param",
+			onlyIfExists:  true,
 			wantNotExists: "",
-			wantExists:   "true",
+			wantExists:    "true",
 		},
 		{
-			name:            "unconditional: no query params",
-			wantNotExists:   "",
-			wantExists:      "",
+			name:          "unconditional: no query params",
+			wantNotExists: "",
+			wantExists:    "",
 		},
 	} {
 		tc := tc
@@ -1062,7 +1062,8 @@ func TestReplicationClient_CreateAsyncCheckpoint_EncodesBody(t *testing.T) {
 	createdAt := time.UnixMilli(1_700_000_000_000).UTC()
 	client := newReplicationClient(t, ts.Client())
 	require.NoError(t, client.CreateAsyncCheckpoint(
-		context.Background(), host, "MyClass", []string{"s1", "s2"}, 1234, createdAt))
+		context.Background(), host, "MyClass", []string{"s1", "s2"}, 1234, createdAt,
+	))
 
 	assert.Equal(t, http.MethodPost, srv.gotMethod)
 	assert.Equal(t, "/replicas/indices/MyClass/async-checkpoint", srv.gotPath)
@@ -1084,7 +1085,8 @@ func TestReplicationClient_CreateAsyncCheckpoint_NonOKReturnsError(t *testing.T)
 
 	client := newReplicationClient(t, ts.Client())
 	err := client.CreateAsyncCheckpoint(
-		context.Background(), host, "MyClass", []string{"s1"}, 1, time.Now())
+		context.Background(), host, "MyClass", []string{"s1"}, 1, time.Now(),
+	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "status code: 409")
 	assert.Contains(t, err.Error(), "stale")
@@ -1099,7 +1101,8 @@ func TestReplicationClient_DeleteAsyncCheckpoint_EncodesBody(t *testing.T) {
 
 	client := newReplicationClient(t, ts.Client())
 	require.NoError(t, client.DeleteAsyncCheckpoint(
-		context.Background(), host, "MyClass", []string{"s1", "s2"}))
+		context.Background(), host, "MyClass", []string{"s1", "s2"},
+	))
 
 	assert.Equal(t, http.MethodDelete, srv.gotMethod)
 	assert.Equal(t, "/replicas/indices/MyClass/async-checkpoint", srv.gotPath)
@@ -1121,7 +1124,8 @@ func TestReplicationClient_GetAsyncCheckpointStatus_QueryStringAndDecode(t *test
 	wirePayload := fmt.Sprintf(
 		`{"s1":{"root":"%s","cutoff_ms":555,"created_at_ms":1700000000000},`+
 			`"s2":{"root":"","cutoff_ms":0,"created_at_ms":0}}`,
-		base64.StdEncoding.EncodeToString(activeRootBytes))
+		base64.StdEncoding.EncodeToString(activeRootBytes),
+	)
 	srv := &asyncCheckpointFakeServer{respBody: []byte(wirePayload)}
 	ts := httptest.NewServer(srv.handler(t))
 	defer ts.Close()
@@ -1129,7 +1133,8 @@ func TestReplicationClient_GetAsyncCheckpointStatus_QueryStringAndDecode(t *test
 
 	client := newReplicationClient(t, ts.Client())
 	out, err := client.GetAsyncCheckpointStatus(
-		context.Background(), host, "MyClass", []string{"s1", "s2"})
+		context.Background(), host, "MyClass", []string{"s1", "s2"},
+	)
 	require.NoError(t, err)
 
 	// The shards must arrive as repeated query parameters, matching what
@@ -1162,14 +1167,16 @@ func TestReplicationClient_GetAsyncCheckpointStatus_RootLengthMismatchSurfaces(t
 	// must surface this as an error rather than silently zeroing — a
 	// length mismatch indicates a protocol violation and should be loud.
 	srv := &asyncCheckpointFakeServer{respBody: []byte(
-		`{"s1":{"root":"AAAA","cutoff_ms":1,"created_at_ms":1}}`)}
+		`{"s1":{"root":"AAAA","cutoff_ms":1,"created_at_ms":1}}`,
+	)}
 	ts := httptest.NewServer(srv.handler(t))
 	defer ts.Close()
 	host := ts.URL[len("http://"):]
 
 	client := newReplicationClient(t, ts.Client())
 	_, err := client.GetAsyncCheckpointStatus(
-		context.Background(), host, "MyClass", []string{"s1"})
+		context.Background(), host, "MyClass", []string{"s1"},
+	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode async-checkpoint root for shard")
 }

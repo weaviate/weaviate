@@ -131,7 +131,7 @@ func TestB1_GateClosed_V2ObjectDecodableByV1Path(t *testing.T) {
 		ID:    strfmt.UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
 	}, []float32{1, 2, 3}, nil, nil)
 	obj.DocID = 99
-	obj.Version = 5 // in-memory version does not get persisted gate-closed
+	obj.Version = 5                                     // in-memory version does not get persisted gate-closed
 	obj.MarshallerVersion = GetWriteMarshallerVersion() // 1 = gate closed
 
 	disk, err := obj.MarshalBinaryDisk(false)

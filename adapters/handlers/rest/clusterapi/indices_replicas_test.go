@@ -811,9 +811,9 @@ func TestReplicatedIndices_PostObjectSingle_ConditionalRestored(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	for _, tc := range []struct {
-		name         string
-		queryParam   string
-		wantCond     storobj.Conditional
+		name       string
+		queryParam string
+		wantCond   storobj.Conditional
 	}{
 		{
 			name:       "OnlyIfNotExists restored from conditional_not_exists=true",

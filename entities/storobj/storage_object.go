@@ -815,7 +815,7 @@ func SearchResults(in []*Object, additional additional.Properties, tenant string
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(additional, tenant))
+		out[i] = *elem.SearchResult(additional, tenant)
 	}
 
 	return out
@@ -933,11 +933,11 @@ func VersionFromBinary(in []byte) (uint64, error) {
 // The v1 layout is byte-for-byte unchanged; v2 appends 8 bytes to the header.
 // Decoders branch on the version byte; the v1 path is the same as before.
 const (
-	marshallerV1HeaderLen        = 1 + 8 + 1 + 16 + 8 + 8     // 42
-	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8          // 34
-	marshallerV2HeaderLen        = marshallerV1HeaderLen + 8    // 50: v1 header + 8-byte Version
-	marshallerV2VersionOffset    = marshallerV1HeaderLen        // 42: Version uint64 starts here in v2
-	CurrentMarshallerVersion     = uint8(2)                     // what fresh writes emit when the gate is open
+	marshallerV1HeaderLen        = 1 + 8 + 1 + 16 + 8 + 8    // 42
+	marshallerV1UpdateTimeOffset = 1 + 8 + 1 + 16 + 8        // 34
+	marshallerV2HeaderLen        = marshallerV1HeaderLen + 8 // 50: v1 header + 8-byte Version
+	marshallerV2VersionOffset    = marshallerV1HeaderLen     // 42: Version uint64 starts here in v2
+	CurrentMarshallerVersion     = uint8(2)                  // what fresh writes emit when the gate is open
 )
 
 const (

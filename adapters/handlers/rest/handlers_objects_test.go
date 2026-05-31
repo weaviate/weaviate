@@ -1161,9 +1161,9 @@ func (f *fakeManager) DeleteObjectReference(context.Context, *models.Principal,
 
 type fakeMetricRequestsTotal struct{}
 
-func (f *fakeMetricRequestsTotal) logError(className string, err error)       {}
-func (f *fakeMetricRequestsTotal) logOk(className string)                     {}
-func (f *fakeMetricRequestsTotal) logUserError(className string)              {}
+func (f *fakeMetricRequestsTotal) logError(className string, err error) {}
+func (f *fakeMetricRequestsTotal) logOk(className string)               {}
+func (f *fakeMetricRequestsTotal) logUserError(className string)        {}
 
 // innerResponder unwraps an etagResponder so tests can assert against the
 // concrete inner type (e.g. *objects.ObjectsCreateOK) without depending on

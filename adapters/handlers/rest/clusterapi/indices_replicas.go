@@ -128,7 +128,8 @@ func NewReplicatedIndices(
 		nodeReady:              nodeReady,
 	}
 
-	i.requestQueue = shared.NewRequestQueue(requestQueueConfig, logger,
+	i.requestQueue = shared.NewRequestQueue(
+		requestQueueConfig, logger,
 		func(qr queuedRequest) { i.handleRequest(qr) },
 		func(qr queuedRequest) bool { return qr.r.Context().Err() != nil },
 		func(qr queuedRequest) {
