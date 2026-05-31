@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/objects"
@@ -89,7 +90,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*objects.ObjectsCreateOK)
+				parsed, ok := innerResponder(res).(*objects.ObjectsCreateOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -157,7 +158,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*objects.ObjectsCreateOK)
+				parsed, ok := innerResponder(res).(*objects.ObjectsCreateOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -219,7 +220,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				}
 				h := &objectHandlers{manager: fakeManager, logger: &logrus.Logger{}, metricRequestsTotal: &fakeMetricRequestsTotal{}}
 				res := h.getObjectDeprecated(objects.ObjectsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/objects", nil)}, nil)
-				parsed, ok := res.(*objects.ObjectsClassGetOK)
+				parsed, ok := innerResponder(res).(*objects.ObjectsClassGetOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -370,7 +371,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*objects.ObjectsClassPutOK)
+				parsed, ok := innerResponder(res).(*objects.ObjectsClassPutOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -435,7 +436,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
 					Body:        test.object,
 				}, nil)
-				parsed, ok := res.(*objects.ObjectsCreateOK)
+				parsed, ok := innerResponder(res).(*objects.ObjectsCreateOK)
 				require.True(t, ok)
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
@@ -608,7 +609,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					ID:          "123",
 					ClassName:   cls,
 				}, nil)
-				parsed, ok := res.(*objects.ObjectsClassPutOK)
+				parsed, ok := innerResponder(res).(*objects.ObjectsClassPutOK)
 				if test.err != nil {
 					require.False(t, ok)
 					return
@@ -761,7 +762,7 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 					ID:          "123",
 				}
 				res := h.getObject(req, nil)
-				parsed, ok := res.(*objects.ObjectsClassGetOK)
+				parsed, ok := innerResponder(res).(*objects.ObjectsClassGetOK)
 				if test.err != nil {
 					require.False(t, ok)
 					return
@@ -1163,4 +1164,14 @@ type fakeMetricRequestsTotal struct{}
 func (f *fakeMetricRequestsTotal) logError(className string, err error)       {}
 func (f *fakeMetricRequestsTotal) logOk(className string)                     {}
 func (f *fakeMetricRequestsTotal) logUserError(className string)              {}
+
+// innerResponder unwraps an etagResponder so tests can assert against the
+// concrete inner type (e.g. *objects.ObjectsCreateOK) without depending on
+// whether the handler adds an ETag wrapper.
+func innerResponder(r middleware.Responder) middleware.Responder {
+	if etag, ok := r.(*etagResponder); ok {
+		return etag.inner
+	}
+	return r
+}
 func (f *fakeMetricRequestsTotal) logServerError(className string, err error) {}
