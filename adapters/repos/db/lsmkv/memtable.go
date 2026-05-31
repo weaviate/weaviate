@@ -140,6 +140,13 @@ type Memtable struct {
 	propLengthCount              uint64
 	writeSegmentInfoIntoFileName bool
 
+	// writeNewInverted gates the V2 flat-column property-length write path at
+	// flush. Default false (reader-ahead-of-writer rollout): a flush writes the
+	// legacy V0 gob map unless this is set, and only the V2 score path (T3) makes
+	// V2 docs score correctly -- so this must stay false until the reader fleet is
+	// soaked and the V2 score path has shipped.
+	writeNewInverted bool
+
 	// We're only tracking the refcount for writers. Readers get a consistent
 	// view of all memtables & segments, so they don't need ref-counting.
 	// Writers do, because if we have an ongoing write, we cannot start flushing
@@ -167,6 +174,7 @@ type memtableConfig struct {
 	skipSecondaryKeyCheck        bool
 	shouldSkipKeyFunc            func(key []byte, ctx context.Context) (bool, error)
 	bm25config                   *models.BM25Config
+	writeNewInverted             bool
 }
 
 func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
@@ -196,6 +204,7 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 		writeSegmentInfoIntoFileName: config.writeSegmentInfoIntoFileName,
 		shouldSkipKeyFunc:            config.shouldSkipKeyFunc,
 		skipSecondaryKeyCheck:        config.skipSecondaryKeyCheck,
+		writeNewInverted:             config.writeNewInverted,
 	}
 
 	if m.secondaryIndices > 0 {

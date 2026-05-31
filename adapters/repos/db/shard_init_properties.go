@@ -514,6 +514,14 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithBM25Config(s.class.InvertedIndexConfig.Bm25))
 		}
 
+		// Operator-gated V2 flat-column property-length WRITE path (reader-ahead-
+		// of-writer rollout, G7 one-way door): once enabled the cluster writes V2
+		// segments that a binary without the V2 reader cannot read. Never
+		// default-on-upgrade; only this explicit env toggle turns it on.
+		if writeInvertedSegmentV2Enabled() {
+			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithWriteInvertedSegmentV2(true))
+		}
+
 		bucketName := helpers.BucketSearchableFromPropNameLSM(prop.Name)
 		if err := s.store.CreateOrLoadBucket(ctx, bucketName, searchableBucketOpts...); err != nil {
 			return err
@@ -534,6 +542,17 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	return nil
+}
+
+// writeInvertedSegmentV2Enabled reports whether the operator has explicitly
+// opted this node into writing V2 flat-column property-length segments. The
+// rollout contract (synthesis section 5.2, guard G7) is reader-ahead-of-writer:
+// every node must be able to READ V2 (shipped unconditionally) before any node
+// WRITES V2. Writing V2 is therefore gated behind this single explicit env
+// toggle and is never enabled by default on upgrade; a one-way door an operator
+// opens deliberately once the reader is soaked fleet-wide.
+func writeInvertedSegmentV2Enabled() bool {
+	return entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_WRITE_INVERTED_SEGMENT_V2"))
 }
 
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property,

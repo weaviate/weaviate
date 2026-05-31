@@ -50,7 +50,11 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		data := convertFixedLengthFromMemory(buf, int(docCount))
 		entries := make([]*terms.BlockEntry, 1)
-		propLength := s.invertedData.propertyLengths[data.DocIds[0]]
+		// Single-doc posting: the one doc's length is read for the block-impact
+		// entry. Route through the V2-aware lossless dispatch so a V2 segment reads
+		// the flat column (mmap or pread) rather than the empty resident slice; the
+		// lookup is one-shot, so no monotonic cursor is threaded (nil). S16.
+		propLength := s.propLengthForScore(data.DocIds[0], nil)
 		tf := data.Tfs[0]
 		entries[0] = &terms.BlockEntry{
 			Offset:              0,
@@ -160,8 +164,34 @@ type SegmentBlockMax struct {
 	// at position 0 we have the doc ids decoder, at position 1 is the tfs decoder
 	decoders []varenc.VarEncEncoder[uint64]
 
-	propLengths    map[uint64]uint32
-	blockDatasTest []*terms.BlockData
+	// propLengthsInMem holds per-document property lengths for SegmentBlockMax
+	// instances that have NO backing on-disk segment (segment == nil): the
+	// memtable/active/flushing terms built by NewSegmentBlockMaxDecoded +
+	// addDataToTerm, and the unit-test ctor NewSegmentBlockMaxTest. For on-disk
+	// segments this stays nil and Score reads the lossless per-doc length via
+	// segment.propLengthForScore (no whole-map materialized). See propLengthFor.
+	propLengthsInMem map[uint64]uint32
+	blockDatasTest   []*terms.BlockData
+
+	// propLengthGallopIdx is the per-query-per-term monotonic cursor into the V2
+	// flat docID column. BlockMax-WAND advances docIDs ascending, so threading the
+	// previous landed index into the next propLengthAtV2 gallop keeps the probes
+	// spatially local (O(log delta), page-cache-friendly). It is scoped to this one
+	// iterator -- never shared across queries or terms -- so no synchronization is
+	// needed; the V2 columns it indexes are immutable mmap'd bytes. Unused for V0
+	// segments (which binary-search the resident slice instead).
+	propLengthGallopIdx uint64
+
+	// propLengthV2Scratch is a 8-byte buffer reused across all readDocIDV2 and
+	// readLenV2 pread calls within a single propLengthAtV2 gallop. It eliminates
+	// the per-probe make([]byte,N) allocation: the buffer lives inside this already
+	// heap-allocated struct, so passing &propLengthV2Scratch to propLengthAtV2
+	// causes zero new heap allocations. Safe because (a) the gallop is
+	// single-goroutine -- this iterator is never shared -- and (b) each probe
+	// decodes immediately via binary.LittleEndian before the next probe starts,
+	// so the two columns (docID: 8 bytes; len: 4 bytes) never alias within one
+	// probe. Unused on the mmap path (readFromMemory=true skips the buffer entirely).
+	propLengthV2Scratch [8]byte
 
 	sectionReader *io.SectionReader
 }
@@ -249,7 +279,7 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 		propertyBoost:     float64(propertyBoost),
 		filterDocIds:      filterDocIds,
 		tombstones:        tombstones,
-		propLengths:       propLengths,
+		propLengthsInMem:  propLengths,
 		blockDatasTest:    blockDatas,
 		blockEntryIdx:     0,
 		blockDataIdx:      0,
@@ -330,11 +360,12 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 func (s *SegmentBlockMax) reset() error {
 	var err error
 
-	s.propLengths, err = s.segment.getPropertyLengths()
-	if err != nil {
-		return err
-	}
-
+	// Property lengths are read per-document in Score via segment.propLengthAt
+	// (binary search over the compact resident slices). We intentionally do NOT
+	// materialize the whole-segment length map here: doing so would resurrect the
+	// ~45 B/doc resident map this change exists to remove. Eager-load already
+	// populated the slices at segment open, so the first query reads a warm
+	// structure (no slow first query / no heap spike).
 	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node)
 	if err != nil {
 		return err
@@ -497,6 +528,42 @@ func (s *SegmentBlockMax) QueryTerm() string {
 	return string(s.node.Key)
 }
 
+// propLengthFor returns the LOSSLESS property length for docID used in the exact
+// BM25 score. On the real query path it dispatches once on the segment's format:
+//
+//   - V2 (flat column): calls propLengthAtV2 directly, threading both the
+//     per-iterator gallop cursor and the per-iterator 8-byte scratch buffer.
+//     The scratch buffer eliminates the per-probe make([]byte,N) allocation on
+//     the pread branch: it lives in this already heap-allocated struct, so no
+//     new allocation occurs per probe. The V2 columns are immutable bytes, so the
+//     hot path is lock-free (D1-review M1).
+//   - V0 (resident slices): delegates to propLengthForScore, which binary-searches
+//     the lossless uint32 resident slice under the read lock.
+//
+// On the unit-test path (NewSegmentBlockMaxTest, nil segment) it reads the injected
+// propLengthsInMem map, whose zero value for a missing key matches the miss
+// behavior of both real paths.
+func (s *SegmentBlockMax) propLengthFor(docID uint64) uint32 {
+	if s.segment == nil {
+		return s.propLengthsInMem[docID]
+	}
+	if !s.segment.isPropLengthV2() {
+		return s.segment.propLengthAt(docID)
+	}
+	start := s.propLengthGallopIdx
+	length, idx, err := s.segment.propLengthAtV2(docID, start, &s.propLengthV2Scratch)
+	if err != nil {
+		if s.segment.logger != nil {
+			s.segment.logger.WithField("segmentPath", s.segment.path).
+				WithField("docID", docID).
+				Warnf("V2 property-length read failed mid-score, scoring length as 0: %v", err)
+		}
+		return 0
+	}
+	s.propLengthGallopIdx = idx
+	return length
+}
+
 func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation bool) (uint64, float64, *terms.DocPointerWithScore) {
 	if s.exhausted {
 		return 0, 0, nil
@@ -510,7 +577,7 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 	}
 
 	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
-	propLength := s.propLengths[s.idPointer]
+	propLength := s.propLengthFor(s.idPointer)
 	tf := freq / (freq + s.k1*((1-s.b)+s.b*(float64(propLength)/s.averagePropLength)))
 	s.Metrics.DocCountScored++
 	if s.blockEntryIdx != s.Metrics.LastAddedBlock {

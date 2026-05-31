@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -58,7 +57,6 @@ type compactorInverted struct {
 	tombstonesToClean *sroar.Bitmap
 
 	propertyLengthsToWrite map[uint64]uint32
-	propertyLengthsToClean map[uint64]uint32
 
 	invertedHeader *segmentindex.HeaderInverted
 
@@ -71,6 +69,22 @@ type compactorInverted struct {
 
 	enableChecksumValidation bool
 
+	// writeV2 gates the V2 flat-column property-length OUTPUT (default off,
+	// reader-ahead-of-writer). When set, the compaction reads each input per its
+	// OWN Version (V0 gob / V2 flat) and writes a V2 flat-column section. When
+	// off, it writes the legacy V0 gob section. The per-input-Version READ runs
+	// regardless of writeV2 so a V0+V2 mixed input is always merged correctly;
+	// writeV2 only chooses the OUTPUT format.
+	writeV2 bool
+
+	// propLengthRunToWrite is the merged, sorted, LOSSLESS uint32 (docID,length)
+	// run produced by the per-input-Version read in do(). It is the source of the
+	// persisted exact per-doc length section on BOTH output paths -- the V2 flat
+	// column AND the V0 gob -- so a >65535 doc round-trips verbatim through any
+	// compaction (no uint16 clamp). The clamped propertyLengthsToWrite map feeds
+	// ONLY the block-impact MaxImpactPropLength (WAND) path.
+	propLengthRunToWrite propLengthRun
+
 	segmentFile    *segmentindex.SegmentFile
 	maxNewFileSize int64
 }
@@ -80,6 +94,7 @@ func newCompactorInverted(w io.WriteSeeker,
 	cleanupTombstones bool,
 	k1, b, avgPropLen float64, maxNewFileSize int64,
 	allocChecker memwatch.AllocChecker, enableChecksumValidation bool,
+	writeV2 bool,
 ) *compactorInverted {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -107,6 +122,7 @@ func newCompactorInverted(w io.WriteSeeker,
 		enableChecksumValidation: enableChecksumValidation,
 		maxNewFileSize:           maxNewFileSize,
 		allocChecker:             allocChecker,
+		writeV2:                  writeV2,
 	}
 }
 
@@ -132,23 +148,54 @@ func (c *compactorInverted) do(ctx context.Context) error {
 		return errors.Wrap(err, "get tombstones")
 	}
 
-	propertyLengthsToWrite, err := c.c1.segment.getPropertyLengths()
+	// Two-pointer merge of the two segments' resident sorted (docID, length) runs,
+	// replacing the former getPropertyLengths()+maps.Copy path. c1 is the left
+	// (older) segment and c2 the right (newer) one; on an overlapping docID the
+	// newer (c2) value wins, exactly as the previous maps.Copy(write <- clean)
+	// did. The merged result is the map the rest of the compactor already consumes.
+	olderDocIDs, olderValues, err := c.c1.segment.snapshotPropLengthSlices()
+	if err != nil {
+		return errors.Wrap(err, "get property lengths")
+	}
+	newerDocIDs, newerValues, err := c.c2.segment.snapshotPropLengthSlices()
 	if err != nil {
 		return errors.Wrap(err, "get property lengths")
 	}
 
-	propertyLengthsToClean, err := c.c2.segment.getPropertyLengths()
+	c.propertyLengthsToWrite = mergePropertyLengthRuns(
+		olderDocIDs, olderValues, newerDocIDs, newerValues,
+	)
+
+	// Per-input-Version LOSSLESS read for the persisted exact-length section (G6).
+	// Each input's property-length section is read per that input's OWN
+	// HeaderInverted.Version (V0 -> lossless gob uint32, V2 -> flat column), then
+	// merged NEWER-wins into a single sorted uint32 run. The len(DataFields) guard
+	// in init() does NOT catch a V0/V2 mix (both inputs are [DocIds,Tfs]), so the
+	// dispatch MUST happen here on per-input Version -- reading a V0 gob section as
+	// a V2 flat array (or vice versa) would write garbage LOSSLESSLY into the output
+	// (a permanent B1-class corruption). Dispatching on per-input Version is the only
+	// thing that prevents it.
+	//
+	// This run is built UNCONDITIONALLY and is the source of the persisted exact
+	// per-doc length section on BOTH output paths: the V2 flat column (writeV2 on)
+	// AND the V0 gob (writeV2 off, the default). The clamped uint16 run
+	// (c.propertyLengthsToWrite, built above) feeds ONLY the block-impact
+	// MaxImpactPropLength path (createBlocks via writeIndividualNode), which is the
+	// WAND upper bound and is allowed -- required -- to be clamped. Sourcing the gob
+	// from the clamped run was the M1 bug: a >65535-token doc was re-clamped to 65535
+	// and persisted as the EXACT score length on the first V0->V0 compaction, deferring
+	// the B1 corruption by exactly one compaction on the default path.
+	olderRun, err := c.c1.segment.loadPropertyLengthRunForVersion()
 	if err != nil {
-		return errors.Wrap(err, "get property lengths")
+		return errors.Wrap(err, "read older input property lengths (lossless)")
 	}
+	newerRun, err := c.c2.segment.loadPropertyLengthRunForVersion()
+	if err != nil {
+		return errors.Wrap(err, "read newer input property lengths (lossless)")
+	}
+	c.propLengthRunToWrite = mergePropertyLengthRunsV2(olderRun, newerRun)
 
-	c.propertyLengthsToWrite = make(map[uint64]uint32, len(propertyLengthsToWrite))
-	c.propertyLengthsToClean = make(map[uint64]uint32, len(propertyLengthsToClean))
-
-	maps.Copy(c.propertyLengthsToWrite, propertyLengthsToWrite)
-	maps.Copy(c.propertyLengthsToClean, propertyLengthsToClean)
-
-	tombstones := c.computeTombstonesAndPropLengths()
+	tombstones := c.computeTombstones()
 
 	keysOffset := segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + len(c.c1.segment.invertedHeader.DataFields)
 
@@ -164,7 +211,7 @@ func (c *compactorInverted) do(ctx context.Context) error {
 	}
 
 	propertyLengthsOffset := c.offset
-	_, err = c.writePropertyLengths(c.propertyLengthsToWrite)
+	_, err = c.writePropertyLengths()
 	if err != nil {
 		return errors.Wrap(err, "write property lengths")
 	}
@@ -217,8 +264,13 @@ func (c *compactorInverted) init() error {
 
 	c.offset = segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + len(c.c1.segment.invertedHeader.DataFields)
 
+	invertedVersion := uint8(0)
+	if c.writeV2 {
+		invertedVersion = segmentindex.SegmentInvertedVersionV2
+	}
+
 	c.invertedHeader = &segmentindex.HeaderInverted{
-		Version:               0,
+		Version:               invertedVersion,
 		KeysOffset:            uint64(c.offset),
 		TombstoneOffset:       0,
 		PropertyLengthsOffset: 0,
@@ -271,13 +323,39 @@ func (c *compactorInverted) combinePropertyLengths() (uint64, float64) {
 	return count, average
 }
 
-func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) (int, error) {
-	encoded, err := gobenc.Encode(propLengths)
+func (c *compactorInverted) writePropertyLengths() (int, error) {
+	count, average := c.combinePropertyLengths()
+
+	if c.writeV2 {
+		// V2 flat-column section: encodePropertyLengthsV2 embeds the 24-byte
+		// prefix, so the whole section is written in one go from the merged
+		// lossless run. The docID run is already sorted by the two-pointer merge,
+		// so no extra sort pass is needed and writePropertyLengthsV2 only asserts
+		// the sorted invariant.
+		//
+		// c.offset is the authoritative BodyWriter byte position; do() captures
+		// treeOffset := c.offset right after this returns and persists it as
+		// Header.IndexStart. The V0 branch below advances c.offset by its full
+		// section size, so the V2 branch MUST do the same -- otherwise IndexStart
+		// points into the property-length section and the reopened disk tree
+		// parses proplen bytes as a node header (DiskTree.Get panic on read).
+		n, err := writePropertyLengthsV2(c.segmentFile.BodyWriter(), average, count, c.propLengthRunToWrite)
+		if err != nil {
+			return 0, err
+		}
+		c.offset += n
+		return n, nil
+	}
+
+	// V0 gob section: encode the merged LOSSLESS uint32 run, NOT the clamped
+	// block-impact map. The gob is the persisted exact per-doc length the score
+	// read decodes back, so it must carry a >65535 doc verbatim; clamping here was
+	// the M1 corruption. The block-impact MaxImpactPropLength (WAND) path keeps
+	// consuming the clamped propertyLengthsToWrite map via writeIndividualNode.
+	encoded, err := gobenc.Encode(propLengthRunToMap(c.propLengthRunToWrite))
 	if err != nil {
 		return 0, err
 	}
-
-	count, average := c.combinePropertyLengths()
 
 	buf := make([]byte, 8)
 
@@ -440,9 +518,9 @@ func (c *compactorInverted) cleanupValues(values []MapPair) (vals []MapPair, ski
 	return values[:last], false
 }
 
-func (c *compactorInverted) computeTombstonesAndPropLengths() *sroar.Bitmap {
-	maps.Copy(c.propertyLengthsToWrite, c.propertyLengthsToClean)
-
+func (c *compactorInverted) computeTombstones() *sroar.Bitmap {
+	// Property lengths were already merged via the two-pointer merge in do();
+	// nothing to copy here. This function only resolves the tombstone bitmap.
 	if c.cleanupTombstones { // no tombstones to write
 		return sroar.NewBitmap()
 	}

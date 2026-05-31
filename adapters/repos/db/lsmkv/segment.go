@@ -313,7 +313,11 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if header.Strategy == segmentindex.StrategyInverted {
 		invertedHeader, err = segmentindex.LoadHeaderInverted(contents[segmentindex.HeaderSize : segmentindex.HeaderSize+segmentindex.HeaderInvertedSize])
 		if err != nil {
-			return nil, errors.Wrap(err, "load inverted header")
+			// Wrap with the segment path so the G4 reject-unknown-version error
+			// names the offending file end to end (the low-level guard has no
+			// path). Operators grep the path to find which segment to drop or
+			// which node binary to upgrade.
+			return nil, errors.Wrapf(err, "load inverted header; segment=%s", path)
 		}
 		dataStartPos = invertedHeader.KeysOffset
 		dataEndPos = invertedHeader.TombstoneOffset
@@ -407,11 +411,20 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("load tombstones: %w", err)
 		}
 
-		_, err = seg.loadPropertyLengths()
-		if err != nil {
+		// Dual-path branch, decided ONCE per segment at open from the inverted
+		// header Version (not per-doc). V0: eager gob-map decode into the compact
+		// resident slices. V2 (header version byte 1): the flat-column reader reads only the
+		// 24-byte prefix + n and caches the column offsets; lengths are read in
+		// place at score time with no resident materialization. The G4 guard in
+		// LoadHeaderInverted has already rejected any Version above the V2
+		// sentinel before we reach here.
+		if seg.isPropLengthV2() {
+			if err = seg.loadPropertyLengthsV2(); err != nil {
+				return nil, fmt.Errorf("load property lengths (v2): %w", err)
+			}
+		} else if err = seg.loadPropertyLengths(); err != nil {
 			return nil, fmt.Errorf("load property lengths: %w", err)
 		}
-
 	}
 
 	return seg, nil

@@ -95,11 +95,20 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 		Strategy:         SegmentStrategyFromString(StrategyInverted),
 	}
 
+	// V2 flat-column property-length write is gated by writeNewInverted (default
+	// off). The posting body is byte-identical for V0 and V2 -- only the
+	// property-length SECTION format and the Version byte differ; DataFieldCount
+	// stays 2.
+	invertedVersion := uint8(0)
+	if m.writeNewInverted {
+		invertedVersion = segmentindex.SegmentInvertedVersionV2
+	}
+
 	headerInverted := segmentindex.HeaderInverted{
 		KeysOffset:            uint64(segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + segmentindex.SegmentInvertedDefaultFieldCount),
 		TombstoneOffset:       0,
 		PropertyLengthsOffset: 0,
-		Version:               0,
+		Version:               invertedVersion,
 		BlockSize:             uint8(segmentindex.SegmentInvertedDefaultBlockSize),
 		DataFieldCount:        uint8(segmentindex.SegmentInvertedDefaultFieldCount),
 		DataFields:            []varenc.VarEncDataType{varenc.DeltaVarIntUint64, varenc.VarIntUint64},
@@ -192,34 +201,47 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 		propLengthAvg = 0
 	}
 
-	binary.LittleEndian.PutUint64(buf, math.Float64bits(propLengthAvg))
-	if _, err := bw.Write(buf); err != nil {
-		return nil, nil, err
-	}
-	totalWritten += 8
+	if m.writeNewInverted {
+		// V2 flat-column section: the 24-byte prefix is embedded by
+		// encodePropertyLengthsV2, so write the whole section in one go. Lengths
+		// are carried losslessly as uint32 (NO clamp) -- a >65535-token doc
+		// survives verbatim.
+		run := mapToSortedRun(docIdsLengths)
+		nWritten, err := writePropertyLengthsV2(bw, propLengthAvg, propLengthCount, run)
+		if err != nil {
+			return nil, nil, fmt.Errorf("write V2 property lengths: %w", err)
+		}
+		totalWritten += nWritten
+	} else {
+		binary.LittleEndian.PutUint64(buf, math.Float64bits(propLengthAvg))
+		if _, err := bw.Write(buf); err != nil {
+			return nil, nil, err
+		}
+		totalWritten += 8
 
-	binary.LittleEndian.PutUint64(buf, propLengthCount)
-	if _, err := bw.Write(buf); err != nil {
-		return nil, nil, err
-	}
-	totalWritten += 8
+		binary.LittleEndian.PutUint64(buf, propLengthCount)
+		if _, err := bw.Write(buf); err != nil {
+			return nil, nil, err
+		}
+		totalWritten += 8
 
-	encoded, err := gobenc.Encode(docIdsLengths)
-	if err != nil {
-		return nil, nil, err
-	}
+		encoded, err := gobenc.Encode(docIdsLengths)
+		if err != nil {
+			return nil, nil, err
+		}
 
-	binary.LittleEndian.PutUint64(buf, uint64(len(encoded)))
-	if _, err := bw.Write(buf); err != nil {
-		return nil, nil, err
-	}
-	totalWritten += 8
+		binary.LittleEndian.PutUint64(buf, uint64(len(encoded)))
+		if _, err := bw.Write(buf); err != nil {
+			return nil, nil, err
+		}
+		totalWritten += 8
 
-	if _, err := bw.Write(encoded); err != nil {
-		return nil, nil, err
-	}
+		if _, err := bw.Write(encoded); err != nil {
+			return nil, nil, err
+		}
 
-	totalWritten += len(encoded)
+		totalWritten += len(encoded)
+	}
 
 	treeOffset := totalWritten
 

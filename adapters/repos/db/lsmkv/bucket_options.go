@@ -236,6 +236,33 @@ func WithSegmentsChecksumValidationEnabled(enable bool) BucketOption {
 	}
 }
 
+// WithWriteInvertedSegmentV2 enables the V2 flat-column property-length WRITE
+// path (flush + convert-on-compaction). It is OFF by default and must stay off
+// until the V2 reader is soaked fleet-wide (reader-ahead-of-writer) AND the V2
+// score path has shipped -- enabling it before the score path makes V2 docs
+// score propLength 0. Only an explicit operator action should turn it on; never
+// default-on-upgrade (the G7 one-way-door contract).
+//
+// Reader-ahead-of-writer is enforced as a DOCUMENTED OPERATOR CONTRACT, not a
+// code/flag interlock, by design. Three properties make a runtime interlock
+// unnecessary over-engineering for this default-off flag:
+//   - the write path is default-OFF and only an explicit operator action flips it;
+//   - the reject-unknown-version guard (validateInvertedVersion) ships in the
+//     reader release ahead of any writer, so a pre-V2 binary that meets a V2
+//     segment LOUD-fails at open time (decode error, aborts shard load) rather
+//     than silently mis-scoring -- verified against a real base-main binary;
+//   - the guard rejects in the forward direction (a current binary refusing a
+//     future-version segment), which is the dangerous direction to leave silent.
+//
+// An in-process interlock cannot observe peer binary versions across the fleet
+// anyway, so the contract lives in the rollout runbook, not in this code path.
+func WithWriteInvertedSegmentV2(enable bool) BucketOption {
+	return func(b *Bucket) error {
+		b.writeNewInverted = enable
+		return nil
+	}
+}
+
 /*
 Background for this option:
 

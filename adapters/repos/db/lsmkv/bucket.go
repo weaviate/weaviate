@@ -230,6 +230,13 @@ type Bucket struct {
 	// the segment
 	writeSegmentInfoIntoFileName bool
 
+	// writeNewInverted gates the V2 flat-column property-length WRITE path (flush
+	// + compaction convert). Default false: the reader ships ahead of the writer
+	// (reader-ahead-of-writer rollout) and the V2 score path (T3) must land before
+	// enabling it -- otherwise V2 docs score propLength 0. Set only via
+	// WithWriteInvertedSegmentV2, never default-on.
+	writeNewInverted bool
+
 	bm25Config *models.BM25Config
 
 	// function to decide whether a key should be skipped
@@ -356,6 +363,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			writeMetadata:                b.writeMetadata,
 			sequentialAccess:             b.sequentialAccess,
 			shouldSkipKey:                b.shouldSkipKey,
+			writeNewInverted:             b.writeNewInverted,
 		}, compactionCallbacks, b, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -1478,6 +1486,7 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 		shouldSkipKeyFunc:            b.shouldSkipKey,
 		skipSecondaryKeyCheck:        b.skipSecondaryKeyCheck,
 		bm25config:                   b.bm25Config,
+		writeNewInverted:             b.writeNewInverted,
 	})
 	if err != nil {
 		return nil, err
@@ -2340,7 +2349,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		DocIds: make([]uint64, 0, len(mem)),
 		Tfs:    make([]uint64, 0, len(mem)),
 	}
-	term.propLengths = make(map[uint64]uint32)
+	term.propLengthsInMem = make(map[uint64]uint32)
 
 	for _, v := range mem {
 		if v.Tombstone {
@@ -2361,7 +2370,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 
 		term.blockDataDecoded.DocIds = append(term.blockDataDecoded.DocIds, d.Id)
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
-		term.propLengths[d.Id] = uint32(d.PropLength)
+		term.propLengthsInMem[d.Id] = uint32(d.PropLength)
 
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {

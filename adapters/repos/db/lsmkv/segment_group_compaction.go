@@ -449,7 +449,8 @@ func (sg *SegmentGroup) compactOnce(ctx context.Context) (compacted bool, err er
 
 		c := newCompactorInverted(f, left.newInvertedCursorReusable(), right.newInvertedCursorReusable(),
 			level, secondaryIndices, cleanupTombstones,
-			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation)
+			k1, b, avgPropLen, maxNewFileSize, sg.allocChecker, sg.enableChecksumValidation,
+			sg.writeNewInverted)
 
 		aborted, err := runCompactor(c.do)
 		if err != nil {

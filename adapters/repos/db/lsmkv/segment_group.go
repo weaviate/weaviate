@@ -103,6 +103,12 @@ type SegmentGroup struct {
 	writeMetadata                  bool
 	sequentialAccess               bool // hint kernel for sequential read-ahead (export snapshots)
 
+	// writeNewInverted gates the V2 flat-column property-length OUTPUT at
+	// compaction (default off, reader-ahead-of-writer). When set, a compaction
+	// converts its inputs (V0 and/or V2) to a V2 flat-column output; when off it
+	// writes the legacy V0 gob section.
+	writeNewInverted bool
+
 	shouldSkipKey func(key []byte, ctx context.Context) (bool, error)
 	// Store the average property length for segments in this sg,
 	// to be used for BM25 scoring.
@@ -132,6 +138,7 @@ type sgConfig struct {
 	writeMetadata                bool
 	sequentialAccess             bool
 	shouldSkipKey                func(key []byte, ctx context.Context) (bool, error)
+	writeNewInverted             bool
 }
 
 func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Metrics, cfg sgConfig,
@@ -168,6 +175,7 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		keepLevelCompaction:          cfg.keepLevelCompaction,
 		shouldSkipKey:                cfg.shouldSkipKey,
 		deleteMarkerCounter:          deleteMarkerCounter,
+		writeNewInverted:             cfg.writeNewInverted,
 	}
 
 	// Clean up stale scratch directories left behind by a prior version that

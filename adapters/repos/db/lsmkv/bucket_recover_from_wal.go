@@ -116,6 +116,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 				shouldSkipKeyFunc:            b.shouldSkipKey,
 				skipSecondaryKeyCheck:        b.skipSecondaryKeyCheck,
 				bm25config:                   b.bm25Config,
+				writeNewInverted:             b.writeNewInverted,
 			})
 			if err != nil {
 				return err
