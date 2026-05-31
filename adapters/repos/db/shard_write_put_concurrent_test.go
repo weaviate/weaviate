@@ -221,6 +221,12 @@ func buildUnconditionalObject(className string, id strfmt.UUID) *storobj.Object 
 // correctly inside the per-UUID lock, only the first goroutine sees version=1;
 // subsequent goroutines see version=2 and get ErrPreconditionFailed.
 func TestVersionCASConcurrencyExactlyOnce(t *testing.T) {
+	// Open the write-gate so Version is persisted as v2 binary (the gate defaults
+	// to closed/v1 in tests; version-CAS requires v2 persistence to function).
+	orig := storobj.GetWriteMarshallerVersion()
+	storobj.SetWriteMarshallerVersion(2)
+	defer storobj.SetWriteMarshallerVersion(orig)
+
 	ctx := context.Background()
 	className := "VersionCASExactlyOnce"
 	class := &models.Class{Class: className}
@@ -279,6 +285,11 @@ func TestVersionCASConcurrencyExactlyOnce(t *testing.T) {
 // If the version is not monotonic, at least one of the require.Equal assertions
 // will fail because the stored object's Additional["version"] will not match.
 func TestVersionMonotonicIncrement(t *testing.T) {
+	// Open the write-gate so Version is persisted as v2 binary.
+	orig := storobj.GetWriteMarshallerVersion()
+	storobj.SetWriteMarshallerVersion(2)
+	defer storobj.SetWriteMarshallerVersion(orig)
+
 	ctx := context.Background()
 	className := "VersionMonotonic"
 	class := &models.Class{Class: className}
@@ -315,6 +326,11 @@ func TestVersionMonotonicIncrement(t *testing.T) {
 // inverted (allowing the write to proceed despite version mismatch). If the check
 // is absent, err == nil and require.Error(t, err) fails immediately.
 func TestVersionCASMismatchPath(t *testing.T) {
+	// Open the write-gate so Version is persisted as v2 binary.
+	orig := storobj.GetWriteMarshallerVersion()
+	storobj.SetWriteMarshallerVersion(2)
+	defer storobj.SetWriteMarshallerVersion(orig)
+
 	ctx := context.Background()
 	className := "VersionMismatch"
 	class := &models.Class{Class: className}
@@ -362,6 +378,11 @@ func TestVersionCASMismatchPath(t *testing.T) {
 // (e.g. remains 0 because the mint logic is absent). It also verifies the design
 // decision that Version 0 is the sentinel for "never written by a v2 node".
 func TestVersionCASFirstWriteSentinel(t *testing.T) {
+	// Open the write-gate so Version is persisted as v2 binary.
+	orig := storobj.GetWriteMarshallerVersion()
+	storobj.SetWriteMarshallerVersion(2)
+	defer storobj.SetWriteMarshallerVersion(orig)
+
 	ctx := context.Background()
 	className := "VersionFirstWrite"
 	class := &models.Class{Class: className}
@@ -425,6 +446,13 @@ func TestVersionCASFirstWriteSentinel(t *testing.T) {
 // require.Equal(t, uint64(7), gotVersion) to fail. With the fix,
 // mintVersion=false skips the mint block and the stored version is 7.
 func TestReplicaApplyPreservesVersion(t *testing.T) {
+	// Open the write-gate so that putObjectLSM uses v2 binary format. Without
+	// this, line 361 in shard_write_put.go overwrites the incoming MarshallerVersion=2
+	// with the gate value (1), losing the Version field on disk.
+	orig := storobj.GetWriteMarshallerVersion()
+	storobj.SetWriteMarshallerVersion(2)
+	defer storobj.SetWriteMarshallerVersion(orig)
+
 	ctx := context.Background()
 	className := "ReplicaApplyPreservesVersion"
 	class := &models.Class{Class: className}
@@ -486,6 +514,11 @@ func TestReplicaApplyPreservesVersion(t *testing.T) {
 // is by LWW in the actual multi-node path). Exact version depends on write order;
 // we only assert the convergence invariant (version advanced, no corruption).
 func TestVersionCASKnownWeakTwoShards(t *testing.T) {
+	// Open the write-gate so Version is persisted as v2 binary.
+	orig := storobj.GetWriteMarshallerVersion()
+	storobj.SetWriteMarshallerVersion(2)
+	defer storobj.SetWriteMarshallerVersion(orig)
+
 	ctx := context.Background()
 	className := "VersionCASKnownWeak"
 	class := &models.Class{Class: className}
