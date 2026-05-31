@@ -167,17 +167,17 @@ func waitForSchemaOnAllNodes(t *testing.T, compose *docker.DockerCompose, classN
 	}
 }
 
-// prodCondInsertHTTP posts a conditional insert to hostURI for a specific class
-// and returns the HTTP status code. The condition travels via the
-// ?condition=insert_if_not_exists query parameter.
-//
-// consistencyLevel may be "" (omit → server default QUORUM), "QUORUM", or
-// "ALL". The function does NOT assert the status; callers decide.
-func prodCondInsertHTTP(
+// prodInsertHTTP posts an object to hostURI and returns the HTTP status code.
+// When condition is non-empty it is appended as ?condition=<condition>.
+// consistencyLevel may be "" (omit, server default QUORUM), "QUORUM", or "ALL".
+// The function does NOT assert the status; callers decide.
+// Returns 0 on network error so callers can treat it as a transient failure.
+func prodInsertHTTP(
 	t *testing.T,
 	hostURI string,
 	className string,
 	id string,
+	condition string,
 	consistencyLevel string,
 ) int {
 	t.Helper()
@@ -197,13 +197,18 @@ func prodCondInsertHTTP(
 	jsonData, err := json.Marshal(payload)
 	require.NoError(t, err, "marshal insert body")
 
-	url := fmt.Sprintf("http://%s/v1/objects?condition=insert_if_not_exists", hostURI)
+	rawURL := fmt.Sprintf("http://%s/v1/objects", hostURI)
+	sep := "?"
+	if condition != "" {
+		rawURL = fmt.Sprintf("%s%scondition=%s", rawURL, sep, condition)
+		sep = "&"
+	}
 	if consistencyLevel != "" {
-		url = fmt.Sprintf("%s&consistency_level=%s", url, consistencyLevel)
+		rawURL = fmt.Sprintf("%s%sconsistency_level=%s", rawURL, sep, consistencyLevel)
 	}
 
 	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodPost, url,
+		context.Background(), http.MethodPost, rawURL,
 		bytes.NewBuffer(jsonData),
 	)
 	require.NoError(t, err, "build HTTP request")
@@ -212,9 +217,7 @@ func prodCondInsertHTTP(
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		// Network error: return a sentinel that callers can treat as a transient
-		// failure. We use 0 so callers see it is clearly not an HTTP status code.
-		t.Logf("prodCondInsertHTTP: network error (host=%s id=%s): %v", hostURI, id, err)
+		t.Logf("prodInsertHTTP: network error (host=%s id=%s condition=%s): %v", hostURI, id, condition, err)
 		return 0
 	}
 	defer func() {
@@ -222,61 +225,24 @@ func prodCondInsertHTTP(
 		resp.Body.Close()
 	}()
 	return resp.StatusCode
+}
+
+// prodCondInsertHTTP posts a conditional insert (insert_if_not_exists) and
+// returns the HTTP status code.
+func prodCondInsertHTTP(t *testing.T, hostURI, className, id, consistencyLevel string) int {
+	t.Helper()
+	return prodInsertHTTP(t, hostURI, className, id, "insert_if_not_exists", consistencyLevel)
 }
 
 // prodUncondInsertHTTP posts a plain (non-conditional) object insert.
 // Used for throughput comparison in TestProdReady_RF3_ThroughputReport.
-func prodUncondInsertHTTP(
-	t *testing.T,
-	hostURI string,
-	className string,
-	id string,
-	consistencyLevel string,
-) int {
+func prodUncondInsertHTTP(t *testing.T, hostURI, className, id, consistencyLevel string) int {
 	t.Helper()
-
-	type body struct {
-		Class      string                 `json:"class"`
-		ID         string                 `json:"id"`
-		Properties map[string]interface{} `json:"properties"`
-	}
-	payload := body{
-		Class: className,
-		ID:    id,
-		Properties: map[string]interface{}{
-			"testfield": fmt.Sprintf("value-for-%s", id),
-		},
-	}
-	jsonData, err := json.Marshal(payload)
-	require.NoError(t, err, "marshal unconditional insert body")
-
-	url := fmt.Sprintf("http://%s/v1/objects", hostURI)
-	if consistencyLevel != "" {
-		url = fmt.Sprintf("%s?consistency_level=%s", url, consistencyLevel)
-	}
-
-	req, err := http.NewRequestWithContext(
-		context.Background(), http.MethodPost, url,
-		bytes.NewBuffer(jsonData),
-	)
-	require.NoError(t, err, "build HTTP request")
-	req.Header.Set("Content-Type", "application/json")
-
-	cl := &http.Client{Timeout: 30 * time.Second}
-	resp, err := cl.Do(req)
-	if err != nil {
-		t.Logf("prodUncondInsertHTTP: network error (host=%s id=%s): %v", hostURI, id, err)
-		return 0
-	}
-	defer func() {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-	}()
-	return resp.StatusCode
+	return prodInsertHTTP(t, hostURI, className, id, "", consistencyLevel)
 }
 
 // countObjectsViaGraphQL returns the aggregate count for className on host.
-// Uses GraphQL Aggregate meta.count — same pattern as common.CountObjects.
+// Uses GraphQL Aggregate meta.count - same pattern as common.CountObjects.
 // Calls t.Fatal on any error; use countObjectsViaGraphQLSoft inside poll loops.
 func countObjectsViaGraphQL(t *testing.T, host, className string) int64 {
 	t.Helper()

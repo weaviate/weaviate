@@ -444,12 +444,12 @@ func TestProdReadyVersion_HAUnderNodeFailure(t *testing.T) {
 // version will lag behind the other two nodes.
 func TestProdReadyVersion_RecoveryConvergence(t *testing.T) {
 	const (
-		className     = "ProdReadyVersionRecovery"
-		clLevel       = "QUORUM"
-		maxConverge   = 3 * time.Minute
-		pollInterval  = 2 * time.Second
-		deltaUpdates  = 20
-		objectID      = "cc000000-0000-4000-8000-000000000001"
+		className    = "ProdReadyVersionRecovery"
+		clLevel      = "QUORUM"
+		maxConverge  = 3 * time.Minute
+		pollInterval = 2 * time.Second
+		deltaUpdates = 20
+		objectID     = "cc000000-0000-4000-8000-000000000001"
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)

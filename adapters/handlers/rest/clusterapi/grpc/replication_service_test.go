@@ -69,15 +69,6 @@ func TestReplicationErrorToGRPC(t *testing.T) {
 func TestReplicationService_PutObject_ConditionalRestored(t *testing.T) {
 	t.Parallel()
 
-	// minimalReplicator stubs only ReplicateObject; all other methods panic (unused).
-	type capturedArgs struct {
-		obj *storobj.Object
-	}
-	type minimalReplicator struct {
-		replicaTypes.Replicator
-		got capturedArgs
-	}
-
 	for _, tc := range []struct {
 		name            string
 		onlyIfNotExists bool

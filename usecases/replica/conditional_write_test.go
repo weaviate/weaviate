@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -75,7 +74,7 @@ func (g *replicationGate) Wait() {
 func (g *replicationGate) Resume() {
 	select {
 	case <-g.open:
-		// already open — idempotent
+		// already open - idempotent
 	default:
 		close(g.open)
 	}
@@ -87,7 +86,7 @@ func (g *replicationGate) Resume() {
 //  1. When a phase-1 precondition check fails on enough replicas to
 //     prevent reaching the requested consistency level, PutObject returns
 //     *objects.ErrPreconditionFailed to the caller (the precondition abort
-//     propagates at the caller-supplied CL — QUORUM in the test).
+//     propagates at the caller-supplied CL - QUORUM in the test).
 //
 //  2. When one replica is unavailable (N=3, 1 down), a conditional write at
 //     QUORUM still completes because floor(N/2)+1 = 2 replicas are reachable
@@ -138,7 +137,7 @@ func TestConditionalWriteAbortAtRequestCL(t *testing.T) {
 			}
 		}
 
-		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+		err := rep.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 		commitWG.Wait()
 
 		assert.Error(t, err, "expected error when precondition fails")
@@ -187,7 +186,7 @@ func TestConditionalWriteAbortAtRequestCL(t *testing.T) {
 		f.WClient.On("Abort", mock.Anything, "C", cls, shard, mock.Anything).
 			Return(okPrepare, nil).Maybe()
 
-		err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+		err := rep.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 		commitWG.Wait()
 
 		assert.NoError(t, err,
@@ -217,7 +216,7 @@ func TestConditionalWriteCLMatrix(t *testing.T) {
 
 	type row struct {
 		name        string
-		cl          types.ConsistencyLevel
+		cl          routerTypes.ConsistencyLevel
 		upNodes     []string // nodes that respond OK to phase-1
 		downNodes   []string // nodes that return connection error on phase-1
 		wantSuccess bool
@@ -225,19 +224,19 @@ func TestConditionalWriteCLMatrix(t *testing.T) {
 
 	rows := []row{
 		// --- CL=ONE ---
-		{name: "ONE/allUp", cl: types.ConsistencyLevelOne, upNodes: allNodes, wantSuccess: true},
-		{name: "ONE/1down", cl: types.ConsistencyLevelOne, upNodes: []string{"A", "B"}, downNodes: []string{"C"}, wantSuccess: true},
-		{name: "ONE/2down", cl: types.ConsistencyLevelOne, upNodes: []string{"A"}, downNodes: []string{"B", "C"}, wantSuccess: true},
+		{name: "ONE/allUp", cl: routerTypes.ConsistencyLevelOne, upNodes: allNodes, wantSuccess: true},
+		{name: "ONE/1down", cl: routerTypes.ConsistencyLevelOne, upNodes: []string{"A", "B"}, downNodes: []string{"C"}, wantSuccess: true},
+		{name: "ONE/2down", cl: routerTypes.ConsistencyLevelOne, upNodes: []string{"A"}, downNodes: []string{"B", "C"}, wantSuccess: true},
 
 		// --- CL=QUORUM (floor(3/2)+1 = 2 required) ---
-		{name: "QUORUM/allUp", cl: types.ConsistencyLevelQuorum, upNodes: allNodes, wantSuccess: true},
-		{name: "QUORUM/1down", cl: types.ConsistencyLevelQuorum, upNodes: []string{"A", "B"}, downNodes: []string{"C"}, wantSuccess: true},
-		{name: "QUORUM/2down", cl: types.ConsistencyLevelQuorum, upNodes: []string{"A"}, downNodes: []string{"B", "C"}, wantSuccess: false},
+		{name: "QUORUM/allUp", cl: routerTypes.ConsistencyLevelQuorum, upNodes: allNodes, wantSuccess: true},
+		{name: "QUORUM/1down", cl: routerTypes.ConsistencyLevelQuorum, upNodes: []string{"A", "B"}, downNodes: []string{"C"}, wantSuccess: true},
+		{name: "QUORUM/2down", cl: routerTypes.ConsistencyLevelQuorum, upNodes: []string{"A"}, downNodes: []string{"B", "C"}, wantSuccess: false},
 
 		// --- CL=ALL (all 3 required; caller's explicit CP choice) ---
-		{name: "ALL/allUp", cl: types.ConsistencyLevelAll, upNodes: allNodes, wantSuccess: true},
-		{name: "ALL/1down", cl: types.ConsistencyLevelAll, upNodes: []string{"A", "B"}, downNodes: []string{"C"}, wantSuccess: false},
-		{name: "ALL/2down", cl: types.ConsistencyLevelAll, upNodes: []string{"A"}, downNodes: []string{"B", "C"}, wantSuccess: false},
+		{name: "ALL/allUp", cl: routerTypes.ConsistencyLevelAll, upNodes: allNodes, wantSuccess: true},
+		{name: "ALL/1down", cl: routerTypes.ConsistencyLevelAll, upNodes: []string{"A", "B"}, downNodes: []string{"C"}, wantSuccess: false},
+		{name: "ALL/2down", cl: routerTypes.ConsistencyLevelAll, upNodes: []string{"A"}, downNodes: []string{"B", "C"}, wantSuccess: false},
 	}
 
 	for _, r := range rows {
@@ -307,16 +306,16 @@ func TestConditionalWriteCLMatrix(t *testing.T) {
 // ---------------------------------------------------------------------------
 // TestConditionalWriteKnownWeakConcurrentCoordinator (AC3)
 //
-// PLAN-A WEAK-GUARANTEE BOUNDARY TEST
+// # PLAN-A WEAK-GUARANTEE BOUNDARY TEST
 //
 // This test documents the documented Plan A limitation:
 //
-//   Two concurrent conditional writes (insert_if_not_exists) for the SAME UUID
-//   are routed through DIFFERENT coordinator nodes while async replication is
-//   paused (simulating replication lag).  Each coordinator's local state is
-//   stale — it sees the object as absent — so both phase-1 existence-checks
-//   pass.  Both writes commit successfully.  The result is deterministic
-//   last-write-wins (LWW), NOT strong CAS.
+//	Two concurrent conditional writes (insert_if_not_exists) for the SAME UUID
+//	are routed through DIFFERENT coordinator nodes while async replication is
+//	paused (simulating replication lag).  Each coordinator's local state is
+//	stale - it sees the object as absent - so both phase-1 existence-checks
+//	pass.  Both writes commit successfully.  The result is deterministic
+//	last-write-wins (LWW), NOT strong CAS.
 //
 // What this test ASSERTS:
 //   - Neither coordinator panics or returns a torn/corrupted error.
@@ -324,7 +323,7 @@ func TestConditionalWriteCLMatrix(t *testing.T) {
 //   - The system reaches a well-defined (LWW) state, not undefined behavior.
 //
 // What this test DOES NOT assert:
-//   - That only one write wins (strong CAS — this is Plan B, not Plan A).
+//   - That only one write wins (strong CAS - this is Plan B, not Plan A).
 //   - Which write wins (LWW is determined by timestamp, outside this layer).
 //
 // This is the documented Plan A boundary.  The test exists to pin the
@@ -346,12 +345,12 @@ func TestConditionalWriteKnownWeakConcurrentCoordinator(t *testing.T) {
 	for iteration := 0; iteration < 3; iteration++ {
 		iteration := iteration
 		t.Run("", func(t *testing.T) {
-			// Shared mock client — both "coordinators" (replicators) use the same
+			// Shared mock client - both "coordinators" (replicators) use the same
 			// underlying transport mock.  Each coordinator sees the same replica set.
 			f := newFakeFactory(t, cls, shard, nodes, false)
 
 			// coordinator1 and coordinator2 are two independent Replicator instances
-			// routing writes for the same shard — simulating two different cluster
+			// routing writes for the same shard - simulating two different cluster
 			// nodes acting as coordinator for concurrent requests.
 			coordinator1 := f.newReplicatorWithSourceNode("A")
 			coordinator2 := f.newReplicatorWithSourceNode("B")
@@ -396,11 +395,11 @@ func TestConditionalWriteKnownWeakConcurrentCoordinator(t *testing.T) {
 			writeWG.Add(2)
 			enterrors.GoWrapper(func() {
 				defer writeWG.Done()
-				err1 = coordinator1.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+				err1 = coordinator1.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 			}, f.log)
 			enterrors.GoWrapper(func() {
 				defer writeWG.Done()
-				err2 = coordinator2.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+				err2 = coordinator2.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 			}, f.log)
 
 			// Open the gate: allow all commits to proceed.
@@ -426,10 +425,10 @@ func TestConditionalWriteKnownWeakConcurrentCoordinator(t *testing.T) {
 //
 // Verifies the async-divergence convergence property (INV-HASHTREE-1):
 //
-//   A conditional write that "loses" the cross-coordinator race converges
-//   to the LWW value via the existing replication path without corruption.
-//   The late-arriving commit does NOT produce a torn object, a panic, or a
-//   data-corruption error.  The outcome is one of two valid LWW states.
+//	A conditional write that "loses" the cross-coordinator race converges
+//	to the LWW value via the existing replication path without corruption.
+//	The late-arriving commit does NOT produce a torn object, a panic, or a
+//	data-corruption error.  The outcome is one of two valid LWW states.
 //
 // The scenario (two sequential writes; gate simulates async lag):
 //   - coordinator1 writes and commits immediately (fast path, no gate).
@@ -473,7 +472,7 @@ func TestConditionalWriteAsyncDivergenceConvergesLWW(t *testing.T) {
 		*resp = okCommit
 	}
 
-	err1 := coordinator1.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	err1 := coordinator1.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 	coord1CommitWG.Wait()
 	assert.NoError(t, err1, "coordinator1 (fast path) must succeed")
 
@@ -509,7 +508,7 @@ func TestConditionalWriteAsyncDivergenceConvergesLWW(t *testing.T) {
 	write2WG.Add(1)
 	enterrors.GoWrapper(func() {
 		defer write2WG.Done()
-		err2 = coordinator2.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+		err2 = coordinator2.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 	}, f2.log)
 
 	// Open the gate: coordinator2's commits now land ("late" replication
@@ -520,7 +519,7 @@ func TestConditionalWriteAsyncDivergenceConvergesLWW(t *testing.T) {
 
 	// CONVERGENCE ASSERTION:
 	// coordinator2's late commits must not corrupt the store.
-	// At the transport layer, the commit is simply delivered — no error.
+	// At the transport layer, the commit is simply delivered - no error.
 	// LWW resolution happens at the shard layer (per-UUID mutex + version CAS),
 	// which is outside the scope of this replica-layer test.
 	assert.NoError(t, err2,
@@ -546,12 +545,36 @@ func mkObj(id strfmt.UUID, ifVersion *uint64) *storobj.Object {
 
 func ptrUint64(v uint64) *uint64 { return &v }
 
+// wireAllNodesPutCommit wires PutObject + Commit mocks for all nodes in nodes
+// so that every node accepts the write and commits successfully. Returns a
+// WaitGroup that is decremented by each Commit call; callers must call
+// commitWG.Wait() after PutObject to drain all commits. The .Maybe() modifier
+// lets tests that abort early (CAS-mismatch, etc.) skip unused call sites.
+func wireAllNodesPutCommit(f *fakeFactory, cls, shard string, obj *storobj.Object, nodes []string) *sync.WaitGroup {
+	okResp := replica.SimpleResponse{}
+	var wg sync.WaitGroup
+	for _, n := range nodes {
+		f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
+			Return(okResp, nil).Maybe()
+		wg.Add(1)
+		f.WClient.On("Commit", mock.Anything, n, cls, shard, mock.Anything, mock.Anything).
+			Return(nil).Maybe().
+			RunFn = func(args mock.Arguments) {
+			defer wg.Done()
+			resp := args[5].(*replica.SimpleResponse)
+			*resp = okResp
+		}
+	}
+	return &wg
+}
+
 // wireDigestResponse stubs DigestObjects on the given MockRClient so that
 // requests for id on all nodes return the given version. The stub is
 // registered with .Maybe() so that tests that do not complete the full quorum
 // (e.g. a CAS-mismatch abort path) do not fail from unexpected calls.
 func wireDigestResponse(rc *replica.MockRClient, cls, shard string, id strfmt.UUID, version int64) {
-	rc.On("DigestObjects",
+	rc.On(
+		"DigestObjects",
 		mock.Anything, mock.Anything, cls, shard,
 		[]strfmt.UUID{id}, 0,
 	).Return([]routerTypes.RepairResponse{{ID: id.String(), Version: version}}, nil).Maybe()
@@ -582,24 +605,10 @@ func TestConditionalWriteVersionCASMatch(t *testing.T) {
 	wireDigestResponse(f.RClient, cls, shard, objID, int64(currentVersion))
 
 	obj := mkObj(objID, ptrUint64(currentVersion))
-
-	okResp := replica.SimpleResponse{}
-	var commitWG sync.WaitGroup
-	for _, n := range nodes {
-		f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
-			Return(okResp, nil).Maybe()
-		commitWG.Add(1)
-		f.WClient.On("Commit", mock.Anything, n, cls, shard, mock.Anything, mock.Anything).
-			Return(nil).Maybe().
-			RunFn = func(args mock.Arguments) {
-			defer commitWG.Done()
-			resp := args[5].(*replica.SimpleResponse)
-			*resp = okResp
-		}
-	}
+	commitWG := wireAllNodesPutCommit(f, cls, shard, obj, nodes)
 
 	ctx := context.Background()
-	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	err := rep.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 	commitWG.Wait()
 
 	assert.NoError(t, err, "CAS match must succeed")
@@ -635,7 +644,7 @@ func TestConditionalWriteVersionCASMismatch(t *testing.T) {
 	obj := mkObj(objID, ptrUint64(staleIfVersion))
 
 	ctx := context.Background()
-	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	err := rep.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 
 	assert.Error(t, err, "CAS mismatch must fail")
 	var precondErr *objects.ErrPreconditionFailed
@@ -666,24 +675,10 @@ func TestConditionalWriteVersionCASFirstWrite(t *testing.T) {
 	wireDigestResponse(f.RClient, cls, shard, objID, 0)
 
 	obj := mkObj(objID, ptrUint64(0))
-
-	okResp := replica.SimpleResponse{}
-	var commitWG sync.WaitGroup
-	for _, n := range nodes {
-		f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
-			Return(okResp, nil).Maybe()
-		commitWG.Add(1)
-		f.WClient.On("Commit", mock.Anything, n, cls, shard, mock.Anything, mock.Anything).
-			Return(nil).Maybe().
-			RunFn = func(args mock.Arguments) {
-			defer commitWG.Done()
-			resp := args[5].(*replica.SimpleResponse)
-			*resp = okResp
-		}
-	}
+	commitWG := wireAllNodesPutCommit(f, cls, shard, obj, nodes)
 
 	ctx := context.Background()
-	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	err := rep.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 	commitWG.Wait()
 
 	assert.NoError(t, err, "first write (IfVersion==0, no existing object) must succeed")
@@ -713,24 +708,10 @@ func TestConditionalWriteVersionUnconditionalMint(t *testing.T) {
 
 	// No IfVersion: unconditional write.
 	obj := mkObj(objID, nil)
-
-	okResp := replica.SimpleResponse{}
-	var commitWG sync.WaitGroup
-	for _, n := range nodes {
-		f.WClient.On("PutObject", mock.Anything, n, cls, shard, mock.Anything, obj, uint64(0)).
-			Return(okResp, nil).Maybe()
-		commitWG.Add(1)
-		f.WClient.On("Commit", mock.Anything, n, cls, shard, mock.Anything, mock.Anything).
-			Return(nil).Maybe().
-			RunFn = func(args mock.Arguments) {
-			defer commitWG.Done()
-			resp := args[5].(*replica.SimpleResponse)
-			*resp = okResp
-		}
-	}
+	commitWG := wireAllNodesPutCommit(f, cls, shard, obj, nodes)
 
 	ctx := context.Background()
-	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	err := rep.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 	commitWG.Wait()
 
 	assert.NoError(t, err, "unconditional write must succeed")
@@ -760,12 +741,14 @@ func TestConditionalWriteVersionCLInvariant(t *testing.T) {
 	// Nodes A and B return the current version. Node C is down: it never
 	// responds to DigestObjects (no stub, so any call would fail the mock).
 	for _, n := range []string{"A", "B"} {
-		f.RClient.On("DigestObjects",
+		f.RClient.On(
+			"DigestObjects",
 			mock.Anything, n, cls, shard, []strfmt.UUID{objID}, 0,
 		).Return([]routerTypes.RepairResponse{{ID: objID.String(), Version: int64(4)}}, nil)
 	}
 	// Node C is down: its DigestObjects call returns a connection error.
-	f.RClient.On("DigestObjects",
+	f.RClient.On(
+		"DigestObjects",
 		mock.Anything, "C", cls, shard, []strfmt.UUID{objID}, 0,
 	).Return(nil, errors.New("connection refused")).Maybe()
 
@@ -792,7 +775,7 @@ func TestConditionalWriteVersionCLInvariant(t *testing.T) {
 		Return(okResp, nil).Maybe()
 
 	ctx := context.Background()
-	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	err := rep.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 	commitWG.Wait()
 
 	assert.NoError(t, err,
@@ -850,7 +833,8 @@ func TestConditionalWriteVersionConcurrentSameCoordinator(t *testing.T) {
 		// is released and writer-1 has committed).
 		callCount := 0
 		var digestMu sync.Mutex
-		f.RClient.On("DigestObjects",
+		f.RClient.On(
+			"DigestObjects",
 			mock.Anything, mock.Anything, cls, shard, []strfmt.UUID{objID}, 0,
 		).Return(func(_ context.Context, _ string, _, _ string, _ []strfmt.UUID, _ int) ([]routerTypes.RepairResponse, error) {
 			digestMu.Lock()
@@ -905,11 +889,11 @@ func TestConditionalWriteVersionConcurrentSameCoordinator(t *testing.T) {
 
 		enterrors.GoWrapper(func() {
 			defer writeWG.Done()
-			err1 = rep.PutObject(ctx, shard, obj1, types.ConsistencyLevelQuorum, 0)
+			err1 = rep.PutObject(ctx, shard, obj1, routerTypes.ConsistencyLevelQuorum, 0)
 		}, f.log)
 		enterrors.GoWrapper(func() {
 			defer writeWG.Done()
-			err2 = rep.PutObject(ctx, shard, obj2, types.ConsistencyLevelQuorum, 0)
+			err2 = rep.PutObject(ctx, shard, obj2, routerTypes.ConsistencyLevelQuorum, 0)
 		}, f.log)
 
 		// Release commits.
@@ -996,7 +980,7 @@ func TestConditionalWriteVersionCASClearsIfVersionBeforeFanOut(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelQuorum, 0)
+	err := rep.PutObject(ctx, shard, obj, routerTypes.ConsistencyLevelQuorum, 0)
 	commitWG.Wait()
 
 	assert.NoError(t, err, "CAS match must succeed")

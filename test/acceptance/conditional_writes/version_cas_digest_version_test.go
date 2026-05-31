@@ -15,18 +15,18 @@
 //
 // These are the anti-whack-a-mole tests required by the task spec:
 //
-//   (b) TestVersionCASDigest_SingleCoordinator_RF3: single-coordinator If-Match
-//       update on RF=3 advances the version and reads back correctly.
+//	(b) TestVersionCASDigest_SingleCoordinator_RF3: single-coordinator If-Match
+//	    update on RF=3 advances the version and reads back correctly.
 //
-//   (c) TestVersionCASDigest_SequentialChain_RF3: sequential version chain
-//       1->2->3->4->5 each gated by If-Match on RF=3.
+//	(c) TestVersionCASDigest_SequentialChain_RF3: sequential version chain
+//	    1->2->3->4->5 each gated by If-Match on RF=3.
 //
-//   (d) TestVersionCASDigest_WrongIfMatch_RF3: wrong If-Match returns 412 on
-//       RF=3 (negative path).
+//	(d) TestVersionCASDigest_WrongIfMatch_RF3: wrong If-Match returns 412 on
+//	    RF=3 (negative path).
 //
-//   (e) TestVersionCASDigest_CrossCoordinatorMakesProgress: concurrent If-Match
-//       via different coordinators makes progress (final version > initial,
-//       no zero-progress livelock).
+//	(e) TestVersionCASDigest_CrossCoordinatorMakesProgress: concurrent If-Match
+//	    via different coordinators makes progress (final version > initial,
+//	    no zero-progress livelock).
 //
 // Tests boot a real 3-node cluster via testcontainers. Run with:
 //
