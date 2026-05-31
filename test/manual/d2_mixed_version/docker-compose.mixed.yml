@@ -1,0 +1,115 @@
+# D2-PrePR P1 - TRUE mixed-version migration cluster.
+#
+# Mixes a REAL base-main (92e3d5a2, pre-D2: NO V2 reader, NO G4 guard) image
+# with the D2 image, to characterize what a pre-guard node actually does with a
+# V2 segment (the reader-ahead-of-writer migration-safety proof, descoped in
+# test/acceptance/multi_node/bm25_v2_compat_test.go).
+#
+# Isolation: project d2prep1, subnet 10.98.0.0/16 (NOT the 10.99.x harness
+# singleton), ports 8490-8492 / 50490-50492. Tear down with:
+#   docker compose -p d2prep1 -f docker-compose.mixed.yml down -v
+#
+# Per-node image is parameterized so the same compose drives all-base-main,
+# all-D2, and mixed configurations:
+#   NODE0_IMAGE / NODE1_IMAGE / NODE2_IMAGE
+#   NODE0_WRITE_V2 / NODE1_WRITE_V2 / NODE2_WRITE_V2  (true|"" )
+
+x-weaviate-common: &weaviate-common
+  restart: "no"
+  networks:
+    - d2net
+  environment: &weaviate-env
+    AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+    LOG_LEVEL: "debug"
+    QUERY_DEFAULTS_LIMIT: "20"
+    PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+    DEFAULT_VECTORIZER_MODULE: "none"
+    DISABLE_TELEMETRY: "true"
+    MEMBERLIST_FAST_FAILURE_DETECTION: "true"
+    RAFT_DRAIN_SLEEP: "1ms"
+    RAFT_TIMEOUTS_MULTIPLIER: "1"
+    RAFT_PORT: "8300"
+    RAFT_INTERNAL_RPC_PORT: "8301"
+    RAFT_BOOTSTRAP_EXPECT: "3"
+    RAFT_JOIN: "node0,node1,node2"
+    # Force small corpora to flush to a real .db segment promptly (T7 scaffolding).
+    PERSISTENCE_MAX_REUSE_WAL_SIZE: "0"
+    PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS: "1"
+
+services:
+  node0:
+    <<: *weaviate-common
+    image: ${NODE0_IMAGE:-weaviate-test:base-main-preguard}
+    container_name: d2prep1-node0
+    ports:
+      - "8490:8080"
+      - "50490:50051"
+    environment:
+      <<: *weaviate-env
+      CLUSTER_HOSTNAME: "node0"
+      CLUSTER_GOSSIP_BIND_PORT: "7100"
+      CLUSTER_DATA_BIND_PORT: "7101"
+      PERSISTENCE_LSM_WRITE_INVERTED_SEGMENT_V2: "${NODE0_WRITE_V2:-}"
+    # node0 is the gossip seed (CLUSTER_JOIN target for the others). The healthcheck
+    # gates node1/node2 startup so they do not race a not-yet-listening seed port
+    # (base-main treats the initial memberlist join failure as fatal -> exit 1).
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8080/v1/.well-known/live || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    volumes:
+      - node0data:/var/lib/weaviate
+
+  node1:
+    <<: *weaviate-common
+    depends_on:
+      node0:
+        condition: service_healthy
+    image: ${NODE1_IMAGE:-weaviate-test:base-main-preguard}
+    container_name: d2prep1-node1
+    ports:
+      - "8491:8080"
+      - "50491:50051"
+    environment:
+      <<: *weaviate-env
+      CLUSTER_HOSTNAME: "node1"
+      CLUSTER_GOSSIP_BIND_PORT: "7102"
+      CLUSTER_DATA_BIND_PORT: "7103"
+      CLUSTER_JOIN: "node0:7100"
+      PERSISTENCE_LSM_WRITE_INVERTED_SEGMENT_V2: "${NODE1_WRITE_V2:-}"
+    volumes:
+      - node1data:/var/lib/weaviate
+
+  node2:
+    <<: *weaviate-common
+    depends_on:
+      node0:
+        condition: service_healthy
+    image: ${NODE2_IMAGE:-weaviate-test:base-main-preguard}
+    container_name: d2prep1-node2
+    ports:
+      - "8492:8080"
+      - "50492:50051"
+    environment:
+      <<: *weaviate-env
+      CLUSTER_HOSTNAME: "node2"
+      CLUSTER_GOSSIP_BIND_PORT: "7104"
+      CLUSTER_DATA_BIND_PORT: "7105"
+      CLUSTER_JOIN: "node0:7100"
+      PERSISTENCE_LSM_WRITE_INVERTED_SEGMENT_V2: "${NODE2_WRITE_V2:-}"
+    volumes:
+      - node2data:/var/lib/weaviate
+
+networks:
+  d2net:
+    name: d2prep1_net
+    ipam:
+      config:
+        - subnet: 10.98.0.0/16
+
+volumes:
+  node0data:
+  node1data:
+  node2data:

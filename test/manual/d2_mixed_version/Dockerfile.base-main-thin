@@ -1,0 +1,14 @@
+# Thin base-main (92e3d5a2, pre-D2: NO V2 reader, NO G4 reject-unknown guard)
+# Mirrors the weaviate runtime stage (repo Dockerfile FROM alpine:3.22 stage).
+# Used ONLY for D2-PrePR P1 mixed-version migration testing (project d2prep1).
+FROM alpine:3.22
+RUN apk upgrade --no-cache libcrypto3 libssl3 openssl musl musl-utils zlib && \
+    apk add --no-cache bc ca-certificates openssl && mkdir ./modules
+COPY weaviate-linux /bin/weaviate
+# Run as a non-root user. Harmless for this throwaway migration-test image and
+# keeps the static analyzer's "image runs as root" check quiet (docker:S6471).
+RUN addgroup -S weave && adduser -S -G weave weave && \
+    mkdir -p /var/lib/weaviate && chown -R weave:weave /var/lib/weaviate /modules
+USER weave
+ENTRYPOINT ["/bin/weaviate"]
+CMD ["--host","0.0.0.0","--port","8080","--scheme","http"]

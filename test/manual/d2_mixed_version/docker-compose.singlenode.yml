@@ -1,0 +1,46 @@
+# D2-PrePR P1 - single-node binary-swap rig for Scenario 1 (the danger) and
+# Scenario 3 (downgrade one-way door).
+#
+# A single Weaviate node on a NAMED volume. The IMAGE and the V2 write flag are
+# parametrized so we can: (a) boot D2 write-new ON to produce a V2 segment,
+# (b) stop it, (c) boot base-main on the SAME volume and characterize what a
+# pre-guard binary does with a V2 segment on disk (the restore / shard-copy /
+# shared-volume / downgrade path the design names in synthesis §2/§3, §5.2).
+#
+# Isolation: project d2prep1, subnet 10.98.0.0/16, port 8490. Tear down:
+#   docker compose -p d2prep1 -f docker-compose.singlenode.yml down -v
+
+services:
+  solo:
+    image: ${SOLO_IMAGE:-weaviate-test:d2-bm25-c75c4bbe}
+    container_name: d2prep1-solo
+    restart: "no"
+    networks:
+      - d2net
+    ports:
+      - "8490:8080"
+    environment:
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      LOG_LEVEL: "debug"
+      QUERY_DEFAULTS_LIMIT: "20"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      DEFAULT_VECTORIZER_MODULE: "none"
+      DISABLE_TELEMETRY: "true"
+      CLUSTER_HOSTNAME: "solo"
+      RAFT_BOOTSTRAP_EXPECT: "1"
+      RAFT_JOIN: "solo"
+      PERSISTENCE_MAX_REUSE_WAL_SIZE: "0"
+      PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS: "1"
+      PERSISTENCE_LSM_WRITE_INVERTED_SEGMENT_V2: "${SOLO_WRITE_V2:-}"
+    volumes:
+      - solodata:/var/lib/weaviate
+
+networks:
+  d2net:
+    name: d2prep1_net
+    ipam:
+      config:
+        - subnet: 10.98.0.0/16
+
+volumes:
+  solodata:
