@@ -35,6 +35,9 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
+	if err := s.index.usageLimits.CheckObjects(ctx, 1, s.index.Config.ClassName.String()); err != nil {
+		return err
+	}
 	uid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -194,7 +197,12 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 		return nil, nil
 	}
 
-	obj, err := storobj.FromBinary(objBytes)
+	className, err := bucket.ClassName()
+	if err != nil {
+		return nil, fmt.Errorf("getting bucket class name: %w", err)
+	}
+
+	obj, err := storobj.FromBinaryDisk(objBytes, className)
 	if err != nil {
 		return nil, err
 	}
@@ -240,15 +248,19 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	// Afterwards the bucket is updated. To avoid races, only one goroutine can do this at once.
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 
+	// Wait for hashtree initialization before acquiring the RLock.
+	// waitForMinimalHashTreeInitialization must not be called while holding
+	// RLock: if initHashtree fails and retries, it needs write-lock to replace
+	// minimalHashtreeInitializationCh; a caller blocking under RLock would
+	// deadlock with the retry until the caller's context expired.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
+		return objectInsertStatus{}, err
+	}
+
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
 		s.asyncReplicationRWMux.RLock()
 		defer s.asyncReplicationRWMux.RUnlock()
-
-		err := s.waitForMinimalHashTreeInitialization(ctx)
-		if err != nil {
-			return err
-		}
 
 		lock.Lock()
 		defer lock.Unlock()
@@ -270,7 +282,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return nil
 		}
 
-		objBinary, err := obj.MarshalBinary()
+		objBinary, err := obj.MarshalBinaryDisk(s.index.Config.SkipWriteClassNameOnDisk)
 		if err != nil {
 			return errors.Wrapf(err, "marshal object %s to binary", obj.ID())
 		}
@@ -280,6 +292,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 			return errors.Wrap(err, "upsert object data")
 		}
 		s.metrics.PutObjectUpsertObject(before)
+
+		// Tee before hashtree: the bucket is the SSOT for movement catchup.
+		s.AppendChangeLogPut(idBytes, obj.LastUpdateTimeUnix(), objBinary)
 
 		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
 			return errors.Wrap(err, "object creation in hashtree")
@@ -335,14 +350,50 @@ func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, s
 	return nil
 }
 
-func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
-	hashtreeHeight := s.asyncReplicationConfig.hashtreeHeight
+// upsertHashTreeLeaf updates the hashtree leaf for a single object identified
+// by its raw UUID bytes and update timestamp. Unlike upsertObjectHashTree it
+// accepts the two primitive values directly, avoiding the storobj.Object
+// allocation that would otherwise be needed on the initHashtree hot path.
+// Acquires asyncReplicationRWMux.RLock internally so the height read by
+// hashtreeLeafFor is consistent with the live hashtree pointer.
+func (s *Shard) upsertHashTreeLeaf(uuidBytes []byte, updateTime int64) error {
+	if len(uuidBytes) != 16 {
+		return fmt.Errorf("invalid object uuid")
+	}
+	if updateTime < 1 {
+		return fmt.Errorf("invalid object last update time")
+	}
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	if s.hashtree == nil {
+		return nil
+	}
+	leaf := s.hashtreeLeafFor(uuidBytes)
+	var objectDigest [16 + 8]byte
+	copy(objectDigest[:], uuidBytes)
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
+	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
+	return nil
+}
 
-	if hashtreeHeight == 0 {
+func (s *Shard) hashtreeLeafFor(uuidBytes []byte) uint64 {
+	ht := s.hashtree
+	if ht == nil {
 		return 0
 	}
+	return hashtreeLeafForHeight(uuidBytes, ht.Height())
+}
 
-	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - hashtreeHeight)
+// hashtreeLeafForHeight computes the hashtree leaf index for the given UUID
+// bytes at the specified tree height. hashtreeLeafFor must be called under
+// asyncReplicationRWMux.RLock so that the height is consistent with the live
+// hashtree pointer and cannot race with a concurrent initAsyncReplication
+// replacing s.hashtree with a tree of a different height.
+func hashtreeLeafForHeight(uuidBytes []byte, height int) uint64 {
+	if height == 0 {
+		return 0
+	}
+	return binary.BigEndian.Uint64(uuidBytes[:8]) >> (64 - height)
 }
 
 type objectInsertStatus struct {
@@ -447,21 +498,21 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	status objectInsertStatus, prevObject *storobj.Object,
 ) error {
-	props, nilprops, err := s.AnalyzeObject(object)
+	props, nilprops, nestedProps, err := s.AnalyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
 
 	var prevProps []inverted.Property
 	var prevNilprops []inverted.NilProperty
+	var prevNestedProps []inverted.NestedProperty
 
 	if prevObject != nil {
-		prevProps, prevNilprops, err = s.AnalyzeObject(prevObject)
+		prevProps, prevNilprops, prevNestedProps, err = s.AnalyzeObject(prevObject)
 		if err != nil {
 			return fmt.Errorf("analyze previous object: %w", err)
 		}
 	}
-
 	// if object updated (with or without docID changed)
 	if status.docIDChanged || status.docIDPreserved {
 		if err := s.subtractPropLengths(prevProps); err != nil {
@@ -508,6 +559,9 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 		if err := s.deleteFromInvertedIndicesLSM(propsToDel, nilpropsToDel, status.oldDocID); err != nil {
 			return fmt.Errorf("delete inverted indices props: %w", err)
 		}
+		if err := s.deleteNestedInvertedIndicesLSM(prevNestedProps, status.oldDocID); err != nil {
+			return fmt.Errorf("delete nested inverted indices: %w", err)
+		}
 		if s.index.Config.TrackVectorDimensions {
 			err = prevObject.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
 				if err = s.removeDimensionsLSM(dims, status.oldDocID, targetVector); err != nil {
@@ -524,6 +578,9 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	before := time.Now()
 	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
+	}
+	if err := s.extendNestedInvertedIndicesLSM(nestedProps, status.docID); err != nil {
+		return fmt.Errorf("put nested inverted indices: %w", err)
 	}
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 

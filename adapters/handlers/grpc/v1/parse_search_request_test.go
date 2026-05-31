@@ -2764,9 +2764,25 @@ func TestGRPCSearchRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "MMR selection with multi-vector target should error",
+			req: &pb.SearchRequest{
+				Collection: multiVecClassWithColBERT,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					Vectors: []*pb.Vectors{
+						{VectorBytes: byteops.Fp32SliceOfSlicesToBytes([][]float32{{1, 2, 3}}), Type: pb.Vectors_VECTOR_TYPE_MULTI_FP32},
+					},
+					TargetVectors: []string{"custom_colbert"},
+					Selection:     &pb.Selection{Selection: &pb.Selection_Mmr{Mmr: &pb.Selection_MMR{}}},
+				},
+			},
+			error: true,
+		},
 	}
 
-	parser := NewParser(false, getClass, getAlias)
+	parser := NewParser(false, getClass, nil, false)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
@@ -2791,10 +2807,6 @@ func getClass(name string) (*models.Class, error) {
 		return nil, fmt.Errorf("class %s not found", name)
 	}
 	return class, nil
-}
-
-func getAlias(name string) string {
-	return ""
 }
 
 func sortNamedVecs(vecs []string) {

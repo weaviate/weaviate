@@ -132,88 +132,6 @@ func setupDebugHandlers(appState *state.State) {
 		changeFile("properties.mig", false, props, logger, appState, r, w)
 	}))
 
-	http.HandleFunc("/debug/index/rebuild/inverted/reload", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		colName := r.URL.Query().Get("collection")
-
-		if colName == "" {
-			http.Error(w, "collection name is required", http.StatusBadRequest)
-			return
-		}
-
-		shardsToMigrateString := strings.TrimSpace(r.URL.Query().Get("shards"))
-
-		shardsToMigrate := []string{}
-		if shardsToMigrateString != "" {
-			shardsToMigrate = strings.Split(shardsToMigrateString, ",")
-		}
-
-		className := schema.ClassName(colName)
-		idx := appState.DB.GetIndex(className)
-
-		if idx == nil {
-			logger.WithField("collection", colName).Error("collection not found or not ready")
-			http.Error(w, "collection not found or not ready", http.StatusNotFound)
-			return
-		}
-
-		output := make(map[string]map[string]string)
-		// shards will not be force loaded, as we are only getting the name
-		err := idx.ForEachShard(
-			func(shardName string, shard db.ShardLike) error {
-				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
-					err := idx.IncomingReinitShard(
-						context.Background(),
-						shardName,
-					)
-					if err != nil {
-						logger.WithField("shard", shardName).Error("failed to reinit shard " + err.Error())
-						output[shardName] = map[string]string{
-							"shard":       shardName,
-							"shardStatus": shard.GetStatus().String(),
-							"status":      "error",
-							"message":     "failed to reinit shard",
-							"error":       err.Error(),
-						}
-						return nil
-					}
-					output[shardName] = map[string]string{
-						"shard":       shardName,
-						"shardStatus": shard.GetStatus().String(),
-						"status":      "reinit",
-						"message":     "reinit shard started",
-					}
-				} else {
-					output[shardName] = map[string]string{
-						"shard":       shardName,
-						"shardStatus": shard.GetStatus().String(),
-						"status":      "skipped",
-						"message":     fmt.Sprintf("shard %s not selected", shardName),
-					}
-				}
-				return nil
-			},
-		)
-
-		response := map[string]interface{}{
-			"shards": output,
-		}
-
-		if err != nil {
-			logger.WithField("collection", colName).Error("failed to get shard names")
-			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
-			response["error"] = "failed to get shard names: " + err.Error()
-		}
-
-		jsonBytes, err := json.Marshal(response)
-		if err != nil {
-			logger.WithError(err).Error("marshal failed on stats")
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(jsonBytes)
-	}))
-
 	http.HandleFunc("/debug/index/rebuild/inverted/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := map[string]interface{}{
 			"BlockMax WAND": "unknown",
@@ -324,12 +242,6 @@ func setupDebugHandlers(appState *state.State) {
 				rt := db.NewFileMapToBlockmaxReindexTracker(path, keyParser)
 
 				status, message, action := rt.GetStatusStrings()
-
-				if appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.ConditionalStart && !rt.HasStartCondition() {
-					message = "reindexing not started, no start condition file found"
-					status = "not_started"
-					action = "call /start?collection=<> endpoint to start reindexing"
-				}
 
 				output[i]["status"] = status
 				output[i]["message"] = message

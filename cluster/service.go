@@ -72,6 +72,10 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 
 	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
+	// Every state-transition apply on this node broadcasts the new state
+	// into every peer's PerNodeState map; the consumer waits on it locally.
+	fsm.replicationManager.SetLogger(cfg.Logger)
+	fsm.replicationManager.SetNodeReachedStateSubmitter(cfg.NodeID, raft.SubmitNodeReachedState)
 	fsmOpProducer := replication.NewFSMOpProducer(
 		cfg.Logger,
 		fsm.replicationManager.GetReplicationFSM(),
@@ -87,7 +91,6 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replication.NewOpsCache(),
 		replicationOperationTimeout,
 		cfg.ReplicationEngineMaxWorkers,
-		cfg.ReplicaMovementMinimumAsyncWait,
 		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
 		raft.SchemaReader(),
 	)
@@ -111,9 +114,9 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		rpcClient:          client,
 		rpcServer:          svr,
 		logger:             cfg.Logger,
-		closeBootstrapper:  make(chan struct{}),
-		closeOnFSMCaughtUp: make(chan struct{}),
-		closeWaitForDB:     make(chan struct{}),
+		closeBootstrapper:  make(chan struct{}, 1),
+		closeOnFSMCaughtUp: make(chan struct{}, 1),
+		closeWaitForDB:     make(chan struct{}, 1),
 	}
 }
 

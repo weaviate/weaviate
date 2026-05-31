@@ -341,7 +341,8 @@ func Test_ServerReplicationService(t *testing.T) {
 				c := "C"
 				s := "S"
 				level := 1
-				discriminant := hashtree.NewBitset(8)
+				// level-local discriminant: size must equal hashtree.LeavesCount(level).
+				discriminant := hashtree.NewBitset(hashtree.LeavesCount(level))
 				discriminant.Set(0)
 				expectedDigests := []hashtree.Digest{
 					{1, 2},
@@ -354,7 +355,129 @@ func Test_ServerReplicationService(t *testing.T) {
 				require.Equal(t, hashtree.Digest{1, 2}, resp[0])
 				require.Equal(t, hashtree.Digest{3, 4}, resp[1])
 			})
+
+			t.Run("CreateAsyncCheckpoint", func(t *testing.T) {
+				// Happy path: client → gRPC server → mockReplicator. The
+				// createdAt value must arrive at the server with millisecond
+				// precision preserved (the contract on the proto field is
+				// created_at_unix_milli, encoded by the client and decoded
+				// here by the server handler).
+				createdAt := time.UnixMilli(1_700_000_000_000).UTC()
+				mockReplicator.On("CreateAsyncCheckpoint",
+					mock.Anything, "C", []string{"s1", "s2"}, int64(123), createdAt,
+				).Return(nil).Once()
+				err := client.CreateAsyncCheckpoint(context.Background(), host, "C", []string{"s1", "s2"}, 123, createdAt)
+				require.NoError(t, err)
+			})
+
+			t.Run("CreateAsyncCheckpoint stale createdAt maps to AlreadyExists", func(t *testing.T) {
+				// Pin the error mapping: the exported sentinel
+				// replica.ErrAsyncCheckpointStale must surface as gRPC
+				// AlreadyExists, mirroring the REST handler's 409 Conflict.
+				// Returning the sentinel directly (rather than constructing
+				// an ad-hoc error with the same wording) keeps the test
+				// honest about errors.Is matching, not substring matching.
+				createdAt := time.UnixMilli(1_700_000_000_000).UTC()
+				mockReplicator.On("CreateAsyncCheckpoint",
+					mock.Anything, "C", []string{"s1"}, int64(123), createdAt,
+				).Return(replica.ErrAsyncCheckpointStale).Once()
+				err := client.CreateAsyncCheckpoint(context.Background(), host, "C", []string{"s1"}, 123, createdAt)
+				require.Error(t, err)
+				st, ok := status.FromError(unwrapGRPCError(err))
+				require.True(t, ok, "expected a grpc status; got %T: %v", err, err)
+				require.Equal(t, codes.AlreadyExists, st.Code())
+			})
+
+			t.Run("CreateAsyncCheckpoint inactive maps to FailedPrecondition", func(t *testing.T) {
+				createdAt := time.UnixMilli(1_700_000_000_000).UTC()
+				mockReplicator.On("CreateAsyncCheckpoint",
+					mock.Anything, "C", []string{"s1"}, int64(123), createdAt,
+				).Return(replica.ErrAsyncReplicationNotActive).Once()
+				err := client.CreateAsyncCheckpoint(context.Background(), host, "C", []string{"s1"}, 123, createdAt)
+				require.Error(t, err)
+				st, ok := status.FromError(unwrapGRPCError(err))
+				require.True(t, ok)
+				require.Equal(t, codes.FailedPrecondition, st.Code())
+			})
+
+			t.Run("CreateAsyncCheckpoint far-future createdAt maps to InvalidArgument", func(t *testing.T) {
+				// Guard the clock-skew bomb: a createdAt beyond
+				// replica.AsyncCheckpointCreatedAtSkewTolerance must be
+				// rejected before reaching the replicator, so it can never
+				// become the strict-greater-than tie-breaker that blocks
+				// every later legitimate create. The mock has no expectation
+				// here on purpose — the handler must not call it.
+				createdAt := time.Now().Add(replica.AsyncCheckpointCreatedAtSkewTolerance + time.Hour).UTC()
+				err := client.CreateAsyncCheckpoint(context.Background(), host, "C", []string{"s1"}, 123, createdAt)
+				require.Error(t, err)
+				st, ok := status.FromError(unwrapGRPCError(err))
+				require.True(t, ok, "expected a grpc status; got %T: %v", err, err)
+				require.Equal(t, codes.InvalidArgument, st.Code())
+			})
+
+			t.Run("DeleteAsyncCheckpoint", func(t *testing.T) {
+				mockReplicator.On("DeleteAsyncCheckpoint",
+					mock.Anything, "C", []string{"s1", "s2"},
+				).Return(nil).Once()
+				err := client.DeleteAsyncCheckpoint(context.Background(), host, "C", []string{"s1", "s2"})
+				require.NoError(t, err)
+			})
+
+			t.Run("GetAsyncCheckpointStatus", func(t *testing.T) {
+				// Active entry + inactive entry must both come back intact:
+				// active carries a non-empty Root and CutoffMs > 0; inactive
+				// has a zero Root and CutoffMs == 0. The wire mapping must
+				// preserve this distinction so callers can distinguish
+				// "loaded but inactive" from "not loaded".
+				activeRoot := hashtree.Digest{0xDEADBEEF, 0xCAFEBABE}
+				createdAt := time.UnixMilli(1_700_000_000_000).UTC()
+				mockReplicator.On("GetAsyncCheckpointStatus",
+					mock.Anything, "C", []string{"s1", "s2"},
+				).Return(map[string]replica.AsyncCheckpointShardStatus{
+					"s1": {Root: activeRoot, CutoffMs: 500, CreatedAt: createdAt},
+					"s2": {Root: hashtree.Digest{}, CutoffMs: 0, CreatedAt: time.Time{}},
+				}, nil).Once()
+
+				out, err := client.GetAsyncCheckpointStatus(context.Background(), host, "C", []string{"s1", "s2"})
+				require.NoError(t, err)
+				require.Len(t, out, 2)
+
+				require.Equal(t, int64(500), out["s1"].CutoffMs)
+				require.Equal(t, activeRoot, out["s1"].Root)
+				// createdAt round-trips with millisecond precision.
+				require.Equal(t, createdAt.UnixMilli(), out["s1"].CreatedAt.UnixMilli())
+
+				// Inactive shard: empty root on the wire decodes back to a
+				// zero Digest, CutoffMs is 0, and CreatedAt is the zero
+				// time.Time (not 1970-01-01 — see the encoder note on
+				// AsyncCheckpointShardStatus in replication_service.go).
+				require.Equal(t, int64(0), out["s2"].CutoffMs)
+				require.Equal(t, hashtree.Digest{}, out["s2"].Root)
+				require.True(t, out["s2"].CreatedAt.IsZero(),
+					"inactive entry must round-trip CreatedAt as zero time.Time, got %v", out["s2"].CreatedAt)
+			})
 		})
+	}
+}
+
+// unwrapGRPCError peels the "gRPC <Method>:" wrapper that grpcReplicationClient
+// adds around the underlying grpc status, so status.FromError can extract the
+// original code. Without this the wrapped error parses as Unknown.
+func unwrapGRPCError(err error) error {
+	if err == nil {
+		return nil
+	}
+	type wrapped interface{ Unwrap() error }
+	for {
+		w, ok := err.(wrapped)
+		if !ok {
+			return err
+		}
+		inner := w.Unwrap()
+		if inner == nil {
+			return err
+		}
+		err = inner
 	}
 }
 

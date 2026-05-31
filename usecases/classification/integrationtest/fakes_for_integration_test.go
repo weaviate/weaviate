@@ -648,6 +648,24 @@ func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 	return nil, nil
 }
 
+func (c *fakeReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	return nil, nil
+}
+
 func (c *fakeReplicationClient) CountObjects(ctx context.Context, host, index, shard string) (int, error) {
 	return 0, nil
+}
+
+func (c *fakeReplicationClient) CreateAsyncCheckpoint(_ context.Context, _, _ string, _ []string, _ int64, _ time.Time) error {
+	return nil
+}
+
+func (c *fakeReplicationClient) DeleteAsyncCheckpoint(_ context.Context, _, _ string, _ []string) error {
+	return nil
+}
+
+func (c *fakeReplicationClient) GetAsyncCheckpointStatus(_ context.Context, _, _ string, _ []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	return map[string]replica.AsyncCheckpointShardStatus{}, nil
 }

@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -50,7 +52,29 @@ type SchemaManager interface {
 	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
 	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
-	UpdateProperty(ctx context.Context, class string, property *models.Property) (uint64, error)
+	// UpdateProperty merges `property` into the named class. When `fields`
+	// is non-empty, the RAFT FSM only merges the listed property fields
+	// (see api.PropertyField* constants); fields not listed keep their
+	// existing values. An empty `fields` preserves the legacy "replace
+	// every field" semantics, so existing public-API callers do not need
+	// to change.
+	UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
+	// UpdatePropertyFromMigration is the internal variant of
+	// UpdateProperty used by the distributed-task scheduler's reindex
+	// completion path. It sets the
+	// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the
+	// schema FSM's cross-FSM MutationGuard (which blocks property
+	// mutations while a reindex on the same property is STARTED or
+	// FINALIZING) bypasses the check for migration-driven schema
+	// flips.
+	//
+	// Public REST / gRPC handlers must not call this; they go through
+	// UpdateProperty above. The bypass is mechanically required
+	// because OnTaskCompleted (which calls
+	// flipSemanticMigrationSchema) fires while the task is still in
+	// FINALIZING, so without the bypass the migration's own flip
+	// would be rejected by the very guard it depends on.
+	UpdatePropertyFromMigration(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
 	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
 	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)
 	UpdateTenants(ctx context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error)
@@ -67,7 +91,10 @@ type SchemaManager interface {
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
 	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
-	QueryCollectionsCount() (int, error)
+	// QueryCollectionsCount returns a leader-consistent count. Empty
+	// namespace returns the cluster-global total; a non-empty namespace
+	// restricts the count to classes in that namespace.
+	QueryCollectionsCount(namespace string) (int, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
@@ -154,7 +181,75 @@ type Handler struct {
 	parser      Parser
 	classGetter *ClassGetter
 
+	// namespacesExister resolves a namespace name to its entity (HomeNode)
+	// for placement; unused on NS-disabled clusters.
+	namespacesExister namespaces.Exister
+
 	asyncIndexingEnabled bool
+}
+
+// errorMessageTemplate returns the operator-overridable usage-limit
+// message template, or "" when unset (in which case the usagelimits
+// package falls back to its built-in default). See docs/usage_limits.md.
+func (h *Handler) errorMessageTemplate() string {
+	if dv := h.config.UsageLimits.ErrorMessage; dv != nil {
+		return dv.Get()
+	}
+	return ""
+}
+
+// restrictionsErrorMessageTemplate returns RESTRICTIONS_ERROR_MESSAGE
+// or "" (callers fall back to the package default).
+func (h *Handler) restrictionsErrorMessageTemplate() string {
+	if dv := h.config.Restrictions.ErrorMessage; dv != nil {
+		return dv.Get()
+	}
+	return ""
+}
+
+// allowedVectorIndexTypes returns the configured allow-list (nil =
+// unrestricted; caller must not mutate). Entries are re-normalized at
+// read time so a runtime YAML push of mixed-case entries still matches.
+func (h *Handler) allowedVectorIndexTypes() []string {
+	if dv := h.config.Restrictions.AllowedVectorIndexTypes; dv != nil {
+		if v := dv.Get(); len(v) > 0 {
+			return normalizeAllowList(v, config.IsValidRestrictionVectorIndexType)
+		}
+	}
+	return nil
+}
+
+// allowedCompressionTypes is the compression sibling of allowedVectorIndexTypes.
+func (h *Handler) allowedCompressionTypes() []string {
+	if dv := h.config.Restrictions.AllowedCompressionTypes; dv != nil {
+		if v := dv.Get(); len(v) > 0 {
+			return normalizeAllowList(v, config.IsValidRestrictionCompressionType)
+		}
+	}
+	return nil
+}
+
+// normalizeAllowList lowercases/trims entries and drops invalid ones.
+// All-invalid input returns nil ("no restriction") — fail-safe for a
+// misconfigured runtime override.
+func normalizeAllowList(in []string, isValid func(string) bool) []string {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, v := range in {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" || !isValid(v) {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // NewHandler creates a new handler
@@ -169,6 +264,7 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser, classGetter *ClassGetter,
+	namespacesExister namespaces.Exister,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -186,6 +282,7 @@ func NewHandler(
 		clusterState:            clusterState,
 		cloud:                   cloud,
 		classGetter:             classGetter,
+		namespacesExister:       namespacesExister,
 
 		asyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}
@@ -209,7 +306,6 @@ func (h *Handler) GetConsistentSchema(ctx context.Context, principal *models.Pri
 
 	filteredClasses := filter.New[*models.Class](h.Authorizer, h.config.Authorization.Rbac).Filter(
 		ctx,
-		h.logger,
 		principal,
 		fullSchema.Objects.Classes,
 		authorization.READ,
@@ -248,8 +344,12 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...)
+	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 	if err != nil {
+		return 0, err
+	}
+
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...); err != nil {
 		return 0, err
 	}
 
@@ -259,16 +359,12 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	// NOTE: support get shard status via alias
-	// Also we resolve before doing `Authorize` so that Authorizer will work
-	// with correct `collectionName` for permissions and errors UX
-	class = schema.UppercaseClassName(class)
-	if rclass := h.schemaReader.ResolveAlias(class); rclass != "" {
-		class = rclass
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	if err != nil {
+		return nil, err
 	}
 
-	err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, shard)...)
-	if err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, shard)...); err != nil {
 		return nil, err
 	}
 

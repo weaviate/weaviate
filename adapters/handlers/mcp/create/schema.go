@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/internal"
+	mcpmetrics "github.com/weaviate/weaviate/adapters/handlers/mcp/metrics"
 )
 
 // Request types
@@ -44,7 +45,7 @@ type UpsertObjectResp struct {
 
 // Tool registration
 
-func Tools(creator *WeaviateCreator, configs map[string]internal.ToolConfig) []server.ServerTool {
+func Tools(creator *WeaviateCreator, configs map[string]internal.ToolConfig, m *mcpmetrics.MCPMetrics) []server.ServerTool {
 	toolName := "weaviate-objects-upsert"
 	tool := mcp.NewTool(
 		toolName,
@@ -57,6 +58,6 @@ func Tools(creator *WeaviateCreator, configs map[string]internal.ToolConfig) []s
 	)
 	internal.ApplySchemaDescriptions(&tool, toolName, configs)
 	return []server.ServerTool{
-		{Tool: tool, Handler: mcp.NewStructuredToolHandler(creator.UpsertObject)},
+		{Tool: tool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, toolName, creator.UpsertObject))},
 	}
 }

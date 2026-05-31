@@ -29,13 +29,14 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return err
 	}
 
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
-	err := s.waitForMinimalHashTreeInitialization(ctx)
-	if err != nil {
+	// Wait for hashtree initialization before acquiring the RLock.
+	// See shard_write_put.go for the deadlock explanation.
+	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return err
 	}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
@@ -78,6 +79,14 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
+
+	// Never time.Now() — the target's LWW replay compares this against its
+	// local object's updateTime.
+	logTime := updateTime
+	if !deletionTime.IsZero() {
+		logTime = deletionTime.UnixMilli()
+	}
+	s.AppendChangeLogDelete(idBytes, logTime)
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
 		return fmt.Errorf("object deletion in hashtree: %w", err)
@@ -136,12 +145,16 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 }
 
 func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) error {
-	previousObject, err := storobj.FromBinary(previous)
+	className, err := s.store.Bucket(helpers.ObjectsBucketLSM).ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
+	previousObject, err := storobj.FromBinaryDisk(previous, className)
 	if err != nil {
 		return fmt.Errorf("unmarshal previous object: %w", err)
 	}
 
-	previousProps, previousNilProps, err := s.AnalyzeObject(previousObject)
+	previousProps, previousNilProps, previousNestedProps, err := s.AnalyzeObject(previousObject)
 	if err != nil {
 		return fmt.Errorf("analyze previous object: %w", err)
 	}
@@ -160,6 +173,10 @@ func (s *Shard) cleanupInvertedIndexOnDelete(previous []byte, docID uint64) erro
 	err = s.deleteFromInvertedIndicesLSM(previousProps, previousNilProps, docID)
 	if err != nil {
 		return fmt.Errorf("put inverted indices props: %w", err)
+	}
+
+	if err = s.deleteNestedInvertedIndicesLSM(previousNestedProps, docID); err != nil {
+		return fmt.Errorf("delete nested inverted indices: %w", err)
 	}
 
 	if s.index.Config.TrackVectorDimensions {
@@ -201,9 +218,8 @@ func (s *Shard) deleteObjectHashTree(uuidBytes []byte, updateTime int64) error {
 	copy(objectDigest[:], uuidBytes)
 	binary.BigEndian.PutUint64(objectDigest[16:], uint64(updateTime))
 
-	// object deletion is treated as non-existent,
-	// that because deletion time or tombstone may not be available
-
+	// object deletion is treated as non-existent because the deletion time or
+	// tombstone may not be available
 	s.hashtree.AggregateLeafWith(leaf, objectDigest[:])
 
 	return nil

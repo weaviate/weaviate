@@ -28,7 +28,8 @@ import (
 
 type fakeSchemaManager struct {
 	mock.Mock
-	countClassEqual bool
+	countClassEqual   bool
+	storageCandidates []string
 }
 
 func (f *fakeSchemaManager) AddClass(_ context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
@@ -56,8 +57,13 @@ func (f *fakeSchemaManager) AddProperty(_ context.Context, class string, p ...*m
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, property *models.Property) (uint64, error) {
-	args := f.Called(class, property)
+func (f *fakeSchemaManager) UpdateProperty(_ context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
+	args := f.Called(class, property, fields)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) UpdatePropertyFromMigration(_ context.Context, class string, property *models.Property, fields ...string) (uint64, error) {
+	args := f.Called(class, property, fields)
 	return 0, args.Error(0)
 }
 
@@ -130,6 +136,9 @@ func (f *fakeSchemaManager) ClassInfo(class string) (ci clusterSchema.ClassInfo)
 }
 
 func (f *fakeSchemaManager) StorageCandidates() []string {
+	if len(f.storageCandidates) > 0 {
+		return f.storageCandidates
+	}
 	return []string{"node-1"}
 }
 
@@ -143,8 +152,8 @@ func (f *fakeSchemaManager) QuerySchema() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeSchemaManager) QueryCollectionsCount() (int, error) {
-	args := f.Called()
+func (f *fakeSchemaManager) QueryCollectionsCount(namespace string) (int, error) {
+	args := f.Called(namespace)
 	return args.Get(0).(int), args.Error(1)
 }
 

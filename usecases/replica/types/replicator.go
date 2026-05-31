@@ -42,8 +42,17 @@ type Replicator interface {
 	DigestObjects(ctx context.Context, className, shardName string, ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, className, shardName string,
 		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
+	// CompareDigests accepts a batch of source digests and returns only those that require repair
+	// (missing, stale, or tombstoned on this node). Eliminates the two-round-trip pattern.
+	CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairResponse) ([]types.RepairResponse, error)
 	HashTreeLevel(ctx context.Context, className, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	FindUUIDs(ctx context.Context, indexName, shardName string, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 	CountObjects(ctx context.Context, indexName, shardName string) (int, error)
+
+	// CreateAsyncCheckpoint: createdAt is the initiator's value, propagated unchanged.
+	CreateAsyncCheckpoint(ctx context.Context, className string, shardNames []string, cutoffMs int64, createdAt time.Time) error
+	DeleteAsyncCheckpoint(ctx context.Context, className string, shardNames []string) error
+	// GetAsyncCheckpointStatus omits shards not loaded on this node from the map.
+	GetAsyncCheckpointStatus(ctx context.Context, className string, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error)
 }

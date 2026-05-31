@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 type errorType string
@@ -125,7 +126,7 @@ func Test_coordinatorPush(t *testing.T) {
 			}
 			w.WriteHeader(status)
 			b, err := json.Marshal(replica.SimpleResponse{
-				Errors: []replica.Error{{Msg: msg}},
+				Errors: []replicaerrors.Error{{Msg: msg}},
 			})
 			require.NoError(t, err)
 			w.Write(b)

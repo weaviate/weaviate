@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/authz"
@@ -131,6 +132,27 @@ func CreateUser(t *testing.T, userId, key string) string {
 	return *resp.Payload.Apikey
 }
 
+func CreateUserWithNamespace(t *testing.T, userId, namespace, adminKey string) string {
+	t.Helper()
+	// Retry until the follower has applied the namespace; the local fast-path
+	// Exists() check 422s before any RAFT command is sent, so this is safe.
+	var apikey string
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := Client(t).Users.CreateUser(
+			users.NewCreateUserParams().WithUserID(namespace+":"+userId).WithBody(users.CreateUserBody{}),
+			CreateAuth(adminKey),
+		)
+		if !assert.NoError(c, err) {
+			return
+		}
+		if !assert.NotNil(c, resp.Payload.Apikey) {
+			return
+		}
+		apikey = *resp.Payload.Apikey
+	}, 10*time.Second, 50*time.Millisecond, "user %q could not be created in namespace %q", userId, namespace)
+	return apikey
+}
+
 func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time) string {
 	t.Helper()
 	tp := true
@@ -204,6 +226,58 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 	return resp.Payload
 }
 
+// CreateRoleAndAssign creates a role with the given permissions, assigns it to
+// an already-existing user, and registers a t.Cleanup that reverses both
+// (revoke role then delete role). The user is not created or deleted here —
+// callers are expected to declare users statically on the compose (see
+// docker.WithUserApiKey).
+func CreateRoleAndAssign(t *testing.T, adminKey, userName, roleName string, permissions ...*models.Permission) {
+	t.Helper()
+	role := &models.Role{Name: &roleName, Permissions: permissions}
+	CreateRole(t, adminKey, role)
+	AssignRoleToUser(t, adminKey, roleName, userName)
+	t.Cleanup(func() {
+		RevokeRoleFromUser(t, adminKey, roleName, userName)
+		DeleteRole(t, adminKey, roleName)
+	})
+}
+
+// WaitForOwnRole waits for the role binding to be visible both on the
+// leader (GetOwnInfo, Raft-routed) and on the local follower (self
+// GetUserInfo, runs Authorize locally). The follower probe pins the
+// RAFT-apply lag that would otherwise 403 the next authz-checked
+// request. It needs read_users so it only runs for built-in
+// admin/viewer; custom roles get only the leader-side guarantee.
+func WaitForOwnRole(t *testing.T, apikey, roleName string) {
+	t.Helper()
+	var selfID string
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(apikey))
+		if !assert.NoError(c, err) {
+			return
+		}
+		for _, role := range resp.Payload.Roles {
+			if role != nil && role.Name != nil && *role.Name == roleName {
+				if resp.Payload.Username != nil {
+					selfID = *resp.Payload.Username
+				}
+				return
+			}
+		}
+		assert.Fail(c, "role not yet leader-visible", "role %q not in own-info roles", roleName)
+	}, 10*time.Second, 50*time.Millisecond, "role %q binding did not become leader-visible via GetOwnInfo", roleName)
+
+	if roleName != authorization.Admin && roleName != authorization.Viewer {
+		return
+	}
+	require.NotEmpty(t, selfID, "GetOwnInfo returned an empty username; cannot run local-Enforce probe")
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		_, err := Client(t).Users.GetUserInfo(
+			users.NewGetUserInfoParams().WithUserID(selfID), CreateAuth(apikey))
+		assert.NoError(c, err, "self GetUserInfo still 403s — role %q not yet locally applied", roleName)
+	}, 10*time.Second, 50*time.Millisecond, "role %q grouping not visible to local Authorize for caller %q", roleName, selfID)
+}
+
 func AssignRoleToUser(t *testing.T, key, role, user string) {
 	t.Helper()
 	userType := models.UserTypeInputDb
@@ -229,6 +303,17 @@ func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
 func RevokeRoleFromUser(t *testing.T, key, role, user string) {
 	userType := models.UserTypeInputDb
 
+	resp, err := Client(t).Authz.RevokeRoleFromUser(
+		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: userType}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func RevokeRoleFromUserOIDC(t *testing.T, key, role, user string) {
+	t.Helper()
+	userType := models.UserTypeInputOidc
 	resp, err := Client(t).Authz.RevokeRoleFromUser(
 		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: userType}),
 		CreateAuth(key),

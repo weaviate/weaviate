@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"path"
@@ -40,6 +41,8 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	selector "github.com/weaviate/weaviate/adapters/repos/db/vector/selection"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -64,11 +67,11 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/tokenizer"
+	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/dynsemaphore"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -77,6 +80,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
 // Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
@@ -294,8 +298,8 @@ type Index struct {
 	allShardsReady atomic.Bool
 	allocChecker   memwatch.AllocChecker
 
-	replicationConfigLock          sync.RWMutex
-	asyncReplicationWorkersLimiter *dynsemaphore.DynamicWeighted
+	replicationConfigLock     sync.RWMutex
+	asyncReplicationScheduler *AsyncReplicationScheduler
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
@@ -308,6 +312,17 @@ type Index struct {
 	shardResolver  *resolver.ShardResolver
 	bitmapBufPool  roaringset.BitmapBufPool
 	tenantsManager schemaUC.TenantsActivityManager
+
+	// usageLimits is inherited from the owning DB at index creation; nil
+	// means no enforcement. Read by Shards on the write path. See
+	// docs/usage_limits.md.
+	usageLimits *usagelimits.Manager
+
+	// db is the owning *DB, set by the caller right after NewIndex
+	// returns. Used by [Index.refuseIfReindexInFlight] to consult the
+	// DTM-backed backup gate. Nil is treated conservatively by the gate
+	// (refuses), matching the pre-wire stance.
+	db *DB
 }
 
 func (i *Index) ID() string {
@@ -421,12 +436,13 @@ func NewIndex(
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}
 
-	index.asyncReplicationWorkersLimiter = dynsemaphore.NewDynamicWeightedWithParent(index.Config.AsyncReplicationWorkersLimiter,
-		func() int64 {
-			index.replicationConfigLock.RLock()
-			defer index.replicationConfigLock.RUnlock()
-			return int64(index.Config.AsyncReplicationConfig.maxWorkers)
-		})
+	if cfg.AsyncReplicationScheduler == nil && cfg.ReplicationFactor > 1 {
+		return nil, fmt.Errorf("init index %q: async replication scheduler is required when ReplicationFactor > 1", cfg.ClassName.String())
+	}
+	if globalReplicationConfig == nil && cfg.ReplicationFactor > 1 {
+		return nil, fmt.Errorf("init index %q: global replication config is required when ReplicationFactor > 1", cfg.ClassName.String())
+	}
+	index.asyncReplicationScheduler = cfg.AsyncReplicationScheduler
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -859,6 +875,9 @@ func (i *Index) getStopwordProvider() *stopwords.Provider {
 }
 
 func (i *Index) asyncReplicationGloballyDisabled() bool {
+	if i.globalreplicationConfig == nil {
+		return false
+	}
 	return i.globalreplicationConfig.AsyncReplicationDisabled.Get()
 }
 
@@ -868,32 +887,129 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled
 
-	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig)
+	config, err := asyncReplicationConfigFromModel(multitenancy.IsMultiTenant(i.getClass().MultiTenancyConfig), cfg.AsyncConfig, i.logger.WithField("class", i.Config.ClassName))
 	if err != nil {
 		return err
 	}
 	i.Config.AsyncReplicationConfig = config
 
 	// unloaded shards will fetch the latest config when they are loaded
-	err = i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if i.Config.AsyncReplicationEnabled && cfg.AsyncConfig != nil {
-			// if async replication is being enabled, first disable it to reset any previous config
-			if err := shard.SetAsyncReplicationState(ctx, AsyncReplicationConfig{}, false); err != nil {
+	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
+}
+
+// applyAsyncReplicationToLoadedShardsLocked (re-)applies the current
+// enable/disable decision to every loaded shard. enable/disableAsyncReplication
+// are idempotent, so this is safe to call again.
+//
+// The caller MUST hold i.replicationConfigLock for writing; holding it across
+// the apply is deadlock-free (enable/disableAsyncReplication never reacquire it).
+// Note that enableAsyncReplication does synchronous hashtree disk I/O, so the
+// write lock is held for the whole per-shard apply: hashbeat cycles for this
+// index (which read the lock via AsyncReplicationEnabled) stall until it ends.
+func (i *Index) applyAsyncReplicationToLoadedShardsLocked(ctx context.Context) error {
+	enabled := i.asyncReplicationEnabled()
+	cfg := i.Config.AsyncReplicationConfig
+
+	return i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		// Stop the per-shard walk if the caller's context (e.g. server
+		// shutdown) was cancelled — the apply below does synchronous disk I/O.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		ctrl, ok := shard.(asyncReplicationController)
+		if !ok {
+			return fmt.Errorf("shard %q does not implement asyncReplicationController", name)
+		}
+
+		if enabled {
+			if err := ctrl.enableAsyncReplication(ctx, cfg); err != nil {
+				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+			}
+		} else {
+			if err := ctrl.disableAsyncReplication(ctx); err != nil {
 				return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 			}
 		}
-
-		if err := shard.SetAsyncReplicationState(ctx, i.Config.AsyncReplicationConfig, i.asyncReplicationEnabled()); err != nil {
-			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
-		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
+}
 
+// reconcileAsyncReplication re-applies the enable/disable decision to this
+// index's loaded shards. It reacts to a runtime change of the global
+// AsyncReplicationDisabled flag, which would otherwise leave shards loaded
+// while disabled permanently unregistered.
+func (i *Index) reconcileAsyncReplication(ctx context.Context) error {
+	// Exclusive lock (matching updateReplicationConfig) so the apply can't
+	// interleave with a concurrent reconcile or be observed half-applied.
+	i.replicationConfigLock.Lock()
+	defer i.replicationConfigLock.Unlock()
+
+	if i.Config.ReplicationFactor <= 1 {
+		return nil // never runs async replication; nothing to reconcile
+	}
+	return i.applyAsyncReplicationToLoadedShardsLocked(ctx)
+}
+
+// ReconcileAsyncReplication re-applies async replication to every loaded shard
+// of every index. The runtime-config hook calls it when the global
+// AsyncReplicationDisabled flag changes, so shards loaded while it was disabled
+// get (un)registered to match instead of staying stale until a reload.
+func (db *DB) ReconcileAsyncReplication(ctx context.Context) error {
+	// Snapshot only the index pointers under indexLock; the dropIndex read lock
+	// is taken per index just-in-time below, not up front. The pointers stay
+	// valid even if a concurrent DeleteIndex removes one from db.indices.
+	var indices []*Index
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+		for _, idx := range db.indices {
+			indices = append(indices, idx)
+		}
+	}()
+
+	// Reconcile outside indexLock so the per-shard apply (which can do hashtree
+	// I/O) does not block index creation/deletion. Each index takes its own
+	// dropIndex.RLock only while it is being reconciled — the established
+	// discipline for using an index outside indexLock (see SnapshotShards) —
+	// so a concurrent DeleteIndex is blocked only on the current index, not on
+	// every index still queued. If a DeleteIndex completed between the snapshot
+	// and acquiring dropIndex.RLock, drop() has set idx.closed, so the closed
+	// check below skips the index.
+	var failed int
+	for processed, idx := range indices {
+		// Stop the walk if the caller's context (e.g. server shutdown) was
+		// cancelled; the per-index apply does synchronous hashtree disk I/O.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("reconcile async replication interrupted after %d of %d indices: %w",
+				processed, len(indices), err)
+		}
+
+		err := func() error {
+			idx.dropIndex.RLock()
+			defer idx.dropIndex.RUnlock()
+			idx.closeLock.RLock()
+			defer idx.closeLock.RUnlock()
+			if idx.closed {
+				return nil // index is shutting down; nothing to reconcile
+			}
+			return idx.reconcileAsyncReplication(ctx)
+		}()
+		if err != nil {
+			failed++
+			db.logger.WithField("action", "reconcile_async_replication").
+				WithField("class", idx.Config.ClassName).Error(err)
+		}
+	}
+	if failed > 0 {
+		// Surface a metric: the only self-healing trigger is another flag toggle
+		// or schema update, so operators need to detect a partial reconcile.
+		if db.asyncReplicationScheduler != nil {
+			db.asyncReplicationScheduler.metrics.addReconcileFailures(failed)
+		}
+		return fmt.Errorf("reconcile async replication failed for %d of %d indices", failed, len(indices))
+	}
 	return nil
 }
 
@@ -935,14 +1051,14 @@ type IndexConfig struct {
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
-	AsyncReplicationEnabled             bool
 	AsyncReplicationConfig              AsyncReplicationConfig
-	AsyncReplicationWorkersLimiter      *dynsemaphore.DynamicWeighted
+	AsyncReplicationScheduler           *AsyncReplicationScheduler
 	AvoidMMap                           bool
 	EnableLazyLoadShards                bool
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
+	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
 	UsageEnabled                        bool
@@ -1244,7 +1360,22 @@ func (i *Index) AsyncReplicationEnabled() bool {
 }
 
 func (i *Index) asyncReplicationEnabled() bool {
-	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
+	return i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
+}
+
+// IsAsyncReplicationEnabledOrIrrelevant is the export gate: true if async
+// replication is irrelevant (RF ≤ 1) or enabled (RF > 1 and not globally
+// disabled).
+//
+// It is config-level by design — per-shard readiness inspection is unstable
+// for multi-tenant classes (tenant shards constantly transition) and would
+// reject create-then-export during warm-up. Reconciliation keeps this view
+// honest by applying the config to loaded shards.
+func (i *Index) IsAsyncReplicationEnabledOrIrrelevant() bool {
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	return i.Config.ReplicationFactor <= 1 || i.asyncReplicationEnabled()
 }
 
 func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
@@ -1254,12 +1385,62 @@ func (i *Index) AsyncReplicationConfig() AsyncReplicationConfig {
 	return i.Config.AsyncReplicationConfig
 }
 
-func (i *Index) asyncReplicationWorkerAcquire(ctx context.Context) error {
-	return i.asyncReplicationWorkersLimiter.Acquire(ctx, 1)
+// InitAsyncReplicationOnShard force-starts async replication on a single named
+// shard. Called by the copier after a shard copy completes, before the index's
+// ReplicationFactor has been updated cluster-wide.
+func (i *Index) InitAsyncReplicationOnShard(ctx context.Context, shardName string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("get shard %s: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("get shard %s: not found", shardName)
+	}
+	defer release()
+
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
+	}
+
+	// Hold replicationConfigLock across the apply so the config read and the
+	// enable cannot be interleaved by a concurrent updateReplicationConfig. See
+	// RevertAsyncReplicationOnShard for why this is deadlock-free.
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+	return ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig)
 }
 
-func (i *Index) asyncReplicationWorkerRelease() {
-	i.asyncReplicationWorkersLimiter.Release(1)
+// RevertAsyncReplicationOnShard reverts a shard to the async replication state
+// dictated by the index's current ReplicationFactor. Called by the copier when
+// rolling back a copy operation.
+func (i *Index) RevertAsyncReplicationOnShard(ctx context.Context, shardName string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("get shard %s: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("get shard %s: not found", shardName)
+	}
+	defer release()
+
+	ctrl, ok := shard.(asyncReplicationController)
+	if !ok {
+		return fmt.Errorf("shard %q does not implement asyncReplicationController", shardName)
+	}
+
+	// Hold replicationConfigLock across the apply (not just the snapshot) so a
+	// concurrent updateReplicationConfig cannot interleave and let stale state
+	// win. Deadlock-free: updateReplicationConfig already calls
+	// enable/disableAsyncReplication under the write lock, so they never
+	// reacquire replicationConfigLock.
+	i.replicationConfigLock.RLock()
+	defer i.replicationConfigLock.RUnlock()
+
+	if i.asyncReplicationEnabled() {
+		return ctrl.enableAsyncReplication(ctx, i.Config.AsyncReplicationConfig)
+	}
+	return ctrl.disableAsyncReplication(ctx)
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -2206,6 +2387,37 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
+	// For multi-shard MMR: skip per-shard selection, include vectors so the
+	// coordinator can run one global MMR pass after merging all shard results.
+	shardSelection := selection
+	shardAdditionalProps := additionalProps
+	var stripVector string // tracks vector name we added ("" = default, empty if none)
+	var needStrip bool
+	if selection != nil {
+		shardSelection = nil
+		targetVec := ""
+		if len(targetVectors) > 0 {
+			targetVec = targetVectors[0]
+		}
+		if targetVec == "" && !additionalProps.Vector {
+			needStrip = true
+			shardAdditionalProps.Vector = true
+		} else if targetVec != "" {
+			found := false
+			for _, v := range additionalProps.Vectors {
+				if v == targetVec {
+					found = true
+					break
+				}
+			}
+			if !found {
+				needStrip = true
+				stripVector = targetVec
+				shardAdditionalProps.Vectors = append(append([]string{}, additionalProps.Vectors...), targetVec)
+			}
+		}
+	}
+
 	// a limit of -1 is used to signal a search by distance. if that is
 	// the case we have to adjust how we calculate the output capacity
 	var shardCap int
@@ -2233,7 +2445,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	remoteSearch := func(shardName string) error {
 		// If we have no local shard or if we force the query to reach all replicas
-		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName, selection)
+		remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, shardAdditionalProps, targetCombination, properties, tenant, shardName, shardSelection)
 		if err2 != nil {
 			return fmt.Errorf(
 				"remote shard object search %s: %w", shardName, err2)
@@ -2253,7 +2465,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		defer release()
 
 		if shard != nil {
-			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, tenant, shardName, selection)
+			localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, shardAdditionalProps, targetCombination, properties, tenant, shardName, shardSelection)
 			if err1 != nil {
 				return fmt.Errorf(
 					"local shard object search %s: %w", shard.ID(), err1)
@@ -2311,11 +2523,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
-	if selection != nil {
-		limit = int(selection.MMR.Limit)
-	}
-
-	if len(readPlan.Shards()) == 1 {
+	if len(readPlan.Shards()) == 1 && selection == nil {
 		return out, dists, nil
 	}
 
@@ -2333,6 +2541,29 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
+	// Apply one global MMR pass on the merged candidate pool.
+	if selection != nil {
+		out, dists, err = i.applySelectionOnObjects(ctx, selection, targetVectors, out, dists)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Strip vectors that were added solely for MMR computation.
+		if needStrip {
+			for _, obj := range out {
+				if obj == nil {
+					continue
+				}
+				if stripVector == "" {
+					obj.Vector = nil
+					obj.Object.Vector = nil
+				} else {
+					delete(obj.Vectors, stripVector)
+					delete(obj.Object.Vectors, stripVector)
+				}
+			}
+		}
+	}
+
 	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
 		err = i.replicator.CheckConsistency(ctx, cl, out)
 		if err != nil {
@@ -2342,6 +2573,80 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	return out, dists, nil
+}
+
+// distancerForConfig returns the distancer.Provider matching the given vector
+// index configuration. Used by both shard-level and coordinator-level MMR.
+func distancerForConfig(cfg schemaConfig.VectorIndexConfig) distancer.Provider {
+	if cfg != nil {
+		switch cfg.DistanceName() {
+		case vectorIndexCommon.DistanceDot:
+			return distancer.NewDotProductProvider()
+		case vectorIndexCommon.DistanceL2Squared:
+			return distancer.NewL2SquaredProvider()
+		case vectorIndexCommon.DistanceManhattan:
+			return distancer.NewManhattanProvider()
+		case vectorIndexCommon.DistanceHamming:
+			return distancer.NewHammingProvider()
+		}
+	}
+	return distancer.NewCosineDistanceProvider()
+}
+
+// applySelectionOnObjects runs a coordinator-level MMR pass on already-fetched
+// objects, using vectors present on each object for diversity computation.
+func (i *Index) applySelectionOnObjects(
+	ctx context.Context,
+	selection *searchparams.Selection,
+	targetVectors []string,
+	objects []*storobj.Object,
+	queryDists []float32,
+) ([]*storobj.Object, []float32, error) {
+	if selection == nil || selection.MMR == nil || len(objects) == 0 {
+		return objects, queryDists, nil
+	}
+
+	targetVector := ""
+	if len(targetVectors) > 0 {
+		targetVector = targetVectors[0]
+	}
+
+	distProv := distancerForConfig(i.GetVectorIndexConfig(targetVector))
+
+	// Extract vectors from objects into a flat slice for direct index access.
+	vectors := make([][]float32, len(objects))
+	ids := make([]uint64, len(objects))
+	for idx, obj := range objects {
+		ids[idx] = uint64(idx)
+		if obj != nil {
+			if targetVector == "" {
+				vectors[idx] = obj.Vector
+			} else {
+				vectors[idx] = obj.Vectors[targetVector]
+			}
+		}
+	}
+
+	sel, err := selector.New(selection, distProv.SingleDist, func(_ context.Context, id uint64) ([]float32, error) {
+		return vectors[id], nil
+	}, len(objects))
+	if err != nil {
+		return nil, nil, fmt.Errorf("coordinator mmr: %w", err)
+	}
+	if sel == nil {
+		return objects, queryDists, nil
+	}
+
+	selectedIDs, selectedDists, err := sel.Select(ctx, ids, queryDists)
+	if err != nil {
+		return nil, nil, fmt.Errorf("coordinator mmr: %w", err)
+	}
+
+	result := make([]*storobj.Object, len(selectedIDs))
+	for j, id := range selectedIDs {
+		result[j] = objects[id]
+	}
+	return result, selectedDists, nil
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
@@ -2844,24 +3149,30 @@ func (i *Index) drop() error {
 		return err
 	}
 
-	// Dropping the shards only unregisters the shards callbacks, but we still
-	// need to stop the cycle managers that those shards used to register with.
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
+	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	i.logger.WithFields(logrus.Fields{
-		"action":   "drop_index",
-		"duration": 60 * time.Second,
-	}).Debug("context.WithTimeout")
 
-	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
+	if err := i.stopCycleManagers(ctx, "drop"); err != nil &&
+		!stderrors.Is(err, context.Canceled) && !stderrors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
 
-	if !keepFiles {
-		return os.RemoveAll(i.path())
-	} else {
+	if keepFiles {
+		// backup framework expects the DeleteMarkerAdd-prefixed rename
 		return os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID())))
 	}
+
+	// rename sync (must complete even if ctx is expired); RemoveAll async
+	deleted, err := renameForAsyncDelete(i.path(), i.logger)
+	if err != nil {
+		return fmt.Errorf("rename index for async delete: %w", err)
+	}
+	if deleted != "" {
+		spawnAsyncDelete(deleted, i.logger)
+	}
+	return nil
 }
 
 func (i *Index) dropShards(names []string) error {
@@ -3122,14 +3433,24 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 	return shard.GetStatus().String(), nil
 }
 
-func (i *Index) updateShardStatus(ctx context.Context, tenantName, shardName, targetStatus string, schemaVersion uint64) error {
-	shard, release, err := i.getShardForDirectLocalOperation(ctx, tenantName, shardName, localShardOperationWrite, schemaVersion)
-	if err != nil {
+func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string) error {
+	isOwner := false
+	if err := i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, state *sharding.State) error {
+		if state != nil {
+			isOwner = state.IsLocalShard(shardName)
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
+	if !isOwner {
+		return nil
+	}
+
+	shard, release, err := i.getOrInitShard(ctx, shardName)
 	defer release()
-	if shard == nil {
-		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
+	if err != nil {
+		return err
 	}
 	return shard.UpdateStatus(targetStatus, statusReasonManualUpdate)
 }

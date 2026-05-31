@@ -13,14 +13,19 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -64,11 +69,29 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	}
 
 	for _, prop := range props {
-		if !inverted.HasAnyInvertedIndex(prop) {
+		propCopy := *prop // prevent loop variable capture
+
+		if _, ok := schema.AsNested(prop.DataType); ok {
+			// Preview gate — strict skip when off (no goroutine spawned,
+			// no buckets created). Pairs with the analyzer skip in
+			// adapters/repos/db/inverted/objects.go; even if one leaks past
+			// the other, absence of buckets keeps writes inert.
+			if !entcfg.NestedFilteringEnabled() {
+				continue
+			}
+			// TODO aliszka:nested_filtering respect top-level HasAnyInvertedIndex for
+			// nested properties before creating buckets — currently bypassed because
+			// the interaction between top-level and per-nested-property index settings
+			// needs design discussion first (same issue tracked in objects.go).
+			eg.Go(func() error {
+				return s.createNestedPropertyBuckets(ctx, &propCopy, makeBucketOptions)
+			})
 			continue
 		}
 
-		propCopy := *prop // prevent loop variable capture
+		if !inverted.HasAnyInvertedIndex(prop) {
+			continue
+		}
 
 		eg.Go(func() error {
 			if err := s.createPropertyValueIndex(ctx, &propCopy, makeBucketOptions); err != nil {
@@ -103,25 +126,326 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 ) {
 	eg.Go(func() error {
 		if !inverted.HasFilterableIndex(prop) {
-			err := s.removeBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name))
+			mainBucket := helpers.BucketFromPropNameLSM(prop.Name)
+			err := s.removeBucket(ctx, mainBucket)
 			if err != nil {
 				return fmt.Errorf("cannot remove filterable index for %s property: %w", prop.Name, err)
 			}
+			s.cleanStaleMigrationDirs(prop.Name, "filterable")
+			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		if !inverted.HasSearchableIndex(prop) {
-			err := s.removeBucket(ctx, helpers.BucketSearchableFromPropNameLSM(prop.Name))
+			mainBucket := helpers.BucketSearchableFromPropNameLSM(prop.Name)
+			err := s.removeBucket(ctx, mainBucket)
 			if err != nil {
 				return fmt.Errorf("cannot remove searchable index for %s property: %w", prop.Name, err)
 			}
+			s.cleanStaleMigrationDirs(prop.Name, "searchable")
+			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		if !inverted.HasRangeableIndex(prop) {
-			err := s.removeBucket(ctx, helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			mainBucket := helpers.BucketRangeableFromPropNameLSM(prop.Name)
+			err := s.removeBucket(ctx, mainBucket)
 			if err != nil {
 				return fmt.Errorf("cannot remove rangeable index for %s property: %w", prop.Name, err)
 			}
+			s.cleanStaleMigrationDirs(prop.Name, "rangeable")
+			s.cleanStaleSidecarDirs(mainBucket)
 		}
 		return nil
 	})
+}
+
+// cleanStaleMigrationDirs removes the per-property runtime-reindex
+// migration directories whose tidied sentinel would lie now that the
+// (propName, indexType) bucket has been removed. Without this, a
+// subsequent re-enable of the same index would short-circuit on the
+// stale sentinel, re-flip the schema flag to true, and report success
+// while leaving the underlying bucket empty.
+//
+// Errors are logged but not propagated: the bucket has already been
+// removed by the time we get here, so the user's DELETE has succeeded
+// at the only level that matters for correctness. A failure here only
+// affects the next re-enable, which will trigger the defense-in-depth
+// check in OnAfterLsmInitAsync and fail with a clear operator error.
+func (s *Shard) cleanStaleMigrationDirs(propName, indexType string) {
+	cleanStaleMigrationDirsAt(s.pathLSM(), propName, indexType, s.index.logger)
+}
+
+// cleanStaleMigrationDirsAt is the pure-function form of
+// [Shard.cleanStaleMigrationDirs]: takes an explicit lsmPath + logger so the
+// preservation logic can be unit-tested without standing up a Shard.
+//
+// Every migration tracker dir on disk carries a per-node generation
+// suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
+// generations on disk simultaneously when the last migration's trim
+// hasn't run (e.g. crash before markTidied → next-restart finalize
+// cleans up everything). Match by prefix and walk every entry so we
+// don't miss old generations.
+//
+// Tracker dirs with tidied.mig / merged.mig are PRESERVED — they are
+// live deferred-finalize state for a successfully completed migration,
+// NOT stale partial state. Wiping them out from under the in-memory
+// bucket pointer is what produces the #10675-shape silent data loss on
+// back-to-back submits without a restart (R2/R2b on the controller
+// node).
+func cleanStaleMigrationDirsAt(lsmPath, propName, indexType string, logger logrus.FieldLogger) {
+	migrationsRoot := filepath.Join(lsmPath, ".migrations")
+	entries, err := os.ReadDir(migrationsRoot)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.WithField("path", migrationsRoot).
+				Error(fmt.Errorf("read migrations dir for stale-state cleanup: %w", err))
+		}
+		return
+	}
+	prefixes := migrationDirsForPropertyIndex(propName, indexType)
+	preserved := completedMigrationGens(lsmPath, prefixes)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		matches := false
+		for _, p := range prefixes {
+			if name == p || strings.HasPrefix(name, p+"_") {
+				matches = true
+				break
+			}
+		}
+		if !matches {
+			continue
+		}
+		if _, gen, ok := parseMigrationDirName(name); ok && preserved[gen] {
+			logger.WithField("path", filepath.Join(migrationsRoot, name)).
+				WithField("gen", gen).
+				Info("partial-reindex cleanup: preserving deferred-finalize tracker dir (tidied/merged present)")
+			continue
+		}
+		path := filepath.Join(migrationsRoot, name)
+		if err := os.RemoveAll(path); err != nil {
+			logger.WithField("path", path).
+				Error(fmt.Errorf("failed to clean up stale migration directory after index DELETE: %w; subsequent re-enable will fail loudly via the stale-sentinel check until this directory is removed manually", err))
+		}
+	}
+}
+
+// CleanStalePartialReindexState removes the on-disk state of a previously
+// cancelled (or otherwise abandoned) runtime-reindex for the named
+// (propName, indexType) on this shard. Mirrors the DELETE-handler cleanup
+// (updatePropertyBuckets) on the CANCEL→retry axis: after a cancel, the
+// next submit must start from a clean slate, otherwise the retry sees the
+// stale started.mig + partial __reindex/__ingest sidecars from the
+// cancelled run, short-circuits the iteration to a 50-entry no-op, flips
+// the schema flag, and reports success against an empty-or-partial bucket.
+// Same Sev 1 family as the DELETE-then-re-enable silent failure fixed in
+// 6b7dc23768; structurally distinct because cancel does not remove the
+// main bucket.
+//
+// Three side effects, in order — the order matters for crash safety:
+//
+//  1. Sidecar buckets (__reindex / __ingest with the per-prop suffix) are
+//     shut down if currently loaded in the store. We cannot rm-rf a
+//     bucket while the lsmkv layer still has open file handles into it.
+//
+//  2. Sidecar directories on disk are removed.
+//
+//  3. The .migrations/<dir>/ for this (prop, indexType) tuple is removed —
+//     all sentinel files (started.mig, progress.mig, ...) and the
+//     payload.mig recovery record vanish in one call.
+//
+// Errors at steps 2/3 are logged but not propagated: the caller (cancel
+// handler / submit handler) cannot meaningfully recover, and the defense
+// in depth in OnAfterLsmInitAsync (stale-tidied-sentinel check) will
+// still fail loudly rather than silently report success if a partial
+// directory survives. Step 1 errors ARE propagated because they indicate
+// a bucket can't be cleanly disconnected from the LSM layer — proceeding
+// to remove its files would corrupt the store.
+func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
+	// Step 1: shut down the per-prop sidecar buckets for this index type.
+	// Only the buckets that share the relevant main bucket's prefix are
+	// touched, so other in-flight reindex tasks on the same shard are not
+	// disturbed.
+	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
+	if !ok {
+		return fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
+	}
+
+	logger := s.index.logger.WithFields(map[string]any{
+		"shard":       s.Name(),
+		"property":    propName,
+		"index_type":  indexType,
+		"main_bucket": mainBucketName,
+		"operation":   "CleanStalePartialReindexState",
+	})
+
+	// Compute the set of completed-but-deferred migration generations for
+	// this (prop, indexType). Any tracker dir with tidied.mig or merged.mig
+	// represents a successfully finished in-process migration whose ingest
+	// sidecar dir is the live backing store of the in-memory main bucket
+	// pointer — wiping it here is the #10675-shape silent data loss this
+	// gate exists to prevent (R2/R2b on the controller node).
+	preservePrefixes := migrationDirsForPropertyIndex(propName, indexType)
+	preserveGens := completedMigrationGens(s.pathLSM(), preservePrefixes)
+
+	prefix := mainBucketName + "__"
+	loaded := s.store.GetBucketsByName()
+	var shutDown []string
+	for bucketName := range loaded {
+		if !strings.HasPrefix(bucketName, prefix) {
+			continue
+		}
+		// Defensive: never shut down the main bucket itself. mainBucketName
+		// is the exact name, prefix is mainBucketName+"__" — but a future
+		// helper that uses underscores differently could break this; keep
+		// the guard.
+		if bucketName == mainBucketName {
+			continue
+		}
+		// Skip live sidecar buckets that back a completed-but-deferred
+		// migration (in-memory bucket pointer still references them; their
+		// dir on disk is the canonical bucket's data until next-restart
+		// finalize renames it).
+		if len(preserveGens) > 0 {
+			if _, gen, ok := parseMigrationDirName(bucketName); ok && preserveGens[gen] {
+				continue
+			}
+		}
+		if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
+			if errors.Is(err, lsmkv.ErrBucketNotFound) {
+				// Race with another teardown path (in-flight task's own
+				// cancel sidecar shutdown, or restart-bootstrap pre-mark)
+				// that already removed this bucket. The desired post-state
+				// — bucket gone — is satisfied; keep going.
+				continue
+			}
+			return fmt.Errorf(
+				"shutting down stale sidecar bucket %q before partial-reindex cleanup: %w",
+				bucketName, err)
+		}
+		shutDown = append(shutDown, bucketName)
+	}
+	logger.WithField("buckets_shut_down", shutDown).
+		WithField("preserved_gens", preserveGensSlice(preserveGens)).
+		Info("partial-reindex cleanup: sidecar buckets shut down")
+
+	// Step 2 + 3: remove the sidecar dirs and migration dir. Both call the
+	// existing helpers, which log errors rather than panic. Pass through
+	// the preserved gens so the deferred-finalize state survives.
+	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, preserveGens)
+	s.cleanStaleMigrationDirs(propName, indexType)
+	logger.Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
+
+	return nil
+}
+
+// preserveGensSlice flattens a preserved-gens set into a sorted []int for
+// stable structured-log output.
+func preserveGensSlice(preserveGens map[int]bool) []int {
+	out := make([]int, 0, len(preserveGens))
+	for g := range preserveGens {
+		out = append(out, g)
+	}
+	sort.Ints(out)
+	return out
+}
+
+// mainBucketForPropertyIndex returns the canonical main bucket name on
+// disk for a given (propName, indexType). Used by
+// CleanStalePartialReindexState to compute the prefix that identifies
+// per-property sidecar buckets.
+func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
+	switch indexType {
+	case "filterable":
+		return helpers.BucketFromPropNameLSM(propName), true
+	case "searchable":
+		return helpers.BucketSearchableFromPropNameLSM(propName), true
+	case "rangeable":
+		return helpers.BucketRangeableFromPropNameLSM(propName), true
+	}
+	return "", false
+}
+
+// cleanStaleSidecarDirs removes leftover __reindex / __ingest / __backup
+// sidecar directories that share the just-removed bucket's name as their
+// prefix. A successful migration moves the new data into the main bucket
+// dir at runtime but defers the actual filesystem renames (old-main ->
+// __backup, ingest-dir cleanup) to OnBeforeLsmInit on the next restart.
+// Between completion and restart these sidecars live on disk; a DELETE
+// then re-enable in the same process lifetime would otherwise hit
+// "rename: file exists" the next time RunSwapOnShard tries to move the
+// fresh main into __backup.
+//
+// The sidecar names are <mainBucket>__<strategy-specific-suffix>, where
+// suffixes vary per strategy. Matching by prefix avoids hard-coding every
+// strategy's suffixes here and naturally absorbs future strategies.
+//
+// In addition to removing the on-disk dirs, this function ALSO drops the
+// dir's entry from [lsmkv.GlobalBucketRegistry]. Background: a successful
+// runtime swap moves the in-memory bucket pointer from the ingest name to
+// the main name (Store.SwapBucketPointer), but leaves the on-disk dir
+// under the ingest name (the dir is renamed by OnBeforeLsmInit on the next
+// restart) AND leaves the registry entry under the ingest dir path
+// (Bucket.Shutdown is never called on the live ingest bucket — it just
+// becomes the main bucket). When a follow-up migration tries to load a
+// fresh ingest bucket at the same path, NewBucket's TryAdd fails with
+// "bucket already registered" and the migration fails. Removing the
+// registry entry alongside the dir keeps the two stores of truth aligned.
+// This is the same Sev 1 family as the DELETE-handler cleanup (which has
+// the same hazard if any ShutdownBucket call along the way was skipped);
+// belt-and-suspenders is the right posture for a leak that produces
+// "FAILED" status on a follow-up migration with no clear remediation.
+func (s *Shard) cleanStaleSidecarDirs(mainBucketName string) {
+	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, nil)
+}
+
+// cleanStaleSidecarDirsWithPreserved is the gen-aware variant used by the
+// CANCEL→retry and pre-submit defense-in-depth paths. `preserveGens` lists
+// the generations whose sidecar dirs MUST be kept on disk because they
+// belong to a completed-but-deferred migration (their tracker dir has
+// tidied.mig / merged.mig). Wiping those out from under the in-memory
+// bucket pointer produces #10675-shape silent data loss on the next
+// submit-without-restart sequence.
+//
+// Pass nil to wipe every matching sidecar dir (the DELETE→re-enable
+// callers, which already removed the main bucket and have no live state
+// to protect).
+func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preserveGens map[int]bool) {
+	entries, err := os.ReadDir(s.pathLSM())
+	if err != nil {
+		s.index.logger.WithField("path", s.pathLSM()).
+			Error(fmt.Errorf("failed to enumerate LSM dir for sidecar cleanup after DELETE: %w; a subsequent re-enable may fail with 'file exists' when RunSwapOnShard tries to rotate buckets", err))
+		return
+	}
+	prefix := mainBucketName + "__"
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if !strings.HasPrefix(entry.Name(), prefix) {
+			continue
+		}
+		if len(preserveGens) > 0 {
+			if _, gen, ok := parseMigrationDirName(entry.Name()); ok && preserveGens[gen] {
+				s.index.logger.WithField("path", filepath.Join(s.pathLSM(), entry.Name())).
+					WithField("gen", gen).
+					Info("partial-reindex cleanup: preserving deferred-finalize sidecar dir (live bucket pointer)")
+				continue
+			}
+		}
+		path := filepath.Join(s.pathLSM(), entry.Name())
+		// Drop the registry entry BEFORE removing the dir. The reverse order
+		// is also correct (registry is a separate process-local store), but
+		// the chosen order matches Bucket.Shutdown's defer (registry.Remove
+		// fires before any other shutdown side effect), so a future reader
+		// who already knows that contract finds the same shape here. Either
+		// step is independently safe to retry / call when no entry exists.
+		lsmkv.GlobalBucketRegistry.Remove(path)
+		if err := os.RemoveAll(path); err != nil {
+			s.index.logger.WithField("path", path).
+				Error(fmt.Errorf("failed to remove stale sidecar bucket dir after index DELETE: %w", err))
+		}
+	}
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {

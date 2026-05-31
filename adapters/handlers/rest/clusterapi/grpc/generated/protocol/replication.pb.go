@@ -1596,6 +1596,111 @@ func (x *DigestObjectsInRangeResponse) GetDigests() []*RepairResponse {
 	return nil
 }
 
+// CompareDigests sends source digests to the target and returns those that need repair.
+type CompareDigestsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shard         string                 `protobuf:"bytes,2,opt,name=shard,proto3" json:"shard,omitempty"`
+	Digests       []*RepairResponse      `protobuf:"bytes,3,rep,name=digests,proto3" json:"digests,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompareDigestsRequest) Reset() {
+	*x = CompareDigestsRequest{}
+	mi := &file_protocol_replication_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompareDigestsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompareDigestsRequest) ProtoMessage() {}
+
+func (x *CompareDigestsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompareDigestsRequest.ProtoReflect.Descriptor instead.
+func (*CompareDigestsRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *CompareDigestsRequest) GetIndex() string {
+	if x != nil {
+		return x.Index
+	}
+	return ""
+}
+
+func (x *CompareDigestsRequest) GetShard() string {
+	if x != nil {
+		return x.Shard
+	}
+	return ""
+}
+
+func (x *CompareDigestsRequest) GetDigests() []*RepairResponse {
+	if x != nil {
+		return x.Digests
+	}
+	return nil
+}
+
+type CompareDigestsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Digests       []*RepairResponse      `protobuf:"bytes,1,rep,name=digests,proto3" json:"digests,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompareDigestsResponse) Reset() {
+	*x = CompareDigestsResponse{}
+	mi := &file_protocol_replication_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompareDigestsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompareDigestsResponse) ProtoMessage() {}
+
+func (x *CompareDigestsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompareDigestsResponse.ProtoReflect.Descriptor instead.
+func (*CompareDigestsResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *CompareDigestsResponse) GetDigests() []*RepairResponse {
+	if x != nil {
+		return x.Digests
+	}
+	return nil
+}
+
 // OverwriteObjects conditionally updates existing objects
 // (binary-encoded via versionedObjectListPayload.Marshal).
 type OverwriteObjectsRequest struct {
@@ -1609,7 +1714,7 @@ type OverwriteObjectsRequest struct {
 
 func (x *OverwriteObjectsRequest) Reset() {
 	*x = OverwriteObjectsRequest{}
-	mi := &file_protocol_replication_proto_msgTypes[27]
+	mi := &file_protocol_replication_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1621,7 +1726,7 @@ func (x *OverwriteObjectsRequest) String() string {
 func (*OverwriteObjectsRequest) ProtoMessage() {}
 
 func (x *OverwriteObjectsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[27]
+	mi := &file_protocol_replication_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1634,7 +1739,7 @@ func (x *OverwriteObjectsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OverwriteObjectsRequest.ProtoReflect.Descriptor instead.
 func (*OverwriteObjectsRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{27}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *OverwriteObjectsRequest) GetIndex() string {
@@ -1667,7 +1772,7 @@ type OverwriteObjectsResponse struct {
 
 func (x *OverwriteObjectsResponse) Reset() {
 	*x = OverwriteObjectsResponse{}
-	mi := &file_protocol_replication_proto_msgTypes[28]
+	mi := &file_protocol_replication_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1679,7 +1784,7 @@ func (x *OverwriteObjectsResponse) String() string {
 func (*OverwriteObjectsResponse) ProtoMessage() {}
 
 func (x *OverwriteObjectsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[28]
+	mi := &file_protocol_replication_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1692,7 +1797,7 @@ func (x *OverwriteObjectsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OverwriteObjectsResponse.ProtoReflect.Descriptor instead.
 func (*OverwriteObjectsResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{28}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *OverwriteObjectsResponse) GetResults() []*RepairResponse {
@@ -1715,7 +1820,7 @@ type FindUUIDsRequest struct {
 
 func (x *FindUUIDsRequest) Reset() {
 	*x = FindUUIDsRequest{}
-	mi := &file_protocol_replication_proto_msgTypes[29]
+	mi := &file_protocol_replication_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1727,7 +1832,7 @@ func (x *FindUUIDsRequest) String() string {
 func (*FindUUIDsRequest) ProtoMessage() {}
 
 func (x *FindUUIDsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[29]
+	mi := &file_protocol_replication_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1740,7 +1845,7 @@ func (x *FindUUIDsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindUUIDsRequest.ProtoReflect.Descriptor instead.
 func (*FindUUIDsRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{29}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *FindUUIDsRequest) GetIndex() string {
@@ -1780,7 +1885,7 @@ type FindUUIDsResponse struct {
 
 func (x *FindUUIDsResponse) Reset() {
 	*x = FindUUIDsResponse{}
-	mi := &file_protocol_replication_proto_msgTypes[30]
+	mi := &file_protocol_replication_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1792,7 +1897,7 @@ func (x *FindUUIDsResponse) String() string {
 func (*FindUUIDsResponse) ProtoMessage() {}
 
 func (x *FindUUIDsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[30]
+	mi := &file_protocol_replication_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1805,7 +1910,7 @@ func (x *FindUUIDsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FindUUIDsResponse.ProtoReflect.Descriptor instead.
 func (*FindUUIDsResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{30}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *FindUUIDsResponse) GetUuids() []string {
@@ -1828,7 +1933,7 @@ type HashTreeLevelRequest struct {
 
 func (x *HashTreeLevelRequest) Reset() {
 	*x = HashTreeLevelRequest{}
-	mi := &file_protocol_replication_proto_msgTypes[31]
+	mi := &file_protocol_replication_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1840,7 +1945,7 @@ func (x *HashTreeLevelRequest) String() string {
 func (*HashTreeLevelRequest) ProtoMessage() {}
 
 func (x *HashTreeLevelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[31]
+	mi := &file_protocol_replication_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1853,7 +1958,7 @@ func (x *HashTreeLevelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HashTreeLevelRequest.ProtoReflect.Descriptor instead.
 func (*HashTreeLevelRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{31}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *HashTreeLevelRequest) GetIndex() string {
@@ -1894,7 +1999,7 @@ type HashTreeLevelResponse struct {
 
 func (x *HashTreeLevelResponse) Reset() {
 	*x = HashTreeLevelResponse{}
-	mi := &file_protocol_replication_proto_msgTypes[32]
+	mi := &file_protocol_replication_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1906,7 +2011,7 @@ func (x *HashTreeLevelResponse) String() string {
 func (*HashTreeLevelResponse) ProtoMessage() {}
 
 func (x *HashTreeLevelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[32]
+	mi := &file_protocol_replication_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1919,7 +2024,7 @@ func (x *HashTreeLevelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HashTreeLevelResponse.ProtoReflect.Descriptor instead.
 func (*HashTreeLevelResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{32}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *HashTreeLevelResponse) GetDigestsData() []byte {
@@ -1940,7 +2045,7 @@ type CountObjectsRequest struct {
 
 func (x *CountObjectsRequest) Reset() {
 	*x = CountObjectsRequest{}
-	mi := &file_protocol_replication_proto_msgTypes[33]
+	mi := &file_protocol_replication_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1952,7 +2057,7 @@ func (x *CountObjectsRequest) String() string {
 func (*CountObjectsRequest) ProtoMessage() {}
 
 func (x *CountObjectsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[33]
+	mi := &file_protocol_replication_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1965,7 +2070,7 @@ func (x *CountObjectsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CountObjectsRequest.ProtoReflect.Descriptor instead.
 func (*CountObjectsRequest) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{33}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *CountObjectsRequest) GetIndex() string {
@@ -1992,7 +2097,7 @@ type CountObjectsResponse struct {
 
 func (x *CountObjectsResponse) Reset() {
 	*x = CountObjectsResponse{}
-	mi := &file_protocol_replication_proto_msgTypes[34]
+	mi := &file_protocol_replication_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2004,7 +2109,7 @@ func (x *CountObjectsResponse) String() string {
 func (*CountObjectsResponse) ProtoMessage() {}
 
 func (x *CountObjectsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_protocol_replication_proto_msgTypes[34]
+	mi := &file_protocol_replication_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2017,7 +2122,7 @@ func (x *CountObjectsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CountObjectsResponse.ProtoReflect.Descriptor instead.
 func (*CountObjectsResponse) Descriptor() ([]byte, []int) {
-	return file_protocol_replication_proto_rawDescGZIP(), []int{34}
+	return file_protocol_replication_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *CountObjectsResponse) GetCount() int32 {
@@ -2025,6 +2130,359 @@ func (x *CountObjectsResponse) GetCount() int32 {
 		return x.Count
 	}
 	return 0
+}
+
+// created_at_unix_milli must come from the initiator (strict-greater-than
+// tie-breaker; equal/older returns AlreadyExists).
+type CreateAsyncCheckpointRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Index              string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shards             []string               `protobuf:"bytes,2,rep,name=shards,proto3" json:"shards,omitempty"`
+	CutoffMs           int64                  `protobuf:"varint,3,opt,name=cutoff_ms,json=cutoffMs,proto3" json:"cutoff_ms,omitempty"`
+	CreatedAtUnixMilli int64                  `protobuf:"varint,4,opt,name=created_at_unix_milli,json=createdAtUnixMilli,proto3" json:"created_at_unix_milli,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CreateAsyncCheckpointRequest) Reset() {
+	*x = CreateAsyncCheckpointRequest{}
+	mi := &file_protocol_replication_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAsyncCheckpointRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAsyncCheckpointRequest) ProtoMessage() {}
+
+func (x *CreateAsyncCheckpointRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAsyncCheckpointRequest.ProtoReflect.Descriptor instead.
+func (*CreateAsyncCheckpointRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *CreateAsyncCheckpointRequest) GetIndex() string {
+	if x != nil {
+		return x.Index
+	}
+	return ""
+}
+
+func (x *CreateAsyncCheckpointRequest) GetShards() []string {
+	if x != nil {
+		return x.Shards
+	}
+	return nil
+}
+
+func (x *CreateAsyncCheckpointRequest) GetCutoffMs() int64 {
+	if x != nil {
+		return x.CutoffMs
+	}
+	return 0
+}
+
+func (x *CreateAsyncCheckpointRequest) GetCreatedAtUnixMilli() int64 {
+	if x != nil {
+		return x.CreatedAtUnixMilli
+	}
+	return 0
+}
+
+type CreateAsyncCheckpointResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateAsyncCheckpointResponse) Reset() {
+	*x = CreateAsyncCheckpointResponse{}
+	mi := &file_protocol_replication_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAsyncCheckpointResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAsyncCheckpointResponse) ProtoMessage() {}
+
+func (x *CreateAsyncCheckpointResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateAsyncCheckpointResponse.ProtoReflect.Descriptor instead.
+func (*CreateAsyncCheckpointResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{38}
+}
+
+type DeleteAsyncCheckpointRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shards        []string               `protobuf:"bytes,2,rep,name=shards,proto3" json:"shards,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteAsyncCheckpointRequest) Reset() {
+	*x = DeleteAsyncCheckpointRequest{}
+	mi := &file_protocol_replication_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteAsyncCheckpointRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteAsyncCheckpointRequest) ProtoMessage() {}
+
+func (x *DeleteAsyncCheckpointRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteAsyncCheckpointRequest.ProtoReflect.Descriptor instead.
+func (*DeleteAsyncCheckpointRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *DeleteAsyncCheckpointRequest) GetIndex() string {
+	if x != nil {
+		return x.Index
+	}
+	return ""
+}
+
+func (x *DeleteAsyncCheckpointRequest) GetShards() []string {
+	if x != nil {
+		return x.Shards
+	}
+	return nil
+}
+
+type DeleteAsyncCheckpointResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteAsyncCheckpointResponse) Reset() {
+	*x = DeleteAsyncCheckpointResponse{}
+	mi := &file_protocol_replication_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteAsyncCheckpointResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteAsyncCheckpointResponse) ProtoMessage() {}
+
+func (x *DeleteAsyncCheckpointResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteAsyncCheckpointResponse.ProtoReflect.Descriptor instead.
+func (*DeleteAsyncCheckpointResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{40}
+}
+
+// GetAsyncCheckpointStatusResponse omits shards not loaded on this node, so
+// callers detect absence by entry presence.
+type GetAsyncCheckpointStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Index         string                 `protobuf:"bytes,1,opt,name=index,proto3" json:"index,omitempty"`
+	Shards        []string               `protobuf:"bytes,2,rep,name=shards,proto3" json:"shards,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAsyncCheckpointStatusRequest) Reset() {
+	*x = GetAsyncCheckpointStatusRequest{}
+	mi := &file_protocol_replication_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAsyncCheckpointStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAsyncCheckpointStatusRequest) ProtoMessage() {}
+
+func (x *GetAsyncCheckpointStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAsyncCheckpointStatusRequest.ProtoReflect.Descriptor instead.
+func (*GetAsyncCheckpointStatusRequest) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *GetAsyncCheckpointStatusRequest) GetIndex() string {
+	if x != nil {
+		return x.Index
+	}
+	return ""
+}
+
+func (x *GetAsyncCheckpointStatusRequest) GetShards() []string {
+	if x != nil {
+		return x.Shards
+	}
+	return nil
+}
+
+// AsyncCheckpointShardStatus: empty root + created_at_unix_milli == 0 means inactive.
+type AsyncCheckpointShardStatus struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Root               []byte                 `protobuf:"bytes,1,opt,name=root,proto3" json:"root,omitempty"`
+	CutoffMs           int64                  `protobuf:"varint,2,opt,name=cutoff_ms,json=cutoffMs,proto3" json:"cutoff_ms,omitempty"`
+	CreatedAtUnixMilli int64                  `protobuf:"varint,3,opt,name=created_at_unix_milli,json=createdAtUnixMilli,proto3" json:"created_at_unix_milli,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *AsyncCheckpointShardStatus) Reset() {
+	*x = AsyncCheckpointShardStatus{}
+	mi := &file_protocol_replication_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AsyncCheckpointShardStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AsyncCheckpointShardStatus) ProtoMessage() {}
+
+func (x *AsyncCheckpointShardStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AsyncCheckpointShardStatus.ProtoReflect.Descriptor instead.
+func (*AsyncCheckpointShardStatus) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *AsyncCheckpointShardStatus) GetRoot() []byte {
+	if x != nil {
+		return x.Root
+	}
+	return nil
+}
+
+func (x *AsyncCheckpointShardStatus) GetCutoffMs() int64 {
+	if x != nil {
+		return x.CutoffMs
+	}
+	return 0
+}
+
+func (x *AsyncCheckpointShardStatus) GetCreatedAtUnixMilli() int64 {
+	if x != nil {
+		return x.CreatedAtUnixMilli
+	}
+	return 0
+}
+
+type GetAsyncCheckpointStatusResponse struct {
+	state         protoimpl.MessageState                 `protogen:"open.v1"`
+	Statuses      map[string]*AsyncCheckpointShardStatus `protobuf:"bytes,1,rep,name=statuses,proto3" json:"statuses,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAsyncCheckpointStatusResponse) Reset() {
+	*x = GetAsyncCheckpointStatusResponse{}
+	mi := &file_protocol_replication_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAsyncCheckpointStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAsyncCheckpointStatusResponse) ProtoMessage() {}
+
+func (x *GetAsyncCheckpointStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_protocol_replication_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAsyncCheckpointStatusResponse.ProtoReflect.Descriptor instead.
+func (*GetAsyncCheckpointStatusResponse) Descriptor() ([]byte, []int) {
+	return file_protocol_replication_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *GetAsyncCheckpointStatusResponse) GetStatuses() map[string]*AsyncCheckpointShardStatus {
+	if x != nil {
+		return x.Statuses
+	}
+	return nil
 }
 
 var File_protocol_replication_proto protoreflect.FileDescriptor
@@ -2145,6 +2603,12 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"final_uuid\x18\x04 \x01(\tR\tfinalUuid\x12\x14\n" +
 	"\x05limit\x18\x05 \x01(\x05R\x05limit\"T\n" +
 	"\x1cDigestObjectsInRangeResponse\x124\n" +
+	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"y\n" +
+	"\x15CompareDigestsRequest\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
+	"\x05shard\x18\x02 \x01(\tR\x05shard\x124\n" +
+	"\adigests\x18\x03 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"N\n" +
+	"\x16CompareDigestsResponse\x124\n" +
 	"\adigests\x18\x01 \x03(\v2\x1a.clusterapi.RepairResponseR\adigests\"j\n" +
 	"\x17OverwriteObjectsRequest\x12\x14\n" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
@@ -2171,8 +2635,29 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\x05index\x18\x01 \x01(\tR\x05index\x12\x14\n" +
 	"\x05shard\x18\x02 \x01(\tR\x05shard\",\n" +
 	"\x14CountObjectsResponse\x12\x14\n" +
-	"\x05count\x18\x01 \x01(\x05R\x05count2\xaf\n" +
-	"\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count\"\x9c\x01\n" +
+	"\x1cCreateAsyncCheckpointRequest\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\tR\x05index\x12\x16\n" +
+	"\x06shards\x18\x02 \x03(\tR\x06shards\x12\x1b\n" +
+	"\tcutoff_ms\x18\x03 \x01(\x03R\bcutoffMs\x121\n" +
+	"\x15created_at_unix_milli\x18\x04 \x01(\x03R\x12createdAtUnixMilli\"\x1f\n" +
+	"\x1dCreateAsyncCheckpointResponse\"L\n" +
+	"\x1cDeleteAsyncCheckpointRequest\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\tR\x05index\x12\x16\n" +
+	"\x06shards\x18\x02 \x03(\tR\x06shards\"\x1f\n" +
+	"\x1dDeleteAsyncCheckpointResponse\"O\n" +
+	"\x1fGetAsyncCheckpointStatusRequest\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\tR\x05index\x12\x16\n" +
+	"\x06shards\x18\x02 \x03(\tR\x06shards\"\x80\x01\n" +
+	"\x1aAsyncCheckpointShardStatus\x12\x12\n" +
+	"\x04root\x18\x01 \x01(\fR\x04root\x12\x1b\n" +
+	"\tcutoff_ms\x18\x02 \x01(\x03R\bcutoffMs\x121\n" +
+	"\x15created_at_unix_milli\x18\x03 \x01(\x03R\x12createdAtUnixMilli\"\xdf\x01\n" +
+	" GetAsyncCheckpointStatusResponse\x12V\n" +
+	"\bstatuses\x18\x01 \x03(\v2:.clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntryR\bstatuses\x1ac\n" +
+	"\rStatusesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12<\n" +
+	"\x05value\x18\x02 \x01(\v2&.clusterapi.AsyncCheckpointShardStatusR\x05value:\x028\x012\xdb\r\n" +
 	"\x12ReplicationService\x12H\n" +
 	"\tPutObject\x12\x1c.clusterapi.PutObjectRequest\x1a\x1d.clusterapi.PutObjectResponse\x12K\n" +
 	"\n" +
@@ -2186,11 +2671,15 @@ const file_protocol_replication_proto_rawDesc = "" +
 	"\vFetchObject\x12\x1e.clusterapi.FetchObjectRequest\x1a\x1f.clusterapi.FetchObjectResponse\x12Q\n" +
 	"\fFetchObjects\x12\x1f.clusterapi.FetchObjectsRequest\x1a .clusterapi.FetchObjectsResponse\x12T\n" +
 	"\rDigestObjects\x12 .clusterapi.DigestObjectsRequest\x1a!.clusterapi.DigestObjectsResponse\x12i\n" +
-	"\x14DigestObjectsInRange\x12'.clusterapi.DigestObjectsInRangeRequest\x1a(.clusterapi.DigestObjectsInRangeResponse\x12]\n" +
+	"\x14DigestObjectsInRange\x12'.clusterapi.DigestObjectsInRangeRequest\x1a(.clusterapi.DigestObjectsInRangeResponse\x12W\n" +
+	"\x0eCompareDigests\x12!.clusterapi.CompareDigestsRequest\x1a\".clusterapi.CompareDigestsResponse\x12]\n" +
 	"\x10OverwriteObjects\x12#.clusterapi.OverwriteObjectsRequest\x1a$.clusterapi.OverwriteObjectsResponse\x12H\n" +
 	"\tFindUUIDs\x12\x1c.clusterapi.FindUUIDsRequest\x1a\x1d.clusterapi.FindUUIDsResponse\x12T\n" +
 	"\rHashTreeLevel\x12 .clusterapi.HashTreeLevelRequest\x1a!.clusterapi.HashTreeLevelResponse\x12Q\n" +
-	"\fCountObjects\x12\x1f.clusterapi.CountObjectsRequest\x1a .clusterapi.CountObjectsResponseB\x9d\x01\n" +
+	"\fCountObjects\x12\x1f.clusterapi.CountObjectsRequest\x1a .clusterapi.CountObjectsResponse\x12l\n" +
+	"\x15CreateAsyncCheckpoint\x12(.clusterapi.CreateAsyncCheckpointRequest\x1a).clusterapi.CreateAsyncCheckpointResponse\x12l\n" +
+	"\x15DeleteAsyncCheckpoint\x12(.clusterapi.DeleteAsyncCheckpointRequest\x1a).clusterapi.DeleteAsyncCheckpointResponse\x12u\n" +
+	"\x18GetAsyncCheckpointStatus\x12+.clusterapi.GetAsyncCheckpointStatusRequest\x1a,.clusterapi.GetAsyncCheckpointStatusResponseB\x9d\x01\n" +
 	"\x0ecom.clusterapiB\x10ReplicationProtoP\x01Z1github.com/weaviate/weaviate/cloud/proto/protocol\xa2\x02\x03CXX\xaa\x02\n" +
 	"Clusterapi\xca\x02\n" +
 	"Clusterapi\xe2\x02\x16Clusterapi\\GPBMetadata\xea\x02\n" +
@@ -2208,43 +2697,53 @@ func file_protocol_replication_proto_rawDescGZIP() []byte {
 	return file_protocol_replication_proto_rawDescData
 }
 
-var file_protocol_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
+var file_protocol_replication_proto_msgTypes = make([]protoimpl.MessageInfo, 45)
 var file_protocol_replication_proto_goTypes = []any{
-	(*ReplicaError)(nil),                 // 0: clusterapi.ReplicaError
-	(*SimpleReplicaResponse)(nil),        // 1: clusterapi.SimpleReplicaResponse
-	(*RepairResponse)(nil),               // 2: clusterapi.RepairResponse
-	(*PutObjectRequest)(nil),             // 3: clusterapi.PutObjectRequest
-	(*PutObjectResponse)(nil),            // 4: clusterapi.PutObjectResponse
-	(*PutObjectsRequest)(nil),            // 5: clusterapi.PutObjectsRequest
-	(*PutObjectsResponse)(nil),           // 6: clusterapi.PutObjectsResponse
-	(*MergeObjectRequest)(nil),           // 7: clusterapi.MergeObjectRequest
-	(*MergeObjectResponse)(nil),          // 8: clusterapi.MergeObjectResponse
-	(*DeleteObjectRequest)(nil),          // 9: clusterapi.DeleteObjectRequest
-	(*DeleteObjectResponse)(nil),         // 10: clusterapi.DeleteObjectResponse
-	(*DeleteObjectsRequest)(nil),         // 11: clusterapi.DeleteObjectsRequest
-	(*DeleteObjectsResponse)(nil),        // 12: clusterapi.DeleteObjectsResponse
-	(*AddReferencesRequest)(nil),         // 13: clusterapi.AddReferencesRequest
-	(*AddReferencesResponse)(nil),        // 14: clusterapi.AddReferencesResponse
-	(*CommitRequest)(nil),                // 15: clusterapi.CommitRequest
-	(*CommitResponse)(nil),               // 16: clusterapi.CommitResponse
-	(*AbortRequest)(nil),                 // 17: clusterapi.AbortRequest
-	(*AbortResponse)(nil),                // 18: clusterapi.AbortResponse
-	(*FetchObjectRequest)(nil),           // 19: clusterapi.FetchObjectRequest
-	(*FetchObjectResponse)(nil),          // 20: clusterapi.FetchObjectResponse
-	(*FetchObjectsRequest)(nil),          // 21: clusterapi.FetchObjectsRequest
-	(*FetchObjectsResponse)(nil),         // 22: clusterapi.FetchObjectsResponse
-	(*DigestObjectsRequest)(nil),         // 23: clusterapi.DigestObjectsRequest
-	(*DigestObjectsResponse)(nil),        // 24: clusterapi.DigestObjectsResponse
-	(*DigestObjectsInRangeRequest)(nil),  // 25: clusterapi.DigestObjectsInRangeRequest
-	(*DigestObjectsInRangeResponse)(nil), // 26: clusterapi.DigestObjectsInRangeResponse
-	(*OverwriteObjectsRequest)(nil),      // 27: clusterapi.OverwriteObjectsRequest
-	(*OverwriteObjectsResponse)(nil),     // 28: clusterapi.OverwriteObjectsResponse
-	(*FindUUIDsRequest)(nil),             // 29: clusterapi.FindUUIDsRequest
-	(*FindUUIDsResponse)(nil),            // 30: clusterapi.FindUUIDsResponse
-	(*HashTreeLevelRequest)(nil),         // 31: clusterapi.HashTreeLevelRequest
-	(*HashTreeLevelResponse)(nil),        // 32: clusterapi.HashTreeLevelResponse
-	(*CountObjectsRequest)(nil),          // 33: clusterapi.CountObjectsRequest
-	(*CountObjectsResponse)(nil),         // 34: clusterapi.CountObjectsResponse
+	(*ReplicaError)(nil),                     // 0: clusterapi.ReplicaError
+	(*SimpleReplicaResponse)(nil),            // 1: clusterapi.SimpleReplicaResponse
+	(*RepairResponse)(nil),                   // 2: clusterapi.RepairResponse
+	(*PutObjectRequest)(nil),                 // 3: clusterapi.PutObjectRequest
+	(*PutObjectResponse)(nil),                // 4: clusterapi.PutObjectResponse
+	(*PutObjectsRequest)(nil),                // 5: clusterapi.PutObjectsRequest
+	(*PutObjectsResponse)(nil),               // 6: clusterapi.PutObjectsResponse
+	(*MergeObjectRequest)(nil),               // 7: clusterapi.MergeObjectRequest
+	(*MergeObjectResponse)(nil),              // 8: clusterapi.MergeObjectResponse
+	(*DeleteObjectRequest)(nil),              // 9: clusterapi.DeleteObjectRequest
+	(*DeleteObjectResponse)(nil),             // 10: clusterapi.DeleteObjectResponse
+	(*DeleteObjectsRequest)(nil),             // 11: clusterapi.DeleteObjectsRequest
+	(*DeleteObjectsResponse)(nil),            // 12: clusterapi.DeleteObjectsResponse
+	(*AddReferencesRequest)(nil),             // 13: clusterapi.AddReferencesRequest
+	(*AddReferencesResponse)(nil),            // 14: clusterapi.AddReferencesResponse
+	(*CommitRequest)(nil),                    // 15: clusterapi.CommitRequest
+	(*CommitResponse)(nil),                   // 16: clusterapi.CommitResponse
+	(*AbortRequest)(nil),                     // 17: clusterapi.AbortRequest
+	(*AbortResponse)(nil),                    // 18: clusterapi.AbortResponse
+	(*FetchObjectRequest)(nil),               // 19: clusterapi.FetchObjectRequest
+	(*FetchObjectResponse)(nil),              // 20: clusterapi.FetchObjectResponse
+	(*FetchObjectsRequest)(nil),              // 21: clusterapi.FetchObjectsRequest
+	(*FetchObjectsResponse)(nil),             // 22: clusterapi.FetchObjectsResponse
+	(*DigestObjectsRequest)(nil),             // 23: clusterapi.DigestObjectsRequest
+	(*DigestObjectsResponse)(nil),            // 24: clusterapi.DigestObjectsResponse
+	(*DigestObjectsInRangeRequest)(nil),      // 25: clusterapi.DigestObjectsInRangeRequest
+	(*DigestObjectsInRangeResponse)(nil),     // 26: clusterapi.DigestObjectsInRangeResponse
+	(*CompareDigestsRequest)(nil),            // 27: clusterapi.CompareDigestsRequest
+	(*CompareDigestsResponse)(nil),           // 28: clusterapi.CompareDigestsResponse
+	(*OverwriteObjectsRequest)(nil),          // 29: clusterapi.OverwriteObjectsRequest
+	(*OverwriteObjectsResponse)(nil),         // 30: clusterapi.OverwriteObjectsResponse
+	(*FindUUIDsRequest)(nil),                 // 31: clusterapi.FindUUIDsRequest
+	(*FindUUIDsResponse)(nil),                // 32: clusterapi.FindUUIDsResponse
+	(*HashTreeLevelRequest)(nil),             // 33: clusterapi.HashTreeLevelRequest
+	(*HashTreeLevelResponse)(nil),            // 34: clusterapi.HashTreeLevelResponse
+	(*CountObjectsRequest)(nil),              // 35: clusterapi.CountObjectsRequest
+	(*CountObjectsResponse)(nil),             // 36: clusterapi.CountObjectsResponse
+	(*CreateAsyncCheckpointRequest)(nil),     // 37: clusterapi.CreateAsyncCheckpointRequest
+	(*CreateAsyncCheckpointResponse)(nil),    // 38: clusterapi.CreateAsyncCheckpointResponse
+	(*DeleteAsyncCheckpointRequest)(nil),     // 39: clusterapi.DeleteAsyncCheckpointRequest
+	(*DeleteAsyncCheckpointResponse)(nil),    // 40: clusterapi.DeleteAsyncCheckpointResponse
+	(*GetAsyncCheckpointStatusRequest)(nil),  // 41: clusterapi.GetAsyncCheckpointStatusRequest
+	(*AsyncCheckpointShardStatus)(nil),       // 42: clusterapi.AsyncCheckpointShardStatus
+	(*GetAsyncCheckpointStatusResponse)(nil), // 43: clusterapi.GetAsyncCheckpointStatusResponse
+	nil,                                      // 44: clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntry
 }
 var file_protocol_replication_proto_depIdxs = []int32{
 	0,  // 0: clusterapi.SimpleReplicaResponse.errors:type_name -> clusterapi.ReplicaError
@@ -2257,44 +2756,56 @@ var file_protocol_replication_proto_depIdxs = []int32{
 	1,  // 7: clusterapi.AbortResponse.response:type_name -> clusterapi.SimpleReplicaResponse
 	2,  // 8: clusterapi.DigestObjectsResponse.digests:type_name -> clusterapi.RepairResponse
 	2,  // 9: clusterapi.DigestObjectsInRangeResponse.digests:type_name -> clusterapi.RepairResponse
-	2,  // 10: clusterapi.OverwriteObjectsResponse.results:type_name -> clusterapi.RepairResponse
-	3,  // 11: clusterapi.ReplicationService.PutObject:input_type -> clusterapi.PutObjectRequest
-	5,  // 12: clusterapi.ReplicationService.PutObjects:input_type -> clusterapi.PutObjectsRequest
-	7,  // 13: clusterapi.ReplicationService.MergeObject:input_type -> clusterapi.MergeObjectRequest
-	9,  // 14: clusterapi.ReplicationService.DeleteObject:input_type -> clusterapi.DeleteObjectRequest
-	11, // 15: clusterapi.ReplicationService.DeleteObjects:input_type -> clusterapi.DeleteObjectsRequest
-	13, // 16: clusterapi.ReplicationService.AddReferences:input_type -> clusterapi.AddReferencesRequest
-	15, // 17: clusterapi.ReplicationService.Commit:input_type -> clusterapi.CommitRequest
-	17, // 18: clusterapi.ReplicationService.Abort:input_type -> clusterapi.AbortRequest
-	19, // 19: clusterapi.ReplicationService.FetchObject:input_type -> clusterapi.FetchObjectRequest
-	21, // 20: clusterapi.ReplicationService.FetchObjects:input_type -> clusterapi.FetchObjectsRequest
-	23, // 21: clusterapi.ReplicationService.DigestObjects:input_type -> clusterapi.DigestObjectsRequest
-	25, // 22: clusterapi.ReplicationService.DigestObjectsInRange:input_type -> clusterapi.DigestObjectsInRangeRequest
-	27, // 23: clusterapi.ReplicationService.OverwriteObjects:input_type -> clusterapi.OverwriteObjectsRequest
-	29, // 24: clusterapi.ReplicationService.FindUUIDs:input_type -> clusterapi.FindUUIDsRequest
-	31, // 25: clusterapi.ReplicationService.HashTreeLevel:input_type -> clusterapi.HashTreeLevelRequest
-	33, // 26: clusterapi.ReplicationService.CountObjects:input_type -> clusterapi.CountObjectsRequest
-	4,  // 27: clusterapi.ReplicationService.PutObject:output_type -> clusterapi.PutObjectResponse
-	6,  // 28: clusterapi.ReplicationService.PutObjects:output_type -> clusterapi.PutObjectsResponse
-	8,  // 29: clusterapi.ReplicationService.MergeObject:output_type -> clusterapi.MergeObjectResponse
-	10, // 30: clusterapi.ReplicationService.DeleteObject:output_type -> clusterapi.DeleteObjectResponse
-	12, // 31: clusterapi.ReplicationService.DeleteObjects:output_type -> clusterapi.DeleteObjectsResponse
-	14, // 32: clusterapi.ReplicationService.AddReferences:output_type -> clusterapi.AddReferencesResponse
-	16, // 33: clusterapi.ReplicationService.Commit:output_type -> clusterapi.CommitResponse
-	18, // 34: clusterapi.ReplicationService.Abort:output_type -> clusterapi.AbortResponse
-	20, // 35: clusterapi.ReplicationService.FetchObject:output_type -> clusterapi.FetchObjectResponse
-	22, // 36: clusterapi.ReplicationService.FetchObjects:output_type -> clusterapi.FetchObjectsResponse
-	24, // 37: clusterapi.ReplicationService.DigestObjects:output_type -> clusterapi.DigestObjectsResponse
-	26, // 38: clusterapi.ReplicationService.DigestObjectsInRange:output_type -> clusterapi.DigestObjectsInRangeResponse
-	28, // 39: clusterapi.ReplicationService.OverwriteObjects:output_type -> clusterapi.OverwriteObjectsResponse
-	30, // 40: clusterapi.ReplicationService.FindUUIDs:output_type -> clusterapi.FindUUIDsResponse
-	32, // 41: clusterapi.ReplicationService.HashTreeLevel:output_type -> clusterapi.HashTreeLevelResponse
-	34, // 42: clusterapi.ReplicationService.CountObjects:output_type -> clusterapi.CountObjectsResponse
-	27, // [27:43] is the sub-list for method output_type
-	11, // [11:27] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	2,  // 10: clusterapi.CompareDigestsRequest.digests:type_name -> clusterapi.RepairResponse
+	2,  // 11: clusterapi.CompareDigestsResponse.digests:type_name -> clusterapi.RepairResponse
+	2,  // 12: clusterapi.OverwriteObjectsResponse.results:type_name -> clusterapi.RepairResponse
+	44, // 13: clusterapi.GetAsyncCheckpointStatusResponse.statuses:type_name -> clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntry
+	42, // 14: clusterapi.GetAsyncCheckpointStatusResponse.StatusesEntry.value:type_name -> clusterapi.AsyncCheckpointShardStatus
+	3,  // 15: clusterapi.ReplicationService.PutObject:input_type -> clusterapi.PutObjectRequest
+	5,  // 16: clusterapi.ReplicationService.PutObjects:input_type -> clusterapi.PutObjectsRequest
+	7,  // 17: clusterapi.ReplicationService.MergeObject:input_type -> clusterapi.MergeObjectRequest
+	9,  // 18: clusterapi.ReplicationService.DeleteObject:input_type -> clusterapi.DeleteObjectRequest
+	11, // 19: clusterapi.ReplicationService.DeleteObjects:input_type -> clusterapi.DeleteObjectsRequest
+	13, // 20: clusterapi.ReplicationService.AddReferences:input_type -> clusterapi.AddReferencesRequest
+	15, // 21: clusterapi.ReplicationService.Commit:input_type -> clusterapi.CommitRequest
+	17, // 22: clusterapi.ReplicationService.Abort:input_type -> clusterapi.AbortRequest
+	19, // 23: clusterapi.ReplicationService.FetchObject:input_type -> clusterapi.FetchObjectRequest
+	21, // 24: clusterapi.ReplicationService.FetchObjects:input_type -> clusterapi.FetchObjectsRequest
+	23, // 25: clusterapi.ReplicationService.DigestObjects:input_type -> clusterapi.DigestObjectsRequest
+	25, // 26: clusterapi.ReplicationService.DigestObjectsInRange:input_type -> clusterapi.DigestObjectsInRangeRequest
+	27, // 27: clusterapi.ReplicationService.CompareDigests:input_type -> clusterapi.CompareDigestsRequest
+	29, // 28: clusterapi.ReplicationService.OverwriteObjects:input_type -> clusterapi.OverwriteObjectsRequest
+	31, // 29: clusterapi.ReplicationService.FindUUIDs:input_type -> clusterapi.FindUUIDsRequest
+	33, // 30: clusterapi.ReplicationService.HashTreeLevel:input_type -> clusterapi.HashTreeLevelRequest
+	35, // 31: clusterapi.ReplicationService.CountObjects:input_type -> clusterapi.CountObjectsRequest
+	37, // 32: clusterapi.ReplicationService.CreateAsyncCheckpoint:input_type -> clusterapi.CreateAsyncCheckpointRequest
+	39, // 33: clusterapi.ReplicationService.DeleteAsyncCheckpoint:input_type -> clusterapi.DeleteAsyncCheckpointRequest
+	41, // 34: clusterapi.ReplicationService.GetAsyncCheckpointStatus:input_type -> clusterapi.GetAsyncCheckpointStatusRequest
+	4,  // 35: clusterapi.ReplicationService.PutObject:output_type -> clusterapi.PutObjectResponse
+	6,  // 36: clusterapi.ReplicationService.PutObjects:output_type -> clusterapi.PutObjectsResponse
+	8,  // 37: clusterapi.ReplicationService.MergeObject:output_type -> clusterapi.MergeObjectResponse
+	10, // 38: clusterapi.ReplicationService.DeleteObject:output_type -> clusterapi.DeleteObjectResponse
+	12, // 39: clusterapi.ReplicationService.DeleteObjects:output_type -> clusterapi.DeleteObjectsResponse
+	14, // 40: clusterapi.ReplicationService.AddReferences:output_type -> clusterapi.AddReferencesResponse
+	16, // 41: clusterapi.ReplicationService.Commit:output_type -> clusterapi.CommitResponse
+	18, // 42: clusterapi.ReplicationService.Abort:output_type -> clusterapi.AbortResponse
+	20, // 43: clusterapi.ReplicationService.FetchObject:output_type -> clusterapi.FetchObjectResponse
+	22, // 44: clusterapi.ReplicationService.FetchObjects:output_type -> clusterapi.FetchObjectsResponse
+	24, // 45: clusterapi.ReplicationService.DigestObjects:output_type -> clusterapi.DigestObjectsResponse
+	26, // 46: clusterapi.ReplicationService.DigestObjectsInRange:output_type -> clusterapi.DigestObjectsInRangeResponse
+	28, // 47: clusterapi.ReplicationService.CompareDigests:output_type -> clusterapi.CompareDigestsResponse
+	30, // 48: clusterapi.ReplicationService.OverwriteObjects:output_type -> clusterapi.OverwriteObjectsResponse
+	32, // 49: clusterapi.ReplicationService.FindUUIDs:output_type -> clusterapi.FindUUIDsResponse
+	34, // 50: clusterapi.ReplicationService.HashTreeLevel:output_type -> clusterapi.HashTreeLevelResponse
+	36, // 51: clusterapi.ReplicationService.CountObjects:output_type -> clusterapi.CountObjectsResponse
+	38, // 52: clusterapi.ReplicationService.CreateAsyncCheckpoint:output_type -> clusterapi.CreateAsyncCheckpointResponse
+	40, // 53: clusterapi.ReplicationService.DeleteAsyncCheckpoint:output_type -> clusterapi.DeleteAsyncCheckpointResponse
+	43, // 54: clusterapi.ReplicationService.GetAsyncCheckpointStatus:output_type -> clusterapi.GetAsyncCheckpointStatusResponse
+	35, // [35:55] is the sub-list for method output_type
+	15, // [15:35] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_protocol_replication_proto_init() }
@@ -2308,7 +2819,7 @@ func file_protocol_replication_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_protocol_replication_proto_rawDesc), len(file_protocol_replication_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   35,
+			NumMessages:   45,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

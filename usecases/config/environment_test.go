@@ -856,16 +856,18 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED"},
 			expected: Authentication{
 				OIDC: OIDC{
-					Enabled:           true,
-					Issuer:            configRuntime.NewDynamicValue(""),
-					ClientID:          configRuntime.NewDynamicValue(""),
-					SkipClientIDCheck: configRuntime.NewDynamicValue(false),
-					UsernameClaim:     configRuntime.NewDynamicValue(""),
-					GroupsClaim:       configRuntime.NewDynamicValue(""),
-					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
-					Certificate:       configRuntime.NewDynamicValue(""),
-					JWKSUrl:           configRuntime.NewDynamicValue(""),
-					SkipTLSVerify:     configRuntime.NewDynamicValue(false),
+					Enabled:              true,
+					Issuer:               configRuntime.NewDynamicValue(""),
+					ClientID:             configRuntime.NewDynamicValue(""),
+					SkipClientIDCheck:    configRuntime.NewDynamicValue(false),
+					UsernameClaim:        configRuntime.NewDynamicValue(""),
+					GroupsClaim:          configRuntime.NewDynamicValue(""),
+					NamespaceClaim:       configRuntime.NewDynamicValue(""),
+					GlobalPrincipalClaim: configRuntime.NewDynamicValue(""),
+					Scopes:               configRuntime.NewDynamicValue([]string(nil)),
+					Certificate:          configRuntime.NewDynamicValue(""),
+					JWKSUrl:              configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:        configRuntime.NewDynamicValue(false),
 				},
 			},
 		},
@@ -874,16 +876,18 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED", "AUTHENTICATION_OIDC_INSECURE_SKIP_TLS_VERIFY"},
 			expected: Authentication{
 				OIDC: OIDC{
-					Enabled:           true,
-					Issuer:            configRuntime.NewDynamicValue(""),
-					ClientID:          configRuntime.NewDynamicValue(""),
-					SkipClientIDCheck: configRuntime.NewDynamicValue(false),
-					UsernameClaim:     configRuntime.NewDynamicValue(""),
-					GroupsClaim:       configRuntime.NewDynamicValue(""),
-					Scopes:            configRuntime.NewDynamicValue([]string(nil)),
-					Certificate:       configRuntime.NewDynamicValue(""),
-					JWKSUrl:           configRuntime.NewDynamicValue(""),
-					SkipTLSVerify:     configRuntime.NewDynamicValue(true),
+					Enabled:              true,
+					Issuer:               configRuntime.NewDynamicValue(""),
+					ClientID:             configRuntime.NewDynamicValue(""),
+					SkipClientIDCheck:    configRuntime.NewDynamicValue(false),
+					UsernameClaim:        configRuntime.NewDynamicValue(""),
+					GroupsClaim:          configRuntime.NewDynamicValue(""),
+					NamespaceClaim:       configRuntime.NewDynamicValue(""),
+					GlobalPrincipalClaim: configRuntime.NewDynamicValue(""),
+					Scopes:               configRuntime.NewDynamicValue([]string(nil)),
+					Certificate:          configRuntime.NewDynamicValue(""),
+					JWKSUrl:              configRuntime.NewDynamicValue(""),
+					SkipTLSVerify:        configRuntime.NewDynamicValue(true),
 				},
 			},
 		},
@@ -1629,6 +1633,41 @@ func TestEnvironmentExportDefaultBucket(t *testing.T) {
 			err := FromEnv(&conf)
 			require.Nil(t, err)
 			require.Equal(t, tt.expected, conf.Export.DefaultBucket.Get())
+		})
+	}
+}
+
+func TestEnvironmentDefaultVectorIndex(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		expected    string
+		expectedErr string
+	}{
+		{"not set", "", "", ""},
+		{"hnsw", "hnsw", "hnsw", ""},
+		{"flat", "flat", "flat", ""},
+		{"dynamic", "dynamic", "dynamic", ""},
+		{"hfresh", "hfresh", "hfresh", ""},
+		{"uppercase FLAT", "FLAT", "flat", ""},
+		{"mixed case Hnsw", "Hnsw", "hnsw", ""},
+		{"invalid value", "invalid", "", `invalid DEFAULT_VECTOR_INDEX "invalid"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.value != "" {
+				t.Setenv("DEFAULT_VECTOR_INDEX", tt.value)
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, conf.DefaultVectorIndexType.Get())
+			}
 		})
 	}
 }

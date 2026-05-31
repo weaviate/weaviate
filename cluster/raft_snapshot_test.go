@@ -45,7 +45,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	// Ensure Raft starts and a leader is elected
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
-	assert.True(t, tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader))
+	assert.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 
 	// DeleteClass

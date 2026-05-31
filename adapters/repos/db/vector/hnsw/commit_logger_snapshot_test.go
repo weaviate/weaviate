@@ -1791,3 +1791,233 @@ func TestMigrateCompactV2Snapshot(t *testing.T) {
 		require.NoError(t, cl.migrateCompactV2Snapshot())
 	})
 }
+
+func TestMigrateCompactV2SortedFiles(t *testing.T) {
+	newLogger := func(rootDir, id string) *hnswCommitLogger {
+		return &hnswCommitLogger{
+			rootPath: rootDir,
+			id:       id,
+			logger:   logrus.New(),
+			fs:       common.NewOSFS(),
+		}
+	}
+
+	t.Run("renames single-timestamp .sorted to .condensed", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted"), []byte("a"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.condensed"}, names)
+	})
+
+	t.Run("renames range .sorted to {endTS}.condensed", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1000_1500.sorted"), []byte("a"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.condensed"}, names)
+	})
+
+	t.Run("preserves non-compactv2 files", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Mix: a sorted file to migrate, a native condensed file to preserve,
+		// and a raw active log to preserve.
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted"), []byte("a"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "2000.condensed"), []byte("b"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "2500"), []byte("c"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.condensed", "2000.condensed", "2500"}, names)
+	})
+
+	t.Run("skips when destination already exists", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Both forms map to "1500.condensed" — collision case.
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted"), []byte("a"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.condensed"), []byte("b"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		// Both files preserved, no overwrite.
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.sorted", "1500.condensed"}, names)
+	})
+
+	t.Run("idempotent", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted"), []byte("a"), 0o644))
+
+		cl := newLogger(rootDir, "main")
+		require.NoError(t, cl.migrateCompactV2SortedFiles())
+		require.NoError(t, cl.migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t, []string{"1500.condensed"}, names)
+	})
+
+	t.Run("noop when no sorted files exist", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.condensed"), []byte("a"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").migrateCompactV2SortedFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+		require.Equal(t, "1500.condensed", entries[0].Name())
+	})
+}
+
+func TestCleanupCompactV2TempFiles(t *testing.T) {
+	newLogger := func(rootDir, id string) *hnswCommitLogger {
+		return &hnswCommitLogger{
+			rootPath: rootDir,
+			id:       id,
+			logger:   logrus.New(),
+			fs:       common.NewOSFS(),
+		}
+	}
+
+	t.Run("removes compactv2 .sorted.tmp and .snapshot.tmp leftovers", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Compactv2 SafeFileWriter leftovers from a crashed write.
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted.tmp"), []byte("a"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1000_1500.sorted.tmp"), []byte("b"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.snapshot.tmp"), []byte("c"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1000_1500.snapshot.tmp"), []byte("d"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").cleanupCompactV2TempFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		require.Empty(t, entries)
+	})
+
+	t.Run("preserves v1.37 native files and other tmp formats", func(t *testing.T) {
+		rootDir := t.TempDir()
+		commitlogDir := commitLogDirectory(rootDir, "main")
+		require.NoError(t, os.MkdirAll(commitlogDir, 0o755))
+
+		// Mix: compactv2 leftover (must remove), v1.37 natives, and v1.37 tmp
+		// formats handled elsewhere (must NOT remove).
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1500.sorted.tmp"), []byte("a"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "1000.condensed"), []byte("b"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "2000"), []byte("c"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "2500.scratch.tmp"), []byte("d"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(commitlogDir, "3000.combined.tmp"), []byte("e"), 0o644))
+
+		require.NoError(t, newLogger(rootDir, "main").cleanupCompactV2TempFiles())
+
+		entries, err := os.ReadDir(commitlogDir)
+		require.NoError(t, err)
+		names := make([]string, len(entries))
+		for i, e := range entries {
+			names[i] = e.Name()
+		}
+		require.ElementsMatch(t,
+			[]string{"1000.condensed", "2000", "2500.scratch.tmp", "3000.combined.tmp"},
+			names)
+	})
+
+	t.Run("noop when commitlog directory is missing", func(t *testing.T) {
+		rootDir := t.TempDir()
+		// don't create commitlog dir
+		require.NoError(t, newLogger(rootDir, "main").cleanupCompactV2TempFiles())
+	})
+}
+
+func TestSnapshotFileName(t *testing.T) {
+	cl := &hnswCommitLogger{
+		rootPath: "/data",
+		id:       "main",
+	}
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "condensed file",
+			input: "/data/main.hnsw.commitlog.d/1500.condensed",
+			want:  "/data/main.hnsw.snapshot.d/1500.snapshot",
+		},
+		{
+			name:  "raw timestamp file",
+			input: "/data/main.hnsw.commitlog.d/1500",
+			want:  "/data/main.hnsw.snapshot.d/1500.snapshot",
+		},
+		{
+			// Compact v2 leftover: produced range-format .sorted files in
+			// the commit log dir. Without the fix the result was
+			// "1000_1500.sorted.snapshot", which cleanupSnapshots could
+			// not parse — this is the bug from issue #197.
+			name:  "compactv2 sorted range file",
+			input: "/data/main.hnsw.commitlog.d/1000_1500.sorted",
+			want:  "/data/main.hnsw.snapshot.d/1500.snapshot",
+		},
+		{
+			name:  "compactv2 sorted single timestamp",
+			input: "/data/main.hnsw.commitlog.d/1500.sorted",
+			want:  "/data/main.hnsw.snapshot.d/1500.snapshot",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, cl.snapshotFileName(tt.input))
+		})
+	}
+}

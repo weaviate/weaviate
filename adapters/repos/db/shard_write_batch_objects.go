@@ -37,6 +37,14 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 		return []error{err}
 	}
 
+	if err := s.index.usageLimits.CheckObjects(ctx, int64(len(objects)), s.index.Config.ClassName.String()); err != nil {
+		errs := make([]error, len(objects))
+		for i := range errs {
+			errs[i] = err
+		}
+		return errs
+	}
+
 	return s.putBatch(ctx, objects)
 }
 

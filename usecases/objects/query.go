@@ -71,7 +71,11 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	class := "*"
 
 	if params != nil && params.Class != "" {
-		params.Class, _ = m.resolveAlias(params.Class)
+		resolved, _, err := m.resolveNS(principal, params.Class)
+		if err != nil {
+			return nil, &Error{err.Error(), StatusUnprocessableEntity, err}
+		}
+		params.Class = resolved
 		class = params.Class
 	}
 
@@ -89,7 +93,6 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 
 	filteredQuery := filter.New[*QueryInput](m.authorizer, m.config.Config.Authorization.Rbac).Filter(
 		ctx,
-		m.logger,
 		principal,
 		[]*QueryInput{q},
 		authorization.READ,

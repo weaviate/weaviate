@@ -76,7 +76,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:        "AddClassProperty",
-			additionalArgs:    []any{&models.Class{Class: "classname"}, "classname", false, &models.Property{}},
+			additionalArgs:    []any{"classname", false, &models.Property{}},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
@@ -88,7 +88,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:        "DeleteClassPropertyIndex",
-			additionalArgs:    []any{&models.Class{Class: "classname"}, "classname", "someprop", "someindex"},
+			additionalArgs:    []any{"classname", "someprop", "someindex"},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.CollectionsMetadata("classname"),
 		},
@@ -320,6 +320,39 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 		assert.Equal(t, authorization.READ, authCall.Verb)
 		assert.Equal(t, authorization.ShardsMetadata(resolvedClassName, shardName), authCall.Resources,
 			"Authorization should use resolved class name '%s', not alias '%s'", resolvedClassName, aliasName)
+
+		fakeSchemaManager.AssertExpectations(t)
+	})
+
+	t.Run("ShardsStatus - NS-enabled authorization uses namespace-qualified resolved class name", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+		handler.config.Namespaces.Enabled = true
+
+		nsPrincipal := &models.Principal{Username: "u1", Namespace: "customer1"}
+		shortAlias := "Films"
+		qualifiedAlias := "customer1:Films"
+		qualifiedClass := "customer1:Movies"
+
+		expectedStatus := models.ShardStatusList{
+			&models.ShardStatusGetResponse{Name: shardName, Status: "READY"},
+		}
+		fakeSchemaManager.On("GetShardsStatus", qualifiedClass, shardName).Return(expectedStatus, nil)
+
+		handler.schemaReader = &fakeSchemaManagerWithAlias{
+			fakeSchemaManager: fakeSchemaManager,
+			aliasMap:          map[string]string{qualifiedAlias: qualifiedClass},
+		}
+
+		_, err := handler.ShardsStatus(context.Background(), nsPrincipal, shortAlias, shardName)
+		require.NoError(t, err)
+
+		require.Len(t, authorizer.Calls(), 1, "Authorizer must be called exactly once")
+		authCall := authorizer.Calls()[0]
+		assert.Equal(t, nsPrincipal, authCall.Principal)
+		assert.Equal(t, authorization.READ, authCall.Verb)
+		assert.Equal(t, authorization.ShardsMetadata(qualifiedClass, shardName), authCall.Resources,
+			"Authorization should use namespace-qualified resolved class %q, not short alias %q", qualifiedClass, shortAlias)
 
 		fakeSchemaManager.AssertExpectations(t)
 	})

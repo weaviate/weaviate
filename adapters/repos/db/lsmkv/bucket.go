@@ -90,7 +90,27 @@ type Bucket struct {
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
-	flushLock        sync.RWMutex
+	flushLock sync.RWMutex
+	// flushAndSwitchMu serializes [FlushAndSwitch] calls. The bucket was
+	// designed assuming a single triggerer at a time (the periodic flush
+	// callback or a control-plane caller — backup, runtime migration,
+	// startup finalize); the data hot path never invokes
+	// [FlushAndSwitch] directly (writes go through memtable.put without
+	// it). When two callers overlap — most visibly seen on the objects
+	// bucket with concurrent runtime-reindex migrations — the second
+	// caller's atomicallySwitchMemtable observes `active.Size() == 0`
+	// and returns early, racing the first caller's still-in-flight
+	// flush. Any follow-up `CursorOnDisk` would miss data parked in
+	// `b.flushing`. Serializing here gives every caller the invariant
+	// "after FlushAndSwitch returns, all data written before the call
+	// is durably in segments." See GH https://github.com/weaviate/0-weaviate-issues/issues/212 Issues C+D.
+	//
+	// Lock ordering: flushAndSwitchMu MUST be acquired BEFORE flushLock.
+	// FlushAndSwitch takes flushAndSwitchMu for its full duration and
+	// internally takes flushLock during atomicallySwitchMemtable +
+	// atomicallyAddDiskSegmentAndRemoveFlushing. Reverse-order callers
+	// would deadlock.
+	flushAndSwitchMu sync.Mutex
 	haltedFlushTimer *interval.BackoffTimer
 
 	minWalThreshold   uint64
@@ -128,7 +148,14 @@ type Bucket struct {
 	// is that of the bucket that holds objects
 	monitorCount bool
 
-	pauseTimer *prometheus.Timer // Times the pause
+	// pauseCompactionMu ref-counts reindex pause/resume (weaviate/0-weaviate-issues#251).
+	pauseCompactionMu    sync.Mutex
+	pauseCompactionCount int
+
+	// pauseTimerMu ref-counts the timer across backup + reindex pause paths.
+	pauseTimerMu    sync.Mutex
+	pauseTimerCount int
+	pauseTimer      *prometheus.Timer
 
 	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
 	// should be kept in root segment during compaction process.
@@ -157,6 +184,16 @@ type Bucket struct {
 	forceCompaction    bool
 	disableCompaction  bool
 	lazySegmentLoading bool
+
+	// Canonical class name carried by the bucket. Required for any bucket
+	// whose readers go through the storobj decoders (the objects bucket); set
+	// via WithClassName at creation time so the decoders can stamp the
+	// canonical class on every decoded object instead of trusting the (no
+	// longer authoritative) on-disk class-name field. ClassName() returns an
+	// error when this is empty — buckets that do not hold storobj payloads
+	// (inverted, prop-length, etc.) leave it unset because those readers
+	// never call ClassName() in the first place.
+	className string
 
 	// if true, don't increase the segment level during compaction.
 	// useful for migrations, as it allows to merge reindex and ingest buckets
@@ -393,8 +430,12 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 
 	i := 0
 
+	className, err := b.ClassName()
+	if err != nil {
+		return fmt.Errorf("getting bucket class name: %w", err)
+	}
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
+		obj, err := storobj.FromBinaryDisk(v, className)
 		if err != nil {
 			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
 		}
@@ -408,12 +449,42 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	return nil
 }
 
+// pauseCompaction / resumeCompaction are ref-counted at the bucket level so
+// snapshot, ApplyToObjectDigests, and runtime-reindex callers share one pause
+// (weaviate/0-weaviate-issues#251 + weaviate/weaviate#11486 review).
 func (b *Bucket) pauseCompaction(ctx context.Context) error {
-	return b.disk.pauseCompaction(ctx)
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	b.pauseCompactionCount++
+	if b.pauseCompactionCount > 1 {
+		return nil
+	}
+	if err := b.disk.pauseCompaction(ctx); err != nil {
+		b.pauseCompactionCount--
+		return err
+	}
+	b.doStartPauseTimer()
+	return nil
 }
 
 func (b *Bucket) resumeCompaction(ctx context.Context) error {
-	return b.disk.resumeCompaction(ctx)
+	b.pauseCompactionMu.Lock()
+	defer b.pauseCompactionMu.Unlock()
+
+	if b.pauseCompactionCount == 0 {
+		return nil
+	}
+	if b.pauseCompactionCount > 1 {
+		b.pauseCompactionCount--
+		return nil
+	}
+	if err := b.disk.resumeCompaction(ctx); err != nil {
+		return err
+	}
+	b.doStopPauseTimer()
+	b.pauseCompactionCount--
+	return nil
 }
 
 // ApplyToObjectDigests iterates over all objects in the bucket, both in memtable
@@ -1748,6 +1819,16 @@ func (b *Bucket) FlushAndSwitch() error {
 		return err
 	}
 
+	// Serialize against any other in-flight FlushAndSwitch on this bucket.
+	// See the [flushAndSwitchMu] godoc and GH https://github.com/weaviate/0-weaviate-issues/issues/212
+	// Issues C+D for the rationale. This ensures the invariant
+	// "after FlushAndSwitch returns, all data written before the call is
+	// durably in segments" holds even when two callers race — the second
+	// caller waits for the first's flush to land before its own
+	// atomicallySwitchMemtable runs.
+	b.flushAndSwitchMu.Lock()
+	defer b.flushAndSwitchMu.Unlock()
+
 	before := time.Now()
 	var err error
 
@@ -1968,6 +2049,21 @@ func (b *Bucket) Strategy() string {
 
 func (b *Bucket) DesiredStrategy() string {
 	return b.desiredStrategy
+}
+
+// ClassName returns the canonical class name supplied at bucket creation via
+// WithClassName. Storobj decoders use this value as the authoritative class
+// name and stamp it on every decoded object, ignoring the on-disk class-name
+// field. Buckets that do not hold storobj payloads (inverted, prop-length,
+// etc.) are not opened with WithClassName; calling ClassName() on them
+// returns an error rather than silently producing decoded objects with an
+// empty class — readers that need a class name must come from a bucket that
+// has one.
+func (b *Bucket) ClassName() (string, error) {
+	if b.className == "" {
+		return "", fmt.Errorf("bucket does not have a class name")
+	}
+	return b.className, nil
 }
 
 // the WAL uses a buffer and isn't written until the buffer size is crossed or

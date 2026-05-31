@@ -20,10 +20,16 @@ service ReplicationService {
   rpc FetchObjects (FetchObjectsRequest) returns (FetchObjectsResponse);
   rpc DigestObjects (DigestObjectsRequest) returns (DigestObjectsResponse);
   rpc DigestObjectsInRange (DigestObjectsInRangeRequest) returns (DigestObjectsInRangeResponse);
+  rpc CompareDigests (CompareDigestsRequest) returns (CompareDigestsResponse);
   rpc OverwriteObjects (OverwriteObjectsRequest) returns (OverwriteObjectsResponse);
   rpc FindUUIDs (FindUUIDsRequest) returns (FindUUIDsResponse);
   rpc HashTreeLevel (HashTreeLevelRequest) returns (HashTreeLevelResponse);
   rpc CountObjects (CountObjectsRequest) returns (CountObjectsResponse);
+
+  // Async-checkpoint control plane; mirrors /replicas/indices/{class}/async-checkpoint.
+  rpc CreateAsyncCheckpoint (CreateAsyncCheckpointRequest) returns (CreateAsyncCheckpointResponse);
+  rpc DeleteAsyncCheckpoint (DeleteAsyncCheckpointRequest) returns (DeleteAsyncCheckpointResponse);
+  rpc GetAsyncCheckpointStatus (GetAsyncCheckpointStatusRequest) returns (GetAsyncCheckpointStatusResponse);
 }
 
 // ── Shared messages ──────────────────────────────────────────────────────────
@@ -205,6 +211,17 @@ message DigestObjectsInRangeResponse {
   repeated RepairResponse digests = 1;
 }
 
+// CompareDigests sends source digests to the target and returns those that need repair.
+message CompareDigestsRequest {
+  string index = 1;
+  string shard = 2;
+  repeated RepairResponse digests = 3;
+}
+
+message CompareDigestsResponse {
+  repeated RepairResponse digests = 1;
+}
+
 // OverwriteObjects conditionally updates existing objects
 // (binary-encoded via versionedObjectListPayload.Marshal).
 message OverwriteObjectsRequest {
@@ -251,4 +268,44 @@ message CountObjectsRequest {
 // CountObjectsResponse carries object count.
 message CountObjectsResponse {
   int32 count = 1;
+}
+
+// ── Async-checkpoint requests / responses ────────────────────────────────────
+
+// created_at_unix_milli must come from the initiator (strict-greater-than
+// tie-breaker; equal/older returns AlreadyExists).
+message CreateAsyncCheckpointRequest {
+  string index = 1;
+  repeated string shards = 2;
+  int64 cutoff_ms = 3;
+  int64 created_at_unix_milli = 4;
+}
+
+message CreateAsyncCheckpointResponse {
+}
+
+message DeleteAsyncCheckpointRequest {
+  string index = 1;
+  repeated string shards = 2;
+}
+
+message DeleteAsyncCheckpointResponse {
+}
+
+// GetAsyncCheckpointStatusResponse omits shards not loaded on this node, so
+// callers detect absence by entry presence.
+message GetAsyncCheckpointStatusRequest {
+  string index = 1;
+  repeated string shards = 2;
+}
+
+// AsyncCheckpointShardStatus: empty root + created_at_unix_milli == 0 means inactive.
+message AsyncCheckpointShardStatus {
+  bytes root = 1;
+  int64 cutoff_ms = 2;
+  int64 created_at_unix_milli = 3;
+}
+
+message GetAsyncCheckpointStatusResponse {
+  map<string, AsyncCheckpointShardStatus> statuses = 1;
 }

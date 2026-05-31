@@ -90,7 +90,10 @@ var (
 		`\/shards\/(` + sh + `)\/objects/digestsInRange`)
 	regxHashTreeLevel = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/level\/(` + l + `)`)
-	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
+	regexCompareDigests = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects/compareDigests`)
+	regxAsyncCheckpoint = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)\/async-checkpoint`)
+	regxObjects         = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
 	regxReferences = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/references`)
@@ -240,6 +243,14 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 
 		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 		return
+	case regexCompareDigests.MatchString(path):
+		if r.Method == http.MethodPost {
+			i.postCompareDigests().ServeHTTP(w, r)
+			return
+		}
+
+		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+		return
 	case regxCountObjects.MatchString(path):
 		if r.Method == http.MethodGet {
 			i.countObjects().ServeHTTP(w, r)
@@ -248,6 +259,21 @@ func (i *replicatedIndices) handleRequest(qr queuedRequest) {
 
 		http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 		return
+	case regxAsyncCheckpoint.MatchString(path):
+		switch r.Method {
+		case http.MethodGet:
+			i.getAsyncCheckpointStatus().ServeHTTP(w, r)
+			return
+		case http.MethodPost:
+			i.postAsyncCheckpoint().ServeHTTP(w, r)
+			return
+		case http.MethodDelete:
+			i.deleteAsyncCheckpoint().ServeHTTP(w, r)
+			return
+		default:
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+		}
 	case regxObject.MatchString(path):
 		if r.Method == http.MethodDelete {
 			i.deleteObject().ServeHTTP(w, r)
@@ -722,6 +748,87 @@ func (i *replicatedIndices) putOverwriteObjects() http.Handler {
 	})
 }
 
+// postCompareDigests compares a binary-encoded list of source digests against
+// local state and returns the actionable subset. Wire format on both sides is
+// replica.CompareDigestsRecordLength bytes per record (see usecases/replica
+// for the record layout and flag bits).
+func (i *replicatedIndices) postCompareDigests() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regexCompareDigests.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, replica.CompareDigestsMaxBodyBytes))
+		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var sourceDigests []types.RepairResponse
+		if len(body) > 0 {
+			if len(body)%replica.CompareDigestsRecordLength != 0 {
+				http.Error(w, "invalid binary payload length", http.StatusBadRequest)
+				return
+			}
+			n := len(body) / replica.CompareDigestsRecordLength
+			sourceDigests = make([]types.RepairResponse, n)
+			for j := 0; j < n; j++ {
+				off := j * replica.CompareDigestsRecordLength
+				rec := body[off : off+replica.CompareDigestsRecordLength]
+				id, err := uuid.FromBytes(rec[:16])
+				if err != nil {
+					http.Error(w, "parse uuid from binary: "+err.Error(), http.StatusBadRequest)
+					return
+				}
+				sourceDigests[j] = types.RepairResponse{
+					ID:         id.String(),
+					UpdateTime: int64(binary.BigEndian.Uint64(rec[16:24])),
+					Deleted:    rec[24]&replica.CompareDigestsFlagDeleted != 0,
+				}
+			}
+		}
+
+		stale, err := i.replicator.CompareDigests(r.Context(), index, shard, sourceDigests)
+		if err != nil {
+			http.Error(w, "compare digests: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Encode all records before writing headers so that a UUID parse error
+		// doesn't produce an http.Error after headers have been sent.
+		out := make([]byte, 0, len(stale)*replica.CompareDigestsRecordLength)
+		var obuf [replica.CompareDigestsRecordLength]byte
+		for _, d := range stale {
+			id, err := uuid.Parse(d.ID)
+			if err != nil {
+				http.Error(w, "parse uuid: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			copy(obuf[:16], id[:])
+			binary.BigEndian.PutUint64(obuf[16:24], uint64(d.UpdateTime))
+			obuf[24] = 0
+			if d.Deleted {
+				obuf[24] = replica.CompareDigestsFlagDeleted
+			}
+			out = append(out, obuf[:]...)
+		}
+
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", strconv.Itoa(len(out)))
+		w.Write(out) //nolint:errcheck
+	})
+}
+
 func (i *replicatedIndices) countObjects() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := regxCountObjects.FindStringSubmatch(r.URL.Path)
@@ -1047,4 +1154,178 @@ func (i *replicatedIndices) postRefs() http.Handler {
 // Close gracefully shuts down the replicatedIndices by draining the queue and waiting for workers to finish
 func (i *replicatedIndices) Close(ctx context.Context) error {
 	return i.requestQueue.Close(ctx)
+}
+
+const asyncCheckpointMaxBodyBytes = 64 * 1024
+
+// Rolling upgrades: pre-feature nodes return 404; the broadcast helper in finder.go
+// logs and continues, so convergence resumes once rollout completes.
+
+// Root is a raw []byte (base64 on the wire) because hashtree.Digest's
+// pointer-receiver MarshalJSON doesn't fire on non-addressable map values.
+type asyncCheckpointCreateRequest struct {
+	Shards      []string `json:"shards"`
+	CutoffMs    int64    `json:"cutoff_ms"`
+	CreatedAtMs int64    `json:"created_at_ms"`
+}
+
+type asyncCheckpointDeleteRequest struct {
+	Shards []string `json:"shards"`
+}
+
+type asyncCheckpointStatusEntry struct {
+	Root        []byte `json:"root"`
+	CutoffMs    int64  `json:"cutoff_ms"`
+	CreatedAtMs int64  `json:"created_at_ms"`
+}
+
+func readAsyncCheckpointBody(w http.ResponseWriter, r *http.Request, out interface{}) (int, error) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, asyncCheckpointMaxBodyBytes))
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			return http.StatusRequestEntityTooLarge, fmt.Errorf("request body too large")
+		}
+		return http.StatusInternalServerError, fmt.Errorf("read request body: %w", err)
+	}
+	if len(body) == 0 {
+		return http.StatusBadRequest, fmt.Errorf("empty request body")
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return http.StatusBadRequest, fmt.Errorf("decode request body: %w", err)
+	}
+	return 0, nil
+}
+
+func (i *replicatedIndices) postAsyncCheckpoint() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxAsyncCheckpoint.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		className := args[1]
+
+		var req asyncCheckpointCreateRequest
+		if status, err := readAsyncCheckpointBody(w, r, &req); err != nil {
+			http.Error(w, err.Error(), status)
+			return
+		}
+		if len(req.Shards) > replica.AsyncCheckpointMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards in request (%d > %d)",
+				len(req.Shards), replica.AsyncCheckpointMaxShardsPerRequest),
+				http.StatusBadRequest)
+			return
+		}
+		if req.CutoffMs <= 0 {
+			http.Error(w, "cutoff_ms must be > 0", http.StatusBadRequest)
+			return
+		}
+		if req.CreatedAtMs <= 0 {
+			http.Error(w, "created_at_ms must be > 0", http.StatusBadRequest)
+			return
+		}
+
+		createdAt := time.UnixMilli(req.CreatedAtMs).UTC()
+		// Past values are fine (tie-breaker handles them); reject only far-future skew.
+		if skew := time.Until(createdAt); skew > replica.AsyncCheckpointCreatedAtSkewTolerance {
+			http.Error(w,
+				fmt.Sprintf("created_at_ms is too far in the future (%s ahead of this node's clock; tolerance %s)",
+					skew.Truncate(time.Second), replica.AsyncCheckpointCreatedAtSkewTolerance),
+				http.StatusBadRequest)
+			return
+		}
+		if err := i.replicator.CreateAsyncCheckpoint(r.Context(), className, req.Shards, req.CutoffMs, createdAt); err != nil {
+			http.Error(w, "create async checkpoint: "+err.Error(), asyncCheckpointHTTPStatus(err))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+// asyncCheckpointHTTPStatus keeps HTTP status codes in sync with asyncCheckpointErrorToGRPC.
+func asyncCheckpointHTTPStatus(err error) int {
+	switch {
+	case errors.Is(err, replica.ErrAsyncCheckpointStale):
+		return http.StatusConflict
+	case errors.Is(err, replica.ErrAsyncReplicationNotActive):
+		return http.StatusPreconditionFailed
+	}
+	return http.StatusInternalServerError
+}
+
+func (i *replicatedIndices) deleteAsyncCheckpoint() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxAsyncCheckpoint.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		className := args[1]
+
+		var req asyncCheckpointDeleteRequest
+		if status, err := readAsyncCheckpointBody(w, r, &req); err != nil {
+			http.Error(w, err.Error(), status)
+			return
+		}
+		if len(req.Shards) > replica.AsyncCheckpointMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards in request (%d > %d)",
+				len(req.Shards), replica.AsyncCheckpointMaxShardsPerRequest),
+				http.StatusBadRequest)
+			return
+		}
+
+		if err := i.replicator.DeleteAsyncCheckpoint(r.Context(), className, req.Shards); err != nil {
+			http.Error(w, "delete async checkpoint: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func (i *replicatedIndices) getAsyncCheckpointStatus() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxAsyncCheckpoint.FindStringSubmatch(r.URL.Path)
+		if len(args) != 2 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+		className := args[1]
+
+		shards := r.URL.Query()["shards"]
+		if len(shards) > replica.AsyncCheckpointMaxShardsPerRequest {
+			http.Error(w, fmt.Sprintf("too many shards in request (%d > %d)",
+				len(shards), replica.AsyncCheckpointMaxShardsPerRequest),
+				http.StatusBadRequest)
+			return
+		}
+
+		statuses, err := i.replicator.GetAsyncCheckpointStatus(r.Context(), className, shards)
+		if err != nil {
+			http.Error(w, "get async checkpoint status: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := make(map[string]asyncCheckpointStatusEntry, len(statuses))
+		for shardName, s := range statuses {
+			rootBytes, _ := s.Root.MarshalBinary()
+			// Inactive shards: Root=nil + created_at_ms=0, to avoid the negative time.Time{}.UnixMilli() value.
+			createdAtMs := s.CreatedAt.UnixMilli()
+			if s.CutoffMs == 0 {
+				rootBytes = nil
+				createdAtMs = 0
+			}
+			resp[shardName] = asyncCheckpointStatusEntry{
+				Root:        rootBytes,
+				CutoffMs:    s.CutoffMs,
+				CreatedAtMs: createdAtMs,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			i.logger.WithField("action", "get_async_checkpoint_status").Error(err)
+		}
+	})
 }

@@ -24,11 +24,13 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+
+	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestEdgeVectorDimensions(t *testing.T) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	c := client.New(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
 	ctx := context.Background()
 
 	objID1 := "00000000-0000-0000-0000-000000000001"

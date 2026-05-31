@@ -30,6 +30,7 @@ import (
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
@@ -381,6 +382,28 @@ func (c *grpcReplicationClient) DigestObjectsInRange(ctx context.Context, host, 
 	return protoToRepairResponses(resp.GetDigests()), nil
 }
 
+func (c *grpcReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	client, err := c.getClient(host)
+	if err != nil {
+		return nil, err
+	}
+
+	// No internal timeout: the async-replication scheduler manages the
+	// per-cycle deadline on the incoming context.
+	req := &protocol.CompareDigestsRequest{
+		Index:   index,
+		Shard:   shard,
+		Digests: repairResponsesToProto(digests),
+	}
+	resp, err := client.CompareDigests(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("gRPC CompareDigests: %w", err)
+	}
+	return protoToRepairResponses(resp.GetDigests()), nil
+}
+
 func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, index, shard string,
 	vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
@@ -440,9 +463,23 @@ func (c *grpcReplicationClient) FindUUIDs(ctx context.Context, host, index, shar
 	return clusterapi.StringsToUUIDs(resp.GetUuids()), nil
 }
 
+// HashTreeLevel fetches hash tree level digests via gRPC. discriminant must
+// be a level-local bitset of size hashtree.LeavesCount(level).
 func (c *grpcReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string,
 	level int, discriminant *hashtree.Bitset,
 ) ([]hashtree.Digest, error) {
+	if level < 0 {
+		return nil, fmt.Errorf("invalid hashtree level: %d", level)
+	}
+	if discriminant == nil {
+		return nil, fmt.Errorf("nil discriminant")
+	}
+	expected := hashtree.LeavesCount(level)
+	if discriminant.Size() != expected {
+		return nil, fmt.Errorf("discriminant size %d, expected %d (level-local) for level %d",
+			discriminant.Size(), expected, level)
+	}
+
 	client, err := c.getClient(host)
 	if err != nil {
 		return nil, err
@@ -493,16 +530,88 @@ func (c *grpcReplicationClient) CountObjects(ctx context.Context, host, index, s
 	return int(resp.Count), nil
 }
 
+func (c *grpcReplicationClient) CreateAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
+) error {
+	client, err := c.getClient(host)
+	if err != nil {
+		return err
+	}
+	_, err = client.CreateAsyncCheckpoint(ctx, &protocol.CreateAsyncCheckpointRequest{
+		Index:              index,
+		Shards:             shardNames,
+		CutoffMs:           cutoffMs,
+		CreatedAtUnixMilli: createdAt.UnixMilli(),
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC CreateAsyncCheckpoint: %w", err)
+	}
+	return nil
+}
+
+func (c *grpcReplicationClient) DeleteAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string,
+) error {
+	client, err := c.getClient(host)
+	if err != nil {
+		return err
+	}
+	_, err = client.DeleteAsyncCheckpoint(ctx, &protocol.DeleteAsyncCheckpointRequest{
+		Index:  index,
+		Shards: shardNames,
+	})
+	if err != nil {
+		return fmt.Errorf("gRPC DeleteAsyncCheckpoint: %w", err)
+	}
+	return nil
+}
+
+func (c *grpcReplicationClient) GetAsyncCheckpointStatus(ctx context.Context,
+	host, index string, shardNames []string,
+) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	client, err := c.getClient(host)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.GetAsyncCheckpointStatus(ctx, &protocol.GetAsyncCheckpointStatusRequest{
+		Index:  index,
+		Shards: shardNames,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("gRPC GetAsyncCheckpointStatus: %w", err)
+	}
+	out := make(map[string]replica.AsyncCheckpointShardStatus, len(resp.GetStatuses()))
+	for shard, s := range resp.GetStatuses() {
+		var root hashtree.Digest
+		if len(s.GetRoot()) > 0 {
+			if err := root.UnmarshalBinary(s.GetRoot()); err != nil {
+				return nil, fmt.Errorf("decode async-checkpoint root for shard %q: %w", shard, err)
+			}
+		}
+		// Decode 0 back to time.Time{}, not 1970-01-01, so IsZero() is the consumer-side "inactive" check.
+		var createdAt time.Time
+		if ms := s.GetCreatedAtUnixMilli(); ms != 0 {
+			createdAt = time.UnixMilli(ms)
+		}
+		out[shard] = replica.AsyncCheckpointShardStatus{
+			Root:      root,
+			CutoffMs:  s.GetCutoffMs(),
+			CreatedAt: createdAt,
+		}
+	}
+	return out, nil
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 func protoToSimpleResponse(r *protocol.SimpleReplicaResponse) replica.SimpleResponse {
 	if r == nil {
 		return replica.SimpleResponse{}
 	}
-	errs := make([]replica.Error, len(r.GetErrors()))
+	errs := make([]replicaerrors.Error, len(r.GetErrors()))
 	for i, e := range r.GetErrors() {
-		errs[i] = replica.Error{
-			Code: replica.StatusCode(e.GetCode()),
+		errs[i] = replicaerrors.Error{
+			Code: replicaerrors.StatusCode(e.GetCode()),
 			Msg:  e.GetMsg(),
 		}
 	}
@@ -518,6 +627,20 @@ func protoToRepairResponses(results []*protocol.RepairResponse) []types.RepairRe
 			UpdateTime: r.GetUpdateTime(),
 			Err:        r.GetErr(),
 			Deleted:    r.GetDeleted(),
+		}
+	}
+	return out
+}
+
+func repairResponsesToProto(digests []types.RepairResponse) []*protocol.RepairResponse {
+	out := make([]*protocol.RepairResponse, len(digests))
+	for i, d := range digests {
+		out[i] = &protocol.RepairResponse{
+			Id:         d.ID,
+			Version:    d.Version,
+			UpdateTime: d.UpdateTime,
+			Err:        d.Err,
+			Deleted:    d.Deleted,
 		}
 	}
 	return out

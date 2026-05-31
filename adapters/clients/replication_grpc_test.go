@@ -34,6 +34,7 @@ import (
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -161,7 +162,7 @@ func (f *fakeGRPCReplicationServer) Commit(_ context.Context, req *pb.CommitRequ
 		}
 		return &pb.CommitResponse{Payload: f.commitPayload}, nil
 	case RequestError:
-		payload, _ := json.Marshal(replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}})
+		payload, _ := json.Marshal(replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}})
 		return &pb.CommitResponse{Payload: payload}, nil
 	case RequestMalFormedResponse:
 		return &pb.CommitResponse{Payload: []byte(`not valid json`)}, nil
@@ -317,7 +318,7 @@ func TestGRPCReplicationPutObject(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		resp, err := client.PutObject(ctx, "passthrough:bufnet", "C1", "S1", RequestError, obj, 0)
 		assert.Nil(t, err)
-		assert.Equal(t, replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}}, resp)
+		assert.Equal(t, replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}}, resp)
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
@@ -364,7 +365,7 @@ func TestGRPCReplicationPutObjects(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		resp, err := client.PutObjects(ctx, "passthrough:bufnet", "C1", "S1", RequestError, objs, 123)
 		assert.Nil(t, err)
-		assert.Equal(t, replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}}, resp)
+		assert.Equal(t, replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}}, resp)
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
@@ -401,7 +402,7 @@ func TestGRPCReplicationMergeObject(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		resp, err := client.MergeObject(ctx, "passthrough:bufnet", "C1", "S1", RequestError, doc, 0)
 		assert.Nil(t, err)
-		assert.Equal(t, replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}}, resp)
+		assert.Equal(t, replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}}, resp)
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
@@ -439,7 +440,7 @@ func TestGRPCReplicationDeleteObject(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		resp, err := client.DeleteObject(ctx, "passthrough:bufnet", "C1", "S1", RequestError, uuid, deletionTime, 0)
 		assert.Nil(t, err)
-		assert.Equal(t, replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}}, resp)
+		assert.Equal(t, replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}}, resp)
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
@@ -477,7 +478,7 @@ func TestGRPCReplicationDeleteObjects(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		resp, err := client.DeleteObjects(ctx, "passthrough:bufnet", "C1", "S1", RequestError, uuids, deletionTime, false, 123)
 		assert.Nil(t, err)
-		assert.Equal(t, replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}}, resp)
+		assert.Equal(t, replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}}, resp)
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
@@ -514,7 +515,7 @@ func TestGRPCReplicationAddReferences(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		resp, err := client.AddReferences(ctx, "passthrough:bufnet", "C1", "S1", RequestError, refs, 0)
 		assert.Nil(t, err)
-		assert.Equal(t, replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}}, resp)
+		assert.Equal(t, replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}}, resp)
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
@@ -551,7 +552,7 @@ func TestGRPCReplicationCommit(t *testing.T) {
 		resp := replica.SimpleResponse{}
 		err := client.Commit(ctx, "passthrough:bufnet", "C1", "S1", RequestError, &resp)
 		assert.Nil(t, err)
-		assert.Equal(t, replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}}, resp)
+		assert.Equal(t, replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}}, resp)
 	})
 
 	t.Run("DecodeResponse", func(t *testing.T) {
@@ -587,7 +588,7 @@ func TestGRPCReplicationAbort(t *testing.T) {
 	t.Run("Error", func(t *testing.T) {
 		resp, err := client.Abort(ctx, "passthrough:bufnet", "C1", "S1", RequestError)
 		assert.Nil(t, err)
-		assert.Equal(t, replica.SimpleResponse{Errors: []replica.Error{{Msg: "error"}}}, resp)
+		assert.Equal(t, replica.SimpleResponse{Errors: []replicaerrors.Error{{Msg: "error"}}}, resp)
 	})
 
 	t.Run("ServerInternalError", func(t *testing.T) {
@@ -615,7 +616,8 @@ func TestGRPCReplicationFetchObject(t *testing.T) {
 		Object: &storobj.Object{
 			MarshallerVersion: 1,
 			Object: models.Object{
-				ID: UUID1,
+				Class: "C1",
+				ID:    UUID1,
 				Properties: map[string]interface{}{
 					"stringProp": "abc",
 				},
@@ -668,7 +670,8 @@ func TestGRPCReplicationFetchObjects(t *testing.T) {
 			Object: &storobj.Object{
 				MarshallerVersion: 1,
 				Object: models.Object{
-					ID: UUID1,
+					Class: "C1",
+					ID:    UUID1,
 					Properties: map[string]interface{}{
 						"stringProp": "abc",
 					},
@@ -682,7 +685,8 @@ func TestGRPCReplicationFetchObjects(t *testing.T) {
 			Object: &storobj.Object{
 				MarshallerVersion: 1,
 				Object: models.Object{
-					ID: UUID2,
+					Class: "C1",
+					ID:    UUID2,
 					Properties: map[string]interface{}{
 						"floatProp": float64(123),
 					},

@@ -478,8 +478,15 @@ func (q *DiskQueue) Wait(ctx context.Context) error {
 	return q.scheduler.Wait(ctx, q.id)
 }
 
-// PrepareForBackup pauses the queue and flushes all tasks to disk to prepare for backup.
-// It also enables maintenance mode, which prevents processed chunk files from being deleted until the backup is complete.
+// PrepareForBackup pauses the queue and flushes all tasks to disk to prepare
+// for backup. It also promotes the current partial chunk into a sealed file
+// and enables maintenance mode, which prevents processed chunk files from
+// being deleted until the backup is complete.
+//
+// Promoting the partial chunk ensures that no open writer can modify files in
+// the queue directory while they are being uploaded. Without this, the resumed
+// queue writer could modify chunk files mid-upload, causing checksum mismatches
+// (e.g. S3 BadDigest errors).
 func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
 	err := q.Pause(ctx)
 	if err != nil {
@@ -490,6 +497,18 @@ func (q *DiskQueue) PrepareForBackup(ctx context.Context) error {
 	err = q.Flush()
 	if err != nil {
 		return err
+	}
+
+	// Seal the current partial chunk so the writer starts a fresh file on
+	// Resume. This guarantees all existing chunk files are immutable during
+	// the upload.
+	q.m.Lock()
+	if q.w != nil {
+		err = q.w.Promote()
+	}
+	q.m.Unlock()
+	if err != nil {
+		return errors.Wrap(err, "promote partial chunk for backup")
 	}
 
 	q.EnableMaintenanceMode()
@@ -504,7 +523,7 @@ func (q *DiskQueue) ForceSwitch(ctx context.Context, basePath string) ([]string,
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	// if the writer is nil, the queue is is not initialized
+	// if the writer is nil, the queue is not initialized
 	if q.w == nil {
 		return nil, nil
 	}

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,7 +33,10 @@ import (
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/restrictions"
 	"github.com/weaviate/weaviate/usecases/telemetry"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -165,31 +169,97 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 	}
 }
 
+// translateTypedError maps Weaviate's typed errors (auth, usage limits)
+// to gRPC statuses. Returns nil when no mapping applies so callers can
+// fall through. Shared by the unary and stream interceptors.
+func translateTypedError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.As(err, &authErrs.Unauthenticated{}) {
+		return status.Error(codes.Unauthenticated, err.Error())
+	}
+	if errors.As(err, &authErrs.Forbidden{}) {
+		return status.Error(codes.PermissionDenied, err.Error())
+	}
+	if le, ok := usagelimits.AsLimitExceeded(err); ok {
+		return limitExceededToGrpcError(le)
+	}
+	if v, ok := restrictions.AsViolation(err); ok {
+		return restrictionViolationToGrpcError(v)
+	}
+	return nil
+}
+
+// restrictionViolationToGrpcError maps a ViolationError to
+// FailedPrecondition + ErrorInfo metadata mirroring the REST 422 body.
+func restrictionViolationToGrpcError(v *restrictions.ViolationError) error {
+	st := status.New(codes.FailedPrecondition, v.Error())
+	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{
+		Reason: restrictions.ErrorCode,
+		Domain: "weaviate.restrictions",
+		Metadata: map[string]string{
+			"restriction": string(v.Restriction),
+			"value":       v.Value,
+			"allowed":     strings.Join(v.Allowed, ","),
+			"message":     v.RenderedMessage,
+		},
+	})
+	if derr != nil {
+		return st.Err()
+	}
+	return withDetails.Err()
+}
+
 func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (any, error) {
 		resp, err := handler(ctx, req)
-
-		if errors.As(err, &authErrs.Unauthenticated{}) {
-			return nil, status.Error(codes.Unauthenticated, err.Error())
+		if translated := translateTypedError(err); translated != nil {
+			return nil, translated
 		}
-
-		if errors.As(err, &authErrs.Forbidden{}) {
-			return nil, status.Error(codes.PermissionDenied, err.Error())
-		}
-
 		return resp, err
 	}
 }
 
+// limitExceededToGrpcError converts a *usagelimits.LimitExceededError into
+// a gRPC status with codes.ResourceExhausted and an attached
+// errdetails.ErrorInfo proto carrying the structured fields that mirror the
+// REST 429 body. SDKs may match on the gRPC code alone, or read the details
+// payload for the same `errorCode`/`limit`/`value`/`message` fields they'd
+// see over REST.
+func limitExceededToGrpcError(le *usagelimits.LimitExceededError) error {
+	st := status.New(codes.ResourceExhausted, le.Error())
+	withDetails, derr := st.WithDetails(&errdetails.ErrorInfo{
+		Reason: usagelimits.ErrorCode,
+		Domain: "weaviate.usagelimits",
+		Metadata: map[string]string{
+			"limit":   string(le.Limit),
+			"value":   strconv.FormatInt(le.Value, 10),
+			"message": le.RenderedMessage,
+		},
+	})
+	if derr != nil {
+		// Fall back to the bare status if attaching details fails for any
+		// reason (e.g. proto marshaling). The status code + message is
+		// still a valid contract; we just lose the structured payload.
+		return st.Err()
+	}
+	return withDetails.Err()
+}
+
 func makeAuthStreamInterceptor(auth *auth.Handler) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		_, err := auth.PrincipalFromContext(ss.Context())
-		if err != nil {
+		if _, err := auth.PrincipalFromContext(ss.Context()); err != nil {
 			return status.Error(codes.Unauthenticated, err.Error())
 		}
-		return handler(srv, ss)
+		// Mirror makeAuthInterceptor so streams get the same wire contract.
+		err := handler(srv, ss)
+		if translated := translateTypedError(err); translated != nil {
+			return translated
+		}
+		return err
 	}
 }
 

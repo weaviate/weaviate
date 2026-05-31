@@ -186,9 +186,45 @@ func (s *switchReplicationClient) HashTreeLevel(ctx context.Context, host, index
 	return s.restClient.HashTreeLevel(ctx, host, index, shard, level, discriminant)
 }
 
+func (s *switchReplicationClient) CompareDigests(ctx context.Context, host, index, shard string,
+	digests []types.RepairResponse,
+) ([]types.RepairResponse, error) {
+	if s.useGRPC() {
+		return s.grpcClient.CompareDigests(ctx, host, index, shard, digests)
+	}
+	return s.restClient.CompareDigests(ctx, host, index, shard, digests)
+}
+
 func (s *switchReplicationClient) CountObjects(ctx context.Context, host string, index string, shard string) (int, error) {
 	if s.useGRPC() {
 		return s.grpcClient.CountObjects(ctx, host, index, shard)
 	}
 	return s.restClient.CountObjects(ctx, host, index, shard)
+}
+
+func (s *switchReplicationClient) CreateAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
+) error {
+	if s.useGRPC() {
+		return s.grpcClient.CreateAsyncCheckpoint(ctx, host, index, shardNames, cutoffMs, createdAt)
+	}
+	return s.restClient.CreateAsyncCheckpoint(ctx, host, index, shardNames, cutoffMs, createdAt)
+}
+
+func (s *switchReplicationClient) DeleteAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string,
+) error {
+	if s.useGRPC() {
+		return s.grpcClient.DeleteAsyncCheckpoint(ctx, host, index, shardNames)
+	}
+	return s.restClient.DeleteAsyncCheckpoint(ctx, host, index, shardNames)
+}
+
+func (s *switchReplicationClient) GetAsyncCheckpointStatus(ctx context.Context,
+	host, index string, shardNames []string,
+) (map[string]replica.AsyncCheckpointShardStatus, error) {
+	if s.useGRPC() {
+		return s.grpcClient.GetAsyncCheckpointStatus(ctx, host, index, shardNames)
+	}
+	return s.restClient.GetAsyncCheckpointStatus(ctx, host, index, shardNames)
 }
