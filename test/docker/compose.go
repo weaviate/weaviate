@@ -161,12 +161,15 @@ type Compose struct {
 	withMockOIDCWithCertificate    bool
 	withMockOIDCNamespacedUsers    bool
 	weaviateEnvs                   map[string]string
+	weaviateNodeEnvs               map[int]map[string]string
 	removeEnvs                     map[string]struct{}
 	weaviateFiles                  []testcontainers.ContainerFile
+	weaviateMounts                 testcontainers.ContainerMounts
+	weaviateBinds                  []string
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), removeEnvs: make(map[string]struct{}), withBackendS3Buckets: make(map[string]string)}
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), weaviateNodeEnvs: make(map[int]map[string]string), removeEnvs: make(map[string]struct{}), withBackendS3Buckets: make(map[string]string)}
 }
 
 func (d *Compose) WithGCS() *Compose {
@@ -618,11 +621,40 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+// WithWeaviateNodeEnv sets an env var on ONE cluster node only (0-indexed:
+// node 0 = weaviate-0, etc.), overriding any cluster-wide value from
+// WithWeaviateEnv for that node. This is what lets a single test express a
+// mixed-version cluster on ONE image - e.g. node 0 with the V2 write flag on
+// and nodes 1-2 with it off, exercising cross-format coexistence + replication.
+// No effect on the second-weaviate / single-node paths (cluster only).
+func (d *Compose) WithWeaviateNodeEnv(node int, name, value string) *Compose {
+	if d.weaviateNodeEnvs[node] == nil {
+		d.weaviateNodeEnvs[node] = make(map[string]string)
+	}
+	d.weaviateNodeEnvs[node][name] = value
+	return d
+}
+
 // WithWeaviateFiles copies the given files into each Weaviate container
 // before it starts. Useful for injecting configuration files such as runtime
 // override YAML.
 func (d *Compose) WithWeaviateFiles(files ...testcontainers.ContainerFile) *Compose {
 	d.weaviateFiles = append(d.weaviateFiles, files...)
+	return d
+}
+
+// WithWeaviateMounts adds volume mounts to each Weaviate container.
+func (d *Compose) WithWeaviateMounts(mounts ...testcontainers.ContainerMount) *Compose {
+	d.weaviateMounts = append(d.weaviateMounts, mounts...)
+	return d
+}
+
+// WithWeaviateHostBind bind-mounts a host directory into each Weaviate
+// container at containerPath. Use this instead of WithWeaviateMounts for
+// host-directory bind mounts (e.g. sharing a filesystem backup dir across
+// two successive single-node clusters in cross-version restore tests).
+func (d *Compose) WithWeaviateHostBind(hostPath, containerPath string) *Compose {
+	d.weaviateBinds = append(d.weaviateBinds, hostPath+":"+containerPath)
 	return d
 }
 
@@ -727,8 +759,8 @@ func (d *Compose) WithAutoschema() *Compose {
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
 	// Each cluster gets its own subnet (10.<octet>.0.0/16). Two networks can
-	// still draw the same random octet — including several within one test
-	// binary — so re-roll and retry when Docker reports an overlap.
+	// still draw the same random octet - including several within one test
+	// binary - so re-roll and retry when Docker reports an overlap.
 	newNet := func() (*testcontainers.DockerNetwork, error) {
 		return tescontainersnetwork.New(
 			ctx,
@@ -991,7 +1023,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateMounts, d.weaviateBinds)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1125,15 +1157,25 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	settings["RAFT_JOIN"] = raft_join
 	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.withWeaviateClusterSize)
 
+	// applyNodeEnv overlays any per-node env overrides (WithWeaviateNodeEnv) on
+	// top of the cluster-wide settings for the given 0-indexed node. Used to
+	// express mixed-version clusters (e.g. node 0 writes V2, nodes 1-2 write V0).
+	applyNodeEnv := func(cfg map[string]string, node int) map[string]string {
+		for k, v := range d.weaviateNodeEnvs[node] {
+			cfg[k] = v
+		}
+		return cfg
+	}
+
 	// first node
-	config1 := copySettings(settings)
+	config1 := applyNodeEnv(copySettings(settings), 0)
 	config1["CLUSTER_HOSTNAME"] = Weaviate0
 	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
 	// Cluster startup mimics k8s behavior: all pods start concurrently, become
 	// "live" quickly (process running, ports listening), then become "ready"
 	// only after Raft quorum is established. This is critical because Raft
-	// bootstrap requires all RAFT_BOOTSTRAP_EXPECT nodes to be running — if we
+	// bootstrap requires all RAFT_BOOTSTRAP_EXPECT nodes to be running - if we
 	// waited for weaviate-0 to be fully "ready" before starting weaviate-1/weaviate-2, we'd
 	// deadlock since readiness requires quorum which requires all nodes.
 	//
@@ -1168,7 +1210,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
-				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles)
+				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles, d.weaviateMounts, d.weaviateBinds)
 			cancel()
 			if err == nil {
 				if attempt > 0 {
@@ -1179,7 +1221,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			lastErr = err
 			if attempt < maxRetries {
-				fmt.Printf("startCluster[%s]: liveness failed (attempt %d/%d, timeout=%s): %v — retrying\n",
+				fmt.Printf("startCluster[%s]: liveness failed (attempt %d/%d, timeout=%s): %v - retrying\n",
 					hostname, attempt+1, maxRetries+1, perAttemptTimeout, err)
 			}
 		}
@@ -1187,7 +1229,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			hostname, maxRetries+1, perAttemptTimeout, lastErr)
 	}
 
-	// Phase 1: Start all nodes concurrently — each blocks until live.
+	// Phase 1: Start all nodes concurrently - each blocks until live.
 	// Static IPs are derived from hostnames via StaticIPForHostname.
 	eg := errgroup.Group{}
 
@@ -1197,7 +1239,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	})
 
 	if size > 1 {
-		config2 := copySettings(settings)
+		config2 := applyNodeEnv(copySettings(settings), 1)
 		config2["CLUSTER_HOSTNAME"] = Weaviate1
 		config2["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
 		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
@@ -1209,7 +1251,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 
 	if size > 2 {
-		config3 := copySettings(settings)
+		config3 := applyNodeEnv(copySettings(settings), 2)
 		config3["CLUSTER_HOSTNAME"] = Weaviate2
 		config3["CLUSTER_GOSSIP_BIND_PORT"] = "7104"
 		config3["CLUSTER_DATA_BIND_PORT"] = "7105"

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	dockercontainer "github.com/docker/docker/api/types/container"
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
@@ -41,6 +42,8 @@ func startWeaviate(ctx context.Context,
 	exposeGRPCPort, exposeDebugPort bool,
 	wellKnownEndpoint string,
 	files []testcontainers.ContainerFile,
+	mounts testcontainers.ContainerMounts,
+	binds []string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -150,6 +153,7 @@ func startWeaviate(ctx context.Context,
 		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
 		Files:        files,
+		Mounts:       mounts,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
 				// Use wait strategies as part of the lifecycle hooks as this gets propagated to the underlying container,
@@ -172,6 +176,11 @@ func startWeaviate(ctx context.Context,
 			},
 		},
 	}
+	if len(binds) > 0 {
+		req.HostConfigModifier = func(hc *dockercontainer.HostConfig) {
+			hc.Binds = append(hc.Binds, binds...)
+		}
+	}
 	if ip := staticIPForHostname(netOctet, containerName); ip != "" && networkName != "" {
 		req.EndpointSettingsModifier = func(settings map[string]*dockernetwork.EndpointSettings) {
 			s := settings[networkName]
@@ -186,7 +195,7 @@ func startWeaviate(ctx context.Context,
 		Reuse:            false,
 	})
 	if err != nil {
-		// Capture container logs before terminating — critical for diagnosing
+		// Capture container logs before terminating - critical for diagnosing
 		// startup crashes (exit code 1) where the container is gone by the time
 		// test helpers try to read logs.
 		if c != nil {
