@@ -11018,7 +11018,7 @@
       "description": "Query data using the GraphQL query language. See the [Weaviate GraphQL documentation](https://docs.weaviate.io/weaviate/api/graphql) for query syntax details."
     },
     {  
-      "name": "exports",
+      "name": "export",
       "description": "Operations for exporting Weaviate data to external storage backends (S3, GCS, Azure, or filesystem). The output file format is specified via the 'file_format' field (currently only 'parquet' is supported). Exports provide a way to extract your vector data and object properties into a standardized columnar format for data analysis, archival, or migration. Each collection is exported to a separate file containing object IDs, vectors, properties, and metadata."
     },
     {
