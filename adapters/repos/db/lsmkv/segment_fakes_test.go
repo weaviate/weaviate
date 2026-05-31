@@ -220,13 +220,11 @@ func (f *fakeSegment) getCollectionBytes(key []byte) ([][]byte, error) {
 func (f *fakeSegment) getInvertedData() *segmentInvertedData {
 	return &segmentInvertedData{
 		tombstones: sroar.NewBitmap(),
-		propertyLengths: map[uint64]uint32{
-			// NOTE: we are returning hardcoded fake data here which is good enough
-			// for the purpose of this test. This could be extended to return real
-			// data if necessary in the future.
-			0: 3,
-			1: 3,
-		},
+		// NOTE: hardcoded fake data, good enough for this test. The compact
+		// (docID, length) slices replace the former resident map; docIDs must be
+		// sorted ascending so propLengthAt can binary-search.
+		propLengthDocIDs:        []uint64{0, 1},
+		propLengthValues:        []uint32{3, 3},
 		propertyLengthsLoaded:   true,
 		tombstonesLoaded:        true,
 		avgPropertyLengthsAvg:   3.0,
