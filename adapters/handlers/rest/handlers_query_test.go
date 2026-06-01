@@ -37,6 +37,7 @@ type fakeQuerier struct {
 	gotSearchReq    *pbv1.SearchRequest
 	gotAggregateReq *pbv1.AggregateRequest
 	gotPrincipal    *models.Principal
+	gotWhere        *models.WhereFilter
 
 	searchReply    *pbv1.SearchReply
 	searchErr      error
@@ -44,17 +45,19 @@ type fakeQuerier struct {
 	aggregateErr   error
 }
 
-func (f *fakeQuerier) SearchWithPrincipal(_ context.Context, principal *models.Principal, req *pbv1.SearchRequest) (*pbv1.SearchReply, error) {
+func (f *fakeQuerier) SearchWithPrincipal(_ context.Context, principal *models.Principal, req *pbv1.SearchRequest, where *models.WhereFilter) (*pbv1.SearchReply, error) {
 	f.calledSearch = true
 	f.gotSearchReq = req
 	f.gotPrincipal = principal
+	f.gotWhere = where
 	return f.searchReply, f.searchErr
 }
 
-func (f *fakeQuerier) AggregateWithPrincipal(_ context.Context, principal *models.Principal, req *pbv1.AggregateRequest) (*pbv1.AggregateReply, error) {
+func (f *fakeQuerier) AggregateWithPrincipal(_ context.Context, principal *models.Principal, req *pbv1.AggregateRequest, where *models.WhereFilter) (*pbv1.AggregateReply, error) {
 	f.calledAggregate = true
 	f.gotAggregateReq = req
 	f.gotPrincipal = principal
+	f.gotWhere = where
 	return f.aggregateReply, f.aggregateErr
 }
 
@@ -252,6 +255,65 @@ func TestRESTQuery_BearerTokenIsValidated(t *testing.T) {
 	assert.Equal(t, "s3cret", gotToken)
 	require.NotNil(t, q.gotPrincipal)
 	assert.Equal(t, "alice", q.gotPrincipal.Username)
+}
+
+func TestRESTQuery_WhereFilterParsedAndPassed(t *testing.T) {
+	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+	h := newTestQueryHandler(q)
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query",
+		`{"limit":5,"where":{"operator":"Equal","path":["category"],"valueText":"fantasy"}}`)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, q.calledSearch)
+	// The `where` field is stripped before the protojson parse, so the gRPC
+	// request still parses (limit=5) and carries no protobuf filter.
+	assert.Equal(t, uint32(5), q.gotSearchReq.Limit)
+	assert.Nil(t, q.gotSearchReq.Filters)
+	// The WhereFilter is parsed and handed to the pipeline.
+	require.NotNil(t, q.gotWhere)
+	assert.Equal(t, "Equal", q.gotWhere.Operator)
+	assert.Equal(t, []string{"category"}, q.gotWhere.Path)
+	require.NotNil(t, q.gotWhere.ValueText)
+	assert.Equal(t, "fantasy", *q.gotWhere.ValueText)
+}
+
+func TestRESTQuery_WhereOnAggregate(t *testing.T) {
+	q := &fakeQuerier{aggregateReply: &pbv1.AggregateReply{}}
+	h := newTestQueryHandler(q)
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/aggregate",
+		`{"objectsCount":true,"where":{"operator":"Equal","path":["category"],"valueText":"scifi"}}`)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, q.calledAggregate)
+	require.NotNil(t, q.gotWhere)
+	assert.Equal(t, "Equal", q.gotWhere.Operator)
+}
+
+func TestRESTQuery_WhereAndFiltersConflict(t *testing.T) {
+	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+	h := newTestQueryHandler(q)
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{
+		"where":{"operator":"Equal","path":["category"],"valueText":"fantasy"},
+		"filters":{"operator":"OPERATOR_EQUAL","valueText":"fantasy","target":{"property":"category"}}
+	}`)
+
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.Contains(t, rec.Body.String(), "not both")
+	assert.False(t, q.calledSearch, "querier must not be called when both filter forms are set")
+}
+
+func TestRESTQuery_MalformedWhere(t *testing.T) {
+	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+	h := newTestQueryHandler(q)
+
+	// `where` must be an object; a scalar fails to parse into a WhereFilter.
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{"where":123}`)
+
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.False(t, q.calledSearch)
 }
 
 func TestRESTQuery_NonMatchingRequestsFallThrough(t *testing.T) {

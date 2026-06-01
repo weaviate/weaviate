@@ -5243,6 +5243,14 @@
             }
           ]
         },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
+            }
+          ]
+        },
         "hybridSearch": {
           "description": "Hybrid (keyword + vector) search.",
           "allOf": [
@@ -5397,6 +5405,14 @@
           "allOf": [
             {
               "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "where": {
+          "description": "Alternative to `filters`, using the REST where syntax (operator \"Equal\", `path`, `operands`). Resolved server-side. Provide either `where` or `filters`, not both.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/WhereFilter"
             }
           ]
         },

@@ -162,16 +162,28 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 		return
 	}
 
+	// Peel off the optional REST `where` filter before the strict protojson
+	// parse (it is not part of the protobuf request).
+	reqBody, where, err := splitWhereFilter(body)
+	if err != nil {
+		h.writeError(w, http.StatusUnprocessableEntity, principal, err)
+		return
+	}
+
 	switch kind {
 	case restQueryKindSearch:
 		req := &pbv1.SearchRequest{}
-		if err := unmarshalRequestBody(body, req); err != nil {
+		if err := unmarshalRequestBody(reqBody, req); err != nil {
 			h.writeError(w, http.StatusUnprocessableEntity, principal,
 				fmt.Errorf("parse request body: %w", err))
 			return
 		}
 		req.Collection = collection
-		reply, err := h.querier.SearchWithPrincipal(r.Context(), principal, req)
+		if where != nil && req.Filters != nil {
+			h.writeError(w, http.StatusUnprocessableEntity, principal, errWhereAndFilters)
+			return
+		}
+		reply, err := h.querier.SearchWithPrincipal(r.Context(), principal, req, where)
 		if err != nil {
 			h.writeError(w, httpStatusForQueryError(err), principal, err)
 			return
@@ -179,13 +191,17 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 		h.writeProto(w, principal, reply)
 	case restQueryKindAggregate:
 		req := &pbv1.AggregateRequest{}
-		if err := unmarshalRequestBody(body, req); err != nil {
+		if err := unmarshalRequestBody(reqBody, req); err != nil {
 			h.writeError(w, http.StatusUnprocessableEntity, principal,
 				fmt.Errorf("parse request body: %w", err))
 			return
 		}
 		req.Collection = collection
-		reply, err := h.querier.AggregateWithPrincipal(r.Context(), principal, req)
+		if where != nil && req.Filters != nil {
+			h.writeError(w, http.StatusUnprocessableEntity, principal, errWhereAndFilters)
+			return
+		}
+		reply, err := h.querier.AggregateWithPrincipal(r.Context(), principal, req, where)
 		if err != nil {
 			h.writeError(w, httpStatusForQueryError(err), principal, err)
 			return
@@ -194,6 +210,8 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 	}
 }
 
+var errWhereAndFilters = errors.New("set either `where` or `filters` in the body, not both")
+
 // unmarshalRequestBody decodes a protojson request body, treating an empty or
 // whitespace-only body as an empty (zero-value) request.
 func unmarshalRequestBody(body []byte, msg proto.Message) error {
@@ -201,6 +219,39 @@ func unmarshalRequestBody(body []byte, msg proto.Message) error {
 		return nil
 	}
 	return protojson.Unmarshal(body, msg)
+}
+
+// splitWhereFilter peels an optional top-level `where` filter (in the REST
+// WhereFilter syntax) off the JSON body. It returns the remaining JSON — to be
+// parsed as the protobuf request — and the parsed WhereFilter (nil if absent).
+// The `where` field is a REST-only convenience that is not part of the protobuf
+// request, so it must be removed before the strict protojson parse; the gRPC
+// pipeline resolves it server-side via filterext.Parse and it overrides the
+// protobuf `filters` field.
+func splitWhereFilter(body []byte) (rest []byte, where *models.WhereFilter, err error) {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return body, nil, nil
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(body, &top); err != nil {
+		// Not a JSON object; leave the body untouched and let the protojson
+		// parse surface the error.
+		return body, nil, nil
+	}
+	raw, ok := top["where"]
+	if !ok {
+		return body, nil, nil
+	}
+	delete(top, "where")
+	var wf models.WhereFilter
+	if err := json.Unmarshal(raw, &wf); err != nil {
+		return nil, nil, fmt.Errorf("parse `where` filter: %w", err)
+	}
+	rest, err = json.Marshal(top)
+	if err != nil {
+		return nil, nil, err
+	}
+	return rest, &wf, nil
 }
 
 // principalFromRequest authenticates the request exactly like the gRPC auth

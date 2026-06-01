@@ -21,6 +21,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -157,6 +158,33 @@ func TestRESTQueryParity(t *testing.T) {
 		})
 	}
 
+	// The REST `where` filter (operator/path syntax) must produce the same
+	// result as the equivalent gRPC pb.Filters.
+	t.Run("search/where filter equals pb.Filters", func(t *testing.T) {
+		grpcReply, err := grpcClient.Search(ctx, &pb.SearchRequest{
+			Collection: parityClass,
+			Filters: &pb.Filters{
+				Operator:  pb.Filters_OPERATOR_EQUAL,
+				TestValue: &pb.Filters_ValueText{ValueText: "fantasy"},
+				Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "category"}},
+			},
+			Metadata:    &pb.MetadataRequest{Uuid: true},
+			Properties:  &pb.PropertiesRequest{NonRefProperties: []string{"title", "category"}},
+			Uses_127Api: true,
+		})
+		require.NoError(t, err)
+
+		// Same filter, expressed in the REST where syntax instead of pb.Filters.
+		restReply := restSearchBody(t, httpURI, parityClass,
+			`{"metadata":{"uuid":true},"properties":{"nonRefProperties":["title","category"]},"uses127Api":true,`+
+				`"where":{"operator":"Equal","path":["category"],"valueText":"fantasy"}}`)
+
+		normalizeSearch(grpcReply)
+		normalizeSearch(restReply)
+		require.Truef(t, proto.Equal(grpcReply, restReply),
+			"REST where and gRPC pb.Filters differ\ngRPC: %v\nREST: %v", grpcReply, restReply)
+	})
+
 	aggregateCases := []struct {
 		name string
 		req  *pb.AggregateRequest
@@ -208,6 +236,22 @@ func normalizeSearch(r *pb.SearchReply) {
 func restSearch(t *testing.T, httpURI string, req *pb.SearchRequest) *pb.SearchReply {
 	t.Helper()
 	data := restPost(t, httpURI, req.Collection, "query", req)
+	var reply pb.SearchReply
+	require.NoError(t, protojson.Unmarshal(data, &reply))
+	return &reply
+}
+
+// restSearchBody POSTs a raw JSON body to the query endpoint (used to send the
+// REST `where` syntax, which has no protobuf equivalent to marshal from).
+func restSearchBody(t *testing.T, httpURI, collection, body string) *pb.SearchReply {
+	t.Helper()
+	url := "http://" + httpURI + "/v1/" + collection + "/query"
+	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equalf(t, http.StatusOK, resp.StatusCode, "unexpected status; body: %s", string(data))
 	var reply pb.SearchReply
 	require.NoError(t, protojson.Unmarshal(data, &reply))
 	return &reply
