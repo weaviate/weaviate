@@ -5424,6 +5424,14 @@
             }
           ]
         },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
+            }
+          ]
+        },
         "uses127Api": {
           "type": "boolean",
           "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
@@ -6015,6 +6023,14 @@
             }
           ]
         },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
+            }
+          ]
+        },
         "uses127Api": {
           "type": "boolean",
           "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
@@ -6123,6 +6139,14 @@
           "allOf": [
             {
               "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
             }
           ]
         },
@@ -6240,6 +6264,14 @@
             }
           ]
         },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
+            }
+          ]
+        },
         "uses127Api": {
           "type": "boolean",
           "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
@@ -6351,6 +6383,14 @@
           "allOf": [
             {
               "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
             }
           ]
         },
@@ -6468,6 +6508,14 @@
             }
           ]
         },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
+            }
+          ]
+        },
         "uses127Api": {
           "type": "boolean",
           "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
@@ -6579,6 +6627,14 @@
           "allOf": [
             {
               "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
             }
           ]
         },
@@ -6696,6 +6752,14 @@
             }
           ]
         },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
+            }
+          ]
+        },
         "uses127Api": {
           "type": "boolean",
           "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
@@ -6807,6 +6871,14 @@
           "allOf": [
             {
               "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
             }
           ]
         },
@@ -6924,6 +6996,14 @@
             }
           ]
         },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
+            }
+          ]
+        },
         "uses127Api": {
           "type": "boolean",
           "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
@@ -7035,6 +7115,14 @@
           "allOf": [
             {
               "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
             }
           ]
         },
@@ -7152,6 +7240,14 @@
             }
           ]
         },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
+            }
+          ]
+        },
         "uses127Api": {
           "type": "boolean",
           "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
@@ -7266,12 +7362,186 @@
             }
           ]
         },
+        "boost": {
+          "description": "Soft-rank (rescore) the results: promote or demote matching documents without removing them. Available in v1.38 (preview).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Boost"
+            }
+          ]
+        },
         "uses127Api": {
           "type": "boolean",
           "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
         },
         "nearImu": {
           "$ref": "#/definitions/NearIMUSearch"
+        }
+      },
+      "x-doc-only": true
+    },
+    "Boost": {
+      "type": "object",
+      "description": "Soft-rank (rescore) results without filtering them out: matching documents are promoted or demoted by one or more weighted conditions. Available in v1.38 (preview).",
+      "properties": {
+        "conditions": {
+          "type": "array",
+          "description": "The weighted boost conditions applied to each candidate.",
+          "items": {
+            "$ref": "#/definitions/BoostCondition"
+          }
+        },
+        "weight": {
+          "type": "number",
+          "format": "float",
+          "description": "Global weight applied to the combined boost score."
+        },
+        "depth": {
+          "type": "integer",
+          "description": "Number of candidates the primary search fetches before rescoring."
+        }
+      },
+      "x-doc-only": true
+    },
+    "BoostCondition": {
+      "type": "object",
+      "description": "A single weighted boost condition. Set exactly one of filter / timeDecay / propertyValue / numericDecay.",
+      "properties": {
+        "filter": {
+          "description": "Promote or demote documents matching this filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "timeDecay": {
+          "description": "Score by distance from a time origin.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BoostTimeDecayFunction"
+            }
+          ]
+        },
+        "propertyValue": {
+          "description": "Score by a numeric property's value.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BoostPropertyValueFunction"
+            }
+          ]
+        },
+        "numericDecay": {
+          "description": "Score by distance from a numeric origin.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BoostNumericDecayFunction"
+            }
+          ]
+        },
+        "weight": {
+          "type": "number",
+          "format": "float",
+          "description": "Weight of this condition; higher means a stronger effect."
+        }
+      },
+      "x-doc-only": true
+    },
+    "BoostPropertyValueFunction": {
+      "type": "object",
+      "description": "Boost by the value of a numeric property.",
+      "properties": {
+        "property": {
+          "type": "string",
+          "description": "Numeric property whose value contributes to the score."
+        },
+        "modifier": {
+          "type": "string",
+          "enum": [
+            "PROPERTY_VALUE_MODIFIER_UNSPECIFIED",
+            "PROPERTY_VALUE_MODIFIER_LOG1P",
+            "PROPERTY_VALUE_MODIFIER_SQRT"
+          ],
+          "description": "Optional transform applied to the property value before scoring."
+        }
+      },
+      "x-doc-only": true
+    },
+    "BoostTimeDecayFunction": {
+      "type": "object",
+      "description": "Boost by proximity to a point in time; the score decays away from the origin.",
+      "properties": {
+        "property": {
+          "type": "string",
+          "description": "Date/timestamp property to decay over."
+        },
+        "origin": {
+          "type": "string",
+          "description": "Reference point where the score peaks (RFC 3339 timestamp)."
+        },
+        "scale": {
+          "type": "string",
+          "description": "Distance from the origin at which the score decays to decayValue (duration, e.g. 10d)."
+        },
+        "offset": {
+          "type": "string",
+          "description": "Distance from the origin within which no decay is applied (duration)."
+        },
+        "curve": {
+          "type": "string",
+          "enum": [
+            "DECAY_CURVE_UNSPECIFIED",
+            "DECAY_CURVE_GAUSS",
+            "DECAY_CURVE_LINEAR",
+            "DECAY_CURVE_EXPONENTIAL"
+          ],
+          "description": "Shape of the decay curve."
+        },
+        "decayValue": {
+          "type": "number",
+          "format": "float",
+          "description": "Score multiplier at one scale away from the origin."
+        }
+      },
+      "x-doc-only": true
+    },
+    "BoostNumericDecayFunction": {
+      "type": "object",
+      "description": "Boost by proximity to a numeric value; the score decays away from the origin.",
+      "properties": {
+        "property": {
+          "type": "string",
+          "description": "Numeric property to decay over."
+        },
+        "origin": {
+          "type": "number",
+          "format": "double",
+          "description": "Reference point where the score peaks."
+        },
+        "scale": {
+          "type": "number",
+          "format": "double",
+          "description": "Distance from the origin at which the score decays to decayValue."
+        },
+        "offset": {
+          "type": "number",
+          "format": "double",
+          "description": "Distance from the origin within which no decay is applied."
+        },
+        "curve": {
+          "type": "string",
+          "enum": [
+            "DECAY_CURVE_UNSPECIFIED",
+            "DECAY_CURVE_GAUSS",
+            "DECAY_CURVE_LINEAR",
+            "DECAY_CURVE_EXPONENTIAL"
+          ],
+          "description": "Shape of the decay curve."
+        },
+        "decayValue": {
+          "type": "number",
+          "format": "float",
+          "description": "Score multiplier at one scale away from the origin."
         }
       },
       "x-doc-only": true
