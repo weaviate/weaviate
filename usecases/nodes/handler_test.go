@@ -115,6 +115,40 @@ func emptyNode() *models.NodeStatus {
 	}
 }
 
+// singleClassNode hosts only ClassA shards: a scoped ClassA caller retains every
+// shard on it (before == after) yet is still not the node-wide operator.
+func singleClassNode() *models.NodeStatus {
+	healthy := models.NodeStatusStatusHEALTHY
+	ql := int64(7)
+	return &models.NodeStatus{
+		Name:   "node-owned",
+		Status: &healthy,
+		Shards: []*models.NodeShardStatus{
+			{Name: "s-a1", Class: "ClassA", ObjectCount: 10},
+			{Name: "s-a2", Class: "ClassA", ObjectCount: 15},
+		},
+		Stats:      &models.NodeStats{ObjectCount: 25, ShardCount: 2},
+		BatchStats: &models.BatchStats{RatePerSecond: 5, QueueLength: &ql},
+	}
+}
+
+// otherClassNode hosts only ClassB shards: a scoped ClassA caller has every shard
+// on it trimmed (before > 0, after == 0).
+func otherClassNode() *models.NodeStatus {
+	healthy := models.NodeStatusStatusHEALTHY
+	ql := int64(7)
+	return &models.NodeStatus{
+		Name:   "node-other",
+		Status: &healthy,
+		Shards: []*models.NodeShardStatus{
+			{Name: "s-b1", Class: "ClassB", ObjectCount: 20},
+			{Name: "s-b2", Class: "ClassB", ObjectCount: 30},
+		},
+		Stats:      &models.NodeStats{ObjectCount: 50, ShardCount: 2},
+		BatchStats: &models.BatchStats{RatePerSecond: 5, QueueLength: &ql},
+	}
+}
+
 // TestGetNodeStatus_VerboseFilteredAggregate locks the cross-namespace leak fix:
 // when the per-shard filter trims shards, Stats is recomputed from the retained
 // shards and BatchStats dropped; a fully-authorized caller keeps both (no
@@ -160,6 +194,78 @@ func TestGetNodeStatus_VerboseFilteredAggregate(t *testing.T) {
 		assert.Equal(t, int64(30), got[0].Stats.ObjectCount, "aggregate must be untouched when nothing is filtered")
 		assert.Equal(t, int64(2), got[0].Stats.ShardCount)
 		require.NotNil(t, got[0].BatchStats, "BatchStats must be preserved for a fully-authorized caller")
+	})
+
+	t.Run("scoped caller: every shard trimmed, aggregate zeroed", func(t *testing.T) {
+		m := &Manager{
+			logger:                 logrus.New(),
+			authorizer:             classScopedAuthorizer{allowedClass: "ClassA"},
+			db:                     stubNodesDB{status: []*models.NodeStatus{otherClassNode()}},
+			rbacconfig:             rbacconf.Config{Enabled: true},
+			minimumInternalTimeout: time.Second,
+		}
+
+		got, err := m.GetNodeStatus(context.Background(), &models.Principal{}, "", "", verbosity.OutputVerbose)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+
+		assert.Empty(t, got[0].Shards, "a node with no shards for the caller exposes none")
+		require.NotNil(t, got[0].Stats)
+		assert.Equal(t, int64(0), got[0].Stats.ObjectCount)
+		assert.Equal(t, int64(0), got[0].Stats.ShardCount)
+		assert.Nil(t, got[0].BatchStats, "node-wide BatchStats must be dropped when every shard is trimmed")
+	})
+
+	t.Run("scoped caller owns every shard: node-wide BatchStats still dropped", func(t *testing.T) {
+		m := &Manager{
+			logger:                 logrus.New(),
+			authorizer:             classScopedAuthorizer{allowedClass: "ClassA"},
+			db:                     stubNodesDB{status: []*models.NodeStatus{singleClassNode()}},
+			rbacconfig:             rbacconf.Config{Enabled: true},
+			minimumInternalTimeout: time.Second,
+		}
+
+		got, err := m.GetNodeStatus(context.Background(), &models.Principal{}, "", "", verbosity.OutputVerbose)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+
+		// Owning every shard is not the node-wide grant: Stats stay correct but
+		// BatchStats (global ingest signal) is still withheld from a scoped caller.
+		assert.Len(t, got[0].Shards, 2, "the caller keeps its own shards")
+		require.NotNil(t, got[0].Stats)
+		assert.Equal(t, int64(25), got[0].Stats.ObjectCount)
+		assert.Equal(t, int64(2), got[0].Stats.ShardCount)
+		assert.Nil(t, got[0].BatchStats, "node-wide BatchStats is operator-only, not granted by owning every shard")
+	})
+
+	t.Run("scoped caller: nil Stats node does not panic", func(t *testing.T) {
+		healthy := models.NodeStatusStatusHEALTHY
+		ql := int64(7)
+		nilStatsNode := &models.NodeStatus{
+			Name:   "node-nilstats",
+			Status: &healthy,
+			Shards: []*models.NodeShardStatus{
+				{Name: "s-a", Class: "ClassA", ObjectCount: 10},
+				{Name: "s-b", Class: "ClassB", ObjectCount: 20},
+			},
+			Stats:      nil,
+			BatchStats: &models.BatchStats{RatePerSecond: 5, QueueLength: &ql},
+		}
+		m := &Manager{
+			logger:                 logrus.New(),
+			authorizer:             classScopedAuthorizer{allowedClass: "ClassA"},
+			db:                     stubNodesDB{status: []*models.NodeStatus{nilStatsNode}},
+			rbacconfig:             rbacconf.Config{Enabled: true},
+			minimumInternalTimeout: time.Second,
+		}
+
+		got, err := m.GetNodeStatus(context.Background(), &models.Principal{}, "", "", verbosity.OutputVerbose)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+
+		require.Len(t, got[0].Shards, 1, "only the authorized class's shard survives")
+		assert.Nil(t, got[0].Stats, "nil Stats stays nil (nothing to recompute)")
+		assert.Nil(t, got[0].BatchStats, "node-wide BatchStats must still be dropped")
 	})
 }
 
@@ -239,4 +345,43 @@ func TestGetNodeStatus_VerboseZeroShardNode(t *testing.T) {
 		require.Len(t, got, 1)
 		require.NotNil(t, got[0].BatchStats, "operator with the node-wide grant keeps BatchStats even on an empty node")
 	})
+}
+
+// TestGetNodeStatus_VerboseMultiNode pins per-node independence: in one scoped
+// response the partial, empty, fully-owned, and fully-trimmed nodes are each
+// scrubbed on their own, none retains node-wide BatchStats, and no node leaks a
+// shard outside the caller's class.
+func TestGetNodeStatus_VerboseMultiNode(t *testing.T) {
+	m := &Manager{
+		logger:     logrus.New(),
+		authorizer: classScopedAuthorizer{allowedClass: "ClassA"},
+		db: stubNodesDB{status: []*models.NodeStatus{
+			twoShardNode(), emptyNode(), singleClassNode(), otherClassNode(),
+		}},
+		rbacconfig:             rbacconf.Config{Enabled: true},
+		minimumInternalTimeout: time.Second,
+	}
+
+	got, err := m.GetNodeStatus(context.Background(), &models.Principal{}, "", "", verbosity.OutputVerbose)
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+
+	byName := map[string]*models.NodeStatus{}
+	for _, n := range got {
+		byName[n.Name] = n
+		assert.Nil(t, n.BatchStats, "node %s must not retain node-wide BatchStats for a scoped caller", n.Name)
+		require.NotNil(t, n.Stats, "node %s", n.Name)
+		var objects int64
+		for _, sh := range n.Shards {
+			objects += sh.ObjectCount
+			assert.Equal(t, "ClassA", sh.Class, "node %s leaked a non-ClassA shard", n.Name)
+		}
+		assert.Equal(t, int64(len(n.Shards)), n.Stats.ShardCount, "node %s Stats.ShardCount", n.Name)
+		assert.Equal(t, objects, n.Stats.ObjectCount, "node %s Stats.ObjectCount", n.Name)
+	}
+
+	assert.Len(t, byName["node1"].Shards, 1, "partial node keeps only its ClassA shard")
+	assert.Empty(t, byName["node-empty"].Shards, "empty node stays empty")
+	assert.Len(t, byName["node-owned"].Shards, 2, "fully-owned node keeps both ClassA shards")
+	assert.Empty(t, byName["node-other"].Shards, "fully-trimmed node drops all ClassB shards")
 }
