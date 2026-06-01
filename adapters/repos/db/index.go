@@ -1545,6 +1545,15 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
+	// Stamp once so all replicas write the same LastUpdateTime; otherwise
+	// per-replica time.Now() diverges and triggers spurious async-replication
+	// repairs. Pre-set values (forwarded batches) are kept.
+	nowMs := time.Now().UnixMilli()
+	for idx := range refs {
+		if refs[idx].UpdateTime == 0 {
+			refs[idx].UpdateTime = nowMs
+		}
+	}
 	if schemaVersion > 0 {
 		if err := i.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
 			return duplicateErr(fmt.Errorf("wait for schema version %d: %w", schemaVersion, err), len(refs))
