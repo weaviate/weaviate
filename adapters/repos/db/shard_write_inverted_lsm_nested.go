@@ -51,7 +51,7 @@ func (s *Shard) deleteNestedFilterableIndex(np inverted.NestedProperty, docID ui
 }
 
 func (s *Shard) deleteNestedMetaIndex(np inverted.NestedProperty, docID uint64) error {
-	if len(np.Idx) == 0 && len(np.Exists) == 0 {
+	if len(np.Idx) == 0 && len(np.Exists) == 0 && len(np.Anchors) == 0 {
 		return nil
 	}
 
@@ -97,7 +97,7 @@ func (s *Shard) extendNestedFilterableIndex(np inverted.NestedProperty, docID ui
 }
 
 func (s *Shard) extendNestedMetaIndex(np inverted.NestedProperty, docID uint64) error {
-	if len(np.Idx) == 0 && len(np.Exists) == 0 {
+	if len(np.Idx) == 0 && len(np.Exists) == 0 && len(np.Anchors) == 0 {
 		return nil
 	}
 
@@ -127,7 +127,7 @@ func nestedFilterableEntries(np inverted.NestedProperty, docID uint64) []lsmkv.R
 }
 
 func nestedMetaEntries(np inverted.NestedProperty, docID uint64) []lsmkv.RoaringSetBatchEntry {
-	entries := make([]lsmkv.RoaringSetBatchEntry, 0, len(np.Idx)+len(np.Exists))
+	entries := make([]lsmkv.RoaringSetBatchEntry, 0, len(np.Idx)+len(np.Exists)+len(np.Anchors))
 	// Single slab for all _idx keys. Each iteration writes into its own
 	// IdxKeySize-byte slice off the slab, so every entry holds a distinct
 	// backing array while the function makes one allocation for the key
@@ -150,6 +150,12 @@ func nestedMetaEntries(np inverted.NestedProperty, docID uint64) []lsmkv.Roaring
 		entries = append(entries, lsmkv.RoaringSetBatchEntry{
 			Key:    nested.ExistsKey(exists.Path),
 			Values: nested.OrDocID(exists.Positions, docID),
+		})
+	}
+	for _, anchor := range np.Anchors {
+		entries = append(entries, lsmkv.RoaringSetBatchEntry{
+			Key:    nested.AnchorKey(anchor.Path),
+			Values: nested.OrDocID(anchor.Positions, docID),
 		})
 	}
 	return entries

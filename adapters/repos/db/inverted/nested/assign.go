@@ -48,12 +48,21 @@ type ExistsEntry struct {
 	Positions []uint64 // positions with docID=0
 }
 
+// AnchorEntry records the marker bit of a single element at a given path.
+// Distinct from ExistsEntry: ExistsEntry stores the full elementPositions
+// (self marker + descendants); AnchorEntry stores only the self marker.
+type AnchorEntry struct {
+	Path      string   // path of the element's containing collection; empty for root-level
+	Positions []uint64 // marker positions with docID=0
+}
+
 // AssignResult holds all positioned values and metadata produced by
 // walking a nested property value.
 type AssignResult struct {
-	Values []PositionedValue
-	Idx    []IdxEntry
-	Exists []ExistsEntry
+	Values  []PositionedValue
+	Idx     []IdxEntry
+	Exists  []ExistsEntry
+	Anchors []AnchorEntry
 }
 
 // AssignPositions walks a nested property value depth-first, assigns
@@ -158,11 +167,26 @@ func (w *walker) nextLeaf() (uint64, error) {
 }
 
 // walkObject processes a single object element depth-first and returns
-// its positions. The positions are either inherited from descendant
-// leaves (intermediate node) or a newly assigned leaf position (leaf node).
+// its positions = self marker + descendants. Every object element gets
+// its own marker leaf (allocated in Phase 0 before walking descendants)
+// under per-element-anchor encoding; intermediate elements no longer
+// inherit positions from descendants alone.
 func (w *walker) walkObject(prefix string, obj map[string]any,
 	nestedProps []*models.NestedProperty,
 ) ([]uint64, error) {
+	// Phase 0: Allocate this element's marker BEFORE walking descendants
+	// so DFS leaf assignment puts the parent's marker ahead of its
+	// children's. Predecessor scans over a parent anchor bitmap can then
+	// lift each child position to its owning parent.
+	selfMarker, err := w.nextLeaf()
+	if err != nil {
+		return nil, err
+	}
+	w.result.Anchors = append(w.result.Anchors, AnchorEntry{
+		Path:      prefix,
+		Positions: []uint64{selfMarker},
+	})
+
 	var descendantPositions []uint64
 
 	// Phase 1: Process nested objects/arrays and scalar arrays depth-first.
@@ -192,19 +216,8 @@ func (w *walker) walkObject(prefix string, obj map[string]any,
 		}
 	}
 
-	// Phase 2: Determine element positions.
-	// - Has descendant leaves → intermediate: positions = union of descendants
-	// - No descendant leaves → leaf: gets its own leaf_idx
-	var elementPositions []uint64
-	if len(descendantPositions) > 0 {
-		elementPositions = descendantPositions
-	} else {
-		pos, err := w.nextLeaf()
-		if err != nil {
-			return nil, err
-		}
-		elementPositions = []uint64{pos}
-	}
+	// Phase 2: elementPositions = self marker + descendants.
+	elementPositions := append([]uint64{selfMarker}, descendantPositions...)
 
 	// Phase 3: Process scalar properties. Scalars inherit ALL positions
 	// of their parent element.
@@ -317,6 +330,10 @@ func (w *walker) walkScalarArray(path string, dt schema.DataType,
 		w.result.Idx = append(w.result.Idx, IdxEntry{
 			Path:      path,
 			Index:     i,
+			Positions: positions,
+		})
+		w.result.Anchors = append(w.result.Anchors, AnchorEntry{
+			Path:      path,
 			Positions: positions,
 		})
 		allPositions = append(allPositions, pos)

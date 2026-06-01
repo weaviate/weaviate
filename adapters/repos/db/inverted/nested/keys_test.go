@@ -181,3 +181,49 @@ func TestExistsKey(t *testing.T) {
 		assert.NotEqual(t, ExistsKey(""), ExistsKey("name"))
 	})
 }
+
+func TestAnchorKey(t *testing.T) {
+	t.Run("named path hashes _anchor prefix with path", func(t *testing.T) {
+		key := AnchorKey("cars.tires")
+		require.Len(t, key, hashSize)
+		assert.Equal(t, wantHashPrefix("_anchor.cars.tires"), key)
+	})
+
+	t.Run("root path hashes _anchor without dot", func(t *testing.T) {
+		key := AnchorKey("")
+		require.Len(t, key, hashSize)
+		assert.Equal(t, wantHashPrefix("_anchor"), key)
+	})
+
+	t.Run("different paths produce different keys", func(t *testing.T) {
+		k1 := AnchorKey("cars")
+		k2 := AnchorKey("cars.tires")
+		assert.NotEqual(t, k1, k2)
+	})
+
+	t.Run("root differs from named paths", func(t *testing.T) {
+		assert.NotEqual(t, AnchorKey(""), AnchorKey("cars"))
+	})
+}
+
+// TestKeyFamiliesAreDistinct guards the shared-bucket layout: _idx, _exists,
+// and _anchor all live in the same nested metadata bucket and rely on their
+// hash-prefix family ("_idx.X" vs "_exists.X" vs "_anchor.X") to keep keys
+// disjoint. A regression here would cause silent overwrites.
+func TestKeyFamiliesAreDistinct(t *testing.T) {
+	const path = "cars.tires"
+	idx := IdxKey(path, 0)
+	exists := ExistsKey(path)
+	anchor := AnchorKey(path)
+
+	// _idx is hashSize+2; _exists and _anchor are hashSize. Their hash
+	// prefixes must all differ for the same path.
+	assert.NotEqual(t, idx[:hashSize], exists)
+	assert.NotEqual(t, idx[:hashSize], anchor)
+	assert.NotEqual(t, exists, anchor)
+
+	// Same check at the root path.
+	assert.NotEqual(t, IdxKey("", 0)[:hashSize], ExistsKey(""))
+	assert.NotEqual(t, IdxKey("", 0)[:hashSize], AnchorKey(""))
+	assert.NotEqual(t, ExistsKey(""), AnchorKey(""))
+}
