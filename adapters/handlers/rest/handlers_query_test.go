@@ -316,6 +316,30 @@ func TestRESTQuery_MalformedWhere(t *testing.T) {
 	assert.False(t, q.calledSearch)
 }
 
+func TestRESTQuery_ConsistencyLevelShorthand(t *testing.T) {
+	cases := []struct {
+		in   string
+		want pbv1.ConsistencyLevel
+	}{
+		{"ONE", pbv1.ConsistencyLevel_CONSISTENCY_LEVEL_ONE},
+		{"QUORUM", pbv1.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM},
+		{"all", pbv1.ConsistencyLevel_CONSISTENCY_LEVEL_ALL},                         // case-insensitive
+		{"CONSISTENCY_LEVEL_QUORUM", pbv1.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM}, // full form still works
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+			h := newTestQueryHandler(q)
+			rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query",
+				`{"consistencyLevel":"`+tc.in+`"}`)
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.True(t, q.calledSearch)
+			require.NotNil(t, q.gotSearchReq.ConsistencyLevel)
+			assert.Equal(t, tc.want, *q.gotSearchReq.ConsistencyLevel)
+		})
+	}
+}
+
 func TestRESTQuery_NonMatchingRequestsFallThrough(t *testing.T) {
 	q := &fakeQuerier{}
 	h := newTestQueryHandler(q)

@@ -162,9 +162,9 @@ func (h *restQueryHandler) serve(w http.ResponseWriter, r *http.Request, collect
 		return
 	}
 
-	// Peel off the optional REST `where` filter before the strict protojson
-	// parse (it is not part of the protobuf request).
-	reqBody, where, err := splitWhereFilter(body)
+	// Adapt REST-friendly conveniences (`where` filter, consistency-level
+	// shorthand) before the strict protojson parse.
+	reqBody, where, err := preprocessQueryBody(body)
 	if err != nil {
 		h.writeError(w, http.StatusUnprocessableEntity, principal, err)
 		return
@@ -221,37 +221,70 @@ func unmarshalRequestBody(body []byte, msg proto.Message) error {
 	return protojson.Unmarshal(body, msg)
 }
 
-// splitWhereFilter peels an optional top-level `where` filter (in the REST
-// WhereFilter syntax) off the JSON body. It returns the remaining JSON — to be
-// parsed as the protobuf request — and the parsed WhereFilter (nil if absent).
-// The `where` field is a REST-only convenience that is not part of the protobuf
-// request, so it must be removed before the strict protojson parse; the gRPC
-// pipeline resolves it server-side via filterext.Parse and it overrides the
-// protobuf `filters` field.
-func splitWhereFilter(body []byte) (rest []byte, where *models.WhereFilter, err error) {
+// consistencyLevelAliases maps the short REST consistency-level names to the
+// canonical protobuf enum names, so callers can write the familiar
+// "ONE"/"QUORUM"/"ALL" instead of "CONSISTENCY_LEVEL_ONE" etc.
+var consistencyLevelAliases = map[string]string{
+	"ONE":    "CONSISTENCY_LEVEL_ONE",
+	"QUORUM": "CONSISTENCY_LEVEL_QUORUM",
+	"ALL":    "CONSISTENCY_LEVEL_ALL",
+}
+
+// preprocessQueryBody adapts a couple of REST-friendly conveniences in the JSON
+// body into the canonical protobuf JSON before the strict protojson parse:
+//
+//   - a top-level `where` filter (REST WhereFilter syntax) is peeled off and
+//     returned separately. It is not part of the protobuf request; the pipeline
+//     resolves it server-side via filterext.Parse and it overrides the protobuf
+//     `filters` field.
+//   - a `consistencyLevel` given in the short form ("ONE"/"QUORUM"/"ALL",
+//     case-insensitive) is rewritten to the protobuf enum name so protojson can
+//     decode it.
+//
+// It returns the (possibly rewritten) body to hand to protojson and the parsed
+// WhereFilter (nil if absent). A non-object body is returned untouched so the
+// protojson parse surfaces the error.
+func preprocessQueryBody(body []byte) (rest []byte, where *models.WhereFilter, err error) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return body, nil, nil
 	}
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(body, &top); err != nil {
-		// Not a JSON object; leave the body untouched and let the protojson
-		// parse surface the error.
 		return body, nil, nil
 	}
-	raw, ok := top["where"]
-	if !ok {
-		return body, nil, nil
+
+	changed := false
+
+	if raw, ok := top["where"]; ok {
+		var wf models.WhereFilter
+		if err := json.Unmarshal(raw, &wf); err != nil {
+			return nil, nil, fmt.Errorf("parse `where` filter: %w", err)
+		}
+		where = &wf
+		delete(top, "where")
+		changed = true
 	}
-	delete(top, "where")
-	var wf models.WhereFilter
-	if err := json.Unmarshal(raw, &wf); err != nil {
-		return nil, nil, fmt.Errorf("parse `where` filter: %w", err)
+
+	if raw, ok := top["consistencyLevel"]; ok {
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			if full, ok := consistencyLevelAliases[strings.ToUpper(s)]; ok && full != s {
+				if enc, err := json.Marshal(full); err == nil {
+					top["consistencyLevel"] = enc
+					changed = true
+				}
+			}
+		}
+	}
+
+	if !changed {
+		return body, where, nil
 	}
 	rest, err = json.Marshal(top)
 	if err != nil {
 		return nil, nil, err
 	}
-	return rest, &wf, nil
+	return rest, where, nil
 }
 
 // principalFromRequest authenticates the request exactly like the gRPC auth

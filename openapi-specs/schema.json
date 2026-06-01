@@ -4102,6 +4102,14 @@
             "$ref": "#/definitions/QueryVectors"
           }
         },
+        "vector": {
+          "type": "array",
+          "description": "Convenience: the query vector as a plain array of float32 values, e.g. [0.1, 0.2, 0.3]. An alternative to `vectors`/`vectorBytes` for a single (non-named) vector — no base64 needed.",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        },
         "certainty": {
           "type": "number",
           "description": "Minimum certainty (0..1). Mutually exclusive with distance."
@@ -4424,6 +4432,11 @@
           ],
           "description": "How keyword and vector result sets are fused."
         },
+        "alpha": {
+          "type": "number",
+          "format": "float",
+          "description": "Balance between keyword (0.0) and vector (1.0) results. Simpler alternative to `alphaParam` (no `useAlphaParam` needed)."
+        },
         "nearText": {
           "description": "Use a nearText search as the vector side (targets here are ignored).",
           "allOf": [
@@ -4481,6 +4494,14 @@
           "description": "Explicit query vector(s) for the vector side.",
           "items": {
             "$ref": "#/definitions/QueryVectors"
+          }
+        },
+        "vector": {
+          "type": "array",
+          "description": "Convenience: the query vector for the vector side as a plain array of float32 values. An alternative to `vectors` — no base64 needed.",
+          "items": {
+            "type": "number",
+            "format": "float"
           }
         }
       }
@@ -5184,9 +5205,12 @@
             "CONSISTENCY_LEVEL_UNSPECIFIED",
             "CONSISTENCY_LEVEL_ONE",
             "CONSISTENCY_LEVEL_QUORUM",
-            "CONSISTENCY_LEVEL_ALL"
+            "CONSISTENCY_LEVEL_ALL",
+            "ONE",
+            "QUORUM",
+            "ALL"
           ],
-          "description": "Read consistency level."
+          "description": "Read consistency level. Accepts either the short form (ONE, QUORUM, ALL) or the full enum name (CONSISTENCY_LEVEL_*)."
         },
         "properties": {
           "description": "Which object properties to return.",
