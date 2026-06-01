@@ -129,6 +129,9 @@ func CreateGRPCServer(state *state.State, clientTracker *telemetry.ClientTracker
 	s := grpc.NewServer(o...)
 	weaviateV0 := v0.NewService()
 	weaviateV1, drainBatch := v1.NewService(allowAnonymous, authComposer, state)
+	// Expose the search/aggregate pipeline to non-gRPC transports (REST query
+	// endpoints) so they reuse the exact same parse → traverse → reply path.
+	state.GRPCQuerier = weaviateV1
 	pbv0.RegisterWeaviateServer(s, weaviateV0)
 	pbv1.RegisterWeaviateServer(s, weaviateV1)
 

@@ -3805,6 +3805,2010 @@
       "items": {
         "$ref": "#/definitions/Namespace"
       }
+    },
+    "TextArray": {
+      "type": "object",
+      "description": "A list of text values.",
+      "properties": {
+        "values": {
+          "type": "array",
+          "description": "The text values.",
+          "items": {
+            "type": "string",
+            "description": "A text value."
+          }
+        }
+      }
+    },
+    "IntArray": {
+      "type": "object",
+      "description": "A list of int64 values.",
+      "properties": {
+        "values": {
+          "type": "array",
+          "description": "The int64 values.",
+          "items": {
+            "type": "integer",
+            "format": "int64",
+            "description": "An int64 value. (int64; serialized as a string in responses)"
+          }
+        }
+      }
+    },
+    "NumberArray": {
+      "type": "object",
+      "description": "A list of float64 values.",
+      "properties": {
+        "values": {
+          "type": "array",
+          "description": "The float64 values.",
+          "items": {
+            "type": "number",
+            "description": "A float64 value."
+          }
+        }
+      }
+    },
+    "BooleanArray": {
+      "type": "object",
+      "description": "A list of boolean values.",
+      "properties": {
+        "values": {
+          "type": "array",
+          "description": "The boolean values.",
+          "items": {
+            "type": "boolean",
+            "description": "A boolean value."
+          }
+        }
+      }
+    },
+    "GeoCoordinatesFilter": {
+      "type": "object",
+      "description": "A geo-coordinate reference point plus radius used with OPERATOR_WITHIN_GEO_RANGE.",
+      "properties": {
+        "latitude": {
+          "type": "number",
+          "description": "Latitude of the reference point, in degrees."
+        },
+        "longitude": {
+          "type": "number",
+          "description": "Longitude of the reference point, in degrees."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum distance from the reference point, in meters."
+        }
+      }
+    },
+    "QueryVectors": {
+      "type": "object",
+      "description": "A vector value encoded as bytes, optionally named for multi/named-vector collections.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the (named) vector this entry refers to. Empty for the legacy/default vector."
+        },
+        "vectorBytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The vector encoded as little-endian float32 bytes. For multi-vectors, the flattened matrix. (base64-encoded bytes)"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "VECTOR_TYPE_UNSPECIFIED",
+            "VECTOR_TYPE_SINGLE_FP32",
+            "VECTOR_TYPE_MULTI_FP32"
+          ],
+          "description": "Whether this is a single (SINGLE_FP32) or multi (MULTI_FP32) vector."
+        }
+      }
+    },
+    "WeightsForTarget": {
+      "type": "object",
+      "description": "Per-target weight used when combining multiple target vectors.",
+      "properties": {
+        "target": {
+          "type": "string",
+          "description": "The target (named) vector this weight applies to."
+        },
+        "weight": {
+          "type": "number",
+          "description": "The weight applied to this target's score during multi-target fusion."
+        }
+      }
+    },
+    "Targets": {
+      "type": "object",
+      "description": "Selects and combines multiple target (named) vectors for a single search.",
+      "properties": {
+        "targetVectors": {
+          "type": "array",
+          "description": "The named vectors to search against in a multi-target query.",
+          "items": {
+            "type": "string",
+            "description": "A target (named) vector to search."
+          }
+        },
+        "combination": {
+          "type": "string",
+          "enum": [
+            "COMBINATION_METHOD_UNSPECIFIED",
+            "COMBINATION_METHOD_TYPE_SUM",
+            "COMBINATION_METHOD_TYPE_MIN",
+            "COMBINATION_METHOD_TYPE_AVERAGE",
+            "COMBINATION_METHOD_TYPE_RELATIVE_SCORE",
+            "COMBINATION_METHOD_TYPE_MANUAL"
+          ],
+          "description": "How per-target scores are combined into a single score."
+        },
+        "weightsForTargets": {
+          "type": "array",
+          "description": "Per-target weights, used when combination is COMBINATION_METHOD_TYPE_MANUAL/RELATIVE_SCORE.",
+          "items": {
+            "$ref": "#/definitions/WeightsForTarget"
+          }
+        }
+      }
+    },
+    "VectorForTarget": {
+      "type": "object",
+      "description": "A query vector bound to a specific target (named) vector.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the target vector."
+        },
+        "vectors": {
+          "type": "array",
+          "description": "The query vector(s) for this target.",
+          "items": {
+            "$ref": "#/definitions/QueryVectors"
+          }
+        }
+      }
+    },
+    "SelectionMMR": {
+      "type": "object",
+      "description": "Maximal Marginal Relevance selection parameters.",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of candidates considered for MMR re-selection."
+        },
+        "balance": {
+          "type": "number",
+          "description": "Trade-off between relevance and diversity (0..1)."
+        }
+      }
+    },
+    "Selection": {
+      "type": "object",
+      "description": "Post-retrieval selection strategy applied to the candidate set.",
+      "properties": {
+        "mmr": {
+          "$ref": "#/definitions/SelectionMMR"
+        }
+      }
+    },
+    "SearchOperatorOptions": {
+      "type": "object",
+      "description": "Keyword (BM25) token-matching operator options.",
+      "properties": {
+        "operator": {
+          "type": "string",
+          "enum": [
+            "OPERATOR_UNSPECIFIED",
+            "OPERATOR_OR",
+            "OPERATOR_AND"
+          ],
+          "description": "Whether matched tokens are combined with OR or AND."
+        },
+        "minimumOrTokensMatch": {
+          "type": "integer",
+          "description": "When operator is OR, the minimum number of query tokens that must match."
+        }
+      }
+    },
+    "NearTextMove": {
+      "type": "object",
+      "description": "Biases a nearText query vector toward or away from concepts/objects.",
+      "properties": {
+        "force": {
+          "type": "number",
+          "description": "Strength of the move (0..1)."
+        },
+        "concepts": {
+          "type": "array",
+          "description": "Concepts that bias the query vector.",
+          "items": {
+            "type": "string",
+            "description": "A concept to move toward/away from."
+          }
+        },
+        "uuids": {
+          "type": "array",
+          "description": "Objects whose vectors bias the query.",
+          "items": {
+            "type": "string",
+            "description": "An object UUID to move toward/away from."
+          }
+        }
+      }
+    },
+    "NearTextSearch": {
+      "type": "object",
+      "description": "A semantic (nearText) search; requires a text vectorizer module on the collection.",
+      "properties": {
+        "query": {
+          "type": "array",
+          "description": "The search concepts; vectorized by the collection's text module.",
+          "items": {
+            "type": "string",
+            "description": "A search concept/phrase."
+          }
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Minimum certainty (0..1). Mutually exclusive with distance."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum vector distance. Mutually exclusive with certainty."
+        },
+        "moveTo": {
+          "description": "Bias the query vector toward these concepts/objects.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearTextMove"
+            }
+          ]
+        },
+        "moveAway": {
+          "description": "Bias the query vector away from these concepts/objects.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearTextMove"
+            }
+          ]
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        }
+      }
+    },
+    "NearVector": {
+      "type": "object",
+      "description": "A raw-vector (nearVector) search. Provide vectors directly without a vectorizer.",
+      "properties": {
+        "vectors": {
+          "type": "array",
+          "description": "The query vector(s). Preferred over the deprecated vector/vectorBytes fields.",
+          "items": {
+            "$ref": "#/definitions/QueryVectors"
+          }
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Minimum certainty (0..1). Mutually exclusive with distance."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum vector distance. Mutually exclusive with certainty."
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "vectorForTargets": {
+          "type": "array",
+          "description": "Per-target query vectors for multi-target search.",
+          "items": {
+            "$ref": "#/definitions/VectorForTarget"
+          }
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        }
+      }
+    },
+    "NearObject": {
+      "type": "object",
+      "description": "A nearObject search using an existing object's vector as the query.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The UUID of the object whose vector is used as the query."
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Minimum certainty (0..1). Mutually exclusive with distance."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum vector distance. Mutually exclusive with certainty."
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        }
+      }
+    },
+    "NearImageSearch": {
+      "type": "object",
+      "description": "A near-image vector search; requires a module that vectorizes image input.",
+      "properties": {
+        "image": {
+          "type": "string",
+          "description": "Base64-encoded image used as the query."
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Minimum certainty (0..1) a result must meet. Mutually exclusive with distance."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum vector distance a result may have. Mutually exclusive with certainty."
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        }
+      }
+    },
+    "NearAudioSearch": {
+      "type": "object",
+      "description": "A near-audio vector search; requires a module that vectorizes audio input.",
+      "properties": {
+        "audio": {
+          "type": "string",
+          "description": "Base64-encoded audio used as the query."
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Minimum certainty (0..1) a result must meet. Mutually exclusive with distance."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum vector distance a result may have. Mutually exclusive with certainty."
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        }
+      }
+    },
+    "NearVideoSearch": {
+      "type": "object",
+      "description": "A near-video vector search; requires a module that vectorizes video input.",
+      "properties": {
+        "video": {
+          "type": "string",
+          "description": "Base64-encoded video used as the query."
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Minimum certainty (0..1) a result must meet. Mutually exclusive with distance."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum vector distance a result may have. Mutually exclusive with certainty."
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        }
+      }
+    },
+    "NearDepthSearch": {
+      "type": "object",
+      "description": "A near-depth vector search; requires a module that vectorizes depth input.",
+      "properties": {
+        "depth": {
+          "type": "string",
+          "description": "Base64-encoded depth data used as the query."
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Minimum certainty (0..1) a result must meet. Mutually exclusive with distance."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum vector distance a result may have. Mutually exclusive with certainty."
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        }
+      }
+    },
+    "NearThermalSearch": {
+      "type": "object",
+      "description": "A near-thermal vector search; requires a module that vectorizes thermal input.",
+      "properties": {
+        "thermal": {
+          "type": "string",
+          "description": "Base64-encoded thermal data used as the query."
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Minimum certainty (0..1) a result must meet. Mutually exclusive with distance."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum vector distance a result may have. Mutually exclusive with certainty."
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        }
+      }
+    },
+    "NearIMUSearch": {
+      "type": "object",
+      "description": "A near-IMU vector search; requires a module that vectorizes IMU input.",
+      "properties": {
+        "imu": {
+          "type": "string",
+          "description": "Base64-encoded IMU data used as the query."
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Minimum certainty (0..1) a result must meet. Mutually exclusive with distance."
+        },
+        "distance": {
+          "type": "number",
+          "description": "Maximum vector distance a result may have. Mutually exclusive with certainty."
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        }
+      }
+    },
+    "BM25": {
+      "type": "object",
+      "description": "A BM25 keyword (lexical) search.",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The keyword query string."
+        },
+        "properties": {
+          "type": "array",
+          "description": "Properties to run the BM25 keyword search over.",
+          "items": {
+            "type": "string",
+            "description": "A property to search; empty means all text properties."
+          }
+        },
+        "searchOperator": {
+          "description": "Token-matching (OR/AND) options.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchOperatorOptions"
+            }
+          ]
+        }
+      }
+    },
+    "Hybrid": {
+      "type": "object",
+      "description": "A hybrid search combining BM25 keyword and vector search.",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The query string (used for both the keyword and, if no vector is given, the vector side)."
+        },
+        "properties": {
+          "type": "array",
+          "description": "Properties for the keyword (BM25) side of the hybrid search.",
+          "items": {
+            "type": "string",
+            "description": "A property to include in the keyword side."
+          }
+        },
+        "fusionType": {
+          "type": "string",
+          "enum": [
+            "FUSION_TYPE_UNSPECIFIED",
+            "FUSION_TYPE_RANKED",
+            "FUSION_TYPE_RELATIVE_SCORE"
+          ],
+          "description": "How keyword and vector result sets are fused."
+        },
+        "nearText": {
+          "description": "Use a nearText search as the vector side (targets here are ignored).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearTextSearch"
+            }
+          ]
+        },
+        "nearVector": {
+          "description": "Use a nearVector search as the vector side (targets here are ignored).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearVector"
+            }
+          ]
+        },
+        "targets": {
+          "description": "The named vectors to search (multi-target).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Targets"
+            }
+          ]
+        },
+        "bm25SearchOperator": {
+          "description": "Token-matching (OR/AND) options for the keyword side.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchOperatorOptions"
+            }
+          ]
+        },
+        "alphaParam": {
+          "type": "number",
+          "description": "Balance between keyword (0.0) and vector (1.0) results. Requires useAlphaParam=true."
+        },
+        "useAlphaParam": {
+          "type": "boolean",
+          "description": "Use alphaParam instead of the deprecated alpha field."
+        },
+        "selection": {
+          "description": "Optional post-retrieval selection (e.g. MMR).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Selection"
+            }
+          ]
+        },
+        "vectorDistance": {
+          "type": "number",
+          "description": "Optional maximum vector distance threshold for the vector side."
+        },
+        "vectors": {
+          "type": "array",
+          "description": "Explicit query vector(s) for the vector side.",
+          "items": {
+            "$ref": "#/definitions/QueryVectors"
+          }
+        }
+      }
+    },
+    "FilterReferenceSingleTarget": {
+      "type": "object",
+      "description": "Filters across a single-target cross-reference.",
+      "properties": {
+        "on": {
+          "type": "string",
+          "description": "The cross-reference property to traverse."
+        },
+        "target": {
+          "description": "The filter target on the referenced collection.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FilterTarget"
+            }
+          ]
+        }
+      }
+    },
+    "FilterReferenceMultiTarget": {
+      "type": "object",
+      "description": "Filters across a multi-target cross-reference.",
+      "properties": {
+        "on": {
+          "type": "string",
+          "description": "The cross-reference property to traverse."
+        },
+        "target": {
+          "description": "The filter target on the referenced collection.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FilterTarget"
+            }
+          ]
+        },
+        "targetCollection": {
+          "type": "string",
+          "description": "The referenced collection to traverse into."
+        }
+      }
+    },
+    "FilterReferenceCount": {
+      "type": "object",
+      "description": "Filters on the number of cross-references on a property.",
+      "properties": {
+        "on": {
+          "type": "string",
+          "description": "The cross-reference property whose count is filtered."
+        }
+      }
+    },
+    "FilterTarget": {
+      "type": "object",
+      "description": "What a filter applies to: a property or a cross-reference path (exactly one).",
+      "properties": {
+        "property": {
+          "type": "string",
+          "description": "A direct property name to filter on."
+        },
+        "singleTarget": {
+          "description": "Filter through a single-target reference.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FilterReferenceSingleTarget"
+            }
+          ]
+        },
+        "multiTarget": {
+          "description": "Filter through a multi-target reference.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FilterReferenceMultiTarget"
+            }
+          ]
+        },
+        "count": {
+          "description": "Filter on a reference count.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FilterReferenceCount"
+            }
+          ]
+        }
+      }
+    },
+    "Filters": {
+      "type": "object",
+      "description": "A conditional filter (a tree). Leaf nodes set a value + target; AND/OR/NOT nodes set `filters`.",
+      "properties": {
+        "operator": {
+          "type": "string",
+          "enum": [
+            "OPERATOR_UNSPECIFIED",
+            "OPERATOR_EQUAL",
+            "OPERATOR_NOT_EQUAL",
+            "OPERATOR_GREATER_THAN",
+            "OPERATOR_GREATER_THAN_EQUAL",
+            "OPERATOR_LESS_THAN",
+            "OPERATOR_LESS_THAN_EQUAL",
+            "OPERATOR_AND",
+            "OPERATOR_OR",
+            "OPERATOR_WITHIN_GEO_RANGE",
+            "OPERATOR_LIKE",
+            "OPERATOR_IS_NULL",
+            "OPERATOR_CONTAINS_ANY",
+            "OPERATOR_CONTAINS_ALL",
+            "OPERATOR_CONTAINS_NONE",
+            "OPERATOR_NOT"
+          ],
+          "description": "The filter operator. AND/OR/NOT combine the nested `filters`."
+        },
+        "filters": {
+          "type": "array",
+          "description": "Nested filters, combined via the AND/OR/NOT operator.",
+          "items": {
+            "$ref": "#/definitions/Filters"
+          }
+        },
+        "target": {
+          "description": "What the comparison applies to (property or reference path).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/FilterTarget"
+            }
+          ]
+        },
+        "valueText": {
+          "type": "string",
+          "description": "Comparison value (text)."
+        },
+        "valueInt": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Comparison value (int64). (int64; serialized as a string in responses)"
+        },
+        "valueBoolean": {
+          "type": "boolean",
+          "description": "Comparison value (boolean)."
+        },
+        "valueNumber": {
+          "type": "number",
+          "description": "Comparison value (float64)."
+        },
+        "valueTextArray": {
+          "description": "Comparison values for CONTAINS_ANY/ALL/NONE (text).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TextArray"
+            }
+          ]
+        },
+        "valueIntArray": {
+          "description": "Comparison values for CONTAINS_ANY/ALL/NONE (int64).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/IntArray"
+            }
+          ]
+        },
+        "valueBooleanArray": {
+          "description": "Comparison values for CONTAINS_ANY/ALL/NONE (boolean).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BooleanArray"
+            }
+          ]
+        },
+        "valueNumberArray": {
+          "description": "Comparison values for CONTAINS_ANY/ALL/NONE (float64).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NumberArray"
+            }
+          ]
+        },
+        "valueGeo": {
+          "description": "Comparison value for OPERATOR_WITHIN_GEO_RANGE.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GeoCoordinatesFilter"
+            }
+          ]
+        }
+      }
+    },
+    "ObjectPropertiesRequest": {
+      "type": "object",
+      "description": "Selects which sub-properties of a nested object property to return.",
+      "properties": {
+        "propName": {
+          "type": "string",
+          "description": "The nested object property name."
+        },
+        "primitiveProperties": {
+          "type": "array",
+          "description": "Primitive sub-properties to return from this object.",
+          "items": {
+            "type": "string",
+            "description": "A primitive sub-property to return."
+          }
+        },
+        "objectProperties": {
+          "type": "array",
+          "description": "Further nested object sub-properties.",
+          "items": {
+            "$ref": "#/definitions/ObjectPropertiesRequest"
+          }
+        }
+      }
+    },
+    "RefPropertiesRequest": {
+      "type": "object",
+      "description": "Selects properties/metadata to return from a cross-referenced collection.",
+      "properties": {
+        "referenceProperty": {
+          "type": "string",
+          "description": "The cross-reference property to expand."
+        },
+        "properties": {
+          "description": "Which properties to return from the referenced objects.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
+            }
+          ]
+        },
+        "metadata": {
+          "description": "Which metadata to return from the referenced objects.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "targetCollection": {
+          "type": "string",
+          "description": "The referenced collection (for multi-target references)."
+        }
+      }
+    },
+    "PropertiesRequest": {
+      "type": "object",
+      "description": "Selects which object properties are returned in the response.",
+      "properties": {
+        "nonRefProperties": {
+          "type": "array",
+          "description": "Non-reference properties to return.",
+          "items": {
+            "type": "string",
+            "description": "A property name to return."
+          }
+        },
+        "refProperties": {
+          "type": "array",
+          "description": "Cross-reference properties to expand and return.",
+          "items": {
+            "$ref": "#/definitions/RefPropertiesRequest"
+          }
+        },
+        "objectProperties": {
+          "type": "array",
+          "description": "Nested object properties to return.",
+          "items": {
+            "$ref": "#/definitions/ObjectPropertiesRequest"
+          }
+        },
+        "returnAllNonrefProperties": {
+          "type": "boolean",
+          "description": "If true, return all non-reference properties (ignores nonRefProperties)."
+        }
+      }
+    },
+    "MetadataRequest": {
+      "type": "object",
+      "description": "Selects which per-object metadata is returned in the response.",
+      "properties": {
+        "uuid": {
+          "type": "boolean",
+          "description": "Return each object's UUID."
+        },
+        "vector": {
+          "type": "boolean",
+          "description": "Return each object's (legacy/default) vector. Deprecated; prefer `vectors`."
+        },
+        "creationTimeUnix": {
+          "type": "boolean",
+          "description": "Return the object creation timestamp."
+        },
+        "lastUpdateTimeUnix": {
+          "type": "boolean",
+          "description": "Return the object last-update timestamp."
+        },
+        "distance": {
+          "type": "boolean",
+          "description": "Return the vector distance (vector searches only)."
+        },
+        "certainty": {
+          "type": "boolean",
+          "description": "Return the certainty (vector searches only)."
+        },
+        "score": {
+          "type": "boolean",
+          "description": "Return the score (BM25/hybrid searches)."
+        },
+        "explainScore": {
+          "type": "boolean",
+          "description": "Return a human-readable score explanation."
+        },
+        "isConsistent": {
+          "type": "boolean",
+          "description": "Return whether the read was consistent."
+        },
+        "vectors": {
+          "type": "array",
+          "description": "Named vectors to return for each object.",
+          "items": {
+            "type": "string",
+            "description": "A named vector to return."
+          }
+        },
+        "queryProfile": {
+          "type": "boolean",
+          "description": "Return per-shard query profiling (timing breakdowns) in the reply."
+        }
+      }
+    },
+    "SearchGroupBy": {
+      "type": "object",
+      "description": "Groups search results by a property.",
+      "properties": {
+        "path": {
+          "type": "array",
+          "description": "The property path to group by.",
+          "items": {
+            "type": "string",
+            "description": "The property to group by (currently exactly one)."
+          }
+        },
+        "numberOfGroups": {
+          "type": "integer",
+          "description": "Maximum number of groups to return."
+        },
+        "objectsPerGroup": {
+          "type": "integer",
+          "description": "Maximum number of objects per group."
+        }
+      }
+    },
+    "SortBy": {
+      "type": "object",
+      "description": "Sorts results by a property. Cannot be combined with vector searches.",
+      "properties": {
+        "ascending": {
+          "type": "boolean",
+          "description": "Sort ascending when true, descending when false."
+        },
+        "path": {
+          "type": "array",
+          "description": "The property path to sort by.",
+          "items": {
+            "type": "string",
+            "description": "The property to sort by (currently exactly one)."
+          }
+        }
+      }
+    },
+    "Rerank": {
+      "type": "object",
+      "description": "Reranks results using a reranker module.",
+      "properties": {
+        "property": {
+          "type": "string",
+          "description": "The property whose values are reranked."
+        },
+        "query": {
+          "type": "string",
+          "description": "Optional rerank query; defaults to the search query."
+        }
+      }
+    },
+    "GenerativeSearch": {
+      "type": "object",
+      "description": "Retrieval-augmented generation (RAG) options.",
+      "properties": {
+        "single": {
+          "type": "object",
+          "description": "Single-prompt (per-object) generation.",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Per-object prompt; use {property} placeholders."
+            },
+            "debug": {
+              "type": "boolean",
+              "description": "Include provider debug info in the reply."
+            },
+            "queries": {
+              "type": "array",
+              "description": "Generative provider configuration(s).",
+              "items": {
+                "type": "object",
+                "description": "A generative provider configuration (model and parameters)."
+              }
+            }
+          }
+        },
+        "grouped": {
+          "type": "object",
+          "description": "Grouped (single result over all objects) generation.",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "Grouped task prompt applied across all results."
+            },
+            "properties": {
+              "description": "Properties to feed into the grouped task.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TextArray"
+                }
+              ]
+            },
+            "queries": {
+              "type": "array",
+              "description": "Generative provider configuration(s).",
+              "items": {
+                "type": "object",
+                "description": "A generative provider configuration (model and parameters)."
+              }
+            },
+            "debug": {
+              "type": "boolean",
+              "description": "Include provider debug info in the reply."
+            }
+          }
+        }
+      }
+    },
+    "AggregationInteger": {
+      "type": "object",
+      "description": "Aggregations available on an integer property.",
+      "properties": {
+        "count": {
+          "type": "boolean",
+          "description": "Return the count."
+        },
+        "type": {
+          "type": "boolean",
+          "description": "Return the data type."
+        },
+        "sum": {
+          "type": "boolean",
+          "description": "Return the sum."
+        },
+        "mean": {
+          "type": "boolean",
+          "description": "Return the mean."
+        },
+        "mode": {
+          "type": "boolean",
+          "description": "Return the mode."
+        },
+        "median": {
+          "type": "boolean",
+          "description": "Return the median."
+        },
+        "maximum": {
+          "type": "boolean",
+          "description": "Return the maximum."
+        },
+        "minimum": {
+          "type": "boolean",
+          "description": "Return the minimum."
+        }
+      }
+    },
+    "AggregationNumber": {
+      "type": "object",
+      "description": "Aggregations available on a number (float) property.",
+      "properties": {
+        "count": {
+          "type": "boolean",
+          "description": "Return the count."
+        },
+        "type": {
+          "type": "boolean",
+          "description": "Return the data type."
+        },
+        "sum": {
+          "type": "boolean",
+          "description": "Return the sum."
+        },
+        "mean": {
+          "type": "boolean",
+          "description": "Return the mean."
+        },
+        "mode": {
+          "type": "boolean",
+          "description": "Return the mode."
+        },
+        "median": {
+          "type": "boolean",
+          "description": "Return the median."
+        },
+        "maximum": {
+          "type": "boolean",
+          "description": "Return the maximum."
+        },
+        "minimum": {
+          "type": "boolean",
+          "description": "Return the minimum."
+        }
+      }
+    },
+    "AggregationText": {
+      "type": "object",
+      "description": "Aggregations available on a text property.",
+      "properties": {
+        "count": {
+          "type": "boolean",
+          "description": "Return the count."
+        },
+        "type": {
+          "type": "boolean",
+          "description": "Return the data type."
+        },
+        "topOccurences": {
+          "type": "boolean",
+          "description": "Return the most frequent values."
+        },
+        "topOccurencesLimit": {
+          "type": "integer",
+          "description": "Maximum number of top occurrences to return."
+        }
+      }
+    },
+    "AggregationBoolean": {
+      "type": "object",
+      "description": "Aggregations available on a boolean property.",
+      "properties": {
+        "count": {
+          "type": "boolean",
+          "description": "Return the count."
+        },
+        "type": {
+          "type": "boolean",
+          "description": "Return the data type."
+        },
+        "totalTrue": {
+          "type": "boolean",
+          "description": "Return the count of true values."
+        },
+        "totalFalse": {
+          "type": "boolean",
+          "description": "Return the count of false values."
+        },
+        "percentageTrue": {
+          "type": "boolean",
+          "description": "Return the percentage of true values."
+        },
+        "percentageFalse": {
+          "type": "boolean",
+          "description": "Return the percentage of false values."
+        }
+      }
+    },
+    "AggregationDate": {
+      "type": "object",
+      "description": "Aggregations available on a date property.",
+      "properties": {
+        "count": {
+          "type": "boolean",
+          "description": "Return the count."
+        },
+        "type": {
+          "type": "boolean",
+          "description": "Return the data type."
+        },
+        "median": {
+          "type": "boolean",
+          "description": "Return the median."
+        },
+        "mode": {
+          "type": "boolean",
+          "description": "Return the mode."
+        },
+        "maximum": {
+          "type": "boolean",
+          "description": "Return the maximum."
+        },
+        "minimum": {
+          "type": "boolean",
+          "description": "Return the minimum."
+        }
+      }
+    },
+    "AggregationReference": {
+      "type": "object",
+      "description": "Aggregations available on a cross-reference property.",
+      "properties": {
+        "type": {
+          "type": "boolean",
+          "description": "Return the reference type."
+        },
+        "pointingTo": {
+          "type": "boolean",
+          "description": "Return the collections referenced."
+        }
+      }
+    },
+    "Aggregation": {
+      "type": "object",
+      "description": "Requests aggregations for one property (set exactly one of int/number/text/boolean/date/reference).",
+      "properties": {
+        "property": {
+          "type": "string",
+          "description": "The property to aggregate."
+        },
+        "int": {
+          "description": "Integer-property aggregations.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregationInteger"
+            }
+          ]
+        },
+        "number": {
+          "description": "Number-property aggregations.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregationNumber"
+            }
+          ]
+        },
+        "text": {
+          "description": "Text-property aggregations.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregationText"
+            }
+          ]
+        },
+        "boolean": {
+          "description": "Boolean-property aggregations.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregationBoolean"
+            }
+          ]
+        },
+        "date": {
+          "description": "Date-property aggregations.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregationDate"
+            }
+          ]
+        },
+        "reference": {
+          "description": "Reference-property aggregations.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregationReference"
+            }
+          ]
+        }
+      }
+    },
+    "AggregateGroupBy": {
+      "type": "object",
+      "description": "Groups aggregation results by a property.",
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "The collection to group by (usually the queried collection)."
+        },
+        "property": {
+          "type": "string",
+          "description": "The property to group by."
+        }
+      }
+    },
+    "SearchRequest": {
+      "type": "object",
+      "description": "The search request body. Field encoding: camelCase field names, enum values as strings, vectors and other bytes as base64-encoded strings, and 64-bit integers as strings. Set at most one search method (nearVector, nearText, hybridSearch, bm25Search, ...).",
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
+        },
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to query (multi-tenant collections only)."
+        },
+        "consistencyLevel": {
+          "type": "string",
+          "enum": [
+            "CONSISTENCY_LEVEL_UNSPECIFIED",
+            "CONSISTENCY_LEVEL_ONE",
+            "CONSISTENCY_LEVEL_QUORUM",
+            "CONSISTENCY_LEVEL_ALL"
+          ],
+          "description": "Read consistency level."
+        },
+        "properties": {
+          "description": "Which object properties to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesRequest"
+            }
+          ]
+        },
+        "metadata": {
+          "description": "Which per-object metadata to return.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataRequest"
+            }
+          ]
+        },
+        "groupBy": {
+          "description": "Group results by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SearchGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of results to return. 0 means the server default."
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Number of results to skip (pagination)."
+        },
+        "autocut": {
+          "type": "integer",
+          "description": "Autocut: stop after N jumps in the result-score distribution. 0 disables."
+        },
+        "after": {
+          "type": "string",
+          "description": "Cursor for cursor-based pagination (object UUID)."
+        },
+        "sortBy": {
+          "type": "array",
+          "description": "Sort results by properties. Not compatible with vector searches.",
+          "items": {
+            "$ref": "#/definitions/SortBy"
+          }
+        },
+        "filters": {
+          "description": "Restrict results with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "hybridSearch": {
+          "description": "Hybrid (keyword + vector) search.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Hybrid"
+            }
+          ]
+        },
+        "bm25Search": {
+          "description": "BM25 keyword search.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BM25"
+            }
+          ]
+        },
+        "nearVector": {
+          "description": "Raw-vector search.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearVector"
+            }
+          ]
+        },
+        "nearObject": {
+          "description": "Search by an existing object's vector.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearObject"
+            }
+          ]
+        },
+        "nearText": {
+          "description": "Semantic text search (requires a vectorizer).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearTextSearch"
+            }
+          ]
+        },
+        "nearImage": {
+          "description": "Image search (requires a multi-modal module).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearImageSearch"
+            }
+          ]
+        },
+        "nearAudio": {
+          "description": "Audio search (requires a multi-modal module).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearAudioSearch"
+            }
+          ]
+        },
+        "nearVideo": {
+          "description": "Video search (requires a multi-modal module).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearVideoSearch"
+            }
+          ]
+        },
+        "nearDepth": {
+          "description": "Depth search (requires a multi-modal module).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearDepthSearch"
+            }
+          ]
+        },
+        "nearThermal": {
+          "description": "Thermal search (requires a multi-modal module).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearThermalSearch"
+            }
+          ]
+        },
+        "nearImu": {
+          "description": "IMU search (requires a multi-modal module).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearIMUSearch"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Retrieval-augmented generation (RAG) over the results.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeSearch"
+            }
+          ]
+        },
+        "rerank": {
+          "description": "Rerank the results with a reranker module.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Rerank"
+            }
+          ]
+        },
+        "uses127Api": {
+          "type": "boolean",
+          "description": "Use the 1.27+ response shape (recommended; nested object properties returned inline)."
+        }
+      }
+    },
+    "AggregateRequest": {
+      "type": "object",
+      "description": "The aggregation request body. Field encoding: camelCase field names, enum values as strings, vectors and other bytes as base64-encoded strings, and 64-bit integers as strings. Set at most one search method (nearVector, nearText, hybrid, bm25, ...).",
+      "properties": {
+        "collection": {
+          "type": "string",
+          "description": "Ignored for the REST endpoint: the collection from the URL path is always used."
+        },
+        "tenant": {
+          "type": "string",
+          "description": "The tenant to aggregate (multi-tenant collections only)."
+        },
+        "objectsCount": {
+          "type": "boolean",
+          "description": "Return the total number of matching objects."
+        },
+        "aggregations": {
+          "type": "array",
+          "description": "Per-property aggregations to compute.",
+          "items": {
+            "$ref": "#/definitions/Aggregation"
+          }
+        },
+        "objectLimit": {
+          "type": "integer",
+          "description": "When a search is set, only aggregate over the top N matching objects."
+        },
+        "groupBy": {
+          "description": "Group the aggregation by a property.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregateGroupBy"
+            }
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Maximum number of groups to return (grouped aggregation)."
+        },
+        "filters": {
+          "description": "Restrict the aggregated set with a conditional filter.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Filters"
+            }
+          ]
+        },
+        "hybrid": {
+          "description": "Aggregate over a hybrid search result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Hybrid"
+            }
+          ]
+        },
+        "nearVector": {
+          "description": "Aggregate over a nearVector result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearVector"
+            }
+          ]
+        },
+        "nearObject": {
+          "description": "Aggregate over a nearObject result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearObject"
+            }
+          ]
+        },
+        "nearText": {
+          "description": "Aggregate over a nearText result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearTextSearch"
+            }
+          ]
+        },
+        "nearImage": {
+          "description": "Aggregate over a nearImage result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearImageSearch"
+            }
+          ]
+        },
+        "nearAudio": {
+          "description": "Aggregate over a nearAudio result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearAudioSearch"
+            }
+          ]
+        },
+        "nearVideo": {
+          "description": "Aggregate over a nearVideo result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearVideoSearch"
+            }
+          ]
+        },
+        "nearDepth": {
+          "description": "Aggregate over a nearDepth result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearDepthSearch"
+            }
+          ]
+        },
+        "nearThermal": {
+          "description": "Aggregate over a nearThermal result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearThermalSearch"
+            }
+          ]
+        },
+        "nearImu": {
+          "description": "Aggregate over a nearImu result set.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/NearIMUSearch"
+            }
+          ]
+        }
+      }
+    },
+    "Properties": {
+      "type": "object",
+      "description": "A bag of returned property values, one entry per requested property.",
+      "properties": {
+        "fields": {
+          "type": "object",
+          "description": "Map of property name to its (typed) value."
+        }
+      }
+    },
+    "MetadataResult": {
+      "type": "object",
+      "description": "Per-object metadata. Each optional numeric field has a sibling `<field>Present` boolean indicating whether the value is set.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The object UUID."
+        },
+        "idAsBytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The object UUID as raw bytes. (base64-encoded bytes)"
+        },
+        "vectorBytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The (legacy/default) vector as little-endian float32 bytes. (base64-encoded bytes)"
+        },
+        "vectors": {
+          "type": "array",
+          "description": "Named vectors of the object (when requested).",
+          "items": {
+            "$ref": "#/definitions/QueryVectors"
+          }
+        },
+        "creationTimeUnix": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Creation timestamp (unix ms). (int64; serialized as a string in responses)"
+        },
+        "lastUpdateTimeUnix": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Last-update timestamp (unix ms). (int64; serialized as a string in responses)"
+        },
+        "distance": {
+          "type": "number",
+          "description": "Vector distance (vector searches)."
+        },
+        "certainty": {
+          "type": "number",
+          "description": "Certainty (vector searches)."
+        },
+        "score": {
+          "type": "number",
+          "description": "Score (BM25/hybrid searches)."
+        },
+        "explainScore": {
+          "type": "string",
+          "description": "Human-readable score explanation."
+        },
+        "rerankScore": {
+          "type": "number",
+          "description": "Score assigned by the reranker, if used."
+        },
+        "isConsistent": {
+          "type": "boolean",
+          "description": "Whether the read was consistent."
+        }
+      }
+    },
+    "RefPropertiesResult": {
+      "type": "object",
+      "description": "Returned cross-referenced objects for one reference property.",
+      "properties": {
+        "propName": {
+          "type": "string",
+          "description": "The cross-reference property name."
+        },
+        "properties": {
+          "type": "array",
+          "description": "The referenced objects' properties.",
+          "items": {
+            "$ref": "#/definitions/PropertiesResult"
+          }
+        }
+      }
+    },
+    "PropertiesResult": {
+      "type": "object",
+      "description": "The property values returned for one object.",
+      "properties": {
+        "nonRefProps": {
+          "description": "The non-reference property values.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Properties"
+            }
+          ]
+        },
+        "refProps": {
+          "type": "array",
+          "description": "Expanded cross-reference properties.",
+          "items": {
+            "$ref": "#/definitions/RefPropertiesResult"
+          }
+        },
+        "targetCollection": {
+          "type": "string",
+          "description": "The collection this result belongs to."
+        },
+        "refPropsRequested": {
+          "type": "boolean",
+          "description": "Whether reference properties were requested."
+        }
+      }
+    },
+    "GenerativeResult": {
+      "type": "object",
+      "description": "A generative (RAG) result."
+    },
+    "SearchResult": {
+      "type": "object",
+      "description": "A single search result object.",
+      "properties": {
+        "properties": {
+          "description": "The object's returned properties.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PropertiesResult"
+            }
+          ]
+        },
+        "metadata": {
+          "description": "The object's returned metadata.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MetadataResult"
+            }
+          ]
+        },
+        "generative": {
+          "description": "Per-object generative (RAG) result, if requested.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeResult"
+            }
+          ]
+        }
+      }
+    },
+    "GroupByResult": {
+      "type": "object",
+      "description": "One group of a group-by search.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The group's value."
+        },
+        "minDistance": {
+          "type": "number",
+          "description": "Minimum distance within the group."
+        },
+        "maxDistance": {
+          "type": "number",
+          "description": "Maximum distance within the group."
+        },
+        "numberOfObjects": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Number of objects in the group. (int64; serialized as a string in responses)"
+        },
+        "objects": {
+          "type": "array",
+          "description": "The objects in this group.",
+          "items": {
+            "$ref": "#/definitions/SearchResult"
+          }
+        },
+        "generativeResult": {
+          "description": "Group-level generative (RAG) result, if requested.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeResult"
+            }
+          ]
+        }
+      }
+    },
+    "QueryProfile": {
+      "type": "object",
+      "description": "Per-shard query profiling; populated when metadata.queryProfile is true.",
+      "properties": {
+        "shards": {
+          "type": "array",
+          "description": "Per-shard query profiling entries.",
+          "items": {
+            "type": "object",
+            "description": "Per-shard profiling entry (name, node, per-search-type timings)."
+          }
+        }
+      }
+    },
+    "SearchReply": {
+      "type": "object",
+      "description": "The search response body.",
+      "properties": {
+        "took": {
+          "type": "number",
+          "description": "Server-side processing time, in seconds."
+        },
+        "results": {
+          "type": "array",
+          "description": "The matching objects.",
+          "items": {
+            "$ref": "#/definitions/SearchResult"
+          }
+        },
+        "groupByResults": {
+          "type": "array",
+          "description": "Groups, when groupBy was set.",
+          "items": {
+            "$ref": "#/definitions/GroupByResult"
+          }
+        },
+        "generativeGroupedResults": {
+          "description": "Grouped generative (RAG) result, if requested.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GenerativeResult"
+            }
+          ]
+        },
+        "queryProfile": {
+          "description": "Per-shard profiling, when requested.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/QueryProfile"
+            }
+          ]
+        }
+      }
+    },
+    "AggregateReplyAggregations": {
+      "type": "object",
+      "description": "Per-property aggregation results."
+    },
+    "AggregateReplySingle": {
+      "type": "object",
+      "description": "Ungrouped aggregation result.",
+      "properties": {
+        "objectsCount": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Total number of matching objects, when requested. (int64; serialized as a string in responses)"
+        },
+        "aggregations": {
+          "description": "The computed per-property aggregations.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregateReplyAggregations"
+            }
+          ]
+        }
+      }
+    },
+    "AggregateReplyGroup": {
+      "type": "object",
+      "description": "One group of a grouped aggregation result.",
+      "properties": {
+        "objectsCount": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Number of objects in the group. (int64; serialized as a string in responses)"
+        },
+        "aggregations": {
+          "description": "The computed per-property aggregations for the group.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregateReplyAggregations"
+            }
+          ]
+        },
+        "groupedBy": {
+          "type": "object",
+          "description": "The group's path and value."
+        }
+      }
+    },
+    "AggregateReplyGrouped": {
+      "type": "object",
+      "description": "Grouped aggregation result.",
+      "properties": {
+        "groups": {
+          "type": "array",
+          "description": "The groups.",
+          "items": {
+            "$ref": "#/definitions/AggregateReplyGroup"
+          }
+        }
+      }
+    },
+    "AggregateReply": {
+      "type": "object",
+      "description": "The aggregation response body.",
+      "properties": {
+        "took": {
+          "type": "number",
+          "description": "Server-side processing time, in seconds."
+        },
+        "singleResult": {
+          "description": "Set when no groupBy was requested.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregateReplySingle"
+            }
+          ]
+        },
+        "groupedResults": {
+          "description": "Set when a groupBy was requested.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/AggregateReplyGrouped"
+            }
+          ]
+        }
+      }
     }
   },
   "externalDocs": {
@@ -3904,6 +5908,138 @@
     }
   },
   "paths": {
+    "/{collection}/query": {
+      "post": {
+        "summary": "Search a collection",
+        "description": "Runs a search against a single collection and returns the matching objects. The collection name is taken from the path and always overrides any `collection` field in the body. An empty body runs a default search over the collection.",
+        "operationId": "query.search",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "path",
+            "description": "The name of the collection (class) to search.",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "description": "The search request body. Any `collection` field in the body is ignored in favor of the path parameter.",
+            "required": false,
+            "schema": {
+              "$ref": "#/definitions/SearchRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search executed successfully. The body contains the matching objects.",
+            "schema": {
+              "$ref": "#/definitions/SearchReply"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "The request body exceeds the maximum allowed size."
+          },
+          "422": {
+            "description": "The request is well-formed but could not be processed (for example an unknown collection, invalid parameters, or the endpoint is disabled).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An internal server error occurred. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "tags": [
+          "query"
+        ]
+      }
+    },
+    "/{collection}/aggregate": {
+      "post": {
+        "summary": "Aggregate over a collection",
+        "description": "Runs a aggregation against a single collection and returns the aggregation results. The collection name is taken from the path and always overrides any `collection` field in the body.",
+        "operationId": "query.aggregate",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "path",
+            "description": "The name of the collection (class) to aggregate over.",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "description": "The aggregation request body. Any `collection` field in the body is ignored in favor of the path parameter.",
+            "required": false,
+            "schema": {
+              "$ref": "#/definitions/AggregateRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregation executed successfully. The body contains the aggregation results.",
+            "schema": {
+              "$ref": "#/definitions/AggregateReply"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "The request body exceeds the maximum allowed size."
+          },
+          "422": {
+            "description": "The request is well-formed but could not be processed (for example an unknown collection, invalid parameters, or the endpoint is disabled).",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An internal server error occurred. Check the ErrorResponse for details.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "tags": [
+          "query"
+        ]
+      }
+    },
     "/": {
       "get": {
         "description": "Get links to other endpoints to help discover the REST API.",
@@ -10972,6 +13108,10 @@
     },
     {
       "name": "graphql"
+    },
+    {
+      "name": "query",
+      "description": "REST search and aggregation over a single collection (POST /v1/{collection}/query and /v1/{collection}/aggregate). The recommended way to query Weaviate over HTTP and the replacement for GraphQL data queries."
     },
     {
       "name": "meta"

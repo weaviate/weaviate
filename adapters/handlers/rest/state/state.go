@@ -27,7 +27,9 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/fsm"
+	"github.com/weaviate/weaviate/entities/models"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
+	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
@@ -148,6 +150,20 @@ type State struct {
 	GRPCConnManager *grpcconn.ConnManager
 	// ReplGRPCConnManager is a separate connection manager that implements retry logic to each RPC call on top of connection pooling, specifically for replication traffic.
 	ReplGRPCConnManager *grpcconn.ConnManager
+
+	// GRPCQuerier exposes the gRPC search/aggregate pipeline so non-gRPC
+	// transports (the REST /v1/{collection}/query and /aggregate endpoints)
+	// can reuse it. Set when the gRPC server is created.
+	GRPCQuerier GRPCQuerier
+}
+
+// GRPCQuerier runs the gRPC search/aggregate pipeline for a principal that has
+// already been authenticated by the calling transport. The gRPC service
+// (*grpc/v1.Service) satisfies it; the REST query handlers consume it so that
+// REST and gRPC share one parse → traverse → reply implementation.
+type GRPCQuerier interface {
+	SearchWithPrincipal(ctx context.Context, principal *models.Principal, req *pbv1.SearchRequest) (*pbv1.SearchReply, error)
+	AggregateWithPrincipal(ctx context.Context, principal *models.Principal, req *pbv1.AggregateRequest) (*pbv1.AggregateReply, error)
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

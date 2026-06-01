@@ -970,6 +970,10 @@ func FromEnv(config *Config) error {
 
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
+	// The REST query/aggregate endpoints (the GraphQL replacement) are enabled
+	// by default; set DISABLE_REST_QUERY=true to turn them off.
+	config.DisableRESTQuery = entcfg.Enabled(os.Getenv("DISABLE_REST_QUERY"))
+
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
 		config.Persistence.LSMSkipWriteClassNameEnabled = true

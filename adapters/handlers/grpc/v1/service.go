@@ -92,19 +92,29 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 	return result, errInner
 }
 
-func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (reply *pb.AggregateReply, retErr error) {
-	before := time.Now()
-
+func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	return s.AggregateWithPrincipal(ctx, principal, req)
+}
+
+// AggregateWithPrincipal runs an aggregation on behalf of an already-authenticated
+// principal. The gRPC Aggregate entrypoint resolves the principal from request
+// metadata and delegates here; transports that authenticate before reaching the
+// service (e.g. the REST /v1/{collection}/aggregate endpoint) call this directly
+// so they reuse the exact same parse → aggregate → reply pipeline.
+func (s *Service) AggregateWithPrincipal(ctx context.Context, principal *models.Principal, req *pb.AggregateRequest) (reply *pb.AggregateReply, retErr error) {
+	before := time.Now()
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	collection, _, err := namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection)
+	if err != nil {
 		return nil, err
 	}
+	req.Collection = collection
 
 	parser := NewAggregateParser(
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
@@ -281,19 +291,29 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	return result, errInner
 }
 
-func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.SearchReply, retErr error) {
-	before := time.Now()
-
+func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	principal, err := s.authenticator.PrincipalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
+	return s.SearchWithPrincipal(ctx, principal, req)
+}
+
+// SearchWithPrincipal executes a search on behalf of an already-authenticated
+// principal. The gRPC Search entrypoint resolves the principal from request
+// metadata and delegates here; transports that authenticate before reaching the
+// service (e.g. the REST /v1/{collection}/query endpoint) call this directly so
+// they reuse the exact same parse → traverse → reply pipeline.
+func (s *Service) SearchWithPrincipal(ctx context.Context, principal *models.Principal, req *pb.SearchRequest) (reply *pb.SearchReply, retErr error) {
+	before := time.Now()
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	collection, _, err := namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection)
+	if err != nil {
 		return nil, err
 	}
+	req.Collection = collection
 
 	parser := NewParser(
 		req.Uses_127Api,

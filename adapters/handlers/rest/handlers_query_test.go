@@ -1,0 +1,278 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package rest
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/restrictions"
+	"github.com/weaviate/weaviate/usecases/usagelimits"
+)
+
+// fakeQuerier records what it was called with and returns canned results.
+type fakeQuerier struct {
+	calledSearch    bool
+	calledAggregate bool
+	gotSearchReq    *pbv1.SearchRequest
+	gotAggregateReq *pbv1.AggregateRequest
+	gotPrincipal    *models.Principal
+
+	searchReply    *pbv1.SearchReply
+	searchErr      error
+	aggregateReply *pbv1.AggregateReply
+	aggregateErr   error
+}
+
+func (f *fakeQuerier) SearchWithPrincipal(_ context.Context, principal *models.Principal, req *pbv1.SearchRequest) (*pbv1.SearchReply, error) {
+	f.calledSearch = true
+	f.gotSearchReq = req
+	f.gotPrincipal = principal
+	return f.searchReply, f.searchErr
+}
+
+func (f *fakeQuerier) AggregateWithPrincipal(_ context.Context, principal *models.Principal, req *pbv1.AggregateRequest) (*pbv1.AggregateReply, error) {
+	f.calledAggregate = true
+	f.gotAggregateReq = req
+	f.gotPrincipal = principal
+	return f.aggregateReply, f.aggregateErr
+}
+
+func newTestQueryHandler(querier *fakeQuerier) *restQueryHandler {
+	return &restQueryHandler{
+		querier: querier,
+		// Composer that rejects everything; tests that exercise the happy path
+		// use anonymous access so the composer is never consulted.
+		authComposer: func(token string, _ []string) (*models.Principal, error) {
+			return nil, fmt.Errorf("auth not configured for token %q", token)
+		},
+		allowAnonymousAccess: true,
+		disabled:             false,
+		maxBodyBytes:         1 << 20,
+		logger:               logrus.New(),
+	}
+}
+
+func TestMatchRESTQueryPath(t *testing.T) {
+	tests := []struct {
+		path     string
+		wantCol  string
+		wantKind restQueryKind
+		wantOK   bool
+	}{
+		{"/v1/Article/query", "Article", restQueryKindSearch, true},
+		{"/v1/Article/aggregate", "Article", restQueryKindAggregate, true},
+		{"/v1/My%20Class/query", "My Class", restQueryKindSearch, true},
+		{"/v1/Article/query/extra", "", 0, false},
+		{"/v1/Article", "", 0, false},
+		{"/v1/Article/get", "", 0, false},
+		{"/v1//query", "", 0, false},
+		{"/v1/graphql", "", 0, false},
+		{"/v1/objects/validate", "", 0, false},
+		{"/v2/Article/query", "", 0, false},
+		{"/Article/query", "", 0, false},
+		{"", "", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			col, kind, ok := matchRESTQueryPath(tt.path)
+			assert.Equal(t, tt.wantOK, ok)
+			if tt.wantOK {
+				assert.Equal(t, tt.wantCol, col)
+				assert.Equal(t, tt.wantKind, kind)
+			}
+		})
+	}
+}
+
+func TestHTTPStatusForQueryError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"unauthenticated", authzerrors.NewUnauthenticated(), http.StatusUnauthorized},
+		{"forbidden", authzerrors.NewForbidden(&models.Principal{Username: "u"}, "read", "X"), http.StatusForbidden},
+		{"wrapped forbidden", fmt.Errorf("outer: %w", authzerrors.NewForbidden(&models.Principal{Username: "u"}, "read", "X")), http.StatusForbidden},
+		{"limit exceeded", usagelimits.NewLimitExceededError("", usagelimits.LimitObjects, 10), http.StatusTooManyRequests},
+		{"restriction violation", restrictions.NewViolationError("", restrictions.RestrictionCompression, "pq", []string{"none"}), http.StatusUnprocessableEntity},
+		{"generic", fmt.Errorf("could not find class Foo"), http.StatusUnprocessableEntity},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, httpStatusForQueryError(tt.err))
+		})
+	}
+}
+
+func doQueryRequest(t *testing.T, h *restQueryHandler, method, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusTeapot) // sentinel for "fell through"
+	})
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.middleware(next).ServeHTTP(rec, req)
+	if rec.Code == http.StatusTeapot && nextCalled {
+		t.Logf("request fell through to next handler")
+	}
+	return rec
+}
+
+func TestRESTQuery_SearchHappyPath_CollectionFromPathOverridesBody(t *testing.T) {
+	q := &fakeQuerier{searchReply: &pbv1.SearchReply{Took: 0.5}}
+	h := newTestQueryHandler(q)
+
+	// Body sets a different collection and a limit; path must win for collection.
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/RightName/query", `{"collection":"WrongName","limit":7}`)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	require.True(t, q.calledSearch)
+	assert.Equal(t, "RightName", q.gotSearchReq.Collection, "path collection must override body")
+	assert.Equal(t, uint32(7), q.gotSearchReq.Limit, "body fields must be parsed")
+	assert.Contains(t, rec.Body.String(), "took")
+}
+
+func TestRESTQuery_EmptyBodyIsEmptyRequest(t *testing.T) {
+	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+	h := newTestQueryHandler(q)
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", "")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, q.calledSearch)
+	assert.Equal(t, "Article", q.gotSearchReq.Collection)
+	assert.Equal(t, uint32(0), q.gotSearchReq.Limit)
+}
+
+func TestRESTQuery_AggregateHappyPath(t *testing.T) {
+	q := &fakeQuerier{aggregateReply: &pbv1.AggregateReply{Took: 0.1}}
+	h := newTestQueryHandler(q)
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/aggregate", `{}`)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, q.calledAggregate)
+	assert.Equal(t, "Article", q.gotAggregateReq.Collection)
+}
+
+func TestRESTQuery_MalformedBody(t *testing.T) {
+	q := &fakeQuerier{}
+	h := newTestQueryHandler(q)
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{not valid json`)
+
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.False(t, q.calledSearch, "querier must not be called on parse failure")
+}
+
+func TestRESTQuery_Disabled(t *testing.T) {
+	q := &fakeQuerier{}
+	h := newTestQueryHandler(q)
+	h.disabled = true
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{}`)
+
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.Contains(t, rec.Body.String(), "rest query api is disabled")
+	assert.False(t, q.calledSearch)
+}
+
+func TestRESTQuery_ErrorMappingFromPipeline(t *testing.T) {
+	q := &fakeQuerier{searchErr: authzerrors.NewForbidden(&models.Principal{Username: "u"}, "read", "Article")}
+	h := newTestQueryHandler(q)
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{}`)
+
+	require.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestRESTQuery_AnonymousAllowed_PassesNilPrincipal(t *testing.T) {
+	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+	h := newTestQueryHandler(q)
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{}`)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, q.calledSearch)
+	assert.Nil(t, q.gotPrincipal)
+}
+
+func TestRESTQuery_AnonymousDisabled_RejectsMissingToken(t *testing.T) {
+	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+	h := newTestQueryHandler(q)
+	h.allowAnonymousAccess = false // composer will reject the empty token
+
+	rec := doQueryRequest(t, h, http.MethodPost, "/v1/Article/query", `{}`)
+
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.False(t, q.calledSearch)
+}
+
+func TestRESTQuery_BearerTokenIsValidated(t *testing.T) {
+	q := &fakeQuerier{searchReply: &pbv1.SearchReply{}}
+	h := newTestQueryHandler(q)
+	h.allowAnonymousAccess = false
+	gotToken := ""
+	h.authComposer = func(token string, _ []string) (*models.Principal, error) {
+		gotToken = token
+		return &models.Principal{Username: "alice"}, nil
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Fatal("should not fall through") })
+	req := httptest.NewRequest(http.MethodPost, "/v1/Article/query", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer s3cret")
+	rec := httptest.NewRecorder()
+	h.middleware(next).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "s3cret", gotToken)
+	require.NotNil(t, q.gotPrincipal)
+	assert.Equal(t, "alice", q.gotPrincipal.Username)
+}
+
+func TestRESTQuery_NonMatchingRequestsFallThrough(t *testing.T) {
+	q := &fakeQuerier{}
+	h := newTestQueryHandler(q)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v1/Article/query"},   // right path, wrong method
+		{http.MethodPost, "/v1/objects"},        // unrelated route
+		{http.MethodPost, "/v1/Article/get"},    // wrong verb
+		{http.MethodPost, "/v1/schema/Article"}, // unrelated route
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			rec := doQueryRequest(t, h, tc.method, tc.path, `{}`)
+			assert.Equal(t, http.StatusTeapot, rec.Code, "should fall through to next")
+			assert.False(t, q.calledSearch)
+			assert.False(t, q.calledAggregate)
+		})
+	}
+}
