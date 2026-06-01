@@ -13,14 +13,21 @@ package rest
 
 import (
 	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
-
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	schemaops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
@@ -31,7 +38,7 @@ import (
 func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.Manager, logger logrus.FieldLogger) {
 	api.TokenizeTokenizeHandler = tokenizeops.TokenizeHandlerFunc(
 		func(params tokenizeops.TokenizeParams, principal *models.Principal) middleware.Responder {
-			return genericTokenize(params, logger)
+			return genericTokenize(params)
 		})
 
 	api.SchemaSchemaObjectsPropertiesTokenizeHandler = schemaops.SchemaObjectsPropertiesTokenizeHandlerFunc(
@@ -40,40 +47,122 @@ func setupTokenizeHandlers(api *operations.WeaviateAPI, schemaManager *schemaUC.
 		})
 }
 
-func genericTokenize(params tokenizeops.TokenizeParams, logger logrus.FieldLogger) middleware.Responder {
-	result, err := schemaUC.GenericTokenize(
-		*params.Body.Text,
-		*params.Body.Tokenization,
-		params.Body.AnalyzerConfig,
-		params.Body.Stopwords,
-		params.Body.StopwordPresets,
-	)
-	if err != nil {
-		// Mirror the propertyTokenize Kind switch so a future TokenizeErrInternal
-		// path inside schemaUC.GenericTokenize cannot be silently misclassified
-		// as 422. Today every error path is TokenizeErrInvalid; the default arm
-		// is defensive for that future case (and for the structurally-impossible
-		// TokenizeErrNotFound — no class lookup happens here, hence no
-		// NewTokenizeNotFound responder is generated for this operation).
-		var te *schemaUC.TokenizeError
-		if errors.As(err, &te) {
-			switch te.Kind {
-			case schemaUC.TokenizeErrInvalid:
-				return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-					Error: []*models.ErrorResponseErrorItems0{{Message: te.Msg}},
-				})
-			default:
-				logger.WithField("action", "generic_tokenize").Errorf("tokenize: %v", err)
-				return tokenizeops.NewTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
-					Error: []*models.ErrorResponseErrorItems0{{Message: te.Msg}},
-				})
-			}
-		}
-		logger.WithField("action", "generic_tokenize").Errorf("tokenize: %v", err)
-		return tokenizeops.NewTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
+func genericTokenize(params tokenizeops.TokenizeParams) middleware.Responder {
+	if !slices.Contains(tokenizer.Tokenizations, *params.Body.Tokenization) {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: "unsupported tokenization strategy: " + *params.Body.Tokenization}},
+		})
+	}
+
+	// allow a max length of 10k characters to prevent abuse of this endpoint; the tokenizer can handle more, but it may cause performance issues
+	if len(*params.Body.Text) > 10000 {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: "text exceeds maximum allowed length of 10,000 characters"}},
+		})
+	}
+
+	if err := validateAnalyzerConfig(params.Body.AnalyzerConfig); err != nil {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
 			Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}},
 		})
 	}
+
+	// `stopwords` and `stopwordPresets` are mutually exclusive on this
+	// endpoint. `stopwords` is for the simple "apply one base preset
+	// optionally tweaked with additions/removals" case. `stopwordPresets`
+	// is for the "define named presets and select one via analyzerConfig"
+	// case. Allowing both on the same request creates subtle resolution
+	// corner cases (e.g. stopwords.preset="en" vs stopwordPresets.en=[...]);
+	// forcing callers to pick one keeps the mental model simple.
+	if params.Body.Stopwords != nil && len(params.Body.StopwordPresets) > 0 {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: "stopwords and stopwordPresets are mutually exclusive; pass only one"}},
+		})
+	}
+
+	// Validate stopwords/stopwordPresets with the same rules collection
+	// creation applies, so the shape accepted here genuinely "matches the
+	// shape accepted on a collection" (per the OpenAPI description). This
+	// also defaults Stopwords.Preset to "en" when the caller sent an empty
+	// preset. We run validation through inverted.ValidateConfig by wrapping
+	// the two request fields in a synthetic InvertedIndexConfig; other
+	// fields stay zero-valued and pass trivially.
+	synthConfig := &models.InvertedIndexConfig{
+		Stopwords:       params.Body.Stopwords,
+		StopwordPresets: params.Body.StopwordPresets,
+	}
+	if err := inverted.ValidateConfig(synthConfig); err != nil {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}},
+		})
+	}
+
+	// Build the stopword Provider, mirroring the collection-level configuration
+	// the property-level endpoint inherits.
+	presetDetectors, err := stopwords.BuildPresetDetectors(params.Body.StopwordPresets)
+	if err != nil {
+		return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: err.Error()}},
+		})
+	}
+
+	// Collection-level fallback: stopwords is applied when
+	// analyzerConfig.stopwordPreset is not set, matching the property endpoint
+	// (which falls back to class.InvertedIndexConfig.Stopwords).
+	var fallback stopwords.StopwordDetector
+	if params.Body.Stopwords != nil {
+		d, derr := stopwords.NewDetectorFromConfig(*params.Body.Stopwords)
+		if derr != nil {
+			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("invalid stopwords: %s", derr.Error())}},
+			})
+		}
+		fallback = d
+	}
+
+	provider := stopwords.NewProvider(fallback, presetDetectors)
+
+	// Resolve the detector using the same Provider semantics the property
+	// endpoint uses: analyzerConfig.stopwordPreset plays the role of a
+	// property-level preset override.
+	var detector tokenizer.StopwordDetector
+
+	callerPreset := ""
+	if params.Body.AnalyzerConfig != nil {
+		callerPreset = params.Body.AnalyzerConfig.StopwordPreset
+	}
+
+	switch {
+	case callerPreset != "":
+		d, perr := provider.Get(&models.Property{TextAnalyzer: params.Body.AnalyzerConfig})
+		if perr != nil {
+			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; define it in stopwordPresets or use a built-in preset ('en', 'none')", callerPreset)}},
+			})
+		}
+		detector = d
+	case fallback != nil:
+		detector = fallback
+	case *params.Body.Tokenization == "word":
+		// Default to "en" for word tokenization so the endpoint matches the
+		// property-level endpoint's behavior when the collection's default
+		// inverted index config is in effect. Route through the Provider so
+		// a user override for "en" in stopwordPresets is respected even when
+		// the caller did not explicitly set analyzerConfig.stopwordPreset.
+		d, perr := provider.Get(&models.Property{
+			TextAnalyzer: &models.TextAnalyzerConfig{StopwordPreset: stopwords.EnglishPreset},
+		})
+		if perr != nil {
+			return tokenizeops.NewTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: perr.Error()}},
+			})
+		}
+		detector = d
+	}
+
+	prepared := tokenizer.NewPreparedAnalyzer(params.Body.AnalyzerConfig)
+	result := tokenizer.Analyze(*params.Body.Text, *params.Body.Tokenization, "", prepared, detector)
+
 	return tokenizeops.NewTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Indexed: result.Indexed,
 		Query:   result.Query,
@@ -91,6 +180,7 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		className = resolved
 	}
 
+	// Authorize: reading collection metadata (same as other schema read operations)
 	err := schemaManager.Authorizer.Authorize(
 		params.HTTPRequest.Context(), principal, authorization.READ,
 		authorization.CollectionsMetadata(className)...,
@@ -109,32 +199,78 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 		return schemaops.NewSchemaObjectsPropertiesTokenizeNotFound()
 	}
 
-	result, terr := schemaUC.PropertyTokenize(class, params.PropertyName, *params.Body.Text)
-	if terr != nil {
-		var te *schemaUC.TokenizeError
-		if errors.As(terr, &te) {
-			switch te.Kind {
-			case schemaUC.TokenizeErrNotFound:
-				return schemaops.NewSchemaObjectsPropertiesTokenizeNotFound()
-			case schemaUC.TokenizeErrInvalid:
-				return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
-					Error: []*models.ErrorResponseErrorItems0{{Message: te.Msg}},
-				})
-			default:
-				logger.WithField("action", "property_tokenize").Error(terr)
-				return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
-					Error: []*models.ErrorResponseErrorItems0{{Message: te.Msg}},
-				})
-			}
+	var prop *models.Property
+	for _, p := range class.Properties {
+		if strings.EqualFold(p.Name, params.PropertyName) {
+			prop = p
+			break
 		}
-		logger.WithField("action", "property_tokenize").Error(terr)
-		return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
-			Error: []*models.ErrorResponseErrorItems0{{Message: terr.Error()}},
+	}
+	if prop == nil {
+		return schemaops.NewSchemaObjectsPropertiesTokenizeNotFound()
+	}
+
+	if prop.Tokenization == "" {
+		return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: "tokenization is not enabled for this property"}},
 		})
 	}
+
+	// Build a Provider from the collection-level stopword config and resolve
+	// the property-level detector through it. This collapses the
+	// per-property/preset/built-in/fallback resolution into a single Get call,
+	// matching the production query path in adapters/repos/db/inverted.
+	var fallback stopwords.StopwordDetector
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
+		d, err := stopwords.NewDetectorFromConfig(*class.InvertedIndexConfig.Stopwords)
+		if err != nil {
+			logger.WithField("action", "create_stopword_detector").Error(err)
+			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
+			})
+		}
+		fallback = d
+	}
+	var presetDetectors map[string]*stopwords.Detector
+	if class.InvertedIndexConfig != nil {
+		d, err := stopwords.BuildPresetDetectors(class.InvertedIndexConfig.StopwordPresets)
+		if err != nil {
+			logger.WithField("action", "create_stopword_detector").Error(err)
+			return schemaops.NewSchemaObjectsPropertiesTokenizeInternalServerError().WithPayload(&models.ErrorResponse{
+				Error: []*models.ErrorResponseErrorItems0{{Message: "failed to create stopword detector: " + err.Error()}},
+			})
+		}
+		presetDetectors = d
+	}
+	provider := stopwords.NewProvider(fallback, presetDetectors)
+	detector, err := provider.Get(prop)
+	if err != nil {
+		// Property names a preset that is neither built-in nor user-defined.
+		return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{{Message: fmt.Sprintf("unknown stopword preset %q; must be a built-in preset ('en', 'none') or defined in invertedIndexConfig.stopwordPresets", prop.TextAnalyzer.StopwordPreset)}},
+		})
+	}
+
+	prepared := tokenizer.NewPreparedAnalyzer(prop.TextAnalyzer)
+	result := tokenizer.Analyze(*params.Body.Text, prop.Tokenization, className, prepared, detector)
 
 	return schemaops.NewSchemaObjectsPropertiesTokenizeOK().WithPayload(&models.TokenizeResponse{
 		Indexed: result.Indexed,
 		Query:   result.Query,
 	})
+}
+
+func validateAnalyzerConfig(cfg *models.TextAnalyzerConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	if !cfg.ASCIIFold && len(cfg.ASCIIFoldIgnore) > 0 {
+		return fmt.Errorf("asciiFoldIgnore requires asciiFold to be enabled")
+	}
+	for _, entry := range cfg.ASCIIFoldIgnore {
+		if utf8.RuneCountInString(norm.NFC.String(entry)) != 1 {
+			return fmt.Errorf("each asciiFoldIgnore entry must be a single character, got %q", entry)
+		}
+	}
+	return nil
 }
