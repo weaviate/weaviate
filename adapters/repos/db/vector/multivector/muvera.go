@@ -133,6 +133,9 @@ func (e *MuveraEncoder) encode(fullVec [][]float32, isDoc bool) []float32 {
 		// doc ONLY operations
 		if isDoc {
 			for cluster, count := range repetitionClusterCounts {
+				if count == 0 {
+					continue
+				}
 				startIdx := uint64(cluster) * uint64(e.config.Dimensions)
 				for i := 0; i < e.config.Dimensions; i++ {
 					tmpVec[startIdx+uint64(i)] = (1 / float32(count)) * tmpVec[startIdx+uint64(i)]
