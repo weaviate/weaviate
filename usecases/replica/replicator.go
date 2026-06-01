@@ -303,12 +303,46 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	return nil
 }
 
+// errConditionalInBatch is the sentinel returned for each object in a server-side
+// batch that carries a non-empty Conditional. Conditional writes must be submitted
+// individually via the single-object PUT path, where the coordinator can run the
+// required precondition check (digest read + CAS / existence / field-predicate)
+// against the replica set before broadcasting. The batch path fans out all objects
+// in a single RPC and has no per-object precondition phase.
+var errConditionalInBatch = fmt.Errorf("conditional writes are not supported in batch; submit individually")
+
 func (r *Replicator) PutObjects(ctx context.Context,
 	shard string,
 	objs []*storobj.Object,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
+	// Admission guard: a batch object carrying any conditional form (existence-CAS,
+	// version-CAS, or field-predicate) cannot be processed here. The batch fan-out
+	// has no per-object precondition phase, so silently dropping the condition would
+	// be a data-integrity footgun. Return a clear per-object error for every
+	// conditional object; collect non-conditional objects for the normal AP path.
+	outErrs := make([]error, len(objs))
+	unconditional := make([]*storobj.Object, 0, len(objs))
+	unconditionalIdx := make([]int, 0, len(objs)) // original position in objs
+
+	for i, obj := range objs {
+		if obj != nil && !obj.Conditional.IsZero() {
+			r.log.WithField("op", "put.many.admission").WithField("class", r.class).
+				WithField("shard", shard).WithField("uuid", obj.ID()).
+				Debugf("rejecting conditional object in batch (conditional writes not supported in batch; submit individually)")
+			outErrs[i] = errConditionalInBatch
+			continue
+		}
+		unconditional = append(unconditional, obj)
+		unconditionalIdx = append(unconditionalIdx, i)
+	}
+
+	// Fast return: all objects were conditional; nothing to fan out.
+	if len(unconditional) == 0 {
+		return outErrs
+	}
+
 	// Mint a single-coordinator-local version for each object before fanning out
 	// to replicas. This mirrors the single-PUT mint discipline (coordinator mints
 	// from local prev, replicas preserve the incoming version with mintVersion=false)
@@ -323,7 +357,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	// When the gate is closed (v1, default) obj.Version stays 0 and obj.MarshallerVersion
 	// stays v1; the bump is a no-op on disk.
 	if storobj.GetWriteMarshallerVersion() == 2 {
-		for _, obj := range objs {
+		for _, obj := range unconditional {
 			if obj == nil || obj.ID() == "" {
 				continue
 			}
@@ -344,7 +378,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
+		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, unconditional, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -353,22 +387,25 @@ func (r *Replicator) PutObjects(ctx context.Context,
 		}
 		return nil
 	}
-	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, len(objs))
+	rs, err := coord.Push(ctx, l, op, r.simpleCommit(shard), r.readSimpleResponse, r.flattenErrors, len(unconditional))
 	if err != nil {
 		r.log.WithField("op", "push.many").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, replicaerrors.NewNotEnoughReplicasError(err))
-		errs := make([]error, len(objs))
-		for i := 0; i < len(objs); i++ {
-			errs[i] = err
+		fanErr := fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, replicaerrors.NewNotEnoughReplicasError(err))
+		for _, origIdx := range unconditionalIdx {
+			outErrs[origIdx] = fanErr
 		}
-		return errs
+		return outErrs
 	}
 	if err := firstError(rs); err != nil {
 		r.log.WithField("op", "put.many").WithField("class", r.class).
 			WithField("shard", shard).Error(rs)
 	}
-	return rs
+	// Merge AP-path results back into the full-width error slice by original index.
+	for i, origIdx := range unconditionalIdx {
+		outErrs[origIdx] = rs[i]
+	}
+	return outErrs
 }
 
 func (r *Replicator) DeleteObjects(ctx context.Context,
