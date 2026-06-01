@@ -32,7 +32,7 @@ require (
 	github.com/fatih/camelcase v1.0.0
 	github.com/felixge/httpsnoop v1.0.4
 	github.com/fortytw2/leaktest v1.3.0
-	github.com/getsentry/sentry-go v0.30.0
+	github.com/getsentry/sentry-go v0.46.2
 	github.com/go-ego/gse v0.80.3
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/go-openapi/errors v0.22.4
