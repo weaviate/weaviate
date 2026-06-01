@@ -14,7 +14,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.4
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.99.0
 	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.6
-	github.com/bits-and-blooms/bloom/v3 v3.7.0
+	github.com/bits-and-blooms/bloom/v3 v3.7.1
 	github.com/bmatcuk/doublestar v1.3.4
 	github.com/brianvoe/gofakeit/v6 v6.28.0
 	github.com/buger/jsonparser v1.2.0
@@ -145,7 +145,7 @@ require (
 	github.com/aws/smithy-go v1.24.2 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.10.0 // indirect
+	github.com/bits-and-blooms/bitset v1.24.2 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/casbin/govaluate v1.3.0 // indirect
